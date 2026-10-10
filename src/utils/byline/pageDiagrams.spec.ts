@@ -42,6 +42,29 @@ describe('parsePageDiagrams', () => {
     ])
   })
 
+  // `async-api-doc` holds only API specs, so a body without `diagramType` is
+  // typed from its text there — and nowhere else, where one content type
+  // holds every kind of diagram.
+  it('types an untyped AsyncAPI-app body from its spec text', () => {
+    const responses = [
+      ok(
+        child('1', 'Events', { code: 'asyncapi: 3.0.0\ninfo:\n  title: x' }),
+        child('2', 'REST', { code: '{"openapi": "3.0.0"}' }),
+        child('3', 'Old', { code: 'swagger: "2.0"' }),
+        child('4', 'Odd', { code: 'title: nothing to go on' }),
+      ),
+    ]
+    expect(parsePageDiagrams(responses, 'asyncapi').map(d => d.diagramType)).toEqual([
+      DiagramType.AsyncApi,
+      DiagramType.OpenApi,
+      DiagramType.OpenApi,
+      DiagramType.Unknown,
+    ])
+    expect(parsePageDiagrams(responses, 'lite').map(d => d.diagramType)).toEqual(
+      Array(4).fill(DiagramType.Unknown),
+    )
+  })
+
   it('keeps a diagram whose stored body is malformed instead of dropping it', () => {
     // The diagram is visibly on the page; omitting it from the list would read
     // as data loss to the user.

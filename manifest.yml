@@ -337,17 +337,18 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
-      # Paste-to-create / paste-to-place, for the Lite byline picker's AsyncAPI
+      # Paste-to-create / paste-to-place, for the byline picker's AsyncAPI
       # tile — same contract as the openapi and graph macros above. `/new/...`
       # opens a blank AsyncAPI editor; `/d/asyncapi/<cloudId>/<contentId>`
       # places an already-saved document (resolved by
       # resolveEffectiveCustomContentId, which both AsyncAPI entries now use).
       #
-      # ONLY Lite mints these links — it is the only variant with a byline. The
-      # asyncapi variant strips them (scripts/forge-wizard.mjs) for the same
-      # reason full/diagramly strip the other types': identical patterns in two
-      # installed apps race for one pasted URL, and losing that race yields a
-      # macro pointing at app-scoped content it cannot read.
+      # These are Lite's links. Full and the AsyncAPI app ship the byline too,
+      # and scripts/forge-wizard.mjs moves their typed matchers to their own
+      # hosts (conf-full.zenuml.com, zenapi.zenuml.com): identical patterns in
+      # two installed apps race for one pasted URL, and losing that race yields
+      # a macro pointing at app-scoped content it cannot read. Diagramly ships
+      # no byline and strips them.
       autoConvert:
         matchers:
           - pattern: https://confluence.zenuml.com/new/asyncapi
@@ -502,8 +503,10 @@ modules:
     # unplacedProperty.ts) and deleted by it — or by this banner — once the
     # diagrams are placed. Key templated like every other per-variant key:
     # content properties are site-global across apps, so an unsuffixed key
-    # would let Full's banner boot on a property Lite wrote. Keep it in
-    # lockstep with UNPLACED_PROPERTY_KEY.
+    # would let Full's banner boot on a property Lite wrote. The AsyncAPI app's
+    # suffix is empty, so scripts/forge-wizard.mjs rewrites its key to
+    # `zenuml-unplaced-diagrams-asyncapi`. Keep every variant in lockstep with
+    # unplacedPropertyKeyFor (src/utils/byline/unplacedProperty.ts).
     - key: zenuml-unplaced-banner
       resource: main
       resolver:
@@ -556,13 +559,19 @@ modules:
       route: zenuml-asyncapi-dashboard
       resolver:
         endpoint: remote-connect
-  # Two byline entries, one per audience; scripts/forge-wizard.mjs strips the
-  # one that doesn't apply, so no variant ever ships both. Confluence boots a
-  # byline iframe ONLY on click (measured 2026-08-01: 5 opens against 39,197
-  # macro views on the variants shipping `zenuml-byline-aiaide`), so an unused
-  # entry here costs nothing at page-load time.
+  # Three byline entries; scripts/forge-wizard.mjs (mirrored in release.yml and
+  # staging-deploy.yml) keeps a different subset per variant:
+  #
+  #   lite      → diagrams + newuser
+  #   full      → diagrams + newuser
+  #   diagramly → aiaide + newuser
+  #   asyncapi  → diagrams
+  #
+  # Confluence boots a byline iframe ONLY on click (measured 2026-08-01: 5 opens
+  # against 39,197 macro views on the variants shipping `zenuml-byline-aiaide`),
+  # so an unused entry here costs nothing at page-load time.
   confluence:contentBylineItem:
-    # Diagramly + Full. Opens the AI Aide chat (src/routes/aiAide.ts).
+    # Diagramly only. Opens the AI Aide chat (src/routes/aiAide.ts).
     - key: zenuml-byline-aiaide
       resource: main
       title: Aide${LITE_TITLE_SUFFIX}
@@ -572,22 +581,19 @@ modules:
       viewportContainer: modal
       resolver:
         endpoint: remote-connect
-    # Lite only. Diagram index + create entry point (src/routes/byline.ts).
+    # Lite, Full and AsyncAPI. Diagram index + create entry point
+    # (src/routes/byline.ts).
     #
     # The label is deliberately a noun, not a call to action: this item renders
     # on EVERY page, and a page with three diagrams already on it makes "Diagram
     # this page" read wrong.
     #
-    # It DOES carry ${LITE_TITLE_SUFFIX}, which earlier revisions of this entry
-    # deliberately omitted on the grounds that the entry "ships in exactly one
-    # variant, so there is no sibling app to disambiguate from". That premise
-    # expires the moment Full ships a byline of its own: a site with both apps
-    # installed would show two identically-labelled "Diagrams" items under the
-    # page title, with nothing to say which app owns which. 7 production sites
-    # currently have both Lite and Full (D1 ForgeInstallation joined on
-    # clientDomain, checked 2026-08-14), so the collision is real rather than
-    # hypothetical. Lite renders "Diagrams Lite"; every variant that sets the
-    # suffix empty renders plain "Diagrams".
+    # It carries ${LITE_TITLE_SUFFIX} because Full now ships this entry too: a
+    # site with both apps installed would otherwise show two
+    # identically-labelled "Diagrams" items under the page title, with nothing
+    # to say which app owns which. 7 production sites had both Lite and Full
+    # (D1 ForgeInstallation joined on clientDomain, checked 2026-08-14). Lite
+    # renders "Diagrams Lite"; Full and AsyncAPI render plain "Diagrams".
     #
     # A count in the label ("3 diagrams") would be the strongest signal but
     # needs `dynamicProperties`, which costs a function invocation on every page
@@ -617,11 +623,10 @@ modules:
       # of every space. Re-adding an opt-IN leg hides the byline everywhere
       # until a sweep has written every space.
       #
-      # This condition is LITE-ONLY SEMANTICS: a Full deployment of this module
-      # would subtract Full's own presence marker and hide itself on every
-      # space. Full strips this whole module today; whichever change un-strips
-      # it MUST replace this condition in the same per-variant edit (see the
-      # byline strip in scripts/forge-wizard.mjs).
+      # This condition is LITE-ONLY SEMANTICS: kept in Full it would subtract
+      # Full's own presence marker and hide the byline on every space. Full and
+      # AsyncAPI therefore delete it (scripts/forge-wizard.mjs, mirrored in
+      # release.yml and staging-deploy.yml) and show the byline everywhere.
       displayConditions:
         not:
           entityPropertyExists:

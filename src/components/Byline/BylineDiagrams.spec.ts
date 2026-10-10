@@ -92,6 +92,11 @@ async function closeEditor() {
 describe('BylineDiagrams', () => {
   enableAutoUnmount(afterEach);
 
+  // These specs assert Lite's shape (every picker tile, confluence.zenuml.com
+  // links); the unit-test build defaults PRODUCT_TYPE to 'full'.
+  beforeEach(() => vi.stubEnv('PRODUCT_TYPE', 'lite'));
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();

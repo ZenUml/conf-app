@@ -115,16 +115,18 @@ describe("unplaced-diagram banner — the property key both sides depend on", ()
     );
   });
 
-  it("is stripped from every variant that cannot write the property", () => {
-    // Only Lite ships zenuml-byline-diagrams, the sole writer. Elsewhere the
-    // module could never fire, so it should not be deployed at all.
-    for (const variant of ["full", "diagramly", "asyncapi"]) {
+  it("is stripped only from Diagramly, the one variant that cannot write the property", () => {
+    // zenuml-byline-diagrams is the sole writer. Lite, Full and AsyncAPI ship
+    // it; Diagramly strips it, so there the module could never fire.
+    for (const variant of ["full", "asyncapi"]) {
       const exprs = getManifestEditYqArgs(variant).map((e) => e.expr);
       expect(
-        exprs.some((e) => e.includes('select(.key == "zenuml-unplaced-banner")')),
-        `${variant} should strip zenuml-unplaced-banner`,
-      ).toBe(true);
+        exprs.some((e) => e.includes('del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))')),
+        `${variant} should keep zenuml-unplaced-banner`,
+      ).toBe(false);
     }
+    const diagramly = getManifestEditYqArgs("diagramly").map((e) => e.expr);
+    expect(diagramly.some((e) => e.includes('select(.key == "zenuml-unplaced-banner")'))).toBe(true);
   });
 
   it("keeps the module on Lite", () => {
@@ -132,17 +134,19 @@ describe("unplaced-diagram banner — the property key both sides depend on", ()
     expect(exprs.some((e) => e.includes("zenuml-unplaced-banner"))).toBe(false);
   });
 
-  for (const [file, gate] of [
-    [".github/workflows/staging-deploy.yml", "needs.resolve.outputs.variant != 'lite'"],
-    [".github/workflows/release.yml", "${{ steps.properties.outputs.license != 'lite' }}"],
+  for (const [file, diagramlyGate, asyncapiGate] of [
+    [".github/workflows/staging-deploy.yml", "needs.resolve.outputs.variant == 'diagramly'", "needs.resolve.outputs.variant == 'asyncapi'"],
+    [".github/workflows/release.yml", "${{ steps.properties.outputs.license == 'diagramly' }}", "${{ steps.properties.outputs.license == 'asyncapi' }}"],
   ] as const) {
-    it(`${file} strips it for non-Lite variants too`, () => {
+    it(`${file} strips it for Diagramly and re-keys it for AsyncAPI, like the wizard`, () => {
       const workflow: any = yaml.load(readFileSync(`./${file}`, "utf-8"));
-      const step = Object.values<any>(workflow.jobs)
-        .flatMap((job: any) => job.steps ?? [])
-        .find((s: any) => s.name === "Remove the unplaced-diagram page banner (non-Lite variants)");
-      expect(step?.if).toBe(gate);
-      expect(step?.with?.cmd).toContain('select(.key == "zenuml-unplaced-banner")');
+      const steps = Object.values<any>(workflow.jobs).flatMap((job: any) => job.steps ?? []);
+      const strip = steps.find((s: any) => s.name === "Remove the unplaced-diagram page banner (Diagramly)");
+      expect(strip?.if).toBe(diagramlyGate);
+      expect(strip?.with?.cmd).toContain('select(.key == "zenuml-unplaced-banner")');
+      const rekey = steps.find((s: any) => s.name === "Gate the unplaced-diagram page banner on the AsyncAPI property key");
+      expect(rekey?.if).toBe(asyncapiGate);
+      expect(rekey?.with?.cmd).toContain('"zenuml-unplaced-diagrams-asyncapi"');
     });
   }
 });

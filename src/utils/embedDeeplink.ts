@@ -118,24 +118,46 @@ export interface TypedDiagramDeeplink extends EmbedDeeplink {
 // in manifest.yml, or the pasted link converts to nothing.
 export const DEEPLINK_TYPES: readonly string[] = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi', 'asyncapi'];
 
-// Parsing accepts every host the embed form accepts, so a typed link keeps
-// resolving after the #382 host migration completes. MINTING stays on
-// confluence.zenuml.com because that is the host the typed autoConvert matchers
-// in manifest.yml are written against — mint a host the matchers don't list and
-// the paste silently fails to convert. Moving both together is follow-up work.
-const TYPED_DEEPLINK_HOST = 'confluence.zenuml.com';
+// Which host a variant MINTS typed links on. It must be the host that
+// variant's typed autoConvert matchers are written against — mint a host the
+// matchers don't list and the paste silently fails to convert — and it must
+// differ between every pair of variants that ship the byline, because
+// identical matchers in two installed apps race for one pasted URL and the
+// loser's macro points at app-scoped custom content it cannot read.
+//
+//   lite      → confluence.zenuml.com (the source manifest's matchers)
+//   full      → conf-full.zenuml.com  (rewritten by scripts/forge-wizard.mjs)
+//   asyncapi  → zenapi.zenuml.com     (rewritten by scripts/forge-wizard.mjs)
+//
+// Diagramly ships no byline and mints nothing; it gets Lite's host only so the
+// function stays total. Matching is editor-local, so none of these URLs has to
+// resolve.
+export function typedDeeplinkHostForProductType(productType: string | undefined): string {
+  switch (productType) {
+    case 'full':
+      return 'conf-full.zenuml.com';
+    case 'asyncapi':
+      return 'zenapi.zenuml.com';
+    default:
+      return 'confluence.zenuml.com';
+  }
+}
 
+// Parsing accepts every host any variant mints on, plus conf-lite (the embed
+// form's host), so a typed link resolves whichever app's macro claimed it.
 const TYPED_DEEPLINK_RE =
-  /^https:\/\/(?:confluence|conf-lite|conf-full)\.zenuml\.com\/d\/([a-z]+)\/([0-9a-fA-F-]{32,36})\/(\d+)\/?(?:[?#].*)?$/;
+  /^https:\/\/(?:confluence|conf-lite|conf-full|zenapi)\.zenuml\.com\/d\/([a-z]+)\/([0-9a-fA-F-]{32,36})\/(\d+)\/?(?:[?#].*)?$/;
 
 export function buildDiagramDeeplink(
   type: string,
   cloudId: string,
   contentId: string,
+  productType: string | undefined = import.meta.env.PRODUCT_TYPE,
 ): string | undefined {
   const segment = String(type || '').toLowerCase();
   if (!DEEPLINK_TYPES.includes(segment) || !cloudId || !contentId) return undefined;
-  return `https://${TYPED_DEEPLINK_HOST}/d/${segment}/${encodeURIComponent(cloudId)}/${encodeURIComponent(contentId)}`;
+  const host = typedDeeplinkHostForProductType(productType);
+  return `https://${host}/d/${segment}/${encodeURIComponent(cloudId)}/${encodeURIComponent(contentId)}`;
 }
 
 export function parseDiagramDeeplink(link: unknown): TypedDiagramDeeplink | undefined {

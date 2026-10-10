@@ -96,6 +96,11 @@ const propertyHolding = (entries: unknown[]) => ({
 describe('UnplacedDiagramsBanner', () => {
   enableAutoUnmount(afterEach);
 
+  // These specs assert Lite's shape (every picker tile, confluence.zenuml.com
+  // links); the unit-test build defaults PRODUCT_TYPE to 'full'.
+  beforeEach(() => vi.stubEnv('PRODUCT_TYPE', 'lite'));
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-31T00:00:00.000Z'));
     vi.clearAllMocks();

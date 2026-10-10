@@ -356,6 +356,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
+import { bylineTileMacroTypes } from '@/utils/byline/pickerTypes'
 import {
   parsePageDiagrams,
   summarizeDiagrams,
@@ -541,15 +542,11 @@ interface TypeTile {
  *  Option A — not because it is judged least useful. Re-rank once it has 90
  *  days of `macro_create_succeeded` like the rest.
  *
- *  No per-variant filter, deliberately: this panel is Lite-only
- *  (`zenuml-byline-diagrams`; full/diagramly strip it, asyncapi strips the whole
- *  contentBylineItem module) and Lite ships every macro a tile creates. A
- *  variant that kept the panel WITHOUT one would not show a dead tile — it would
- *  show the wrong editor, because forgeIndex reads `modal.diagramType` but falls
- *  through to the OpenAPI branch when its product gate fails, so an AsyncAPI
- *  pick would save a swagger document. `tests/unit/forgeWizard.spec.ts` pins the
- *  invariant that keeps that unreachable. */
-const DIAGRAM_TYPES: TypeTile[] = [
+ *  Filtered per variant by `bylineTileMacroTypes`: Lite, Full and AsyncAPI ship
+ *  this panel (`zenuml-byline-diagrams`) with different macro sets, and a tile
+ *  whose macro the variant strips would not be dead — it would open the wrong
+ *  editor (see src/utils/byline/pickerTypes.ts). */
+const ALL_DIAGRAM_TYPES: TypeTile[] = [
   {
     key: 'flowchart',
     diagramType: DiagramType.Mermaid,
@@ -597,6 +594,10 @@ const DIAGRAM_TYPES: TypeTile[] = [
     macroType: 'asyncapi',
   },
 ]
+
+const DIAGRAM_TYPES: TypeTile[] = ALL_DIAGRAM_TYPES.filter(t =>
+  bylineTileMacroTypes(import.meta.env.PRODUCT_TYPE).includes(t.macroType),
+)
 
 const MACRO_ICONS: Record<string, string> = {
   [DiagramType.Sequence]: './image/diagram_macro_icon.png',

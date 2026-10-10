@@ -5,6 +5,7 @@ import {
   clearUnplacedProperty,
   MAX_PROPERTY_ENTRIES,
   UNPLACED_PROPERTY_KEY,
+  unplacedPropertyKeyFor,
 } from './unplacedProperty'
 
 const requestConfluence = vi.hoisted(() => vi.fn())
@@ -177,5 +178,15 @@ describe('unplacedProperty — the cross-user store behind the displayConditions
     requestConfluence.mockRejectedValue(new Error('bridge down'))
     expect(await persistUnplacedProperty('page-1', [ENTRY], NOW)).toBe('failed')
     expect(await clearUnplacedProperty('page-1')).toBe('failed')
+  })
+})
+
+// Content properties are site-global across apps, so every app that ships the
+// banner needs its own key — or one app's banner boots on another's diagrams.
+describe('unplacedPropertyKeyFor', () => {
+  it('gives Lite, Full and the AsyncAPI app distinct keys', () => {
+    expect(unplacedPropertyKeyFor('lite')).toBe('zenuml-unplaced-diagrams-lite')
+    expect(unplacedPropertyKeyFor('full')).toBe('zenuml-unplaced-diagrams')
+    expect(unplacedPropertyKeyFor('asyncapi')).toBe('zenuml-unplaced-diagrams-asyncapi')
   })
 })

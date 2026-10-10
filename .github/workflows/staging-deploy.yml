@@ -125,7 +125,7 @@ jobs:
         if: inputs.workflow-ref != ''
         run: |
           cp .ci-workflow/.github/actions/wrangler-publish/action.yml .github/actions/wrangler-publish/action.yml
-          for helper in lite-deploy-prepare.mjs lite-deploy-evidence.mjs lite-deploy-forge-timing.mjs; do
+          for helper in lite-deploy-prepare.mjs lite-deploy-evidence.mjs lite-deploy-forge-timing.mjs lite-deploy-permissions-cache.mjs; do
             if [ -f ".ci-workflow/scripts/ci/$helper" ]; then cp ".ci-workflow/scripts/ci/$helper" "scripts/ci/$helper"; fi
           done
       - name: Validate staging preparation mode
@@ -580,4 +580,5 @@ jobs:
             lite-deploy-cache.json
             lite-deploy-studio-cache.json
             lite-deploy-forge.json
+            lite-deploy-permissions-cache.json
           retention-days: 30

@@ -33,6 +33,7 @@ await writeFile('lite-deploy-evidence.json', JSON.stringify({
   cache: {
     dependencies: await cacheEvidence('lite-deploy-cache.json'),
     studio: await cacheEvidence('lite-deploy-studio-cache.json'),
+    permission_specs: await cacheEvidence('lite-deploy-permissions-cache.json'),
   },
   deployment_completed_at: deploymentCompletedAt,
   backend_marker_verified: true,

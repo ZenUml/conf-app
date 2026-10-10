@@ -29,6 +29,18 @@ cache's successful post step then saves only static output. The first candidate
 can therefore pay the larger legacy restore once; both hit states are recorded.
 Cache hits and misses remain in the evidence. Neither cache contains the app's
 `dist/`; every candidate builds the application afresh, including a new app SHA.
+The candidate also restores only the installed Forge CLI's dedicated public API
+specification cache. The helper obtains
+`CachedConf.getCache('PERMISSIONS_LINTER').conf.path` and requires the file name
+`config.json` and parent directory `PERMISSIONS_LINTER-nodejs`; other stores and
+folders are rejected. The key covers OS, installed CLI and linter versions,
+lockfile digest, and a UTC 12-hour window, with only the immediately prior window
+as a fallback. Each specification keeps its original expiry. The installed CLI
+refetches an expired entry during ordinary lint, so every client and server lint
+still runs. General Forge configuration and authentication stores are excluded.
+Only cache-hit booleans are added to experiment metadata. The runtime benefit is
+unmeasured until another complete experiment finishes.
+
 After install, candidate build, Pages configuration/migrations, and Forge variable
 synchronization run concurrently. Writes within each remote configuration lane
 remain sequential. All lanes join on success or failure. `PAGE_CAPTURE_SECRET`

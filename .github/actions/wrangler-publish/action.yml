@@ -97,6 +97,28 @@ runs:
       shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
+    - name: Resolve public Forge permission-linter cache
+      if: inputs.preparation-mode == 'candidate'
+      id: permissions-cache-path
+      shell: bash
+      run: node scripts/ci/lite-deploy-permissions-cache.mjs
+    # This exact file contains six public Atlassian API specifications. The
+    # CLI keeps their original 12h expiry and refetches expired entries. Never
+    # restore its general configuration or authentication directories.
+    - name: Cache public Forge permission specifications
+      if: inputs.preparation-mode == 'candidate'
+      id: permissions-cache
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.permissions-cache-path.outputs.path }}
+        key: ${{ steps.permissions-cache-path.outputs.key }}
+        restore-keys: ${{ steps.permissions-cache-path.outputs.restore-key }}
+    - name: Record public permission cache result
+      if: inputs.preparation-mode == 'candidate'
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.permissions-cache.outputs.cache-hit }}
+      run: node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('lite-deploy-permissions-cache.json', JSON.stringify({permission_specs_hit:process.env.CACHE_HIT === 'true'}));"
     - name: pnpm build
       if: inputs.prebuilt-dist == '' && inputs.preparation-mode != 'candidate'
       run: pnpm build:${{ inputs.license }}

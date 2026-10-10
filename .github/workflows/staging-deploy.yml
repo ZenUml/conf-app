@@ -25,6 +25,11 @@ on:
         type: string
         default: 'baseline'
         description: 'Opt-in Lite staging preparation: baseline or candidate'
+      candidate-runner:
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+        description: 'Opt-in candidate runner: ubuntu-latest or ubuntu-24.04-arm'
       benchmark-sample:
         required: false
         type: string
@@ -77,6 +82,7 @@ jobs:
       license: ${{ steps.map.outputs.license }}
       project: ${{ steps.map.outputs.project }}
       environment: ${{ steps.map.outputs.environment }}
+      runner: ${{ steps.map.outputs.runner }}
     steps:
       - id: map
         env:
@@ -84,6 +90,8 @@ jobs:
           IN_LICENSE: ${{ inputs.license }}
           IN_PROJECT: ${{ inputs.project }}
           IN_ENVIRONMENT: ${{ inputs.environment }}
+          IN_RUNNER: ${{ inputs.candidate-runner }}
+          PREPARATION_MODE: ${{ inputs.preparation-mode }}
         run: |
           set -euo pipefail
           case "$VARIANT" in
@@ -93,16 +101,30 @@ jobs:
             asyncapi)  DEF_PROJECT=conf-stg-lite ;;
             *) echo "unknown variant: $VARIANT" >&2; exit 1 ;;
           esac
+          LICENSE="${IN_LICENSE:-$VARIANT}"
+          PROJECT="${IN_PROJECT:-$DEF_PROJECT}"
+          ENVIRONMENT="${IN_ENVIRONMENT:-staging-$VARIANT}"
+          DEPLOY_RUNNER="${IN_RUNNER:-ubuntu-latest}"
+          case "$DEPLOY_RUNNER" in
+            ubuntu-latest) ;;
+            ubuntu-24.04-arm)
+              [ "$PREPARATION_MODE" = candidate ] && [ "$VARIANT" = lite ] &&
+                [ "$LICENSE" = lite ] && [ "$PROJECT" = conf-stg-lite ] &&
+                [ "$ENVIRONMENT" = staging-lite ] || exit 1
+              ;;
+            *) echo 'Unsupported staging deployment runner' >&2; exit 1 ;;
+          esac
           {
             echo "variant=$VARIANT"
-            echo "license=${IN_LICENSE:-$VARIANT}"
-            echo "project=${IN_PROJECT:-$DEF_PROJECT}"
-            echo "environment=${IN_ENVIRONMENT:-staging-$VARIANT}"
+            echo "license=$LICENSE"
+            echo "project=$PROJECT"
+            echo "environment=$ENVIRONMENT"
+            echo "runner=$DEPLOY_RUNNER"
           } >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.resolve.outputs.runner }}
     timeout-minutes: 10
     environment:
       name: ${{ needs.resolve.outputs.environment }}
@@ -185,9 +207,11 @@ jobs:
       # Cache versions hash the requested path list. The old aggregate
       # archive cannot be a restore-key fallback for the output-only version;
       # restore it explicitly with its original paths, then let the lean
-      # cache's successful post step save only the static output.
+      # cache's successful post step save only the static output. ARM never
+      # restores this unscoped native-dependency archive: a lean miss builds
+      # Studio fully with a fresh native install on the selected runner.
       - name: Restore legacy Studio aggregate on lean cache miss
-        if: inputs.preparation-mode == 'candidate' && steps.studio-output.outputs.cache-hit != 'true'
+        if: inputs.preparation-mode == 'candidate' && runner.arch != 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
         id: studio-legacy
         uses: actions/cache/restore@v5
         with:
@@ -574,6 +598,7 @@ jobs:
           TOOLING_SHA: ${{ inputs.workflow-ref || github.sha }}
           PREPARATION_MODE: ${{ inputs.preparation-mode }}
           BENCHMARK_SAMPLE: ${{ inputs.benchmark-sample }}
+          DEPLOY_RUNNER_LABEL: ${{ needs.resolve.outputs.runner }}
         run: node scripts/ci/lite-deploy-evidence.mjs
       - name: Upload benchmark deployment metadata
         if: always() && inputs.benchmark-sample != ''

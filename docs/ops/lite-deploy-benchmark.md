@@ -98,6 +98,21 @@ The second three-pair experiment
 tooling commit `cf6c65a8`) measures this parser-mode addition against the same
 immutable application source. Its result is pending.
 
+An additional opt-in hardware comparison is available through the
+`candidate-runner` dispatch choice. `ubuntu-latest` remains the default for both
+arms and every ordinary caller. Selecting `ubuntu-24.04-arm` changes only the
+candidate deploy jobs, and the reusable resolver rejects that choice unless the
+mode, variant, license, project, and environment are exactly Lite staging.
+[GitHub's standard runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+list both Linux x64 and ARM64 runners as four CPUs and 16 GB RAM, free for public
+repositories. This is an architecture comparison, with no measured benefit yet.
+The lean Studio cache contains static browser assets and can be shared. ARM jobs
+never restore the legacy cache containing x64 native dependencies; a lean miss
+retains the complete native Studio install/build. Installed app dependencies
+already have architecture in their cache key. Evidence records the selected
+runner label and actual Node platform, architecture, and version. Every deploy,
+validation, full timer, and output-equivalence requirement remains in place.
+
 The acceptance metric is the median GitHub deploy-job `started_at` through
 `completed_at`, including checkout, cache restore/save, frozen install, build,
 configuration, lint, both deploys, install/upgrade, identity probe, metadata upload,
@@ -114,7 +129,7 @@ Cold-cache costs stay in the whole-job metric; warming a cache is not counted as
 an independent performance improvement. Normal Lite staging stays on baseline
 until the measured candidate is selected explicitly.
 
-Artifacts contain source/tooling SHAs, manifest and asset digests, cache-hit
+Artifacts contain source/tooling SHAs, runner/runtime metadata, manifest and asset digests, cache-hit
 booleans, fixed phase names and durations, exit codes, and aggregate job timing.
 They contain no environment values, command arguments, raw deployment logs,
 resource paths, or signed upload URLs. The Forge phase observer retains the

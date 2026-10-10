@@ -66,7 +66,7 @@ test('Studio fallback restores the original aggregate cache version before seedi
   assert.equal(legacy.with.path, baseline.with.path, 'cache version uses the original path metadata');
   assert.equal(legacy.with.key, baseline.with.key);
   assert.equal(legacy.with['restore-keys'], baseline.with['restore-keys']);
-  assert.equal(legacy.if, "inputs.preparation-mode == 'candidate' && steps.studio-output.outputs.cache-hit != 'true'");
+  assert.equal(legacy.if, "inputs.preparation-mode == 'candidate' && runner.arch != 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'");
   assert.ok(steps.indexOf(lean) < steps.indexOf(legacy));
   assert.ok(steps.indexOf(legacy) < steps.findIndex(step => step.uses === './.github/actions/wrangler-publish'));
   assert.equal(lean.uses, 'actions/cache@v5', 'lean output is saved by the successful job post step');

@@ -25,6 +25,7 @@ import type {
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
   AgentLinkOAuthRevokeReason,
+  AgentLinkOAuthChainRevokeReason,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
   AgentLinkMcpCopyTarget,
@@ -816,7 +817,8 @@ export type AnalyticsProperties = {
     | AgentLinkGuardrailRejectReason
     | AgentLinkSessionSuspendReason
     | AgentLinkIdentityFailure
-    | AgentLinkOAuthRevokeReason;
+    | AgentLinkOAuthRevokeReason
+    | AgentLinkOAuthChainRevokeReason;
   session_duration_ms?: number;
   edits_count?: number;
   // #314 (agent_link_session_expired only): true when the session had
@@ -870,7 +872,9 @@ export type AnalyticsProperties = {
   macro_key_source?: AgentLinkMacroKeySource;
   // W — headless authorization (agent_link_oauth_*). `site_count` is how many
   // Atlassian sites the grant reaches, from accessible-resources. The revoke
-  // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason.
+  // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason
+  // (agent_link_oauth_revoked) or an AgentLinkOAuthChainRevokeReason
+  // (agent_link_oauth_chain_revoked).
   site_count?: number;
   // X — headless writes (agent_link_diagram_created / _updated). The outcome
   // rides the shared `result` field above as an AgentLinkWriteResult.

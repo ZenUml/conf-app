@@ -1252,6 +1252,15 @@ export type AnalyticsEventName =
   | "agent_link_oauth_authorized"
   | "agent_link_oauth_refresh_failed"
   | "agent_link_oauth_revoked"
+  // OUR refresh-token chain (one per MCP sign-in) revoked by the token
+  // endpoint, distinct from `_revoked` above, which is about the upstream
+  // Atlassian grant. Fires when a used refresh token is presented again
+  // (`reason: 'refresh_reused'`, OAuth 2.1 §4.3.1 reuse detection) or a
+  // refresh token arrives under another client_id (`'client_mismatch'`).
+  // Either means the token may be in two hands, so every refresh and access
+  // token issued from that sign-in stops working. Volume here is a security
+  // signal, or a client that refreshes concurrently.
+  | "agent_link_oauth_chain_revoked"
   // X — headless writes (design §7/§10). Backend-emitted, for the same reason
   // as the pair above. `_created` carries the AddToPageResult-shaped outcome
   // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate
@@ -1466,6 +1475,10 @@ export type AgentLinkMacroKeySource = "cached" | "discovered";
 // is dead whether the user knows it or not; 'reauthorized' = superseded by a
 // fresh consent for the same user.
 export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
+
+// Why the token endpoint revoked a refresh-token chain
+// (agent_link_oauth_chain_revoked), carried in the shared `reason` field.
+export type AgentLinkOAuthChainRevokeReason = "refresh_reused" | "client_mismatch";
 
 // The outcome of a headless write (agent_link_diagram_created / _updated).
 // Mirrors AddToPageResult so the headless and byline paths are comparable:

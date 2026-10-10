@@ -2,9 +2,6 @@ name: Lite Deploy Benchmark
 run-name: "Lite deploy experiment · ${{ inputs.pairs || '1' }} pairs · source ${{ inputs.source-sha || '1a7e4a0bf' }}"
 
 on:
-  push:
-    branches: [ci/lite-deploy-20pct]
-    paths: [.github/workflows/lite-deploy-benchmark.yml]
   workflow_dispatch:
     inputs:
       source-sha:

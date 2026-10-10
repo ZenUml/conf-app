@@ -23,6 +23,7 @@ test('parallel preparation joins pending writes after another branch fails', asy
 });
 
 test('benchmark retains shared staging lock and sequential, pinned alternating arms', () => {
+  assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
   assert.equal(workflow.concurrency.group, 'conf-app-staging');
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
   const sequence = ['baseline-1', 'candidate-1', 'candidate-2', 'baseline-2', 'baseline-3', 'candidate-3'];

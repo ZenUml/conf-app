@@ -1,4 +1,4 @@
-import {validateLayoutIntent,hashLayoutIntent} from './layout-intent.mjs';
+import {LayoutContract} from './layout-contract.mjs';
 // v2 orchestrator: deterministic run state around one persistent author session. It never chooses layout or judges aesthetics.
 // diagram_submit -> read final bytes -> render them itself -> audit + early checks -> (audit clean) independent reviewer -> deterministic gate.
 import fs from 'node:fs';
@@ -92,8 +92,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   let lastReview=null,round=0,authorMark=enteredAt,base=null,best=null,stagnant=0,finalResult=null,status='RUNNING',statusReason=null,finalDetail=null,oscillationsInReverted=0,lastManifest=null,extraResidual=[],reverts=0;
   // Two-phase gate state. Phase 1 = diagram_build_check (binding script check, text only); phase 2 = the reviewer inside diagram_submit.
   const twoPhase=B.twoPhase!==false;
-  let layoutIntent=null; const layoutIntentHistory=[],layoutIntentEvents=[];
-  const requireLayoutIntent=()=>{if(contractRequired&&!layoutIntent)throw Error('LAYOUT_INTENT_REQUIRED: submit semantic plan through diagram_layout_intent before authoring')};
+  const contract=new LayoutContract({required:contractRequired,sourceHash:job.sourceHash,rulesHash:job.rulesHash,model});
   const cache=new Map(); // svg sha256 -> phase-1 result (findings, audit, geometry, forbidden); identical bytes are never audited twice
   const checkLog=[],refusals=[],escalations=[],doneRounds=[];
   // Relaxed gate feedback state: blocking-finding history across the checks of the run (regression flags) and the latest check (repeat-check refusal).
@@ -142,7 +141,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   /** Phase 1: every script check on exact bytes (forbidden constructs, full auditor, early and measured-geometry findings, gate reasons). No reviewer, no images.
    *  eager: run the measured geometry even when the audit already failed, so one check shows every failure (two-phase). The one-phase path keeps its original order. */
   async function scriptCheck(cand,{eager=false}={}){
-    const c={layoutIntentHash:layoutIntent?.hash??null,round,hash:cand.ok?cand.hash:null,bytes:cand.ok?cand.bytes:null,text:cand.ok?cand.text:null,findings:[],audit:null,render:null,review:null,gate:null,stage:'missing',forbidden:[],sources:['early','audit'],notes:[]};
+    const c={layoutIntentHash:contract.hash,round,hash:cand.ok?cand.hash:null,bytes:cand.ok?cand.bytes:null,text:cand.ok?cand.text:null,findings:[],audit:null,render:null,review:null,gate:null,stage:'missing',forbidden:[],sources:['early','audit'],notes:[]};
     if(!cand.ok){c.findings=[makeFinding({source:'early',severity:'blocking',rule:'candidate-missing',elements:['candidate.svg'],evidence:{measured:cand.error,threshold:'a readable regular candidate.svg (<= 2 MB, exact UTF-8)'},suggestion:`Write the SVG to ${job.outputPath} and submit again.`})];return c}
     c.forbidden=scanForbidden(cand.text);
     if(c.forbidden.some(h=>HARD_FORBIDDEN.includes(h.construct))){c.stage='early';c.findings=earlyFindings({svgText:cand.text,audit:null});return c}
@@ -177,11 +176,11 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const original=await d.original();
     const selected=selectReviewImages({originalFull:original.rendered.media.full,render:c.render,regions:ledger.open().map(e=>e.finding.region).filter(Boolean),mode:diagnosis?'all':reviewerCfg.images});
     const images=selected.map(x=>d.image(x.record));
-    const prompt=buildReviewerPrompt({facts:buildReviewerFacts(model),layoutIntent,audit:c.audit,geometry:c.geometry?geometryForReviewer(c.geometry,model):{unavailable:true},imageLabels:selected.map(x=>x.label),measured:reviewerCfg.prompt,twoPhase,diagnosis});
+    const prompt=buildReviewerPrompt({facts:buildReviewerFacts(model),layoutIntent:contract.current,audit:c.audit,geometry:c.geometry?geometryForReviewer(c.geometry,model):{unavailable:true},imageLabels:selected.map(x=>x.label),measured:reviewerCfg.prompt,twoPhase,diagnosis});
     const review=await runReviewer({factory:reviewerFactory,prompt,images,model,natural:c.render.natural,now,diagnosis:!!diagnosis});
     timings.reviewerMs+=review.ms;tokens.reviewer=addUsage(tokens.reviewer,review.usage);reviewerCalls+=review.attempts??1;
-    if(layoutIntent&&review.findings?.some(f=>f.rule==='layout-intent'&&f.severity==='blocking'))layoutIntentEvents.push({name:'magic_layout_contract_failed',layout_intent_hash:layoutIntent.hash,layout_intent_revision:layoutIntentHistory.length,layout_contract_outcome:'rejected',layout_contract_reason:'SEMANTIC_LAYOUT_CONFLICT',round});
-    c.review={...review,layoutIntentHash:layoutIntent?.hash??null,imageCount:images.length};
+    if(contract.current&&review.findings?.some(f=>f.rule==='layout-intent'&&f.severity==='blocking'))contract.noteSemanticConflict({round});
+    c.review={...review,layoutIntentHash:contract.hash,imageCount:images.length};
     return review;
   }
   const ensureRender=async c=>{
@@ -217,7 +216,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     timings.judgeMs+=now()-t0;
     for(const p of record.passes??[]){tokens.judge=addUsage(tokens.judge,p.usage);judgeCalls+=p.attempts??1}
     if(record.coach){tokens.judge=addUsage(tokens.judge,record.coach.usage);judgeCalls+=record.coach.attempts??1}
-    record=sealManifest({...record,layoutIntentHash:layoutIntent?.hash??null});
+    record=sealManifest({...record,layoutIntentHash:contract.hash});
     writeJudgement(job.runDir,record);
     c.judgement=record;
     judgeRounds.push({round,svgHash:c.hash,...judgementSummary(record)});
@@ -295,7 +294,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     const openRound=cur.buildCheckCalls||cur.refusals||cur.limitHits||cur.generatorErrors?[{round:doneRounds.length+1,open:true,...cur}]:[];
     return {schema:'pi-diagram-run/3',v2:true,gate,...(relaxed?{judge:{enabled:true,inLoop:true,thresholds:acceptThresholds,model:judgeModel,rounds:judgeRounds}}:{}),status,statusReason,
       startedAt:new Date(startedAt).toISOString(),finishedAt:new Date(now()).toISOString(),
-      layoutIntentRequired:contractRequired,layoutIntent,layoutIntentHistory,layoutIntentEvents,finalLayoutIntentHash:bestC?.layoutIntentHash??null,
+      ...contract.manifestFields(),finalLayoutIntentHash:bestC?.layoutIntentHash??null,
       sourceHash:job.sourceHash,rulesHash:job.rulesHash,rulesHistory:job.manifest?.rulesHistory??[],presentation,
       adjudication:job.manifest?.adjudication?{sha256:job.manifest.adjudication.sha256,records:job.manifest.adjudication.records?.length??0}:null,
       finalSvgSha256:bestC?.hash??null,finalMedia,originalSvgHash:bestC?.audit?.originalSvgHash??null,
@@ -424,7 +423,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
 
   /** The one binding script check: build step (the author's generator) -> hash -> phase-1 check -> cache. Text only. Every call counts against the caps. */
   async function buildCheckNow({build=null}={}){
-    requireLayoutIntent();
+    contract.require();
     assertJobManifest(job);
     if(!twoPhase)throw Error('DIAGRAM_BUILD_CHECK_DISABLED');
     if(finalResult)return finalResult;
@@ -451,14 +450,14 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
         // No bytes were checked, so this call is not a spent check: it counts against the separate generator-error cap only.
         callsRound--;callsTotal--;cur.buildCheckCalls--;
         generatorErrors++;cur.generatorErrors++;
-        checkLog.push({layoutIntentHash:layoutIntent?.hash??null,seq:null,round:round+1,svgHash:null,cached:false,generatorError:true,source,failed:[],blocking:0,minor:0,ms:now()-t0});
+        checkLog.push({layoutIntentHash:contract.hash,seq:null,round:round+1,svgHash:null,cached:false,generatorError:true,source,failed:[],blocking:0,minor:0,ms:now()-t0});
         const l=left();
         return finish(reply({status:'GENERATOR_ERROR',source,...(buildNote?{buildNote}:{}),message:built?.message??'the generator failed',...l,next:`Fix the generator or the spec (see the message) and call diagram_build_check again. This call did not use a check; ${l.generatorErrorsLeftThisRound} generator error(s) left this round before build_check is refused.`}));
       }
     }
     const cand=readCandidate();
     if(!cand.ok){
-      checkLog.push({layoutIntentHash:layoutIntent?.hash??null,seq,round:round+1,svgHash:null,cached:false,source,outcome:'CHECK_FAIL',failed:['candidate-missing'],advisory:[],blocking:1,minor:0,ms:now()-t0});
+      checkLog.push({layoutIntentHash:contract.hash,seq,round:round+1,svgHash:null,cached:false,source,outcome:'CHECK_FAIL',failed:['candidate-missing'],advisory:[],blocking:1,minor:0,ms:now()-t0});
       return finish(reply({status:'CHECK_FAIL',svgHash:null,cached:false,failed:['candidate-missing'],findings:[{rule:'candidate-missing',severity:'blocking',evidence:{measured:cand.error,threshold:'a readable regular candidate.svg (<= 2 MB, exact UTF-8)'},suggestion:`Write the SVG to ${job.outputPath} (directly, or from make.py) and call diagram_build_check again.`}],...left(),next:'No candidate bytes to check.'}));
     }
     // Relaxed gate: the latest check of exactly these bytes passed, so another check would only repeat it. Refused, and not a spent check.
@@ -472,7 +471,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
     else{
       hit=await scriptCheck(cand,{eager:true});hit.checkSeq=seq;cache.set(cand.hash,hit);cur.freshChecks++;
     }
-    checkLog.push({layoutIntentHash:layoutIntent?.hash??null,seq,round:round+1,svgHash:cand.hash,cached,source,outcome:hit.findings.some(f=>f.severity==='blocking')?'CHECK_FAIL':'CHECK_PASS',failed:failedRules(hit),advisory:advisoryRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
+    checkLog.push({layoutIntentHash:contract.hash,seq,round:round+1,svgHash:cand.hash,cached,source,outcome:hit.findings.some(f=>f.severity==='blocking')?'CHECK_FAIL':'CHECK_PASS',failed:failedRules(hit),advisory:advisoryRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
     const entry=checkLog.at(-1),replyBody=checkReply(hit,{cached,source,buildNote,seq});
     if(relaxed){entry.regressions=hit.regressionCount??0;lastCheck={hash:cand.hash,pass:entry.outcome==='CHECK_PASS'};if(lastCheck.pass)lastPass={hash:cand.hash,seq}}
     return finish(replyBody);
@@ -487,7 +486,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   }
 
   async function submitNow({svgHash=null}={}){
-    requireLayoutIntent();
+    contract.require();
     if(finalResult)return finalResult;
     const wallNow=now()-startedAt>B.maxWallMs;
     const cand=readCandidate();
@@ -504,7 +503,7 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
           if(!wallNow&&!exhausted())return refuse('UNCHECKED_BYTES',{message:`these bytes (${cand.hash}) were never script-checked.`,next:'Call diagram_build_check (it rebuilds from make.py when present) and submit the hash it returns once it has no FAIL.'});
           // No check left (or no time): the orchestrator checks the bytes itself, without spending a check.
           const t0=now();hit=await scriptCheck(cand,{eager:true});cache.set(cand.hash,hit);
-          checkLog.push({layoutIntentHash:layoutIntent?.hash??null,seq:null,round:round+1,svgHash:cand.hash,cached:false,implicit:true,outcome:hit.findings.some(f=>f.severity==='blocking')?'CHECK_FAIL':'CHECK_PASS',failed:failedRules(hit),advisory:advisoryRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
+          checkLog.push({layoutIntentHash:contract.hash,seq:null,round:round+1,svgHash:cand.hash,cached:false,implicit:true,outcome:hit.findings.some(f=>f.severity==='blocking')?'CHECK_FAIL':'CHECK_PASS',failed:failedRules(hit),advisory:advisoryRules(hit),blocking:hit.findings.filter(f=>f.severity==='blocking').length,minor:hit.findings.filter(f=>f.severity!=='blocking').length,ms:now()-t0});
         }
         if(hit.findings.some(f=>f.severity==='blocking')&&!wallNow){
           if(exhausted())escalating=true;
@@ -607,23 +606,17 @@ export function createV2Run(job,{deps=null,reviewerFactory,budgets=null,reviewer
   const noteModelCallTimeout=({elapsedMs,limitMs,action})=>{modelCallTimeouts.push({n:modelCallTimeouts.length+1,at:new Date(now()).toISOString(),elapsedS:Math.round(elapsedMs/100)/10,limitS:limitMs/1000,action});persist()};
   const wallExceeded=()=>now()-startedAt>B.maxWallMs;
 
+  const resetForNewContract=()=>{ledger=createLedger();blockingHistory.clear();cache.clear();lastCheck=null;lastPass=null;best=null;base=null;lastReview=null;exceptions=[]};
   const submitLayoutIntent=opts=>serial(()=>{
     if(finalResult)throw Error('LAYOUT_INTENT_RUN_FINISHED: resume the run for a fresh contract');
-    try {
-      if(layoutIntent&&(opts.predecessorHash!==layoutIntent.hash||!opts.reason?.trim()))throw Error('LAYOUT_INTENT_REVISION_REQUIRES_PREDECESSOR_AND_REASON');
-      const intent=validateLayoutIntent(opts.intent,model);
-      const record={schema:'pi-layout-intent/1',sourceHash:job.sourceHash,rulesHash:job.rulesHash,predecessorHash:layoutIntent?.hash??null,reason:opts.reason??null,intent};record.hash=hashLayoutIntent(record);
-      layoutIntent=JSON.parse(JSON.stringify(record));layoutIntentHistory.push(layoutIntent);
-      ledger=createLedger();blockingHistory.clear();
-      cache.clear();lastCheck=null;lastPass=null;best=null;base=null;lastReview=null;exceptions=[];
-      layoutIntentEvents.push({name:record.predecessorHash?'magic_layout_intent_revised':'magic_layout_intent_created',layout_intent_hash:record.hash,previous_layout_intent_hash:record.predecessorHash,layout_intent_revision:layoutIntentHistory.length,layout_contract_outcome:'accepted',layout_node_count:intent.nodes.length,layout_layer_count:new Set(intent.nodes.map(n=>n.layer)).size});
-      persist();return reply({status:'LAYOUT_INTENT_ACCEPTED',layoutIntentHash:record.hash,intent,next:'Author the frozen contract; build, inspect and submit are now enabled.'});
-    } catch(error){layoutIntentEvents.push({name:'magic_layout_contract_failed',layout_contract_outcome:'rejected',layout_contract_reason:String(error.message).split(':')[0]});persist();throw error}
+    let record;try{record=contract.submit(opts)}catch(error){persist();throw error}
+    resetForNewContract();persist();
+    return reply({status:'LAYOUT_INTENT_ACCEPTED',layoutIntentHash:record.hash,intent:record.intent,next:'Author the frozen contract; build, inspect and submit are now enabled.'});
   });
   persist(); // status RUNNING, before the first author turn
 
   return {
-    setPlanningFacts:facts=>{if(!facts?.nodes?.length||facts.conflicts?.length||facts.membershipConflicts?.length)throw Error('LAYOUT_SOURCE_FACTS_UNRESOLVED');if(layoutIntent)throw Error('LAYOUT_INTENT_ALREADY_FROZEN');model=JSON.parse(JSON.stringify(facts))},submitLayoutIntent,requireLayoutIntent,submit,buildCheck,annotateInspection,finalizeWithoutSubmit,expireWallClock,finalizeModelCallTimeout,noteModelCallTimeout,wallExceeded,manifest:()=>lastManifest,manifestPath,
+    setPlanningFacts:facts=>{model=contract.setModel(facts)},submitLayoutIntent,requireLayoutIntent:()=>contract.require(),submit,buildCheck,annotateInspection,finalizeWithoutSubmit,expireWallClock,finalizeModelCallTimeout,noteModelCallTimeout,wallExceeded,manifest:()=>lastManifest,manifestPath,
     addAuthorUsage:u=>{tokens.author=addUsage(tokens.author,u)},
     noteAuthorCall:()=>{authorCalls++},
     state:()=>({status,statusReason,round,rounds,ledger:ledger.snapshot(),oscillationsInReverted,best:best?{hash:best.hash,score:best.score}:null,manifest:lastManifest}),

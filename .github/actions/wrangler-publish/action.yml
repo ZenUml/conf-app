@@ -60,6 +60,10 @@ inputs:
     description: "'true' when the daily regression owner has already applied the shared D1 migrations."
     required: false
     default: 'false'
+  preparation-mode:
+    description: 'Opt-in Lite staging experiment: baseline or candidate'
+    required: false
+    default: 'baseline'
 runs:
   using: 'composite'
   steps:
@@ -69,13 +73,32 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
         cache: 'pnpm'
+    - name: Resolve dependency cache platform
+      if: inputs.preparation-mode == 'candidate'
+      id: dependency-platform
+      shell: bash
+      run: |
+        echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
+        echo "pnpm=$(pnpm --version)" >> "$GITHUB_OUTPUT"
+        echo "abi=$(node -p process.versions.modules)" >> "$GITHUB_OUTPUT"
+        . /etc/os-release
+        echo "distro=$ID-$VERSION_ID" >> "$GITHUB_OUTPUT"
+    # This contains dependencies only. A new application source SHA still
+    # builds afresh; frozen-lockfile install validates every restored tree.
+    - name: Cache installed dependencies (Lite staging experiment)
+      if: inputs.preparation-mode == 'candidate'
+      id: installed-dependencies
+      uses: actions/cache@v5
+      with:
+        path: node_modules
+        key: lite-deploy-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-platform.outputs.distro }}-${{ steps.dependency-platform.outputs.node }}-${{ steps.dependency-platform.outputs.abi }}-${{ steps.dependency-platform.outputs.pnpm }}-${{ hashFiles('pnpm-lock.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/*/package.json', '.npmrc', 'pnpm-workspace.yaml', 'patches/**') }}
     - name: Install dependencies
       run: pnpm install --frozen-lockfile --ignore-scripts
       shell: bash
       env:
         NODE_OPTIONS: "--max-old-space-size=8192"
     - name: pnpm build
-      if: inputs.prebuilt-dist == ''
+      if: inputs.prebuilt-dist == '' && inputs.preparation-mode != 'candidate'
       run: pnpm build:${{ inputs.license }}
       shell: bash
       env:
@@ -90,6 +113,7 @@ runs:
         echo "dist/ restored from ${{ inputs.prebuilt-dist }} ($(du -sh dist | cut -f1), $(find dist -type f | wc -l) files)"
       shell: bash
     - name: Sync runtime env vars to Cloudflare Pages
+      if: inputs.preparation-mode != 'candidate'
       run: |
         printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
         printf '%s' "$SENTRY_DSN" | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
@@ -109,6 +133,7 @@ runs:
         PAGE_CAPTURE_SECRET: ${{ inputs.page-capture-secret }}
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Prepare wrangler config
+      if: inputs.preparation-mode != 'candidate'
       run: |
         # Select the appropriate config file based on environment
         CONFIG_FILE="wrangler-${{ inputs.environment }}.toml"
@@ -134,12 +159,35 @@ runs:
       env:
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Run D1 Migrations
-      if: inputs.skip-migrations != 'true'
+      if: inputs.skip-migrations != 'true' && inputs.preparation-mode != 'candidate'
       run: pnpm exec wrangler d1 migrations apply DB --remote --env production
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+    - name: Record dependency cache result
+      if: inputs.preparation-mode == 'candidate'
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.installed-dependencies.outputs.cache-hit }}
+      run: node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('lite-deploy-cache.json', JSON.stringify({installed_dependencies_hit:process.env.CACHE_HIT === 'true'}));"
+    - name: Prepare Lite staging in parallel
+      if: inputs.preparation-mode == 'candidate'
+      run: node scripts/ci/lite-deploy-prepare.mjs
+      shell: bash
+      env:
+        NODE_OPTIONS: "--max-old-space-size=8192"
+        DEPLOY_LICENSE: ${{ inputs.license }}
+        DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+        DEPLOY_PROJECT: ${{ inputs.project }}
+        DEPLOY_SKIP_MIGRATIONS: ${{ inputs.skip-migrations }}
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
+        VITE_APP_VERSION: ${{ inputs.vite-app-version }}
+        SENTRY_DSN: ${{ inputs.sentry-dsn }}
+        PAGE_CAPTURE_SECRET: ${{ inputs.page-capture-secret }}
+        PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Publish
       if: inputs.skip-publish != 'true'
       run: pnpm exec wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}

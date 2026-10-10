@@ -125,7 +125,7 @@ test('helper defaults preserve ordinary staging and production deployment behavi
   const action = yaml.load(readFileSync(new URL('../../.github/actions/wrangler-publish/action.yml', import.meta.url), 'utf8'));
   assert.equal(action.inputs['skip-migrations'].default, 'false');
   assert.equal(action.inputs['skip-cloudflare'], undefined);
-  assert.equal(action.runs.steps.find(step => step.name === 'Run D1 Migrations').if, "inputs.skip-migrations != 'true'");
+  assert.equal(action.runs.steps.find(step => step.name === 'Run D1 Migrations').if, "inputs.skip-migrations != 'true' && inputs.preparation-mode != 'candidate'");
   const transaction = workflow('staging-transaction');
   assert.equal(transaction.on.workflow_call.inputs['backend-sha-only'].default, false);
   const check = transaction.jobs.version.steps.find(step => step.name === 'Verify backend source identity');

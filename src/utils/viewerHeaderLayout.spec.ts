@@ -174,6 +174,13 @@ describe('viewerHeaderLayout', () => {
       ])
     })
 
+    it('lists Connect MCP in place of Copy for AI when it holds that slot', () => {
+      expect(moreMenuItems({ ...base, connectMcp: true, stage: 3 }).slice(0, 3)).toEqual([
+        'source', 'connect-mcp', 'separator',
+      ])
+      expect(moreMenuItems({ ...base, connectMcp: true, stage: 2 })).not.toContain('connect-mcp')
+    })
+
     it('never lists Source or Copy for AI for a diagram without source', () => {
       expect(moreMenuItems({ ...base, hasSource: false, stage: 3 })).toEqual([
         'copy-diagram-link', 'copy-page-link', 'export-png', 'versions', 'separator', 'debug',

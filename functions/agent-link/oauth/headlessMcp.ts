@@ -23,6 +23,7 @@ import {
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
 import type { GateEnv } from './headlessGate';
+import type { GrantEvent } from './tokenStore';
 import { mixpanelTrack } from '../../service/mixpanelService';
 
 /**
@@ -142,6 +143,26 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
 }
 
 /**
+ * The upstream grant's end of life. Without these a user's Atlassian
+ * authorization can die (90 days idle, revoked at Atlassian, a rejected
+ * rotation) and the only trace is their agent failing.
+ */
+async function trackGrantEvent(env: HeadlessEnv, userId: string, event: GrantEvent): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  await withTimeout(mixpanelTrack(
+    {
+      event: event.type === 'revoked' ? 'agent_link_oauth_revoked' : 'agent_link_oauth_refresh_failed',
+      user_account_id: userId,
+      feature_area: 'agent_link',
+      surface: 'backend',
+      // Closed vocabularies only: the GrantFailure code, or the revoke reason.
+      reason: event.type === 'revoked' ? event.reason : event.failure,
+    },
+    env.MIXPANEL_TOKEN,
+  ));
+}
+
+/**
  * A refusal is as informative as a success here: 'limit_reached' is the gate
  * actually biting, and `guardrail_rejected` is the write guard refusing a
  * truncation. Both are invisible if only successes are counted.
@@ -239,6 +260,7 @@ export async function handleHeadlessRpc(
     // through rather than the two namespaces keeps create_diagram's check in
     // one place (headlessGate.ts) instead of spread across the endpoint.
     gateEnv: env,
+    onGrantEvent: (event) => trackGrantEvent(env, auth.token.userId, event),
   };
 
   switch (body.method) {

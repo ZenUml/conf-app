@@ -105,6 +105,15 @@ What already exists, and bears on the choice:
    Refresh-token rotation on our side mirrors Atlassian's: a new refresh token
    on every use, the old one dead.
 
+   *Amended 2026-10-10:* with reuse detection (OAuth 2.1 §4.3.1). Each sign-in
+   starts a refresh chain. A redeemed token is kept, marked used, rather than
+   deleted. If a used token comes back, or a refresh token arrives under
+   another client, the whole chain is revoked: its refresh tokens and every
+   access token it issued. The legitimate client signs in again. KV's eventual
+   consistency means a replay that reaches another edge within the propagation
+   window can still fork the chain rather than revoke it. See `asStore.ts`,
+   "refresh chains".
+
 3. **Our consent screen is the security boundary, not a formality.** The
    spec's rule exists because one static upstream client id (ours at
    Atlassian) fronts many dynamically registered MCP clients. Without a

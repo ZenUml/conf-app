@@ -43,22 +43,30 @@ export interface HeadlessDiagramTarget {
   contentId?: string
 }
 
-// The prompt names this diagram by the ids the headless tools take
-// (read_diagram / update_diagram { cloudId, contentId }), so the agent needs
-// no lookup. Without a contentId (a macro never saved) it points the agent
-// at the page instead.
+// A review request: the agent reads the diagram (and its page, for context),
+// says what it shows and what is unclear, inconsistent or missing, and
+// proposes improvements. It changes nothing until the user agrees, because
+// every update_diagram publishes a page version. The diagram is named by the
+// ids the headless tools take (read_diagram / update_diagram
+// { cloudId, contentId }), so no lookup is needed. Without a contentId (a
+// macro never saved) the agent finds it on the page instead.
 export function buildHeadlessPrompt(target: HeadlessDiagramTarget): string {
   const name = target.title?.trim() ? `"${target.title.trim()}"` : 'on this page'
-  const lines = [`Use the ${MCP_SERVER_NAME} MCP to work on my ZenUML diagram ${name}.`]
+  const lines = [`Use the ${MCP_SERVER_NAME} MCP to review my ZenUML diagram ${name}.`]
   if (target.cloudId) lines.push(`cloudId: ${target.cloudId}`)
   else lines.push('Find the site with list_sites.')
   if (target.pageId) lines.push(`pageId: ${target.pageId}`)
-  if (target.contentId) {
-    lines.push(`contentId: ${target.contentId}`)
-    lines.push('Read it with read_diagram first, then apply my changes with update_diagram.')
-  } else {
-    lines.push('Find it with list_diagrams for this page, then read it with read_diagram.')
-  }
+  if (target.contentId) lines.push(`contentId: ${target.contentId}`)
+  const read = target.contentId
+    ? 'Read it with read_diagram'
+    : 'Find it with list_diagrams for this page, then read it with read_diagram'
+  lines.push(
+    '',
+    `1. ${read}${target.pageId ? ', and the page with read_page for context' : ''}.`,
+    '2. Summarize what the diagram shows.',
+    '3. Point out anything unclear, inconsistent or missing.',
+    '4. Suggest improvements, then wait for my go-ahead before changing it with update_diagram.',
+  )
   return lines.join('\n')
 }
 

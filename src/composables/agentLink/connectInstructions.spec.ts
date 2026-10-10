@@ -29,14 +29,24 @@ describe('connectInstructions', () => {
     expect(buildConnectPrompt('CL-7F3K-Q9M2')).toContain('session: CL-7F3K-Q9M2')
   })
 
-  it('names the diagram by the ids the headless tools take', () => {
+  it('asks for a review of the diagram, named by the ids the headless tools take', () => {
     expect(buildHeadlessPrompt({ title: ' Login flow ', cloudId: 'c-1', pageId: '42', contentId: '99' })).toBe([
-      'Use the zenuml MCP to work on my ZenUML diagram "Login flow".',
+      'Use the zenuml MCP to review my ZenUML diagram "Login flow".',
       'cloudId: c-1',
       'pageId: 42',
       'contentId: 99',
-      'Read it with read_diagram first, then apply my changes with update_diagram.',
+      '',
+      '1. Read it with read_diagram, and the page with read_page for context.',
+      '2. Summarize what the diagram shows.',
+      '3. Point out anything unclear, inconsistent or missing.',
+      '4. Suggest improvements, then wait for my go-ahead before changing it with update_diagram.',
     ].join('\n'))
+  })
+
+  it('reads only the diagram when the page is unknown', () => {
+    const prompt = buildHeadlessPrompt({ cloudId: 'c-1', contentId: '99' })
+    expect(prompt).toContain('1. Read it with read_diagram.')
+    expect(prompt).not.toContain('read_page')
   })
 
   it('falls back to lookups when ids are missing (unsaved macro, no Forge context)', () => {

@@ -65,9 +65,6 @@
             </div>
           </li>
         </ol>
-        <p class="connect-mcp-hint" data-testid="connect-mcp-reload-note">
-          Each edit publishes a new diagram version, so page history can revert it. Reload the page to see your agent's changes.
-        </p>
         <div class="connect-mcp-actions">
           <button
             type="button"

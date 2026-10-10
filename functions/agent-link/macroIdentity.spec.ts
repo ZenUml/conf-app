@@ -6,6 +6,7 @@ import {
   macroKeyFor,
   extensionKeyFor,
   extensionNodesIn,
+  detectInstalledVariants,
   resolveMacroIdentity,
   resolveMacroIdentityCached,
   identityCacheKey,
@@ -48,6 +49,38 @@ function pageAdf(extensionKey: string, customContentId: string): string {
         },
       },
     ],
+  });
+}
+
+/**
+ * A page as a Connect-era app saved it, before the Forge migration: a bare
+ * macro key and the core extension type, no appId or environmentId. Copied
+ * from zenuml.atlassian.net page 573767697 (2026-10-05).
+ */
+function connectPageAdf(macroKey: string): string {
+  return JSON.stringify({
+    type: 'doc',
+    content: [
+      {
+        type: 'extension',
+        attrs: {
+          extensionType: 'com.atlassian.confluence.macro.core',
+          extensionKey: macroKey,
+          parameters: { macroParams: { uuid: { value: 'u-1' } }, macroMetadata: {} },
+        },
+      },
+    ],
+  });
+}
+
+/** A page holding several Forge macro nodes, unbound to any custom content. */
+function mixedPageAdf(...extensionKeys: string[]): string {
+  return JSON.stringify({
+    type: 'doc',
+    content: extensionKeys.map((extensionKey) => ({
+      type: 'extension',
+      attrs: { extensionType: 'com.atlassian.ecosystem', extensionKey, parameters: { guestParams: {} } },
+    })),
   });
 }
 
@@ -327,7 +360,7 @@ describe('resolveMacroIdentity', () => {
 
   it('refuses with no_macro_on_site when nothing is installed', async () => {
     const { get } = fakeSite({});
-    expect(await resolveMacroIdentity(get)).toEqual({ ok: false, reason: 'no_macro_on_site' });
+    expect(await resolveMacroIdentity(get)).toMatchObject({ ok: false, reason: 'no_macro_on_site' });
   });
 
   it('refuses with no_extension_node when custom content is orphaned', async () => {
@@ -490,5 +523,173 @@ describe('resolveMacroIdentityCached', () => {
     };
     const result = await resolveMacroIdentityCached(site().get, 'cloud-1', broken);
     expect(result).toMatchObject({ ok: true, source: 'discovered' });
+  });
+});
+
+/**
+ * What a refusal tells the caller.
+ *
+ * 'no_extension_node' used to carry nothing, and the message built from it
+ * ("could not work out which app") read as "not installed" — a user went to
+ * Confluence admin to check an install that was fine (2026-10-03). The reason
+ * is reached only AFTER our custom content has been found, so the detail must
+ * say that.
+ */
+describe('refusal detail', () => {
+  it('says content was found when there is simply no macro node', async () => {
+    const get: ConfluenceGet = async (path) => {
+      if (path.includes('custom-content?type=')) {
+        return path.includes('zenuml-content-sequence')
+          ? { status: 200, body: { results: [{ id: 'cc-1', pageId: 'p-1' }] } }
+          : { status: 404, body: {} };
+      }
+      // the page exists but carries no extension node at all
+      return { status: 200, body: { id: 'p-1', body: { atlas_doc_format: { value: JSON.stringify({ type: 'doc', content: [] }) } } } };
+    };
+    const res = await resolveMacroIdentity(get);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('no_extension_node');
+    expect(res.detail).toMatch(/custom content item/);
+    expect(res.detail).toMatch(/page\(s\) sampled/);
+  });
+
+  it('carries the probe error when pages could not be read', async () => {
+    const get: ConfluenceGet = async (path) => {
+      if (path.includes('custom-content?type=')) {
+        return path.includes('zenuml-content-sequence')
+          ? { status: 200, body: { results: [{ id: 'cc-1', pageId: 'p-1' }] } }
+          : { status: 404, body: {} };
+      }
+      return { status: 403, body: {} };
+    };
+    const res = await resolveMacroIdentity(get);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('no_extension_node');
+    expect(res.detail).toMatch(/403/);
+  });
+
+  it('says so plainly when the site has no ZenUML content at all', async () => {
+    const res = await resolveMacroIdentity(async () => ({ status: 200, body: { results: [] } }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('no_macro_on_site');
+    expect(res.detail).toMatch(/no ZenUML custom content/);
+  });
+});
+
+/**
+ * zenuml.atlassian.net, 2026-10-05: list_diagrams refused with
+ * no_extension_node on a site with 1,000+ pages of ZenUML macros. Every page
+ * the probe sampled had been saved by the Connect-era app, whose nodes carry no
+ * appId/environmentId; the oldest-first default order guaranteed it never saw
+ * the Forge-written pages that do.
+ */
+describe('legacy Connect macros and multi-app sites', () => {
+  const LITE_SEQ = 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence';
+
+  it('asks for custom content newest first', async () => {
+    const { get, calls } = fakeSite({});
+    await resolveMacroIdentity(get);
+    const probes = calls.filter((c) => c.includes('/custom-content?type='));
+    expect(probes.length).toBeGreaterThan(0);
+    for (const probe of probes) expect(probe).toContain('sort=-created-date');
+  });
+
+  it('samples past Connect-era pages to a Forge-written one', async () => {
+    const { get } = fakeSite({
+      customContent: {
+        [LITE_SEQ]: [
+          { id: '1', pageId: 'old-1' },
+          { id: '2', pageId: 'old-2' },
+          { id: '3', pageId: 'new' },
+        ],
+      },
+      pages: {
+        'old-1': connectPageAdf('zenuml-sequence-macro-lite'),
+        'old-2': connectPageAdf('zenuml-graph-macro-lite'),
+        new: pageAdf(keyFor(LITE.appId, 'zenuml-sequence-macro-lite'), '3'),
+      },
+    });
+    const result = await resolveMacroIdentity(get);
+    expect(result).toMatchObject({ ok: true, identity: { variant: 'lite', environmentId: ENV_ID } });
+  });
+
+  it('names legacy Connect macros in the refusal when that is all it found', async () => {
+    const { get } = fakeSite({
+      customContent: { [LITE_SEQ]: [{ id: '1', pageId: 'old' }] },
+      pages: { old: connectPageAdf('zenuml-sequence-macro-lite') },
+    });
+    const result = await resolveMacroIdentity(get);
+    expect(result).toMatchObject({ ok: false, reason: 'no_extension_node' });
+    expect(!result.ok && result.detail).toMatch(/1 legacy Connect-format macro node/);
+  });
+
+  it('fetches a page shared by many diagrams once', async () => {
+    const { get, calls } = fakeSite({
+      customContent: {
+        [LITE_SEQ]: [
+          { id: '1', pageId: 'same' },
+          { id: '2', pageId: 'same' },
+          { id: '3', pageId: 'same' },
+        ],
+      },
+      pages: { same: connectPageAdf('zenuml-sequence-macro-lite') },
+    });
+    await resolveMacroIdentity(get);
+    expect(calls.filter((c) => c.includes('/pages/same')).length).toBe(1);
+  });
+
+  it('skips another ZenUML app\'s macro on a mixed page instead of refusing', async () => {
+    // Page 2889580584 on zenuml.atlassian.net holds AsyncAPI content and a
+    // Diagramly macro. Neither node is bound to the sampled content, so the
+    // foreign appId says nothing about this variant — not a mismatch.
+    const { get } = fakeSite({
+      customContent: { [LITE_SEQ]: [{ id: '1', pageId: 'mixed' }] },
+      pages: {
+        mixed: mixedPageAdf(
+          keyFor(DIAGRAMLY.appId, 'gpt-diagram-macro', '99999999-0000-0000-0000-000000000000'),
+          keyFor(LITE.appId, 'zenuml-graph-macro-lite'),
+        ),
+      },
+    });
+    const result = await resolveMacroIdentity(get);
+    expect(result).toMatchObject({ ok: true, identity: { variant: 'lite', environmentId: ENV_ID } });
+  });
+
+  it('moves on to the next variant when a page holds only other apps\' macros', async () => {
+    const { get } = fakeSite({
+      customContent: {
+        [LITE_SEQ]: [{ id: '1', pageId: 'foreign' }],
+        'ac:gptdock-confluence:gpt-custom-content-key': [{ id: '2', pageId: 'dia' }],
+      },
+      pages: {
+        foreign: mixedPageAdf(keyFor(FULL.appId, 'zenuml-sequence-macro')),
+        dia: pageAdf(keyFor(DIAGRAMLY.appId, 'gpt-diagram-macro'), '2'),
+      },
+    });
+    const result = await resolveMacroIdentity(get);
+    expect(result).toMatchObject({ ok: true, identity: { variant: 'diagramly' } });
+  });
+});
+
+describe('detectInstalledVariants', () => {
+  it('reports every variant with content, without reading a single page', async () => {
+    const { get, calls } = fakeSite({
+      customContent: {
+        'ac:com.zenuml.confluence-addon-lite:zenuml-content-graph': [{ id: '1', pageId: 'p' }],
+        'ac:gptdock-confluence:gpt-custom-content-key': [{ id: '2', pageId: 'q' }],
+      },
+    });
+    expect(await detectInstalledVariants(get)).toEqual({ variants: ['lite', 'diagramly'] });
+    expect(calls.some((c) => c.includes('/pages/'))).toBe(false);
+  });
+
+  it('carries a probe error rather than reporting an empty site', async () => {
+    const { get } = fakeSite({ fail: (p) => (p.includes('custom-content') ? 403 : undefined) });
+    const result = await detectInstalledVariants(get);
+    expect(result.variants).toEqual([]);
+    expect(result.probeError).toMatch(/403/);
   });
 });

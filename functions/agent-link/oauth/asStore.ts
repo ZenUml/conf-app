@@ -69,6 +69,13 @@ export interface PendingAuthorization {
    * to be parked with the rest of the authorization or it is lost.
    */
   userId?: string;
+  /**
+   * True when `userId` came from the returning-user cookie rather than a
+   * fresh Atlassian round trip. The consent screen then offers the way back
+   * to Atlassian, since the user skipped the screen that picks the account
+   * and the site.
+   */
+  recognised?: boolean;
 }
 
 export interface IssuedCode {

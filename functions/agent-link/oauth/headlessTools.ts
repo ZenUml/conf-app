@@ -33,11 +33,42 @@ import {
 import { getAccessToken, type GrantEventSink, type GrantStore } from './tokenStore';
 import {
   customContentTypesFor,
+  detectInstalledVariants,
   extensionKeyFor,
   resolveMacroIdentity,
   VARIANTS,
   type ConfluenceGet,
+  type IdentityFailureReason,
 } from '../macroIdentity';
+
+/**
+ * Turn an identity refusal into something true.
+ *
+ * Every reason used to collapse into "Could not work out which ZenUML app that
+ * site runs", which is only accurate for one of them. On 2026-10-03 a
+ * 'no_extension_node' refusal was read as "ZenUML isn't installed" and sent a
+ * user to Confluence admin to check an install that was fine — the resolver had
+ * in fact FOUND our custom content and merely had no macro node to learn the
+ * appId/environmentId from. The detail the resolver carries is appended, since
+ * it names which of the causes it was.
+ */
+export function identityFailureMessage(
+  reason: IdentityFailureReason,
+  detail: string | undefined,
+  suffix = '',
+): string {
+  const head =
+    reason === 'no_macro_on_site'
+      ? 'No ZenUML diagrams were found on that site.'
+      : reason === 'no_extension_node'
+        ? 'ZenUML is installed on that site, but none of the recent diagrams sampled sits on a page with a current ' +
+          '(Forge) ZenUML macro, and older Connect-era macros do not record the app environment a new macro needs. ' +
+          'This is not an installation problem: insert one diagram with ZenUML in Confluence, then retry.'
+        : reason === 'app_id_mismatch'
+          ? 'That site returned two conflicting ZenUML app identities, so it is not safe to write to it.'
+          : 'Could not reach Confluence to work out which ZenUML app that site runs. This is usually temporary.';
+  return `${head}${suffix}${detail ? ` (${detail})` : ''}`;
+}
 
 export interface HeadlessContext {
   store: GrantStore;
@@ -553,23 +584,28 @@ export async function callHeadlessTool(
       const limit = Math.min(Math.max(Number(args.limit) || 25, 1), 100);
       const get = await readerFor(ctx, cloudId);
 
-      const identity = await resolveMacroIdentity(get);
-      if (!identity.ok) {
-        throw new HeadlessToolError(
-          identity.reason === 'no_macro_on_site'
-            ? 'No ZenUML diagrams were found on that site.'
-            : 'Could not work out which ZenUML app that site runs.',
-          identity.reason === 'no_macro_on_site' ? 'not_found' : 'upstream',
-          identity.reason,
-        );
+      // Listing needs only the variant, which the custom-content type alone
+      // proves. It used to run the full identity resolve — a page sample
+      // hunting for an environmentId only a create needs — and so refused to
+      // list anything on zenuml.atlassian.net, whose sampled pages held only
+      // Connect-era macros (2026-10-05). A site can also run several variants
+      // at once; list them all.
+      const installed = await detectInstalledVariants(get);
+      if (installed.variants.length === 0) {
+        throw installed.probeError
+          ? new HeadlessToolError(
+              identityFailureMessage('probe_failed', installed.probeError),
+              'upstream',
+              'probe_failed',
+            )
+          : new HeadlessToolError(identityFailureMessage('no_macro_on_site', undefined), 'not_found', 'no_macro_on_site');
       }
 
       // Only OUR content types. A site's custom content is shared by every
       // app on it — an unfiltered listing on whimet4 came back full of
       // draw.io rows (2026-09-25) — and a caller asking for ZenUML diagrams
       // has no way to tell which of those are ours.
-      const profile = VARIANTS.find((v) => v.variant === identity.identity.variant)!;
-      const types = customContentTypesFor(profile);
+      const types = VARIANTS.filter((v) => installed.variants.includes(v.variant)).flatMap(customContentTypesFor);
       const pageId = typeof args.pageId === 'string' ? args.pageId : '';
 
       const rows: CustomContentRow[] = [];
@@ -584,7 +620,12 @@ export async function callHeadlessTool(
         }
       } else {
         for (const type of types) {
-          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}`);
+          // Newest first at the source: the default is oldest first, and the
+          // sort below only reorders what came back — so without this the tool
+          // returned each type's OLDEST `limit` rows as "most recent".
+          const res = await get(
+            `/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&sort=-modified-date`,
+          );
           // A 404 is Confluence saying this variant never wrote that type —
           // information, not a failure (the same rule macroIdentity applies).
           if (res.status === 404) continue;
@@ -599,7 +640,7 @@ export async function callHeadlessTool(
         .map(diagramRow)
         .sort((a, b) => (b.modifiedAt ?? '').localeCompare(a.modifiedAt ?? ''))
         .slice(0, limit);
-      return { cloudId, variant: identity.identity.variant, diagrams };
+      return { cloudId, variants: installed.variants, diagrams };
     }
 
     case 'read_diagram': {
@@ -761,7 +802,7 @@ export async function callHeadlessTool(
       const identity = await resolveMacroIdentity(get);
       if (!identity.ok) {
         throw new HeadlessToolError(
-          'Could not work out which ZenUML app that site runs, so the macro key cannot be built.',
+          identityFailureMessage(identity.reason, identity.detail, ' The macro key cannot be built without it.'),
           'upstream',
           identity.reason,
         );

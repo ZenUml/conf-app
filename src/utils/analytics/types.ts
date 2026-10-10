@@ -25,6 +25,9 @@ import type {
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
   AgentLinkOAuthRevokeReason,
+  AgentLinkOAuthRoute,
+  AgentLinkOAuthAtlassianReason,
+  AgentLinkAppViewFailure,
   AgentLinkOAuthChainRevokeReason,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
@@ -818,6 +821,8 @@ export type AnalyticsProperties = {
     | AgentLinkSessionSuspendReason
     | AgentLinkIdentityFailure
     | AgentLinkOAuthRevokeReason
+    | AgentLinkAppViewFailure
+    | AgentLinkOAuthAtlassianReason
     | AgentLinkOAuthChainRevokeReason;
   session_duration_ms?: number;
   edits_count?: number;
@@ -876,6 +881,10 @@ export type AnalyticsProperties = {
   // (agent_link_oauth_revoked) or an AgentLinkOAuthChainRevokeReason
   // (agent_link_oauth_chain_revoked).
   site_count?: number;
+  // Where an MCP /authorize was routed (agent_link_oauth_authorize_routed).
+  // When it is 'atlassian', the shared `reason` field carries an
+  // AgentLinkOAuthAtlassianReason.
+  oauth_route?: AgentLinkOAuthRoute;
   // X — headless writes (agent_link_diagram_created / _updated). The outcome
   // rides the shared `result` field above as an AgentLinkWriteResult.
   // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,

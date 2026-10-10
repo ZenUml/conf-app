@@ -59,6 +59,10 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "agent_link_oauth_authorized",
   "agent_link_oauth_refresh_failed",
   "agent_link_oauth_revoked",
+  "agent_link_oauth_authorize_routed",
+  "agent_link_app_view_requested",
+  "agent_link_app_view_failed",
+  "agent_link_mcp_initialized",
   // Our refresh-token chain revoked on reuse or a client mismatch
   // (oauth/authServer.ts handleToken).
   "agent_link_oauth_chain_revoked",

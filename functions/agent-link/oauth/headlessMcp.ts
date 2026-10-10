@@ -22,9 +22,12 @@ import {
   type HeadlessContext,
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
+import { readUiResource, uiCapability, uiResourceList, withUiMeta, UI_EXTENSION_ID } from './mcpApps';
 import type { GateEnv } from './headlessGate';
 import type { GrantEvent } from './tokenStore';
 import { mixpanelTrack } from '../../service/mixpanelService';
+import { loadClient, type McpTokenRecord } from './asStore';
+import type { GrantStore } from './tokenStore';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -139,6 +142,134 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
     ));
   } catch {
     // analytics must never fail a write that already happened
+  }
+}
+
+/**
+ * The host fetched the MCP Apps view — the only proof it did.
+ *
+ * Without this we cannot separate "this host never declared the extension" from
+ * "it negotiated and then did not render", and the second is a live upstream bug
+ * (modelcontextprotocol/ext-apps#671). Fire-and-forget on the same timeout as
+ * every other call here: a slow Mixpanel must not delay a view.
+ */
+/**
+ * MCP PROTOCOL revisions we can speak, newest first.
+ *
+ * These are revisions of the MCP protocol itself. '2026-01-26' was in this list
+ * and must never be again: that is the date of the MCP APPS EXTENSION spec, not
+ * a protocol revision, and because it sorted first every client that asked for
+ * anything unlisted was answered with it. A version string no client
+ * recognises fails the whole connection — Claude Desktop reported "zenuml
+ * returned an error when connecting" and 13 of 13 handshakes on 2026-10-03 were
+ * answered '2026-01-26' before this was caught.
+ *
+ * Keep protocol revisions and extension-spec dates apart. The extension version
+ * belongs in the capability payload (mcpApps.ts), never here.
+ */
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+
+function negotiateProtocolVersion(requested: unknown): string {
+  return typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+    ? requested
+    : SUPPORTED_PROTOCOL_VERSIONS[0];
+}
+
+/** Did the client advertise the MCP Apps extension in its initialize params? */
+export function clientDeclaresUi(params: unknown): boolean {
+  const ext = (params as { capabilities?: { extensions?: Record<string, unknown> } } | undefined)
+    ?.capabilities?.extensions;
+  return !!ext && Object.prototype.hasOwnProperty.call(ext, UI_EXTENSION_ID);
+}
+
+/**
+ * Record the handshake. This is a diagnostic, not a gate: we still attach
+ * `_meta.ui` whether or not the client advertised the extension, because a host
+ * that does not understand it ignores it.
+ */
+async function trackInitialize(
+  env: HeadlessEnv,
+  userId: string,
+  clientId: string,
+  params: unknown,
+  negotiated: string,
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  const info = (params as { clientInfo?: { name?: unknown; version?: unknown } } | undefined)?.clientInfo;
+  try {
+    await withTimeout(mixpanelTrack(
+      {
+        event: 'agent_link_mcp_initialized',
+        user_account_id: userId,
+        feature_area: 'agent_link',
+        surface: 'backend',
+        client_declares_ui: clientDeclaresUi(params),
+        protocol_version: negotiated,
+        mcp_client_name: typeof info?.name === 'string' ? info.name : 'unknown',
+        // The key the view events carry too, so a handshake and the view fetch
+        // it led to (or did not) can be joined per host.
+        oauth_client_id: clientId,
+      },
+      env.MIXPANEL_TOKEN,
+    ));
+  } catch {
+    // never fail a handshake for a metric
+  }
+}
+
+/** Long enough to name the cause, short enough that an event never carries a page of text. */
+const VIEW_DETAIL_MAX = 120;
+
+/**
+ * Which registered OAuth client — which host — this token was issued to.
+ *
+ * `resources/read` carries no `clientInfo`: the endpoint is stateless, and
+ * only `initialize` names the client. The token does know, though: every host
+ * registers its own client through DCR, and the registration keeps the
+ * `client_name` it sent. One KV read, made only on a view fetch, which is rare.
+ * A failed lookup costs the name, never the event.
+ */
+async function clientNameFor(store: GrantStore, clientId: string): Promise<string> {
+  try {
+    const client = await loadClient(store, clientId);
+    return typeof client?.clientName === 'string' && client.clientName ? client.clientName.slice(0, 80) : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function trackViewRead(
+  env: HeadlessEnv,
+  store: GrantStore,
+  token: McpTokenRecord,
+  outcome: { ok: true } | { ok: false; reason: string; detail?: string },
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  try {
+    await withTimeout(mixpanelTrack(
+      {
+        event: outcome.ok ? 'agent_link_app_view_requested' : 'agent_link_app_view_failed',
+        user_account_id: token.userId,
+        feature_area: 'agent_link',
+        surface: 'backend',
+        // Which host asked. Without it the 2026-09-29 failures could only be
+        // attributed by lining their hour up against git history.
+        oauth_client_id: token.clientId,
+        oauth_client_name: await clientNameFor(store, token.clientId),
+        // `detail` names the cause: the URI asked for on unknown_uri, the
+        // guard's message or upstream status on fetch_failed. `reason` alone
+        // said only which of two buckets, which left the 09-29 burst a guess.
+        ...(outcome.ok
+          ? {}
+          : {
+              reason: outcome.reason,
+              ...(outcome.detail ? { detail: outcome.detail.slice(0, VIEW_DETAIL_MAX) } : {}),
+            }),
+      },
+      env.MIXPANEL_TOKEN,
+    ));
+  } catch {
+    // never fail a view for a metric
   }
 }
 
@@ -264,17 +395,60 @@ export async function handleHeadlessRpc(
   };
 
   switch (body.method) {
-    case 'initialize':
+    case 'initialize': {
+      const negotiated = negotiateProtocolVersion(
+        (body.params as { protocolVersion?: unknown } | undefined)?.protocolVersion,
+      );
+      await trackInitialize(env, auth.token.userId, auth.token.clientId, body.params, negotiated);
       return result(id, {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
+        protocolVersion: negotiated,
+        // `resources` exists solely to serve the MCP Apps view, so the two are
+        // declared together. See mcpApps.ts on why this is unconditional.
+        capabilities: { tools: {}, resources: {}, extensions: uiCapability() },
         serverInfo: { name: 'conf-agent-link-headless', version: '0.1.0' },
         instructions:
           'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. Edits publish one version each, so page history can revert them.',
       });
+    }
 
     case 'tools/list':
-      return result(id, { tools: HEADLESS_TOOLS });
+      // Attached per request rather than baked into HEADLESS_TOOLS, because the
+      // csp origin is this deploy's own and staging must not advertise prod's.
+      return result(id, { tools: withUiMeta(HEADLESS_TOOLS, new URL(request.url).origin) });
+
+    case 'resources/list':
+      return result(id, { resources: uiResourceList(new URL(request.url).origin) });
+
+    case 'resources/read': {
+      const rparams = (body.params ?? {}) as { uri?: unknown };
+      // The injected fetch, like every other outbound call here — otherwise
+      // this branch is the one thing in the module a test cannot stub.
+      const read = await readUiResource(rparams.uri, new URL(request.url).origin, (u) => fetchImpl(u));
+      await trackViewRead(
+        env,
+        store,
+        auth.token,
+        read.ok ? { ok: true } : { ok: false, reason: read.reason, detail: read.detail },
+      );
+      if (!read.ok) {
+        // 'unknown_uri' is the client's mistake; 'fetch_failed' is ours, and
+        // saying which saves an hour of looking in the wrong place.
+        //
+        // NOT 502 for the second one, however true it feels: Cloudflare
+        // replaces a 502 from a Pages Function with its own plain-text error
+        // page, so the JSON-RPC body — the only thing carrying `reason` and
+        // `detail` — never reaches the client. Verified on staging
+        // 2026-09-29: the client saw `error code: 502`, 16 bytes, and nothing
+        // else. A resource the server cannot assemble is reported the way
+        // every other server-side tool failure here is, as a JSON-RPC error
+        // inside a 200.
+        const code = read.reason === 'unknown_uri' ? RPC_INVALID_PARAMS : RPC_TOOL_ERROR;
+        return error(read.reason === 'unknown_uri' ? 400 : 200, id, code, read.reason, {
+          data: { reason: read.reason, detail: read.detail },
+        });
+      }
+      return result(id, { contents: read.contents });
+    }
 
     case 'tools/call': {
       const params = (body.params ?? {}) as { name?: unknown; arguments?: unknown };

@@ -279,28 +279,86 @@ function parsePageAdf(body: unknown): unknown | null {
   }
 }
 
-/** How many custom-content hits to follow to a page before giving up. */
-const MAX_PAGES_SAMPLED = 3;
+/** How many custom-content rows one probe asks for, newest first. */
+const PROBE_ROWS = 25;
+
+/** How many distinct pages to follow per custom-content type before giving up. */
+const MAX_PAGES_SAMPLED = 5;
+
+/**
+ * One custom-content probe, newest first.
+ *
+ * NEWEST FIRST IS THE FIX, not a nicety. Confluence's default order is oldest
+ * first, and on a site that predates the Connect→Forge migration the oldest
+ * diagrams sit on pages whose macros were saved by the Connect app:
+ * `extensionType: com.atlassian.confluence.macro.core`, `extensionKey:
+ * zenuml-sequence-macro-lite` — no appId, no environmentId, nothing to lift.
+ * Forge still renders them, so the pages look fine, but every sample came back
+ * unparseable and zenuml.atlassian.net refused with no_extension_node despite
+ * 1,000+ pages of macros (2026-10-05). Recent content is written by the Forge
+ * app and carries the `<appId>/<environmentId>/static/` key we need.
+ */
+function probePath(type: string): string {
+  return (
+    `/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}` +
+    `&limit=${PROBE_ROWS}&sort=-created-date`
+  );
+}
+
+/**
+ * Which variants have ZenUML custom content on the site behind `get`.
+ *
+ * Enough for anything that reads: the custom-content type alone fixes the
+ * variant. Only a create needs the environmentId, which is what
+ * `resolveMacroIdentity` goes on to find — so a read-only caller must not be
+ * blocked on a page sample it does not need. A site can carry several
+ * variants at once (zenuml.atlassian.net runs all four), so this returns every
+ * one that answers, in VARIANTS order.
+ */
+export async function detectInstalledVariants(
+  get: ConfluenceGet,
+): Promise<{ variants: Variant[]; probeError?: string }> {
+  const variants: Variant[] = [];
+  let probeError: string | undefined;
+
+  for (const profile of VARIANTS) {
+    for (const type of customContentTypesFor(profile)) {
+      const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=1`);
+      if (res.status === 404) continue;
+      if (res.status < 200 || res.status >= 300) {
+        probeError = `custom-content probe for ${type} returned ${res.status}`;
+        continue;
+      }
+      const results = (res.body as { results?: unknown })?.results;
+      if (Array.isArray(results) && results.length > 0) {
+        variants.push(profile.variant);
+        break;
+      }
+    }
+  }
+  return { variants, probeError };
+}
 
 /**
  * Resolve {appId, environmentId, variant} for the site behind `get`.
  *
- * Probes each variant's custom-content types in turn; the first that yields a
- * hit fixes the variant. Then follows up to MAX_PAGES_SAMPLED of those hits to
- * their container pages, looking for an extension node we can parse. The
- * sampling bound matters because orphaned custom content is a real state in
- * this codebase (ZEN-1170): the first hit may have no macro referencing it at
- * all, and one dead sample must not condemn the whole site.
+ * Probes each variant's custom-content types in turn, newest first (see
+ * probePath). Then follows up to MAX_PAGES_SAMPLED distinct pages per type,
+ * looking for a Forge macro node written by THAT variant. The sampling bound
+ * matters because orphaned custom content is a real state in this codebase
+ * (ZEN-1170), and because legacy Connect-format nodes carry no identity: one
+ * dead sample must not condemn the whole site.
  */
 export async function resolveMacroIdentity(get: ConfluenceGet): Promise<IdentityResult> {
-  let sawAnyContent = false;
+  let contentSeen = 0;
+  let pagesSampled = 0;
+  let legacyNodes = 0;
+  let foreignNodes = 0;
   let lastProbeError: string | undefined;
 
   for (const profile of VARIANTS) {
     for (const type of customContentTypesFor(profile)) {
-      const res = await get(
-        `/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${MAX_PAGES_SAMPLED}`,
-      );
+      const res = await get(probePath(type));
 
       // A 404 on an unknown type is Confluence saying "not this variant", which
       // is information, not a failure. Anything else non-2xx is a real problem
@@ -313,9 +371,17 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
 
       const hits = readCustomContentHits(res.body);
       if (hits.length === 0) continue;
-      sawAnyContent = true;
+      contentSeen += hits.length;
 
-      for (const hit of hits.slice(0, MAX_PAGES_SAMPLED)) {
+      // Many diagrams share a page; fetching it once per diagram would spend
+      // the sample on one page.
+      const seenPages = new Set<string>();
+      for (const hit of hits) {
+        if (seenPages.has(hit.pageId)) continue;
+        if (seenPages.size >= MAX_PAGES_SAMPLED) break;
+        seenPages.add(hit.pageId);
+        pagesSampled += 1;
+
         const pageRes = await get(
           `/wiki/api/v2/pages/${encodeURIComponent(hit.pageId)}?body-format=atlas_doc_format`,
         );
@@ -328,23 +394,35 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
         if (adf === null) continue;
 
         const nodes = extensionNodesIn(adf);
-        // Prefer the node that names this exact custom content; fall back to
-        // any parseable node on the page, since every macro on a page rendered
-        // by one install carries the same appId/environmentId.
+
+        // THE CROSS-CHECK, on the one node that names this custom content: it
+        // was written by the install that wrote the content, so its appId must
+        // be the one the type implies. Disagreement means our assumptions are
+        // wrong, not the page — refuse (file header).
         const exact = nodes.find((n) => n.customContentId === hit.contentId);
+        const exactKey = exact ? parseExtensionKey(exact.extensionKey) : null;
+        if (exactKey && exactKey.appId !== profile.appId) {
+          return {
+            ok: false,
+            reason: 'app_id_mismatch',
+            detail: `custom-content type implies ${profile.variant} (${profile.appId}) but extensionKey names ${exactKey.appId}`,
+          };
+        }
+
+        // Any other node on the page may belong to a different ZenUML app —
+        // pages mix them on sites that run several variants — so a foreign
+        // appId there is skipped, not a mismatch. Only this variant's own
+        // nodes can tell us its environmentId.
         for (const node of exact ? [exact, ...nodes] : nodes) {
           const parsed = parseExtensionKey(node.extensionKey);
-          if (!parsed) continue;
-
-          if (parsed.appId !== profile.appId) {
-            // Two independent signals disagree. See the file header: refuse.
-            return {
-              ok: false,
-              reason: 'app_id_mismatch',
-              detail: `custom-content type implies ${profile.variant} (${profile.appId}) but extensionKey names ${parsed.appId}`,
-            };
+          if (!parsed) {
+            legacyNodes += 1;
+            continue;
           }
-
+          if (parsed.appId !== profile.appId) {
+            foreignNodes += 1;
+            continue;
+          }
           return {
             ok: true,
             source: 'discovered',
@@ -359,17 +437,29 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
     }
   }
 
-  if (sawAnyContent) {
+  if (contentSeen > 0) {
+    // The app IS on this site — custom content was found. What is missing is a
+    // Forge macro node to lift <appId>/<environmentId>/static/ from. Saying
+    // "cannot work out which app" here sent a user to Confluence admin to check
+    // an install that was fine (2026-10-03). Carry what we saw, including any
+    // probe error, so the caller can say something true.
+    const seen: string[] = [];
+    if (legacyNodes > 0) seen.push(`${legacyNodes} legacy Connect-format macro node(s)`);
+    if (foreignNodes > 0) seen.push(`${foreignNodes} macro node(s) from other ZenUML apps`);
     return {
       ok: false,
       reason: 'no_extension_node',
-      detail: lastProbeError ?? 'custom content exists but no page referenced it with a macro node',
+      detail:
+        `found ${contentSeen} ZenUML custom content item(s) but no Forge macro node for that app on the ` +
+        `${pagesSampled} page(s) sampled` +
+        (seen.length ? ` (saw ${seen.join(' and ')})` : '') +
+        (lastProbeError ? `; last probe issue: ${lastProbeError}` : ''),
     };
   }
   if (lastProbeError) {
     return { ok: false, reason: 'probe_failed', detail: lastProbeError };
   }
-  return { ok: false, reason: 'no_macro_on_site' };
+  return { ok: false, reason: 'no_macro_on_site', detail: 'no ZenUML custom content found on this site' };
 }
 
 // ---------------------------------------------------------------------------

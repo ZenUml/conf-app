@@ -23,7 +23,7 @@
  *   npx playwright test tests/viewer-preview-continue-editing.spec.ts --project=preview
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from '../fixtures/mixpanel-test.js'
 import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('editor-preview.html')

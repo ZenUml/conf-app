@@ -10,7 +10,7 @@
 //   - Versions:   logs version metadata to console (Forge UX is intentionally
 //                 console-only — see ViewerActionsHelper)
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';
 import {

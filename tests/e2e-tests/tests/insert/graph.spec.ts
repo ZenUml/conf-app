@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { createPageAndSetup, publishAndVerifyMacros, moveToPvt } from './insert-helpers.js';
 

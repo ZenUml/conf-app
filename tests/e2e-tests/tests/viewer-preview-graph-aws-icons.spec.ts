@@ -23,7 +23,7 @@
  *   npx playwright test tests/viewer-preview-graph-aws-icons.spec.ts --project=preview
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures/mixpanel-test.js';
 import { localDevUrl } from '../helpers/localDevUrl';
 
 const URL = localDevUrl('index.html?sandbox=graph-view&outputType=display');

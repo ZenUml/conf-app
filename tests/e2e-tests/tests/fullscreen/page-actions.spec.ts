@@ -6,7 +6,7 @@
 // `data-testid="close-button"`. The fullscreen modal X is per-macro chrome
 // that only renders while a modal is open, so it doesn't count here.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';
 import { dispatchSyntheticBeforeunloadOnPage } from '../../helpers/CloseGuardHelper.js';

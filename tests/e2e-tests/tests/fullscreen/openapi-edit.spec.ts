@@ -1,6 +1,6 @@
 // openapi-edit:0..4 — Edit flow for an existing OpenAPI / Swagger macro.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,

@@ -16,7 +16,7 @@
  * The relay request carries the source app's extension ID, and its response
  * carries the inner remote HTTP status.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { isSuccessfulForgeRelay, isTargetFirstSeenRelay } from '../../helpers/forgeRelay.js';
 

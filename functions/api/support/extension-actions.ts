@@ -85,7 +85,7 @@ function emitEvent(
       extension_days: action === 'initial' ? 7 : 60,
       ...properties,
     },
-  }], env.MIXPANEL_TOKEN).catch((error) => {
+  }], env.MIXPANEL_TOKEN, { runtime: env }).catch((error) => {
     console.warn('[extension-action] Mixpanel delivery failed', {
       event,
       reason: error instanceof Error ? error.name : 'unknown_error',

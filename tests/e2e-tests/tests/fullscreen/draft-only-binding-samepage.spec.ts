@@ -27,7 +27,7 @@
 //   # grab SAMEPAGE_PAGE_ID from output, deploy FIXED build, then:
 //   REPRO_PAGE_ID=<id> APP=zenuml-lite@dev npx playwright test --project=fullscreen draft-only-binding-samepage
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import {

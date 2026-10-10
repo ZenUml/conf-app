@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { createPageAndSetup, moveToPvt } from './insert-helpers.js';
 import { MacroPage } from '../../pages/MacroPage.js';

@@ -37,6 +37,16 @@ export interface MixpanelServiceEvent {
 export interface MixpanelServiceImportOptions {
   /** Bound each Import request. Defaults conservatively below API limits. */
   batchSize?: number;
+  /** Verified Cloudflare runtime bindings; suppression applies only on staging. */
+  runtime?: unknown;
+}
+
+/** The disabled flag is effective only on a Pages deployment configured for staging. */
+export function isMixpanelDisabled(runtime: unknown): boolean {
+  if (!runtime || typeof runtime !== 'object') return false;
+  const env = runtime as Record<string, unknown>;
+  return env.MIXPANEL_DISABLED === 'true'
+    && env.EXPECTED_FORGE_ENVIRONMENT_TYPE === 'STAGING';
 }
 
 const DEFAULT_SERVICE_BATCH_SIZE = 500;
@@ -78,7 +88,8 @@ function getDistinctId(event: MixpanelTrackPayload): string {
   return event.user_account_id || event.atlassian_user_id || "unknown_user_account_id";
 }
 
-export async function mixpanelTrack(event: MixpanelTrackPayload, token: string) {
+export async function mixpanelTrack(event: MixpanelTrackPayload, token: string, runtime?: unknown) {
+  if (isMixpanelDisabled(runtime)) return;
   const distinctId = getDistinctId(event);
 
   if (distinctId !== "unknown_user_account_id") {
@@ -161,6 +172,7 @@ export async function mixpanelImportServiceEvents(
   token: string,
   options: MixpanelServiceImportOptions = {},
 ): Promise<void> {
+  if (isMixpanelDisabled(options.runtime)) return;
   if (events.length === 0) return;
   if (!token) throw new Error("Mixpanel token is required");
 

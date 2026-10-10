@@ -9,7 +9,7 @@
 // — assert the dispatch RAN, but don't fail if the result is true. The
 // dirty-after-edit case (:6) is the firm signal.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,

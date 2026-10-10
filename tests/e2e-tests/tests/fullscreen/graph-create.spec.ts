@@ -8,7 +8,7 @@
 // The dirty signal for DrawIO is also iframe-scoped (autosave message
 // dispatched on the OUTER editor frame's window — see CloseGuardHelper).
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,

@@ -287,25 +287,63 @@ function requestFor(ctx: HeadlessContext, cloudId: string): ConfluenceRequest {
 }
 
 /**
- * The stored diagram body: `{title, code, diagramType}` JSON in a `raw` body.
+ * Which field of the stored body holds the source for `diagramType`.
+ *
+ * Mirrors getDiagramData in src/model/Diagram/DiagramTypeConfig.ts — the one
+ * the viewer renders from — duplicated for the same Worker reason as
+ * DIAGRAM_TYPE_BY_FOLDED below. Only sequence and the API specs live in
+ * `code`. The first headless version wrote every type there, so a mermaid
+ * diagram it created rendered as the empty "Start with Mermaid" state while
+ * read_diagram, which read `code` too, showed the source as if all was well
+ * (zenuml.atlassian.net, 2026-10-10).
+ */
+export function sourceFieldFor(diagramType: string | undefined, raw: Record<string, unknown> = {}): string {
+  switch (diagramType) {
+    case 'mermaid':
+      return 'mermaidCode';
+    case 'markdown':
+      return 'markdownCode';
+    case 'plantuml':
+      return 'plantUmlCode';
+    case 'graph':
+      // A Board macro publishes boardGraphXml; legacy Board records without
+      // that field still publish graphXml.
+      return raw.graphEditorMode === 'board' && raw.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml';
+    default:
+      return 'code';
+  }
+}
+
+/**
+ * The stored diagram body: JSON in a `raw` body carrying `title`,
+ * `diagramType`, and the source under the field sourceFieldFor names.
  *
  * Tolerant on purpose. Older records and other variants have carried extra
  * fields, and an update must preserve whatever it did not set rather than
  * rewrite the record to this module's idea of the shape.
  */
-function parseStoredDiagram(value: unknown): { raw: Record<string, unknown>; code?: string; diagramType?: string } {
-  if (typeof value !== 'string') return { raw: {} };
+function parseStoredDiagram(value: unknown): {
+  raw: Record<string, unknown>;
+  code?: string;
+  diagramType?: string;
+  field: string;
+} {
+  if (typeof value !== 'string') return { raw: {}, field: 'code' };
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
-    return {
-      raw: parsed,
-      code: typeof parsed.code === 'string' ? parsed.code : undefined,
-      diagramType: typeof parsed.diagramType === 'string' ? parsed.diagramType : undefined,
-    };
+    const diagramType = typeof parsed.diagramType === 'string' ? parsed.diagramType : undefined;
+    const field = sourceFieldFor(diagramType, parsed);
+    // A record the first headless version wrote has the source in `code` and
+    // no type field at all. An app-written record has the type field (maybe
+    // empty) and a stale sample in `code`, so fall back only when it is absent.
+    const fromField = parsed[field];
+    const fromCode = field !== 'code' && fromField === undefined ? parsed.code : undefined;
+    const code = typeof fromField === 'string' ? fromField : typeof fromCode === 'string' ? fromCode : undefined;
+    return { raw: parsed, code, diagramType, field };
   } catch {
     // Not JSON: treat the whole value as the source, which is what the
     // earliest records were.
-    return { raw: {}, code: value };
+    return { raw: {}, code: value, field: 'code' };
   }
 }
 
@@ -636,8 +674,7 @@ export async function callHeadlessTool(
         // (ADR 0003's context: a stale version is a 400, not a silent
         // overwrite). Surfaced now so a reader can see what it would send.
         version: typeof body.version?.number === 'number' ? body.version.number : undefined,
-        // The DSL itself, unwrapped from the stored `{title, code, diagramType}`
-        // envelope, so what an agent reads is what update_diagram takes back.
+        // The DSL itself, unwrapped from the stored envelope, so what an agent reads is what update_diagram takes back.
         // Returning the raw envelope made the obvious "read, edit, write back"
         // loop fail the parse guard: the agent edited JSON, not DSL.
         diagramType: stored.diagramType,
@@ -699,7 +736,7 @@ export async function callHeadlessTool(
       }
 
       const versionNumber = Number(current.version?.number);
-      const nextBody = { ...stored.raw, code: dsl };
+      const nextBody = { ...stored.raw, [stored.field]: dsl };
       const write = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}`, {
         method: 'PUT',
         body: {
@@ -836,7 +873,7 @@ export async function callHeadlessTool(
           type: customContentTypeFor(identity.identity, storedType),
           title,
           pageId,
-          body: { value: JSON.stringify({ title, code: dsl, diagramType: storedType }), representation: 'raw' },
+          body: { value: JSON.stringify({ title, diagramType: storedType, [sourceFieldFor(storedType)]: dsl }), representation: 'raw' },
         },
       });
       if (created.status === 403) throw new HeadlessToolError('You do not have permission to create content here.', 'forbidden');

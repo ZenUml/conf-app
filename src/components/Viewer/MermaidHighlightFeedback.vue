@@ -6,7 +6,7 @@
     role="group" aria-label="Relationship highlight feedback"
     @mouseenter="paused = true" @mouseleave="paused = false" @focusin="paused = true" @focusout="paused = false">
     <template v-if="stage === 'question'">
-      <span class="label">Relationship highlights helpful?</span>
+      <span class="label">Highlights helpful?</span>
       <button type="button" @click="choose('like')">Yes</button>
       <button type="button" @click="choose('dislike')">No</button>
     </template>
@@ -14,7 +14,7 @@
       <span class="label">Why?</span>
       <button v-for="reason in reasons" :key="reason.id" type="button" @click="chooseReason(reason.id)">{{ reason.label }}</button>
     </template>
-    <span v-else class="label" role="status">Thanks for your feedback</span>
+    <span v-else class="label" role="status">Thanks</span>
     <button v-if="stage !== 'thanks'" type="button" class="close" aria-label="Dismiss relationship highlight feedback" @click="dismiss('close')">×</button>
     <span v-if="stage === 'question'" class="countdown" :style="{ width: `${(left / AUTO_DISMISS_MS) * 100}%` }" aria-hidden="true" />
   </div>

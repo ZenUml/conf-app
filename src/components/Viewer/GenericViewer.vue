@@ -16,7 +16,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen || copyForAiMenuOpen}" :data-stage="isFullscreenMode ? null : headerStage">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen || copyForAiMenuOpen, 'viewer-frame--connect-mcp': showConnectMcpDialog}" :data-stage="isFullscreenMode ? null : headerStage">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -151,7 +151,7 @@
                    differs by job. Same gate as View Source (text-DSL types
                    only) — not restricted by edit permission or fullscreen,
                    mirroring that button's audience. -->
-              <div v-if="showViewSource" class="copy-for-ai-split viewer-act-copy">
+              <div v-if="showViewSource && !showAgentLinkConnect && copyForAiSlotSettled" class="copy-for-ai-split viewer-act-copy">
                 <button
                   type="button"
                   class="viewer-btn-ghost copy-for-ai-split-primary"
@@ -228,8 +228,30 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
+              <!-- Connect MCP (agent-link flag on, agent-editable types, inline
+                   only) takes the Copy for AI slot and opens ConnectMcpDialog
+                   with the headless MCP setup and a prompt naming this diagram.
+                   Stage 3 moves it into More, as it does Copy for AI. -->
+              <button
+                v-if="showAgentLinkConnect"
+                type="button"
+                class="viewer-btn-ghost viewer-act-connect-mcp"
+                aria-label="Connect MCP"
+                title="Connect MCP"
+                data-testid="connect-mcp-btn"
+                aria-haspopup="dialog"
+                :aria-expanded="showConnectMcpDialog ? 'true' : 'false'"
+                @click="openConnectMcpDialog('toolbar')"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
+                </svg>
+                <!-- Visible "MCP" next to the icon, even inline where Source and
+                     Copy for AI are icon-only: the mark alone is not yet widely
+                     recognised. aria-label keeps the full "Connect MCP". -->
+                <span class="viewer-act-connect-mcp-label" aria-hidden="true">MCP</span>
+              </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
-              <ConnectButton v-if="showAgentLinkConnect" class="viewer-act-connect" @connect="connectToAgent" />
               <!-- Fullscreen: the actions the inline macro keeps in More are
                    header buttons here (labels by viewport width, see CSS). -->
               <template v-if="isFullscreenMode">
@@ -490,6 +512,16 @@
           @close="showSourcePanel = false"
           @copy="onViewSourceCopied"
         />
+        <ConnectMcpDialog
+          v-if="showAgentLinkConnect"
+          :visible="showConnectMcpDialog"
+          :diagram-title="title"
+          :cloud-id="connectMcpTarget.cloudId"
+          :page-id="connectMcpTarget.pageId"
+          :content-id="connectMcpTarget.contentId"
+          @close="closeConnectMcpDialog"
+          @copy="onConnectMcpCopied"
+        />
       </div>
     </template>
 
@@ -527,7 +559,8 @@ import { buildCopyForAiPrompt } from '@/utils/copyForAi/buildCopyForAiPrompt'
 import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
-import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
+import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
+import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -589,11 +622,15 @@ const ICON_PATHS = {
   download: 'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3',
   clock: 'M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   link: 'M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244',
+  // Official Model Context Protocol mark, as its three stroke centerlines
+  // scaled to this 24px grid so it takes the same stroke weight as the rest.
+  mcp: 'M2.05 11.25L11.49 1.81C12.79 0.51 14.91 0.51 16.21 1.81C17.51 3.11 17.51 5.23 16.21 6.53L9.08 13.66M9.18 13.56L16.21 6.53C17.51 5.23 19.63 5.23 20.93 6.53L20.98 6.58C22.28 7.88 22.28 10 20.98 11.3L12.44 19.84C12.01 20.27 12.01 20.98 12.44 21.41L14.19 23.17M13.85 4.17L6.87 11.15C5.56 12.46 5.56 14.57 6.87 15.87C8.17 17.18 10.28 17.18 11.59 15.87L18.57 8.89',
   bug: 'M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25',
 };
 const MORE_MENU_META = {
   'source': { label: 'Source', icon: ICON_PATHS.code },
   'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
+  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.mcp },
   'copy-diagram-link': { label: 'Copy diagram link', icon: ICON_PATHS.share },
   'copy-page-link': { label: 'Copy page link', icon: ICON_PATHS.link },
   'export-png': { label: 'Export PNG', icon: ICON_PATHS.download },
@@ -643,6 +680,11 @@ export default {
     copyForAiAnnouncement: '',
     copyForAiRevertTimer: null,
     copyForAiImpressionTracked: false,
+    // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
+    showConnectMcpDialog: false,
+    connectMcpOpenedAt: 0,
+    // Set once isAgentLinkEnabled() settles either way (see copyForAiSlotSettled).
+    agentLinkFlagResolved: false,
     copyForAiPermissionResolved: false,
     // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
     // master flag, resolved async in mounted(). Defaults false so the flag
@@ -693,7 +735,7 @@ export default {
     CopyForAiMenu,
     DiagramViewport,
     ViewSourcePanel,
-    ConnectButton,
+    ConnectMcpDialog,
     ConnectPanel,
     LinkStatusChip,
     LiveBadge,
@@ -747,6 +789,7 @@ export default {
       return moreMenuItems({
         stage: this.headerStage,
         hasSource: this.showViewSource,
+        connectMcp: this.showAgentLinkConnect,
         isCustomContent: this.isCustomContent,
         hasDeeplinkHost: !!this.deeplinkHost,
         fullscreen: this.isFullscreenMode,
@@ -893,7 +936,9 @@ export default {
         && this.isDisplayMode
         && !this.hideHeader
         && !this.isLoadFailed
-        && this.showViewSource;
+        && this.showViewSource
+        && this.copyForAiSlotSettled
+        && !this.showAgentLinkConnect;
     },
     // Fullscreen-only diagram-type indicator (Fullscreen Viewer v2). Fullscreen
     // drops Edit and Fullscreen from the action row and the Confluence modal
@@ -966,6 +1011,27 @@ export default {
     showAgentLinkConnect() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
     },
+    // The Copy for AI slot renders only once it is known not to be Connect
+    // MCP's: on an inline agent-editable macro that waits for the async flag,
+    // so Copy for AI never flashes and then swaps out. Fullscreen and the other
+    // text types never show Connect MCP, so they need not wait.
+    copyForAiSlotSettled() {
+      return this.agentLinkFlagResolved || this.isFullscreenMode || !this.agentLinkMvpSupported;
+    },
+    connectMcpIcon() {
+      return ICON_PATHS.mcp;
+    },
+    // The ids the headless tools take (read_diagram / update_diagram), so the
+    // prompt sends the agent straight to this diagram. All synchronous: the
+    // Forge context is populated during app boot.
+    connectMcpTarget() {
+      const ctx = window.forgeGlobal?.forgeContext ?? {};
+      return {
+        cloudId: ctx.cloudId ?? '',
+        pageId: this.currentPageId ? String(this.currentPageId) : '',
+        contentId: getForgeCustomContentId() ?? this.diagram?.id ?? '',
+      };
+    },
     createGuideVariant() {
       return createGuideVariant(this.diagramType);
     },
@@ -986,11 +1052,11 @@ export default {
     },
     // Collapsed (non-fullscreen) "● live" indicator (design §3 decision #8).
     showAgentLinkBadge() {
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+      return RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
     },
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+      return RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
     },
     // The fullscreen column is capped at 1000px so the byline under the diagram keeps a
     // readable line length. That reasoning is about TEXT, so it holds for the types whose
@@ -1244,6 +1310,8 @@ export default {
     } catch (e) {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
+    } finally {
+      this.agentLinkFlagResolved = true;
     }
     try {
       this.architectureTokensEnabled = await isArchitectureTokensEnabled();
@@ -1258,7 +1326,7 @@ export default {
     // so the write-scope guard (only the bound contentId) still applies.
     // Standalone/dev/no-context keeps the unwired placeholder, which fails
     // loudly instead of silently doing nothing (see bridgeOps.ts).
-    if (this.agentLinkFeatureEnabled && globals.apWrapper) {
+    if (RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && globals.apWrapper) {
       const bridge = createForgeAgentLinkBridge({ apWrapper: globals.apWrapper });
       // Relay wiring (design §4.3): only in a real Forge runtime — cloudId
       // has no standalone-context equivalent (getStandaloneContext() never
@@ -1711,6 +1779,10 @@ export default {
     onEscapeKeydown(e) {
       if (e.key !== 'Escape') return;
       if (this.$refs.copyForAiMenu?.open || this.$refs.moreMenu?.open) return;
+      if (this.showConnectMcpDialog) {
+        this.closeConnectMcpDialog();
+        return;
+      }
       if (!this.showSourcePanel) return;
       this.showSourcePanel = false;
     },
@@ -1814,6 +1886,7 @@ export default {
       switch (item) {
         case 'source': close(); this.openViewSource(where); return;
         case 'copy-for-ai': this.copyForAi('generic', where); close(); return;
+        case 'connect-mcp': close(); this.openConnectMcpDialog(where); return;
         case 'copy-diagram-link': this.copyDeeplink(where); close(); return;
         case 'copy-page-link': this.copyLink(where); close(); return;
         case 'export-png': close(); this.openExport(where); return;
@@ -1979,9 +2052,37 @@ export default {
     // this mount's own hydrateFrom() call above — see that file's header
     // comment for the fix and its same-origin assumption; see
     // docs/superpowers/specs/2026-07-08-live-agent-link-design.md §4.3.
-    connectToAgent() {
-      this.agentLinkSession?.startConnect();
-      this.fullscreen();
+    // Connect MCP (headless only in the first release — see
+    // connectInstructions.ts RELAY_SESSIONS_ENABLED): nothing to mint, so the
+    // dialog only shows the setup command and a prompt naming this diagram.
+    connectMcpAnalytics(extra = {}) {
+      return {
+        feature_area: 'agent_link',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        mcp_mode: 'headless',
+        ...extra,
+      };
+    },
+    openConnectMcpDialog(where = 'toolbar') {
+      if (this.showConnectMcpDialog) return;
+      this.showConnectMcpDialog = true;
+      this.connectMcpOpenedAt = Date.now();
+      trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics(
+        where === 'header_more_menu' ? { action_location: where } : {}));
+    },
+    closeConnectMcpDialog() {
+      if (!this.showConnectMcpDialog) return;
+      this.showConnectMcpDialog = false;
+      trackAnalyticsEvent('agent_link_mcp_dialog_closed', this.connectMcpAnalytics({
+        dwell_ms: Date.now() - this.connectMcpOpenedAt,
+      }));
+    },
+    onConnectMcpCopied(target, ok) {
+      trackAnalyticsEvent('agent_link_mcp_dialog_copied', this.connectMcpAnalytics({
+        mcp_copy_target: target,
+        outcome: ok ? 'copied' : 'clipboard_failed',
+      }));
     },
     onAgentLinkDisconnect() {
       this.agentLinkSession?.disconnect('user');
@@ -2442,6 +2543,10 @@ export default {
    frame's top corners (its own radius below). */
 .viewer-frame--menu-open { overflow: visible; }
 .viewer-frame--wide { width: 100%; }
+/* Connect MCP dialog open (inline): the dialog overlays .viewer-frame, so give
+   the frame room for it. Inline autoResize then grows the Forge iframe; the
+   frame shrinks back when the dialog closes. */
+.viewer-frame--connect-mcp { min-height: 540px; min-width: min(540px, 100%); }
 
 /* Fullscreen modal gets the whole browser viewport (Forge's autoResize is
    disabled there — see forgeIndex.ts), but .viewer-frame itself has no height
@@ -3016,6 +3121,7 @@ export default {
   color: #6B7280;
 }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source:hover,
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp:hover,
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
@@ -3024,6 +3130,14 @@ export default {
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell > span:only-child { padding: 0 6px; }
 .copy-for-ai-split-primary[data-copy-state="copied"] .viewer-icon { color: #36B37E; }
+/* Connect MCP keeps a short "MCP" label beside its icon (it moves into More
+   at stage 3, like Copy for AI). */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp {
+  gap: 4px;
+  padding: 0 8px 0 6px;
+  color: #6B7280;
+}
+.viewer-act-connect-mcp-label { font-size: 12px; font-weight: 500; }
 
 /* Staged collapse (data-stage on .viewer-frame, set by updateHeaderStage).
    1: Edit + Refined → icon. 2: Fullscreen → icon. 3: Source + Copy for AI
@@ -3035,9 +3149,6 @@ export default {
 .viewer-frame[data-stage="1"] .viewer-refined-toggle .viewer-btn-label,
 .viewer-frame[data-stage="2"] .viewer-refined-toggle .viewer-btn-label,
 .viewer-frame[data-stage="3"] .viewer-refined-toggle .viewer-btn-label,
-.viewer-frame[data-stage="1"] .viewer-act-connect :deep(.agent-link-connect-btn__label),
-.viewer-frame[data-stage="2"] .viewer-act-connect :deep(.agent-link-connect-btn__label),
-.viewer-frame[data-stage="3"] .viewer-act-connect :deep(.agent-link-connect-btn__label),
 .viewer-frame[data-stage="2"] .viewer-act-fullscreen .viewer-btn-label,
 .viewer-frame[data-stage="3"] .viewer-act-fullscreen .viewer-btn-label { display: none; }
 .viewer-frame[data-stage="1"] .viewer-act-edit,
@@ -3049,6 +3160,7 @@ export default {
 .viewer-frame[data-stage="2"] .viewer-refined-toggle,
 .viewer-frame[data-stage="3"] .viewer-refined-toggle { padding: 0; }
 .viewer-frame[data-stage="3"] .viewer-act-source,
+.viewer-frame[data-stage="3"] .viewer-act-connect-mcp,
 .viewer-frame[data-stage="3"] .viewer-act-sep,
 .viewer-frame[data-stage="3"] .viewer-act-copy > .copy-for-ai-split-primary,
 .viewer-frame[data-stage="3"] .viewer-act-copy > .copy-for-ai-menu { display: none; }

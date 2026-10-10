@@ -25,8 +25,11 @@ import type {
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
   AgentLinkOAuthRevokeReason,
+  AgentLinkOAuthChainRevokeReason,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
+  AgentLinkMcpCopyTarget,
+  AgentLinkMcpMode,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -814,7 +817,8 @@ export type AnalyticsProperties = {
     | AgentLinkGuardrailRejectReason
     | AgentLinkSessionSuspendReason
     | AgentLinkIdentityFailure
-    | AgentLinkOAuthRevokeReason;
+    | AgentLinkOAuthRevokeReason
+    | AgentLinkOAuthChainRevokeReason;
   session_duration_ms?: number;
   edits_count?: number;
   // #314 (agent_link_session_expired only): true when the session had
@@ -868,7 +872,9 @@ export type AnalyticsProperties = {
   macro_key_source?: AgentLinkMacroKeySource;
   // W — headless authorization (agent_link_oauth_*). `site_count` is how many
   // Atlassian sites the grant reaches, from accessible-resources. The revoke
-  // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason.
+  // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason
+  // (agent_link_oauth_revoked) or an AgentLinkOAuthChainRevokeReason
+  // (agent_link_oauth_chain_revoked).
   site_count?: number;
   // X — headless writes (agent_link_diagram_created / _updated). The outcome
   // rides the shared `result` field above as an AgentLinkWriteResult.
@@ -878,6 +884,12 @@ export type AnalyticsProperties = {
   // than one that reached Confluence.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
+  // dialog connects the agent (headless only, for now); `mcp_copy_target` says
+  // which block a Copy click targeted. The copy outcome rides the shared
+  // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
+  mcp_mode?: AgentLinkMcpMode;
+  mcp_copy_target?: AgentLinkMcpCopyTarget;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

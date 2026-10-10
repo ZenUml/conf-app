@@ -14,13 +14,19 @@
  * The relay session is WS-lifetime-bound, so every agent call happens while the
  * Playwright page is open. The edit is restored, so the run is non-destructive.
  *
+ * The first describe covers the headless Connect MCP dialog, which is what
+ * the first release ships; the relay loop below is gated off until relay
+ * sessions are offered again.
+ *
  * Run: APP=zenuml-lite@stg npx playwright test --project=agent-link
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Frame, type Page } from '@playwright/test';
 import {
   AGENT_LINK_STG_BASE,
   agentLinkMcp,
+  agentLinkMcpUrl,
   clickConnectToAgent,
+  forgeFrames,
   openIsolatedAgentLinkPage,
   disconnectAgentLink,
   waitForAgentLinkReady,
@@ -66,10 +72,78 @@ function appendMarkerEdit(originalDsl: string, diagramType: string, marker: stri
   return `${trimmed}\nAgentX->Server: ${marker}()`;
 }
 
+async function dialogFrame(page: Page): Promise<Frame | null> {
+  for (const f of forgeFrames(page)) {
+    if (await f.getByTestId('connect-mcp-dialog').count().catch(() => 0)) return f;
+  }
+  return null;
+}
+
+// What ships in the first release: the headless MCP, no relay session. The
+// OAuth sign-in needs a real MCP client and an interactive consent, so it is
+// out of scope; this covers the macro side and the 401 discovery challenge
+// that hands a client to it.
+test.describe('Connect MCP — headless', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@ai'] }, () => {
+  test('the dialog shows the setup command and a prompt for this diagram, and mints nothing', async ({ page }) => {
+    test.skip(
+      !(await isAgentLinkEndpointLive()),
+      `agent-link not routed on ${AGENT_LINK_STG_BASE} (unreleased build or shared-alias clobber)`,
+    );
+
+    await openIsolatedAgentLinkPage(page);
+    expect(await clickConnectToAgent(page), 'macro renders a "Connect MCP" button').toBe(true);
+
+    let frame: Frame | null = null;
+    await expect.poll(async () => (frame = await dialogFrame(page)) !== null, { timeout: 10000 }).toBe(true);
+    const f = frame as unknown as Frame;
+    await expect(f.getByTestId('connect-mcp-dialog')).toHaveAttribute('data-mcp-mode', 'headless');
+    await expect(f.getByTestId('connect-mcp-setup-command')).toHaveText(
+      `claude mcp add --transport http zenuml ${agentLinkMcpUrl()}`,
+    );
+    const prompt = (await f.getByTestId('connect-mcp-prompt').innerText()).trim();
+    expect(prompt).toMatch(/^Use the zenuml MCP to work on my ZenUML diagram/);
+    expect(prompt).toMatch(/^cloudId: \S+$/m);
+    expect(prompt).toMatch(/^pageId: \d+$/m);
+    expect(prompt).toMatch(/^contentId: \d+$/m);
+    expect(prompt).not.toContain('session:');
+
+    // No relay session: nothing handed off, so no diagram lock either.
+    const handoffKeys = await f.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('agentLinkSession:')));
+    expect(handoffKeys).toEqual([]);
+    await expect(f.getByTestId('agent-link-disconnect-btn')).toHaveCount(0);
+
+    await f.getByTestId('connect-mcp-done').click();
+    await expect(f.getByTestId('connect-mcp-dialog')).toHaveCount(0);
+  });
+
+  test('a token-less MCP call gets the OAuth discovery challenge', async () => {
+    test.skip(
+      !(await isAgentLinkEndpointLive()),
+      `agent-link not routed on ${AGENT_LINK_STG_BASE} (unreleased build or shared-alias clobber)`,
+    );
+    const res = await fetch(agentLinkMcpUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate') ?? '').toContain(
+      `resource_metadata="${AGENT_LINK_STG_BASE}/.well-known/oauth-protected-resource"`,
+    );
+  });
+});
+
 // lite only: the "Connect to Agent" affordance needs the Agent Link feature
 // flag and the /agent-link/mcp route, which exist on lite-stg alone — on
 // dia-stg and full-stg the macro never renders it (main runs 2026-10-08).
 test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@fullscreen', '@ai'] }, () => {
+  // The relay session UI is not offered in the headless-only first release
+  // (RELAY_SESSIONS_ENABLED=false in src/composables/agentLink/connectInstructions.ts),
+  // so there is no button to start a session. Flip that constant and run
+  // with AGENT_LINK_RELAY=1 to bring these back; the "Connect MCP — headless"
+  // describe in agent-link-e2e.spec.ts covers what ships.
+  test.skip(process.env.AGENT_LINK_RELAY !== '1', 'relay sessions are not offered in the headless-only release');
+
   test('agent connects, reads the page + diagram, edits it live, and the macro shows connected', async ({
     page,
   }: {

@@ -110,6 +110,13 @@ async function renderedText(page: Page): Promise<string> {
 // lite only: see agent-link-e2e.spec.ts — the affordance under test renders on
 // lite-stg alone.
 test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@test:agent-link-multi-page-crosstalk', '@variant:lite', '@viewer', '@fullscreen', '@ai'] }, () => {
+  // The relay session UI is not offered in the headless-only first release
+  // (RELAY_SESSIONS_ENABLED=false in src/composables/agentLink/connectInstructions.ts),
+  // so there is no button to start a session. Flip that constant and run
+  // with AGENT_LINK_RELAY=1 to bring these back; the "Connect MCP — headless"
+  // describe in agent-link-e2e.spec.ts covers what ships.
+  test.skip(process.env.AGENT_LINK_RELAY !== '1', 'relay sessions are not offered in the headless-only release');
+
   test('two concurrent sessions on two different pages never leak edits across each other', async ({
     browser,
   }: {

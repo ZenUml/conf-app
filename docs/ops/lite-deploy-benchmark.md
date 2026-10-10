@@ -134,3 +134,14 @@ booleans, fixed phase names and durations, exit codes, and aggregate job timing.
 They contain no environment values, command arguments, raw deployment logs,
 resource paths, or signed upload URLs. The Forge phase observer retains the
 existing CLI output in the job log and stores only fixed phase transitions.
+
+Phase names describe visible CLI markers, not isolated functions. In particular,
+the interval from `lint` ("Running forge lint...") to `packaging` includes Forge
+lint plus the remaining pre-deployment work. In the installed Forge CLI 13.5.0,
+`out/command-line/controller/deploy-controller.js` lines 223–264 run
+`verifyPreDeployment`, then migration-key/Connect-key checks, handler and resource
+loading, an installation lookup, and configuration loading before packaging.
+The interval therefore includes validation and remote-call time as well as
+TypeScript parsing. A 25-second interval is not evidence of 25 seconds spent in
+the typed parser. These phase clocks can locate a broad bottleneck; attributing
+time to one operation requires a separate profile or more precise instrumentation.

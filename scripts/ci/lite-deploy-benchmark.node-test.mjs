@@ -119,17 +119,25 @@ test('candidate cannot prepare production and always reports all branch failures
   const directory = await mkdtemp(join(tmpdir(), 'lite-prepare-test-'));
   try {
     const executable = join(directory, 'pnpm');
-    await writeFile(executable, '#!/bin/sh\nif [ "$1" = build:lite ]; then exit 7; fi\ncat >/dev/null\nexit 0\n');
+    await writeFile(executable, `#!${process.execPath}\nif (process.argv[2] === 'build:lite') process.exit(7);\nprocess.stdin.resume();\nprocess.stdin.once('end', () => process.exit(0));\n`);
     await chmod(executable, 0o755);
     await writeFile(join(directory, 'wrangler-stg.toml'), 'name="conf-stg"\n[vars]\n');
     const run = environment => new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [new URL('./lite-deploy-prepare.mjs', import.meta.url).pathname], { cwd: directory, env: { PATH: directory, DEPLOY_LICENSE: 'lite', DEPLOY_PROJECT: 'conf-stg-lite', DEPLOY_ENVIRONMENT: environment, VITE_MIXPANEL_TOKEN: 'public-test-token', SENTRY_DSN: 'public-test-dsn' }, stdio: 'ignore' });
-      child.once('error', reject); child.once('close', resolve);
+      const child = spawn(process.execPath, [new URL('./lite-deploy-prepare.mjs', import.meta.url).pathname], { cwd: directory, env: { PATH: directory, DEPLOY_LICENSE: 'lite', DEPLOY_PROJECT: 'conf-stg-lite', DEPLOY_ENVIRONMENT: environment, VITE_MIXPANEL_TOKEN: 'public-test-token', SENTRY_DSN: 'public-test-dsn' }, stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      child.stderr.on('data', chunk => { stderr += chunk; });
+      child.once('error', reject); child.once('close', code => resolve({ code, stderr }));
     });
-    assert.equal(await run('prod'), 1);
+    const production = await run('prod');
+    assert.equal(production.code, 1, production.stderr);
+    assert.match(production.stderr, /Parallel preparation is restricted to Lite staging/);
     await assert.rejects(readFile(join(directory, 'wrangler.toml')));
-    assert.equal(await run('stg'), 1);
-    const evidence = JSON.parse(await readFile(join(directory, 'lite-deploy-preparation.json'), 'utf8'));
+    const staging = await run('stg');
+    assert.equal(staging.code, 1, staging.stderr);
+    assert.equal(staging.stderr, 'Lite build failed\n');
+    let evidence;
+    try { evidence = JSON.parse(await readFile(join(directory, 'lite-deploy-preparation.json'), 'utf8')); }
+    catch (error) { assert.fail(`Preparation metadata missing: ${staging.stderr || error.message}`); }
     assert.equal(evidence.build.outcome, 'failure');
     assert.equal(evidence.pages_configuration_and_migrations.outcome, 'success');
     assert.equal(evidence.forge_configuration.outcome, 'success');

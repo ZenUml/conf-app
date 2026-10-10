@@ -169,6 +169,8 @@ describe('authorize', () => {
     expect(location.origin + location.pathname).toBe('http://127.0.0.1:53682/callback');
     expect(location.searchParams.get('error')).toBe('invalid_request');
     expect(location.searchParams.get('state')).toBe('client-state-1');
+    // RFC 9207: an error response carries the issuer too.
+    expect(location.searchParams.get('iss')).toBe(ORIGIN);
   });
 
   it('refuses code_challenge_method=plain', async () => {
@@ -244,6 +246,9 @@ describe('consent', () => {
     expect(res.status).toBe(302);
     const location = new URL(res.headers.get('location')!);
     expect(location.searchParams.get('state')).toBe('client-state-1');
+    // RFC 9207: the metadata advertises authorization_response_iss_parameter_supported,
+    // and Claude Code rejects a response without iss ("Issuer mismatch").
+    expect(location.searchParams.get('iss')).toBe(ORIGIN);
     const code = location.searchParams.get('code')!;
     const record = await consumeCode(store, code);
     expect(record?.userId).toBe('acct-1');
@@ -253,7 +258,9 @@ describe('consent', () => {
   it('denying redirects with access_denied and issues nothing', async () => {
     const { store, kv } = memoryStore();
     const res = await denyAuthorization({ store }, 'pending-1', pending('client-A'));
-    expect(new URL(res.headers.get('location')!).searchParams.get('error')).toBe('access_denied');
+    const location = new URL(res.headers.get('location')!);
+    expect(location.searchParams.get('error')).toBe('access_denied');
+    expect(location.searchParams.get('iss')).toBe(ORIGIN);
     expect([...kv.keys()].some((k) => k.includes('-code:'))).toBe(false);
   });
 });

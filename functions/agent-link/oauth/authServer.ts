@@ -33,6 +33,7 @@ import {
   CONSENT_PATH,
   DEFAULT_MCP_SCOPE,
   MCP_SCOPES,
+  issuerFor,
   resourceFor,
 } from './asMetadata';
 import {
@@ -185,6 +186,30 @@ export type AuthorizeResult =
   | { ok: true; pendingId: string; pending: PendingAuthorization }
   | { ok: false; response: Response };
 
+/**
+ * A redirect to the client's (validated) redirect_uri carrying an
+ * authorization response, success or error.
+ *
+ * RFC 9207 §2: our metadata advertises
+ * `authorization_response_iss_parameter_supported`, so EVERY authorization
+ * response must carry `iss`, the issuer identifier. It is what tells a client
+ * talking to several authorization servers which one answered (the mix-up
+ * attack). Clients that check it reject a response without it: Claude Code's
+ * sign-in failed with "Issuer mismatch in authorization response (RFC 9207):
+ * expected "<issuer>", received undefined".
+ */
+function authorizationResponse(redirectUri: string, issuer: string, params: Record<string, string | undefined>): Response {
+  const target = new URL(redirectUri);
+  for (const [k, v] of Object.entries(params)) if (v !== undefined) target.searchParams.set(k, v);
+  target.searchParams.set('iss', issuer);
+  return Response.redirect(target.toString(), 302);
+}
+
+/** The issuer a parked authorization belongs to. Its resource is always ours (validateAuthorize), so its origin is the issuer. */
+function issuerOf(pending: PendingAuthorization): string {
+  return issuerFor(pending.resource);
+}
+
 function requestedScope(raw: string | null): string | null {
   if (!raw) return DEFAULT_MCP_SCOPE;
   const asked = raw.split(/\s+/).filter(Boolean);
@@ -220,13 +245,10 @@ export async function validateAuthorize(request: Request, deps: AsDeps): Promise
   }
 
   const state = q.get('state') ?? undefined;
-  const fail = (error: string, description: string): AuthorizeResult => {
-    const target = new URL(redirectUri);
-    target.searchParams.set('error', error);
-    target.searchParams.set('error_description', description);
-    if (state) target.searchParams.set('state', state);
-    return { ok: false, response: Response.redirect(target.toString(), 302) };
-  };
+  const fail = (error: string, description: string): AuthorizeResult => ({
+    ok: false,
+    response: authorizationResponse(redirectUri, issuerFor(url), { error, error_description: description, state }),
+  });
 
   if (q.get('response_type') !== 'code') return fail('unsupported_response_type', 'only response_type=code is supported');
   if (q.get('code_challenge_method') !== 'S256') return fail('invalid_request', 'code_challenge_method must be S256');
@@ -366,10 +388,7 @@ export async function completeAuthorization(
     userId,
     createdAtMs: now,
   });
-  const target = new URL(pending.redirectUri);
-  target.searchParams.set('code', code);
-  if (pending.state) target.searchParams.set('state', pending.state);
-  return Response.redirect(target.toString(), 302);
+  return authorizationResponse(pending.redirectUri, issuerOf(pending), { code, state: pending.state });
 }
 
 export async function denyAuthorization(
@@ -378,11 +397,11 @@ export async function denyAuthorization(
   pending: PendingAuthorization,
 ): Promise<Response> {
   await deletePending(deps.store, pendingId);
-  const target = new URL(pending.redirectUri);
-  target.searchParams.set('error', 'access_denied');
-  target.searchParams.set('error_description', 'the user declined');
-  if (pending.state) target.searchParams.set('state', pending.state);
-  return Response.redirect(target.toString(), 302);
+  return authorizationResponse(pending.redirectUri, issuerOf(pending), {
+    error: 'access_denied',
+    error_description: 'the user declined',
+    state: pending.state,
+  });
 }
 
 /** Has this user already allowed this client, for at least this much? */

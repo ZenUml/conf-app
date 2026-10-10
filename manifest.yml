@@ -352,6 +352,9 @@ modules:
         matchers:
           - pattern: https://confluence.zenuml.com/new/asyncapi
           - pattern: https://confluence.zenuml.com/d/asyncapi/*/*
+      unlicensedAccess:
+        - unlicensed
+        - anonymous
     # AsyncAPI embed macro: lets the user reference an existing AsyncAPI
     # document (created from the dashboard or the regular asyncapi macro)
     # from anywhere else on the site. Ships only with the asyncapi variant —
@@ -371,6 +374,9 @@ modules:
       resolver:
         endpoint: remote-connect
       icon: resource:main;image/openapi_macro_icon.png
+      unlicensedAccess:
+        - unlicensed
+        - anonymous
   trigger:
     - key: remote-installed-trigger
       endpoint: remote-installed-endpoint

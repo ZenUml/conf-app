@@ -146,3 +146,17 @@ describe("unplaced-diagram banner — the property key both sides depend on", ()
     });
   }
 });
+
+// ZEN-1226: a macro that omits `anonymous` shows "Error loading the extension"
+// to logged-out visitors of public pages — Forge refuses to load it before any
+// app code runs. ZEN-1170 added only `unlicensed` (Guests), so anonymous
+// visitors stayed blocked. Every macro must declare both.
+describe("manifest.yml macro unlicensedAccess", () => {
+  const manifest: any = yaml.load(readFileSync("./manifest.yml", "utf-8"));
+
+  for (const macro of manifest.modules.macro) {
+    it(`${macro.key} renders for guests and anonymous visitors`, () => {
+      expect(macro.unlicensedAccess).toEqual(expect.arrayContaining(["unlicensed", "anonymous"]));
+    });
+  }
+});

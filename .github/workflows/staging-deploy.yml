@@ -99,12 +99,19 @@ jobs:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
+          # Every supplied value can reach the line-based output protocol.
+          # Reject delimiters before resolving or publishing any value.
+          for field in VARIANT IN_LICENSE IN_PROJECT IN_ENVIRONMENT IN_RUNNER PREPARATION_MODE IN_TOOLING_REF APP_REF WORKFLOW_SHA; do
+            case "${!field}" in
+              *$'\r'*|*$'\n'*) echo 'Invalid staging input delimiters' >&2; exit 1 ;;
+            esac
+          done
           case "$VARIANT" in
             lite)      DEF_PROJECT=conf-stg-lite ;;
             full)      DEF_PROJECT=conf-stg-full ;;
             diagramly) DEF_PROJECT=conf-stg-lite ;;
             asyncapi)  DEF_PROJECT=conf-stg-lite ;;
-            *) echo "unknown variant: $VARIANT" >&2; exit 1 ;;
+            *) echo 'Unknown staging variant' >&2; exit 1 ;;
           esac
           LICENSE="${IN_LICENSE:-$VARIANT}"
           PROJECT="${IN_PROJECT:-$DEF_PROJECT}"
@@ -131,6 +138,7 @@ jobs:
           esac
           TOOLING_REF="${IN_TOOLING_REF:-}"
           if [ -z "$TOOLING_REF" ] && [ "$MODE" = candidate ] && [ "$APP_REF" != "$WORKFLOW_SHA" ]; then
+            [[ "$WORKFLOW_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Automatic deployment tooling requires an immutable Git SHA' >&2; exit 1; }
             TOOLING_REF="$WORKFLOW_SHA"
           fi
           {

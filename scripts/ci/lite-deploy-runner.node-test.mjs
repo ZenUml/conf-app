@@ -24,7 +24,7 @@ async function withResolver(run) {
       });
       let values = '';
       try { values = await readFile(output, 'utf8'); } catch { /* rejected before output */ }
-      return { status: result.status, values, outputs: Object.fromEntries(values.trim().split('\n').filter(Boolean).map(line => { const index = line.indexOf('='); return [line.slice(0, index), line.slice(index + 1)]; })) };
+      return { status: result.status, values, stderr: result.stderr, outputs: Object.fromEntries(values.trim().split('\n').filter(Boolean).map(line => { const index = line.indexOf('='); return [line.slice(0, index), line.slice(index + 1)]; })) };
     };
     await run(resolve);
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -76,6 +76,38 @@ test('invalid modes, hardware and explicit candidate scope fail before publishin
       assert.notEqual(result.status, 0);
       assert.equal(result.values, '');
     }
+  });
+});
+
+test('all supplied resolver fields reject line delimiters before outputs and never echo the supplied value', async () => {
+  await withResolver(async resolve => {
+    for (const field of ['VARIANT', 'IN_LICENSE', 'IN_PROJECT', 'IN_ENVIRONMENT', 'IN_RUNNER', 'PREPARATION_MODE', 'IN_TOOLING_REF', 'APP_REF', 'WORKFLOW_SHA']) {
+      for (const delimiter of ['\r', '\n']) {
+        const result = await resolve({ [field]: `private-value${delimiter}runner=self-hosted${delimiter}preparation-mode=baseline` });
+        assert.notEqual(result.status, 0, `${field} ${JSON.stringify(delimiter)}`);
+        assert.equal(result.values, '');
+        assert.equal(result.stderr, 'Invalid staging input delimiters\n');
+      }
+    }
+  });
+});
+
+test('automatic overlay requires a full immutable SHA while explicit aliases and unused workflow refs remain compatible', async () => {
+  await withResolver(async resolve => {
+    for (const workflow of ['', 'main', 'a'.repeat(39), 'a'.repeat(41), 'g'.repeat(40), 'refs/heads/main']) {
+      const result = await resolve({ APP_REF: old, WORKFLOW_SHA: workflow });
+      assert.notEqual(result.status, 0);
+      assert.equal(result.values, '');
+      assert.equal(result.stderr, 'Automatic deployment tooling requires an immutable Git SHA\n');
+    }
+    assert.equal((await resolve({ APP_REF: old, WORKFLOW_SHA: current.toUpperCase() })).outputs['tooling-ref'], current.toUpperCase());
+    for (const alias of ['main', 'refs/heads/tooling-branch', 'release/1.2', 'v1.2.3']) {
+      const result = await resolve({ APP_REF: 'app-branch', WORKFLOW_SHA: 'unused', IN_TOOLING_REF: alias });
+      assert.equal(result.status, 0);
+      assert.equal(result.outputs['tooling-ref'], alias);
+    }
+    assert.equal((await resolve({ PREPARATION_MODE: 'baseline', WORKFLOW_SHA: 'unused' })).status, 0);
+    assert.equal((await resolve({ VARIANT: 'full', WORKFLOW_SHA: '' })).status, 0);
   });
 });
 

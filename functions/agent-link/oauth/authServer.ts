@@ -39,7 +39,6 @@ import {
   ACCESS_TOKEN_TTL_SECONDS,
   bumpRegisterCount,
   consumeCode,
-  consumeRefreshToken,
   deletePending,
   issueAccessToken,
   issueCode,
@@ -47,7 +46,10 @@ import {
   loadClient,
   loadConsent,
   loadPending,
+  newChainId,
   randomToken,
+  redeemRefreshToken,
+  revokeChain,
   REGISTER_LIMIT,
   REGISTER_WINDOW_SECONDS,
   saveClient,
@@ -60,9 +62,14 @@ import {
 import { canonicalizeResource } from './protectedResource';
 import { isValidChallenge, verifyPkce } from './pkce';
 
+/** Why the token endpoint revoked a refresh chain (agent_link_oauth_chain_revoked's `reason`). */
+export type ChainRevokeReason = 'refresh_reused' | 'client_mismatch';
+
 export interface AsDeps {
   store: GrantStoreLike;
   nowMs?: () => number;
+  /** Told when a refresh chain is revoked, for analytics. Must not throw into the response. */
+  onChainRevoked?: (event: { reason: ChainRevokeReason; userId: string; clientId: string }) => void | Promise<void>;
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
@@ -465,9 +472,11 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       return oauthError(400, 'invalid_grant', 'code_verifier does not match the code_challenge');
     }
 
+    // A new sign-in starts a new refresh chain; see asStore.ts "refresh chains".
+    const chainId = newChainId();
     const { token, expiresInSeconds } = await issueAccessToken(
       deps.store,
-      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource },
+      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId },
       now,
     );
     const refresh = await issueRefreshToken(deps.store, {
@@ -475,6 +484,7 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       clientId: record.clientId,
       scope: record.scope,
       resource: record.resource,
+      chainId,
     });
     return json(200, {
       access_token: token,
@@ -489,11 +499,35 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
     if (!body.refresh_token) return oauthError(400, 'invalid_request', 'refresh_token is required');
     if (!body.client_id) return oauthError(400, 'invalid_request', 'client_id is required');
 
-    const record = await consumeRefreshToken(deps.store, body.refresh_token);
-    if (!record) return oauthError(400, 'invalid_grant', 'the refresh token is unknown, used, or expired');
-    if (body.client_id !== record.clientId) {
-      return oauthError(400, 'invalid_grant', 'the refresh token was issued to a different client');
+    const redeemed = await redeemRefreshToken(deps.store, body.refresh_token, now);
+    if (redeemed.status === 'unknown') {
+      return oauthError(400, 'invalid_grant', 'the refresh token is unknown, used, or expired');
     }
+    if (redeemed.status === 'revoked') {
+      return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
+    }
+    // A used token presented again, or a live one under another client: either
+    // way it is in two hands, so the whole chain goes (asStore.ts "refresh
+    // chains"), the legitimate client included. It signs in again.
+    const reason: ChainRevokeReason | null =
+      redeemed.status === 'reused' ? 'refresh_reused' : body.client_id !== redeemed.record.clientId ? 'client_mismatch' : null;
+    if (reason) {
+      await revokeChain(deps.store, redeemed.record.chainId, now);
+      try {
+        await deps.onChainRevoked?.({ reason, userId: redeemed.record.userId, clientId: redeemed.record.clientId });
+      } catch {
+        // analytics must never change the token response
+      }
+      return oauthError(
+        400,
+        'invalid_grant',
+        reason === 'refresh_reused'
+          ? 'the refresh token was already used; this sign-in has been revoked, sign in again'
+          : 'the refresh token was issued to a different client; this sign-in has been revoked',
+      );
+    }
+    // The rotated token starts unused; JSON drops the undefined marker.
+    const record = { ...redeemed.record, usedAtMs: undefined };
 
     // The upstream Atlassian grant is NOT refreshed here. It has its own
     // lifecycle in tokenStore.getAccessToken, driven by actual Confluence
@@ -501,7 +535,7 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
     // by an idle agent.
     const { token, expiresInSeconds } = await issueAccessToken(
       deps.store,
-      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource },
+      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId: record.chainId },
       now,
     );
     const refresh = await issueRefreshToken(deps.store, record);

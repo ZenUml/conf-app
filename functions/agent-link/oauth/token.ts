@@ -3,10 +3,26 @@
 // access token. All logic is in authServer.ts so it tests without a Worker.
 import { handleToken } from './authServer';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
+import { mixpanelTrack } from '../../service/mixpanelService';
 
-export const onRequestPost: PagesFunction<OAuthEnv> = async ({ request, env }) => {
+interface Env extends OAuthEnv {
+  MIXPANEL_TOKEN?: string;
+}
+
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const { store } = loadGrantStore(env);
-  return handleToken(request, { store });
+  return handleToken(request, {
+    store,
+    // A revoked chain is the one sign that a refresh token may have been
+    // copied; without the event it is invisible until a user complains.
+    onChainRevoked: async ({ reason, userId }) => {
+      if (!env.MIXPANEL_TOKEN) return;
+      await mixpanelTrack(
+        { event: 'agent_link_oauth_chain_revoked', user_account_id: userId, feature_area: 'agent_link', surface: 'backend', reason },
+        env.MIXPANEL_TOKEN,
+      );
+    },
+  });
 };
 
 /** CORS preflight: MCP clients in a browser context send one before the POST. */

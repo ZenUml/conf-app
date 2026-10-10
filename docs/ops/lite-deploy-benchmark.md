@@ -154,8 +154,8 @@ Differences in runner or network performance have not been isolated. This run
 does not establish a causal performance benefit from single-run parser mode.
 
 An additional opt-in hardware comparison is available through the
-`candidate-runner` dispatch choice. `ubuntu-latest` remains the default for both
-arms and every ordinary caller. Selecting `ubuntu-24.04-arm` changes only the
+`candidate-runner` dispatch choice. `ubuntu-latest` remains the benchmark's
+default for both arms. Selecting `ubuntu-24.04-arm` changes only the benchmark
 candidate deploy jobs, and the reusable resolver rejects that choice unless the
 mode, variant, license, project, and environment are exactly Lite staging.
 [GitHub's standard runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
@@ -204,7 +204,7 @@ in the result. The candidate Forge attempts took 77.046, 77.367, and 76.521
 seconds, respectively; ARM has not established a faster Forge deployment.
 The first-main legacy Studio seed added after this tooling revision was not
 exercised by this run and still requires runtime verification. Ordinary Lite
-staging remains on baseline while further optimization is measured.
+staging remained on baseline at this iteration while further optimization was measured.
 
 ### Fourth complete experiment: conditional store cache and upgrade first
 
@@ -245,8 +245,47 @@ samples remain visible and cannot establish the target. In particular, the
 historical 230-second Lite deploy in run 37926049252 retried after an environment
 was blocked by another deployment; that observation is not a clean comparator.
 Cold-cache costs stay in the whole-job metric; warming a cache is not counted as
-an independent performance improvement. Normal Lite staging stays on baseline
-until the measured candidate is selected explicitly.
+an independent performance improvement. The accepted warm experiment supports
+the automatic Lite staging selection below; fresh normal-main timing remains
+required before the overall deployment-improvement goal is complete.
+
+## Normal staging selection and rollback
+
+The reusable staging workflow defaults `preparation-mode` and `candidate-runner`
+to `auto`. It resolves candidate preparation and `ubuntu-24.04-arm` only when
+variant and license are `lite`, project is `conf-stg-lite`, and environment is
+`staging-lite`. Main, PR, daily regression transactions, recovery runs, and the
+existing manual staging entry point inherit this selection. Other products
+retain baseline preparation on Ubuntu. The resolver rejects unknown mode/runner
+values, explicit candidates outside that exact scope, and ARM requests outside
+candidate Lite staging before publishing outputs. Every later branch consumes
+the resolved mode. Production's composite-action default stays `baseline`.
+
+For rollback, set `preparation-mode: baseline` in the reusable Lite caller's
+existing `with` block. With the default `candidate-runner: auto`, that selects
+Ubuntu and the original preparation and install-first behavior. An explicit
+candidate can still select `ubuntu-latest`; the benchmark retains its explicit
+baseline/candidate modes and hardware choice.
+
+Application and tooling commits remain separate. Explicit `workflow-ref` is
+honored. Without it, a candidate whose app checkout differs from the executing
+workflow commit automatically loads the deployment action and every runtime
+helper from immutable `github.workflow_sha`. This handles older daily source
+and a main phase whose branch advanced while queued. Missing candidate helpers
+fail before build/deploy. Baseline and other products retain their earlier
+tooling-overlay behavior. Actual application and tooling Git HEADs are recorded
+after checkout, so a supplied alias is never presented as a commit SHA.
+
+Ordinary deployment summaries now record resolved mode/runner, actual Node
+platform/architecture/version, source/tooling SHAs, and whitelisted cache-hit or
+store-requested booleans. Missing records are shown as unrecorded. This adds no
+remote probe, E2E, or smoke invocation. After shipping, inspect an ordinary Lite
+run on a fresh main source commit, including cold dependency/public-spec caches
+and the validated legacy Studio seed on its first run. Main cannot read the
+feature branch's caches. Report that first cost, then verify the ordinary path
+on a fresh source commit with reusable dependency caches. Every application
+build remains fresh; no app `dist/` cache is introduced. Successful runtime
+deployment/source verification and full job timings are still required.
 
 Artifacts contain source/tooling SHAs, runner/runtime metadata, manifest and asset digests, cache-hit
 booleans, fixed phase names and durations, exit codes, and aggregate job timing.

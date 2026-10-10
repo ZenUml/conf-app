@@ -69,12 +69,12 @@ test('migration skip is opt-in and independent callers retain their migration de
   const publish = deploy.jobs.deploy.steps.find(step => step.uses === './.github/actions/wrangler-publish');
   assert.equal(publish.with['skip-migrations'], "${{ inputs.skip-migrations && 'true' || 'false' }}");
   const tooling = deploy.jobs.deploy.steps.find(step => step.name === 'Use pinned workflow deployment tooling');
-  const checkout = deploy.jobs.deploy.steps.find(step => step.name === 'Checkout daily workflow tooling');
-  assert.equal(checkout.with.ref, '${{ inputs.workflow-ref }}');
+  const checkout = deploy.jobs.deploy.steps.find(step => step.name === 'Checkout pinned workflow tooling');
+  assert.equal(checkout.with.ref, '${{ needs.resolve.outputs.tooling-ref }}');
   assert.equal(checkout.with.path, '.ci-workflow');
   assert.ok(deploy.jobs.deploy.steps.indexOf(checkout) < deploy.jobs.deploy.steps.indexOf(tooling));
   assert.ok(deploy.jobs.deploy.steps.indexOf(tooling) < deploy.jobs.deploy.steps.indexOf(publish));
-  assert.equal(tooling.if, "inputs.workflow-ref != ''");
+  assert.equal(tooling.if, "needs.resolve.outputs.tooling-ref != ''");
   assert.match(tooling.run, /^cp \.ci-workflow\/\.github\/actions\/wrangler-publish\/action\.yml \.github\/actions\/wrangler-publish\/action\.yml\n/);
   const action = load('.github/actions/wrangler-publish/action.yml');
   assert.equal(action.inputs['skip-migrations'].default, 'false');

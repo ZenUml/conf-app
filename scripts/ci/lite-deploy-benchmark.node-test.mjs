@@ -40,7 +40,7 @@ test('benchmark retains shared staging lock and sequential, pinned alternating a
   assert.equal(JSON.stringify(workflow).includes('e2e-test.yml'), false);
   assert.equal(JSON.stringify(workflow).includes('e2e-auth.yml'), false);
   assert.equal(JSON.stringify(workflow).includes('playwright'), false);
-  assert.equal(deploy.on.workflow_call.inputs['preparation-mode'].default, 'baseline');
+  assert.equal(deploy.on.workflow_call.inputs['preparation-mode'].default, 'auto');
   assert.match(deploy.concurrency.group, /staging-inner/);
   assert.equal(action.inputs['preparation-mode'].default, 'baseline');
   assert.match(action.runs.steps.find(step => step.name === 'Install dependencies').run, /--frozen-lockfile --ignore-scripts/);
@@ -53,7 +53,7 @@ test('every benchmark sample requires successful Lite install or upgrade', () =>
   const install = deploy.jobs.deploy.steps.find(step => step.name === 'Install Lite to lite-stg.atlassian.net');
   assert.equal(install['continue-on-error'], "${{ inputs.benchmark-sample == '' }}");
   assert.match(install.run, /else\n  pnpm forge:install:lite:staging \|\| pnpm forge:upgrade:lite:staging\nfi/);
-  assert.equal(install.env.PREPARATION_MODE, '${{ inputs.preparation-mode }}');
+  assert.equal(install.env.PREPARATION_MODE, '${{ needs.resolve.outputs.preparation-mode }}');
 });
 
 test('Studio fallback restores the original aggregate cache version before seeding lean output', () => {
@@ -67,7 +67,7 @@ test('Studio fallback restores the original aggregate cache version before seedi
   assert.equal(legacy.with.path, baseline.with.path, 'cache version uses the original path metadata');
   assert.equal(legacy.with.key, baseline.with.key);
   assert.equal(legacy.with['restore-keys'], baseline.with['restore-keys']);
-  assert.equal(legacy.if, "inputs.preparation-mode == 'candidate' && runner.arch != 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'");
+  assert.equal(legacy.if, "needs.resolve.outputs.preparation-mode == 'candidate' && runner.arch != 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'");
   assert.ok(steps.indexOf(lean) < steps.indexOf(legacy));
   assert.ok(steps.indexOf(legacy) < steps.findIndex(step => step.uses === './.github/actions/wrangler-publish'));
   assert.equal(lean.uses, 'actions/cache@v5', 'lean output is saved by the successful job post step');

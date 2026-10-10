@@ -87,7 +87,7 @@ test('single-run setting applies only to candidate Forge deployment after source
   const step = steps.find(item => item.name === 'Deploy to Forge Staging (Pages publish in parallel)');
   assert.ok(steps.indexOf(step) > steps.findIndex(item => item.name === 'Upload final manifest'));
   assert.equal(step.env.TSESTREE_SINGLE_RUN, undefined);
-  assert.match(step.run, /deploy_forge\(\) \([\s\S]*if \[ "\$\{\{ inputs.preparation-mode \}\}" = candidate \]; then\s+export TSESTREE_SINGLE_RUN=true\s+fi/);
+  assert.match(step.run, /deploy_forge\(\) \([\s\S]*if \[ "\$\{\{ needs.resolve.outputs.preparation-mode \}\}" = candidate \]; then\s+export TSESTREE_SINGLE_RUN=true\s+fi/);
   assert.match(step.run, /pnpm forge:deploy:\$\{\{ needs.resolve.outputs.variant \}\}:staging/);
   assert.equal(step.run.includes('--no-verify'), false);
   for (const item of steps.filter(item => item !== step)) assert.equal(JSON.stringify(item).includes('TSESTREE_SINGLE_RUN'), false);

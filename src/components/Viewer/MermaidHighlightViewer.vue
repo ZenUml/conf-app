@@ -76,7 +76,7 @@ const hintShown = ref(false)
 const hintVisible = computed(() => hintShown.value && enabled.value && ready.value && !captureActive.value && !feedbackOpen.value)
 let hintRecorded = false
 watch(hintVisible, visible => {
-  if (visible && !hintRecorded) { hintRecorded = true; record('mermaid_highlight_hint_shown') }
+  if (visible && !hintRecorded) { hintRecorded = true; record('mermaid_highlight_hint_shown', {}, { feedbackVariant: false }) }
 })
 
 function onReady(value) {
@@ -94,10 +94,11 @@ watch(() => [store.state.diagram.id, store.state.diagram.mermaidCode], () => {
   emit('usage-change', false)
 })
 
-function record(name, extra) {
+/** The feedback-variant tag belongs to the usage and preference events (session cohort), not to the hint's own events. */
+function record(name, extra, { feedbackVariant = true } = {}) {
   const properties = {
     feature_area: 'macro', surface: surface.value, macro_type: 'mermaid',
-    highlight_feedback_variant: 'canvas_pill', ...extra,
+    ...(feedbackVariant ? { highlight_feedback_variant: 'canvas_pill' } : {}), ...extra,
   }
   trackAnalyticsEvent(name, properties)
   emit('event', { name, properties })
@@ -131,7 +132,7 @@ function toggle(where, close) {
 function dismissHint(cause) {
   if (!hintShown.value) return
   hintShown.value = false
-  record('mermaid_highlight_hint_dismissed', { highlight_dismiss_cause: cause })
+  record('mermaid_highlight_hint_dismissed', { highlight_dismiss_cause: cause }, { feedbackVariant: false })
 }
 function hintTurnOff() {
   dismissHint('turn_off')

@@ -48,6 +48,7 @@ describe('real highlight viewer lifecycle', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.highlight-hint').exists()).toBe(true)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_hint_shown', expect.objectContaining({ surface: 'fullscreen', macro_type: 'mermaid' }))
+    expect(calls('mermaid_highlight_hint_shown')[0][1]).not.toHaveProperty('highlight_feedback_variant')
     use(renderer, ['edge', 'node'])
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.highlight-pill').exists()).toBe(true)

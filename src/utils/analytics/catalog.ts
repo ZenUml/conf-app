@@ -1305,7 +1305,8 @@ export type AnalyticsEventName =
   // `tools/call`, for EVERY tool — reads included, which nothing else counts
   // on the headless path (X/Y cover only the four writes, and the relay's
   // per-tool events come from the macro, which a headless call has none of).
-  // It carries the tool in `mcp_tool`, how the call ended in
+  // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
+  // for list_sites / get_status, which take none), how the call ended in
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
   // and server-side latency in `duration_ms`. The write events stay as they
   // are: they carry write-specific properties (paywall_gate, result) this one

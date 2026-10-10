@@ -894,7 +894,8 @@ export type AnalyticsProperties = {
   // AA — headless MCP tool usage (agent_link_mcp_tool_called /
   // _initialized). `mcp_tool` is the tool name from the server's own list
   // ('unknown' for anything else); `mcp_tool_outcome` is how the call ended;
-  // latency rides `duration_ms`. `mcp_client_name` / `mcp_client_version` are
+  // latency rides `duration_ms`; the target site rides `cloud_id` (only when
+  // the argument is UUID-shaped — anything else is client free text). `mcp_client_name` / `mcp_client_version` are
   // the client's MCP `clientInfo`, trimmed to 64 chars.
   mcp_tool?: string;
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;

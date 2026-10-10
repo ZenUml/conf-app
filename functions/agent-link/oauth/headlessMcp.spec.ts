@@ -330,6 +330,17 @@ describe('tool usage analytics', () => {
     await call(env, token, 'tools/call', { name: 'read_diagram', arguments: { cloudId: 'not-mine', contentId: 'cc-1' } });
     const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
     expect(called?.properties).toMatchObject({ mcp_tool_outcome: 'tool_error', reason: 'unknown_site' });
+    // 'not-mine' is not a UUID, so it is client free text and never sent.
+    expect(called?.properties.cloud_id).toBeUndefined();
+  });
+
+  it('records the site a call targeted', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const cloudId = '11111111-2222-4333-8444-555555555555';
+    await call(env, token, 'tools/call', { name: 'list_diagrams', arguments: { cloudId } });
+    expect(events[0].properties).toMatchObject({ mcp_tool: 'list_diagrams', cloud_id: cloudId });
   });
 
   it('records a scope refusal', async () => {

@@ -199,6 +199,14 @@ async function trackWriteRefusal(
 /** How one tools/call ended — AgentLinkMcpToolOutcome in the frontend catalog. */
 type ToolOutcome = 'success' | 'tool_error' | 'scope_denied' | 'unknown_tool' | 'exception';
 
+/** Atlassian cloudIds are UUIDs; anything else is client free text and is dropped. */
+const CLOUD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function cloudIdOf(args: unknown): string | undefined {
+  const value = ((args ?? {}) as { cloudId?: unknown }).cloudId;
+  return typeof value === 'string' && CLOUD_ID_RE.test(value) ? value : undefined;
+}
+
 /** Client-supplied text, bounded before it reaches Mixpanel. */
 function clip(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 64) : undefined;
@@ -208,12 +216,14 @@ function clip(value: unknown): string | undefined {
  * One event per authenticated tools/call, for every tool. The write events
  * above only see the four writes; reads, scope refusals and unexpected throws
  * are otherwise invisible on the headless path. Arguments and results are
- * never sent — only the tool's name, how it ended, and how long it took.
+ * never sent — only the tool's name, the site it targeted, how it ended, and
+ * how long it took. `cloud_id` is what makes usage readable per customer: the
+ * token says who, but only the call says which site.
  */
 async function trackToolCall(
   env: HeadlessEnv,
   userId: string,
-  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number },
+  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   await withTimeout(mixpanelTrack(
@@ -224,6 +234,7 @@ async function trackToolCall(
       surface: 'backend',
       mcp_mode: 'headless',
       mcp_tool: call.tool,
+      cloud_id: call.cloudId,
       mcp_tool_outcome: call.outcome,
       reason: call.reason,
       duration_ms: call.durationMs,
@@ -348,12 +359,14 @@ export async function handleHeadlessRpc(
         return error(400, id, RPC_INVALID_PARAMS, 'params.name is required');
       }
       const tool = params.name;
+      const cloudId = cloudIdOf(params.arguments);
       const startedMs = now();
       const trackCall = (outcome: ToolOutcome, reason?: string) =>
         defer(trackToolCall(env, auth.token.userId, {
           tool,
           outcome,
           reason,
+          cloudId,
           durationMs: Math.max(0, now() - startedMs),
         }));
       if (!HEADLESS_TOOLS.some((t) => t.name === tool)) {

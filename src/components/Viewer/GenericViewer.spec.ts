@@ -806,6 +806,32 @@ describe('GenericViewer (chrome-less)', () => {
       wrapper.unmount()
     })
 
+    it('leads the More menu with the viewer-more-menu-start slot and keeps it in the keyboard order', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        attachTo: document.body,
+        global: { plugins: [store] },
+        slots: {
+          default: '<div class="diagram-stub">diagram</div>',
+          'viewer-more-menu-start': '<template #viewer-more-menu-start="{ close }"><button type="button" role="menuitemcheckbox" aria-checked="true" class="overflow-menu-item lead-item" @click="close()">Relationship highlights</button></template>',
+        },
+      })
+      await flushPromises()
+      await openMoreMenu(wrapper)
+      const lead = wrapper.find('.viewer-act-more .lead-item')
+      expect(lead.exists()).toBe(true)
+      expect(lead.element.nextElementSibling?.getAttribute('role')).toBe('separator')
+      expect(wrapper.findAll('.viewer-act-more [role="menuitem"]').length).toBeGreaterThan(0)
+      expect(document.activeElement).toBe(lead.element)
+      await wrapper.find('.viewer-act-more [role="menu"]').trigger('keydown', { key: 'ArrowDown' })
+      expect(document.activeElement?.getAttribute('role')).toBe('menuitem')
+      await wrapper.find('.viewer-act-more [role="menu"]').trigger('keydown', { key: 'ArrowUp' })
+      expect(document.activeElement).toBe(lead.element)
+      await lead.trigger('click')
+      expect(wrapper.find('.viewer-act-more [role="menu"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
     it('falls back to a default title when the diagram has no title', () => {
       store.state.diagram.title = ''
       const wrapper = mountViewer()

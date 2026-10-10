@@ -263,6 +263,14 @@
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
                 @opened="onMoreMenuOpened" @closed="moreMenuOpen = false">
                 <template #default="{ close }">
+                  <!-- Lead items from the diagram-type wrapper (the Mermaid
+                       relationship-highlights switch, design "Viewer Header
+                       Highlight Analysis" 1e), then the standard entries. The
+                       slot receives close() so an item can shut the menu. -->
+                  <template v-if="$slots['viewer-more-menu-start']">
+                    <slot name="viewer-more-menu-start" :close="close"></slot>
+                    <div role="separator" class="overflow-menu-separator"></div>
+                  </template>
                   <template v-for="(item, index) in moreMenuEntries" :key="`${item}-${index}`">
                     <div v-if="item === 'separator'" role="separator" class="overflow-menu-separator"></div>
                     <button

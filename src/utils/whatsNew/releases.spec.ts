@@ -52,6 +52,7 @@ describe('MCP server release', () => {
   it('keeps variant names out of the display copy', () => {
     const release = WHATS_NEW_RELEASES.find((entry) => entry.id === '2026-10-mcp-server');
     expect(release?.items.map((item) => item.id)).toEqual(['connect-mcp', 'mcp-read-edit']);
+    expect(release?.items[0].url).toBe('https://zenuml.com/docs/mcp-server/');
     const displayCopy = [release?.headline, ...(release?.items ?? []).flatMap((item) => [item.title, item.body])].join(' ');
     expect(displayCopy).not.toMatch(/lite|diagramly|full|asyncapi/i);
   });

@@ -2971,8 +2971,9 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
-      // Icon-only, with Copy for AI's sparkles; the accessible name carries the label.
-      expect(btn.text()).toBe('')
+      // Inline it is icon-only (CSS hides the label outside fullscreen), with
+      // Copy for AI's sparkles; the accessible name carries the label.
+      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
       // Same sparkles path the Copy for AI button draws.
       expect(btn.find('svg path').attributes('d')).toMatch(/^M9\.813 15\.904/)
       expect(btn.attributes('aria-label')).toBe('Connect MCP')
@@ -3038,6 +3039,27 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_mcp_dialog_closed',
         expect.objectContaining({ mcp_mode: 'headless', dwell_ms: expect.any(Number) })
+      )
+    })
+
+    it('takes the Copy for AI slot in fullscreen too, and reports the fullscreen surface', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' }, modal: { macroMode: 'fullscreen' } } } }
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+      expect(btn.exists()).toBe(true)
+      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
+
+      await btn.trigger('click')
+
+      expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="connect-mcp-prompt"]').text()).toContain('pageId: 42')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ feature_area: 'agent_link', surface: 'fullscreen', mcp_mode: 'headless' })
       )
     })
 

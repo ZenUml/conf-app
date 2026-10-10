@@ -228,10 +228,11 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
-              <!-- Connect MCP (agent-link flag on, agent-editable types, inline
-                   only) takes the Copy for AI slot and opens ConnectMcpDialog
-                   with the headless MCP setup and a prompt naming this diagram.
-                   Stage 3 moves it into More, as it does Copy for AI. -->
+              <!-- Connect MCP (agent-link flag on, agent-editable types) takes
+                   the Copy for AI slot, inline and in fullscreen, and opens
+                   ConnectMcpDialog with the headless MCP setup and a prompt
+                   naming this diagram. Inline it is icon-only and stage 3 moves
+                   it into More; fullscreen labels it as it does Copy for AI. -->
               <button
                 v-if="showAgentLinkConnect"
                 type="button"
@@ -246,6 +247,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
                 </svg>
+                <span class="viewer-btn-label">Connect MCP</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
               <!-- Fullscreen: the actions the inline macro keeps in More are
@@ -1022,14 +1024,16 @@ export default {
     // Small-macro action-area affordance — hidden once already in Fullscreen
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
     showAgentLinkConnect() {
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+      // With relay sessions on, fullscreen connects through its rail instead.
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported
+        && !(this.isFullscreenMode && RELAY_SESSIONS_ENABLED);
     },
     // The Copy for AI slot renders only once it is known not to be Connect
-    // MCP's: on an inline agent-editable macro that waits for the async flag,
-    // so Copy for AI never flashes and then swaps out. Fullscreen and the other
-    // text types never show Connect MCP, so they need not wait.
+    // MCP's: on an agent-editable macro, inline or fullscreen, that waits for
+    // the async flag, so Copy for AI never flashes and then swaps out. The
+    // other text types never show Connect MCP, so they need not wait.
     copyForAiSlotSettled() {
-      return this.agentLinkFlagResolved || this.isFullscreenMode || !this.agentLinkMvpSupported;
+      return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
     },
     // Connect MCP takes Copy for AI's slot, so it keeps Copy for AI's sparkles.
     connectMcpIcon() {
@@ -2074,7 +2078,7 @@ export default {
     connectMcpAnalytics(extra = {}) {
       return {
         feature_area: 'agent_link',
-        surface: 'viewer',
+        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
         macro_type: this.diagramType ?? 'none',
         mcp_mode: 'headless',
         ...extra,
@@ -3142,6 +3146,7 @@ export default {
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
@@ -3184,7 +3189,8 @@ export default {
 
 /* ----- Fullscreen header actions -----------------------------------------
    Labels by viewport (the modal is the viewport): >= 1280px every action is
-   labelled; 1100-1279px only Source and Copy for AI; below 1100px all are
+   labelled; 1100-1279px only Source and Copy for AI (or Connect MCP in its
+   slot); below 1100px all are
    icon-only and the version switch reads Refined / Original. */
 .viewer-fs-act .viewer-icon { color: #6B7280; flex-shrink: 0; }
 .viewer-frame--fullscreen .viewer-fs-act { min-width: 28px; padding: 0; }
@@ -3195,8 +3201,10 @@ export default {
 }
 @media (max-width: 1099px) {
   .viewer-frame--fullscreen .viewer-act-source,
+  .viewer-frame--fullscreen .viewer-act-connect-mcp,
   .viewer-frame--fullscreen .copy-for-ai-split-primary { min-width: 28px; padding: 0; }
   .viewer-frame--fullscreen .viewer-act-source .viewer-btn-label,
+  .viewer-frame--fullscreen .viewer-act-connect-mcp .viewer-btn-label,
   .viewer-frame--fullscreen .viewer-act-copy .viewer-btn-label,
   .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
   .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,

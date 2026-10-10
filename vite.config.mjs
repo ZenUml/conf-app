@@ -435,6 +435,10 @@ export default defineConfig(({ command }) => ({
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.
       '**/vendor/asyncapi-studio/**',
+      // The Pi diagram agent is a standalone tool package with its own
+      // package.json; its tests are node:test files run with `npm test`
+      // there, and fail when collected by Vitest.
+      '**/tools/pi-diagram-agent/**',
     ],
   },
   server: {

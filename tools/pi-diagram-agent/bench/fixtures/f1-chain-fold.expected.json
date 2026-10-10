@@ -1,0 +1,17 @@
+{
+  "name": "f1-chain-fold",
+  "direction": "LR",
+  "nodes": [
+    {"id": "A", "text": "Step one"}, {"id": "B", "text": "Step two"}, {"id": "C", "text": "Step three"},
+    {"id": "D", "text": "Step four"}, {"id": "E", "text": "Step five"}, {"id": "F", "text": "Step six"}
+  ],
+  "edges": [
+    {"source": "A", "target": "B", "label": "", "dashed": false},
+    {"source": "B", "target": "C", "label": "", "dashed": false},
+    {"source": "C", "target": "D", "label": "", "dashed": false},
+    {"source": "D", "target": "E", "label": "", "dashed": false},
+    {"source": "E", "target": "F", "label": "", "dashed": false}
+  ],
+  "groups": [],
+  "ungrouped": ["A", "B", "C", "D", "E", "F"]
+}

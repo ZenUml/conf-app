@@ -1,0 +1,14 @@
+flowchart LR
+  subgraph INTAKE["Intake"]
+    A[Collect request]
+    B[Check request]
+  end
+  subgraph REVIEW["Review"]
+    C[Assess request]
+    D[Approve request]
+  end
+  E[Notify requester]
+  A --> B
+  B --> C
+  C --> D
+  D --> E

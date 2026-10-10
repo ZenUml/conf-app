@@ -59,8 +59,8 @@ describe('Mermaid relationship feedback canvas pill',()=>{
   })
   it('a dislike asks for a bounded reason inside the pill, with no countdown',async()=>{
     const wrapper=mountPill()
-    await clickText(wrapper,'No');expect(wrapper.text()).toContain('What could be better?')
-    await vi.advanceTimersByTimeAsync(10000);expect(wrapper.text()).toContain('What could be better?')
+    await clickText(wrapper,'No');expect(wrapper.text()).toContain('Why?')
+    await vi.advanceTimersByTimeAsync(10000);expect(wrapper.text()).toContain('Why?')
     await clickText(wrapper,'Unclear');expect(wrapper.text()).toContain('Thanks for your feedback')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_reason_selected',expect.objectContaining({highlight_feedback:'dislike',highlight_feedback_reason:'unclear'}))
     expect(calls('mermaid_highlight_feedback_dismissed')).toHaveLength(0)

@@ -11,7 +11,7 @@
       <button type="button" @click="choose('dislike')">No</button>
     </template>
     <template v-else-if="stage === 'reason'">
-      <span class="label">What could be better?</span>
+      <span class="label">Why?</span>
       <button v-for="reason in reasons" :key="reason.id" type="button" @click="chooseReason(reason.id)">{{ reason.label }}</button>
     </template>
     <span v-else class="label" role="status">Thanks for your feedback</span>

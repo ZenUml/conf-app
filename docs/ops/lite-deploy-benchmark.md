@@ -2,8 +2,22 @@
 
 `lite-deploy-benchmark.yml` measures the actual reusable Lite staging deployment,
 using one immutable application source commit and one immutable tooling commit.
-The branch push trigger runs one preliminary pair. After the workflow is available
-on the default branch, manual dispatch selects one or three pairs.
+The feature-branch push trigger runs one preliminary pair. After that push registers
+the workflow, dispatch one or three pairs on the feature branch; after merge, it
+can be dispatched from `main`. The source SHA must be an ancestor of `main`, and
+both arms use that pinned source. For example:
+
+```sh
+gh workflow run lite-deploy-benchmark.yml --repo ZenUml/conf-app \
+  --ref ci/lite-deploy-20pct \
+  -f source-sha=1a7e4a0bf19eade1e24e440e248c87f4f061b3ee \
+  -f pairs=3
+```
+
+The initial feature-push trial (run 38009251073) was canceled before starting
+when it was superseded by the later three-pair dispatch (run 38009757697). No
+performance target is established until the complete experiment meets the
+acceptance criteria below.
 
 The experiment owns `conf-app-staging` through shared D1 migrations, all samples,
 and the final staging smoke. It does not cancel another staging owner. D1

@@ -58,7 +58,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
       {
         id: 'connect-mcp',
         title: 'Connect MCP',
-        body: 'Select the new Connect MCP button (the sparkles icon) on a sequence, Mermaid or PlantUML diagram to add the ZenUML MCP server to Claude Code, Codex, Cursor or another MCP client. You sign in with Atlassian once, and the agent acts as you.',
+        body: 'Select the new Connect MCP button (the sparkles icon) on a sequence, Mermaid or PlantUML diagram, on the page or in fullscreen, to add the ZenUML MCP server to Claude Code, Codex, Cursor or another MCP client. You sign in with Atlassian once, and the agent acts as you.',
         url: 'https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/',
       },
       {

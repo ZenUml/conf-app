@@ -30,7 +30,8 @@ describe('live release data', () => {
     ]);
 
     const displayCopy = [release?.headline, ...(release?.items ?? []).flatMap((item) => [item.title, item.body])].join(' ');
-    expect(displayCopy).not.toMatch(/lite|diagramly|full|asyncapi/i);
+    // Whole words: "fullscreen" is a viewer mode, not the Full variant.
+    expect(displayCopy).not.toMatch(/\b(lite|diagramly|full|asyncapi)\b/i);
   });
 });
 
@@ -54,6 +55,7 @@ describe('MCP server release', () => {
     expect(release?.items.map((item) => item.id)).toEqual(['connect-mcp', 'mcp-read-edit']);
     expect(release?.items[0].url).toBe('https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/');
     const displayCopy = [release?.headline, ...(release?.items ?? []).flatMap((item) => [item.title, item.body])].join(' ');
-    expect(displayCopy).not.toMatch(/lite|diagramly|full|asyncapi/i);
+    // Whole words: "fullscreen" is a viewer mode, not the Full variant.
+    expect(displayCopy).not.toMatch(/\b(lite|diagramly|full|asyncapi)\b/i);
   });
 });

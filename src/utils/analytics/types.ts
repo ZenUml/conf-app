@@ -55,6 +55,7 @@ import type {
   HighlightFeedbackReason,
   HighlightFeedbackVariant,
   HighlightDismissStage,
+  HighlightDismissCause,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -306,6 +307,11 @@ export type AnalyticsProperties = {
   highlight_feedback_reason?: HighlightFeedbackReason;
   highlight_feedback_variant?: HighlightFeedbackVariant;
   highlight_dismiss_stage?: HighlightDismissStage;
+  // Canvas pill only: how many highlight uses preceded `feedback_shown`
+  // (the pill waits for the third), and whether `feedback_dismissed` came
+  // from the × button or the 10 s auto-dismiss.
+  highlight_use_count?: number;
+  highlight_dismiss_cause?: HighlightDismissCause;
   highlight_enabled?: boolean;
   // Feedback
   feedback_score?: number;

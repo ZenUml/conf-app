@@ -64,11 +64,21 @@ export type HighlightFeedbackReason =
   | "not_useful"
   | "other";
 
-/** Surface variant that displayed the Mermaid highlight feedback prompt. */
-export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar";
+/**
+ * Surface variant that displayed the Mermaid highlight feedback prompt.
+ * `sidebar` is the retired 260px side card (shipped to 2026-10-10);
+ * `canvas_pill` is the auto-dismissing pill floating at the canvas bottom.
+ */
+export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar" | "canvas_pill";
 
 /** Prompt step at which planned Mermaid highlight feedback was dismissed. */
 export type HighlightDismissStage = "question" | "reason";
+
+/**
+ * Why the Mermaid highlight feedback prompt closed without an answer:
+ * `close` is the × button, `timeout` is the canvas pill's 10 s auto-dismiss.
+ */
+export type HighlightDismissCause = "close" | "timeout";
 
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from

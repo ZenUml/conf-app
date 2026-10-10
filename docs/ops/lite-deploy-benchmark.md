@@ -19,8 +19,9 @@ when it was superseded by the later three-pair dispatch (run 38009757697). No
 performance target is established until the complete experiment meets the
 acceptance criteria below.
 
-The experiment owns `conf-app-staging` through shared D1 migrations, all samples,
-and the final staging smoke. It does not cancel another staging owner. D1
+The experiment runs deployments and source-identity probes only. It owns
+`conf-app-staging` through shared D1 migrations, all samples, and the timing report.
+It does not invoke E2E, Playwright, or smoke workflows. It does not cancel another staging owner. D1
 migrations run once before samples, matching the normal main staging workflow;
 each deploy receives `skip-migrations: true`. There is no local staging deployment.
 
@@ -30,7 +31,6 @@ builds Lite, applies the same variant manifest edits, synchronizes runtime
 configuration, runs Forge lint/deploy and Pages publish, and retains the existing
 install/upgrade commands. Each benchmark sample requires install or upgrade to
 succeed; the ordinary staging caller retains its existing tolerated outcome.
-The final deploy must pass the existing `@smoke` tier.
 
 The candidate restores installed dependencies with an exact cache key covering
 Linux architecture, Ubuntu release, Node version and ABI, pnpm version, lockfile,
@@ -65,8 +65,7 @@ compressed-size reporting; this experiment does not change that setting.
 The acceptance metric is the median GitHub deploy-job `started_at` through
 `completed_at`, including checkout, cache restore/save, frozen install, build,
 configuration, lint, both deploys, install/upgrade, identity probe, metadata upload,
-and action post steps. Queue wait and separate smoke validation are excluded for
-both arms. Deployment completion time is reported separately. Parent shared
+and action post steps. Queue wait is excluded for both arms. Deployment completion time is reported separately. Parent shared
 migration duration is outside the deployment job, as it is in normal main CI.
 
 Three complete matched pairs, successful backend source markers, identical

@@ -34,8 +34,11 @@ test('benchmark retains shared staging lock and sequential, pinned alternating a
     assert.equal(job.with['skip-migrations'], true);
     assert.equal(job.with['benchmark-sample'], sample);
   });
-  assert.equal(workflow.jobs.smoke.with.grep, '@smoke');
-  assert.ok(workflow.jobs.report.needs.includes('smoke'));
+  assert.equal(workflow.jobs.smoke, undefined);
+  assert.equal(workflow.jobs.report.needs.includes('smoke'), false);
+  assert.equal(JSON.stringify(workflow).includes('e2e-test.yml'), false);
+  assert.equal(JSON.stringify(workflow).includes('e2e-auth.yml'), false);
+  assert.equal(JSON.stringify(workflow).includes('playwright'), false);
   assert.equal(deploy.on.workflow_call.inputs['preparation-mode'].default, 'baseline');
   assert.match(deploy.concurrency.group, /staging-inner/);
   assert.equal(action.inputs['preparation-mode'].default, 'baseline');

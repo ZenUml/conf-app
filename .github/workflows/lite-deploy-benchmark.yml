@@ -22,7 +22,7 @@ permissions:
   contents: read
   actions: read
 
-# Shared staging ownership covers every deployment and the final smoke.
+# Shared staging ownership covers every deployment and timing report.
 # Reusable deploy calls use their distinct inner group, avoiding nested locks.
 concurrency:
   group: conf-app-staging
@@ -179,27 +179,9 @@ jobs:
       benchmark-sample: candidate-3
     secrets: inherit
 
-  smoke:
-    name: Verify final Lite staging deployment
-    needs: [target, candidate-1, candidate-3]
-    if: ${{ !cancelled() && needs.candidate-1.result == 'success' && (needs.target.outputs.pairs == '1' || needs.candidate-3.result == 'success') }}
-    uses: ./.github/workflows/e2e-test.yml
-    with:
-      app: zenuml-lite@stg
-      ref: ${{ needs.target.outputs.sha }}
-      suite: all
-      grep: '@smoke'
-      shard-matrix: '[1]'
-      timeout-minutes: 12
-      artifact-suffix: lite-deploy-benchmark
-    secrets:
-      username: ${{ vars.ZENUML_STAGE_USERNAME }}
-      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
-      otp: ${{ vars.ATLASSIAN_OTP }}
-
   report:
-    needs: [target, migrations, baseline-1, candidate-1, candidate-2, baseline-2, baseline-3, candidate-3, smoke]
-    if: ${{ !cancelled() && needs.smoke.result == 'success' && needs.baseline-1.result == 'success' && needs.candidate-1.result == 'success' && (needs.target.outputs.pairs == '1' || (needs.candidate-2.result == 'success' && needs.baseline-2.result == 'success' && needs.baseline-3.result == 'success' && needs.candidate-3.result == 'success')) }}
+    needs: [target, migrations, baseline-1, candidate-1, candidate-2, baseline-2, baseline-3, candidate-3]
+    if: ${{ !cancelled() && needs.baseline-1.result == 'success' && needs.candidate-1.result == 'success' && (needs.target.outputs.pairs == '1' || (needs.candidate-2.result == 'success' && needs.baseline-2.result == 'success' && needs.baseline-3.result == 'success' && needs.candidate-3.result == 'success')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

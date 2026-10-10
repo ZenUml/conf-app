@@ -2945,7 +2945,10 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
-      expect(btn.text()).toBe('MCP')
+      // Icon-only, with Copy for AI's sparkles; the accessible name carries the label.
+      expect(btn.text()).toBe('')
+      // Same sparkles path the Copy for AI button draws.
+      expect(btn.find('svg path').attributes('d')).toMatch(/^M9\.813 15\.904/)
       expect(btn.attributes('aria-label')).toBe('Connect MCP')
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)

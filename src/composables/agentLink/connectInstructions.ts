@@ -12,7 +12,22 @@
 // grant on the backend that issued it.
 import forgeGlobal from '@/model/globals/forgeGlobal'
 
-export const MCP_SERVER_NAME = 'zenuml'
+// The name the user's MCP client files the server under, so its tools show up
+// as e.g. mcp__diagramly__read_diagram. Per product, so each app's users see
+// their own product's name: Lite and Full are ZenUML, while Diagramly and
+// AsyncAPI are separate brands with their own Forge apps.
+export function mcpServerName(product: { isDiagramly?: boolean; isAsyncApi?: boolean } = forgeGlobal): string {
+  if (product.isDiagramly) return 'diagramly'
+  if (product.isAsyncApi) return 'asyncapi'
+  return 'zenuml'
+}
+
+/** The product the prompt names the diagram after, matching mcpServerName(). */
+function productLabel(product: { isDiagramly?: boolean; isAsyncApi?: boolean } = forgeGlobal): string {
+  if (product.isDiagramly) return 'Diagramly'
+  if (product.isAsyncApi) return 'AsyncAPI'
+  return 'ZenUML'
+}
 
 // Standalone/dev has no Forge context and so no resolved backend; fall back
 // to the production Lite host rather than render a relative URL.
@@ -24,7 +39,7 @@ export function mcpServerUrl(backendBaseUrl: string | undefined = forgeGlobal.ze
 }
 
 export function mcpAddCommand(backendBaseUrl?: string): string {
-  return `claude mcp add --transport http ${MCP_SERVER_NAME} ${mcpServerUrl(backendBaseUrl)}`
+  return `claude mcp add --transport http ${mcpServerName()} ${mcpServerUrl(backendBaseUrl)}`
 }
 
 // The first release offers the headless MCP only: the agent signs in with
@@ -43,28 +58,36 @@ export interface HeadlessDiagramTarget {
   contentId?: string
 }
 
-// The prompt names this diagram by the ids the headless tools take
-// (read_diagram / update_diagram { cloudId, contentId }), so the agent needs
-// no lookup. Without a contentId (a macro never saved) it points the agent
-// at the page instead.
+// A review request: the agent reads the diagram (and its page, for context),
+// says what it shows and what is unclear, inconsistent or missing, and
+// proposes improvements. It changes nothing until the user agrees, because
+// every update_diagram publishes a page version. The diagram is named by the
+// ids the headless tools take (read_diagram / update_diagram
+// { cloudId, contentId }), so no lookup is needed. Without a contentId (a
+// macro never saved) the agent finds it on the page instead.
 export function buildHeadlessPrompt(target: HeadlessDiagramTarget): string {
   const name = target.title?.trim() ? `"${target.title.trim()}"` : 'on this page'
-  const lines = [`Use the ${MCP_SERVER_NAME} MCP to work on my ZenUML diagram ${name}.`]
+  const lines = [`Use the ${mcpServerName()} MCP to review my ${productLabel()} diagram ${name}.`]
   if (target.cloudId) lines.push(`cloudId: ${target.cloudId}`)
   else lines.push('Find the site with list_sites.')
   if (target.pageId) lines.push(`pageId: ${target.pageId}`)
-  if (target.contentId) {
-    lines.push(`contentId: ${target.contentId}`)
-    lines.push('Read it with read_diagram first, then apply my changes with update_diagram.')
-  } else {
-    lines.push('Find it with list_diagrams for this page, then read it with read_diagram.')
-  }
+  if (target.contentId) lines.push(`contentId: ${target.contentId}`)
+  const read = target.contentId
+    ? 'Read it with read_diagram'
+    : 'Find it with list_diagrams for this page, then read it with read_diagram'
+  lines.push(
+    '',
+    `1. ${read}${target.pageId ? ', and the page with read_page for context' : ''}.`,
+    '2. Summarize what the diagram shows.',
+    '3. Point out anything unclear, inconsistent or missing.',
+    '4. Suggest improvements, then wait for my go-ahead before changing it with update_diagram.',
+  )
   return lines.join('\n')
 }
 
 export function buildConnectPrompt(token: string | null): string {
   return [
-    `Connect to my ZenUML diagram via the ${MCP_SERVER_NAME} MCP.`,
+    `Connect to my ${productLabel()} diagram via the ${mcpServerName()} MCP.`,
     `session: ${token ?? ''}`,
     '# reads this page · edits this diagram · 10 min idle / 60 min max',
   ].join('\n')

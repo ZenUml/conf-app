@@ -45,7 +45,7 @@
             </div>
             <p class="connect-mcp-hint">
               Other MCP clients (Codex, Cursor, VS Code…): add a remote HTTP server named
-              <code>{{ serverName }}</code> with URL <code>{{ serverUrl }}</code>.
+              <code>{{ serverName }}</code> with the above URL.
               Your client asks you to sign in with Atlassian the first time; the agent then acts as you.
             </p>
           </li>
@@ -65,9 +65,6 @@
             </div>
           </li>
         </ol>
-        <p class="connect-mcp-hint" data-testid="connect-mcp-reload-note">
-          Each edit publishes a new diagram version, so page history can revert it. Reload the page to see your agent's changes.
-        </p>
         <div class="connect-mcp-actions">
           <button
             type="button"
@@ -85,10 +82,9 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
 import {
-  MCP_SERVER_NAME,
+  mcpServerName,
   buildHeadlessPrompt,
   mcpAddCommand,
-  mcpServerUrl,
 } from '@/composables/agentLink/connectInstructions'
 
 // The viewer's "Connect MCP" button opens this over the inline macro. First
@@ -114,8 +110,7 @@ const emit = defineEmits<{
 // Read at setup: forgeGlobal's backend URL is resolved during app boot,
 // before any component mounts.
 const setupCommand = mcpAddCommand()
-const serverName = MCP_SERVER_NAME
-const serverUrl = mcpServerUrl()
+const serverName = mcpServerName()
 
 const promptText = computed(() => buildHeadlessPrompt({
   title: props.diagramTitle,

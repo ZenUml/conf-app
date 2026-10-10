@@ -51,7 +51,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
     // that flag. Before this date passes, confirm the Lite production release
     // carries #734 AND the flag is on in production, or move the date.
     id: '2026-10-mcp-server',
-    publishedAt: '2026-10-13',
+    publishedAt: '2026-10-10',
     variants: ['lite'],
     headline: 'Connect your AI agent to your diagrams with MCP',
     items: [

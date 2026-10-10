@@ -55,16 +55,26 @@ lockfile digest, and a UTC 12-hour window, with only the immediately prior windo
 as a fallback. Each specification keeps its original expiry. The installed CLI
 refetches an expired entry during ordinary lint, so every client and server lint
 still runs. General Forge configuration and authentication stores are excluded.
-Only cache-hit booleans are added to experiment metadata. The runtime benefit is
-unmeasured until another complete experiment finishes.
+Only cache-hit booleans are added to experiment metadata.
 
-The first deploy-only experiment (run 38010919902, tooling commit `22c36130`)
-uses the cache and parallel-preparation candidate without the parser change
-below. Its first candidate had cold caches and took 206 seconds versus the first
-baseline's 186 seconds. The second candidate hit all three caches and took
-177 seconds versus its paired baseline's 201 seconds: an 11.9% reduction,
-below the target. These are preliminary observations; all six samples remain
-part of that immutable experiment's report.
+The first complete deploy-only experiment
+([run 38010919902](https://github.com/ZenUml/conf-app/actions/runs/38010919902),
+tooling commit `22c36130`) used the cache and parallel-preparation candidate
+without the parser change below. All six samples succeeded with one Forge
+attempt each, identical source/manifest/asset hashes, and verified backend markers.
+
+| Pair | Baseline job, seconds | Candidate job, seconds |
+| --- | ---: | ---: |
+| 1 | 186 | 206 |
+| 2 | 201 | 177 |
+| 3 | 207 | 191 |
+| Median | 201 | 191 |
+
+The median reduction was 4.98%, so this iteration did not meet the 20% target.
+The first candidate had cold caches and was 20 seconds slower than its paired
+baseline; that cost remains in the report. The second candidate hit all three
+caches and improved its paired baseline by 11.9%. Warm caches alone did not
+establish the required whole-job improvement.
 
 After install, candidate build, Pages configuration/migrations, and Forge variable
 synchronization run concurrently. Writes within each remote configuration lane
@@ -83,6 +93,10 @@ policy, and Forge's pre- and post-deployment checks remain enabled. Build,
 configuration commands, baseline, other variants, and production retain their
 existing parser mode. The setting is recorded as a boolean on each Forge attempt.
 Its deployment-time benefit has not been measured.
+The second three-pair experiment
+([run 38012524883](https://github.com/ZenUml/conf-app/actions/runs/38012524883),
+tooling commit `cf6c65a8`) measures this parser-mode addition against the same
+immutable application source. Its result is pending.
 
 The acceptance metric is the median GitHub deploy-job `started_at` through
 `completed_at`, including checkout, cache restore/save, frozen install, build,

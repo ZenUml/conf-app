@@ -212,36 +212,43 @@ jobs:
       # scripts/forge-wizard.mjs and release.yml:
       #
       #   lite      → newuser + diagrams   (drops aiaide)
-      #   full      → newuser              (drops aiaide + diagrams)
+      #   full      → newuser + diagrams   (drops aiaide)
       #   diagramly → newuser + aiaide     (drops diagrams)
-      #   asyncapi  → none                 (whole module, stripped further below)
+      #   asyncapi  → diagrams             (drops aiaide + newuser, further below)
       - name: Remove zenuml-byline-aiaide from manifest (Lite keeps newuser + diagrams)
         if: needs.resolve.outputs.variant == 'lite'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))' -i manifest.yml
-      # aiaide is Diagramly-branded; diagrams is the Lite index. Full has no
-      # byline surface of its own, so only the nudge survives.
-      - name: Remove zenuml-byline-aiaide and zenuml-byline-diagrams from manifest (Full keeps newuser)
+      # Full keeps the diagram index too, minus its display condition: that
+      # condition hides the byline where Full's presence marker exists, which
+      # in Full is every space.
+      - name: Remove zenuml-byline-aiaide from manifest and drop the diagrams byline's Lite-only displayConditions (Full keeps newuser + diagrams)
         if: needs.resolve.outputs.variant == 'full'
         uses: mikefarah/yq@master
         with:
           cmd: |
-            yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))' -i manifest.yml
+            yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)' -i manifest.yml
       - name: Remove the Lite diagrams byline entry from manifest (Diagramly keeps newuser + aiaide)
         if: needs.resolve.outputs.variant == 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))' -i manifest.yml
       # The unplaced-diagram banner is gated on a content property written only
-      # by zenuml-byline-diagrams, which is Lite-only. Anywhere else it is a
-      # module that can never fire. Mirrors the manifestEdits in
-      # scripts/forge-wizard.mjs.
-      - name: Remove the unplaced-diagram page banner (non-Lite variants)
-        if: needs.resolve.outputs.variant != 'lite'
+      # by zenuml-byline-diagrams, which Diagramly strips; there it is a module
+      # that can never fire. AsyncAPI's empty key suffix would gate its banner
+      # on Full's key, so it gets its own. Mirrors the manifestEdits in
+      # scripts/forge-wizard.mjs and unplacedPropertyKeyFor().
+      - name: Remove the unplaced-diagram page banner (Diagramly)
+        if: needs.resolve.outputs.variant == 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))' -i manifest.yml
+      - name: Gate the unplaced-diagram page banner on the AsyncAPI property key
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval '(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner") | .displayConditions.entityPropertyExists.propertyKey) = "zenuml-unplaced-diagrams-asyncapi"' -i manifest.yml
       - name: Remove licensing (Lite is free)
         if: needs.resolve.outputs.variant == 'lite'
         uses: mikefarah/yq@master
@@ -280,8 +287,9 @@ jobs:
               | del(.modules."confluence:globalPage")
             ' -i manifest.yml
       # AsyncAPI: keep only the asyncapi macros, drop the dashboard /
-      # get-started / byline modules, and grant `unsafe-eval` in CSP so
-      # Studio's runtime schema compilation works inside Forge's iframe.
+      # get-started modules and every byline entry but the diagram index, and
+      # grant `unsafe-eval` in CSP so Studio's runtime schema compilation works
+      # inside Forge's iframe.
       # Mirrors the asyncapi block in scripts/forge-wizard.mjs.
       - name: Remove non-asyncapi macros from manifest (AsyncAPI; keep asyncapi + openapi)
         if: needs.resolve.outputs.variant == 'asyncapi'
@@ -289,11 +297,18 @@ jobs:
         with:
           # Keep the asyncapi macros AND the OpenAPI macro — see scripts/forge-wizard.mjs.
           cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi|zenuml-openapi-macro") | not))' -i manifest.yml
-      - name: Remove globalSettings + globalPage + contentBylineItem + homepageFeed (AsyncAPI uses spacePage only)
+      - name: Remove globalSettings + globalPage + homepageFeed (AsyncAPI uses spacePage only)
         if: needs.resolve.outputs.variant == 'asyncapi'
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"]) | del(.modules["confluence:homepageFeed"])' -i manifest.yml
+          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:homepageFeed"])' -i manifest.yml
+      # AsyncAPI keeps only the diagram-index byline (OpenAPI + AsyncAPI
+      # tiles), without the Lite-only display condition.
+      - name: Keep only zenuml-byline-diagrams in the byline module (AsyncAPI)
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)' -i manifest.yml
       - name: Remove non-asyncapi custom content types (AsyncAPI)
         if: needs.resolve.outputs.variant == 'asyncapi'
         uses: mikefarah/yq@master
@@ -335,17 +350,32 @@ jobs:
             ' -i manifest.yml
 
       # The /new/<type> and /d/<type>/*/* matchers are the byline's
-      # paste-to-create links, and only Lite ships the byline that mints them.
-      # In any other variant they collide with Lite's identical patterns on a
-      # both-installed site, and the app-scoped custom content behind a /d/
-      # link makes the wrong winner a permanently broken macro. The embed
-      # macro's 3-segment matchers are untouched. Mirrors forge-wizard.mjs.
-      - name: Remove byline paste-to-create matchers from non-Lite variants
-        if: needs.resolve.outputs.variant != 'lite'
+      # paste-to-create and paste-to-place links. Identical patterns in two
+      # installed apps race for one pasted URL, and the app-scoped custom
+      # content behind a /d/ link makes the wrong winner a permanently broken
+      # macro. So Lite keeps confluence.zenuml.com, Full and AsyncAPI move the
+      # typed matchers to their own hosts (the hosts buildDiagramDeeplink
+      # mints on), and Diagramly — no byline — drops them. /new/ links are
+      # minted by nothing outside Lite. The embed macro's 3-segment matchers
+      # are untouched. Mirrors forge-wizard.mjs.
+      - name: Remove byline paste-to-create matchers (Diagramly)
+        if: needs.resolve.outputs.variant == 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: |
             yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
+      - name: Move byline paste-to-place matchers to conf-full.zenuml.com (Full)
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://conf-full.zenuml.com/")' -i manifest.yml
+      - name: Move byline paste-to-place matchers to zenapi.zenuml.com (AsyncAPI)
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://zenapi.zenuml.com/")' -i manifest.yml
 
       # The Lite->Full conversion executor ships only in Full
       # (docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md).

@@ -8,7 +8,24 @@ import {
   getManifestEditYqArgs,
 } from '../../scripts/forge-wizard.mjs'
 
-import { DEEPLINK_TYPES } from '../../src/utils/embedDeeplink'
+import { DEEPLINK_TYPES, typedDeeplinkHostForProductType } from '../../src/utils/embedDeeplink'
+import { bylineTileMacroTypes } from '../../src/utils/byline/pickerTypes'
+import { unplacedPropertyKeyFor } from '../../src/utils/byline/unplacedProperty'
+
+const VARIANTS = ['lite', 'full', 'diagramly', 'asyncapi'] as const
+
+/** Whether a variant's manifest edits keep the `zenuml-byline-diagrams` entry.
+ *  Deleting the entry ends in `select(.key == "zenuml-byline-diagrams"))`;
+ *  Full and AsyncAPI only reach INTO it (`... | .displayConditions)`), which
+ *  must not read as a strip. */
+function keepsDiagramsByline(variant: string): boolean {
+  return !getManifestEditYqArgs(variant).some(
+    ({ expr }: { expr: string }) =>
+      expr.includes('select(.key == "zenuml-byline-diagrams"))') ||
+      /select\(\.key == "zenuml-byline-aiaide" or \.key == "zenuml-byline-diagrams"\)/.test(expr) ||
+      expr.includes('del(.modules["confluence:contentBylineItem"])'),
+  )
+}
 
 describe('forge-wizard manifest preview helpers', () => {
   it('keeps PlantUML egress client-only', () => {
@@ -201,38 +218,46 @@ describe('forge-wizard manifest preview helpers', () => {
     }
   })
 
-  // BylineDiagrams.vue renders its picker tiles unconditionally, on the strength
-  // of this: whatever variant keeps the byline keeps every macro a tile points
-  // at. A variant with the panel but no AsyncAPI macro would NOT show a dead
-  // tile — forgeIndex reads `modal.diagramType === 'asyncapi'` but falls through
-  // to the OpenAPI branch when its product gate fails, so the user would pick
+  it('ships the diagram-index byline in Lite, Full and AsyncAPI — not Diagramly', () => {
+    expect(VARIANTS.filter(keepsDiagramsByline)).toEqual(['lite', 'full', 'asyncapi'])
+  })
+
+  // BylineDiagrams.vue offers the tiles `bylineTileMacroTypes` lists for the
+  // build, on the strength of this: whatever variant keeps the byline keeps
+  // every macro its tiles point at. A tile without its macro would NOT be dead
+  // — forgeIndex reads `modal.diagramType === 'asyncapi'` but falls through to
+  // the OpenAPI branch when its product gate fails, so the user would pick
   // AsyncAPI and get a swagger document filed under the wrong type.
   it('no variant keeps the byline panel without the macros its tiles create', () => {
-    const TILE_MACRO_KEYS = [
-      '${SEQUENCE_MACRO_KEY}',
-      'zenuml-graph-macro${LITE_KEY_SUFFIX}',
-      'zenuml-openapi-macro${LITE_KEY_SUFFIX}',
-      'zenuml-asyncapi-macro${LITE_KEY_SUFFIX}',
-    ]
+    const MACRO_KEY_BY_TILE: Record<string, string> = {
+      mermaid: '${SEQUENCE_MACRO_KEY}',
+      sequence: '${SEQUENCE_MACRO_KEY}',
+      graph: 'zenuml-graph-macro${LITE_KEY_SUFFIX}',
+      openapi: 'zenuml-openapi-macro${LITE_KEY_SUFFIX}',
+      asyncapi: 'zenuml-asyncapi-macro${LITE_KEY_SUFFIX}',
+    }
     const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
     const baseMacroKeys: string[] = manifest.modules.macro.map((m: any) => m.key)
     // Sanity: the tile list is written against the base manifest, so a renamed
     // macro key must break here rather than silently pass the loop below.
-    for (const key of TILE_MACRO_KEYS) expect(baseMacroKeys, key).toContain(key)
+    for (const key of Object.values(MACRO_KEY_BY_TILE)) expect(baseMacroKeys, key).toContain(key)
 
-    for (const variant of ['lite', 'full', 'diagramly', 'asyncapi'] as const) {
+    for (const variant of VARIANTS) {
+      if (!keepsDiagramsByline(variant)) continue
       const exprs = getManifestEditYqArgs(variant).map((x: { expr: string }) => x.expr)
-      const keepsByline = !exprs.some(
-        (e: string) =>
-          e.includes('zenuml-byline-diagrams') || e.includes('del(.modules["confluence:contentBylineItem"])'),
-      )
-      if (!keepsByline) continue
+      const TILE_MACRO_KEYS = bylineTileMacroTypes(variant).map(t => MACRO_KEY_BY_TILE[t])
+      // `| not` inverts the selector into a KEEP-list (the asyncapi variant's
+      // shape): a tile's macro survives only if the keep regex covers it.
+      const keepPatterns = exprs
+        .filter((e: string) => e.includes('.modules.macro') && e.includes('| not'))
+        .flatMap((e: string) => Array.from(e.matchAll(/test\("([^"]+)"\) \| not/g)).map(m => m[1]))
+      for (const key of TILE_MACRO_KEYS) {
+        for (const p of keepPatterns) {
+          expect(new RegExp(p).test(key), `${variant} keep-list /${p}/ drops ${key} but keeps the byline`).toBe(true)
+        }
+      }
       const macroStrips = exprs.filter(
-        // `| not` inverts the selector into a KEEP-list (the asyncapi variant's
-        // shape). No byline-keeping variant uses one today, and reading it as a
-        // strip would invert the whole assertion, so it is excluded explicitly
-        // rather than by accident.
-        (e: string) => e.includes('.modules.macro') && !e.includes('| not'),
+        (e: string) => e.includes('.modules.macro') && !e.includes('| not') && !e.includes('autoConvert'),
       )
       // Two ways a macro gets stripped, and the second is the one that actually
       // regressed once: an exact `select(.key == "...")`, or a broad
@@ -252,26 +277,77 @@ describe('forge-wizard manifest preview helpers', () => {
     }
   })
 
-  it('only Lite keeps the byline paste-to-create matchers', () => {
-    // The /new/<type> and /d/<type>/*/* patterns are minted only by the Lite
-    // byline. Any other variant carrying them races Lite for the same pasted
-    // URL on a both-installed site, and app-scoped custom content makes the
-    // wrong winner a permanently broken macro — so every non-Lite variant
-    // must strip them, and Lite must not.
-    const STRIP = 'Remove byline paste-to-create matchers (Lite-only byline mints those links)'
-    expect(getManifestEditDescriptions('lite')).not.toContain(STRIP)
-    for (const variant of ['full', 'diagramly', 'asyncapi'] as const) {
-      expect(getManifestEditDescriptions(variant), variant).toContain(STRIP)
-      const expr = getManifestEditYqArgs(variant)
+  // Identical typed matchers in two installed apps race for one pasted URL,
+  // and app-scoped custom content makes the wrong winner a permanently broken
+  // macro. So every byline variant claims its typed links on its OWN host —
+  // the host buildDiagramDeeplink mints on — and Diagramly, with no byline,
+  // claims none.
+  it('each byline variant claims typed paste links on its own minting host', () => {
+    const exprFor = (variant: string) =>
+      getManifestEditYqArgs(variant)
         .map((x: { expr: string }) => x.expr)
         .find((e: string) => e.includes('autoConvert.matchers'))
+
+    // Lite: the source manifest's matchers, untouched, on the host it mints.
+    expect(exprFor('lite')).toBeUndefined()
+    expect(typedDeeplinkHostForProductType('lite')).toBe('confluence.zenuml.com')
+
+    for (const variant of ['full', 'asyncapi'] as const) {
+      const expr = exprFor(variant)
+      expect(expr, variant).toBeDefined()
       // `[.]` not `\.`: a backslash escape would be eaten by the JS string
       // literal and silently widen the regex.
-      expect(expr, variant).toContain('test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)")')
-      // The follow-up clause must drop only EMPTIED autoConvert blocks — the
-      // embed macro's 3-segment matchers survive the first del and keep theirs.
-      expect(expr, variant).toContain('length == 0) | .autoConvert)')
+      expect(expr, variant).toContain('del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/")))')
+      expect(expr, variant).toContain(
+        `sub("^https://confluence[.]zenuml[.]com/"; "https://${typedDeeplinkHostForProductType(variant)}/")`,
+      )
     }
+    const hosts = ['lite', 'full', 'asyncapi'].map(typedDeeplinkHostForProductType)
+    expect(new Set(hosts).size, 'byline variants mint on distinct hosts').toBe(hosts.length)
+
+    const diagramly = exprFor('diagramly')
+    expect(diagramly).toContain('test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)")')
+    // The follow-up clause must drop only EMPTIED autoConvert blocks — the
+    // embed macro's 3-segment matchers survive the first del and keep theirs.
+    expect(diagramly).toContain('length == 0) | .autoConvert)')
+  })
+
+  // The banner is gated on a content property only the diagram-index byline
+  // writes, keyed per app because content properties are site-global.
+  it('ships the unplaced banner wherever the byline writes its property, on that app\'s key', () => {
+    const bannerExprs = (variant: string) =>
+      getManifestEditYqArgs(variant)
+        .map((x: { expr: string }) => x.expr)
+        .filter((e: string) => e.includes('zenuml-unplaced-banner'))
+    const STRIP = 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))'
+    for (const variant of VARIANTS) {
+      expect(bannerExprs(variant).includes(STRIP), variant).toBe(!keepsDiagramsByline(variant))
+    }
+    // Lite and Full get theirs from ${LITE_KEY_SUFFIX}; AsyncAPI's suffix is
+    // empty, so its edit must name the key the code writes.
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    const banner = manifest.modules['confluence:pageBanner'].find((m: any) => m.key === 'zenuml-unplaced-banner')
+    const templated = banner.displayConditions.entityPropertyExists.propertyKey
+    expect(templated.replace('${LITE_KEY_SUFFIX}', '-lite')).toBe(unplacedPropertyKeyFor('lite'))
+    expect(templated.replace('${LITE_KEY_SUFFIX}', '')).toBe(unplacedPropertyKeyFor('full'))
+    expect(bannerExprs('asyncapi')).toEqual([
+      `(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner") | .displayConditions.entityPropertyExists.propertyKey) = "${unplacedPropertyKeyFor('asyncapi')}"`,
+    ])
+    const keys = ['lite', 'full', 'asyncapi'].map(unplacedPropertyKeyFor)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  // The diagram-index entry's only display condition hides it where Full's
+  // presence marker exists. That is Lite's handoff to Full; kept in Full it
+  // would hide the byline on every space, and in AsyncAPI it would key off an
+  // unrelated app.
+  it('only Lite keeps the diagrams byline\'s Full-presence display condition', () => {
+    const DROP =
+      'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)'
+    const drops = (v: string) => getManifestEditYqArgs(v).some(({ expr }: { expr: string }) => expr.includes(DROP))
+    expect(drops('lite')).toBe(false)
+    expect(drops('full')).toBe(true)
+    expect(drops('asyncapi')).toBe(true)
   })
 
   it('full strips asyncapi bits and the Connect lifecycle module', () => {
@@ -282,15 +358,14 @@ describe('forge-wizard manifest preview helpers', () => {
     // Connect lifecycle module (connectModules) — also asyncapi-only.
     const desc = getManifestEditDescriptions('full')
     expect(desc).toContain(
-      'Remove zenuml-byline-aiaide and zenuml-byline-diagrams from confluence:contentBylineItem (keep zenuml-byline-newuser)',
+      'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser + zenuml-byline-diagrams)',
     )
     expect(desc).toContain('Remove Lite snapshot and Diagramly demo schedules from Full')
-    // Full is the only variant that drops TWO byline entries: aiaide is
-    // Diagramly-branded and diagrams is the Lite index, leaving just the
-    // activation nudge. The module itself must survive, or newuser goes too.
+    // Full drops only the Diagramly-branded aiaide entry. The module itself
+    // must survive, or newuser and the diagram index go too.
     const fullYq = getManifestEditYqArgs('full').map((x: { expr: string }) => x.expr)
     expect(fullYq).toContain(
-      'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
+      'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
     )
     expect(fullYq).not.toContain('del(.modules["confluence:contentBylineItem"])')
     expect(getManifestEditYqArgs('full').map((x) => x.expr)).toContain(
@@ -343,9 +418,7 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(desc).toContain(
       'Remove non-asyncapi macros (sequence, graph, embed); keep asyncapi macros + the OpenAPI macro',
     )
-    expect(desc).toContain(
-      'Remove globalSettings + globalPage + contentBylineItem + homepageFeed (asyncapi uses spacePage only)',
-    )
+    expect(desc).toContain('Remove globalSettings + globalPage + homepageFeed (asyncapi uses spacePage only)')
     expect(desc).toContain(
       "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
     )
@@ -365,8 +438,13 @@ describe('forge-wizard manifest preview helpers', () => {
     // asyncapi keeps confluence:spacePage intact (its "My API Documents"
     // entry) but strips confluence:globalPage entirely.
     expect(yq).toContain(
-      'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"]) | del(.modules["confluence:homepageFeed"])',
+      'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:homepageFeed"])',
     )
+    // The byline module survives with only the diagram index in it.
+    expect(yq).toContain(
+      'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)',
+    )
+    expect(yq).not.toContain('del(.modules["confluence:contentBylineItem"])')
     expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
     expect(yq.join(' ')).toContain('macroCountSnapshotFn')
   })

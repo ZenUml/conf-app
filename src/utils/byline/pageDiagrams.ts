@@ -161,7 +161,26 @@ export function toModalDiagramType(diagramType: string): string {
  * the modal's list. Accepts the array of responses (one per probed content
  * type) exactly as the REST layer returns them, including error-shaped ones.
  */
-export function parsePageDiagrams(responses: Array<any>): PageDiagram[] {
+/**
+ * The AsyncAPI app's `async-api-doc` type holds only API specs, so a body that
+ * predates the `diagramType` field can still be typed from its own text. Left
+ * as Unknown it would open in the sequence renderer and fail Add to page with
+ * `unresolved_macro_key`. Other variants share their content type across every
+ * diagram kind, so there is nothing safe to infer there.
+ */
+function inferApiSpecType(body: any, productType: string | undefined): string | undefined {
+  if (productType !== 'asyncapi' || typeof body?.code !== 'string') return undefined
+  const head = body.code.trimStart().slice(0, 200)
+  // YAML (`asyncapi: 3.0.0`) or JSON (`{"asyncapi": "3.0.0"`).
+  if (/^\{?\s*["']?asyncapi["']?\s*:/m.test(head)) return DiagramType.AsyncApi
+  if (/^\{?\s*["']?(openapi|swagger)["']?\s*:/m.test(head)) return DiagramType.OpenApi
+  return undefined
+}
+
+export function parsePageDiagrams(
+  responses: Array<any>,
+  productType: string | undefined = import.meta.env.PRODUCT_TYPE,
+): PageDiagram[] {
   const out: PageDiagram[] = []
   const seen = new Set<string>()
 
@@ -187,7 +206,10 @@ export function parsePageDiagrams(responses: Array<any>): PageDiagram[] {
         body = null
       }
 
-      const diagramType = typeof body?.diagramType === 'string' ? body.diagramType : DiagramType.Unknown
+      const diagramType =
+        typeof body?.diagramType === 'string'
+          ? body.diagramType
+          : inferApiSpecType(body, productType) ?? DiagramType.Unknown
       const copyable = COPYABLE_TYPES.includes(diagramType)
       let source = ''
       if (copyable) {

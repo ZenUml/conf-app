@@ -45,15 +45,31 @@ import { requestConfluenceJson as request } from '@/utils/byline/confluenceReque
  * Lite's byline read the `zenuml-full-active` marker Full writes (see the
  * displayConditions comment in manifest.yml). An unsuffixed key would therefore
  * let Full's banner module boot on a property Lite wrote and announce a diagram
- * it knows nothing about. Resolves to `zenuml-unplaced-diagrams-lite` on Lite
- * and `zenuml-unplaced-diagrams` elsewhere, matching
- * `zenuml-unplaced-diagrams${LITE_KEY_SUFFIX}` in the manifest — the two MUST
- * move together or the display condition silently never fires.
+ * it knows nothing about. Resolves to `zenuml-unplaced-diagrams-lite` on Lite,
+ * `zenuml-unplaced-diagrams-asyncapi` on the AsyncAPI app and
+ * `zenuml-unplaced-diagrams` on Full, matching the banner's propertyKey in each
+ * variant's manifest — the two MUST move together or the display condition
+ * silently never fires.
  */
-export const UNPLACED_PROPERTY_KEY =
-  import.meta.env.PRODUCT_TYPE === 'lite'
-    ? 'zenuml-unplaced-diagrams-lite'
-    : 'zenuml-unplaced-diagrams'
+export const UNPLACED_PROPERTY_KEY = unplacedPropertyKeyFor(import.meta.env.PRODUCT_TYPE)
+
+/**
+ * The AsyncAPI app gets its own key too, though its ${LITE_KEY_SUFFIX} is
+ * empty: Full also ships the banner, so a shared `zenuml-unplaced-diagrams`
+ * would boot Full's banner on an `async-api-doc` diagram Full cannot place.
+ * scripts/forge-wizard.mjs rewrites the asyncapi manifest's propertyKey to
+ * match.
+ */
+export function unplacedPropertyKeyFor(productType: string | undefined): string {
+  switch (productType) {
+    case 'lite':
+      return 'zenuml-unplaced-diagrams-lite'
+    case 'asyncapi':
+      return 'zenuml-unplaced-diagrams-asyncapi'
+    default:
+      return 'zenuml-unplaced-diagrams'
+  }
+}
 
 /**
  * Defensive cap on how many diagrams travel in the property. Content property

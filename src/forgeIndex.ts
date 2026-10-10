@@ -167,7 +167,7 @@ async function initializeCriticalPath() {
   // entry's UI.
   //
   //   zenuml-byline-newuser  → the activation nudge ("View as diagram")
-  //   zenuml-byline-diagrams → the Lite diagram index
+  //   zenuml-byline-diagrams → the diagram index (Lite, Full, AsyncAPI)
   //   zenuml-byline-aiaide   → the Aide chat (the fallback)
   if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
     if (context.moduleKey === 'zenuml-byline-newuser') {

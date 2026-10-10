@@ -48,7 +48,6 @@ export default {
       highlightController: null,
       highlightCleanup: null,
       currentFlowchartModel: null,
-      highlightUsedGeneration: -1,
       renderGeneration: 0,
       layoutWaitController: null,
     }
@@ -139,7 +138,9 @@ export default {
       if (!svg) return;
       try {
         this.highlightController = attachMermaidHighlights(svg, this.currentFlowchartModel);
-        let used = this.highlightUsedGeneration === this.renderGeneration, timer = null, hovered = null;
+        // Every distinct target is one use (the feedback pill waits for the
+        // third); a hover that turns into a click on the same target is one use.
+        let reported = null, timer = null, hovered = null;
         const target = event => {
           const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
           if (!el || !svg.contains(el)) return null;
@@ -148,15 +149,14 @@ export default {
         };
         const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
         const report = item => {
-          if (!item || used) return;
-          used = true;
-          this.highlightUsedGeneration = this.renderGeneration;
+          if (!item || item.el === reported) return;
+          reported = item.el;
           cancel();
           this.$emit('highlight-used', { kind: item.kind });
         };
         const over = event => {
           const item = target(event);
-          if (!item || used || hovered === item.el) return;
+          if (!item || hovered === item.el) return;
           cancel(); hovered = item.el;
           timer = setTimeout(() => report(item), 700);
         };

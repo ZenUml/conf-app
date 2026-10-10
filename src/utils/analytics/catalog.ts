@@ -64,11 +64,23 @@ export type HighlightFeedbackReason =
   | "not_useful"
   | "other";
 
-/** Surface variant that displayed the Mermaid highlight feedback prompt. */
-export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar";
+/**
+ * Surface variant that displayed the Mermaid highlight feedback prompt.
+ * `sidebar` is the retired 260px side card (shipped to 2026-10-10);
+ * `canvas_pill` is the auto-dismissing pill floating at the canvas bottom.
+ */
+export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar" | "canvas_pill";
 
 /** Prompt step at which planned Mermaid highlight feedback was dismissed. */
 export type HighlightDismissStage = "question" | "reason";
+
+/**
+ * Why a Mermaid highlight pill closed without an answer. Feedback pill:
+ * `close` is the × button, `timeout` is its 10 s auto-dismiss. First-use
+ * hint ("Highlighting connections"): `close` is ×, `turn_off` is its
+ * "Turn off" button, which also disables highlights.
+ */
+export type HighlightDismissCause = "close" | "timeout" | "turn_off";
 
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
@@ -743,6 +755,14 @@ export type AnalyticsEventName =
   | "mermaid_highlight_feedback_reason_selected"
   | "mermaid_highlight_feedback_dismissed"
   | "mermaid_highlight_preference_changed"
+  // First-use hint at the canvas bottom-left ("Highlighting connections ·
+  // Turn off"), design "Viewer Header Highlight Analysis" option 1e. `shown`
+  // fires on the first highlight use per device (localStorage-gated, so at
+  // most once per browser); `dismissed` carries highlight_dismiss_cause
+  // (`close` = ×, `turn_off` = the button, which also records
+  // preference_changed with action_location=canvas_hint).
+  | "mermaid_highlight_hint_shown"
+  | "mermaid_highlight_hint_dismissed"
   // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
   // instance; menu_opened fires on every closed -> open transition.
   | "copy_for_ai_impression"

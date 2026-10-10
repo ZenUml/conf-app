@@ -263,6 +263,14 @@
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
                 @opened="onMoreMenuOpened" @closed="moreMenuOpen = false">
                 <template #default="{ close }">
+                  <!-- Lead items from the diagram-type wrapper (the Mermaid
+                       relationship-highlights switch, design "Viewer Header
+                       Highlight Analysis" 1e), then the standard entries. The
+                       slot receives close() so an item can shut the menu. -->
+                  <template v-if="$slots['viewer-more-menu-start']">
+                    <slot name="viewer-more-menu-start" :close="close"></slot>
+                    <div role="separator" class="overflow-menu-separator"></div>
+                  </template>
                   <template v-for="(item, index) in moreMenuEntries" :key="`${item}-${index}`">
                     <div v-if="item === 'separator'" role="separator" class="overflow-menu-separator"></div>
                     <button
@@ -428,6 +436,16 @@
               <DiagramViewport v-if="magicActive" ref="magicViewport" macro-type="mermaid"
                 label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
+            </div>
+            <!-- Canvas overlay anchor: a zero-height block between the diagram
+                 and the footer row. Slot content (the Mermaid highlight feedback
+                 pill) positions itself against this box, so it floats over the
+                 diagram's bottom edge, stays above the byline / related-diagrams
+                 row, and is never inside captureNode's export clone. Only
+                 mounted when a parent fills the slot, so other diagram types'
+                 DOM is unchanged. -->
+            <div v-if="!isLoadFailed && $slots['viewer-canvas-overlay']" class="viewer-canvas-overlay">
+              <slot name="viewer-canvas-overlay"></slot>
             </div>
             <div
               v-if="!isLoadFailed && (diagramAttribution || (architectureTokensEnabled && showRelatedDiagrams))"
@@ -1703,7 +1721,9 @@ export default {
         if (!svg) return;
         this.clearMagicHighlights();
         this.magicHighlightController = attachPreparedSvgHighlights(svg, model);
-        let used = false, timer = null, hovered = null;
+        // Every distinct target is one use (the feedback pill waits for the
+        // third); a hover that turns into a click on the same target is one use.
+        let reported = null, timer = null, hovered = null;
         const target = event => {
           const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
           if (!el || !svg.contains(el)) return null;
@@ -1712,12 +1732,12 @@ export default {
         };
         const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
         const report = item => {
-          if (!item || used || generation !== this.magicGeneration) return;
-          used = true; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
+          if (!item || item.el === reported || generation !== this.magicGeneration) return;
+          reported = item.el; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
         };
         const over = event => {
           const item = target(event);
-          if (!item || used || hovered === item.el) return;
+          if (!item || hovered === item.el) return;
           cancel(); hovered = item.el;
           timer = setTimeout(() => report(item), 700);
         };
@@ -3302,6 +3322,12 @@ export default {
 }
 .viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
 .viewer-canvas .screen-capture-content.w-full { width: 100%; }
+/* Zero height: adds nothing to the canvas layout. Its width comes from the
+   canvas (never from its children), which is what makes inline-size
+   containment safe here — the inline frame is width:fit-content, so the
+   same declaration on .viewer-canvas itself would collapse the macro. The
+   container name is what the pill's @container rule queries. */
+.viewer-canvas-overlay { position: relative; width: 100%; height: 0; container: viewer-canvas / inline-size; }
 
 .viewer-footer-row {
   display: flex;

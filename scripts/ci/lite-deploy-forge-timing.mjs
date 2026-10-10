@@ -35,7 +35,7 @@ async function main() {
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   let previous = [];
   try { previous = JSON.parse(await readFile('lite-deploy-forge.json', 'utf8')); } catch { /* First attempt. */ }
-  previous.push({ attempt: previous.length + 1, duration_ms: Date.now() - started, exit_code: code, phases });
+  previous.push({ attempt: previous.length + 1, duration_ms: Date.now() - started, exit_code: code, typescript_single_run: process.env.TSESTREE_SINGLE_RUN === 'true', phases });
   await writeFile('lite-deploy-forge.json', JSON.stringify(previous, null, 2));
   process.exitCode = code ?? 1;
 }

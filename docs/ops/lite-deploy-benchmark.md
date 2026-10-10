@@ -58,12 +58,31 @@ still runs. General Forge configuration and authentication stores are excluded.
 Only cache-hit booleans are added to experiment metadata. The runtime benefit is
 unmeasured until another complete experiment finishes.
 
+The first deploy-only experiment (run 38010919902, tooling commit `22c36130`)
+uses the cache and parallel-preparation candidate without the parser change
+below. Its first candidate had cold caches and took 206 seconds versus the first
+baseline's 186 seconds. The second candidate hit all three caches and took
+177 seconds versus its paired baseline's 201 seconds: an 11.9% reduction,
+below the target. These are preliminary observations; all six samples remain
+part of that immutable experiment's report.
+
 After install, candidate build, Pages configuration/migrations, and Forge variable
 synchronization run concurrently. Writes within each remote configuration lane
 remain sequential. All lanes join on success or failure. `PAGE_CAPTURE_SECRET`
 keeps its existing post-deploy Forge synchronization step. Other variants and
 production retain their existing preparation path. Vite already disables
 compressed-size reporting; this experiment does not change that setting.
+
+The next opt-in candidate additionally sets `TSESTREE_SINGLE_RUN=true` only
+inside each Forge deployment invocation, after source and manifest preparation.
+The installed Forge linter uses type-aware TypeScript parsing, but does not
+enable automatic single-run inference. With its current parser, `CI=true` alone
+therefore creates watch programs; the explicit setting selects a single immutable
+TypeScript Program. Typed parsing, the existing syntactic/semantic diagnostic
+policy, and Forge's pre- and post-deployment checks remain enabled. Build,
+configuration commands, baseline, other variants, and production retain their
+existing parser mode. The setting is recorded as a boolean on each Forge attempt.
+Its deployment-time benefit has not been measured.
 
 The acceptance metric is the median GitHub deploy-job `started_at` through
 `completed_at`, including checkout, cache restore/save, frozen install, build,

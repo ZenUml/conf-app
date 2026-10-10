@@ -490,13 +490,19 @@ jobs:
           # deployed, and the hand re-run was green. A failed pre-deploy
           # deploys nothing, so a second attempt is safe; a real manifest or
           # bundle error fails twice and stays red.
-          deploy_forge() {
+          deploy_forge() (
+            # The source and final manifest are immutable by this point. Let
+            # the typed parser use one Program instead of maintaining watches.
+            # A subshell limits this setting to this Forge deploy invocation.
+            if [ "${{ inputs.preparation-mode }}" = candidate ]; then
+              export TSESTREE_SINGLE_RUN=true
+            fi
             if [ -n "${{ inputs.benchmark-sample }}" ]; then
               node scripts/ci/lite-deploy-forge-timing.mjs "${{ needs.resolve.outputs.variant }}"
             else
               pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
             fi
-          }
+          )
           FORGE_EXIT=0
           if ! deploy_forge; then
             echo "::warning::forge deploy failed once — retrying in 20s"

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { handleHeadlessRpc, looksLikeRelayToken } from './headlessMcp';
 import { authenticateHeadless, challengeFor } from './headlessAuth';
 import { issueAccessToken, type GrantStoreLike } from './asStore';
@@ -277,6 +277,113 @@ describe('headless RPC', () => {
     const token = await tokenFor(env.store, 'diagram.write');
     const res = await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
     expect(res.status).toBe(403);
+  });
+});
+
+describe('tool usage analytics', () => {
+  // mixpanelService posts with the GLOBAL fetch, not the injected one.
+  function captureEvents() {
+    const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('mixpanel.com/import')) {
+        for (const e of JSON.parse(String(init?.body ?? '[]'))) events.push(e);
+      }
+      return new Response('1', { status: 200 });
+    });
+    return events;
+  }
+
+  async function trackedEnv() {
+    const env = makeEnv();
+    await saveGrant(env.store, 'grant-key', ACCOUNT, {
+      accessToken: 'at-1',
+      refreshToken: 'rt-1',
+      accessTokenExpiresAtMs: Date.now() + 3_600_000,
+      scope: 'read:page:confluence',
+    });
+    return { ...env, env: { ...env.env, MIXPANEL_TOKEN: 'mp-token' } };
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('records a successful read, which the write events never see', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(res.status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toBe('agent_link_mcp_tool_called');
+    expect(events[0].properties).toMatchObject({
+      user_account_id: ACCOUNT,
+      mcp_mode: 'headless',
+      mcp_tool: 'list_sites',
+      mcp_tool_outcome: 'success',
+    });
+    expect(typeof events[0].properties.duration_ms).toBe('number');
+  });
+
+  it('records a tool refusal with its closed-vocabulary code', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'read_diagram', arguments: { cloudId: 'not-mine', contentId: 'cc-1' } });
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({ mcp_tool_outcome: 'tool_error', reason: 'unknown_site' });
+  });
+
+  it('records a scope refusal', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store, 'diagram.write');
+    await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(events[0].properties).toMatchObject({ mcp_tool_outcome: 'scope_denied', reason: 'diagram.read' });
+  });
+
+  it('never sends an unknown tool name, which is client free text', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'delete_everything', arguments: {} });
+    expect(events[0].properties).toMatchObject({ mcp_tool: 'unknown', mcp_tool_outcome: 'unknown_tool' });
+  });
+
+  it('records which client connected, trimmed', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'initialize', { clientInfo: { name: 'claude-code', version: 'x'.repeat(100) } });
+    expect(events[0].event).toBe('agent_link_mcp_initialized');
+    expect(events[0].properties.mcp_client_name).toBe('claude-code');
+    expect(events[0].properties.mcp_client_version).toHaveLength(64);
+  });
+
+  it('hands the event to waitUntil instead of delaying the response', async () => {
+    captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const deferred: Promise<unknown>[] = [];
+    const request = rpc(token, 'tools/call', { name: 'list_sites', arguments: {} });
+    const res = await handleHeadlessRpc(request, env.env, await request.clone().json(), {
+      fetchImpl: atlassianFetch().fetchImpl,
+      waitUntil: (p) => deferred.push(p),
+    });
+    expect(res.status).toBe(200);
+    expect(deferred).toHaveLength(1);
+  });
+
+  it('emits nothing without a Mixpanel token', async () => {
+    const events = captureEvents();
+    const env = makeEnv();
+    await saveGrant(env.store, 'grant-key', ACCOUNT, {
+      accessToken: 'at-1',
+      refreshToken: 'rt-1',
+      accessTokenExpiresAtMs: Date.now() + 3_600_000,
+      scope: 'read:page:confluence',
+    });
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(events).toHaveLength(0);
   });
 });
 

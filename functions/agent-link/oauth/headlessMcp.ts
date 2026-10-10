@@ -196,10 +196,70 @@ async function trackWriteRefusal(
   }
 }
 
+/** How one tools/call ended — AgentLinkMcpToolOutcome in the frontend catalog. */
+type ToolOutcome = 'success' | 'tool_error' | 'scope_denied' | 'unknown_tool' | 'exception';
+
+/** Client-supplied text, bounded before it reaches Mixpanel. */
+function clip(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value.slice(0, 64) : undefined;
+}
+
+/**
+ * One event per authenticated tools/call, for every tool. The write events
+ * above only see the four writes; reads, scope refusals and unexpected throws
+ * are otherwise invisible on the headless path. Arguments and results are
+ * never sent — only the tool's name, how it ended, and how long it took.
+ */
+async function trackToolCall(
+  env: HeadlessEnv,
+  userId: string,
+  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number },
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  await withTimeout(mixpanelTrack(
+    {
+      event: 'agent_link_mcp_tool_called',
+      user_account_id: userId,
+      feature_area: 'agent_link',
+      surface: 'backend',
+      mcp_mode: 'headless',
+      mcp_tool: call.tool,
+      mcp_tool_outcome: call.outcome,
+      reason: call.reason,
+      duration_ms: call.durationMs,
+    },
+    env.MIXPANEL_TOKEN,
+  ));
+}
+
+/** Which agent connected: the MCP `clientInfo` from the initialize handshake. */
+async function trackInitialized(env: HeadlessEnv, userId: string, params: unknown): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  const clientInfo = ((params ?? {}) as { clientInfo?: { name?: unknown; version?: unknown } }).clientInfo ?? {};
+  await withTimeout(mixpanelTrack(
+    {
+      event: 'agent_link_mcp_initialized',
+      user_account_id: userId,
+      feature_area: 'agent_link',
+      surface: 'backend',
+      mcp_mode: 'headless',
+      mcp_client_name: clip(clientInfo.name),
+      mcp_client_version: clip(clientInfo.version),
+    },
+    env.MIXPANEL_TOKEN,
+  ));
+}
+
 export interface HeadlessMcpDeps {
   /** Injected so tests need no network; production passes a wrapped global fetch. */
   fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
   nowMs?: () => number;
+  /**
+   * The Pages context's waitUntil. When given, usage events run after the
+   * response is sent instead of delaying it; without it (tests) they are
+   * awaited, still bounded by ANALYTICS_TIMEOUT_MS.
+   */
+  waitUntil?: (work: Promise<unknown>) => void;
 }
 
 /**
@@ -217,6 +277,11 @@ export async function handleHeadlessRpc(
   const id = body.id ?? null;
   const fetchImpl = deps.fetchImpl ?? ((url: string, init?: RequestInit) => fetch(url, init));
   const now = deps.nowMs ?? Date.now;
+  const defer = async (work: Promise<void>): Promise<void> => {
+    const bounded = work.catch(() => undefined); // analytics never fails a response
+    if (deps.waitUntil) deps.waitUntil(bounded);
+    else await bounded;
+  };
 
   let store;
   let app;
@@ -265,6 +330,7 @@ export async function handleHeadlessRpc(
 
   switch (body.method) {
     case 'initialize':
+      await defer(trackInitialized(env, auth.token.userId, body.params));
       return result(id, {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
@@ -281,8 +347,19 @@ export async function handleHeadlessRpc(
       if (typeof params.name !== 'string') {
         return error(400, id, RPC_INVALID_PARAMS, 'params.name is required');
       }
-      if (!HEADLESS_TOOLS.some((t) => t.name === params.name)) {
-        return error(200, id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${params.name}`);
+      const tool = params.name;
+      const startedMs = now();
+      const trackCall = (outcome: ToolOutcome, reason?: string) =>
+        defer(trackToolCall(env, auth.token.userId, {
+          tool,
+          outcome,
+          reason,
+          durationMs: Math.max(0, now() - startedMs),
+        }));
+      if (!HEADLESS_TOOLS.some((t) => t.name === tool)) {
+        // Never the client's string: an unknown name is free text.
+        await defer(trackToolCall(env, auth.token.userId, { tool: 'unknown', outcome: 'unknown_tool', durationMs: 0 }));
+        return error(200, id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${tool}`);
       }
       // Reads need diagram.read; the two write tools need diagram.write. A
       // client that asked for only one scope gets only that half of the
@@ -290,6 +367,7 @@ export async function handleHeadlessRpc(
       const needsWrite = WRITE_TOOLS.has(params.name);
       const required = needsWrite ? 'diagram.write' : 'diagram.read';
       if (!hasScope(auth.token, required)) {
+        await trackCall('scope_denied', required);
         return error(403, id, RPC_AUTH_ERROR, `This token was not granted ${required} access.`);
       }
 
@@ -300,6 +378,7 @@ export async function handleHeadlessRpc(
           ctx,
         );
         await trackWrite(env, params.name, auth.token.userId, value);
+        await trackCall('success');
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {
@@ -309,6 +388,7 @@ export async function handleHeadlessRpc(
       } catch (e) {
         if (e instanceof HeadlessToolError) {
           await trackWriteRefusal(env, params.name, auth.token.userId, e);
+          await trackCall('tool_error', e.code);
           // A dead grant is the one failure the user can act on, so it is a
           // 401 with the challenge rather than a tool-level error buried in a
           // 200 that a client will just print.
@@ -320,6 +400,7 @@ export async function handleHeadlessRpc(
           }
           return error(200, id, RPC_TOOL_ERROR, e.message, { data: { code: e.code, detail: e.detail } });
         }
+        await trackCall('exception');
         throw e;
       }
     }

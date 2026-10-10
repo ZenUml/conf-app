@@ -14,13 +14,19 @@ The six-sample order is baseline, candidate, candidate, baseline, baseline,
 candidate. Every sample starts a fresh runner, installs with the frozen lockfile,
 builds Lite, applies the same variant manifest edits, synchronizes runtime
 configuration, runs Forge lint/deploy and Pages publish, and retains the existing
-install/upgrade behavior. The final deploy must pass the existing `@smoke` tier.
+install/upgrade commands. Each benchmark sample requires install or upgrade to
+succeed; the ordinary staging caller retains its existing tolerated outcome.
+The final deploy must pass the existing `@smoke` tier.
 
 The candidate restores installed dependencies with an exact cache key covering
 Linux architecture, Ubuntu release, Node version and ABI, pnpm version, lockfile,
 package manifests, pnpm configuration, and patches. The frozen install still runs.
-Its separate Studio cache holds static output only. The existing Studio cache is
-a first-run fallback; a miss can therefore restore the larger archive once.
+Its separate Studio cache holds static output only. On a lean cache miss, a
+separate restore action requests the existing aggregate cache with the exact
+original paths and key. Cache versions include path metadata, so an aggregate
+archive cannot be restored through the lean cache's restore-key list. The lean
+cache's successful post step then saves only static output. The first candidate
+can therefore pay the larger legacy restore once; both hit states are recorded.
 Cache hits and misses remain in the evidence. Neither cache contains the app's
 `dist/`; every candidate builds the application afresh, including a new app SHA.
 After install, candidate build, Pages configuration/migrations, and Forge variable

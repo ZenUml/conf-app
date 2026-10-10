@@ -45,6 +45,29 @@ test('benchmark retains shared staging lock and sequential, pinned alternating a
   assert.equal(action.runs.steps.some(step => step.with?.path === 'dist'), false);
 });
 
+test('every benchmark sample requires successful Lite install or upgrade', () => {
+  const install = deploy.jobs.deploy.steps.find(step => step.name === 'Install Lite to lite-stg.atlassian.net');
+  assert.equal(install['continue-on-error'], "${{ inputs.benchmark-sample == '' }}");
+  assert.equal(install.run, 'pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging');
+});
+
+test('Studio fallback restores the original aggregate cache version before seeding lean output', () => {
+  const steps = deploy.jobs.deploy.steps;
+  const baseline = steps.find(step => step.name === 'Cache asyncapi Studio build');
+  const lean = steps.find(step => step.id === 'studio-output');
+  const legacy = steps.find(step => step.id === 'studio-legacy');
+  assert.ok(legacy, 'different cache path lists require separate legacy restore');
+  assert.equal(lean.with['restore-keys'], undefined, 'lean cache must not claim aggregate-version fallback');
+  assert.equal(legacy.uses, 'actions/cache/restore@v5');
+  assert.equal(legacy.with.path, baseline.with.path, 'cache version uses the original path metadata');
+  assert.equal(legacy.with.key, baseline.with.key);
+  assert.equal(legacy.with['restore-keys'], baseline.with['restore-keys']);
+  assert.equal(legacy.if, "inputs.preparation-mode == 'candidate' && steps.studio-output.outputs.cache-hit != 'true'");
+  assert.ok(steps.indexOf(lean) < steps.indexOf(legacy));
+  assert.ok(steps.indexOf(legacy) < steps.findIndex(step => step.uses === './.github/actions/wrangler-publish'));
+  assert.equal(lean.uses, 'actions/cache@v5', 'lean output is saved by the successful job post step');
+});
+
 function fixture(pairs = 3, candidateMs = 70000) {
   const jobs = [], evidence = [];
   for (let pair = 1; pair <= pairs; pair++) for (const mode of ['baseline', 'candidate']) {

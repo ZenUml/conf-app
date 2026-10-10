@@ -206,6 +206,32 @@ The first-main legacy Studio seed added after this tooling revision was not
 exercised by this run and still requires runtime verification. Ordinary Lite
 staging remains on baseline while further optimization is measured.
 
+### Fourth complete experiment: conditional store cache and upgrade first
+
+[Run 38019355972](https://github.com/ZenUml/conf-app/actions/runs/38019355972)
+used tooling `9b251815` and the same pinned application source. All six
+deployments succeeded with one Forge attempt each. All backend markers passed;
+the manifest and asset hashes matched across both arms.
+
+| Pair | Baseline seconds | Candidate seconds |
+|---|---:|---:|
+| 1 | 206 | 164 |
+| 2 | 207 | 161 |
+| 3 | 176 | 172 |
+| Median | 206 | 164 |
+
+The complete-job median improved by **42 seconds (20.39%)**, meeting the
+experimental threshold. The faster third baseline remains in the result;
+its paired improvement was only 2.27%. This is a three-pair observation, not
+a guarantee of 20% on every deployment.
+
+All candidates ran on Linux ARM64 with Node 24.21.0. All installed-dependency,
+lean Studio, and public permission-spec caches hit. Metadata confirms the
+redundant pnpm store was not requested; the frozen install and fresh application
+build still ran. These are warm-cache results. The first-main cache seeding
+cost and ordinary deployments on fresh main source commits still require
+measurement before completing the rollout.
+
 The acceptance metric is the median GitHub deploy-job `started_at` through
 `completed_at`, including checkout, cache restore/save, frozen install, build,
 configuration, lint, both deploys, install/upgrade, identity probe, metadata upload,

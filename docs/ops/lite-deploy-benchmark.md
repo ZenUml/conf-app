@@ -49,6 +49,29 @@ instead pay the failed upgrade lookup before its successful install.
 The candidate restores installed dependencies with an exact cache key covering
 Linux architecture, Ubuntu release, Node version and ABI, pnpm version, lockfile,
 package manifests, pnpm configuration, and patches. The frozen install still runs.
+The candidate now sets up Node without setup-node's pnpm store cache, then
+restores the installed dependency tree first. On an exact installed-tree hit,
+it skips the redundant store download and store post-save. On a miss, it resolves
+`pnpm store path --silent` and uses a conditional `actions/cache@v5` invocation
+with that single path and the existing setup-node v5 key:
+`node-cache-${RUNNER_OS}-${os.arch()}-pnpm-${hashFiles('pnpm-lock.yaml')}`.
+Node's architecture spelling is lowercase (`arm64`), unlike `runner.arch`
+(`ARM64`). The identical path and default compression/cross-OS settings preserve
+the legacy store cache version, including an existing default-branch cache.
+No broad restore keys are supplied. This matches the
+[setup-node v5 restore implementation](https://github.com/actions/setup-node/blob/v5/src/cache-restore.ts)
+and [pnpm store-path selection](https://github.com/actions/setup-node/blob/v5/src/cache-utils.ts).
+Baseline retains its original setup-node pnpm cache. Both arms always run the
+same frozen, script-disabled workspace install. The installed tree contains
+package contents; the store is a download cache, not an omitted installation
+step. A local isolated diagnostic confirmed the restored tree could complete
+that install offline with an empty store; the actual CI path still requires
+the next measured deployment to succeed. Store-requested and store-hit booleans
+are recorded separately. Store restore/save costs stay inside the full job
+timer. Both cache actions save only after successful jobs and skip save on an
+exact hit. Unlike setup-node's save wrapper, actions/cache warns on cache-upload
+errors; that optional cache outcome does not relax any install/deployment gate.
+The complete-job benefit of this change is not yet measured.
 Its separate Studio cache holds static output only. On a lean cache miss, a
 separate restore action requests the existing aggregate cache with the exact
 original paths and key. Cache versions include path metadata, so an aggregate

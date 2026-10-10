@@ -70,9 +70,16 @@ runs:
     - name: Setup pnpm
       uses: pnpm/action-setup@v5
     - uses: actions/setup-node@v5
+      if: inputs.preparation-mode != 'candidate'
       with:
         node-version: ${{ inputs.node-version }}
         cache: 'pnpm'
+    - name: Setup candidate Node without duplicate store cache
+      if: inputs.preparation-mode == 'candidate'
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
     - name: Resolve dependency cache platform
       if: inputs.preparation-mode == 'candidate'
       id: dependency-platform
@@ -92,6 +99,39 @@ runs:
       with:
         path: node_modules
         key: lite-deploy-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-platform.outputs.distro }}-${{ steps.dependency-platform.outputs.node }}-${{ steps.dependency-platform.outputs.abi }}-${{ steps.dependency-platform.outputs.pnpm }}-${{ hashFiles('pnpm-lock.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/*/package.json', '.npmrc', 'pnpm-workspace.yaml', 'patches/**') }}
+    # setup-node v5 uses the pnpm-reported store path and Node's os.arch(),
+    # not runner.arch casing, with this exact lockfile key. Keep its main
+    # cache available on an installed-tree miss without downloading it twice.
+    - name: Resolve pnpm store cache on installed dependency miss
+      if: inputs.preparation-mode == 'candidate' && steps.installed-dependencies.outputs.cache-hit != 'true'
+      id: pnpm-store-path
+      shell: bash
+      env:
+        CACHE_LOCK_HASH: ${{ hashFiles('pnpm-lock.yaml') }}
+      run: |
+        node --input-type=module <<'NODE'
+        import {execFileSync} from 'node:child_process';
+        import {appendFileSync} from 'node:fs';
+        import {arch} from 'node:os';
+        import {isAbsolute} from 'node:path';
+        try {
+          const path = execFileSync('pnpm', ['store', 'path', '--silent'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
+          const hash = process.env.CACHE_LOCK_HASH;
+          const platform = process.env.RUNNER_OS;
+          if (!isAbsolute(path) || /[\r\n\0]/.test(path) || !/^[a-f0-9]{64}$/.test(hash ?? '') || !['Linux', 'macOS', 'Windows'].includes(platform)) throw new Error();
+          appendFileSync(process.env.GITHUB_OUTPUT, `path=${path}\nkey=node-cache-${platform}-${arch()}-pnpm-${hash}\n`);
+        } catch {
+          console.error('Unable to resolve pnpm store cache');
+          process.exitCode = 1;
+        }
+        NODE
+    - name: Cache pnpm store on installed dependency miss
+      if: inputs.preparation-mode == 'candidate' && steps.installed-dependencies.outputs.cache-hit != 'true'
+      id: pnpm-store
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.pnpm-store-path.outputs.path }}
+        key: ${{ steps.pnpm-store-path.outputs.key }}
     - name: Install dependencies
       run: pnpm install --frozen-lockfile --ignore-scripts
       shell: bash
@@ -192,7 +232,8 @@ runs:
       shell: bash
       env:
         CACHE_HIT: ${{ steps.installed-dependencies.outputs.cache-hit }}
-      run: node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('lite-deploy-cache.json', JSON.stringify({installed_dependencies_hit:process.env.CACHE_HIT === 'true'}));"
+        STORE_CACHE_HIT: ${{ steps.pnpm-store.outputs.cache-hit }}
+      run: node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('lite-deploy-cache.json', JSON.stringify({installed_dependencies_hit:process.env.CACHE_HIT === 'true', pnpm_store_requested:process.env.CACHE_HIT !== 'true', pnpm_store_hit:process.env.STORE_CACHE_HIT === 'true'}));"
     - name: Prepare Lite staging in parallel
       if: inputs.preparation-mode == 'candidate'
       run: node scripts/ci/lite-deploy-prepare.mjs

@@ -48,7 +48,7 @@ test('actual resolver shell restricts ARM to opt-in Lite staging before deployme
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('benchmark hardware input affects only candidates and native legacy cache is excluded on ARM', () => {
+test('benchmark hardware input affects only candidates and ARM legacy dependencies are sanitized before use', () => {
   assert.equal(deploy.on.workflow_call.inputs['candidate-runner'].default, 'ubuntu-latest');
   assert.equal(deploy.jobs.deploy['runs-on'], '${{ needs.resolve.outputs.runner }}');
   assert.equal(deploy.jobs.resolve['runs-on'], 'ubuntu-latest');
@@ -62,6 +62,18 @@ test('benchmark hardware input affects only candidates and native legacy cache i
   const lean = steps.find(step => step.id === 'studio-output');
   const legacy = steps.find(step => step.id === 'studio-legacy');
   assert.match(legacy.if, /runner.arch != 'ARM64'/);
+  const arm = steps.find(step => step.id === 'studio-legacy-arm');
+  const sanitize = steps.find(step => step.name === 'Remove legacy Studio dependencies and validate ARM static seed');
+  assert.equal(arm.if, "inputs.preparation-mode == 'candidate' && runner.arch == 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'");
+  assert.equal(arm.with.path, legacy.with.path);
+  assert.equal(arm.with.key, legacy.with.key);
+  assert.equal(arm.with['restore-keys'], undefined);
+  assert.equal(sanitize.if, arm.if);
+  assert.equal(sanitize.env.LEGACY_CACHE_HIT, '${{ steps.studio-legacy-arm.outputs.cache-hit }}');
+  assert.equal(sanitize.env.STUDIO_PIN, '${{ steps.studio-sha.outputs.sha }}');
+  assert.equal(steps.indexOf(sanitize), steps.indexOf(arm) + 1, 'cleanup must be immediate after restore');
+  assert.ok(steps.indexOf(sanitize) < steps.findIndex(step => step.uses === './.github/actions/wrangler-publish'));
+  assert.match(steps.find(step => step.name === 'Use pinned workflow deployment tooling').run, /lite-deploy-studio-cache\.mjs/);
   assert.equal(lean.with.path, 'static/asyncapi-studio');
   assert.equal(lean.with.key.includes('runner.arch'), false, 'static Studio output is shared across architectures');
   assert.match(action.runs.steps.find(step => step.id === 'installed-dependencies').with.key, /runner.arch/);

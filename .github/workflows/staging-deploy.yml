@@ -147,7 +147,7 @@ jobs:
         if: inputs.workflow-ref != ''
         run: |
           cp .ci-workflow/.github/actions/wrangler-publish/action.yml .github/actions/wrangler-publish/action.yml
-          for helper in lite-deploy-prepare.mjs lite-deploy-evidence.mjs lite-deploy-forge-timing.mjs lite-deploy-permissions-cache.mjs; do
+          for helper in lite-deploy-prepare.mjs lite-deploy-evidence.mjs lite-deploy-forge-timing.mjs lite-deploy-permissions-cache.mjs lite-deploy-studio-cache.mjs; do
             if [ -f ".ci-workflow/scripts/ci/$helper" ]; then cp ".ci-workflow/scripts/ci/$helper" "scripts/ci/$helper"; fi
           done
       - name: Validate staging preparation mode
@@ -207,9 +207,9 @@ jobs:
       # Cache versions hash the requested path list. The old aggregate
       # archive cannot be a restore-key fallback for the output-only version;
       # restore it explicitly with its original paths, then let the lean
-      # cache's successful post step save only the static output. ARM never
-      # restores this unscoped native-dependency archive: a lean miss builds
-      # Studio fully with a fresh native install on the selected runner.
+      # cache's successful post step save only the static output. The x64
+      # fallback keeps its original behavior; ARM has a separate strict restore
+      # followed immediately by dependency removal and static-output validation.
       - name: Restore legacy Studio aggregate on lean cache miss
         if: inputs.preparation-mode == 'candidate' && runner.arch != 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
         id: studio-legacy
@@ -224,12 +224,38 @@ jobs:
           restore-keys: |
             studio-${{ steps.studio-sha.outputs.sha }}-
             studio-
+      - name: Restore exact legacy Studio output seed on ARM lean cache miss
+        if: inputs.preparation-mode == 'candidate' && runner.arch == 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
+        id: studio-legacy-arm
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+      # No subsequent install/build may see dependencies from the unscoped
+      # archive. A partial hit or invalid static output is discarded, so the
+      # existing build-studio.sh path installs/builds fully for ARM on a miss.
+      - name: Remove legacy Studio dependencies and validate ARM static seed
+        if: inputs.preparation-mode == 'candidate' && runner.arch == 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
+        env:
+          STUDIO_PIN: ${{ steps.studio-sha.outputs.sha }}
+          LEGACY_CACHE_HIT: ${{ steps.studio-legacy-arm.outputs.cache-hit }}
+        run: node scripts/ci/lite-deploy-studio-cache.mjs
       - name: Record Studio output cache result
         if: inputs.preparation-mode == 'candidate'
         env:
           CACHE_HIT: ${{ steps.studio-output.outputs.cache-hit }}
           LEGACY_CACHE_HIT: ${{ steps.studio-legacy.outputs.cache-hit }}
-        run: node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('lite-deploy-studio-cache.json', JSON.stringify({studio_output_hit:process.env.CACHE_HIT === 'true', studio_legacy_cache_hit:process.env.LEGACY_CACHE_HIT === 'true'}));"
+        run: |
+          node --input-type=module <<'NODE'
+          import {existsSync, readFileSync, writeFileSync} from 'node:fs';
+          const file = 'lite-deploy-studio-legacy-sanitization.json';
+          const arm = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+          writeFileSync('lite-deploy-studio-cache.json', JSON.stringify({studio_output_hit:process.env.CACHE_HIT === 'true', studio_legacy_cache_hit:process.env.LEGACY_CACHE_HIT === 'true', ...arm}));
+          NODE
       # Cloudflare Pages backend deploy (conf-stg-{project}) — runs before the
       # Forge-specific steps below in this same job. Named to match
       # release.yml's equivalent step so `gh run view --json jobs` step lists

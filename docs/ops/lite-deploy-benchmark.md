@@ -127,9 +127,21 @@ mode, variant, license, project, and environment are exactly Lite staging.
 [GitHub's standard runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 list both Linux x64 and ARM64 runners as four CPUs and 16 GB RAM, free for public
 repositories. This is an architecture comparison, with no measured benefit yet.
-The lean Studio cache contains static browser assets and can be shared. ARM jobs
-never restore the legacy cache containing x64 native dependencies; a lean miss
-retains the complete native Studio install/build. Installed app dependencies
+The lean Studio cache contains static browser assets and can be shared. On an
+ARM lean-cache miss, a separate legacy restore requests the original four paths
+and exact pin/script key, without broad restore keys. Immediately afterward, a
+helper removes every restored Studio `node_modules` directory or symlink and
+verifies none remain before any install or build can use them. Symlink targets
+are not traversed or deleted. Static output is retained only for an exact cache
+hit, matching repository gitlink and submodule HEAD, a matching regular
+`.studio-commit`, a regular `index.html`, and an output tree without symlinks.
+Partial hits and invalid output are discarded and take the complete native
+Studio install/build path; inconsistent Git source fails before deployment.
+This allows a first `main` run to seed its lean cache from an existing `main`
+aggregate archive, since `main` cannot access feature-branch caches. The full
+legacy download, cleanup, validation and lean-cache save remain in the job timer.
+Evidence records only exact-hit/valid-output booleans and removal/residual counts.
+The x64 legacy fallback and baseline are unchanged. Installed app dependencies
 already have architecture in their cache key. Evidence records the selected
 runner label and actual Node platform, architecture, and version. Every deploy,
 validation, full timer, and output-equivalence requirement remains in place.

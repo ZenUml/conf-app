@@ -29,7 +29,9 @@ describe('ConnectMcpDialog (headless)', () => {
     expect(wrapper.find('[data-testid="connect-mcp-setup-command"]').text()).toBe(
       'claude mcp add --transport http zenuml https://conf-lite.zenuml.com/agent-link/mcp'
     )
-    expect(wrapper.text()).toContain('URL https://conf-lite.zenuml.com/agent-link/mcp')
+    // The hint points at the setup command's URL instead of repeating it.
+    expect(wrapper.find('.connect-mcp-hint').text().replace(/\s+/g, ' ')).toContain('add a remote HTTP server named zenuml with the above URL.')
+    expect(wrapper.find('.connect-mcp-hint').text()).not.toContain('https://')
     expect(wrapper.text()).toContain('sign in with Atlassian')
     const prompt = wrapper.find('[data-testid="connect-mcp-prompt"]').text()
     expect(prompt).toContain('"Login flow"')

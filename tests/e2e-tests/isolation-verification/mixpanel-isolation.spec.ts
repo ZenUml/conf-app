@@ -2,7 +2,7 @@ import { test, expect, installMixpanelIsolation } from '../fixtures/mixpanel-tes
 import { captureMixpanelEvents } from '../helpers/macroViewedCapture.js';
 import { waitForCopyForAiTrackingRequest } from '../helpers/CopyForAiHelper.js';
 
-test('Mixpanel requests on both API hosts are acknowledged locally and remain observable', async ({ page, context, browser }) => {
+test('Mixpanel requests on both API hosts are acknowledged locally and remain observable', { tag: ['@route', '@analytics'] }, async ({ page, context, browser }) => {
   const seen: string[] = [];
   context.on('request', request => {
     if (request.url().includes('mixpanel.com/')) seen.push(request.postData() ?? '');

@@ -45,6 +45,30 @@ export const WHATS_NEW_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 /** Newest first. */
 export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
   {
+    // #734 (Connect MCP, headless MCP server). Merged to main 2026-10-10 and in
+    // no release tag yet. The viewer button is gated by the agent-link Forge
+    // flag, which is on only on lite-stg so far — and this banner does not read
+    // that flag. Before this date passes, confirm the Lite production release
+    // carries #734 AND the flag is on in production, or move the date.
+    id: '2026-10-mcp-server',
+    publishedAt: '2026-10-13',
+    variants: ['lite'],
+    headline: 'Connect your AI agent to your diagrams with MCP',
+    items: [
+      {
+        id: 'connect-mcp',
+        title: 'Connect MCP',
+        body: 'Select the new Connect MCP button (the sparkles icon) on a sequence, Mermaid or PlantUML diagram to add the ZenUML MCP server to Claude Code, Codex, Cursor or another MCP client. You sign in with Atlassian once, and the agent acts as you.',
+        url: 'https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/',
+      },
+      {
+        id: 'mcp-read-edit',
+        title: 'Your agent reads and edits diagrams',
+        body: 'The agent can find, read, create and update diagrams and pages without a browser tab. Each edit publishes a new version, so page history can revert it.',
+      },
+    ],
+  },
+  {
     id: '2026-10-anonymous-viewing',
     publishedAt: '2026-10-06',
     variants: ['lite', 'diagramly'],
@@ -54,7 +78,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
         id: 'anonymous-viewing',
         title: 'View diagrams without signing in',
         body: 'Visitors can view diagrams on Confluence pages that allow anonymous access. This update does not change site, space, or page permissions.',
-        url: 'https://zenuml.com/docs/anonymous-viewing/',
+        url: 'https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/anonymous-viewing/',
       },
     ],
   },

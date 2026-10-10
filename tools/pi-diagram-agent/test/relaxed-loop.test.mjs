@@ -158,6 +158,37 @@ test('a NOT_IMPROVED judgement is written to judgement.json too, and /magic-acce
     const r=await t.out();
     assert.equal(r.status,'CANDIDATE');
     assert.throws(()=>verifyJudgement(t.job.runDir,hash(bytes)),/JUDGEMENT_NOT_IMPROVED/);
+    // the last round ends the run, so nobody could apply improvements: the orchestrator does not call the coach
+    assert.equal(t.calls.coach.length,0);
+    assert.equal(fs.existsSync(path.join(t.job.runDir,'coach.json')),false);
+    const m=readRunManifest(t.job.runDir);
+    assert.equal(m.modelCalls.coach,0);assert.deepEqual(m.tokens.coach,{});
+  }finally{t.cleanup()}
+});
+
+test('the coach is a separate record: coach.json is sealed and bound to judgement.json, which carries no coaching; tokens and calls are counted per role',async()=>{
+  const t=setup({judge:[{p1:0.1,p2:0.1},{p1:0.6,p2:0.6}]});try{
+    t.write(svg('weak'));
+    const r=await t.out();
+    assert.equal(r.status,'REVISE');assert.equal(r.judge.improvements.length,3);
+    const j=JSON.parse(fs.readFileSync(path.join(t.job.runDir,'judgement.json'),'utf8'));
+    const k=JSON.parse(fs.readFileSync(path.join(t.job.runDir,'coach.json'),'utf8'));
+    assert.equal('improvements' in j,false);assert.equal('coach' in j,false);
+    assert.equal(verifyManifest(k),true);assert.equal(k.schema,'pi-diagram-coach/1');
+    assert.equal(k.judgementSelfHash,j.selfHash);assert.equal(k.candidateSha256,j.candidateSha256);
+    assert.equal(k.ok,true);assert.deepEqual(k.improvements,r.judge.improvements);
+    assert.equal(fs.statSync(path.join(t.job.runDir,'coach.json')).mode&0o777,0o600);
+    let m=readRunManifest(t.job.runDir);
+    assert.deepEqual({judge:m.modelCalls.judge,coach:m.modelCalls.coach},{judge:2,coach:1});
+    assert.deepEqual(m.tokens.judge,{input:200,output:20});assert.deepEqual(m.tokens.coach,{input:5,output:5});
+    assert.equal(m.judge.rounds[0].coach.selfHash,k.selfHash);assert.equal(m.rounds[0].coach.improvements.length,3);
+    assert.equal('improvements' in m.judge.rounds[0],false);
+    // an IMPROVED round leaves no stale coaching behind
+    t.write(svg('v2'));
+    assert.equal((await t.out()).status,'REVIEWED');
+    assert.equal(fs.existsSync(path.join(t.job.runDir,'coach.json')),false);
+    m=readRunManifest(t.job.runDir);
+    assert.equal(m.judge.rounds[1].coach,undefined);assert.equal(m.modelCalls.coach,1);
   }finally{t.cleanup()}
 });
 
@@ -170,6 +201,7 @@ test('rounds exhausted while NOT_IMPROVED ends as CANDIDATE with reason NOT_IMPR
     const r=await t.out();
     assert.equal(r.status,'CANDIDATE');assert.match(r.statusReason,/^NOT_IMPROVED/);assert.match(r.statusReason,/ROUNDS_EXHAUSTED/);
     assert.equal(r.svgHash,hash(bytes[1])); // highest judge mean (0.15), restored on disk
+    assert.equal(t.calls.coach.length,2); // coached for the two revise rounds, not for the final one
     assert.equal(hash(fs.readFileSync(t.job.outputPath)),hash(bytes[1]));
     const m=readRunManifest(t.job.runDir);
     assert.equal(m.status,'CANDIDATE');assert.equal(m.finalSvgSha256,hash(bytes[1]));
@@ -203,6 +235,9 @@ test('a coach failure does not change the verdict: the revise message still carr
     const r=await t.out();
     assert.equal(r.status,'REVISE');assert.equal(r.judge.verdict,'NOT_IMPROVED');assert.deepEqual(r.judge.improvements,[]);
     assert.ok(r.judge.dimensions.balance!==undefined);
+    const k=JSON.parse(fs.readFileSync(path.join(t.job.runDir,'coach.json'),'utf8'));
+    assert.equal(k.ok,false);assert.equal(k.attempts,2);assert.match(k.error,/coach down/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(t.job.runDir,'judgement.json'),'utf8')).verdict,'NOT_IMPROVED');
   }finally{t.cleanup()}
 });
 

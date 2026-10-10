@@ -247,7 +247,7 @@ test('assistant messages are counted as author model calls (message_end), with o
       await f.handlers.get('message_end')({message:{role:'user'}});
       await f.handlers.get('agent_end')({});
       const m=readRunManifest(s.runDir);
-      assert.deepEqual(m.modelCalls,{author:2,reviewer:0,judge:0}); // relaxed gate is the default: the Judge accepts inside the loop
+      assert.deepEqual(m.modelCalls,{author:2,reviewer:0,judge:0,coach:0}); // relaxed gate is the default: the Judge accepts inside the loop
       assert.equal(m.gate,'relaxed');
       assert.match(f.sent[0],/Relaxed gate/);
     }finally{s.cleanup()}

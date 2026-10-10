@@ -34,6 +34,17 @@ builds Lite, applies the same variant manifest edits, synchronizes runtime
 configuration, runs Forge lint/deploy and Pages publish, and retains the existing
 install/upgrade commands. Each benchmark sample requires install or upgrade to
 succeed; the ordinary staging caller retains its existing tolerated outcome.
+The candidate now tries Lite upgrade first, with install as the fallback for a
+new site. Both original CLI commands and their scope checks are retained. An
+already-current installation is a successful upgrade; if both commands fail,
+the benchmark still fails. Baseline and other products retain install first.
+In ARM run 38013660810, the three candidates' initial install commands failed
+because the app was already installed. From the CLI command marker to its
+failure marker, those attempts took 2.989, 3.030, and 2.684 seconds, followed by
+successful already-current upgrades. Avoiding that expected failure may save
+roughly three seconds on an existing site; its effect on complete deployment
+time is unmeasured and alone does not establish the 20% target. A new site may
+instead pay the failed upgrade lookup before its successful install.
 
 The candidate restores installed dependencies with an exact cache key covering
 Linux architecture, Ubuntu release, Node version and ABI, pnpm version, lockfile,

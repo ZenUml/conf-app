@@ -52,7 +52,8 @@ test('benchmark retains shared staging lock and sequential, pinned alternating a
 test('every benchmark sample requires successful Lite install or upgrade', () => {
   const install = deploy.jobs.deploy.steps.find(step => step.name === 'Install Lite to lite-stg.atlassian.net');
   assert.equal(install['continue-on-error'], "${{ inputs.benchmark-sample == '' }}");
-  assert.equal(install.run, 'pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging');
+  assert.match(install.run, /else\n  pnpm forge:install:lite:staging \|\| pnpm forge:upgrade:lite:staging\nfi/);
+  assert.equal(install.env.PREPARATION_MODE, '${{ inputs.preparation-mode }}');
 });
 
 test('Studio fallback restores the original aggregate cache version before seeding lean output', () => {

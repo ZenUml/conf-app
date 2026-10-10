@@ -584,7 +584,14 @@ jobs:
           PAGE_CAPTURE_SECRET: ${{ vars.PAGE_CAPTURE_SECRET }}
       - name: Install Lite to lite-stg.atlassian.net
         if: needs.resolve.outputs.variant == 'lite'
-        run: pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging
+        env:
+          PREPARATION_MODE: ${{ inputs.preparation-mode }}
+        run: |
+          if [ "$PREPARATION_MODE" = candidate ]; then
+            pnpm forge:upgrade:lite:staging || pnpm forge:install:lite:staging
+          else
+            pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging
+          fi
         # A benchmark sample must prove this deployment is installed. Keep
         # the ordinary staging caller's existing tolerated install outcome.
         continue-on-error: ${{ inputs.benchmark-sample == '' }}

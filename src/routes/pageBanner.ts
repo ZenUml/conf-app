@@ -3,6 +3,7 @@ import globals from '@/model/globals';
 import { isCsatPendingFresh } from '@/utils/csat';
 import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/byline/unplacedMarker';
 import { higherPriorityBannerPending } from '@/utils/banners/priority';
+import { whatsNewCandidate } from '@/utils/whatsNew/state';
 
 /**
  * Single `confluence:pageBanner` host. Confluence creates exactly one banner
@@ -14,10 +15,15 @@ import { higherPriorityBannerPending } from '@/utils/banners/priority';
  *
  * Priority: the paywall warning (unpaid Lite space over the hard limit, seen by
  * a recent macro author or by a space admin of that space) outranks the CSAT
- * survey, which outranks the unplaced-diagram notice. `none` means close the
- * iframe with no work.
+ * survey, which outranks the unplaced-diagram notice, which outranks the
+ * "What's new" strip. `none` means close the iframe with no work.
  *
- * Why `unplaced` sits LAST despite being the most page-specific of the three:
+ * "What's new" is last for the same reason `unplaced` is below the first two,
+ * only more so: a release stays announceable for weeks and is capped at a few
+ * impressions, so a load where it loses the slot costs nothing. Everything
+ * above it is about this user's work on this page.
+ *
+ * Why `unplaced` sits below those two despite being the most page-specific:
  * it is the only one that keeps. The paywall warning is about work the user is
  * being blocked from doing right now, and a CSAT trigger is fresh for hours —
  * miss its window and the answer is gone. A diagram saved on this page and
@@ -43,6 +49,7 @@ export type PageBannerChoice =
    * `paywall` / `paywall-admin` name which gate admitted them.
    */
   | 'unplaced-property'
+  | 'whats-new'
   | 'none';
 
 /**
@@ -63,6 +70,7 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
   // (utils/byline/unplacedMarker.ts). The component pays for the page ADF read
   // that confirms it, and closes without a word if it cannot.
   if (isUnplacedBannerCandidate(deriveUnplacedIdentity(), now)) return 'unplaced';
+  if (whatsNewCandidate(now)) return 'whats-new';
   return 'none';
 }
 
@@ -76,7 +84,7 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
  * admin banner is gated off.
  */
 export async function handlePageBannerRoute(
-  choice: 'paywall' | 'paywall-admin' | 'csat' | 'unplaced' | 'unplaced-property',
+  choice: Exclude<PageBannerChoice, 'none'>,
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
   let effective = choice;
@@ -125,9 +133,23 @@ export async function handlePageBannerRoute(
       component: (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default,
       props: { source: 'property' },
     }),
+    'whats-new': async () => ({
+      component: (await import('@/components/WhatsNew/WhatsNewBanner.vue')).default,
+      // Re-read rather than threaded through from decidePageBanner(): it is the
+      // same synchronous localStorage read, and keeping the choice a plain
+      // string keeps every other branch's signature unchanged.
+      props: { release: whatsNewCandidate(now) },
+    }),
   };
 
   const { component, props } = await MOUNTS[effective]();
+  if (effective === 'whats-new' && !(props as { release?: unknown } | undefined)?.release) {
+    // The release window closed between the decision and the mount (a
+    // millisecond boundary). Nothing to say; never leave an empty frame open.
+    const { view } = await import('@forge/bridge');
+    view.close();
+    return 'none';
+  }
   createApp(component as any, props).mount(container);
   return effective;
 }

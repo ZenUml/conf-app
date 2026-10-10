@@ -27,7 +27,6 @@ import {
   renderConsent,
   switchAccountUrl,
 } from './authServer';
-import { issuerFor } from './asMetadata';
 import { loadClient, loadPending } from './asStore';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
 
@@ -78,9 +77,9 @@ export const onRequestPost: PagesFunction<OAuthEnv> = async ({ request, env }) =
   };
 
   if (form.get('decision') !== 'allow') {
-    return withClearedCookie(await denyAuthorization(deps, pendingId, pending, issuerFor(request.url)));
+    return withClearedCookie(await denyAuthorization(deps, pendingId, pending));
   }
 
   await recordConsent(deps, pending.userId, pending.clientId, pending.scope);
-  return withClearedCookie(await completeAuthorization(deps, pendingId, pending, pending.userId, issuerFor(request.url)));
+  return withClearedCookie(await completeAuthorization(deps, pendingId, pending, pending.userId));
 };

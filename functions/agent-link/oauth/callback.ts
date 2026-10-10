@@ -18,7 +18,6 @@
 
 import { handleCallback } from './atlassianLeg';
 import { completeAuthorization, hasConsent, redirectToConsent } from './authServer';
-import { issuerFor } from './asMetadata';
 import { loadPending } from './asStore';
 import { returningUserCookie } from './returningUser';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
@@ -41,13 +40,26 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       await mixpanelTrack(
         {
           event: 'agent_link_oauth_authorized',
-          user_account_id: outcome.ok ? outcome.accountId : undefined,
+          user_account_id: outcome.accountId,
           feature_area: 'agent_link',
           surface: 'backend',
           site_count: outcome.ok ? outcome.siteCount : undefined,
         },
         env.MIXPANEL_TOKEN,
       );
+      // One grant per user: a new authorization ends the previous grant.
+      if (outcome.replacedGrant) {
+        await mixpanelTrack(
+          {
+            event: 'agent_link_oauth_revoked',
+            user_account_id: outcome.accountId,
+            feature_area: 'agent_link',
+            surface: 'backend',
+            reason: 'reauthorized',
+          },
+          env.MIXPANEL_TOKEN,
+        );
+      }
     } catch {
       // analytics must never fail the authorization
     }
@@ -75,7 +87,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const cookies = [...(cleared ? [cleared] : []), remember];
   const deps = { store };
   if (await hasConsent(deps, outcome.accountId, pending.clientId, pending.scope)) {
-    return withCookies(await completeAuthorization(deps, pendingId, pending, outcome.accountId, issuerFor(url)), cookies);
+    return withCookies(await completeAuthorization(deps, pendingId, pending, outcome.accountId), cookies);
   }
   return redirectToConsent(deps, url, pendingId, pending, outcome.accountId, { extraCookies: cookies });
 };

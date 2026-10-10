@@ -94,6 +94,12 @@ export interface McpTokenRecord {
   scope: string;
   resource: string;
   expiresAtMs: number;
+  /**
+   * The refresh chain (one per sign-in) this token came from, so revoking the
+   * chain also stops its access tokens. Absent on tokens issued before chains
+   * existed; those live out their hour unaffected.
+   */
+  chainId?: string;
 }
 
 export interface RefreshTokenRecord {
@@ -101,6 +107,13 @@ export interface RefreshTokenRecord {
   clientId: string;
   scope: string;
   resource: string;
+  /** See McpTokenRecord.chainId. Absent only on refresh tokens issued before chains existed. */
+  chainId?: string;
+  /**
+   * Set when the token is redeemed. The row is kept rather than deleted, so a
+   * second presentation is recognisable as REUSE, not as an unknown token.
+   */
+  usedAtMs?: number;
 }
 
 /** Random, URL-safe, 256 bits. Used for every client id, code and token. */
@@ -240,7 +253,9 @@ export async function loadAccessToken(
 ): Promise<McpTokenRecord | null> {
   const record = await getJson<McpTokenRecord>(store, `${PREFIX}-token:${await hashSecret(token)}`);
   if (!record) return null;
-  return record.expiresAtMs > nowMs ? record : null;
+  if (record.expiresAtMs <= nowMs) return null;
+  if (record.chainId && (await isChainRevoked(store, record.chainId))) return null;
+  return record;
 }
 
 export async function revokeAccessToken(store: GrantStore, token: string): Promise<void> {
@@ -253,22 +268,75 @@ export async function issueRefreshToken(store: GrantStore, record: RefreshTokenR
   return token;
 }
 
+// ---------------------------------------------------------- refresh chains
+//
+// OAuth 2.1 §4.3.1 reuse detection. Every sign-in starts a CHAIN; each refresh
+// rotates to a new refresh token in the same chain. Redeeming marks the token
+// used instead of deleting it, so if a used token ever comes back, two parties
+// hold the chain (the legitimate client rotated past it; whoever replays it
+// copied it), and we cannot tell which is which. So the whole chain goes:
+// every refresh token in it, and every access token issued from it.
+//
+// The same KV limits as codes apply (see the header). A replay that reaches
+// another edge inside the propagation window can still read the token as
+// unused, and two truly concurrent refreshes of one token can both succeed.
+// Either way the chain forks rather than being revoked; the next reuse of either
+// branch is still caught. The used-token marker keeps the refresh TTL, because a
+// copied token can be replayed at any point in its 30-day life.
+
+/** A fresh chain id for a new sign-in. */
+export function newChainId(): string {
+  return randomToken(16);
+}
+
+function chainRevokedKey(chainId: string): string {
+  return `${PREFIX}-chain-revoked:${chainId}`;
+}
+
 /**
- * Redeem a refresh token, deleting it in the same step.
+ * Revoke a chain. The marker outlives every token in it: the newest refresh
+ * token was issued no later than now, with the refresh TTL.
+ */
+export async function revokeChain(store: GrantStore, chainId: string, nowMs: number): Promise<void> {
+  await putJson(store, chainRevokedKey(chainId), { revokedAtMs: nowMs }, REFRESH_TOKEN_TTL_SECONDS);
+}
+
+export async function isChainRevoked(store: GrantStore, chainId: string): Promise<boolean> {
+  return (await store.get(chainRevokedKey(chainId))) !== null;
+}
+
+export type RefreshRedemption =
+  /** Redeemed now. The record always carries a chain id, a new one for a pre-chain token. */
+  | { status: 'ok'; record: RefreshTokenRecord & { chainId: string } }
+  /** Never issued, or past its TTL. */
+  | { status: 'unknown' }
+  /** Its chain was revoked earlier. */
+  | { status: 'revoked' }
+  /** Already redeemed once: the caller must revoke the chain. */
+  | { status: 'reused'; record: RefreshTokenRecord & { chainId: string } };
+
+/**
+ * Redeem a refresh token, marking it used in the same step.
  *
  * Rotation, matching Atlassian's own behaviour (ADR 0008 Decision 2): the
- * presented token is dead whether or not the caller ends up using the new one,
- * so a stolen refresh token is single-use and its reuse is detectable as a
- * plain failure rather than silent parallel access.
+ * presented token is dead whether or not the caller ends up using the new one.
+ * Unlike a delete, the used marker lets a second presentation be told apart
+ * from a token we never issued; see "refresh chains" above for what follows.
  */
-export async function consumeRefreshToken(
+export async function redeemRefreshToken(
   store: GrantStore,
   token: string,
-): Promise<RefreshTokenRecord | null> {
+  nowMs: number,
+): Promise<RefreshRedemption> {
   const key = `${PREFIX}-refresh:${await hashSecret(token)}`;
   const record = await getJson<RefreshTokenRecord>(store, key);
-  await store.delete(key);
-  return record;
+  if (!record) return { status: 'unknown' };
+  if (record.chainId && (await isChainRevoked(store, record.chainId))) return { status: 'revoked' };
+  // A token issued before chains existed starts its chain here.
+  const chained = { ...record, chainId: record.chainId ?? newChainId() };
+  if (record.usedAtMs !== undefined) return { status: 'reused', record: chained };
+  await putJson(store, key, { ...chained, usedAtMs: nowMs }, REFRESH_TOKEN_TTL_SECONDS);
+  return { status: 'ok', record: chained };
 }
 
 // -------------------------------------------------------------- consent

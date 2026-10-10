@@ -29,6 +29,12 @@ import {
   registerEditorCloseTracking,
   trackEditorClosedWithoutSave,
 } from "./editorCloseOutcome";
+import { DiagramType } from '@/model/Diagram/Diagram';
+import {
+  captureOpenApiEditorBaseline,
+  createOpenApiEditorState,
+  hasOpenApiEditorChanges,
+} from '@/model/OpenApi/OpenApiEditorState';
 
 const fireHostClose = async () => {
   for (const handler of h.closeHandlers) await handler();
@@ -95,6 +101,29 @@ describe("editorCloseOutcome", () => {
       had_changes: true,
     });
     expect(typeof props.editor_open_duration_ms).toBe("number");
+  });
+
+  it("reports a mutated OpenAPI source as a changed edit on host close", async () => {
+    const original = 'openapi: 3.0.0\ninfo:\n  title: Orders API';
+    const diagram = createOpenApiEditorState({
+      id: '123', diagramType: DiagramType.OpenApi, title: 'Orders API', code: original,
+    });
+    const baseline = captureOpenApiEditorBaseline(diagram);
+    let specContent = original;
+    registerEditorCloseTracking({
+      getMacroType: () => 'openapi',
+      operationMode: 'edit',
+      hadChanges: () => hasOpenApiEditorChanges(baseline, specContent, diagram),
+    });
+
+    specContent = `${original}\npaths: {}`;
+    diagram.code = specContent; // Vuex and window.diagram share this object.
+    await fireHostClose();
+
+    expect(h.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith(
+      'macro_edit_cancelled',
+      expect.objectContaining({ macro_type: 'openapi', operation_mode: 'edit', had_changes: true }),
+    );
   });
 
   it("emits macro_create_cancelled for a create session", async () => {

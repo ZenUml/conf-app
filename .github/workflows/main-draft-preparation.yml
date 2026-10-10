@@ -1,0 +1,331 @@
+name: Draft preparation
+run-name: "Draft preparation · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id: {type: string, required: true}
+      parent-attempt: {type: string, required: true}
+      source-sha: {type: string, required: true}
+      version: {type: string, required: true}
+      artifact-run-id: {type: string, required: true}
+      staging-run-id: {type: string, required: true}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parent:
+    name: Verify root ownership
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.owner.outputs.run }}
+      gate-allowed: ${{ steps.regression.outputs.allowed }}
+      gate-reason: ${{ steps.regression.outputs.gate-reason }}
+      regression-run-url: ${{ steps.regression.outputs.regression-run-url }}
+      bypass-reason: ${{ steps.regression.outputs.bypass-reason }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+          fetch-depth: 0
+      - name: Check the active root
+        id: owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          EXPECTED_PARENT_JOBS: '["Draft preparation"]'
+        run: |
+          node scripts/ci/wait-for-e2e.mjs --verify-parent
+          echo "run=true" >> "$GITHUB_OUTPUT"
+      - name: Require fresh successful daily regression for drafts
+        id: regression
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { randomUUID } from 'node:crypto';
+          const options = JSON.parse(readFileSync('verified-root-options.json', 'utf8'));
+          const gate = JSON.parse(execFileSync(process.execPath, ['scripts/test-selection/main-policy.mjs', '--gate'], {
+            encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ROOT_EVENT: options.root_event,
+              BYPASS_REGRESSION_GATE: String(options.bypass_regression_gate), BYPASS_REASON: options.bypass_reason },
+          }));
+          writeFileSync('daily-gate.json', JSON.stringify({ ...gate, source_sha: options.source_sha, root_run_id: options.root_run_id, root_attempt: options.root_attempt, producer_run_id: process.env.GITHUB_RUN_ID, bypass_reason: options.bypass_regression_gate ? options.bypass_reason : '' }));
+          const delimiter = randomUUID();
+          appendFileSync(process.env.GITHUB_OUTPUT, `bypass-reason<<${delimiter}\n${options.bypass_regression_gate ? options.bypass_reason : 'none'}\n${delimiter}\n`);
+          if (options.bypass_regression_gate) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            `Daily gate bypass reason for this root: ${options.bypass_reason}\n`);
+          NODE
+      - uses: actions/upload-artifact@v6
+        with:
+          name: daily-gate
+          path: daily-gate.json
+          if-no-files-found: error
+          retention-days: 30
+
+  provenance:
+    name: Resolve variant draft eligibility
+    needs: parent
+    runs-on: ubuntu-latest
+    outputs:
+      lite: ${{ steps.eligibility.outputs.lite }}
+      full: ${{ steps.eligibility.outputs.full }}
+      diagramly: ${{ steps.eligibility.outputs.diagramly }}
+      asyncapi: ${{ steps.eligibility.outputs.asyncapi }}
+    steps:
+      - name: Verify immutable artifact producers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.artifact-run-id }}
+          STAGING_RUN_ID: ${{ inputs.staging-run-id }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          const env = process.env;
+          const verify = (id, path, title, conclusions) => {
+            const run = JSON.parse(execFileSync('gh', ['api', `repos/${env.GITHUB_REPOSITORY}/actions/runs/${id}`], { encoding: 'utf8' }));
+            const expected = `${title} · parent ${env.PARENT_RUN_ID} · attempt ${env.PARENT_ATTEMPT} · source ${env.SOURCE_SHA}`;
+            if (run.path !== `.github/workflows/${path}.yml` || run.display_title !== expected ||
+                run.status !== 'completed' || run.run_attempt !== 1 || !conclusions.includes(run.conclusion)) {
+              throw new Error(`Artifact producer does not match this root source and attempt: ${id}`);
+            }
+          };
+          verify(env.BUILD_RUN_ID, 'main-build-preparation', 'Build preparation', ['success', 'failure']);
+          verify(env.STAGING_RUN_ID, 'main-staging-validation', 'Staging validation', ['success', 'failure']);
+          NODE
+      - uses: actions/download-artifact@v7
+        with:
+          name: build-provenance
+          run-id: ${{ inputs.artifact-run-id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: staging-provenance
+          run-id: ${{ inputs.staging-run-id }}
+          github-token: ${{ github.token }}
+      - name: Require matching source and successful variant prerequisites
+        id: eligibility
+        env:
+          SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const evidence = JSON.parse(readFileSync('staging-provenance.json', 'utf8'));
+          if (evidence.source_sha !== process.env.SOURCE_SHA) throw new Error('Staging source differs from draft source');
+          const buildEvidence = JSON.parse(readFileSync('build-provenance.json', 'utf8'));
+          if (buildEvidence.source_sha !== process.env.SOURCE_SHA) throw new Error('Build source differs from draft source');
+          const buildReady = buildEvidence.results.build?.result === 'success' && buildEvidence.results['build-prod']?.result === 'success';
+          const results = evidence.results;
+          const success = name => results[name]?.result === 'success';
+          const migrationsReady = success('migrations');
+          const eligible = {
+            lite: success('staging-lite') && success('staging-lite-e2e'),
+            full: success('staging-full') && success('staging-full-e2e'),
+            diagramly: success('staging-diagramly') && success('staging-diagramly-e2e'),
+            asyncapi: success('staging-asyncapi') && success('staging-asyncapi-e2e'),
+          };
+          for (const [variant, ready] of Object.entries(eligible)) appendFileSync(process.env.GITHUB_OUTPUT, `${variant}=${buildReady && migrationsReady && ready}\n`);
+          NODE
+
+  draft-release-lite:
+    name: "Draft: Lite"
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.outputs.lite == 'true' }}
+    needs: [parent, provenance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: echo "version=${{ inputs.version }}" >> $GITHUB_ENV
+      - name: Download the production bundle built for this version
+        uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.artifact-run-id }}
+          github-token: ${{ github.token }}
+          name: dist-prod-lite
+
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-lite
+          name: v${{ env.version }}-lite
+          artifacts: dist-prod-lite.tgz
+          artifactErrorsFailBuild: true
+          commit: ${{ inputs.source-sha }}
+          body: |
+            This is a draft release for the Lite version of the plugin.
+
+            Daily regression gate: ${{ needs.parent.outputs.gate-reason }}
+            Daily regression: ${{ needs.parent.outputs.regression-run-url }}
+            Bypass reason: ${{ needs.parent.outputs.bypass-reason }}
+            E2E: validated by staging run https://github.com/${{ github.repository }}/actions/runs/${{ inputs.staging-run-id }}
+          draft: true
+
+  draft-release-full:
+    name: "Draft: Full"
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.outputs.full == 'true' }}
+    needs: [parent, provenance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: echo "version=${{ inputs.version }}" >> $GITHUB_ENV
+      - name: Download the production bundle built for this version
+        uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.artifact-run-id }}
+          github-token: ${{ github.token }}
+          name: dist-prod-full
+
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-full
+          name: v${{ env.version }}-full
+          artifacts: dist-prod-full.tgz
+          artifactErrorsFailBuild: true
+          commit: ${{ inputs.source-sha }}
+          body: |
+            This is a draft release for the Full version of the plugin.
+            Daily regression gate: ${{ needs.parent.outputs.gate-reason }}
+            Daily regression: ${{ needs.parent.outputs.regression-run-url }}
+            Bypass reason: ${{ needs.parent.outputs.bypass-reason }}
+          draft: true
+
+  draft-release-diagramly:
+    name: "Draft: Diagramly"
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.outputs.diagramly == 'true' }}
+    needs: [parent, provenance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: echo "version=${{ inputs.version }}" >> $GITHUB_ENV
+      - name: Download the production bundle built for this version
+        uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.artifact-run-id }}
+          github-token: ${{ github.token }}
+          name: dist-prod-diagramly
+
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-diagramly
+          name: v${{ env.version }}-diagramly
+          artifacts: dist-prod-diagramly.tgz
+          artifactErrorsFailBuild: true
+          commit: ${{ inputs.source-sha }}
+          body: |
+            This is a draft release for the Diagramly version of the plugin.
+            Daily regression gate: ${{ needs.parent.outputs.gate-reason }}
+            Daily regression: ${{ needs.parent.outputs.regression-run-url }}
+            Bypass reason: ${{ needs.parent.outputs.bypass-reason }}
+          draft: true
+
+  draft-release-asyncapi:
+    name: "Draft: AsyncAPI"
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.outputs.asyncapi == 'true' }}
+    needs: [parent, provenance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      - name: Fetch Sources
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+
+      - name: Export Properties
+        id: properties
+        shell: bash
+        run: echo "version=${{ inputs.version }}" >> $GITHUB_ENV
+      - name: Download the production bundle built for this version
+        uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.artifact-run-id }}
+          github-token: ${{ github.token }}
+          name: dist-prod-asyncapi
+
+      - name: Create Release Draft
+        id: createDraft
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.version }}-asyncapi
+          name: v${{ env.version }}-asyncapi
+          artifacts: dist-prod-asyncapi.tgz
+          artifactErrorsFailBuild: true
+          commit: ${{ inputs.source-sha }}
+          body: |
+            This is a draft release for the AsyncAPI variant of the plugin.
+            Daily regression gate: ${{ needs.parent.outputs.gate-reason }}
+            Daily regression: ${{ needs.parent.outputs.regression-run-url }}
+            Bypass reason: ${{ needs.parent.outputs.bypass-reason }}
+          draft: true
+
+
+  outcome:
+    name: Draft gate outcome
+    needs: [parent, provenance, draft-release-lite, draft-release-full, draft-release-diagramly, draft-release-asyncapi]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node --input-type=module <<'NODE'
+          const needs = JSON.parse(process.env.RESULTS);
+          if (needs.parent.outputs['gate-allowed'] !== 'true' || Object.values(needs).some(value => value.result !== 'success')) process.exitCode = 1;
+          NODE

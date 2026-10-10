@@ -20,6 +20,17 @@ on:
         default: ''
         description: 'Immutable source SHA for daily regression'
 
+      skip-migrations:
+        required: false
+        type: boolean
+        default: false
+        description: 'Daily owner has already applied the shared D1 migrations'
+      workflow-ref:
+        required: false
+        type: string
+        default: ''
+        description: 'Daily workflow commit supplying the migration-aware publish action'
+
       variant:
         required: true
         type: string
@@ -92,6 +103,17 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
+      # A branch-dispatched daily workflow still builds a main ancestor. Load
+      # only its publish action from the workflow commit, keeping app source pinned.
+      - name: Checkout daily workflow tooling
+        if: inputs.skip-migrations && inputs.workflow-ref != ''
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.workflow-ref }}
+          path: .ci-workflow
+      - name: Use daily migration-aware publish action
+        if: inputs.skip-migrations && inputs.workflow-ref != ''
+        run: cp .ci-workflow/.github/actions/wrangler-publish/action.yml .github/actions/wrangler-publish/action.yml
       # The asyncapi and lite builds (pnpm build:asyncapi / build:lite) need
       # vendor/asyncapi-studio checked out before scripts/build-studio.sh runs
       # (lite ships the AsyncAPI macro per ADR-0005). Init explicitly so
@@ -149,6 +171,7 @@ jobs:
           # (ADR-0007 §3, staging only — production keeps backend-before-
           # frontend in release.yml).
           skip-publish: 'true'
+          skip-migrations: ${{ inputs.skip-migrations && 'true' || 'false' }}
 
       # full/diagramly: strip the asyncapi-only modules. They live in
       # manifest.yml so the asyncapi variant can ship them, but must NOT leak
@@ -173,12 +196,9 @@ jobs:
         with:
           cmd: yq eval 'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro")) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"]) | .permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
 
-      # All non-asyncapi variants: strip the Connect lifecycle module
-      # (connectModules). It lives in manifest.yml only so the asyncapi variant
-      # — which still serves legacy Connect (my-api / AsyncAPI-Conf-V2) installs
-      # — keeps it. lite/full/diagramly are Forge-only; the Forge
-      # remote-installed-trigger covers install/upgrade lifecycle. Mirrors
-      # scripts/forge-wizard.mjs.
+      # All non-asyncapi variants: strip the retained Connect lifecycle module.
+      # AsyncAPI keeps this manifest metadata for the legacy upgrade path;
+      # all four variants run on Forge.
       - name: Remove Connect lifecycle module (connectModules) from manifest
         if: needs.resolve.outputs.variant != 'asyncapi'
         uses: mikefarah/yq@master
@@ -227,6 +247,14 @@ jobs:
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
+
+      # Plan and Usage is the Lite limit page. Keep Full's other globalPage
+      # entries intact. Mirrors the Full manifestEdits in forge-wizard.mjs.
+      - name: Remove Lite Plan and Usage page from Full manifest
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalPage"][] | select(.key == "zenuml-plan-usage-page"))' -i manifest.yml
 
       # Full: the source manifest carries Lite's canonical matcher. CI edits
       # manifests independently of scripts/forge-wizard.mjs, so keep this
@@ -387,9 +415,7 @@ jobs:
               ;;
             asyncapi)
               APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
-              # Asyncapi shares the lite Cloudflare Pages project for now
-              # (per scripts/forge-wizard.mjs); revisit when a dedicated
-              # conf-stg-asyncapi project is stood up.
+              # AsyncAPI uses the shared Lite Cloudflare Pages backend.
               APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
             *)

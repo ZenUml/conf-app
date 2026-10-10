@@ -103,6 +103,13 @@ export const APPS = {
     },
     manifestEdits: [
       {
+        // Plan and Usage is the Lite limit page; keep other globalPage entries
+        // intact for Full. Mirrored in staging-deploy.yml and release.yml.
+        description: 'Remove zenuml-plan-usage-page from confluence:globalPage (Full has no Lite usage limit)',
+        yqEvalExpr:
+          'del(.modules["confluence:globalPage"][] | select(.key == "zenuml-plan-usage-page"))',
+      },
+      {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
         // `zenuml-asyncapi-embed-macro` (embed reference) — only the
         // asyncapi variant ships these.

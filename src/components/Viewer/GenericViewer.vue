@@ -1,6 +1,6 @@
 <template>
 <!-- screen-capture-content class is used in Attachment.ts to select the node. -->
-<div class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel}">
+<div ref="viewerRoot" class="generic viewer" :class="{'generic--source-panel-open': isFullscreenMode && showSourcePanel}">
   <!-- The debug strip is a dev affordance for the inline macro. In the
        fullscreen modal it stacks above .viewer-frame, which is min-height:100vh,
        so the page ends up taller than the viewport and scrolls; it also eats the
@@ -16,15 +16,19 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal}">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen || copyForAiMenuOpen, 'viewer-frame--connect-mcp': showConnectMcpDialog}" :data-stage="isFullscreenMode ? null : headerStage">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
-        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved}">
-        <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering}"
-             @mouseenter="isHovering = true" @mouseleave="isHovering = false">
-          <!-- Top edge: title (left) + Edit / Fullscreen (right) -->
-          <div class="viewer-edge-top">
+        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved, 'viewer-body--with-sidebar': !!$slots['viewer-sidebar']}">
+        <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering, 'viewer-surface--revealed': headerRevealed}"
+             @mouseenter="isHovering = true" @mouseleave="isHovering = false"
+             @focusin="onHeaderFocusIn" @focusout="onHeaderFocusOut">
+          <!-- Top edge: title (left) + actions (right). Inline, the actions
+               collapse in stages as the title runs out of room — see
+               updateHeaderStage() and src/utils/viewerHeaderLayout.ts; the
+               stage is published as data-stage on .viewer-frame. -->
+          <div class="viewer-edge-top" :style="headerTitleSpace == null || isFullscreenMode ? null : { '--viewer-title-max': `${headerTitleSpace}px` }">
             <div class="viewer-title-area">
               <!-- Fullscreen diagram-type chip (Fullscreen Viewer v2). Read-only
                    type indicator, NOT the editor's TabSwitcher: this surface has
@@ -65,6 +69,10 @@
                 READ-ONLY
               </span>
               <span class="viewer-title" :title="title">{{ title }}</span>
+              <!-- Fullscreen: multi-page navigation (Graph) sits beside the title. -->
+              <div v-if="isFullscreenMode && $slots['header-nav']" class="viewer-header-nav" role="group" aria-label="Diagram pages">
+                <slot name="header-nav"></slot>
+              </div>
               <!-- Live Agent Link — Fullscreen toolbar link-status chip (Track H
                    design contract): names the bound diagram + token TTL. Shown
                    only in Fullscreen once a session exists; the inline collapsed
@@ -77,30 +85,46 @@
               />
             </div>
             <div v-if="!isLoadFailed" class="viewer-top-actions" :class="{ 'viewer-top-actions--with-create': showCreateGuide }">
-              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+              <!-- Inline Refined toggle (staged header): one pressed/unpressed
+                   button instead of Fullscreen's two-segment switch. Same
+                   availability gate. Stays visible at rest while pressed. -->
+              <button v-if="showInlineRefined" type="button" class="viewer-refined-toggle"
+                :class="{ 'viewer-refined-toggle--pressed': magicActive }"
+                data-testid="magic-toggle" aria-label="Refined layout"
+                :disabled="!magicActive && (!diagram?.magic || magicPending)"
+                :title="magicActive ? 'Layout refined with AI. Click to show original layout' : 'Show refined layout'"
+                :aria-pressed="magicActive ? 'true' : 'false'" :aria-busy="magicPending ? 'true' : 'false'"
+                @click="toggleMagic('manual')">
+                <svg xmlns="http://www.w3.org/2000/svg" class="viewer-magic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m4.5 19.5 11-11 2 2-11 11a1.4 1.4 0 0 1-2-2Z" />
+                  <path d="m18 2 .55 1.75L20.3 4.3l-1.75.55L18 6.6l-.55-1.75-1.75-.55 1.75-.55L18 2ZM21 10l.35 1.15L22.5 11.5l-1.15.35L21 13l-.35-1.15-1.15-.35 1.15-.35L21 10Z" />
                 </svg>
-                <span class="viewer-btn-label">Edit</span>
+                <span class="viewer-btn-label">Refined</span>
               </button>
+              <!-- Inline: multi-page navigation (Graph) — always visible, not hover-gated. -->
+              <div v-if="!isFullscreenMode && $slots['header-nav']" class="viewer-header-nav" role="group" aria-label="Diagram pages">
+                <slot name="header-nav"></slot>
+              </div>
+              <slot name="viewer-actions"></slot>
               <div v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-version-switch" role="group" aria-label="Diagram version">
                 <button type="button" class="viewer-version-option viewer-version-magic"
                   :class="{ 'viewer-version-option--selected': magicActive, 'viewer-version-magic--available': magicAvailable && !magicActive }"
                   data-testid="magic-toggle" :disabled="!magicActive && (!diagram?.magic || magicPending)"
-                  :title="!diagram?.magic ? 'Magic view is unavailable for this diagram' : magicActive ? 'Magic diagram selected' : magicAvailable ? 'Show prepared Magic view' : 'Magic view is unavailable for the current diagram'"
+                  :title="magicActive || magicAvailable ? 'Layout refined with AI.' : 'Refined layout is unavailable for the current diagram'"
                   :aria-pressed="magicActive ? 'true' : 'false'" :aria-busy="magicPending ? 'true' : 'false'"
                   @click="!magicActive && toggleMagic('manual')">
                   <svg xmlns="http://www.w3.org/2000/svg" class="viewer-magic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="m4.5 19.5 11-11 2 2-11 11a1.4 1.4 0 0 1-2-2Z" />
                     <path d="m18 2 .55 1.75L20.3 4.3l-1.75.55L18 6.6l-.55-1.75-1.75-.55 1.75-.55L18 2ZM21 10l.35 1.15L22.5 11.5l-1.15.35L21 13l-.35-1.15-1.15-.35 1.15-.35L21 10Z" />
                   </svg>
-                  <span>Magic</span>
+                  <span>Refined<span class="viewer-version-long"> layout</span></span>
                 </button>
                 <button type="button" class="viewer-version-option"
                   :class="{ 'viewer-version-option--selected': !magicActive }" data-testid="original-toggle"
-                  :aria-pressed="!magicActive ? 'true' : 'false'" title="Show original Mermaid diagram"
-                  @click="magicActive && toggleMagic('manual')">Original</button>
+                  :aria-pressed="!magicActive ? 'true' : 'false'" title="Show original layout"
+                  @click="magicActive && toggleMagic('manual')">Original<span class="viewer-version-long"> layout</span></button>
               </div>
+              <span v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-header-sep" aria-hidden="true"></span>
               <!-- View Source (#333): visible to ALL viewers, including users without
                    edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
               <button
@@ -127,7 +151,7 @@
                    differs by job. Same gate as View Source (text-DSL types
                    only) — not restricted by edit permission or fullscreen,
                    mirroring that button's audience. -->
-              <div v-if="showViewSource" class="copy-for-ai-split viewer-act-copy">
+              <div v-if="showViewSource && !showAgentLinkConnect && copyForAiSlotSettled" class="copy-for-ai-split viewer-act-copy">
                 <button
                   type="button"
                   class="viewer-btn-ghost copy-for-ai-split-primary"
@@ -193,7 +217,7 @@
                     </span>
                   </span>
                 </button>
-                <CopyForAiMenu ref="copyForAiMenu" @select="copyForAi" @opened="onCopyForAiMenuOpened" />
+                <CopyForAiMenu ref="copyForAiMenu" @select="copyForAi" @opened="onCopyForAiMenuOpened" @closed="copyForAiMenuOpen = false" />
                 <!-- Mintlify-style inline feedback: the button's own label already
                      shows Copying…/Copied/Copy failed/Nothing to copy visibly, but a
                      visually-hidden live region also announces the terminal states
@@ -204,7 +228,73 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
-              <ConnectButton v-if="showAgentLinkConnect" class="viewer-act-connect" @connect="connectToAgent" />
+              <!-- Connect MCP (agent-link flag on, agent-editable types, inline
+                   only) takes the Copy for AI slot and opens ConnectMcpDialog
+                   with the headless MCP setup and a prompt naming this diagram.
+                   Stage 3 moves it into More, as it does Copy for AI. -->
+              <button
+                v-if="showAgentLinkConnect"
+                type="button"
+                class="viewer-btn-ghost viewer-act-connect-mcp"
+                aria-label="Connect MCP"
+                title="Connect MCP"
+                data-testid="connect-mcp-btn"
+                aria-haspopup="dialog"
+                :aria-expanded="showConnectMcpDialog ? 'true' : 'false'"
+                @click="openConnectMcpDialog('toolbar')"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
+                </svg>
+                <!-- Visible "MCP" next to the icon, even inline where Source and
+                     Copy for AI are icon-only: the mark alone is not yet widely
+                     recognised. aria-label keeps the full "Connect MCP". -->
+                <span class="viewer-act-connect-mcp-label" aria-hidden="true">MCP</span>
+              </button>
+              <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
+              <!-- Fullscreen: the actions the inline macro keeps in More are
+                   header buttons here (labels by viewport width, see CSS). -->
+              <template v-if="isFullscreenMode">
+                <button v-for="action in fullscreenHeaderActions" :key="action.id" type="button"
+                  class="viewer-btn-ghost viewer-fs-act" :class="`viewer-fs-act--${action.id}`"
+                  :aria-label="action.label" :title="action.label" @click="onFullscreenHeaderAction(action.id)">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" :d="action.icon" />
+                  </svg>
+                  <span class="viewer-btn-label">{{ action.label }}</span>
+                </button>
+              </template>
+              <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
+                @opened="onMoreMenuOpened" @closed="moreMenuOpen = false">
+                <template #default="{ close }">
+                  <template v-for="(item, index) in moreMenuEntries" :key="`${item}-${index}`">
+                    <div v-if="item === 'separator'" role="separator" class="overflow-menu-separator"></div>
+                    <button
+                      v-else
+                      type="button"
+                      role="menuitem"
+                      tabindex="-1"
+                      class="overflow-menu-item"
+                      :data-testid="`more-menu-${item}`"
+                      :disabled="item === 'debug' && isDownloadingDebug"
+                      @click="onMoreMenuSelect(item, close)"
+                    >
+                      <span class="overflow-menu-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path :d="moreMenuMeta[item].icon" />
+                        </svg>
+                      </span>
+                      <span>{{ moreMenuMeta[item].label }}</span>
+                    </button>
+                  </template>
+                </template>
+              </OverflowMenu>
+              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                </svg>
+                <span class="viewer-btn-label">Edit</span>
+              </button>
               <button v-if="!isFullscreenMode" @click="fullscreen" aria-label="Fullscreen" title="Fullscreen" class="viewer-btn-primary viewer-act-fullscreen">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
@@ -227,15 +317,37 @@
                 </svg>
                 <span class="viewer-btn-label">Create</span>
               </button>
+              <template v-if="isFullscreenMode">
+                <span class="viewer-header-sep" aria-hidden="true"></span>
+                <button type="button" class="viewer-fs-exit" aria-label="Exit fullscreen" title="Exit fullscreen"
+                  data-testid="fullscreen-exit" @click="exitFullscreen">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </template>
             </div>
+          </div>
+
+          <!-- Inline layout survey (staged header): the Fullscreen disclosure's
+               question, under the same feedback-generation gate. Retires a few
+               seconds after a vote; a stored vote keeps it hidden. -->
+          <div v-if="showInlineMagicSurvey" class="magic-layout-feedback magic-inline-survey" role="group" aria-label="Which layout do you prefer?" data-testid="magic-layout-feedback">
+            <span>Which layout do you prefer?</span>
+            <div class="magic-inline-survey-options">
+              <button v-for="option in [{ value: 'magic', label: 'Refined' }, { value: 'original', label: 'Original' }, { value: 'no_preference', label: 'No preference' }]" :key="option.value" type="button"
+                :aria-pressed="magicLayoutFeedback === option.value ? 'true' : 'false'"
+                @click="selectMagicLayoutFeedback(option.value)">{{ option.label }}</button>
+            </div>
+            <span v-if="magicFeedbackThanked" class="magic-inline-survey-thanks" role="status" aria-live="polite">Thanks for sharing. You can change this anytime.</span>
           </div>
 
           <div v-if="magicFeedback" class="magic-feedback" role="status" aria-live="polite" data-testid="magic-feedback">{{ magicFeedback }}</div>
           <div v-if="isFullscreenMode && magicFeedbackGeneration && (magicActive || magicAvailable)" class="magic-disclosure" data-testid="magic-disclosure">
-            <span v-if="magicActive">Same diagram, cleaner layout.</span>
+            <span v-if="magicActive">Same content, refined layout.</span>
             <div class="magic-layout-feedback" role="group" aria-label="Which layout do you prefer?" data-testid="magic-layout-feedback">
               <span>Which layout do you prefer?</span>
-              <button v-for="option in [{ value: 'magic', label: 'Magic' }, { value: 'original', label: 'Original' }, { value: 'no_preference', label: 'No preference' }]" :key="option.value" type="button"
+              <button v-for="option in [{ value: 'magic', label: 'Refined' }, { value: 'original', label: 'Original' }, { value: 'no_preference', label: 'No preference' }]" :key="option.value" type="button"
                 :aria-pressed="magicLayoutFeedback === option.value ? 'true' : 'false'"
                 @click="selectMagicLayoutFeedback(option.value)">{{ option.label }}</button>
               <span v-if="magicFeedbackThanked" role="status" aria-live="polite">Thanks for sharing. You can change this anytime.</span>
@@ -264,7 +376,7 @@
           </div>
 
 
-          <!-- Canvas + bottom-edge pill -->
+          <!-- Canvas -->
           <div class="viewer-canvas">
             <div v-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
               <div class="viewer-lf-icon-wrap">
@@ -318,7 +430,7 @@
             </div>
             <div v-else class="screen-capture-content" ref="captureNode" :class="{'w-full': isWide, 'screen-capture-content--uncapped': fullscreenUncappedDiagram}">
               <DiagramViewport v-if="magicActive" ref="magicViewport" macro-type="mermaid"
-                label="Magic" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
+                label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
             </div>
             <div
@@ -361,63 +473,10 @@
                  .viewer-canvas — Fullscreen mirrors the state via the handoff. -->
             <ThinkingOverlay v-if="showAgentLinkThinking" :state="agentLinkThinking" />
 
-            <div v-if="!isLoadFailed" class="viewer-edge-bottom-pill" role="toolbar" aria-label="Diagram actions">
-              <!-- Graph viewer slots in multi-page nav (prev / X of Y / next) here. -->
-              <slot name="pill-prefix"></slot>
-              <!-- Diagram deeplink (task 6, docs/superpowers/sdd/
-                   2026-07-26-embed-deeplink-productization): the supply side
-                   of the autoConvert paste->embed flow. Only rendered when
-                   both a custom content id exists (same isCustomContent gate
-                   as Versions below) AND the variant has a mapped host
-                   (deeplinkHostForProductType — asyncapi has none yet).
-                   Reuses the slot freed by deleting the "Copy code" button
-                   (same payload as the Source panel's Copy, at ~1/8th the
-                   usage — see the task brief's Step 1 measurement). -->
-              <button v-if="isCustomContent && deeplinkHost" @click="copyDeeplink" title="Copy diagram link" aria-label="Copy diagram link" class="viewer-pill-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.933 2.185 2.25 2.25 0 0 0-3.933-2.185Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
-                </svg>
-              </button>
-              <button @click="openExport" title="Export PNG" aria-label="Export PNG" class="viewer-pill-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                </svg>
-              </button>
-              <button v-if="isCustomContent" @click="showContentVersions" title="Versions" aria-label="Versions" class="viewer-pill-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                </svg>
-              </button>
-              <!-- Renamed from "Copy link" (was ambiguous once "Copy diagram
-                   link" landed above) — same page-URL behavior and legacy
-                   copy_link tracking, unchanged. -->
-              <button @click="copyLink" title="Copy page link" aria-label="Copy page link" class="viewer-pill-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
-                </svg>
-              </button>
-              <OverflowMenu trigger-label="More">
-                <template #default="{ close }">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    class="overflow-menu-item"
-                    :disabled="isDownloadingDebug"
-                    @click="onDownloadDebugInfo(close)"
-                  >
-                    <span class="overflow-menu-item-icon">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25" />
-                      </svg>
-                    </span>
-                    <span>Download debug info</span>
-                  </button>
-                </template>
-              </OverflowMenu>
-            </div>
 
           </div>
         </div>
+        <slot name="viewer-sidebar"></slot>
         <!-- Fullscreen Connect rail (design §5.1, §9) — only mounted when the
              flag is on, the diagram type is MVP-supported, and we're actually
              in the Fullscreen modal. See connectToAgent()'s comment: this
@@ -452,6 +511,16 @@
           :fullscreen="isFullscreenMode"
           @close="showSourcePanel = false"
           @copy="onViewSourceCopied"
+        />
+        <ConnectMcpDialog
+          v-if="showAgentLinkConnect"
+          :visible="showConnectMcpDialog"
+          :diagram-title="title"
+          :cloud-id="connectMcpTarget.cloudId"
+          :page-id="connectMcpTarget.pageId"
+          :content-id="connectMcpTarget.contentId"
+          @close="closeConnectMcpDialog"
+          @copy="onConnectMcpCopied"
         />
       </div>
     </template>
@@ -490,7 +559,8 @@ import { buildCopyForAiPrompt } from '@/utils/copyForAi/buildCopyForAiPrompt'
 import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
-import ConnectButton from '@/components/AgentLink/ConnectButton.vue'
+import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
+import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -514,7 +584,14 @@ import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
 import { validateMagicArtifact } from '@/utils/magic/artifact'
+import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
+import { claimInlineMagicWriteback } from '@/utils/magic/inlineWriteback'
+import { viewerAccountKind } from '@/utils/magic/viewerAccount'
+import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
+import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
+import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
+import { controlsWidth, maxHeaderStage, moreMenuItems, pickHeaderStage } from '@/utils/viewerHeaderLayout'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
@@ -533,16 +610,60 @@ function isMermaidSequenceSource(source) {
  */
 const EXPORT_AUTO_OPEN_FALLBACK_MS = 15000;
 
+// How long the inline layout survey keeps its thank-you before retiring.
+const INLINE_SURVEY_THANKS_MS = 4000;
+
+// Header More-menu / Fullscreen header actions. Icon paths are the ones the
+// removed bottom pill and the staged-header prototype use, verbatim.
+const ICON_PATHS = {
+  code: 'M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5',
+  spark: 'M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z',
+  share: 'M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.933 2.185 2.25 2.25 0 0 0-3.933-2.185Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z',
+  download: 'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3',
+  clock: 'M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
+  link: 'M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244',
+  // Official Model Context Protocol mark, as its three stroke centerlines
+  // scaled to this 24px grid so it takes the same stroke weight as the rest.
+  mcp: 'M2.05 11.25L11.49 1.81C12.79 0.51 14.91 0.51 16.21 1.81C17.51 3.11 17.51 5.23 16.21 6.53L9.08 13.66M9.18 13.56L16.21 6.53C17.51 5.23 19.63 5.23 20.93 6.53L20.98 6.58C22.28 7.88 22.28 10 20.98 11.3L12.44 19.84C12.01 20.27 12.01 20.98 12.44 21.41L14.19 23.17M13.85 4.17L6.87 11.15C5.56 12.46 5.56 14.57 6.87 15.87C8.17 17.18 10.28 17.18 11.59 15.87L18.57 8.89',
+  bug: 'M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25',
+};
+const MORE_MENU_META = {
+  'source': { label: 'Source', icon: ICON_PATHS.code },
+  'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
+  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.mcp },
+  'copy-diagram-link': { label: 'Copy diagram link', icon: ICON_PATHS.share },
+  'copy-page-link': { label: 'Copy page link', icon: ICON_PATHS.link },
+  'export-png': { label: 'Export PNG', icon: ICON_PATHS.download },
+  'versions': { label: 'Versions', icon: ICON_PATHS.clock },
+  'debug': { label: 'Download debug info', icon: ICON_PATHS.bug },
+};
+
 export default {
   name: "GenericViewer",
   // hideEdit: callers that render a reference to content they shouldn't edit
   // in place (e.g. the AsyncAPI embed macro) suppress the Edit pencil entirely.
   // Editing the source happens at the origin; re-targeting which doc is
   // embedded is a page-editor (macro-config) operation.
-  props: ['wide', 'hideHeader', 'hideEdit'],
+  props: {
+    wide: Boolean,
+    hideHeader: Boolean,
+    hideEdit: Boolean,
+    relationshipHighlights: { type: Boolean, default: false },
+  },
+  emits: ['capture-mode-change', 'magic-highlight-ready', 'magic-highlight-used'],
   data: () => ({
     canUserEdit: true,
     isHovering: false,
+    // Staged header (see updateHeaderStage): collapse stage 0-3 of the inline
+    // header, and what besides hover keeps its actions revealed.
+    headerStage: 0,
+    // Width the title gets at that stage. It caps the title, because on a
+    // fit-content frame an uncapped nowrap title is the header's min-content
+    // and would widen the card past the page column.
+    headerTitleSpace: null,
+    headerFocusWithin: false,
+    moreMenuOpen: false,
+    copyForAiMenuOpen: false,
     showExportModal: false,
     // Export-entry auto-open bookkeeping (see mounted / openExportOnce).
     exportAutoOpened: false,
@@ -559,6 +680,11 @@ export default {
     copyForAiAnnouncement: '',
     copyForAiRevertTimer: null,
     copyForAiImpressionTracked: false,
+    // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
+    showConnectMcpDialog: false,
+    connectMcpOpenedAt: 0,
+    // Set once isAgentLinkEnabled() settles either way (see copyForAiSlotSettled).
+    agentLinkFlagResolved: false,
     copyForAiPermissionResolved: false,
     // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
     // master flag, resolved async in mounted(). Defaults false so the flag
@@ -579,6 +705,8 @@ export default {
     retryOutcomeEmitted: false,
     magicActive: false,
     magicSvg: null,
+    magicHighlightController: null,
+    magicHighlightCleanup: null,
     magicPending: false,
     magicGeneration: 0,
     magicStartedAt: null,
@@ -589,6 +717,7 @@ export default {
     magicInitializing: false,
     magicInitializeAttempt: 0,
     magicAvailabilityReported: [],
+    magicWritebackAttempts: [],
     magicDefaultReported: [],
     magicSessionChoice: null,
     magicSessionChoiceKey: null,
@@ -597,6 +726,7 @@ export default {
     magicFeedbackGeneration: null,
     magicFeedbackThanked: false,
     magicFeedbackPrompted: {},
+    magicThanksTimer: null,
   }),
   components: {
     Debug,
@@ -605,7 +735,7 @@ export default {
     CopyForAiMenu,
     DiagramViewport,
     ViewSourcePanel,
-    ConnectButton,
+    ConnectMcpDialog,
     ConnectPanel,
     LinkStatusChip,
     LiveBadge,
@@ -623,6 +753,61 @@ export default {
       diagramAttribution: state => state.diagramAttribution,
     }),
     ...mapGetters({isDisplayMode: 'isDisplayMode'}),
+    // Inline header actions show on hover, while keyboard focus is inside the
+    // macro, or while one of its menus is open (a menu must not vanish when
+    // the pointer leaves for it).
+    headerRevealed() {
+      return this.isHovering || this.headerFocusWithin || this.moreMenuOpen || this.copyForAiMenuOpen;
+    },
+    // Same availability gate as Fullscreen's version switch.
+    showInlineRefined() {
+      return !this.isFullscreenMode && this.diagramType === DiagramType.Mermaid
+        && (this.magicAvailable || this.magicActive);
+    },
+    // Same feedback-generation gate as Fullscreen's magic-disclosure; hidden
+    // once this viewer has a stored vote, except while thanking for it.
+    showInlineMagicSurvey() {
+      return this.showInlineRefined && !!this.magicFeedbackGeneration
+        && (this.magicPreviousFeedback == null || this.magicFeedbackThanked);
+    },
+    // Only the parts of the header whose width depends on the stage; the rest
+    // (chips, Connect, Create, slot actions, page nav) is measured as-is.
+    headerModel() {
+      return {
+        hasSource: this.showViewSource,
+        magic: this.showInlineRefined,
+        pages: 0,
+        hasEdit: this.showEdit && !this.isFullscreenMode,
+      };
+    },
+    // Anything that changes the header's content without resizing the viewer.
+    headerLayoutSignature() {
+      return JSON.stringify([this.title, this.headerModel, this.showCreateGuide, this.showAgentLinkConnect,
+        this.showAgentLinkBadge, this.isEmbedded, !!this.diagram?.recoveredFromOrphan, this.isLoadFailed]);
+    },
+    moreMenuEntries() {
+      return moreMenuItems({
+        stage: this.headerStage,
+        hasSource: this.showViewSource,
+        connectMcp: this.showAgentLinkConnect,
+        isCustomContent: this.isCustomContent,
+        hasDeeplinkHost: !!this.deeplinkHost,
+        fullscreen: this.isFullscreenMode,
+      });
+    },
+    moreMenuMeta() {
+      return MORE_MENU_META;
+    },
+    // Fullscreen header buttons, in the prototype's order. Source and Copy for
+    // AI keep their own (existing) buttons ahead of these.
+    fullscreenHeaderActions() {
+      const actions = [];
+      if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
+      actions.push({ id: 'page-link', label: 'Page link', icon: ICON_PATHS.link });
+      actions.push({ id: 'export-png', label: 'Export PNG', icon: ICON_PATHS.download });
+      if (this.isCustomContent) actions.push({ id: 'versions', label: 'Versions', icon: ICON_PATHS.clock });
+      return actions;
+    },
     isLoadFailed() {
       return this.isDisplayMode
         && (this.viewerLoadState === 'failed_with_source'
@@ -680,7 +865,7 @@ export default {
     },
     // Deeplink mint host for this build's variant (task 6) — static per
     // PRODUCT_TYPE, so no need to re-derive per click. undefined for asyncapi
-    // (deferred) hides the pill button entirely; see embedDeeplink.ts.
+    // (deferred) hides the Copy diagram link menu item; see embedDeeplink.ts.
     deeplinkHost() {
       return deeplinkHostForProductType(import.meta.env.PRODUCT_TYPE);
     },
@@ -751,7 +936,9 @@ export default {
         && this.isDisplayMode
         && !this.hideHeader
         && !this.isLoadFailed
-        && this.showViewSource;
+        && this.showViewSource
+        && this.copyForAiSlotSettled
+        && !this.showAgentLinkConnect;
     },
     // Fullscreen-only diagram-type indicator (Fullscreen Viewer v2). Fullscreen
     // drops Edit and Fullscreen from the action row and the Confluence modal
@@ -824,6 +1011,27 @@ export default {
     showAgentLinkConnect() {
       return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
     },
+    // The Copy for AI slot renders only once it is known not to be Connect
+    // MCP's: on an inline agent-editable macro that waits for the async flag,
+    // so Copy for AI never flashes and then swaps out. Fullscreen and the other
+    // text types never show Connect MCP, so they need not wait.
+    copyForAiSlotSettled() {
+      return this.agentLinkFlagResolved || this.isFullscreenMode || !this.agentLinkMvpSupported;
+    },
+    connectMcpIcon() {
+      return ICON_PATHS.mcp;
+    },
+    // The ids the headless tools take (read_diagram / update_diagram), so the
+    // prompt sends the agent straight to this diagram. All synchronous: the
+    // Forge context is populated during app boot.
+    connectMcpTarget() {
+      const ctx = window.forgeGlobal?.forgeContext ?? {};
+      return {
+        cloudId: ctx.cloudId ?? '',
+        pageId: this.currentPageId ? String(this.currentPageId) : '',
+        contentId: getForgeCustomContentId() ?? this.diagram?.id ?? '',
+      };
+    },
     createGuideVariant() {
       return createGuideVariant(this.diagramType);
     },
@@ -844,11 +1052,11 @@ export default {
     },
     // Collapsed (non-fullscreen) "● live" indicator (design §3 decision #8).
     showAgentLinkBadge() {
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+      return RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
     },
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+      return RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
     },
     // The fullscreen column is capped at 1000px so the byline under the diagram keeps a
     // readable line length. That reasoning is about TEXT, so it holds for the types whose
@@ -932,6 +1140,18 @@ export default {
     },
   },
   watch: {
+    showExportModal: {
+      flush: 'sync',
+      handler(active) {
+        this.$emit('capture-mode-change', active);
+        if (active) this.clearMagicHighlights();
+        else if (this.magicActive) this.$nextTick(this.installMagicHighlights);
+      },
+    },
+    relationshipHighlights() {
+      this.clearMagicHighlights();
+      if (this.magicActive) this.$nextTick(this.installMagicHighlights);
+    },
     showCreateGuide: {
       immediate: true,
       handler(shown) {
@@ -945,6 +1165,7 @@ export default {
         });
       },
     },
+    headerLayoutSignature() { this.$nextTick(this.scheduleHeaderLayout); },
     'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
@@ -1040,6 +1261,7 @@ export default {
     // Capture runs before either bubble listener, so the state read here is
     // the state at keypress.
     document.addEventListener('keydown', this.onEscapeKeydown, true);
+    this.startHeaderLayout();
     // Export entry (see openExport): the modal was opened BY the Export PNG
     // button, so the dialog opens here on arrival. On 'diagramLoaded', not on
     // mount — the dialog captures its preview off the `visible` watcher, and
@@ -1088,6 +1310,8 @@ export default {
     } catch (e) {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
+    } finally {
+      this.agentLinkFlagResolved = true;
     }
     try {
       this.architectureTokensEnabled = await isArchitectureTokensEnabled();
@@ -1102,7 +1326,7 @@ export default {
     // so the write-scope guard (only the bound contentId) still applies.
     // Standalone/dev/no-context keeps the unwired placeholder, which fails
     // loudly instead of silently doing nothing (see bridgeOps.ts).
-    if (this.agentLinkFeatureEnabled && globals.apWrapper) {
+    if (RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && globals.apWrapper) {
       const bridge = createForgeAgentLinkBridge({ apWrapper: globals.apWrapper });
       // Relay wiring (design §4.3): only in a real Forge runtime — cloudId
       // has no standalone-context equivalent (getStandaloneContext() never
@@ -1194,6 +1418,13 @@ export default {
     }
   },
   beforeUnmount() {
+    this.headerResizeObserver?.disconnect();
+    this.headerResizeObserver = null;
+    if (this.magicThanksTimer) {
+      clearTimeout(this.magicThanksTimer);
+      this.magicThanksTimer = null;
+    }
+    this.clearMagicHighlights();
     this.magicGeneration++;
     document.removeEventListener('keydown', this.onEscapeKeydown, true);
     EventBus.$off('diagramLoaded', this.onDiagramLoadedOpenExport);
@@ -1240,13 +1471,20 @@ export default {
       this.magicEvent(eventName, { [propertyName]: value });
     },
     async initializeMagic() {
-      if (!this.magicIdentityReady || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid
+      // Runs inline too since the staged header's Refined toggle (2026-10).
+      if (!this.magicIdentityReady || this.diagramType !== DiagramType.Mermaid
         || this.magicActive || this.magicPending || this.magicInitializing) return;
       const generation = this.magicGeneration;
       const attempt = ++this.magicInitializeAttempt;
       const source = this.diagram.mermaidCode ?? '';
       const artifact = this.diagram.magic;
       if (!artifact) {
+        // Inline, a Mermaid diagram without an artifact is the common case, not
+        // a Magic assessment: reporting it would add an event per page view.
+        // Writeback still runs inline (rate-limited per browser) so a staged
+        // layout reaches viewers who never open Fullscreen.
+        this.requestMagicWriteback();
+        if (!this.isFullscreenMode) return;
         this.reportMagicAssessment('magic_availability_checked', 'magic_availability', 'missing_artifact', source, artifact);
         this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
         return;
@@ -1257,6 +1495,7 @@ export default {
         if (generation !== this.magicGeneration || this.diagramType !== DiagramType.Mermaid
           || this.diagram.mermaidCode !== source || this.diagram.magic !== artifact) return;
         if ('reason' in result) {
+          if (result.reason === 'stale_source') this.requestMagicWriteback();
           this.reportMagicAssessment('magic_availability_checked', 'magic_availability', result.reason, source, artifact);
           this.reportMagicAssessment('magic_default_resolved', 'magic_default_result', 'original_unavailable', source, artifact);
           return;
@@ -1285,12 +1524,86 @@ export default {
         if (attempt === this.magicInitializeAttempt) this.magicInitializing = false;
       }
     },
+    async requestMagicWriteback() {
+      const diagram = this.diagram;
+      const contentId = diagram?.id;
+      const source = diagram?.mermaidCode;
+      const artifact = diagram?.magic;
+      if (this.diagramType !== DiagramType.Mermaid
+        || diagram?.source !== DataSource.CustomContent || diagram?.isCopy || diagram?.recoveredFromOrphan
+        || typeof contentId !== 'string' || !/^\d{1,30}$/.test(contentId) || typeof source !== 'string') return;
+      // One attempt per diagram/source per iframe. Duplicate readiness signals
+      // and unavailable backend responses must not create a polling loop.
+      if (this.magicWritebackAttempts.some(item => item.contentId === contentId && item.source === source)) return;
+      // Inline adds a per-browser 24h limit (~10k inline Mermaid views a day);
+      // Fullscreen keeps retrying once per iframe.
+      const inline = !this.isFullscreenMode;
+      // Inline means the page-view macro only: the editor preview (Workspace ->
+      // DiagramPortal, hide-header / non-display mode) would send one request
+      // per edited source and cannot show the refined layout anyway.
+      if (inline && (!this.isDisplayMode || this.hideHeader)) return;
+      // Record the attempt before the first await: the account lookup below must
+      // not open a window for a duplicate readiness signal to slip past the
+      // check above and send a second request.
+      this.magicWritebackAttempts.push({ contentId, source });
+      // The inline per-browser claim comes first and covers the skipped path
+      // too: a guest reloading a 20-diagram page reports each diagram once a
+      // day, not once per page view, and a repeat view costs no lookup.
+      if (inline && !claimInlineMagicWriteback(contentId, source)) return;
+      // Forge sends no user token on invokeRemote for guest and anonymous
+      // viewers, so the call could only fail. Ask before sending anything.
+      // Anything unclear ('unknown') proceeds; the backend's 403
+      // no_user_credential is the backstop.
+      let kind = 'unknown';
+      try {
+        kind = await viewerAccountKind({ accountId: this.currentAccountId ?? undefined, clientDomain: getClientDomain() });
+      } catch { /* Fail open, like an unknown answer. */ }
+      if (kind === 'guest' || kind === 'anonymous') {
+        this.magicEvent('magic_writeback_skipped', { magic_writeback_reason: `${kind}_viewer` });
+        return;
+      }
+      const started = performance.now();
+      const generation = this.magicGeneration;
+      if (!inline) this.magicEvent('magic_writeback_requested');
+      let outcome = 'unavailable';
+      let reason = 'unknown';
+      try {
+        const result = await callRemote('/magic-writeback', 'POST', { contentId });
+        const known = ['written', 'existing', 'miss', 'source_changed', 'unavailable', 'conflict', 'invalid_target'];
+        if (known.includes(result?.outcome)) outcome = result.outcome;
+        if (outcome === 'unavailable') reason = typeof result?.reason === 'string' && /^[a-z_]{1,24}(_\d{3})?$/.test(result.reason) ? result.reason : 'unknown';
+        if ((outcome === 'written' || outcome === 'existing') && result.artifact
+          && this.magicGeneration === generation && this.diagram === diagram
+          && this.diagram.id === contentId && this.diagram.mermaidCode === source && this.diagram.magic === artifact) {
+          const validated = await validateMagicArtifact(result.artifact, source);
+          if ('svg' in validated && this.magicGeneration === generation && this.diagram === diagram
+            && this.diagram.id === contentId && this.diagram.mermaidCode === source && this.diagram.magic === artifact) {
+            this.diagram.magic = result.artifact;
+          }
+        }
+      } catch (error) {
+        // Original remains usable when optional delivery is unavailable. Only a
+        // status code is kept; never the error text.
+        const message = error instanceof Error ? error.message : '';
+        const status = /^HTTP (\d{3})/.exec(message)?.[1];
+        // The backend answers 403 { error: 'no_user_credential' } when Forge sent
+        // no user token. Check it before the generic status mapping.
+        if (message.includes('no_user_credential')) reason = 'no_user_credential';
+        else reason = status ? `remote_${status}` : 'client_exception';
+      }
+      finally {
+        // Inline, a miss is the common no-op answer; only real deliveries and
+        // failures are worth an event.
+        if (!inline || outcome !== 'miss') this.magicEvent('magic_writeback_completed', { magic_writeback_outcome: outcome, ...(outcome === 'unavailable' ? { magic_writeback_reason: reason } : {}), duration_ms: Math.round(performance.now() - started) });
+      }
+    },
     magicEvent(name, properties = {}) {
       trackAnalyticsEvent(name, {
-        feature_area: 'ai', surface: 'fullscreen', macro_type: 'mermaid', ...properties,
+        feature_area: 'ai', surface: this.isFullscreenMode ? 'fullscreen' : 'viewer', macro_type: 'mermaid', ...properties,
       });
     },
     resetMagic(preserveAvailable = false) {
+      this.clearMagicHighlights();
       const wasAvailable = this.magicAvailable;
       if (this.magicPending && this.magicStartedAt != null) {
         this.magicEvent('magic_view_failed', {
@@ -1321,7 +1634,7 @@ export default {
         this.magicEvent('magic_view_restored');
         return;
       }
-      if (this.magicPending || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+      if (this.magicPending || this.diagramType !== DiagramType.Mermaid) return;
       await this.showMagic(activation);
     },
     async showMagic(activation = 'manual', validated = null) {
@@ -1340,8 +1653,8 @@ export default {
         if ('reason' in result) {
           this.magicAvailable = false;
           this.magicFeedback = result.reason === 'stale_source'
-            ? 'This prepared view is for an earlier version of the diagram.'
-            : 'Magic view could not be shown. The original diagram is still available.';
+            ? 'This refined layout is for an earlier version of the diagram.'
+            : 'Refined layout could not be shown. The original diagram is still available.';
           this.magicEvent('magic_view_failed', { magic_failure_reason: result.reason, duration_ms: Math.round(performance.now() - started) });
           return;
         }
@@ -1353,6 +1666,8 @@ export default {
         if (!this.$refs.magicViewport?.$el?.querySelector('svg')) throw new Error('Magic SVG did not render');
         await this.$refs.magicViewport.attach();
         if (generation === this.magicGeneration) {
+          await this.installMagicHighlights();
+          if (generation !== this.magicGeneration) return;
           if (activation === 'manual') this.persistMagicChoice('magic', artifact.sourceHash);
           this.magicEvent('magic_view_succeeded', { magic_activation: activation, duration_ms: Math.round(performance.now() - started) });
           await this.loadMagicFeedback(artifact, source);
@@ -1362,13 +1677,66 @@ export default {
         this.magicActive = false;
         this.magicAvailable = false;
         this.magicSvg = null;
-        this.magicFeedback = 'Magic view could not be shown. The original diagram is still available.';
+        this.magicFeedback = 'Refined layout could not be shown. The original diagram is still available.';
         this.magicEvent('magic_view_failed', { magic_failure_reason: 'render_failed', duration_ms: Math.round(performance.now() - started) });
       } finally {
         if (generation === this.magicGeneration) {
           this.magicPending = false;
           this.magicStartedAt = null;
         }
+      }
+    },
+    clearMagicHighlights() {
+      this.magicHighlightCleanup?.();
+      this.magicHighlightCleanup = null;
+      this.magicHighlightController?.destroy();
+      this.magicHighlightController = null;
+      this.$emit('magic-highlight-ready', false);
+    },
+    async installMagicHighlights() {
+      if (!this.magicActive || !this.relationshipHighlights || this.showExportModal
+        || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+      const generation = this.magicGeneration;
+      const source = this.diagram?.mermaidCode ?? '';
+      const artifact = this.diagram?.magic;
+      try {
+        const model = await parseMermaidFlowchart(normalizeMermaidWhitespace(source));
+        if (generation !== this.magicGeneration || !this.magicActive || !this.relationshipHighlights
+          || this.showExportModal || this.diagram?.mermaidCode !== source || this.diagram?.magic !== artifact) return;
+        const svg = this.$refs.magicViewport?.$el?.querySelector('svg');
+        if (!svg) return;
+        this.clearMagicHighlights();
+        this.magicHighlightController = attachPreparedSvgHighlights(svg, model);
+        let used = false, timer = null, hovered = null;
+        const target = event => {
+          const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
+          if (!el || !svg.contains(el)) return null;
+          return { el, kind: el.hasAttribute('data-hit-group') || el.hasAttribute('data-group')
+            ? 'group' : el.hasAttribute('data-hit-node') || el.hasAttribute('data-node') ? 'node' : 'edge' };
+        };
+        const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
+        const report = item => {
+          if (!item || used || generation !== this.magicGeneration) return;
+          used = true; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
+        };
+        const over = event => {
+          const item = target(event);
+          if (!item || used || hovered === item.el) return;
+          cancel(); hovered = item.el;
+          timer = setTimeout(() => report(item), 700);
+        };
+        const out = event => {
+          if (hovered && hovered.contains(event.target) && !hovered.contains(event.relatedTarget)) cancel();
+        };
+        const select = event => report(target(event));
+        const listeners = [['pointerover', over], ['pointerout', out], ['pointerleave', cancel], ['click', select], ['focusin', select]];
+        for (const [name, handler] of listeners) svg.addEventListener(name, handler);
+        this.magicHighlightCleanup = () => { cancel(); for (const [name, handler] of listeners) svg.removeEventListener(name, handler); };
+        this.$emit('magic-highlight-ready', true);
+      } catch {
+        // A drawing without a complete source binding remains readable, with
+        // the optional relationship overlay unavailable.
+        this.clearMagicHighlights();
       }
     },
     async loadMagicFeedback(artifact, source) {
@@ -1378,7 +1746,8 @@ export default {
         this.magicFeedbackGeneration = generation;
         const sessionKey = this.magicSessionKey(artifact.sourceHash) + ':' + generation;
         this.magicPreviousFeedback = readMagicFeedback(this.magicIdentity(artifact.sourceHash), generation);
-        if (!this.magicFeedbackPrompted[sessionKey]) {
+        // Inline, the survey only shows to viewers who have not voted yet.
+        if (!this.magicFeedbackPrompted[sessionKey] && (this.isFullscreenMode || this.magicPreviousFeedback == null)) {
           this.magicFeedbackPrompted[sessionKey] = true;
           this.magicEvent('magic_layout_feedback_prompt_shown');
         }
@@ -1394,6 +1763,13 @@ export default {
       this.magicLayoutFeedback = choice;
       this.magicPreviousFeedback = choice;
       this.magicFeedbackThanked = true;
+      if (!this.isFullscreenMode) {
+        if (this.magicThanksTimer) clearTimeout(this.magicThanksTimer);
+        this.magicThanksTimer = setTimeout(() => {
+          this.magicThanksTimer = null;
+          this.magicFeedbackThanked = false;
+        }, INLINE_SURVEY_THANKS_MS);
+      }
       writeMagicFeedback(this.magicIdentity(this.diagram.magic.sourceHash), this.magicFeedbackGeneration, choice);
       this.magicEvent(previous == null ? 'magic_layout_feedback_submitted' : 'magic_layout_feedback_updated', { magic_layout_preference: choice });
     },
@@ -1402,7 +1778,11 @@ export default {
     // so one Escape dismisses one layer.
     onEscapeKeydown(e) {
       if (e.key !== 'Escape') return;
-      if (this.$refs.copyForAiMenu?.open) return;
+      if (this.$refs.copyForAiMenu?.open || this.$refs.moreMenu?.open) return;
+      if (this.showConnectMcpDialog) {
+        this.closeConnectMcpDialog();
+        return;
+      }
       if (!this.showSourcePanel) return;
       this.showSourcePanel = false;
     },
@@ -1412,6 +1792,122 @@ export default {
     // once. Same ref name on mutually exclusive branches resolves to
     // whichever one is actually rendered; null while the load-failed panel
     // has replaced the capture branch.
+    // ----- staged header ---------------------------------------------------
+    // The stage is measured against the WHOLE viewer's width, not
+    // .viewer-frame / .viewer-edge-top: an auto frame is fit-content, so its
+    // width follows the header itself and observing it would feed back.
+    startHeaderLayout() {
+      // $refs, not $el: the template opens with a comment, so $el is not the root element.
+      const root = this.$refs.viewerRoot;
+      if (this.isFullscreenMode || typeof ResizeObserver === 'undefined' || !(root instanceof Element)) return;
+      this.headerResizeObserver = new ResizeObserver(() => this.scheduleHeaderLayout());
+      this.headerResizeObserver.observe(root);
+      // Web fonts change every text width the stage was computed from.
+      document.fonts?.ready?.then(() => this.scheduleHeaderLayout()).catch(() => {});
+      this.$nextTick(this.scheduleHeaderLayout);
+    },
+    scheduleHeaderLayout() {
+      if (this.headerLayoutFrame) return;
+      const raf = window.requestAnimationFrame?.bind(window) ?? (cb => setTimeout(cb, 16));
+      this.headerLayoutFrame = raf(() => {
+        this.headerLayoutFrame = null;
+        this.updateHeaderStage();
+      });
+    },
+    headerTextContext() {
+      if (!this.headerCanvasContext) {
+        this.headerCanvasContext = document.createElement('canvas').getContext?.('2d') ?? null;
+      }
+      return this.headerCanvasContext;
+    },
+    // Picks the smallest collapse stage at which the title shows enough of
+    // itself (viewerHeaderLayout.ts). Only the stage-dependent controls are
+    // modelled; everything else in the row is read off the DOM as it stands,
+    // so chips, Connect, Create and slot actions are accounted for exactly.
+    updateHeaderStage() {
+      if (this.isFullscreenMode || !this.isDisplayMode || this.hideHeader || this.isLoadFailed) return;
+      const root = this.$refs.viewerRoot;
+      const edge = root?.querySelector?.('.viewer-edge-top');
+      const area = edge?.querySelector('.viewer-title-area');
+      const titleEl = edge?.querySelector('.viewer-title');
+      const actions = edge?.querySelector('.viewer-top-actions');
+      const frame = root?.querySelector?.('.viewer-frame');
+      const surface = root?.querySelector?.('.viewer-surface');
+      if (!edge || !area || !titleEl || !actions || !frame || !surface) return;
+      // A viewer-sidebar slot shares the row with the surface.
+      const besideSurface = Array.from(surface.parentElement?.children ?? [])
+        .filter(el => el !== surface)
+        .reduce((total, el) => total + el.getBoundingClientRect().width, 0);
+      const column = root.clientWidth - besideSurface;
+      if (!column) return; // detached, or a layout-less test DOM
+      const ctx = this.headerTextContext();
+      if (!ctx) return;
+      const edgeStyle = getComputedStyle(edge);
+      const titleStyle = getComputedStyle(titleEl);
+      const titleFont = `${titleStyle.fontWeight} ${titleStyle.fontSize} ${titleStyle.fontFamily}`;
+      const measureTitle = (text) => { ctx.font = titleFont; return ctx.measureText(text).width; };
+      const measureLabel = (text, size) => { ctx.font = `500 ${size}px ${edgeStyle.fontFamily}`; return ctx.measureText(text).width; };
+      const chrome = (frame.offsetWidth - frame.clientWidth)
+        + parseFloat(edgeStyle.paddingLeft) + parseFloat(edgeStyle.paddingRight)
+        + (parseFloat(getComputedStyle(area).marginRight) || 0);
+      const titleNeighbours = Math.max(0, area.getBoundingClientRect().width - titleEl.getBoundingClientRect().width);
+      const model = this.headerModel;
+      const measuredActions = actions.getBoundingClientRect().width;
+      const modelledNow = controlsWidth(model, this.headerStage, measureLabel);
+      const { stage, titleSpace } = pickHeaderStage({
+        title: this.title,
+        maxStage: maxHeaderStage(model),
+        measureTitle,
+        titleSpaceAt: (s) => column - chrome - titleNeighbours
+          - (measuredActions - modelledNow + controlsWidth(model, s, measureLabel)),
+      });
+      if (stage !== this.headerStage) this.headerStage = stage;
+      if (titleSpace !== this.headerTitleSpace) this.headerTitleSpace = titleSpace;
+    },
+    onHeaderFocusIn() {
+      this.headerFocusWithin = true;
+    },
+    onHeaderFocusOut(e) {
+      if (!e.currentTarget?.contains(e.relatedTarget)) this.headerFocusWithin = false;
+    },
+    onMoreMenuOpened() {
+      this.moreMenuOpen = true;
+      trackAnalyticsEvent('viewer_more_menu_opened', {
+        feature_area: 'macro',
+        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        ...(this.isFullscreenMode ? {} : { header_stage: this.headerStage }),
+      });
+    },
+    // The action runs inside the click (clipboard writes need the user
+    // activation); closing returns focus to the More trigger.
+    onMoreMenuSelect(item, close) {
+      const where = 'header_more_menu';
+      switch (item) {
+        case 'source': close(); this.openViewSource(where); return;
+        case 'copy-for-ai': this.copyForAi('generic', where); close(); return;
+        case 'connect-mcp': close(); this.openConnectMcpDialog(where); return;
+        case 'copy-diagram-link': this.copyDeeplink(where); close(); return;
+        case 'copy-page-link': this.copyLink(where); close(); return;
+        case 'export-png': close(); this.openExport(where); return;
+        case 'versions': close(); this.showContentVersions(where); return;
+        case 'debug': this.onDownloadDebugInfo(close, where); return;
+        default:
+      }
+    },
+    onFullscreenHeaderAction(id) {
+      const where = 'fullscreen_header';
+      switch (id) {
+        case 'diagram-link': this.copyDeeplink(where); return;
+        case 'page-link': this.copyLink(where); return;
+        case 'export-png': this.openExport(where); return;
+        case 'versions': this.showContentVersions(where); return;
+        default:
+      }
+    },
+    exitFullscreen() {
+      EventBus.$emit('closeFullscreen');
+    },
     getCaptureNode() {
       return this.$refs.captureNode ?? null;
     },
@@ -1512,13 +2008,14 @@ export default {
     },
     // View Source panel (#333). Uses in-memory diagram DSL — no refetch.
     // Available to all viewers; do not gate on canUserEdit.
-    openViewSource() {
+    openViewSource(actionLocation) {
       this.showSourcePanel = true;
       trackAnalyticsEvent('viewer_source_opened', {
         feature_area: 'macro',
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
         has_edit_permission: !!this.canUserEdit,
+        ...(actionLocation ? { action_location: actionLocation } : {}),
       });
     },
     onViewSourceCopied() {
@@ -1537,6 +2034,7 @@ export default {
       });
     },
     onCopyForAiMenuOpened() {
+      this.copyForAiMenuOpen = true;
       trackAnalyticsEvent('copy_for_ai_menu_opened', {
         feature_area: 'macro',
         surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
@@ -1554,9 +2052,37 @@ export default {
     // this mount's own hydrateFrom() call above — see that file's header
     // comment for the fix and its same-origin assumption; see
     // docs/superpowers/specs/2026-07-08-live-agent-link-design.md §4.3.
-    connectToAgent() {
-      this.agentLinkSession?.startConnect();
-      this.fullscreen();
+    // Connect MCP (headless only in the first release — see
+    // connectInstructions.ts RELAY_SESSIONS_ENABLED): nothing to mint, so the
+    // dialog only shows the setup command and a prompt naming this diagram.
+    connectMcpAnalytics(extra = {}) {
+      return {
+        feature_area: 'agent_link',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        mcp_mode: 'headless',
+        ...extra,
+      };
+    },
+    openConnectMcpDialog(where = 'toolbar') {
+      if (this.showConnectMcpDialog) return;
+      this.showConnectMcpDialog = true;
+      this.connectMcpOpenedAt = Date.now();
+      trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics(
+        where === 'header_more_menu' ? { action_location: where } : {}));
+    },
+    closeConnectMcpDialog() {
+      if (!this.showConnectMcpDialog) return;
+      this.showConnectMcpDialog = false;
+      trackAnalyticsEvent('agent_link_mcp_dialog_closed', this.connectMcpAnalytics({
+        dwell_ms: Date.now() - this.connectMcpOpenedAt,
+      }));
+    },
+    onConnectMcpCopied(target, ok) {
+      trackAnalyticsEvent('agent_link_mcp_dialog_copied', this.connectMcpAnalytics({
+        mcp_copy_target: target,
+        outcome: ok ? 'copied' : 'clipboard_failed',
+      }));
     },
     onAgentLinkDisconnect() {
       this.agentLinkSession?.disconnect('user');
@@ -1643,12 +2169,12 @@ export default {
         EventBus.$emit('closeFullscreen');
       }
     },
-    openExport() {
+    openExport(actionLocation) {
       if (this.isFullscreenMode) {
         this.showExportModal = true;
         return;
       }
-      this.fullscreen({ openExport: true });
+      this.fullscreen({ openExport: true, actionLocation });
     },
     openCreateGuide() {
       openCreateGuide({
@@ -1665,6 +2191,7 @@ export default {
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
         entry_point: openExport ? 'export' : 'page_view',
+        ...(options.actionLocation ? { action_location: options.actionLocation } : {}),
       });
       // Single-argument emit on the ordinary path: every existing listener and
       // test treats `fullscreen` as a bare signal.
@@ -1674,8 +2201,9 @@ export default {
         EventBus.$emit('fullscreen');
       }
     },
-    showContentVersions() {
-      trackEvent('show_content_versions', 'click', 'viewing');
+    showContentVersions(actionLocation) {
+      if (actionLocation) trackEvent('show_content_versions', 'click', 'viewing', { action_location: actionLocation });
+      else trackEvent('show_content_versions', 'click', 'viewing');
       if (!this.diagram.id) {
         toast({ message: 'Version history unavailable', duration: 2000 });
         return;
@@ -1741,7 +2269,7 @@ export default {
     // context outside Forge — see forgeGlobal.ts); contentId is the
     // diagram's custom content id, already gated present by the template's
     // isCustomContent check.
-    async copyDeeplink() {
+    async copyDeeplink(linkSource = 'header_more_menu') {
       let outcome;
       try {
         const host = this.deeplinkHost;
@@ -1771,12 +2299,12 @@ export default {
           feature_area: 'macro',
           surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
           macro_type: this.diagramType ?? 'none',
-          link_source: 'viewer_pill',
+          link_source: linkSource,
           outcome,
         });
       }
     },
-    async onDownloadDebugInfo(closeMenu) {
+    async onDownloadDebugInfo(closeMenu, actionLocation) {
       if (this.isDownloadingDebug) return;
       this.isDownloadingDebug = true;
       try {
@@ -1797,6 +2325,7 @@ export default {
           latest_version_number:  bundle.saved.latest?.versionNumber ?? null,
           error_count:            bundle.errors.length,
           bundle_size_bytes:      serialisedSize,
+          ...(actionLocation ? { action_location: actionLocation } : {}),
         });
       } catch (err) {
         console.error('[debug-bundle] failed', err);
@@ -1819,8 +2348,9 @@ export default {
       const webui = page._links?.webui || '';
       return (base && webui) ? `${base}${webui}` : '';
     },
-    async copyLink() {
-      trackEvent('copy_link', 'click', 'viewing');
+    async copyLink(actionLocation) {
+      if (actionLocation) trackEvent('copy_link', 'click', 'viewing', { action_location: actionLocation });
+      else trackEvent('copy_link', 'click', 'viewing');
       try {
         const pageId = window.forgeGlobal?.forgeContext?.extension?.content?.id;
         if (!pageId) { toast({ message: 'Link not available', duration: 2000 }); return; }
@@ -1905,7 +2435,7 @@ export default {
     // the button in the template, but also short-circuit here for
     // non-pointer activation paths (e.g. a held Enter key repeating faster
     // than Vue re-renders).
-    async copyForAi(job = 'generic') {
+    async copyForAi(job = 'generic', actionLocation) {
       if (this.copyForAiState === 'copying') return;
       if (!this.viewSourceCode) { this.setCopyForAiState('failed', 'Nothing to copy'); return; }
       this.setCopyForAiState('copying', 'Copying…');
@@ -1974,6 +2504,7 @@ export default {
         copy_source: 'copy_for_ai',
         copy_job: job,
         ...(attribution ? { copy_id: attribution.copy_id } : {}),
+        ...(actionLocation ? { action_location: actionLocation } : {}),
       });
     },
   },
@@ -2006,7 +2537,16 @@ export default {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 .viewer-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
+/* A header menu (More, Copy for AI) is taller than a short diagram's card and,
+   on a narrow card, wider than the space left of its trigger. While one is
+   open the frame stops clipping so the menu shows whole; the header keeps the
+   frame's top corners (its own radius below). */
+.viewer-frame--menu-open { overflow: visible; }
 .viewer-frame--wide { width: 100%; }
+/* Connect MCP dialog open (inline): the dialog overlays .viewer-frame, so give
+   the frame room for it. Inline autoResize then grows the Forge iframe; the
+   frame shrinks back when the dialog closes. */
+.viewer-frame--connect-mcp { min-height: 540px; min-width: min(540px, 100%); }
 
 /* Fullscreen modal gets the whole browser viewport (Forge's autoResize is
    disabled there — see forgeIndex.ts), but .viewer-frame itself has no height
@@ -2058,11 +2598,8 @@ export default {
 }
 /* Hover-to-reveal is an inline-macro affordance — it keeps a page of macros
    quiet. In fullscreen the user opened this surface to act on the diagram,
-   and there is no page to keep quiet, so the actions are always present. */
-.viewer-frame--fullscreen .viewer-top-actions {
-  opacity: 1;
-  gap: 4px;
-}
+   and there is no page to keep quiet, so the actions are always present
+   (the reveal rule below is scoped to non-fullscreen frames). */
 .viewer-frame--fullscreen .viewer-title {
   font-size: 16px;
 }
@@ -2269,12 +2806,15 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  height: 40px;
+  border-radius: 7px 7px 0 0;
+  box-sizing: border-box;
   padding: 6px 12px;
   background: #fff;
   border-bottom: 1px solid transparent;
   transition: border-color 200ms ease;
 }
-.viewer-surface--hover .viewer-edge-top { border-bottom-color: #E5E7EB; }
+.viewer-surface--revealed .viewer-edge-top { border-bottom-color: #E5E7EB; }
 
 .viewer-title-area {
   display: flex;
@@ -2291,7 +2831,13 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 420px;
+}
+/* An uncapped nowrap title is the header's min-content, and on a fit-content
+   (.viewer-frame--auto) frame that widens the card past the page column. The
+   cap is the title space the staged layout computed from the column width;
+   420px is the pre-measurement fallback (and the old fixed cap). */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-title {
+  max-width: var(--viewer-title-max, 420px);
 }
 .viewer-embed-chip {
   flex-shrink: 0;
@@ -2357,15 +2903,64 @@ export default {
   gap: 6px;
   /* The title truncates instead; a squeezed row wrapped "Connect to Agent" onto two lines. */
   flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 200ms ease;
 }
-.viewer-surface--hover .viewer-top-actions { opacity: 1; }
-/* With Create present the row stays visible and its other buttons take over the hover
-   reveal, so Create is discoverable at rest without unhiding the rest of the row. */
-.viewer-top-actions--with-create { opacity: 1; }
-.viewer-top-actions--with-create > :not(.viewer-btn-create) { opacity: 0; transition: opacity 200ms ease; }
-.viewer-surface--hover .viewer-top-actions--with-create > * { opacity: 1; }
+/* Inline reveal, per control: hidden until hover, keyboard focus inside the
+   macro, or an open header menu (headerRevealed). Create (a discovery
+   affordance), the page navigation and a pressed Refined toggle stay visible
+   at rest. Opacity only — a hidden control still takes focus, which reveals. */
+.viewer-top-actions > * { transition: opacity 200ms ease; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed) {
+  opacity: 0;
+}
+/* Inline order (prototype), in DOM order so Tab follows what is seen:
+   Refined, page nav, slot actions, Source, Copy for AI, |, Connect, More,
+   Edit, Fullscreen, Create. */
+
+.viewer-header-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  background: #E5E7EB;
+}
+.viewer-frame--fullscreen .viewer-header-sep { margin: 0 2px; }
+
+.viewer-header-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Inline Refined toggle (pressed = refined layout showing). */
+.viewer-refined-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--magic-border-strong);
+  border-radius: var(--magic-radius);
+  background: var(--magic-subtle);
+  color: var(--magic-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 200ms ease, background-color 200ms ease, color 200ms ease;
+}
+.viewer-refined-toggle--pressed {
+  background: var(--magic-primary);
+  border-color: var(--magic-primary);
+  color: var(--magic-on-primary);
+}
+.viewer-refined-toggle--pressed:hover { background: var(--magic-primary-hover); }
+.viewer-refined-toggle:focus-visible { outline: 2px solid var(--magic-primary); outline-offset: 2px; }
+.viewer-refined-toggle:disabled { opacity: .5; cursor: not-allowed; }
+
 .viewer-btn-create {
   color: #0052CC;
   background: #F0F6FF;
@@ -2401,6 +2996,21 @@ export default {
 .magic-layout-feedback button[aria-pressed="true"] { color: var(--magic-on-primary); background: var(--magic-primary); border-color: var(--magic-primary); }
 .magic-layout-feedback button[aria-pressed="true"]:hover { background: var(--magic-primary-hover); }
 .magic-layout-feedback button:focus-visible, .viewer-version-option:focus-visible { outline: 2px solid var(--magic-primary); outline-offset: 2px; }
+
+/* Inline layout survey strip, directly under the header. */
+.magic-inline-survey {
+  display: flex;
+  gap: 6px 10px;
+  margin-left: 0;
+  padding: 6px 12px;
+  background: var(--magic-subtle);
+  border-bottom: 1px solid var(--magic-border);
+  color: var(--magic-text);
+  font-size: 12px;
+}
+.magic-inline-survey-options { display: flex; align-items: center; gap: 6px; }
+.magic-inline-survey button { font-family: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.magic-inline-survey-thanks { color: var(--magic-text-soft); }
 
 .viewer-version-switch { display: inline-flex; align-items: stretch; border: 1px solid var(--magic-border-strong); border-radius: var(--magic-radius); overflow: hidden; background: var(--magic-surface); }
 .viewer-version-option { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 0; background: transparent; color: var(--magic-text-soft); font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; cursor: pointer; transition: background-color 200ms ease, color 200ms ease; }
@@ -2486,36 +3096,120 @@ export default {
 
 .viewer-icon { width: 16px; height: 16px; }
 
-/* Responsive header. The query container is the whole viewer, not .viewer-edge-top: an
-   auto frame is fit-content, and containment there would drop the header's width from the
-   frame and shrink every small diagram's card. Each breakpoint leaves the title ~120px.
-   Kept after the button rules: they set display at the same specificity.
-   Order: Source/Copy for AI/Connect labels → Edit/Fullscreen labels → Create label → Copy for AI
-   and Connect hidden → Source hidden. Edit, Fullscreen and Create always stay. */
-.generic.viewer { container: viewer-header / inline-size; }
-@container viewer-header (max-width: 659px) {
-  .viewer-act-source .viewer-btn-label,
-  .viewer-act-copy .viewer-btn-label,
-  .viewer-act-connect :deep(.agent-link-connect-btn__label) { display: none; }
-  /* Icon-only Copy for AI drops the constant-width sizer: inactive cells would keep the
-     button as wide as "Nothing to copy". A transient state shows its text briefly. */
-  .viewer-act-copy .copy-for-ai-label-cell[data-active="false"] { display: none; }
+/* ----- Header buttons (staged-header prototype) ---------------------------
+   28px controls in a 40px header (56px in Fullscreen). Icon-only buttons are
+   28px squares. */
+.viewer-top-actions .viewer-btn-ghost,
+.viewer-top-actions .viewer-btn-primary {
+  height: 28px;
+  box-sizing: border-box;
+  justify-content: center;
 }
-@container viewer-header (max-width: 529px) {
-  .viewer-act-edit .viewer-btn-label,
-  .viewer-act-fullscreen .viewer-btn-label { display: none; }
+.viewer-top-actions .viewer-btn-ghost { padding: 0 8px; }
+.viewer-top-actions .viewer-btn-primary { padding: 0 10px; }
+.viewer-top-actions .viewer-btn-ghost:focus-visible { outline: 2px solid #0C66E4; outline-offset: 1px; }
+.viewer-top-actions .viewer-btn-primary:focus-visible { outline: 2px solid #0C66E4; outline-offset: 2px; }
+
+/* Inline Source and Copy for AI are icon-only at every stage; the Copy for AI
+   sizer drops its inactive cells, and "Copied" shows as a green check. A
+   transient text state (Copying… / Copy failed / Nothing to copy) still
+   shows its words briefly. */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source,
+.viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary {
+  min-width: 28px;
+  padding: 0;
+  color: #6B7280;
 }
-@container viewer-header (max-width: 429px) {
-  .viewer-act-create .viewer-btn-label { display: none; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source:hover,
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp:hover,
+.viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .viewer-btn-label,
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell > span:only-child { padding: 0 6px; }
+.copy-for-ai-split-primary[data-copy-state="copied"] .viewer-icon { color: #36B37E; }
+/* Connect MCP keeps a short "MCP" label beside its icon (it moves into More
+   at stage 3, like Copy for AI). */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp {
+  gap: 4px;
+  padding: 0 8px 0 6px;
+  color: #6B7280;
 }
-@container viewer-header (max-width: 379px) {
-  /* ConnectButton styles its own root in another stylesheet; outrank it. */
-  .viewer-act-copy,
-  .viewer-top-actions .viewer-act-connect { display: none; }
+.viewer-act-connect-mcp-label { font-size: 12px; font-weight: 500; }
+
+/* Staged collapse (data-stage on .viewer-frame, set by updateHeaderStage).
+   1: Edit + Refined → icon. 2: Fullscreen → icon. 3: Source + Copy for AI
+   move into More (the Copy for AI wrapper stays mounted, visually hidden,
+   so its live region still announces a copy started from the menu). */
+.viewer-frame[data-stage="1"] .viewer-act-edit .viewer-btn-label,
+.viewer-frame[data-stage="2"] .viewer-act-edit .viewer-btn-label,
+.viewer-frame[data-stage="3"] .viewer-act-edit .viewer-btn-label,
+.viewer-frame[data-stage="1"] .viewer-refined-toggle .viewer-btn-label,
+.viewer-frame[data-stage="2"] .viewer-refined-toggle .viewer-btn-label,
+.viewer-frame[data-stage="3"] .viewer-refined-toggle .viewer-btn-label,
+.viewer-frame[data-stage="2"] .viewer-act-fullscreen .viewer-btn-label,
+.viewer-frame[data-stage="3"] .viewer-act-fullscreen .viewer-btn-label { display: none; }
+.viewer-frame[data-stage="1"] .viewer-act-edit,
+.viewer-frame[data-stage="2"] .viewer-act-edit,
+.viewer-frame[data-stage="3"] .viewer-act-edit,
+.viewer-frame[data-stage="2"] .viewer-act-fullscreen,
+.viewer-frame[data-stage="3"] .viewer-act-fullscreen { width: 28px; padding: 0; }
+.viewer-frame[data-stage="1"] .viewer-refined-toggle,
+.viewer-frame[data-stage="2"] .viewer-refined-toggle,
+.viewer-frame[data-stage="3"] .viewer-refined-toggle { padding: 0; }
+.viewer-frame[data-stage="3"] .viewer-act-source,
+.viewer-frame[data-stage="3"] .viewer-act-connect-mcp,
+.viewer-frame[data-stage="3"] .viewer-act-sep,
+.viewer-frame[data-stage="3"] .viewer-act-copy > .copy-for-ai-split-primary,
+.viewer-frame[data-stage="3"] .viewer-act-copy > .copy-for-ai-menu { display: none; }
+.viewer-frame[data-stage="3"] .viewer-act-copy {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
-@container viewer-header (max-width: 319px) {
-  .viewer-act-source { display: none; }
+
+/* ----- Fullscreen header actions -----------------------------------------
+   Labels by viewport (the modal is the viewport): >= 1280px every action is
+   labelled; 1100-1279px only Source and Copy for AI; below 1100px all are
+   icon-only and the version switch reads Refined / Original. */
+.viewer-fs-act .viewer-icon { color: #6B7280; flex-shrink: 0; }
+.viewer-frame--fullscreen .viewer-fs-act { min-width: 28px; padding: 0; }
+.viewer-frame--fullscreen .viewer-fs-act .viewer-btn-label { display: none; }
+@media (min-width: 1280px) {
+  .viewer-frame--fullscreen .viewer-fs-act { padding: 0 8px; }
+  .viewer-frame--fullscreen .viewer-fs-act .viewer-btn-label { display: inline; }
 }
+@media (max-width: 1099px) {
+  .viewer-frame--fullscreen .viewer-act-source,
+  .viewer-frame--fullscreen .copy-for-ai-split-primary { min-width: 28px; padding: 0; }
+  .viewer-frame--fullscreen .viewer-act-source .viewer-btn-label,
+  .viewer-frame--fullscreen .viewer-act-copy .viewer-btn-label,
+  .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
+  .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
+  .viewer-frame--fullscreen .viewer-version-long { display: none; }
+}
+.viewer-fs-exit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #44546F;
+  cursor: pointer;
+}
+.viewer-fs-exit svg { width: 20px; height: 20px; }
+.viewer-fs-exit:hover { background: #F3F4F6; color: #172B4D; }
+.viewer-fs-exit:focus-visible { outline: 2px solid #0C66E4; outline-offset: 1px; }
 
 .viewer-load-failed {
   display: flex;
@@ -2639,51 +3333,10 @@ export default {
 .viewer-frame--fullscreen .viewer-footer-row :deep(.diagram-attribution) {
   padding: 10px 0 0;
 }
-.viewer-footer-row:not(:empty) ~ .viewer-edge-bottom-pill { bottom: 44px; }
 
-.viewer-edge-bottom-pill {
-  position: absolute;
-  left: 50%;
-  bottom: 12px;
-  transform: translateX(-50%) translateY(8px);
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px;
-  background: #fff;
-  border: 1px solid #E5E7EB;
-  border-radius: 9999px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 200ms ease, transform 200ms ease;
-  z-index: 2;
-}
-.viewer-surface--hover .viewer-edge-bottom-pill {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(-50%) translateY(0);
-}
-
-.viewer-pill-btn,
-::v-slotted(.viewer-pill-btn) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  background: transparent;
-  color: #6B7280;
-  border: none;
-  border-radius: 9999px;
-  cursor: pointer;
-  transition: background-color 200ms ease, color 200ms ease;
-}
-.viewer-pill-btn:hover,
-::v-slotted(.viewer-pill-btn:hover) { background: #F3F4F6; color: #374151; }
-::v-slotted(.viewer-pill-btn:disabled) { opacity: 0.4; cursor: not-allowed; }
-::v-slotted(.viewer-pill-btn:disabled:hover) { background: transparent; color: #6B7280; }
-::v-slotted(.viewer-icon) { width: 16px; height: 16px; }
+.viewer-body--with-sidebar { display: flex; }
+.viewer-frame--fullscreen .viewer-body--with-sidebar { flex-direction: row; }
+.viewer-body--with-sidebar > .viewer-surface { flex: 1 1 auto; min-width: 0; }
 </style>
 
 <!--

@@ -43,7 +43,6 @@ import {
   ACCESS_TOKEN_TTL_SECONDS,
   bumpRegisterCount,
   consumeCode,
-  consumeRefreshToken,
   deletePending,
   issueAccessToken,
   issueCode,
@@ -51,7 +50,10 @@ import {
   loadClient,
   loadConsent,
   loadPending,
+  newChainId,
   randomToken,
+  redeemRefreshToken,
+  revokeChain,
   REGISTER_LIMIT,
   REGISTER_WINDOW_SECONDS,
   saveClient,
@@ -64,9 +66,14 @@ import {
 import { canonicalizeResource } from './protectedResource';
 import { isValidChallenge, verifyPkce } from './pkce';
 
+/** Why the token endpoint revoked a refresh chain (agent_link_oauth_chain_revoked's `reason`). */
+export type ChainRevokeReason = 'refresh_reused' | 'client_mismatch';
+
 export interface AsDeps {
   store: GrantStoreLike;
   nowMs?: () => number;
+  /** Told when a refresh chain is revoked, for analytics. Must not throw into the response. */
+  onChainRevoked?: (event: { reason: ChainRevokeReason; userId: string; clientId: string }) => void | Promise<void>;
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
@@ -77,22 +84,6 @@ function json(status: number, body: unknown): Response {
 
 function oauthError(status: number, error: string, description?: string): Response {
   return json(status, description ? { error, error_description: description } : { error });
-}
-
-/**
- * A redirect back to the client's (already validated) redirect_uri.
- *
- * Every one carries `iss` (RFC 9207): the metadata advertises
- * authorization_response_iss_parameter_supported, and a client that honours
- * it — Codex does — rejects a response without one as a possible mix-up attack.
- */
-function redirectToClient(redirectUri: string, issuer: string, params: Record<string, string | undefined>): Response {
-  const target = new URL(redirectUri);
-  for (const [key, value] of Object.entries(params)) {
-    if (value) target.searchParams.set(key, value);
-  }
-  target.searchParams.set('iss', issuer);
-  return Response.redirect(target.toString(), 302);
 }
 
 function escapeHtml(raw: string): string {
@@ -198,6 +189,30 @@ export type AuthorizeResult =
   | { ok: true; pendingId: string; pending: PendingAuthorization }
   | { ok: false; response: Response };
 
+/**
+ * A redirect to the client's (validated) redirect_uri carrying an
+ * authorization response, success or error.
+ *
+ * RFC 9207 §2: our metadata advertises
+ * `authorization_response_iss_parameter_supported`, so EVERY authorization
+ * response must carry `iss`, the issuer identifier. It is what tells a client
+ * talking to several authorization servers which one answered (the mix-up
+ * attack). Clients that check it reject a response without it: Claude Code's
+ * sign-in failed with "Issuer mismatch in authorization response (RFC 9207):
+ * expected "<issuer>", received undefined".
+ */
+function authorizationResponse(redirectUri: string, issuer: string, params: Record<string, string | undefined>): Response {
+  const target = new URL(redirectUri);
+  for (const [k, v] of Object.entries(params)) if (v !== undefined) target.searchParams.set(k, v);
+  target.searchParams.set('iss', issuer);
+  return Response.redirect(target.toString(), 302);
+}
+
+/** The issuer a parked authorization belongs to. Its resource is always ours (validateAuthorize), so its origin is the issuer. */
+function issuerOf(pending: PendingAuthorization): string {
+  return issuerFor(pending.resource);
+}
+
 function requestedScope(raw: string | null): string | null {
   if (!raw) return DEFAULT_MCP_SCOPE;
   const asked = raw.split(/\s+/).filter(Boolean);
@@ -235,7 +250,7 @@ export async function validateAuthorize(request: Request, deps: AsDeps): Promise
   const state = q.get('state') ?? undefined;
   const fail = (error: string, description: string): AuthorizeResult => ({
     ok: false,
-    response: redirectToClient(redirectUri, issuerFor(url), { error, error_description: description, state }),
+    response: authorizationResponse(redirectUri, issuerFor(url), { error, error_description: description, state }),
   });
 
   if (q.get('response_type') !== 'code') return fail('unsupported_response_type', 'only response_type=code is supported');
@@ -425,7 +440,6 @@ export async function completeAuthorization(
   pendingId: string,
   pending: PendingAuthorization,
   userId: string,
-  issuer: string,
 ): Promise<Response> {
   const now = (deps.nowMs ?? Date.now)();
   await deletePending(deps.store, pendingId);
@@ -438,17 +452,16 @@ export async function completeAuthorization(
     userId,
     createdAtMs: now,
   });
-  return redirectToClient(pending.redirectUri, issuer, { code, state: pending.state });
+  return authorizationResponse(pending.redirectUri, issuerOf(pending), { code, state: pending.state });
 }
 
 export async function denyAuthorization(
   deps: AsDeps,
   pendingId: string,
   pending: PendingAuthorization,
-  issuer: string,
 ): Promise<Response> {
   await deletePending(deps.store, pendingId);
-  return redirectToClient(pending.redirectUri, issuer, {
+  return authorizationResponse(pending.redirectUri, issuerOf(pending), {
     error: 'access_denied',
     error_description: 'the user declined',
     state: pending.state,
@@ -542,9 +555,11 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       return oauthError(400, 'invalid_grant', 'code_verifier does not match the code_challenge');
     }
 
+    // A new sign-in starts a new refresh chain; see asStore.ts "refresh chains".
+    const chainId = newChainId();
     const { token, expiresInSeconds } = await issueAccessToken(
       deps.store,
-      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource },
+      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId },
       now,
     );
     const refresh = await issueRefreshToken(deps.store, {
@@ -552,6 +567,7 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       clientId: record.clientId,
       scope: record.scope,
       resource: record.resource,
+      chainId,
     });
     return json(200, {
       access_token: token,
@@ -566,11 +582,35 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
     if (!body.refresh_token) return oauthError(400, 'invalid_request', 'refresh_token is required');
     if (!body.client_id) return oauthError(400, 'invalid_request', 'client_id is required');
 
-    const record = await consumeRefreshToken(deps.store, body.refresh_token);
-    if (!record) return oauthError(400, 'invalid_grant', 'the refresh token is unknown, used, or expired');
-    if (body.client_id !== record.clientId) {
-      return oauthError(400, 'invalid_grant', 'the refresh token was issued to a different client');
+    const redeemed = await redeemRefreshToken(deps.store, body.refresh_token, now);
+    if (redeemed.status === 'unknown') {
+      return oauthError(400, 'invalid_grant', 'the refresh token is unknown, used, or expired');
     }
+    if (redeemed.status === 'revoked') {
+      return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
+    }
+    // A used token presented again, or a live one under another client: either
+    // way it is in two hands, so the whole chain goes (asStore.ts "refresh
+    // chains"), the legitimate client included. It signs in again.
+    const reason: ChainRevokeReason | null =
+      redeemed.status === 'reused' ? 'refresh_reused' : body.client_id !== redeemed.record.clientId ? 'client_mismatch' : null;
+    if (reason) {
+      await revokeChain(deps.store, redeemed.record.chainId, now);
+      try {
+        await deps.onChainRevoked?.({ reason, userId: redeemed.record.userId, clientId: redeemed.record.clientId });
+      } catch {
+        // analytics must never change the token response
+      }
+      return oauthError(
+        400,
+        'invalid_grant',
+        reason === 'refresh_reused'
+          ? 'the refresh token was already used; this sign-in has been revoked, sign in again'
+          : 'the refresh token was issued to a different client; this sign-in has been revoked',
+      );
+    }
+    // The rotated token starts unused; JSON drops the undefined marker.
+    const record = { ...redeemed.record, usedAtMs: undefined };
 
     // The upstream Atlassian grant is NOT refreshed here. It has its own
     // lifecycle in tokenStore.getAccessToken, driven by actual Confluence
@@ -578,7 +618,7 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
     // by an idle agent.
     const { token, expiresInSeconds } = await issueAccessToken(
       deps.store,
-      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource },
+      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId: record.chainId },
       now,
     );
     const refresh = await issueRefreshToken(deps.store, record);

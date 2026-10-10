@@ -30,7 +30,7 @@ import {
   DATA_LOSS_MIN_RATIO,
   guardUpdateDiagram,
 } from '../updateDiagramGuard';
-import { getAccessToken, type GrantStore } from './tokenStore';
+import { getAccessToken, type GrantEventSink, type GrantStore } from './tokenStore';
 import {
   customContentTypesFor,
   detectInstalledVariants,
@@ -80,6 +80,8 @@ export interface HeadlessContext {
   nowMs?: () => number;
   /** The KV bindings the paywall gate reads (design 9.1). Only create_diagram needs them. */
   gateEnv?: GateEnv;
+  /** Told when the user's Atlassian grant fails to refresh or is dropped (analytics). */
+  onGrantEvent?: GrantEventSink;
 }
 
 export interface HeadlessToolDescriptor {
@@ -112,7 +114,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'read_diagram',
     description:
-      'Read one diagram’s source (the DSL or spec text) by its contentId, as listed by list_diagrams. Read-only.',
+      'Read one diagram’s source (the DSL or spec text) and diagramType by its contentId, as listed by list_diagrams. Edit that source and send all of it back with update_diagram. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -237,7 +239,7 @@ export class HeadlessToolError extends Error {
 
 async function sitesFor(ctx: HeadlessContext) {
   const now = (ctx.nowMs ?? Date.now)();
-  const token = await getAccessToken(ctx.store, ctx.secret, ctx.app, ctx.fetchImpl, ctx.userId, now);
+  const token = await getAccessToken(ctx.store, ctx.secret, ctx.app, ctx.fetchImpl, ctx.userId, now, ctx.onGrantEvent);
   if (!token.ok) {
     // 'reauthorize_required' is the user's to fix and says so; the others are
     // transient and must not be reported as "you are logged out".
@@ -275,6 +277,7 @@ async function readerFor(ctx: HeadlessContext, cloudId: string): Promise<Conflue
     fetchImpl: ctx.fetchImpl,
     userId: ctx.userId,
     cloudId,
+    onGrantEvent: ctx.onGrantEvent,
   });
 }
 
@@ -309,6 +312,7 @@ function requestFor(ctx: HeadlessContext, cloudId: string): ConfluenceRequest {
     userId: ctx.userId,
     cloudId,
     nowMs: ctx.nowMs,
+    onGrantEvent: ctx.onGrantEvent,
   });
 }
 
@@ -658,6 +662,7 @@ export async function callHeadlessTool(
         version?: { number?: unknown };
         body?: { raw?: { value?: unknown } };
       };
+      const stored = parseStoredDiagram(body.body?.raw?.value);
       return {
         contentId,
         title: typeof body.title === 'string' ? body.title : '',
@@ -666,7 +671,12 @@ export async function callHeadlessTool(
         // (ADR 0003's context: a stale version is a 400, not a silent
         // overwrite). Surfaced now so a reader can see what it would send.
         version: typeof body.version?.number === 'number' ? body.version.number : undefined,
-        source: typeof body.body?.raw?.value === 'string' ? body.body.raw.value : '',
+        // The DSL itself, unwrapped from the stored `{title, code, diagramType}`
+        // envelope, so what an agent reads is what update_diagram takes back.
+        // Returning the raw envelope made the obvious "read, edit, write back"
+        // loop fail the parse guard: the agent edited JSON, not DSL.
+        diagramType: stored.diagramType,
+        source: stored.code ?? '',
       };
     }
 

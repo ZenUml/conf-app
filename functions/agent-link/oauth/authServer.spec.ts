@@ -10,6 +10,7 @@ import {
 } from './authServer';
 import {
   consumeCode,
+  issueRefreshToken,
   loadAccessToken,
   loadClient,
   loadPending,
@@ -168,6 +169,7 @@ describe('authorize', () => {
     expect(location.origin + location.pathname).toBe('http://127.0.0.1:53682/callback');
     expect(location.searchParams.get('error')).toBe('invalid_request');
     expect(location.searchParams.get('state')).toBe('client-state-1');
+    // RFC 9207: an error response carries the issuer too.
     expect(location.searchParams.get('iss')).toBe(ORIGIN);
   });
 
@@ -240,10 +242,12 @@ describe('consent', () => {
 
   it('completing issues a code bound to the user and echoes the client state', async () => {
     const { store } = memoryStore();
-    const res = await completeAuthorization({ store }, 'pending-1', pending('client-A'), 'acct-1', ORIGIN);
+    const res = await completeAuthorization({ store }, 'pending-1', pending('client-A'), 'acct-1');
     expect(res.status).toBe(302);
     const location = new URL(res.headers.get('location')!);
     expect(location.searchParams.get('state')).toBe('client-state-1');
+    // RFC 9207: the metadata advertises authorization_response_iss_parameter_supported,
+    // and Claude Code rejects a response without iss ("Issuer mismatch").
     expect(location.searchParams.get('iss')).toBe(ORIGIN);
     const code = location.searchParams.get('code')!;
     const record = await consumeCode(store, code);
@@ -253,7 +257,7 @@ describe('consent', () => {
 
   it('denying redirects with access_denied and issues nothing', async () => {
     const { store, kv } = memoryStore();
-    const res = await denyAuthorization({ store }, 'pending-1', pending('client-A'), ORIGIN);
+    const res = await denyAuthorization({ store }, 'pending-1', pending('client-A'));
     const location = new URL(res.headers.get('location')!);
     expect(location.searchParams.get('error')).toBe('access_denied');
     expect(location.searchParams.get('iss')).toBe(ORIGIN);
@@ -275,7 +279,6 @@ describe('token endpoint', () => {
         createdAtMs: 1_000,
       },
       'acct-1',
-      ORIGIN,
     );
     return new URL(res.headers.get('location')!).searchParams.get('code')!;
   }
@@ -351,6 +354,80 @@ describe('token endpoint', () => {
 
     const replay = await handleToken(tokenRequest({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: 'client-A' }), { store });
     expect(replay.status).toBe(400);
+  });
+
+  describe('refresh chains (reuse detection)', () => {
+    type Tokens = { access_token: string; refresh_token: string };
+    async function signIn(store: GrantStoreLike, deps: Partial<Parameters<typeof handleToken>[1]> = {}): Promise<Tokens> {
+      const code = await codeFor(store, await challengeFor(VERIFIER));
+      const res = await handleToken(tokenRequest({ grant_type: 'authorization_code', code, code_verifier: VERIFIER, client_id: 'client-A' }), { store, ...deps });
+      return (await res.json()) as Tokens;
+    }
+    const refresh = (store: GrantStoreLike, refresh_token: string, deps: Partial<Parameters<typeof handleToken>[1]> = {}, client_id = 'client-A') =>
+      handleToken(tokenRequest({ grant_type: 'refresh_token', refresh_token, client_id }), { store, ...deps });
+
+    it('revokes the whole chain when a used refresh token comes back, access tokens included', async () => {
+      const { store } = memoryStore();
+      const revoked: unknown[] = [];
+      const onChainRevoked = (e: unknown) => { revoked.push(e); };
+      const t0 = await signIn(store);
+      const t1 = (await (await refresh(store, t0.refresh_token, { onChainRevoked })).json()) as Tokens;
+      expect(await loadAccessToken(store, t1.access_token, Date.now())).not.toBeNull();
+
+      const replay = await refresh(store, t0.refresh_token, { onChainRevoked });
+      expect(replay.status).toBe(400);
+      expect(await replay.json()).toMatchObject({ error: 'invalid_grant', error_description: expect.stringContaining('revoked') });
+      expect(revoked).toEqual([{ reason: 'refresh_reused', userId: 'acct-1', clientId: 'client-A' }]);
+
+      // The newest refresh token, held by the legitimate client, is gone too.
+      const current = await refresh(store, t1.refresh_token, { onChainRevoked });
+      expect(current.status).toBe(400);
+      expect((await current.json()).error_description).toContain('sign in again');
+      expect(revoked).toHaveLength(1);
+      // And so is every access token the chain issued.
+      expect(await loadAccessToken(store, t0.access_token, Date.now())).toBeNull();
+      expect(await loadAccessToken(store, t1.access_token, Date.now())).toBeNull();
+    });
+
+    it('revokes the chain when a refresh token arrives under another client', async () => {
+      const { store } = memoryStore();
+      const revoked: unknown[] = [];
+      const t0 = await signIn(store);
+      const res = await refresh(store, t0.refresh_token, { onChainRevoked: (e) => { revoked.push(e); } }, 'client-B');
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('invalid_grant');
+      expect(revoked).toEqual([{ reason: 'client_mismatch', userId: 'acct-1', clientId: 'client-A' }]);
+      expect(await loadAccessToken(store, t0.access_token, Date.now())).toBeNull();
+    });
+
+    it('keeps other sign-ins working when one chain is revoked', async () => {
+      const { store } = memoryStore();
+      const a = await signIn(store);
+      const b = await signIn(store);
+      await refresh(store, a.refresh_token);
+      expect((await refresh(store, a.refresh_token)).status).toBe(400); // reuse: chain A revoked
+      expect(await loadAccessToken(store, b.access_token, Date.now())).not.toBeNull();
+      expect((await refresh(store, b.refresh_token)).status).toBe(200);
+    });
+
+    it('starts a chain for a refresh token issued before chains existed', async () => {
+      const { store } = memoryStore();
+      const legacy = await issueRefreshToken(store, { userId: 'acct-1', clientId: 'client-A', scope: 'diagram.read', resource: resourceFor(ORIGIN) });
+      const t1 = (await (await refresh(store, legacy)).json()) as Tokens;
+      expect(await loadAccessToken(store, t1.access_token, Date.now())).not.toBeNull();
+      expect((await refresh(store, legacy)).status).toBe(400);
+      expect(await loadAccessToken(store, t1.access_token, Date.now())).toBeNull();
+      expect((await refresh(store, t1.refresh_token)).status).toBe(400);
+    });
+
+    it('still revokes when the analytics callback throws', async () => {
+      const { store } = memoryStore();
+      const t0 = await signIn(store);
+      await refresh(store, t0.refresh_token);
+      const replay = await refresh(store, t0.refresh_token, { onChainRevoked: () => { throw new Error('mixpanel down'); } });
+      expect(replay.status).toBe(400);
+      expect(await loadAccessToken(store, t0.access_token, Date.now())).toBeNull();
+    });
   });
 
   it('requires client_id, so the binding check cannot be skipped by omitting it', async () => {

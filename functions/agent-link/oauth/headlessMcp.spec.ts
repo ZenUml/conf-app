@@ -308,6 +308,29 @@ describe('headless RPC', () => {
     expect(body.result.structuredContent.version).toBe(7);
   });
 
+  it('unwraps the stored envelope so the source round-trips into update_diagram', async () => {
+    const env = makeEnv();
+    await saveGrant(env.store, 'grant-key', ACCOUNT, {
+      accessToken: 'at-1',
+      refreshToken: 'rt-1',
+      accessTokenExpiresAtMs: Date.now() + 3_600_000,
+      scope: 'read:page:confluence',
+    });
+    const token = await tokenFor(env.store);
+    const envelope = JSON.stringify({ title: 'Checkout', diagramType: 'sequence', code: 'A->B: hello' });
+    const { fetchImpl } = atlassianFetch({
+      content: () => new Response(
+        JSON.stringify({ id: 'cc-1', title: 'Checkout', type: 'ac:x:zenuml', version: { number: 7 }, body: { raw: { value: envelope } } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    });
+    const res = await call(env, token, 'tools/call', { name: 'read_diagram', arguments: { cloudId: 'cloud-1', contentId: 'cc-1' } }, fetchImpl);
+    const body = (await res.json()) as { result: { structuredContent: { source: string; diagramType: string; version: number } } };
+    expect(body.result.structuredContent.source).toBe('A->B: hello');
+    expect(body.result.structuredContent.diagramType).toBe('sequence');
+    expect(body.result.structuredContent.version).toBe(7);
+  });
+
   it('refuses a cloudId the user cannot reach, before calling Confluence', async () => {
     const env = makeEnv();
     await saveGrant(env.store, 'grant-key', ACCOUNT, {

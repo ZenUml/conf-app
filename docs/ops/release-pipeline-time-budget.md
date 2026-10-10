@@ -1,5 +1,13 @@
 # Release pipeline time budget
 
+**Current staging policy, 2026-10-09:** all four main validation lanes and daily
+regression transactions run independently after one shared migration gate.
+Full no longer waits for Lite, and the optional Full lane switch is removed.
+See [ADR-0007's superseding decision](../adr/0007-release-order-aware-pipeline.md#superseding-decision--all-four-staging-variants-are-peers-2026-10-09)
+and [pipeline graphs](pipeline-graphs.md). The measurements below describe the
+historical configurations; the new main runtime needs observation after merge.
+Production release order remains Diagramly → Lite → Full after the seven-day soak.
+
 What a release costs in wall-clock, where the minutes go, and which of them
 were cut on 2026-09-11 (ADR-0006). Re-measure before changing anything here;
 the numbers below are from named runs, not estimates, except where marked.
@@ -190,16 +198,16 @@ PR #677's own run ([34666960785](https://github.com/ZenUml/conf-app/actions/runs
 
 ## PR test selection (ADR-0007 §5)
 
-On a pull request the `select` job maps the PR's changed files (from the
-`pulls/N/files` API) through `tests/e2e-tests/config/impact-map.mjs` and hands
-the three Lite E2E jobs a `--grep` of tags; `@smoke` is always in it, and the
-job names gain "(selected)". A file in `RUN_EVERYTHING` (the Forge entry,
-`src/model/**`, the manifest, dependencies, the workflows, anything under
-`tests/e2e-tests/` — the specs included), or a file the map does not mention,
-makes the run unselective. Unit specs, stories and docs select nothing. The
-map is conservative on purpose: a miss costs a full run, never a missed spec.
-`main` never selects — `reuse-check` also refuses a selected PR run, so a
-draft is always backed by the whole suite.
+On a pull request the `select` job reads the PR's changed files from the
+`pulls/N/files` API. It always runs `@smoke`, directly includes changed
+staged-project E2E
+specs (and their documented helper dependencies), and lets Jev add behavior
+categories from the public diff. A file in `RUN_EVERYTHING` (the Forge entry,
+`src/model/**`, the manifest, dependencies, workflows, fixtures,
+authentication, page objects, or Playwright configuration), or a file the map
+does not mention, makes the run unselective. Unit specs, stories and docs
+select nothing. `main` never selects — `reuse-check` also refuses a selected
+PR run, so a draft is always backed by the whole suite.
 
 Replayed over the last 40 merged PRs (2026-09-06 → 09-12) the map would have
 narrowed **18** of them; the rest hit `package.json`/`pnpm-lock.yaml`,

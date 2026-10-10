@@ -1,21 +1,36 @@
 # Jev test selection and daily regression
 
 PR classification now requests `--mode enabled`. Successful trusted decisions
-run **smoke + Jev-selected categories + the existing deterministic mapped tags**.
+run **smoke + Jev-selected categories + the independently resolved legacy test IDs**.
 PR discovery covers all normal live Lite projects plus the render project, so
 selected categories outside the old insert/render/graph scopes can run too.
 Variant applicability still applies: Full-only tests run in daily Full
-regression, not against the Lite PR deployment. Main retains its existing Full
-suite. The graph-only PR lane is skipped
+regression, not against the Lite PR deployment. Main selects from each variant's
+complete regression inventory. The graph-only PR lane is skipped
 because its tests are included in the expanded live lane; main keeps its layout.
-The deterministic tags remain a coverage floor: Jev cannot remove tests that the
-previous selector would run. Shared or unmapped changes, human `test:all`, API
+Each scope resolves the legacy filter independently, including the previous
+empty-render fallback to its full inventory. Its concrete test IDs form a floor:
+Jev cannot remove tests that the previous selector would run. Category grep
+matches complete tag tokens: `@test:sequence` does not match
+`@test:sequence-edit` or `@test:sequence-render`. Shared or unmapped changes, human `test:all`, API
 failure, missing artifacts, malformed decisions, or stale tree/policy metadata
-run the full normal suite. Main and daily regression also retain full coverage.
+run the full normal PR suite. Main delegates public application and infrastructure
+changes to Jev, including workflows, CI helpers, selection code, category catalogs,
+and E2E helpers. Path names alone do not force full main coverage. Smoke, directly
+changed E2E specs, and known helper dependencies remain required. Human full
+coverage, sensitive or incomplete diffs, API failures, and missing or invalid
+artifacts still run full main regression. Daily regression always runs full coverage.
 
-The policy is `v2-guarded-uncalibrated`. Category recall and time savings have not
-been established; the 0.1 probability threshold is provisional. The floor makes
-activation conservative and may limit savings. Removing that floor requires a
+A successful valid main decision always uses the 0.8 category threshold. If no
+category reaches it, main runs the smoke/direct-spec floor, including known
+helper dependencies. Intermediate probabilities do not widen main to full
+regression and do not mean zero impact. PR empty selections still run full.
+
+The policy is `v9-main-jev-empty-selection-v1`. Older selection artifacts fail full.
+Category recall and time savings have not
+been established; a category must meet the 0.8 high-confidence threshold before it
+widens the plan. This prevents a generic or weakly related tag from adding broad
+coverage; smoke and direct changed E2E specs remain the safety floor. Removing that floor requires a
 reviewed catalog evaluation across representative narrow, multi-area, shared,
 renamed and deleted changes, including missed categories, concrete test IDs and
 observed durations. Three successful examples are not calibration.
@@ -28,6 +43,22 @@ change the workflow classifier mode to `observe`; the resolver then fails full.
 Slack integration is deferred at the user’s request. No workflow sends Slack
 messages. Regression verdicts are available in the Actions summary and
 `regression-results-<run-id>-<attempt>` artifact.
+
+## Selection measurements
+
+Every concrete plan includes `selection_metrics`, also uploaded as
+`selection-metrics-<lane>` and shown in the plan job summary. It records full
+inventory, legacy floor, smoke + Jev and final counts; added and retained IDs;
+missing floor IDs (which must be empty); API outcome, model, token usage and
+request duration; and fallback reasons. The plan fingerprint includes these
+measurements. Daily regression and unverified decisions report full coverage with
+Jev not applied. Main reports the smoke/direct-spec floor plus Jev-selected
+coverage. These are planned counts, not measured runtime savings.
+
+The `v3` planner rejects `v2` decisions; the policy-change PR therefore runs full
+coverage until its trusted base contains the new policy. No model threshold or
+calibration claim changed. Historical response replays validate planning only;
+they do not prove candidate execution or recall.
 
 ## Actions configuration
 

@@ -28,8 +28,11 @@ import type {
   AgentLinkOAuthRoute,
   AgentLinkOAuthAtlassianReason,
   AgentLinkAppViewFailure,
+  AgentLinkOAuthChainRevokeReason,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
+  AgentLinkMcpCopyTarget,
+  AgentLinkMcpMode,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -43,12 +46,18 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  AuthoringOutcome,
   MagicFailureReason,
   FeedbackCaptureMethod,
   FeedbackDismissReason,
   FeedbackHandoffOutcome,
   CreateGuideVariant,
   CreateGuideCloseMethod,
+  HighlightTargetType,
+  HighlightFeedback,
+  HighlightFeedbackReason,
+  HighlightFeedbackVariant,
+  HighlightDismissStage,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -74,6 +83,16 @@ export type AnalyticsProperties = {
   macro_type?: MacroTypeValue;
   /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
   magic_failure_reason?: MagicFailureReason;
+  /** Automatic writeback terminal outcome. Backend is temporary transport only. */
+  magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
+  /**
+   * Non-sensitive code explaining a writeback `unavailable` outcome, or (on
+   * `magic_writeback_skipped`) why the request was not sent; never error text.
+   * Client-side values: `unknown`, `remote_<status>`, `client_exception`,
+   * `no_user_credential` (backend 403: Forge sent no user token),
+   * `guest_viewer` and `anonymous_viewer` (skipped, no backend call).
+   */
+  magic_writeback_reason?: string;
   /** Automatic Fullscreen assessment; includes a normal absent-artifact state. */
   magic_availability?: 'available' | 'missing_artifact' | 'stale_source' | 'invalid_artifact' | 'unsafe_svg' | 'check_failed';
   /** Initial display outcome after availability and browser-local preference resolve. */
@@ -279,6 +298,18 @@ export type AnalyticsProperties = {
   lines_removed?: number;
   cancel_reason?: "panel_closed" | "component_unmounted";
   close_reason?: "user_closed";
+  // Planned Mermaid highlight viewer feedback. All are bounded interaction
+  // fields only: never add source, node/edge IDs or text, diagram IDs, free
+  // text, or customer data. `highlight_target_type` is used by the once-per-
+  // viewer-session `mermaid_highlight_used` event (including a first group
+  // hover or selection); feedback fields are used
+  // only by their corresponding planned prompt events.
+  highlight_target_type?: HighlightTargetType;
+  highlight_feedback?: HighlightFeedback;
+  highlight_feedback_reason?: HighlightFeedbackReason;
+  highlight_feedback_variant?: HighlightFeedbackVariant;
+  highlight_dismiss_stage?: HighlightDismissStage;
+  highlight_enabled?: boolean;
   // Feedback
   feedback_score?: number;
   feedback_text?: string;
@@ -512,6 +543,15 @@ export type AnalyticsProperties = {
   // page's one banner slot was already spoken for, which is the only way to
   // tell "nobody sees this" apart from "nobody has unplaced diagrams".
   suppressed_by?: 'paywall' | 'paywall-admin' | 'csat';
+  // whats_new_* events. `whats_new_release_id` is the release's stable id from
+  // src/utils/whatsNew/releases.ts (e.g. '2026-10'), never its copy.
+  whats_new_release_id?: string;
+  // whats_new_banner_shown: which impression of this release this browser is on.
+  whats_new_show_count?: number;
+  // whats_new_banner_dismissed: whether the list was opened before dismissing.
+  whats_new_expanded?: boolean;
+  // whats_new_link_clicked: the item's stable id within its release.
+  whats_new_item_id?: string;
   // diagram_added_to_page. How many macros the page already carried when the
   // one-click place ran. Read with `result`: a page at the Lite limit is the
   // case where placing a diagram and hitting the paywall collide, and this is
@@ -567,6 +607,26 @@ export type AnalyticsProperties = {
   // replacements rather than collapsing them into a session boolean.
   journey_id?: string | null;
   session_id?: string;
+  // --- macro_authoring_ended (utils/journeyTracking.ts) ---------------------
+  // How the authoring session ended. Named `authoring_outcome` rather than
+  // reusing the existing `outcome`, which is the copy-for-AI result union and
+  // would collide on type.
+  authoring_outcome?: AuthoringOutcome;
+  // Wall-clock ms from startEditJourney to the terminal event — the editor's
+  // real dwell time, measured directly instead of inferred from the span
+  // between surrounding events.
+  authoring_duration_ms?: number;
+  // Did the user actually author anything in this session? Separates "editor
+  // opened, nothing typed" from "typed and gave up" — the distinction the
+  // create funnel could not make. Only populated where the editor-mutation
+  // session runs (sequence/mermaid/plantuml); ABSENT means not instrumented,
+  // never false. See editorMutationTelemetry.getEditorInputSummary.
+  // The Lite paywall gate blocked the authoring session this event describes.
+  // See EditJourneyMeta.paywallBlocked for why it lives on the terminal event.
+  paywall_blocked?: boolean;
+  had_input?: boolean;
+  time_to_first_input_ms?: number;
+  input_event_count?: number;
   replace_index?: number;
   ms_since_editor_open?: number;
   replace_scope?: EditorReplaceScope;
@@ -588,10 +648,25 @@ export type AnalyticsProperties = {
   last_copy_source?: CopySource;
   last_copy_job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
-  // affordance minted the deeplink; only the viewer pill exists today. Not
+  // affordance minted the deeplink: the old bottom pill or the header More menu. Not
   // the same surface as the `/deeplink-ticket` share-preview endpoint, which
   // is owned by other PRs. See `outcome` above for this event's values.
-  link_source?: 'viewer_pill';
+  link_source?: 'viewer_pill' | 'header_more_menu' | 'fullscreen_header';
+  // Where in the viewer chrome an action was invoked (staged header, 2026-10).
+  // The bottom pill is gone: its actions (Copy diagram link, Copy page link,
+  // Export PNG, Versions, Download debug info) moved into the inline header's
+  // More (⋯) menu (`header_more_menu`) and onto Fullscreen's header
+  // (`fullscreen_header`); at collapse stage 3 Source and Copy for AI also
+  // run from the More menu. Carried by deeplink_copied, fullscreen_opened
+  // (entry_point=export), viewer_source_opened, copy_for_ai_clicked, and in
+  // the free-form details of the legacy trackEvent copy_link /
+  // show_content_versions / debug_bundle_downloaded events. Absent = the
+  // action's own header button (or an event from before 2026-10).
+  action_location?: 'header_more_menu' | 'fullscreen_header';
+  // viewer_more_menu_opened: the inline header's collapse stage when the More
+  // menu opened. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
+  // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.
+  header_stage?: 0 | 1 | 2 | 3;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many
   // macros on the page reference the clicked macro's customContentId (absent
@@ -669,6 +744,10 @@ export type AnalyticsProperties = {
   render_ms?: number;      // viewer render (lib load + diagram render)
   measured_sum_ms?: number; // bootstrap+context+fetch+render; duration_ms − this = unattributed remainder
   tab_hidden?: boolean;    // tab was backgrounded during load → exclude from percentiles (artifact)
+  // Sequence macro only: whether the self-hosted IBM Plex Sans face reached `loaded`
+  // before the first render. 'fallback' = core measured text with Helvetica (Forge CSP
+  // refuses core's own data: font). Absent on other macro types.
+  diagram_font?: 'plex' | 'fallback';
   // Publish/save round-trip latency, in ms. Rides on macro_create_succeeded /
   // macro_save_succeeded. Measures how long the persistence to Confluence took
   // — from the start of saveToPlatform's real work (custom-content save +
@@ -743,7 +822,8 @@ export type AnalyticsProperties = {
     | AgentLinkIdentityFailure
     | AgentLinkOAuthRevokeReason
     | AgentLinkAppViewFailure
-    | AgentLinkOAuthAtlassianReason;
+    | AgentLinkOAuthAtlassianReason
+    | AgentLinkOAuthChainRevokeReason;
   session_duration_ms?: number;
   edits_count?: number;
   // #314 (agent_link_session_expired only): true when the session had
@@ -797,7 +877,9 @@ export type AnalyticsProperties = {
   macro_key_source?: AgentLinkMacroKeySource;
   // W — headless authorization (agent_link_oauth_*). `site_count` is how many
   // Atlassian sites the grant reaches, from accessible-resources. The revoke
-  // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason.
+  // cause rides the shared `reason` field as an AgentLinkOAuthRevokeReason
+  // (agent_link_oauth_revoked) or an AgentLinkOAuthChainRevokeReason
+  // (agent_link_oauth_chain_revoked).
   site_count?: number;
   // Where an MCP /authorize was routed (agent_link_oauth_authorize_routed).
   // When it is 'atlassian', the shared `reason` field carries an
@@ -811,6 +893,12 @@ export type AnalyticsProperties = {
   // than one that reached Confluence.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
+  // dialog connects the agent (headless only, for now); `mcp_copy_target` says
+  // which block a Copy click targeted. The copy outcome rides the shared
+  // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
+  mcp_mode?: AgentLinkMcpMode;
+  mcp_copy_target?: AgentLinkMcpCopyTarget;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

@@ -55,6 +55,14 @@ describe('extractDiagram', () => {
     ).toEqual({ diagramType: 'plantuml', dsl: '@startuml\nA -> B\n@enduml', title: 'Flow' });
   });
 
+  it('reads read_diagram\'s unwrapped shape: DSL in `source`, type alongside', () => {
+    // Since 95920e6d read_diagram returns the DSL itself, not the stored envelope.
+    const result = {
+      structuredContent: { contentId: '1', title: 'Flow', diagramType: 'mermaid', source: 'graph TD; A-->B;' },
+    };
+    expect(extractDiagram(result)).toEqual({ diagramType: 'mermaid', dsl: 'graph TD; A-->B;', title: 'Flow' });
+  });
+
   it('skips a read_diagram source that is bare DSL with no type', () => {
     expect(extractDiagram({ structuredContent: { title: 'x', source: 'A->B: hi' } })).toBeNull();
   });

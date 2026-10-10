@@ -38,6 +38,10 @@ The **Handbook** is our internal, team-only knowledge site — *not* customer-fa
 
 ## Hard rules
 
+### Confluence app UI design targets desktop
+
+For the Confluence app, design for the desktop surface. Do not create narrow/mobile layouts or separate narrow-screen artboards unless the user explicitly requests them.
+
 ### Never mark a UI spot check passed without UI evidence
 
 A spot check assertion that requires UI verification must be confirmed by actually observing the UI — a screenshot, a snapshot, or a network intercept. Passing a unit test does not satisfy a UI assertion. If the UI cannot be driven (e.g. iframe keyboard limitations), mark the assertion **SKIPPED** with the reason and the blocker, not **PASS**.
@@ -59,6 +63,16 @@ All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in produc
 **Only exception:** `manifest.yml` must keep the `app.connect` / Connect key / modules entries — Atlassian's Forge-from-Connect migration requires these to stay so that upgrade paths from legacy Connect installs still work. Don't remove those.
 
 For the full policy — banned APIs (`AP.*`, `xdm_e`, Connect hosts), `@forge/bridge` replacements, environment detection, DrawIO URL rules — see `docs/policies/forge-only.md` (create if absent when you need to capture a new decision).
+
+### Guest and anonymous viewers get no Forge user token
+
+Forge omits `x-forge-oauth-user` on `invokeRemote` for **unlicensed (guest)** and **anonymous** viewers: the token is "only sent for invocations that have a user in session", and Atlassian's [unlicensed-users guide](https://developer.atlassian.com/platform/forge/access-to-forge-apps-for-unlicensed-users/) says Confluence guests "can't make asUser calls" (open suggestion [ECO-1450](https://jira.atlassian.com/browse/ECO-1450)). The FIT carries no account-type claim, so the backend can only observe "user token absent". We have rendered macros for guests since ZEN-1170 (2026-05-22) and for anonymous visitors since `c7fb3658` (2026-10-06), so every backend endpoint that requires that header fails for them: `magic-writeback`, `forge-upload-attachment`, `forge-custom-content`, `metrics-cache/snapshot`, `api/diagram-impact`, `api/architecture-tokens/related`. Guests still save diagrams, because the frontend bridge (`requestConfluence`) runs as the guest.
+
+**Found 2026-10-08:** on one Lite customer site, guests (real accounts, each confined to one space) produced ~95% of all `magic_writeback_completed` `unavailable` outcomes — `magic-writeback.ts` answered their calls with 401 and the viewer recorded `client_exception`. Rules that follow:
+
+- **Frontend:** before any `callRemote` that needs the user token, gate on the viewer kind. Anonymous = no `accountId` in the Forge context. Guest = `isGuest: true` from `GET /wiki/rest/api/user/current` via the bridge (OpenAPI: "Whether the user is a guest user"; `isExternalCollaborator` is deprecated), cached per site+account in localStorage. `view.getContext()` documents no `accountType`, and the resolver-context `accountType` does not exist for a remote-only app.
+- **Backend:** a valid FIT without `x-forge-oauth-user` is a guest/anonymous invocation, not an auth failure — answer `403 { error: 'no_user_credential' }`, never 401, and never fall back to the app token to act for that viewer.
+- **Diagnosis:** `wrangler pages deployment tail <deployment-id> --project-name conf-lite --format json` shows each request's header set; a 401 with `x-forge-oauth-system` present and `x-forge-oauth-user` absent is this case. Do not read wall time as "which branch ran": the same D1-only path takes ~100 ms via SYD and ~480 ms via SIN/ICN/NRT (round trips to the MEL primary), which looks like a Confluence call and is not one.
 
 ### Client privacy — no client names in public files
 
@@ -210,7 +224,7 @@ Production releases go **Diagramly first** (canary), then **Lite** for the same 
 
 ### Release pipeline time budget
 
-Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. Full's E2E on `main` waits for Lite's unless the merge message carries `[full-first]` or the repo variable `FULL_DRAFT_LANE` is `now`. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared file runs everything, and `main` always does. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared PR file runs everything. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
 
 ### Analytics & observability
 

@@ -121,3 +121,6 @@ Profile 8
 /cf-traffic.jpeg
 
 .forge/tunnel-output
+# Concrete CI selection measurements
+tests/e2e-tests/selection-metrics.json
+tests/e2e-tests/test-plan.json

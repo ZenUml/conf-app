@@ -124,11 +124,17 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
   }
 
   for (const candidate of candidates) {
-    const c = candidate as { diagramType?: unknown; dsl?: unknown; code?: unknown; title?: unknown };
+    const c = candidate as { diagramType?: unknown; dsl?: unknown; code?: unknown; source?: unknown; title?: unknown };
     const type = typeof c?.diagramType === 'string' ? c.diagramType : undefined;
     // `dsl` is what our tools return; `code` is the stored custom-content field,
     // so a payload passed straight through from Confluence still renders.
-    const dsl = typeof c?.dsl === 'string' ? c.dsl : typeof c?.code === 'string' ? c.code : undefined;
+    // `source` beside a `diagramType` is read_diagram's current shape: the DSL
+    // already unwrapped from the stored envelope (95920e6d). A `source` that is
+    // still the JSON envelope was handled above and is not DSL.
+    const bareSource =
+      typeof c?.source === 'string' && !c.source.trimStart().startsWith('{') ? c.source : undefined;
+    const dsl =
+      typeof c?.dsl === 'string' ? c.dsl : typeof c?.code === 'string' ? c.code : bareSource;
     if (type && dsl) {
       return { diagramType: type, dsl, title: typeof c.title === 'string' ? c.title : undefined };
     }

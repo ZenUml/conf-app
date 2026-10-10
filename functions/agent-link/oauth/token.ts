@@ -20,6 +20,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       await mixpanelTrack(
         { event: 'agent_link_oauth_chain_revoked', user_account_id: userId, feature_area: 'agent_link', surface: 'backend', reason },
         env.MIXPANEL_TOKEN,
+        env,
       );
     },
   });

@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { prepareMixpanelConfig } from './mixpanel-staging-config.mjs';
 
 export async function runParallel(tasks) {
   // Always join every branch. A failed build must not leave a migration or
@@ -48,7 +49,7 @@ async function main() {
         if (process.env.PAGE_CAPTURE_ALLOWED_DOMAINS) {
           config = config.replace(/^(\[vars\]|\[env\.production\.vars\])$/gm, `$1\nPAGE_CAPTURE_ALLOWED_DOMAINS = ${JSON.stringify(process.env.PAGE_CAPTURE_ALLOWED_DOMAINS)}`);
         }
-        await writeFile('wrangler.toml', config);
+        await writeFile('wrangler.toml', prepareMixpanelConfig(config, process.env.DEPLOY_ENVIRONMENT));
         if (process.env.DEPLOY_SKIP_MIGRATIONS !== 'true') await command(['wrangler', 'd1', 'migrations', 'apply', 'DB', '--remote', '--env', 'production']);
       }),
       timed('forge_configuration', async () => {

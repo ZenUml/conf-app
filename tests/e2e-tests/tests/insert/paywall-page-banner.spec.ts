@@ -11,7 +11,7 @@
  *   pnpm forge:tunnel                       # repo root
  *   IS_FORGE=true npx playwright test --project=insert tests/insert/paywall-page-banner.spec.ts
  */
-import { test, expect } from '@playwright/test';
+import { installMixpanelIsolation, test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { AUTH_STATE_PATH } from '../../config/auth-state.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
@@ -57,6 +57,7 @@ test.describe.serial('Paywall page banner', { tag: ['@test:paywall-page-banner',
     // title without clicking (and dismisses the paywall modal), and we do it once.
     const variantLabel = testConfig.isLite ? ' Lite' : '';
     const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+    await installMixpanelIsolation(context);
     const setupPage = await context.newPage();
     try {
       const editorPage = await createPageAndSetup(setupPage, variantLabel);

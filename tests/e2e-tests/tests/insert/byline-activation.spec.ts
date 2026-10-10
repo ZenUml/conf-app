@@ -12,7 +12,7 @@
 // The dialog opens in a Forge fullscreen modal iframe; preview assertions
 // require frameLocator traversal into that OOPIF (Playwright only).
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   seedPreparedProperty,

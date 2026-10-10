@@ -178,7 +178,7 @@ jobs:
           PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
         run: |
           cp .ci-workflow/.github/actions/wrangler-publish/action.yml .github/actions/wrangler-publish/action.yml
-          for helper in lite-deploy-prepare.mjs lite-deploy-evidence.mjs lite-deploy-forge-timing.mjs lite-deploy-permissions-cache.mjs lite-deploy-studio-cache.mjs; do
+          for helper in lite-deploy-prepare.mjs lite-deploy-evidence.mjs lite-deploy-forge-timing.mjs lite-deploy-permissions-cache.mjs lite-deploy-studio-cache.mjs mixpanel-staging-config.mjs; do
             if [ "$PREPARATION_MODE" = candidate ] && [ ! -f ".ci-workflow/scripts/ci/$helper" ]; then
               echo 'Pinned candidate deployment tooling is incomplete' >&2; exit 1
             fi
@@ -561,7 +561,18 @@ jobs:
           PAGES_PID=$!
           set -e
           if [ "${{ needs.resolve.outputs.preparation-mode }}" != candidate ]; then
-          pnpm forge:deploy:disable-analytics
+            pnpm forge:deploy:disable-analytics
+          fi
+          # Forge variables are environment-scoped. Set this for every staging
+          # variant, including the candidate preparation path.
+          case "${{ needs.resolve.outputs.variant }}" in
+            full) FORGE_STAGING_APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 ;;
+            diagramly) FORGE_STAGING_APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf ;;
+            asyncapi) FORGE_STAGING_APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 ;;
+            *) FORGE_STAGING_APP_ID=8ad26115-211f-4216-971b-0540f606303d ;;
+          esac
+          APP_ID="$FORGE_STAGING_APP_ID" pnpm exec forge variables set MIXPANEL_DISABLED true -e staging
+          if [ "${{ needs.resolve.outputs.preparation-mode }}" != candidate ]; then
           case "${{ needs.resolve.outputs.variant }}" in
             full)
               APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging

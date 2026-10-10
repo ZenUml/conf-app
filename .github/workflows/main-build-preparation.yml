@@ -154,6 +154,8 @@ jobs:
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Verify Mixpanel isolation without network egress
+        run: cd tests/e2e-tests && pnpm exec playwright test -c playwright.mixpanel-isolation.config.ts
       - name: Run preview specs against a local Vite dev server
         # Server and tests share ONE step so the server cannot outlive or
         # predecease them: a background process started in an earlier step is

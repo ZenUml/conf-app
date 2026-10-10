@@ -4,7 +4,7 @@
 // open the Sequence editor as the canonical surface — the chrome assertions
 // here are macro-agnostic, but you need a real editor mounted to observe them.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectModalVisible,

@@ -33,7 +33,7 @@
  *
  * Run: cd tests/e2e-tests && npx playwright test --project=agent-link agent-link-multi-page-crosstalk
  */
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { installMixpanelIsolation, test, expect, type Browser, type Page } from '../../fixtures/mixpanel-test.js';
 import {
   AGENT_LINK_STG_BASE,
   agentLinkMcp,
@@ -130,7 +130,10 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@t
     );
 
     const contextA = await browser.newContext({ storageState: AUTH_STATE_PATH });
+
+    await installMixpanelIsolation(contextA);
     const contextB = await browser.newContext({ storageState: AUTH_STATE_PATH });
+    await installMixpanelIsolation(contextB);
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
 

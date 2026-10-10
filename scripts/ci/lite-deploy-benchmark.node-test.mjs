@@ -121,7 +121,7 @@ test('candidate cannot prepare production and always reports all branch failures
     const executable = join(directory, 'pnpm');
     await writeFile(executable, `#!${process.execPath}\nif (process.argv[2] === 'build:lite') process.exit(7);\nprocess.stdin.resume();\nprocess.stdin.once('end', () => process.exit(0));\n`);
     await chmod(executable, 0o755);
-    await writeFile(join(directory, 'wrangler-stg.toml'), 'name="conf-stg"\n[vars]\n');
+    await writeFile(join(directory, 'wrangler-stg.toml'), 'name="conf-stg"\n[vars]\n[env.production.vars]\n');
     const run = environment => new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [new URL('./lite-deploy-prepare.mjs', import.meta.url).pathname], { cwd: directory, env: { PATH: directory, DEPLOY_LICENSE: 'lite', DEPLOY_PROJECT: 'conf-stg-lite', DEPLOY_ENVIRONMENT: environment, VITE_MIXPANEL_TOKEN: 'public-test-token', SENTRY_DSN: 'public-test-dsn' }, stdio: ['ignore', 'ignore', 'pipe'] });
       let stderr = '';
@@ -141,5 +141,7 @@ test('candidate cannot prepare production and always reports all branch failures
     assert.equal(evidence.build.outcome, 'failure');
     assert.equal(evidence.pages_configuration_and_migrations.outcome, 'success');
     assert.equal(evidence.forge_configuration.outcome, 'success');
+    const stagingConfig = await readFile(join(directory, 'wrangler.toml'), 'utf8');
+    assert.equal(stagingConfig.match(/^MIXPANEL_DISABLED = "true"$/gm)?.length, 2);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

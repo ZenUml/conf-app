@@ -45,6 +45,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           site_count: outcome.ok ? outcome.siteCount : undefined,
         },
         env.MIXPANEL_TOKEN,
+        env,
       );
       // One grant per user: a new authorization ends the previous grant.
       if (outcome.replacedGrant) {
@@ -57,6 +58,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             reason: 'reauthorized',
           },
           env.MIXPANEL_TOKEN,
+          env,
         );
       }
     } catch {

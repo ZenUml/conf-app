@@ -3,7 +3,7 @@
 // the Edit modal. This is intentionally stateful within a test (not across
 // tests) — Confluence pages are heavyweight to set up.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,

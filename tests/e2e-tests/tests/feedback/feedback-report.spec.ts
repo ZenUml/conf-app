@@ -80,7 +80,7 @@
 // skip on staging. The description text in test 2 carries an identifiable
 // marker for anyone auditing staging D1 rows later.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { insertMacro, insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';

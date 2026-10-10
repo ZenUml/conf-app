@@ -1300,6 +1300,21 @@ export type AnalyticsEventName =
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
+  // AA — headless MCP tool usage. Backend-emitted (oauth/headlessMcp.ts),
+  // like the W/X/Y blocks above. `_tool_called` fires once per authenticated
+  // `tools/call`, for EVERY tool — reads included, which nothing else counts
+  // on the headless path (X/Y cover only the four writes, and the relay's
+  // per-tool events come from the macro, which a headless call has none of).
+  // It carries the tool in `mcp_tool`, how the call ended in
+  // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
+  // and server-side latency in `duration_ms`. The write events stay as they
+  // are: they carry write-specific properties (paywall_gate, result) this one
+  // does not. `_initialized` fires on each `initialize` handshake and carries
+  // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
+  // `mcp_client_version`), so usage can be split by agent (Claude Code,
+  // Cursor, …). Tool arguments and results are never sent.
+  | "agent_link_mcp_tool_called"
+  | "agent_link_mcp_initialized"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1501,6 +1516,14 @@ export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
 // in with OAuth and edits through Confluence directly (the only mode offered
 // in the first release); 'relay' = a macro-minted session over the live relay.
 export type AgentLinkMcpMode = "headless" | "relay";
+
+// How one headless `tools/call` ended (agent_link_mcp_tool_called).
+// 'success' = the tool returned a result; 'tool_error' = the tool refused with
+// a HeadlessToolError (its code rides `reason`); 'scope_denied' = the token
+// lacks the diagram.read / diagram.write scope the tool needs;
+// 'unknown_tool' = no such tool (`mcp_tool` is then 'unknown', never the
+// client's string); 'exception' = an unexpected throw (a 500).
+export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception";
 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit

@@ -11,8 +11,9 @@ ancestor of `main`, and both arms use that pinned source. For example:
 
 ```sh
 gh workflow run lite-deploy-benchmark.yml --repo ZenUml/conf-app \
-  --ref ci/lite-deploy-20pct \
-  -f source-sha=1a7e4a0bf19eade1e24e440e248c87f4f061b3ee \
+  --ref main \
+  -f source-sha=2fc30d45abaa3de5033a7a049a5edf3a80a9ef7f \
+  -f candidate-runner=ubuntu-24.04-arm \
   -f pairs=3
 ```
 
@@ -71,7 +72,8 @@ are recorded separately. Store restore/save costs stay inside the full job
 timer. Both cache actions save only after successful jobs and skip save on an
 exact hit. Unlike setup-node's save wrapper, actions/cache warns on cache-upload
 errors; that optional cache outcome does not relax any install/deployment gate.
-The complete-job benefit of this change is not yet measured.
+Its complete-job effect is measured in the fourth complete experiment below;
+the first ordinary main rollout records the cold-cache cost.
 Its separate Studio cache holds static output only. On a lean cache miss, a
 separate restore action requests the existing aggregate cache with the exact
 original paths and key. Cache versions include path metadata, so an aggregate
@@ -228,9 +230,8 @@ a guarantee of 20% on every deployment.
 All candidates ran on Linux ARM64 with Node 24.21.0. All installed-dependency,
 lean Studio, and public permission-spec caches hit. Metadata confirms the
 redundant pnpm store was not requested; the frozen install and fresh application
-build still ran. These are warm-cache results. The first-main cache seeding
-cost and ordinary deployments on fresh main source commits still require
-measurement before completing the rollout.
+build still ran. These are warm-cache results. The first cold-cache and
+subsequent warm ordinary main rollouts are recorded below.
 
 The acceptance metric is the median GitHub deploy-job `started_at` through
 `completed_at`, including checkout, cache restore/save, frozen install, build,
@@ -246,8 +247,9 @@ historical 230-second Lite deploy in run 37926049252 retried after an environmen
 was blocked by another deployment; that observation is not a clean comparator.
 Cold-cache costs stay in the whole-job metric; warming a cache is not counted as
 an independent performance improvement. The accepted warm experiment supports
-the automatic Lite staging selection below; fresh normal-main timing remains
-required before the overall deployment-improvement goal is complete.
+the automatic Lite staging selection below and meets the experiment's 20%
+threshold. The cold-cache and subsequent warm main observations are recorded
+after the deployment details below.
 
 ## Normal staging selection and rollback
 
@@ -279,13 +281,11 @@ after checkout, so a supplied alias is never presented as a commit SHA.
 Ordinary deployment summaries now record resolved mode/runner, actual Node
 platform/architecture/version, source/tooling SHAs, and whitelisted cache-hit or
 store-requested booleans. Missing records are shown as unrecorded. This adds no
-remote probe, E2E, or smoke invocation. After shipping, inspect an ordinary Lite
-run on a fresh main source commit, including cold dependency/public-spec caches
-and the validated legacy Studio seed on its first run. Main cannot read the
-feature branch's caches. Report that first cost, then verify the ordinary path
-on a fresh source commit with reusable dependency caches. Every application
-build remains fresh; no app `dist/` cache is introduced. Successful runtime
-deployment/source verification and full job timings are still required.
+remote probe, E2E, or smoke invocation. The first cold-cache and subsequent
+warm main rollouts are recorded below. Main cannot
+read feature-branch caches. Every application build remains fresh; no app
+`dist/` cache is introduced. Successful runtime deployment/source verification
+and full job timings remain part of rollout evidence.
 
 Artifacts contain source/tooling SHAs, runner/runtime metadata, manifest and asset digests, cache-hit
 booleans, fixed phase names and durations, exit codes, and aggregate job timing.
@@ -323,9 +323,76 @@ The latest earlier ordinary main Lite job `114103523528`, from staging run
 `38015029366`, succeeded in 192 seconds. This first ordinary PR deployment
 therefore shows **no improvement against that historical job**. It is a
 cold-cache rollout check, not a replacement for the three controlled warm-cache
-pairs. Main deployment and its own initial cache cost remain unverified.
+pairs. The first main deployment and its initial cache cost are recorded below.
 
-The PR's separate CI helper-test step failed one of 75 tests because the fake
-preparation subprocess did not create its expected diagnostics file. This
-prevents merging even though the deployment itself succeeded; it does not
-establish a deployment failure or a main performance result.
+The initial PR's separate CI helper-test step failed one of 75 tests because
+the fake preparation subprocess did not create its expected diagnostics file.
+Test-only commit `49c9507a` fixed the fixture; the corrected PR CI later passed
+all 75 helper tests. The original failure did not indicate a deployment
+failure or a main performance result.
+
+## Completed benchmark and main rollout
+
+The corrected CI for PR [#768](https://github.com/ZenUml/conf-app/pull/768)
+([run 38024970349](https://github.com/ZenUml/conf-app/actions/runs/38024970349))
+succeeded, including all 75 helper tests and E2E. Its Lite staging job
+`114149482582` completed in **158 seconds** with warm caches. Both the
+application source and tooling were
+`cf3863797349ef7645f012f081a7a189308489a8`. The historical main Lite job
+`114144934743` took 193 seconds, making this PR job 18.1% shorter by raw
+comparison. These are unmatched jobs; this does not establish a main-path
+improvement.
+
+The first main rollout after PR #768 began in root run
+[38031167320](https://github.com/ZenUml/conf-app/actions/runs/38031167320).
+The root run completed with all CI green.
+Its staging child was
+[run 38032421543](https://github.com/ZenUml/conf-app/actions/runs/38032421543);
+Lite deployment job `114156175114` succeeded in **199 seconds**. It used
+application source `2fc30d45abaa3de5033a7a049a5edf3a80a9ef7f` and tooling
+`ec19dc543c4c4a4b63cc2b72b2c41ecc64b362f0`. The installed-dependency, pnpm
+store, lean Studio, and public permission-spec caches all missed. The legacy
+Studio seed was validated, and cold-cache post steps added 13 seconds. Backend
+verification reported the main source SHA. Compared with historical main's
+193-second job, this cold run was 3.1% slower. It confirms a successful rollout
+and the first-main cache-seeding path; it does not show a 20% main-path gain.
+
+Both the PR Lite job and this first main Lite job reported Linux ARM64 with
+Node `v24.21.0`. The three-pair deploy-only benchmark
+([run 38031351102](https://github.com/ZenUml/conf-app/actions/runs/38031351102))
+completed with source and tooling both pinned to
+`2fc30d45abaa3de5033a7a049a5edf3a80a9ef7f`:
+
+| Pair | Baseline seconds | Candidate seconds |
+| --- | ---: | ---: |
+| 1 | 209 | 165 |
+| 2 | 200 | 166 |
+| 3 | 213 | 178 |
+| Median | 209 | 166 |
+
+The median reduction was **20.57%**. All six backend source markers passed;
+manifest and asset hashes matched between arms, and there were no Forge retries.
+The report records `target_met: true`, `preliminary: false`, and
+`retries_present: false`. All candidate samples used warm caches on Linux ARM64
+with Node `v24.21.0`. The shared migration took 42 seconds and is excluded from
+both full-job timers; action post steps are included. The run meets the stated
+three-pair experiment threshold, with cold-cache main rollout costs reported
+separately above.
+
+The subsequent ordinary main Lite deployment completed in staging child
+[run 38035303158](https://github.com/ZenUml/conf-app/actions/runs/38035303158),
+[job 114164614697](https://github.com/ZenUml/conf-app/actions/runs/38035303158/job/114164614697).
+It succeeded in **155 seconds** (`07:43:11`–`07:45:46`), including action post
+steps. Both application source and tooling were
+`ec19dc543c4c4a4b63cc2b72b2c41ecc64b362f0`. It ran on Linux ARM64 with Node
+`v24.21.0`; installed-dependency, lean Studio, and public permission-spec
+caches hit, and the pnpm store cache was not requested. Validate Lite job
+`114165059984` confirmed the pinned backend source at `07:45:55`–`07:45:56`.
+
+Compared with the historical 193-second main Lite job, this warm job was
+19.69% shorter. These ordinary deployments are not a matched benchmark, so
+this comparison does not establish the 20% threshold; the separate three-pair
+benchmark above does. This Lite job and its pinned backend check succeeded
+while the rest of root main run
+[38032285661](https://github.com/ZenUml/conf-app/actions/runs/38032285661)
+was still running. This job result does not establish completion of all main CI.

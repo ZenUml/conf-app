@@ -2,7 +2,7 @@
   <div class="prototype-page" lang="zh-CN">
     <p class="review-label">Real viewer components · 关系高亮反馈</p>
     <MermaidHighlightViewer :key="session" :initial-state="activeInitialState" @event="record" @state-change="stage = $event" @usage-change="used = $event" @enabled-change="enabled = $event" />
-    <div class="prototype-tray" aria-label="Prototype review controls"><div class="tray-top"><strong>PROTOTYPE · 旁侧反馈卡</strong><button @click="restart">重新体验 ↻</button></div><div>used: {{ used }} · stage: {{ stage }} · enabled: {{ enabled }} · 仅本地 · 不发送数据</div><div class="events">{{ events.length ? events.map(e => e.name.replace('mermaid_highlight_', '')).join(' → ') : '在图上悬停 700ms 或选择节点' }}</div></div>
+    <div class="prototype-tray" aria-label="Prototype review controls"><div class="tray-top"><strong>PROTOTYPE · 画布底部胶囊</strong><button @click="restart">重新体验 ↻</button></div><div>used: {{ used }} · stage: {{ stage }} · enabled: {{ enabled }} · 仅本地 · 不发送数据</div><div class="events">{{ events.length ? events.map(e => e.name.replace('mermaid_highlight_', '')).join(' → ') : '在图上悬停 700ms 或选择节点' }}</div></div>
   </div>
 </template>
 <script setup>

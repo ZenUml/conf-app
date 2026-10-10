@@ -1,38 +1,79 @@
 import {mount} from '@vue/test-utils'
-import {vi,describe,it,expect,beforeEach} from 'vitest'
+import {vi,describe,it,expect,beforeEach,afterEach} from 'vitest'
 import Feedback from './MermaidHighlightFeedback.vue'
 import {trackAnalyticsEvent} from '@/utils/analytics/trackAnalyticsEvent'
 vi.mock('@/utils/analytics/trackAnalyticsEvent',()=>({trackAnalyticsEvent:vi.fn()}))
-const clickText = async (wrapper:any,text:string) => {const button=wrapper.findAll('button').find((b:any)=>b.text().includes(text));expect(button).toBeTruthy();await button.trigger('click')}
-describe('real Mermaid relationship feedback',()=>{
-  beforeEach(()=>vi.clearAllMocks())
-  it('requires actual usage and an available highlighter, then records one impression',async()=>{
-    const wrapper=mount(Feedback,{props:{used:false,available:true}})
-    expect(wrapper.text()).not.toContain('Do you like')
-    await wrapper.setProps({used:true,available:false});expect(wrapper.text()).not.toContain('Do you like')
-    await wrapper.setProps({available:true});expect(wrapper.text()).toContain('Do you like')
+const STORAGE_KEY='zenuml.mermaidHighlightFeedback.v1'
+const CLOSE='[aria-label="Dismiss relationship highlight feedback"]'
+const clickText = async (wrapper:any,text:string) => {const button=wrapper.findAll('button').find((b:any)=>b.text()===text);expect(button).toBeTruthy();await button.trigger('click')}
+const calls = (name:string) => vi.mocked(trackAnalyticsEvent).mock.calls.filter(c=>c[0]===name)
+const memory = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+const mountPill = (props:Record<string,unknown>={}) => mount(Feedback,{props:{uses:3,available:true,...props}})
+const pill = (wrapper:any) => wrapper.find('.highlight-pill')
+describe('Mermaid relationship feedback canvas pill',()=>{
+  beforeEach(()=>{vi.useFakeTimers();vi.clearAllMocks();localStorage.clear()})
+  afterEach(()=>vi.useRealTimers())
+  it('waits for the third use and an available highlighter, then records one impression with the use count',async()=>{
+    const wrapper=mountPill({uses:0})
+    await wrapper.setProps({uses:2});expect(pill(wrapper).exists()).toBe(false)
+    await wrapper.setProps({uses:3,available:false});expect(pill(wrapper).exists()).toBe(false)
+    await wrapper.setProps({available:true});expect(wrapper.text()).toContain('Relationship highlights helpful?')
     await wrapper.setProps({available:false});await wrapper.setProps({available:true})
-    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(c=>c[0]==='mermaid_highlight_feedback_shown')).toHaveLength(1)
+    expect(calls('mermaid_highlight_feedback_shown')).toHaveLength(1)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_shown',expect.objectContaining({highlight_feedback_variant:'canvas_pill',highlight_use_count:3}))
   })
-  it('records a dislike and a bounded optional reason before thanking the reader',async()=>{
-    const wrapper=mount(Feedback,{props:{used:true,available:true}})
-    await clickText(wrapper,'Dislike');expect(wrapper.text()).toContain('What could be better')
-    await clickText(wrapper,'Unclear highlights');expect(wrapper.text()).toContain('Thanks for your feedback')
+  it('hides while a capture is in progress and keeps its state for afterwards',async()=>{
+    const wrapper=mountPill()
+    await wrapper.setProps({captureMode:true});expect(pill(wrapper).exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(10000)
+    await wrapper.setProps({captureMode:false});expect(pill(wrapper).exists()).toBe(true)
+    expect(calls('mermaid_highlight_feedback_shown')).toHaveLength(1)
+    expect(calls('mermaid_highlight_feedback_dismissed')).toHaveLength(0)
+  })
+  it('auto-dismisses after 10 s unless hovered, recording the timeout as the cause',async()=>{
+    const wrapper=mountPill()
+    await pill(wrapper).trigger('mouseenter')
+    await vi.advanceTimersByTimeAsync(10000);expect(pill(wrapper).exists()).toBe(true)
+    await pill(wrapper).trigger('mouseleave')
+    await vi.advanceTimersByTimeAsync(9900);expect(pill(wrapper).exists()).toBe(true)
+    await vi.advanceTimersByTimeAsync(100);expect(pill(wrapper).exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_dismissed',expect.objectContaining({highlight_dismiss_stage:'question',highlight_dismiss_cause:'timeout'}))
+    expect(memory()).toEqual({timeouts:1})
+  })
+  it('returns at most once more after a timeout, then retires',()=>{
+    localStorage.setItem(STORAGE_KEY,JSON.stringify({timeouts:1}))
+    expect(pill(mountPill()).exists()).toBe(true)
+    localStorage.setItem(STORAGE_KEY,JSON.stringify({timeouts:2}))
+    expect(pill(mountPill()).exists()).toBe(false)
+    expect(calls('mermaid_highlight_feedback_shown')).toHaveLength(1)
+  })
+  it('a like thanks the reader briefly, then retires the pill for good',async()=>{
+    const wrapper=mountPill()
+    await clickText(wrapper,'Yes')
+    expect(wrapper.text()).toContain('Thanks for your feedback')
+    expect(wrapper.find(CLOSE).exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_answered',expect.objectContaining({highlight_feedback:'like'}))
+    await vi.advanceTimersByTimeAsync(2500);expect(pill(wrapper).exists()).toBe(false)
+    expect(memory().closed).toBe(true)
+    expect(pill(mountPill()).exists()).toBe(false)
+  })
+  it('a dislike asks for a bounded reason inside the pill, with no countdown',async()=>{
+    const wrapper=mountPill()
+    await clickText(wrapper,'No');expect(wrapper.text()).toContain('What could be better?')
+    await vi.advanceTimersByTimeAsync(10000);expect(wrapper.text()).toContain('What could be better?')
+    await clickText(wrapper,'Unclear');expect(wrapper.text()).toContain('Thanks for your feedback')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_reason_selected',expect.objectContaining({highlight_feedback:'dislike',highlight_feedback_reason:'unclear'}))
+    expect(calls('mermaid_highlight_feedback_dismissed')).toHaveLength(0)
   })
-  it('dismissal stays closed through toggle cycles and does not invent an answer',async()=>{
-    const wrapper=mount(Feedback,{props:{used:true,available:true}})
-    await wrapper.get('[aria-label="Close relationship highlight feedback"]').trigger('click')
-    await wrapper.setProps({available:false});await wrapper.setProps({available:true})
-    expect(wrapper.text()).not.toContain('Do you like')
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_dismissed',expect.objectContaining({highlight_dismiss_stage:'question'}))
-    expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(c=>c[0]==='mermaid_highlight_feedback_answered')).toBe(false)
-  })
-  it('like leads directly to thanks; skipping a reason records only dismissal',async()=>{
-    const liked=mount(Feedback,{props:{used:true,available:true}});await clickText(liked,'👍 Like');expect(liked.text()).toContain('Thanks for your feedback');liked.unmount()
-    vi.clearAllMocks()
-    const disliked=mount(Feedback,{props:{used:true,available:true}});await clickText(disliked,'Dislike');await clickText(disliked,'Skip')
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_dismissed',expect.objectContaining({highlight_dismiss_stage:'reason'}))
-    expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(c=>c[0]==='mermaid_highlight_feedback_reason_selected')).toBe(false)
+  it('× closes at either stage, records the stage and the cause, and never invents an answer',async()=>{
+    const question=mountPill();await question.get(CLOSE).trigger('click')
+    expect(pill(question).exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_dismissed',expect.objectContaining({highlight_dismiss_stage:'question',highlight_dismiss_cause:'close'}))
+    expect(calls('mermaid_highlight_feedback_answered')).toHaveLength(0)
+    expect(memory().closed).toBe(true)
+    vi.clearAllMocks();localStorage.clear()
+    const reason=mountPill();await clickText(reason,'No');await reason.get(CLOSE).trigger('click')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('mermaid_highlight_feedback_dismissed',expect.objectContaining({highlight_dismiss_stage:'reason',highlight_dismiss_cause:'close'}))
+    expect(calls('mermaid_highlight_feedback_reason_selected')).toHaveLength(0)
   })
 })

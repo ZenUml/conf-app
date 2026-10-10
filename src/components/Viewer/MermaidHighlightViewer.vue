@@ -5,8 +5,8 @@
       <button v-if="ready || supported" class="highlight-toggle" aria-label="Relationship highlights" title="Highlight connected nodes and lines on hover or selection" :aria-pressed="enabled" @click="toggle"><span aria-hidden="true">◎</span><span class="highlight-label">Highlight</span><span class="toggle-dot" :class="{on:enabled}" /></button>
     </template>
     <Mermaid ref="renderer" :relationship-highlights="enabled" @highlight-ready="onReady($event)" @highlight-used="onUsed" />
-    <template #viewer-sidebar>
-      <MermaidHighlightFeedback :key="diagramSession" :surface="surface" :used="used" :available="enabled && ready" :initial-state="feedbackInitialState" @event="$emit('event',$event)" @state-change="$emit('state-change',$event)" />
+    <template #viewer-canvas-overlay>
+      <MermaidHighlightFeedback :key="diagramSession" :surface="surface" :uses="useCount" :available="enabled && ready" :capture-mode="captureActive" :initial-state="feedbackInitialState" @event="$emit('event',$event)" @state-change="$emit('state-change',$event)" />
     </template>
   </GenericViewer>
 </template>
@@ -26,10 +26,13 @@ const props = defineProps({
 const emit = defineEmits(['event', 'state-change', 'usage-change', 'enabled-change'])
 const renderer = ref(null)
 const surface = computed(() => forgeGlobal.forgeContext?.extension?.modal?.macroMode === 'fullscreen' ? 'fullscreen' : 'viewer')
-function onCaptureModeChange(active) { renderer.value?.setCaptureMode(active) }
+const captureActive = ref(false)
+function onCaptureModeChange(active) { captureActive.value = active; renderer.value?.setCaptureMode(active) }
 const enabled = ref(true)
 const ready = ref(false)
-const used = ref(props.initialState !== 'interactive')
+// Highlight uses on the current diagram. The feedback pill waits for the third;
+// a non-interactive initialState (Storybook) starts past that threshold.
+const useCount = ref(props.initialState !== 'interactive' ? 3 : 0)
 const supported = ref(false)
 const diagramSession = ref(0)
 const feedbackInitialState = ref(props.initialState)
@@ -44,7 +47,7 @@ watch(() => [store.state.diagram.id, store.state.diagram.mermaidCode], () => {
   emit('enabled-change', true)
   ready.value = false
   supported.value = false
-  used.value = false
+  useCount.value = 0
   feedbackInitialState.value = 'interactive'
   diagramSession.value++
   emit('usage-change', false)
@@ -53,15 +56,16 @@ watch(() => [store.state.diagram.id, store.state.diagram.mermaidCode], () => {
 function record(name, extra) {
   const properties = {
     feature_area: 'macro', surface: surface.value, macro_type: 'mermaid',
-    highlight_feedback_variant: 'sidebar', ...extra,
+    highlight_feedback_variant: 'canvas_pill', ...extra,
   }
   trackAnalyticsEvent(name, properties)
   emit('event', { name, properties })
 }
 
 function onUsed(target) {
-  if (used.value || !enabled.value || !ready.value) return
-  used.value = true
+  if (!enabled.value || !ready.value) return
+  useCount.value++
+  if (useCount.value !== 1) return
   emit('usage-change', true)
   record('mermaid_highlight_used', { highlight_target_type: target.kind })
 }

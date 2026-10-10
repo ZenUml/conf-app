@@ -14,6 +14,8 @@ const ANALYTICS_FACT_PURGE_BATCH_SIZE = 50000;
 // historical backlog over a few nights, bounded so the cron stays well within limits.
 const ANALYTICS_FACT_PURGE_MAX_BATCHES = 40;
 const FEEDBACK_ATTACHMENT_PURGE_BATCH_SIZE = 100;
+const MAGIC_WRITEBACK_PURGE_BATCH_SIZE = 1000;
+const MAGIC_WRITEBACK_PURGE_MAX_BATCHES = 20;
 
 export async function purgeExpiredFeedbackScreenshots(
   db: D1Database,
@@ -33,6 +35,27 @@ export async function purgeExpiredFeedbackScreenshots(
       )`,
   ).bind(now, FEEDBACK_ATTACHMENT_PURGE_BATCH_SIZE).run();
   return result.meta.changes || 0;
+}
+
+// MagicWriteback.expiresAt is epoch milliseconds. The request path
+// (functions/magic-writeback.ts) never delivers expired rows, so this daily purge
+// only reclaims space. D1 has no DELETE ... LIMIT, so bound via an id subquery.
+export async function purgeExpiredMagicWritebacks(
+  db: D1Database,
+  nowMs: number,
+): Promise<number> {
+  let total = 0;
+  for (let batch = 0; batch < MAGIC_WRITEBACK_PURGE_MAX_BATCHES; batch++) {
+    const result = await db.prepare(
+      `DELETE FROM MagicWriteback WHERE id IN (
+         SELECT id FROM MagicWriteback WHERE expiresAt <= ?1 LIMIT ?2
+       )`,
+    ).bind(nowMs, MAGIC_WRITEBACK_PURGE_BATCH_SIZE).run();
+    const deleted = result.meta.changes || 0;
+    total += deleted;
+    if (deleted < MAGIC_WRITEBACK_PURGE_BATCH_SIZE) break;
+  }
+  return total;
 }
 
 export default {
@@ -79,5 +102,11 @@ export default {
       new Date(controller.scheduledTime).toISOString(),
     );
     console.log(`Purged expired feedback attachments: ${feedbackAttachmentsDeleted}`);
+
+    const magicWritebacksDeleted = await purgeExpiredMagicWritebacks(
+      env.DB,
+      controller.scheduledTime,
+    );
+    console.log(`Purged expired MagicWriteback rows: ${magicWritebacksDeleted}`);
   },
 };

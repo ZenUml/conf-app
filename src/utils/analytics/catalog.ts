@@ -1249,6 +1249,11 @@ export type AnalyticsEventName =
   // which is the signal that a user must re-consent and the only warning we
   // get before every headless call for them starts failing; `_revoked` fires
   // when a grant is dropped, whether the user asked or a refresh died.
+  // Emitted from oauth/headlessMcp.ts (refresh path, tokenStore.getAccessToken)
+  // and oauth/callback.ts ('reauthorized'). `_refresh_failed` carries the
+  // Atlassian GrantFailure code in `reason` (invalid_grant | invalid_client);
+  // transient failures (5xx, network) are not reported. There is no
+  // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
   | "agent_link_oauth_authorized"
   | "agent_link_oauth_refresh_failed"
   | "agent_link_oauth_revoked"

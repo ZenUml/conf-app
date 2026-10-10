@@ -12,7 +12,7 @@
 //     session does not start failing an hour in.
 
 import { apiBaseUrlFor, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
-import { getAccessToken, type GrantStore } from './tokenStore';
+import { getAccessToken, type GrantEventSink, type GrantStore } from './tokenStore';
 import type { ConfluenceGet } from '../macroIdentity';
 
 export interface ReaderContext {
@@ -22,6 +22,8 @@ export interface ReaderContext {
   fetchImpl: FetchLike;
   userId: string;
   cloudId: string;
+  /** Told when the user's Atlassian grant fails to refresh or is dropped (analytics). */
+  onGrantEvent?: GrantEventSink;
 }
 
 /**
@@ -52,6 +54,8 @@ export function confluenceReaderFor(ctx: ReaderContext): ConfluenceGet {
       ctx.app,
       ctx.fetchImpl,
       ctx.userId,
+      Date.now(),
+      ctx.onGrantEvent,
     );
     if (!token.ok) {
       return {

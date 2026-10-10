@@ -30,7 +30,7 @@ import {
   DATA_LOSS_MIN_RATIO,
   guardUpdateDiagram,
 } from '../updateDiagramGuard';
-import { getAccessToken, type GrantStore } from './tokenStore';
+import { getAccessToken, type GrantEventSink, type GrantStore } from './tokenStore';
 import {
   customContentTypesFor,
   extensionKeyFor,
@@ -49,6 +49,8 @@ export interface HeadlessContext {
   nowMs?: () => number;
   /** The KV bindings the paywall gate reads (design 9.1). Only create_diagram needs them. */
   gateEnv?: GateEnv;
+  /** Told when the user's Atlassian grant fails to refresh or is dropped (analytics). */
+  onGrantEvent?: GrantEventSink;
 }
 
 export interface HeadlessToolDescriptor {
@@ -206,7 +208,7 @@ export class HeadlessToolError extends Error {
 
 async function sitesFor(ctx: HeadlessContext) {
   const now = (ctx.nowMs ?? Date.now)();
-  const token = await getAccessToken(ctx.store, ctx.secret, ctx.app, ctx.fetchImpl, ctx.userId, now);
+  const token = await getAccessToken(ctx.store, ctx.secret, ctx.app, ctx.fetchImpl, ctx.userId, now, ctx.onGrantEvent);
   if (!token.ok) {
     // 'reauthorize_required' is the user's to fix and says so; the others are
     // transient and must not be reported as "you are logged out".
@@ -244,6 +246,7 @@ async function readerFor(ctx: HeadlessContext, cloudId: string): Promise<Conflue
     fetchImpl: ctx.fetchImpl,
     userId: ctx.userId,
     cloudId,
+    onGrantEvent: ctx.onGrantEvent,
   });
 }
 
@@ -278,6 +281,7 @@ function requestFor(ctx: HeadlessContext, cloudId: string): ConfluenceRequest {
     userId: ctx.userId,
     cloudId,
     nowMs: ctx.nowMs,
+    onGrantEvent: ctx.onGrantEvent,
   });
 }
 

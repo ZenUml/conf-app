@@ -105,7 +105,7 @@ describe('handleCallback', () => {
     const { env, store } = makeEnv();
     const { fetchImpl, calls } = atlassianFetch();
     const { response, outcome } = await handleCallback(withState('code=c-1&state=st-123'), { env, fetchImpl, nowMs: () => 1_000 });
-    expect(outcome).toEqual({ ok: true, accountId: '712020:abc', siteCount: 2 });
+    expect(outcome).toEqual({ ok: true, accountId: '712020:abc', siteCount: 2, replacedGrant: false });
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('one.atlassian.net');
     // the exchange sent the same redirect_uri the authorize step used
@@ -116,6 +116,14 @@ describe('handleCallback', () => {
     expect(grant?.refreshToken).toBe('rt-1');
     // the state cookie is cleared
     expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+  });
+
+  it('reports that a second authorization by the same account replaced its grant', async () => {
+    const { env } = makeEnv();
+    const first = await handleCallback(withState('code=c-1&state=st-123'), { env, fetchImpl: atlassianFetch().fetchImpl });
+    const second = await handleCallback(withState('code=c-1&state=st-123'), { env, fetchImpl: atlassianFetch().fetchImpl });
+    expect(first.outcome).toMatchObject({ ok: true, replacedGrant: false });
+    expect(second.outcome).toMatchObject({ ok: true, replacedGrant: true });
   });
 
   it('refuses when the state does not match the cookie, storing nothing', async () => {

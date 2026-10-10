@@ -82,7 +82,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
 import {
-  MCP_SERVER_NAME,
+  mcpServerName,
   buildHeadlessPrompt,
   mcpAddCommand,
   mcpServerUrl,
@@ -111,7 +111,7 @@ const emit = defineEmits<{
 // Read at setup: forgeGlobal's backend URL is resolved during app boot,
 // before any component mounts.
 const setupCommand = mcpAddCommand()
-const serverName = MCP_SERVER_NAME
+const serverName = mcpServerName()
 const serverUrl = mcpServerUrl()
 
 const promptText = computed(() => buildHeadlessPrompt({

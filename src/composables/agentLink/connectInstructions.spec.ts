@@ -1,10 +1,31 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import forgeGlobal from '@/model/globals/forgeGlobal'
-import { buildConnectPrompt, buildHeadlessPrompt, mcpAddCommand, mcpServerUrl } from './connectInstructions'
+import { buildConnectPrompt, buildHeadlessPrompt, mcpAddCommand, mcpServerName, mcpServerUrl } from './connectInstructions'
 
 describe('connectInstructions', () => {
   afterEach(() => {
     forgeGlobal.zenumlRemoteBaseUrl = undefined
+    forgeGlobal.isDiagramly = false
+    forgeGlobal.isAsyncApi = false
+  })
+
+  it.each([
+    [{}, 'zenuml'],
+    [{ isDiagramly: true }, 'diagramly'],
+    [{ isAsyncApi: true }, 'asyncapi'],
+  ])('names the MCP server after the product (%o -> %s)', (product, name) => {
+    expect(mcpServerName(product)).toBe(name)
+  })
+
+  it('uses the product name in the setup command and the prompt', () => {
+    forgeGlobal.isDiagramly = true
+    expect(mcpAddCommand('https://conf-lite.zenuml.com')).toBe(
+      'claude mcp add --transport http diagramly https://conf-lite.zenuml.com/agent-link/mcp'
+    )
+    expect(buildHeadlessPrompt({ cloudId: 'c-1', contentId: '99' })).toMatch(/^Use the diagramly MCP to review my Diagramly diagram/)
+    forgeGlobal.isDiagramly = false
+    forgeGlobal.isAsyncApi = true
+    expect(buildHeadlessPrompt({ cloudId: 'c-1', contentId: '99' })).toMatch(/^Use the asyncapi MCP to review my AsyncAPI diagram/)
   })
 
   it.each([

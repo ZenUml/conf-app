@@ -1,6 +1,5 @@
 import { createApp } from 'vue';
 import globals from '@/model/globals';
-import { isCsatPendingFresh } from '@/utils/csat';
 import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/byline/unplacedMarker';
 import { higherPriorityBannerPending } from '@/utils/banners/priority';
 import { whatsNewCandidate } from '@/utils/whatsNew/state';
@@ -54,9 +53,7 @@ export type PageBannerChoice =
 
 /**
  * `paywall` and `paywall-admin` mount the same component; they are separate
- * choices so the caller knows WHICH gate admitted it. `paywall-admin` is an
- * impression that did not exist before Phase 5b, and only it is subject to the
- * flag — keeping the pre-existing path free of any async work.
+ * choices so the caller knows WHICH gate admitted it.
  */
 export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
   // The same question the unplaced module asks itself, from the same reads —
@@ -80,30 +77,13 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
  * may still self-close — so CSAT behavior is preserved exactly; the host only
  * decides which component gets the single banner slot.
  *
- * Returns the choice actually mounted, which differs from the argument when the
- * admin banner is gated off.
+ * Returns the choice actually mounted.
  */
 export async function handlePageBannerRoute(
   choice: Exclude<PageBannerChoice, 'none'>,
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
-  let effective = choice;
-
-  // Flag check happens here, not in decidePageBanner, so it costs nothing on the
-  // ~99% of loads that show no banner. When off, the admin impression is dropped
-  // and we fall back to whatever the pre-Phase-5b logic would have shown.
-  if (effective === 'paywall-admin') {
-    const { isAdminBannerEnabled } = await import('@/utils/paywall/adminBannerFlag');
-    if (!(await isAdminBannerEnabled())) {
-      // Deliberately NOT resumed down the rest of the priority list. This
-      // branch predates the unplaced notice and belongs to the paywall banner's
-      // kill switch; widening it would change what a flagged-off admin sees for
-      // reasons that have nothing to do with the flag. The unplaced notice
-      // reaches this page through its own gated module anyway.
-      if (!isCsatPendingFresh(now)) return 'none';
-      effective = 'csat';
-    }
-  }
+  const effective = choice;
 
   const container = document.getElementById('app');
   if (!container) {
@@ -114,10 +94,8 @@ export async function handlePageBannerRoute(
 
   // One table, read once. Each choice names its component and the props that
   // choice implies — both are decided HERE rather than re-derived downstream:
-  // the audience so a flagged-off admin who also qualifies as a recent author
-  // still sees the old author copy, and the unplaced source because working it
-  // out in the component would cost a property read on the very path that has
-  // no property.
+  // the audience, and the unplaced source because working it out in the
+  // component would cost a property read on the very path that has no property.
   const MOUNTS: Record<Exclude<PageBannerChoice, 'none'>, () => Promise<{ component: unknown; props?: object }>> = {
     paywall: async () => ({ component: (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default }),
     'paywall-admin': async () => ({

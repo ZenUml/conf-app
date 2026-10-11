@@ -75,9 +75,8 @@ import { readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
 
 /**
  * `isSpaceAdmin` is supplied by the page-banner host (routes/pageBanner.ts)
- * rather than re-derived here, because the host is where the Phase 5b flag is
- * resolved. Deriving it locally would show admin copy to a flagged-off admin who
- * happens to also qualify as a recent author.
+ * rather than re-derived here, so the route that admitted this banner is its
+ * single source of truth.
  */
 const props = withDefaults(defineProps<{ isSpaceAdmin?: boolean }>(), { isSpaceAdmin: false })
 

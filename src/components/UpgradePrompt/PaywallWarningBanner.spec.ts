@@ -145,8 +145,8 @@ describe('PaywallWarningBanner (page banner)', () => {
   // circular, and that relay has produced zero conversions in 15 months. An
   // admin instead gets the one purchase they can complete unaided.
   describe('space-admin audience', () => {
-    // The audience arrives as a prop from the page-banner host, which is where
-    // the Phase 5b flag is resolved — the component never re-derives it.
+    // The audience arrives as a prop from the page-banner host; the component
+    // never re-derives it.
     const asAdmin = { props: { isSpaceAdmin: true } }
 
     beforeEach(() => {

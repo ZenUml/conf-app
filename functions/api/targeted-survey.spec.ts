@@ -15,10 +15,12 @@ type Lease = { token: string; app: string; expiry: number; terminal: string | nu
 
 function harness() {
   let config = { ...campaign };
+  let unavailable = false;
   const leases = new Map<string, Lease>();
   const responses = new Map<string, string>();
   const key = (revision: number) => `${config.uuid}:${revision}`;
   const db = { prepare(sql: string) {
+    if (unavailable) throw new Error('D1 unavailable');
     const bind = (...args: any[]) => ({
       first: async () => {
         if (sql.includes('FROM TargetedSurveyLease') && sql.includes('SELECT terminal')) {
@@ -75,7 +77,8 @@ function harness() {
     }), env, data: { forgeContext: fit } } as any);
   };
   return { run, leases, responses, setRevision: (revision: number) => { config = { ...config, revision }; },
-    setConfig: (value: object) => { config = { ...config, ...value }; } };
+    setConfig: (value: object) => { config = { ...config, ...value }; },
+    setDbUnavailable: () => { unavailable = true; } };
 }
 
 const attempt = (revision = 1) => ({ surveyUuid: campaign.uuid, revision });
@@ -117,6 +120,22 @@ describe('targeted survey revision lease', () => {
       { ...submission(claim.claimToken), options: ['unknown'] },
       { ...submission(claim.claimToken), options: [], text: ' ' },
     ]) expect((await api.run('POST', identity, body)).status).toBe(400);
+    expect(api.responses.size).toBe(0);
+  });
+
+  it('suppresses eligibility when D1 is unavailable or configuration is malformed', async () => {
+    const unavailable = harness();
+    unavailable.setDbUnavailable();
+    expect((await unavailable.run('GET')).status).toBe(503);
+    expect(await (await unavailable.run('GET')).json()).toEqual({ survey: null });
+    const malformed = harness();
+    malformed.setConfig({ revision: 0 });
+    expect(await (await malformed.run('GET')).json()).toEqual({ survey: null });
+  });
+
+  it('rejects malformed JSON objects without writing a response', async () => {
+    const api = harness();
+    expect((await api.run('POST', identity, null as any)).status).toBe(400);
     expect(api.responses.size).toBe(0);
   });
 

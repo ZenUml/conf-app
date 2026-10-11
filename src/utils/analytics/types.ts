@@ -71,6 +71,13 @@ export type AnalyticsProperties = {
   client_domain?: string;
   user_account_id?: string;
   product_type?: ProductType;
+  /** Targeted survey campaign identifier; no target identity or answer text. */
+  survey_uuid?: string;
+  survey_revision?: number;
+  /** Cross-product display claim did not produce a banner. */
+  survey_claim_result?: 'already_claimed' | 'unavailable' | 'invalid_response';
+  /** Visible step when a targeted survey is dismissed, including an in-flight send. */
+  survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent

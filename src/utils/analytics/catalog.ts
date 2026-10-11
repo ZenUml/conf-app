@@ -663,6 +663,17 @@ export type AnalyticsEventName =
   | "csat_displayed"
   | "csat_submitted"
   | "csat_dismissed"
+  // Lite/Full targeted survey funnel. The server selects the recipient from a
+  // verified Forge identity; events contain campaign metadata only, never the
+  // target, selected answer, or free text.
+  | "targeted_survey_shown"
+  | "targeted_survey_claim_requested"
+  | "targeted_survey_claim_failed"
+  | "targeted_survey_opened"
+  | "targeted_survey_dismissed"
+  | "targeted_survey_submit_requested"
+  | "targeted_survey_submitted"
+  | "targeted_survey_submit_failed"
   | "feedback_link_clicked"
   // In-product feedback funnel. feedback_report_opened fires as the surface
   // trigger opens the dialog, after requesting Session Replay, and carries

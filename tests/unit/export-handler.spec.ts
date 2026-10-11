@@ -106,6 +106,19 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.mixpanel.com/import?strict=1');
   });
 
+  it('sends the final October export rate in the Mixpanel import payload', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-12T00:00:00Z'));
+    await trackExportEvent('macro_export_requested', {
+      account_id: 'example-account',
+      client_domain: 'example-tenant',
+      sample_rate: 0.9,
+    });
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event: string; properties: { sample_rate: number } }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].event).toBe('macro_export_requested');
+    expect(rows[0].properties.sample_rate).toBe(0.005);
+  });
+
   it('includes custom_content_id on macro_export_failed when catch runs (Word config path)', async () => {
     asAppRequest.mockRejectedValue(new Error('forced attachments failure'));
 

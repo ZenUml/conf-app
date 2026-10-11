@@ -55,11 +55,10 @@ const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
 const AUTHORING_REPLAY_RATE = 0.5;
 const OCTOBER_AUTHORING_REPLAY_RATE = 0.01;
 
-// Drawn once per iframe, not per event. A user who creates one macro and then
-// edits another in the same session must get one whole recording or none —
-// re-drawing per event would start the recorder partway through a session,
-// which is worse than not recording it at all for the save-failure
-// investigations this policy exists to serve.
+// Draw once per iframe, not per event. Eligibility is stable while the same
+// rate applies. At the UTC budget boundary, compare the saved draw with the
+// new rate; this can change whether a later authoring event requests a start.
+// We never stop an already-running recording at that boundary.
 let _authoringReplayDraw: number | null = null;
 
 function _shouldRecordAuthoring(): boolean {

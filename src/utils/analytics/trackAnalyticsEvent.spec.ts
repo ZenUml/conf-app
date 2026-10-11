@@ -22,6 +22,7 @@ vi.mock("mixpanel-browser", () => ({
     track: vi.fn(),
     register: vi.fn(),
     start_session_recording: vi.fn(),
+    stop_session_recording: vi.fn(),
   },
 }));
 
@@ -69,6 +70,7 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     localStorage.clear();
     vi.clearAllMocks();
     _resetForTesting();
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z"));
     // @ts-ignore
     window.globals = mockGlobals;
     vi.mocked(forgeGlobal).isForge = true;
@@ -78,6 +80,8 @@ describe("trackAnalyticsEvent — identity resolution", () => {
       source: "off",
     } as any);
   });
+
+  afterEach(() => vi.mocked(Date.now).mockRestore());
 
   it("does NOT identify with the shared placeholder when the account id is unresolved", async () => {
     // @ts-ignore — the context has not resolved yet
@@ -255,6 +259,9 @@ describe("trackAnalyticsEvent", () => {
         flag: { percent: 100, source: "targeted" as const },
       },
     ])("keeps $name baseline off while tracking the event", async ({ context, event, flag }) => {
+      // A non-core event may be sampled in October; keep this occurrence so
+      // the assertion tests replay initialization and its payload.
+      vi.spyOn(Math, "random").mockReturnValue(0);
       vi.mocked(forgeGlobal).forgeContext = {
         localId: "macro-abc",
         environmentType: "production",
@@ -326,6 +333,43 @@ describe("trackAnalyticsEvent", () => {
       );
     });
 
+    it.each([
+      {
+        first: "2026-09-30T23:59:59.999Z",
+        second: "2026-10-01T00:00:00Z",
+        firstOutcome: "returned",
+        secondOutcome: "skipped_sampled",
+      },
+      {
+        first: "2026-10-31T23:59:59.999Z",
+        second: "2026-11-01T00:00:00Z",
+        firstOutcome: "skipped_sampled",
+        secondOutcome: "returned",
+      },
+    ])("reuses one authoring draw across the policy boundary $second", async ({ first, second, firstOutcome, secondOutcome }) => {
+      const random = vi.spyOn(Math, "random").mockReturnValue(0.3);
+      vi.mocked(Date.now).mockReturnValue(Date.parse(first));
+      await _awaitableTrackAnalyticsEvent("macro_create_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+      vi.mocked(Date.now).mockReturnValue(Date.parse(second));
+      await _awaitableTrackAnalyticsEvent("macro_edit_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+
+      expect(random).toHaveBeenCalledOnce();
+      expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+      expect(mixpanel.stop_session_recording).not.toHaveBeenCalled();
+      expect(mixpanel.track).toHaveBeenCalledWith("macro_create_started", expect.objectContaining({
+        session_replay_start_call_outcome: firstOutcome,
+      }));
+      expect(mixpanel.track).toHaveBeenCalledWith("macro_edit_started", expect.objectContaining({
+        session_replay_start_call_outcome: secondOutcome,
+      }));
+    });
+
     it("keeps explicit feedback recording available with baseline replay off", async () => {
       await _awaitableTrackAnalyticsEvent("feedback_report_opened", {
         feature_area: "feedback",
@@ -346,9 +390,47 @@ describe("trackAnalyticsEvent", () => {
         }),
       );
     });
+
+    it("emits October macro_viewed under its unchanged name and schema without a sample stamp", async () => {
+      const random = vi.spyOn(Math, "random").mockImplementation(() => {
+        throw new Error("macro_viewed must not draw an event sample");
+      });
+      await _awaitableTrackAnalyticsEvent("macro_viewed", {
+        feature_area: "macro",
+        surface: "viewer",
+        macro_type: "sequence",
+        entry_point: "page_view",
+      });
+      const call = vi.mocked(mixpanel.track).mock.calls.find((entry) => entry[0] === "macro_viewed");
+      expect(call).toBeTruthy();
+      expect(call![0]).toBe("macro_viewed");
+      expect(call![1]).toMatchObject({
+        feature_area: "macro",
+        surface: "viewer",
+        macro_type: "sequence",
+        entry_point: "page_view",
+      });
+      expect(call![1]).not.toHaveProperty("sample_rate");
+      expect(random).not.toHaveBeenCalled();
+    });
   });
 
   describe("event sampling", () => {
+    it("emits October non-core events with the final absolute rate", async () => {
+      vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-12T00:00:00Z"));
+      const rnd = vi.spyOn(Math, "random").mockReturnValue(0.004);
+      await _awaitableTrackAnalyticsEvent("diagram_attribution_shown", {
+        feature_area: "diagram_impact",
+        surface: "viewer",
+      });
+      expect(rnd).toHaveBeenCalledOnce();
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "diagram_attribution_shown",
+        expect.objectContaining({ sample_rate: 0.005 }),
+      );
+      rnd.mockRestore();
+    });
+
     it("drops a rate-0 event without initializing mixpanel", async () => {
       // No production event is currently rate-0 (the last two — renderer
       // prefetch's telemetry — were deleted 2026-09-02 along with their emit

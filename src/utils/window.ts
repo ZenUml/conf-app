@@ -123,8 +123,8 @@ export async function _awaitableTrackEvent(
     let eventDetails = {
       event_category: category || "unknown",
       event_label: label || "",
-      ...(sample.rate < 1 ? { sample_rate: sample.rate } : {}),
       ...resetEventDetails,
+      ...(sample.rate < 1 ? { sample_rate: sample.rate } : {}),
     } as EventDetails;
     // make sure event is still sent out even if there are errors in setting up the event details
     try {

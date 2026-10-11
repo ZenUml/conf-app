@@ -3,8 +3,8 @@
     <template v-if="phase === 'invite'">
       <strong>{{ survey.title }}</strong>
       <span class="spacer" />
-      <button type="button" class="primary" @click="openForm">Share feedback</button>
-      <button type="button" class="quiet" @click="dismiss">Dismiss</button>
+      <button type="button" class="primary" :disabled="!ready" @click="openForm">Share feedback</button>
+      <button type="button" class="quiet" :disabled="!ready" @click="dismiss">Dismiss</button>
     </template>
     <template v-else-if="phase === 'form'">
       <div class="form">
@@ -37,7 +37,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { view } from '@forge/bridge';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { PublicSurvey } from '@/features/targetedSurvey/survey';
-import { requestSurveyClaim } from '@/features/targetedSurvey/survey';
+import { requestSurveyClaim, updateSurveyClaim } from '@/features/targetedSurvey/survey';
 import { claimSurveyBanner, isSurveyTerminal, markSurveyTerminal } from '@/features/targetedSurvey/ownership';
 import { createSurveySubmission } from '@/features/targetedSurvey/submission';
 
@@ -54,10 +54,13 @@ const selected = ref<string[]>([]);
 const detail = ref('');
 const error = ref(false);
 const sending = ref(false);
+const ready = ref(false);
 const canSend = computed(() => selected.value.length > 0 || detail.value.trim().length > 0);
 let release: (() => void) | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let submission: ReturnType<typeof createSurveySubmission> | undefined;
+let claimToken: string | undefined;
+let leaseTimer: ReturnType<typeof setTimeout> | undefined;
 let closed = false;
 const preview = !!props.previewInitialPhase;
 const eventProperties = {
@@ -71,11 +74,13 @@ function close() {
   closed = true;
   phase.value = 'hidden';
   release?.();
+  if (leaseTimer) clearTimeout(leaseTimer);
   if (!preview) void view.close();
 }
 
 onMounted(() => {
   if (preview) {
+    ready.value = true;
     phase.value = props.previewInitialPhase!;
     return;
   }
@@ -95,11 +100,24 @@ onMounted(() => {
       return;
     }
     if (closed || Date.now() >= Date.parse(props.survey.expiresAt) || isSurveyTerminal(props.terminalKey)) {
-      close();
-      return;
+      close(); return;
     }
-    submission = createSurveySubmission(props.survey, claim.claimToken);
+    claimToken = claim.claimToken;
+    // PUT starts the server's clock after request start. This conservative
+    // deadline hides the pending invitation before another page can reclaim it.
+    const deadline = claim.startedAt + claim.leaseMs - 1000;
+    if (Date.now() >= deadline || document.visibilityState !== 'visible') { close(); return; }
     phase.value = 'invite';
+    leaseTimer = setTimeout(() => { if (!ready.value) close(); }, deadline - Date.now());
+    await nextTick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    if (closed || phase.value !== 'invite' || Date.now() >= deadline
+      || document.visibilityState !== 'visible') { close(); return; }
+    const acknowledged = await updateSurveyClaim(props.survey, claim.claimToken, 'shown');
+    if (closed || phase.value !== 'invite' || Date.now() >= deadline || !acknowledged) { close(); return; }
+    if (leaseTimer) clearTimeout(leaseTimer);
+    submission = createSurveySubmission(props.survey, claim.claimToken);
+    ready.value = true;
     trackAnalyticsEvent('targeted_survey_shown', eventProperties);
   })(); }, close);
 });
@@ -107,24 +125,35 @@ onMounted(() => {
 onBeforeUnmount(() => {
   closed = true;
   if (timer) clearTimeout(timer);
+  if (leaseTimer) clearTimeout(leaseTimer);
   release?.();
 });
 
 function openForm() {
-  if (phase.value !== 'invite') return;
+  if (phase.value !== 'invite' || !ready.value) return;
   phase.value = 'form';
   void nextTick(() => document.querySelector<HTMLInputElement>('.survey-banner input[type="checkbox"]')?.focus());
   if (!preview) trackAnalyticsEvent('targeted_survey_opened', eventProperties);
 }
 
 function dismiss() {
-  if (phase.value === 'hidden' || phase.value === 'thanks') return;
+  if (phase.value === 'hidden' || phase.value === 'thanks' || !ready.value) return;
   if (!preview) {
     const survey_phase = sending.value ? 'submitting' : phase.value;
     markSurveyTerminal(props.terminalKey, 'dismissed');
     trackAnalyticsEvent('targeted_survey_dismissed', { ...eventProperties, survey_phase });
+    if (claimToken) void persistDismissal(claimToken);
   }
   close();
+}
+
+async function persistDismissal(token: string) {
+  // Retry while this page is alive. A confirmed display stays reserved even if
+  // the network is unavailable, so no other product can re-prompt this revision.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await updateSurveyClaim(props.survey, token, 'dismiss')) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+  }
 }
 
 async function send() {

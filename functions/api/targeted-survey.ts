@@ -8,6 +8,7 @@ interface Env {
 const FULL_APP_ID = 'd9e4002b-120b-426b-834b-402a4a5adce7';
 const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const ACTIVE_KEY = 'targeted-survey:active';
+const LEASE_MS = 15_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPTION_IDS = ['performance', 'editing', 'display', 'export', 'missing_feature', 'other'] as const;
 const OPTION_SET = new Set<string>(OPTION_IDS);
@@ -64,7 +65,7 @@ function parseConfig(value: unknown): SurveyConfig | null {
   return c as unknown as SurveyConfig;
 }
 
-async function eligible(env: Env, fit: ForgeRequestContext, excludeClaimed = false): Promise<SurveyConfig | null> {
+async function eligible(env: Env, fit: ForgeRequestContext, excludeTerminal = false): Promise<SurveyConfig | null> {
   if (!identity(fit) || !env.SPACE_LICENSE_KV || !env.DB) return null;
   const raw = await env.SPACE_LICENSE_KV.get(ACTIVE_KEY);
   const survey = parseConfig(raw ? JSON.parse(raw) : null);
@@ -76,12 +77,18 @@ async function eligible(env: Env, fit: ForgeRequestContext, excludeClaimed = fal
   // Do not show a form that cannot be stored. A storage failure is treated as
   // no eligible survey by callers; the response never leaks target metadata.
   await env.DB.prepare('SELECT id FROM TargetedSurveyResponse LIMIT 1').first();
-  await env.DB.prepare('SELECT id FROM TargetedSurveyClaim LIMIT 1').first();
-  if (excludeClaimed) {
-    const existing = await env.DB.prepare(`
-      SELECT id FROM TargetedSurveyClaim WHERE surveyUuid = ?1 AND cloudId = ?2 AND accountId = ?3
-    `).bind(survey.uuid, fit.cloudId, fit.accountId).first();
-    if (existing) return null;
+  await env.DB.prepare('SELECT claimToken FROM TargetedSurveyLease LIMIT 1').first();
+  if (excludeTerminal) {
+    const terminal = await env.DB.prepare(`
+      SELECT terminal FROM TargetedSurveyLease
+      WHERE surveyUuid = ?1 AND surveyRevision = ?2 AND cloudId = ?3 AND accountId = ?4
+    `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId).first<{ terminal: string | null }>();
+    if (terminal?.terminal) return null;
+    const response = await env.DB.prepare(`
+      SELECT id FROM TargetedSurveyResponse
+      WHERE surveyUuid = ?1 AND surveyRevision = ?2 AND cloudId = ?3 AND accountId = ?4
+    `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId).first();
+    if (response) return null;
   }
   return survey;
 }
@@ -103,45 +110,92 @@ export const onRequestGet: PagesFunction<Env, string, ForgeRequestData> = async 
   }
 };
 
-/** Irreversible, atomic display claim shared by the Lite and Full backends. */
+/** Atomic claim or reclaim. A live lease and a terminal outcome cannot be stolen. */
 export const onRequestPut: PagesFunction<Env, string, ForgeRequestData> = async ({ request, env, data }) => {
   const fit = data.forgeContext;
   if (!identity(fit)) return json(404, { claimed: false });
   let survey: SurveyConfig | null;
-  try {
-    survey = await eligible(env, fit);
-  } catch {
-    return json(503, { claimed: false });
-  }
+  try { survey = await eligible(env, fit); }
+  catch { return json(503, { claimed: false }); }
   if (!survey) return json(404, { claimed: false });
-  let body: unknown;
+  let body: any;
   try {
     const raw = await request.text();
     if (raw.length > 1024) return json(413, { claimed: false });
     body = JSON.parse(raw);
-  } catch {
-    return json(400, { claimed: false });
-  }
+  } catch { return json(400, { claimed: false }); }
   if (!body || typeof body !== 'object' || Array.isArray(body)
-    || (body as any).surveyUuid !== survey.uuid || (body as any).revision !== survey.revision) {
+    || body.surveyUuid !== survey.uuid || body.revision !== survey.revision) {
     return json(400, { claimed: false });
   }
   const claimToken = crypto.randomUUID();
+  const now = Date.now();
   try {
     const result = await env.DB.prepare(`
-      INSERT OR IGNORE INTO TargetedSurveyClaim
-      (surveyUuid, cloudId, accountId, forgeAppId, claimToken)
-      VALUES (?1, ?2, ?3, ?4, ?5)
-    `).bind(survey.uuid, fit.cloudId, fit.accountId, fit.forgeAppId, claimToken).run();
-    if (!result.success || result.meta?.changes !== 1 && result.meta?.changes !== 0) {
+      INSERT INTO TargetedSurveyLease
+        (surveyUuid, surveyRevision, cloudId, accountId, forgeAppId, claimToken, expiresAtMs)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+      ON CONFLICT (surveyUuid, surveyRevision, cloudId, accountId) DO UPDATE SET
+        forgeAppId = excluded.forgeAppId,
+        claimToken = excluded.claimToken,
+        expiresAtMs = excluded.expiresAtMs
+      WHERE TargetedSurveyLease.terminal IS NULL AND TargetedSurveyLease.expiresAtMs <= ?8
+    `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId,
+      fit.forgeAppId, claimToken, now + LEASE_MS, now).run();
+    if (!result.success || (result.meta?.changes !== 0 && result.meta?.changes !== 1)) {
       return json(503, { claimed: false });
     }
     return result.meta.changes === 1
-      ? json(200, { claimed: true, claimToken })
+      ? json(200, { claimed: true, claimToken, leaseMs: LEASE_MS })
       : json(200, { claimed: false });
-  } catch {
-    return json(503, { claimed: false });
-  }
+  } catch { return json(503, { claimed: false }); }
+};
+
+/** Confirm a live pending display, or dismiss a confirmed display. */
+export const onRequestPatch: PagesFunction<Env, string, ForgeRequestData> = async ({ request, env, data }) => {
+  const fit = data.forgeContext;
+  if (!identity(fit)) return json(404, { ok: false });
+  let survey: SurveyConfig | null;
+  try { survey = await eligible(env, fit); }
+  catch { return json(503, { ok: false }); }
+  if (!survey) return json(404, { ok: false });
+  let body: any;
+  try {
+    const raw = await request.text();
+    if (raw.length > 1024) return json(413, { ok: false });
+    body = JSON.parse(raw);
+  } catch { return json(400, { ok: false }); }
+  if (!body || body.surveyUuid !== survey.uuid || body.revision !== survey.revision
+    || typeof body.claimToken !== 'string' || !UUID.test(body.claimToken)
+    || (body.action !== 'shown' && body.action !== 'dismiss')) return json(400, { ok: false });
+  const now = Date.now();
+  try {
+    const result = await env.DB.prepare(body.action === 'shown' ? `
+      UPDATE TargetedSurveyLease SET terminal = 'shown'
+      WHERE surveyUuid = ?1 AND surveyRevision = ?2 AND cloudId = ?3 AND accountId = ?4
+        AND forgeAppId = ?5 AND claimToken = ?6 AND terminal IS NULL AND expiresAtMs > ?7
+    ` : `
+      UPDATE TargetedSurveyLease SET terminal = 'dismissed'
+      WHERE surveyUuid = ?1 AND surveyRevision = ?2 AND cloudId = ?3 AND accountId = ?4
+        AND forgeAppId = ?5 AND claimToken = ?6 AND terminal = 'shown'
+    `).bind(...(body.action === 'shown'
+      ? [survey.uuid, survey.revision, fit.cloudId, fit.accountId, fit.forgeAppId, body.claimToken, now]
+      : [survey.uuid, survey.revision, fit.cloudId, fit.accountId, fit.forgeAppId, body.claimToken])).run();
+    if (!result.success) return json(503, { ok: false });
+    if (result.meta?.changes !== 1) {
+      const existing = await env.DB.prepare(`
+        SELECT terminal FROM TargetedSurveyLease WHERE surveyUuid = ?1 AND surveyRevision = ?2
+          AND cloudId = ?3 AND accountId = ?4 AND forgeAppId = ?5 AND claimToken = ?6
+      `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId, fit.forgeAppId,
+        body.claimToken).first<{ terminal: string | null }>();
+      if (body.action === 'shown' && existing?.terminal === 'shown'
+        || body.action === 'dismiss' && (existing?.terminal === 'dismissed' || existing?.terminal === 'submitted')) {
+        return json(200, { ok: true });
+      }
+      return json(409, { ok: false });
+    }
+    return json(200, { ok: true });
+  } catch { return json(503, { ok: false }); }
 };
 
 export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async ({ request, env, data }) => {
@@ -180,28 +234,40 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
   }
 
   try {
-    const claim = await env.DB.prepare(`
-      SELECT claimToken, forgeAppId FROM TargetedSurveyClaim WHERE surveyUuid = ?1 AND cloudId = ?2 AND accountId = ?3
-    `).bind(survey.uuid, fit.cloudId, fit.accountId).first<{ claimToken: string; forgeAppId: string }>();
-    if (!claim || typeof response.claimToken !== 'string' || response.claimToken !== claim.claimToken
-      || claim.forgeAppId !== fit.forgeAppId) {
-      return json(404, { ok: false, error: 'unavailable' });
+    const owner = await env.DB.prepare(`
+      SELECT claimToken, forgeAppId, terminal FROM TargetedSurveyLease
+      WHERE surveyUuid = ?1 AND surveyRevision = ?2 AND cloudId = ?3 AND accountId = ?4
+    `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId)
+      .first<{ claimToken: string; forgeAppId: string; terminal: string | null }>();
+    if (!owner || owner.claimToken !== response.claimToken || owner.forgeAppId !== fit.forgeAppId
+      || (owner.terminal !== 'shown' && owner.terminal !== 'submitted')) {
+      return json(409, { ok: false, error: 'lease_lost' });
     }
-  } catch {
-    return json(503, { ok: false, error: 'storage_unavailable', retryable: true });
-  }
-
-  try {
     const result = await env.DB.prepare(`
       INSERT OR IGNORE INTO TargetedSurveyResponse
       (surveyUuid, surveyRevision, cloudId, accountId, forgeAppId, submissionId, optionIds, responseText)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+      WHERE EXISTS (
+        SELECT 1 FROM TargetedSurveyLease WHERE surveyUuid = ?1 AND surveyRevision = ?2
+          AND cloudId = ?3 AND accountId = ?4 AND forgeAppId = ?5 AND claimToken = ?9
+          AND terminal = 'shown'
+      )
     `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId, fit.forgeAppId,
-      response.submissionId, JSON.stringify(options), text || null).run();
+      response.submissionId, JSON.stringify(options), text || null, response.claimToken).run();
     if (!result.success) throw new Error('D1 write failed');
+    const saved = await env.DB.prepare(`
+      SELECT submissionId FROM TargetedSurveyResponse WHERE surveyUuid = ?1 AND surveyRevision = ?2
+        AND cloudId = ?3 AND accountId = ?4
+    `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId).first<{ submissionId: string }>();
+    if (!saved || saved.submissionId !== response.submissionId) return json(409, { ok: false, error: 'lease_lost' });
+    await env.DB.prepare(`
+      UPDATE TargetedSurveyLease SET terminal = 'submitted'
+      WHERE surveyUuid = ?1 AND surveyRevision = ?2 AND cloudId = ?3 AND accountId = ?4
+        AND forgeAppId = ?5 AND claimToken = ?6 AND terminal = 'shown'
+    `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId, fit.forgeAppId,
+      response.claimToken).run();
     return json(201, { ok: true });
   } catch {
-    // No response content or tenant identity is logged.
     return json(503, { ok: false, error: 'storage_unavailable', retryable: true });
   }
 };

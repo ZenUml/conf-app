@@ -17,7 +17,7 @@ export interface TargetedSurveyCandidate {
   survey: PublicSurvey;
   terminalKey: string;
 }
-export type SurveyClaimResult = { claimToken: string } | {
+export type SurveyClaimResult = { claimToken: string; leaseMs: number; startedAt: number } | {
   reason: 'already_claimed' | 'unavailable' | 'invalid_response';
 };
 
@@ -59,7 +59,7 @@ export async function loadTargetedSurvey(): Promise<TargetedSurveyCandidate | nu
     const body = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (!validSurvey(body?.survey)) return null;
     const survey = body.survey;
-    const terminalKey = surveyTerminalKey(context.cloudId, context.accountId, survey.uuid);
+    const terminalKey = surveyTerminalKey(context.cloudId, context.accountId, survey.uuid, survey.revision);
     if (isSurveyTerminal(terminalKey)) return null;
 
     // This second pageBanner module is gated by a Confluence property, not by
@@ -78,6 +78,7 @@ export async function loadTargetedSurvey(): Promise<TargetedSurveyCandidate | nu
 /** The server's unique D1 constraint arbitrates across Forge app origins. */
 export async function requestSurveyClaim(survey: PublicSurvey): Promise<SurveyClaimResult> {
   try {
+    const startedAt = Date.now();
     const raw = await withinDeadline(callRemote('/api/targeted-survey', 'PUT', {
       surveyUuid: survey.uuid,
       revision: survey.revision,
@@ -86,9 +87,24 @@ export async function requestSurveyClaim(survey: PublicSurvey): Promise<SurveyCl
     const body = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (body?.claimed === false) return { reason: 'already_claimed' };
     if (body?.claimed === true && typeof body.claimToken === 'string'
-      && /^[0-9a-f-]{36}$/i.test(body.claimToken)) return { claimToken: body.claimToken };
+      && /^[0-9a-f-]{36}$/i.test(body.claimToken)
+      && Number.isInteger(body.leaseMs) && body.leaseMs > 0) return { claimToken: body.claimToken, leaseMs: body.leaseMs, startedAt };
     return { reason: 'invalid_response' };
   } catch {
     return { reason: 'unavailable' };
   }
+}
+
+/** Confirm visible ownership or persist the recipient's dismissal. */
+export async function updateSurveyClaim(
+  survey: PublicSurvey, claimToken: string, action: 'shown' | 'dismiss',
+): Promise<boolean> {
+  try {
+    const raw = await withinDeadline(callRemote('/api/targeted-survey', 'PATCH', {
+      surveyUuid: survey.uuid, revision: survey.revision, claimToken, action,
+    }), LOOKUP_TIMEOUT_MS);
+    if (!raw) return false;
+    const body = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return body?.ok === true;
+  } catch { return false; }
 }

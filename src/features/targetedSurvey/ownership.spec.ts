@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { claimSurveyBanner, markSurveyTerminal, surveyTerminalKey } from './ownership';
 
-const key = surveyTerminalKey('example-cloud', 'example-account', '71861d63-dc0b-4a75-8a04-724711577d70');
+const key = surveyTerminalKey('example-cloud', 'example-account', '71861d63-dc0b-4a75-8a04-724711577d70', 1);
 
 describe('targeted survey browser ownership', () => {
   beforeEach(() => localStorage.clear());
 
-  it('lets one tab display the banner and keeps dismissed campaigns terminal across revisions', async () => {
+  it('lets one tab display the banner and keeps dismissal terminal for only the same revision', async () => {
     const held = new Set<string>();
     const request = vi.fn(async (name: string, _options: unknown, callback: (lock: object | null) => Promise<void>) => {
       if (held.has(name)) return callback(null);
@@ -27,5 +27,8 @@ describe('targeted survey browser ownership', () => {
     const laterLost = vi.fn();
     claimSurveyBanner(key, () => { throw new Error('dismissed campaign displayed'); }, laterLost, locks);
     await vi.waitFor(() => expect(laterLost).toHaveBeenCalled());
+    const nextRevisionKey = surveyTerminalKey('example-cloud', 'example-account',
+      '71861d63-dc0b-4a75-8a04-724711577d70', 2);
+    expect(nextRevisionKey).not.toBe(key);
   });
 });

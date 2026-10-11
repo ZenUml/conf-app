@@ -4,10 +4,12 @@ Outside the temporary October 2026 budget window, the flag-driven session-replay
 sampling rate is controlled **live from the Forge Developer Console**. Two
 boolean flags resolve into `record_sessions_percent` at `mixpanel.init` time.
 
-From `2026-10-01T00:00:00Z` until `2026-11-01T00:00:00Z`, the app overrides
-all passive baseline recording to 0% before evaluating either flag. Targeted
-inspection cannot start a replay during this window. Explicit feedback
-recording and 1% sampled authoring remain available; see
+From `2026-10-01T00:00:00Z` until `2026-11-01T00:00:00Z`, the app sets
+automatic baseline sampling to 0% before evaluating either flag. Targeted
+inspection cannot start a new sampled replay during this window. The SDK may
+continue or resume an existing, nonexpired recording across a reload; this
+policy does not stop all uploads or act as an ingestion kill switch. Explicit
+feedback recording and 1% sampled authoring remain available; see
 `docs/ops/mixpanel-quota-check.md` for the full temporary policy.
 
 Code: `src/utils/analytics/sessionReplayFlags.ts` (resolves the flags),

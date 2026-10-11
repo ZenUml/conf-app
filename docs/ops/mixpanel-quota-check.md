@@ -50,7 +50,7 @@ Forge flags:
 | Authoring (create/edit) | `AUTHORING_REPLAY_RATE` | `_startExplicitReplay` |
 
 **Temporary October 2026 budget:** From `2026-10-01T00:00:00Z` up to but not
-including `2026-11-01T00:00:00Z`, automatic baseline recording is 0% in every
+including `2026-11-01T00:00:00Z`, automatic baseline sampling is 0% in every
 iframe, including targeted/sampled Forge cohorts, fullscreen, and Plan & usage.
 The legacy `trackEvent` initializer also sets the SDK rate to 0%. Create/edit
 authoring uses a 1% decision drawn once per iframe, and explicit feedback
@@ -60,7 +60,10 @@ rates in the table and their existing Forge flags; an iframe already initialized
 keeps its init-time SDK setting until it closes. `session_replay_source=off` and
 `session_replay_percent=0` describe the automatic baseline; explicit starts
 stamp `authoring` or `feedback` if their SDK start call returns. A returned call
-is not proof that a replay uploaded.
+is not proof that a replay uploaded. The SDK may continue or resume an existing,
+nonexpired recording across a reload despite the 0% new-sampling setting. This
+budget reduces new automatic replay starts; it does not stop all uploads or act
+as an ingestion kill switch.
 
 Read `AUTHORING_REPLAY_RATE` on the branch being measured. If it differs from
 what the numbers below assume, say so before interpreting anything — a rate

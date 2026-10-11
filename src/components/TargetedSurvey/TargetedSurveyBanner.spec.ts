@@ -48,7 +48,9 @@ describe('targeted survey page banner', () => {
     await tick();
     expect(wrapper.text()).toContain('Help us improve ZenUML');
     expect((wrapper.get('button.primary').element as HTMLButtonElement).disabled).toBe(true);
-    expect(remote).toHaveBeenCalledWith('/api/targeted-survey', 'PATCH', expect.objectContaining({ action: 'shown' }));
+    await vi.waitFor(() => expect(remote).toHaveBeenCalledWith(
+      '/api/targeted-survey', 'PATCH', expect.objectContaining({ action: 'shown' }),
+    ));
     confirm({ ok: true }); await flushPromises();
     expect((wrapper.get('button.primary').element as HTMLButtonElement).disabled).toBe(false);
     await wrapper.get('button.quiet').trigger('click');

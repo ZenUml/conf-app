@@ -612,6 +612,15 @@ async function buildApp({ app }) {
     maxLiveChars: 5000,
     progressDotsEveryMs: 1500,
   })
+
+  // The Diagramly development deploy script also omits this large asset tree.
+  // Keeping it in the Forge resource can make the upload time out.
+  if (app.productType === 'diagramly') {
+    fs.rmSync(path.resolve(process.cwd(), 'dist/drawio'), {
+      recursive: true,
+      force: true,
+    })
+  }
 }
 
 async function runTunnel({ appEnvVars, forgeEnv }) {

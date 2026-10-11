@@ -27,6 +27,9 @@ describe('Jev conservative classification', () => {
     expect(isUnitTestPath('src/components/AgentLink/ConnectMcpDialog.spec.ts')).toBe(true);
     expect(isUnitTestPath('tests/e2e-tests/tests/agent-link/agent-link-e2e.spec.ts')).toBe(false);
     expect(isUnitTestPath('src/components/AgentLink/ConnectMcpDialog.vue')).toBe(false);
+    // `node --test` suites under scripts/ use this suffix; one held a fake Mixpanel token.
+    expect(isUnitTestPath('scripts/ci/lite-deploy-benchmark.node-test.mjs')).toBe(true);
+    expect(isUnitTestPath('scripts/ci/lite-deploy-benchmark.mjs')).toBe(false);
   });
   it('permits behavior-specific analytics and Agent Link helper diffs for classification', () => {
     expect(pathRule('src/utils/analytics/catalog.ts')).toBeNull();

@@ -1712,8 +1712,10 @@ export default {
       this.$emit('magic-highlight-ready', false);
     },
     async installMagicHighlights() {
+      // Inline too: the staged header shows the refined layout in the page
+      // macro, and the original Mermaid canvas is highlighted there as well.
       if (!this.magicActive || !this.relationshipHighlights || this.showExportModal
-        || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+        || this.diagramType !== DiagramType.Mermaid) return;
       const generation = this.magicGeneration;
       const source = this.diagram?.mermaidCode ?? '';
       const artifact = this.diagram?.magic;

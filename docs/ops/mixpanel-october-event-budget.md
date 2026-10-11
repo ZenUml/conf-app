@@ -32,7 +32,7 @@ by backend code; listing one here does not change its backend transport.
 rate through September, October, and November. For historical comparison,
 hold the production site, product, and user population filters constant.
 Project-wide totals are not directly comparable across the earlier CI staging
-isolation change, because staging test traffic was removed from the project.
+isolation change, because new staging test arrivals are now suppressed.
 
 The related feature-success signals
 `diagram_attribution_shown`, `diagram_audience_registration_succeeded`,

@@ -40,8 +40,8 @@ describe('targeted survey page-banner eligibility', () => {
   it('requires a confirmed one-time display claim before showing', async () => {
     boundary.remote.mockResolvedValueOnce({ claimed: false });
     expect(await requestSurveyClaim(survey)).toEqual({ reason: 'already_claimed' });
-    boundary.remote.mockResolvedValueOnce({ claimed: true, claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10' });
-    expect(await requestSurveyClaim(survey)).toEqual({ claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10' });
+    boundary.remote.mockResolvedValueOnce({ claimed: true, claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10', leaseMs: 15000 });
+    expect(await requestSurveyClaim(survey)).toMatchObject({ claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10', leaseMs: 15000 });
     expect(boundary.remote).toHaveBeenCalledWith('/api/targeted-survey', 'PUT', {
       surveyUuid: survey.uuid, revision: 1,
     });

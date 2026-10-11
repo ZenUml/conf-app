@@ -1,11 +1,11 @@
 export type SurveyTerminal = 'dismissed' | 'submitted';
 
-export function surveyTerminalKey(cloudId: string, accountId: string, uuid: string): string {
-  return `targetedSurvey:${encodeURIComponent(cloudId)}:${encodeURIComponent(accountId)}:${uuid}`;
+export function surveyTerminalKey(cloudId: string, accountId: string, uuid: string, revision: number): string {
+  return `targetedSurvey:${encodeURIComponent(cloudId)}:${encodeURIComponent(accountId)}:${uuid}:${revision}`;
 }
 
 export function isSurveyTerminal(key: string): boolean {
-  // Storage failure is a hard suppression: we cannot remember dismissal.
+  // D1 is authoritative; storage is only a same-origin optimization.
   try {
     const value = localStorage.getItem(key);
     const probe = `${key}:storage-probe`;
@@ -15,7 +15,7 @@ export function isSurveyTerminal(key: string): boolean {
     // ambiguous, so suppress rather than prompt again.
     return value !== null;
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -44,10 +44,8 @@ export function claimSurveyBanner(
   onLost: () => void,
   locks: LockManager | undefined = navigator.locks,
 ): () => void {
-  if (!locks?.request || isSurveyTerminal(key)) {
-    onLost();
-    return () => {};
-  }
+  if (isSurveyTerminal(key)) { onLost(); return () => {}; }
+  if (!locks?.request) { onOwned(); return () => {}; }
   let releaseHold: (() => void) | undefined;
   let released = false;
   let notifiedLost = false;

@@ -165,7 +165,7 @@ test('every downstream branch consumes resolved mode and actual checkout provena
 test('pinned candidate tooling fills an older source checkout and rejects missing runtime helpers', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lite-tooling-copy-test-'));
   const copy = deploy.jobs.deploy.steps.find(step => step.name === 'Use pinned workflow deployment tooling');
-  const helpers = ['lite-deploy-prepare.mjs', 'lite-deploy-evidence.mjs', 'lite-deploy-forge-timing.mjs', 'lite-deploy-permissions-cache.mjs', 'lite-deploy-studio-cache.mjs'];
+  const helpers = ['lite-deploy-prepare.mjs', 'lite-deploy-evidence.mjs', 'lite-deploy-forge-timing.mjs', 'lite-deploy-permissions-cache.mjs', 'lite-deploy-studio-cache.mjs', 'mixpanel-staging-config.mjs'];
   try {
     for (const path of ['.github/actions/wrangler-publish', 'scripts/ci', '.ci-workflow/.github/actions/wrangler-publish', '.ci-workflow/scripts/ci']) await mkdir(join(directory, path), { recursive: true });
     await writeFile(join(directory, '.ci-workflow/.github/actions/wrangler-publish/action.yml'), 'pinned deployment action');

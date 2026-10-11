@@ -21,7 +21,7 @@
  *   - Authenticated session (run auth project first)
  */
 
-import { test, expect, Page, FrameLocator } from '@playwright/test';
+import { test, expect, Page, FrameLocator } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { insertMacro, openEditModal } from '../../helpers/MacroFlowHelper.js';
 import { clickEditorPublish, expectModalClosed, fillEditorTitle, modalContentFrame } from '../../helpers/FullscreenModalHelper.js';

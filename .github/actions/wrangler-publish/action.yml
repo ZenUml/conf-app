@@ -216,6 +216,7 @@ runs:
           sed -i "/^\[vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
           sed -i "/^\[env\.production\.vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
         fi
+        node scripts/ci/mixpanel-staging-config.mjs wrangler.toml "${{ inputs.environment }}"
         cat wrangler.toml
       shell: bash
       env:

@@ -20,7 +20,7 @@
  *
  * Run: APP=zenuml-lite@stg npx playwright test --project=agent-link
  */
-import { test, expect, type Frame, type Page } from '@playwright/test';
+import { test, expect, type Frame, type Page } from '../../fixtures/mixpanel-test.js';
 import {
   AGENT_LINK_STG_BASE,
   agentLinkMcp,

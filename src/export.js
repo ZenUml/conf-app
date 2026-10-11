@@ -221,6 +221,9 @@ export function joinKeyProps(ctx) {
  * Never throws — a tracking failure must never break the export function.
  */
 export async function trackExportEvent(eventName, properties) {
+  // Forge variables are scoped by environment. Staging deploys set this flag;
+  // production leaves it unset so real export telemetry continues.
+  if (process.env.MIXPANEL_DISABLED === 'true') return;
   const token = process.env.MIXPANEL_TOKEN;
   if (!token) {
     console.debug('Export: MIXPANEL_TOKEN not set — skipping analytics');

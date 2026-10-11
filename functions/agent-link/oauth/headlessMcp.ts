@@ -136,6 +136,7 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
       },
       env.MIXPANEL_TOKEN,
+      env,
     ));
   } catch {
     // analytics must never fail a write that already happened
@@ -159,6 +160,7 @@ async function trackGrantEvent(env: HeadlessEnv, userId: string, event: GrantEve
       reason: event.type === 'revoked' ? event.reason : event.failure,
     },
     env.MIXPANEL_TOKEN,
+    env,
   ));
 }
 
@@ -190,6 +192,7 @@ async function trackWriteRefusal(
         paywall_gate: failure.code === 'limit_reached' ? 'limit_reached' : undefined,
       },
       env.MIXPANEL_TOKEN,
+      env,
     ));
   } catch {
     // never fail the response on analytics

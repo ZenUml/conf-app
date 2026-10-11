@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
 import { pasteUntil, isMacro, typedDeeplinkUrl } from '../../helpers/embedDeeplink.js';

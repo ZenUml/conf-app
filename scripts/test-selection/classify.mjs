@@ -22,7 +22,7 @@ export const EXECUTION_SELECTOR_CATALOG_FINGERPRINT = createHash('sha256')
   .update(JSON.stringify({ version: EXECUTION_SELECTOR_CATALOG_VERSION, selectors: EXECUTION_IMPACT }))
   .digest('hex');
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
-export const isUnitTestPath = path => /(^|\/)[^/]+\.(spec|test)\.[cm]?[jt]sx?$/.test(path) && !path.startsWith('tests/e2e-tests/');
+export const isUnitTestPath = path => /(^|\/)[^/]+\.(spec|test|node-test)\.[cm]?[jt]sx?$/.test(path) && !path.startsWith('tests/e2e-tests/');
 export function pathRule(path, scope = 'pr') {
   if (/^(private\/|\.env|.*\.(pem|key)$)/.test(path)) return 'excluded-sensitive-path';
   if (scope === 'main') return null;

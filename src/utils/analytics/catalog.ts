@@ -64,11 +64,23 @@ export type HighlightFeedbackReason =
   | "not_useful"
   | "other";
 
-/** Surface variant that displayed the Mermaid highlight feedback prompt. */
-export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar";
+/**
+ * Surface variant that displayed the Mermaid highlight feedback prompt.
+ * `sidebar` is the retired 260px side card (shipped to 2026-10-10);
+ * `canvas_pill` is the auto-dismissing pill floating at the canvas bottom.
+ */
+export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar" | "canvas_pill";
 
 /** Prompt step at which planned Mermaid highlight feedback was dismissed. */
 export type HighlightDismissStage = "question" | "reason";
+
+/**
+ * Why a Mermaid highlight pill closed without an answer. Feedback pill:
+ * `close` is the × button, `timeout` is its 10 s auto-dismiss. First-use
+ * hint ("Highlighting connections"): `close` is ×, `turn_off` is its
+ * "Turn off" button, which also disables highlights.
+ */
+export type HighlightDismissCause = "close" | "timeout" | "turn_off";
 
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
@@ -651,6 +663,17 @@ export type AnalyticsEventName =
   | "csat_displayed"
   | "csat_submitted"
   | "csat_dismissed"
+  // Lite/Full targeted survey funnel. The server selects the recipient from a
+  // verified Forge identity; events contain campaign metadata only, never the
+  // target, selected answer, or free text.
+  | "targeted_survey_shown"
+  | "targeted_survey_claim_requested"
+  | "targeted_survey_claim_failed"
+  | "targeted_survey_opened"
+  | "targeted_survey_dismissed"
+  | "targeted_survey_submit_requested"
+  | "targeted_survey_submitted"
+  | "targeted_survey_submit_failed"
   | "feedback_link_clicked"
   // In-product feedback funnel. feedback_report_opened fires as the surface
   // trigger opens the dialog, after requesting Session Replay, and carries
@@ -743,6 +766,14 @@ export type AnalyticsEventName =
   | "mermaid_highlight_feedback_reason_selected"
   | "mermaid_highlight_feedback_dismissed"
   | "mermaid_highlight_preference_changed"
+  // First-use hint at the canvas bottom-left ("Highlighting connections ·
+  // Turn off"), design "Viewer Header Highlight Analysis" option 1e. `shown`
+  // fires on the first highlight use per device (localStorage-gated, so at
+  // most once per browser); `dismissed` carries highlight_dismiss_cause
+  // (`close` = ×, `turn_off` = the button, which also records
+  // preference_changed with action_location=canvas_hint).
+  | "mermaid_highlight_hint_shown"
+  | "mermaid_highlight_hint_dismissed"
   // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
   // instance; menu_opened fires on every closed -> open transition.
   | "copy_for_ai_impression"
@@ -1300,6 +1331,22 @@ export type AnalyticsEventName =
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
+  // AA — headless MCP tool usage. Backend-emitted (oauth/headlessMcp.ts),
+  // like the W/X/Y blocks above. `_tool_called` fires once per authenticated
+  // `tools/call`, for EVERY tool — reads included, which nothing else counts
+  // on the headless path (X/Y cover only the four writes, and the relay's
+  // per-tool events come from the macro, which a headless call has none of).
+  // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
+  // for list_sites / get_status, which take none), how the call ended in
+  // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
+  // and server-side latency in `duration_ms`. The write events stay as they
+  // are: they carry write-specific properties (paywall_gate, result) this one
+  // does not. `_initialized` fires on each `initialize` handshake and carries
+  // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
+  // `mcp_client_version`), so usage can be split by agent (Claude Code,
+  // Cursor, …). Tool arguments and results are never sent.
+  | "agent_link_mcp_tool_called"
+  | "agent_link_mcp_initialized"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1501,6 +1548,14 @@ export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
 // in with OAuth and edits through Confluence directly (the only mode offered
 // in the first release); 'relay' = a macro-minted session over the live relay.
 export type AgentLinkMcpMode = "headless" | "relay";
+
+// How one headless `tools/call` ended (agent_link_mcp_tool_called).
+// 'success' = the tool returned a result; 'tool_error' = the tool refused with
+// a HeadlessToolError (its code rides `reason`); 'scope_denied' = the token
+// lacks the diagram.read / diagram.write scope the tool needs;
+// 'unknown_tool' = no such tool (`mcp_tool` is then 'unknown', never the
+// client's string); 'exception' = an unexpected throw (a 500).
+export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception";
 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit

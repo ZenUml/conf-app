@@ -1,6 +1,6 @@
 // graph-edit:0..4 — Edit flow for an existing Graph (DrawIO) macro.
 
-import { test, expect, type FrameLocator } from '@playwright/test';
+import { test, expect, type FrameLocator } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,

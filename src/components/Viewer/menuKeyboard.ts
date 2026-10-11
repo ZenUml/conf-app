@@ -8,8 +8,11 @@
  * closes one layer: it must not also reach the Fullscreen exit or the Source
  * panel's Escape handling.
  */
+/** What the arrow keys walk and what gets initial focus: plain and checkbox items alike. */
+export const MENU_ITEM_SELECTOR = '[role="menuitem"]:not([disabled]), [role="menuitemcheckbox"]:not([disabled])'
+
 export function menuItems(menu: HTMLElement): HTMLElement[] {
-  return Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'))
+  return Array.from(menu.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR))
 }
 
 export function handleMenuKeydown(

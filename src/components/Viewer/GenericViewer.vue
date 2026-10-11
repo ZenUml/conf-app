@@ -228,10 +228,11 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
-              <!-- Connect MCP (agent-link flag on, agent-editable types, inline
-                   only) takes the Copy for AI slot and opens ConnectMcpDialog
-                   with the headless MCP setup and a prompt naming this diagram.
-                   Stage 3 moves it into More, as it does Copy for AI. -->
+              <!-- Connect MCP (agent-link flag on, agent-editable types) takes
+                   the Copy for AI slot, inline and in fullscreen, and opens
+                   ConnectMcpDialog with the headless MCP setup and a prompt
+                   naming this diagram. Inline it is icon-only and stage 3 moves
+                   it into More; fullscreen labels it as it does Copy for AI. -->
               <button
                 v-if="showAgentLinkConnect"
                 type="button"
@@ -246,10 +247,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
                 </svg>
-                <!-- Visible "MCP" next to the icon, even inline where Source and
-                     Copy for AI are icon-only: the mark alone is not yet widely
-                     recognised. aria-label keeps the full "Connect MCP". -->
-                <span class="viewer-act-connect-mcp-label" aria-hidden="true">MCP</span>
+                <span class="viewer-btn-label">Connect MCP</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
               <!-- Fullscreen: the actions the inline macro keeps in More are
@@ -267,6 +265,14 @@
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
                 @opened="onMoreMenuOpened" @closed="moreMenuOpen = false">
                 <template #default="{ close }">
+                  <!-- Lead items from the diagram-type wrapper (the Mermaid
+                       relationship-highlights switch, design "Viewer Header
+                       Highlight Analysis" 1e), then the standard entries. The
+                       slot receives close() so an item can shut the menu. -->
+                  <template v-if="$slots['viewer-more-menu-start']">
+                    <slot name="viewer-more-menu-start" :close="close"></slot>
+                    <div role="separator" class="overflow-menu-separator"></div>
+                  </template>
                   <template v-for="(item, index) in moreMenuEntries" :key="`${item}-${index}`">
                     <div v-if="item === 'separator'" role="separator" class="overflow-menu-separator"></div>
                     <button
@@ -432,6 +438,16 @@
               <DiagramViewport v-if="magicActive" ref="magicViewport" macro-type="mermaid"
                 label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
+            </div>
+            <!-- Canvas overlay anchor: a zero-height block between the diagram
+                 and the footer row. Slot content (the Mermaid highlight feedback
+                 pill) positions itself against this box, so it floats over the
+                 diagram's bottom edge, stays above the byline / related-diagrams
+                 row, and is never inside captureNode's export clone. Only
+                 mounted when a parent fills the slot, so other diagram types'
+                 DOM is unchanged. -->
+            <div v-if="!isLoadFailed && $slots['viewer-canvas-overlay']" class="viewer-canvas-overlay">
+              <slot name="viewer-canvas-overlay"></slot>
             </div>
             <div
               v-if="!isLoadFailed && (diagramAttribution || (architectureTokensEnabled && showRelatedDiagrams))"
@@ -624,13 +640,12 @@ const ICON_PATHS = {
   link: 'M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244',
   // Official Model Context Protocol mark, as its three stroke centerlines
   // scaled to this 24px grid so it takes the same stroke weight as the rest.
-  mcp: 'M2.05 11.25L11.49 1.81C12.79 0.51 14.91 0.51 16.21 1.81C17.51 3.11 17.51 5.23 16.21 6.53L9.08 13.66M9.18 13.56L16.21 6.53C17.51 5.23 19.63 5.23 20.93 6.53L20.98 6.58C22.28 7.88 22.28 10 20.98 11.3L12.44 19.84C12.01 20.27 12.01 20.98 12.44 21.41L14.19 23.17M13.85 4.17L6.87 11.15C5.56 12.46 5.56 14.57 6.87 15.87C8.17 17.18 10.28 17.18 11.59 15.87L18.57 8.89',
   bug: 'M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25',
 };
 const MORE_MENU_META = {
   'source': { label: 'Source', icon: ICON_PATHS.code },
   'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
-  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.mcp },
+  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.spark },
   'copy-diagram-link': { label: 'Copy diagram link', icon: ICON_PATHS.share },
   'copy-page-link': { label: 'Copy page link', icon: ICON_PATHS.link },
   'export-png': { label: 'Export PNG', icon: ICON_PATHS.download },
@@ -1009,17 +1024,20 @@ export default {
     // Small-macro action-area affordance — hidden once already in Fullscreen
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
     showAgentLinkConnect() {
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+      // With relay sessions on, fullscreen connects through its rail instead.
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported
+        && !(this.isFullscreenMode && RELAY_SESSIONS_ENABLED);
     },
     // The Copy for AI slot renders only once it is known not to be Connect
-    // MCP's: on an inline agent-editable macro that waits for the async flag,
-    // so Copy for AI never flashes and then swaps out. Fullscreen and the other
-    // text types never show Connect MCP, so they need not wait.
+    // MCP's: on an agent-editable macro, inline or fullscreen, that waits for
+    // the async flag, so Copy for AI never flashes and then swaps out. The
+    // other text types never show Connect MCP, so they need not wait.
     copyForAiSlotSettled() {
-      return this.agentLinkFlagResolved || this.isFullscreenMode || !this.agentLinkMvpSupported;
+      return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
     },
+    // Connect MCP takes Copy for AI's slot, so it keeps Copy for AI's sparkles.
     connectMcpIcon() {
-      return ICON_PATHS.mcp;
+      return ICON_PATHS.spark;
     },
     // The ids the headless tools take (read_diagram / update_diagram), so the
     // prompt sends the agent straight to this diagram. All synchronous: the
@@ -1694,8 +1712,10 @@ export default {
       this.$emit('magic-highlight-ready', false);
     },
     async installMagicHighlights() {
+      // Inline too: the staged header shows the refined layout in the page
+      // macro, and the original Mermaid canvas is highlighted there as well.
       if (!this.magicActive || !this.relationshipHighlights || this.showExportModal
-        || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+        || this.diagramType !== DiagramType.Mermaid) return;
       const generation = this.magicGeneration;
       const source = this.diagram?.mermaidCode ?? '';
       const artifact = this.diagram?.magic;
@@ -1707,7 +1727,9 @@ export default {
         if (!svg) return;
         this.clearMagicHighlights();
         this.magicHighlightController = attachPreparedSvgHighlights(svg, model);
-        let used = false, timer = null, hovered = null;
+        // Every distinct target is one use (the feedback pill waits for the
+        // third); a hover that turns into a click on the same target is one use.
+        let reported = null, timer = null, hovered = null;
         const target = event => {
           const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
           if (!el || !svg.contains(el)) return null;
@@ -1716,12 +1738,12 @@ export default {
         };
         const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
         const report = item => {
-          if (!item || used || generation !== this.magicGeneration) return;
-          used = true; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
+          if (!item || item.el === reported || generation !== this.magicGeneration) return;
+          reported = item.el; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
         };
         const over = event => {
           const item = target(event);
-          if (!item || used || hovered === item.el) return;
+          if (!item || hovered === item.el) return;
           cancel(); hovered = item.el;
           timer = setTimeout(() => report(item), 700);
         };
@@ -2058,7 +2080,7 @@ export default {
     connectMcpAnalytics(extra = {}) {
       return {
         feature_area: 'agent_link',
-        surface: 'viewer',
+        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
         macro_type: this.diagramType ?? 'none',
         mcp_mode: 'headless',
         ...extra,
@@ -3115,6 +3137,7 @@ export default {
    transient text state (Copying… / Copy failed / Nothing to copy) still
    shows its words briefly. */
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source,
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp,
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary {
   min-width: 28px;
   padding: 0;
@@ -3125,19 +3148,12 @@ export default {
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell > span:only-child { padding: 0 6px; }
 .copy-for-ai-split-primary[data-copy-state="copied"] .viewer-icon { color: #36B37E; }
-/* Connect MCP keeps a short "MCP" label beside its icon (it moves into More
-   at stage 3, like Copy for AI). */
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp {
-  gap: 4px;
-  padding: 0 8px 0 6px;
-  color: #6B7280;
-}
-.viewer-act-connect-mcp-label { font-size: 12px; font-weight: 500; }
 
 /* Staged collapse (data-stage on .viewer-frame, set by updateHeaderStage).
    1: Edit + Refined → icon. 2: Fullscreen → icon. 3: Source + Copy for AI
@@ -3175,7 +3191,8 @@ export default {
 
 /* ----- Fullscreen header actions -----------------------------------------
    Labels by viewport (the modal is the viewport): >= 1280px every action is
-   labelled; 1100-1279px only Source and Copy for AI; below 1100px all are
+   labelled; 1100-1279px only Source and Copy for AI (or Connect MCP in its
+   slot); below 1100px all are
    icon-only and the version switch reads Refined / Original. */
 .viewer-fs-act .viewer-icon { color: #6B7280; flex-shrink: 0; }
 .viewer-frame--fullscreen .viewer-fs-act { min-width: 28px; padding: 0; }
@@ -3186,8 +3203,10 @@ export default {
 }
 @media (max-width: 1099px) {
   .viewer-frame--fullscreen .viewer-act-source,
+  .viewer-frame--fullscreen .viewer-act-connect-mcp,
   .viewer-frame--fullscreen .copy-for-ai-split-primary { min-width: 28px; padding: 0; }
   .viewer-frame--fullscreen .viewer-act-source .viewer-btn-label,
+  .viewer-frame--fullscreen .viewer-act-connect-mcp .viewer-btn-label,
   .viewer-frame--fullscreen .viewer-act-copy .viewer-btn-label,
   .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
   .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
@@ -3313,6 +3332,12 @@ export default {
 }
 .viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
 .viewer-canvas .screen-capture-content.w-full { width: 100%; }
+/* Zero height: adds nothing to the canvas layout. Its width comes from the
+   canvas (never from its children), which is what makes inline-size
+   containment safe here — the inline frame is width:fit-content, so the
+   same declaration on .viewer-canvas itself would collapse the macro. The
+   container name is what the pill's @container rule queries. */
+.viewer-canvas-overlay { position: relative; width: 100%; height: 0; container: viewer-canvas / inline-size; }
 
 .viewer-footer-row {
   display: flex;

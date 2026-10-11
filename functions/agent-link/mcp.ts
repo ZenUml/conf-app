@@ -352,7 +352,7 @@ const METHOD_NOT_ALLOWED = () =>
 export const onRequestGet: PagesFunction<Env> = async () => METHOD_NOT_ALLOWED();
 export const onRequestDelete: PagesFunction<Env> = async () => METHOD_NOT_ALLOWED();
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env, waitUntil }) => {
   const url = new URL(request.url);
   const token = extractToken(request, url);
 
@@ -395,7 +395,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // neither shape is headless's to answer, because its 401 is the one that
   // carries the discovery challenge.
   if (env?.OAUTH_GRANT_KV && !looksLikeRelayToken(token)) {
-    return handleHeadlessRpc(request, env, body);
+    return handleHeadlessRpc(request, env, body, { waitUntil });
   }
 
   // Bump-worthiness (spec 2026-07-13 §3): real work slides the idle window;

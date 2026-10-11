@@ -72,6 +72,10 @@ export const CANONICAL_EVENT_NAME_LIST = [
   // carry the write guard's verdict instead.
   "agent_link_page_created",
   "agent_link_page_updated",
+  // Headless MCP usage: one event per authenticated tools/call (every tool,
+  // reads included) and one per initialize handshake (which client).
+  "agent_link_mcp_tool_called",
+  "agent_link_mcp_initialized",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

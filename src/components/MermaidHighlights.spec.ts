@@ -14,7 +14,7 @@ function fixture() {
   attach.mockReturnValue(controller);
   const vm: any = {
     relationshipHighlights: true, isDisplayMode: true, readOnly: false, captureMode: false, currentFlowchartModel: {},
-    renderGeneration: 1, highlightUsedGeneration: -1, $refs: { viewport: { $el: root } }, $emit: vi.fn(),
+    renderGeneration: 1, $refs: { viewport: { $el: root } }, $emit: vi.fn(),
   };
   Object.defineProperty(vm, 'highlightSurfaceAllowed', {get: () => Mermaid.computed.highlightSurfaceAllowed.call(vm)});
   vm.clearHighlights = Mermaid.methods.clearHighlights.bind(vm);
@@ -26,16 +26,17 @@ function fixture() {
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); document.body.replaceChildren(); delete window.forgeGlobal; });
 
 describe('Mermaid opt-in highlight lifecycle', () => {
-  it('reports a selected target once per diagram, including after disable/reinstall', () => {
+  it('reports every distinct target, including after disable/reinstall, but not the same target twice in a row', () => {
     const {vm, node, edge, install} = fixture();
     install();
     expect(vm.$emit).toHaveBeenCalledWith('highlight-ready', true);
     node.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+    node.dispatchEvent(new MouseEvent('click', {bubbles:true}));
     edge.dispatchEvent(new FocusEvent('focusin', {bubbles:true}));
-    expect(vm.$emit.mock.calls.filter(([name]) => name==='highlight-used')).toEqual([['highlight-used',{kind:'node'}]]);
+    expect(vm.$emit.mock.calls.filter(([name]) => name==='highlight-used')).toEqual([['highlight-used',{kind:'node'}],['highlight-used',{kind:'edge'}]]);
     vm.clearHighlights(); install();
     edge.dispatchEvent(new MouseEvent('click', {bubbles:true}));
-    expect(vm.$emit.mock.calls.filter(([name]) => name==='highlight-used')).toHaveLength(1);
+    expect(vm.$emit.mock.calls.filter(([name]) => name==='highlight-used')).toHaveLength(3);
   });
 
   it('ignores background and short hovers and cancels pending usage on cleanup', () => {

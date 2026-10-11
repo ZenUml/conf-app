@@ -806,6 +806,32 @@ describe('GenericViewer (chrome-less)', () => {
       wrapper.unmount()
     })
 
+    it('leads the More menu with the viewer-more-menu-start slot and keeps it in the keyboard order', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        attachTo: document.body,
+        global: { plugins: [store] },
+        slots: {
+          default: '<div class="diagram-stub">diagram</div>',
+          'viewer-more-menu-start': '<template #viewer-more-menu-start="{ close }"><button type="button" role="menuitemcheckbox" aria-checked="true" class="overflow-menu-item lead-item" @click="close()">Relationship highlights</button></template>',
+        },
+      })
+      await flushPromises()
+      await openMoreMenu(wrapper)
+      const lead = wrapper.find('.viewer-act-more .lead-item')
+      expect(lead.exists()).toBe(true)
+      expect(lead.element.nextElementSibling?.getAttribute('role')).toBe('separator')
+      expect(wrapper.findAll('.viewer-act-more [role="menuitem"]').length).toBeGreaterThan(0)
+      expect(document.activeElement).toBe(lead.element)
+      await wrapper.find('.viewer-act-more [role="menu"]').trigger('keydown', { key: 'ArrowDown' })
+      expect(document.activeElement?.getAttribute('role')).toBe('menuitem')
+      await wrapper.find('.viewer-act-more [role="menu"]').trigger('keydown', { key: 'ArrowUp' })
+      expect(document.activeElement).toBe(lead.element)
+      await lead.trigger('click')
+      expect(wrapper.find('.viewer-act-more [role="menu"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
     it('falls back to a default title when the diagram has no title', () => {
       store.state.diagram.title = ''
       const wrapper = mountViewer()
@@ -2945,7 +2971,11 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
-      expect(btn.text()).toBe('MCP')
+      // Inline it is icon-only (CSS hides the label outside fullscreen), with
+      // Copy for AI's sparkles; the accessible name carries the label.
+      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
+      // Same sparkles path the Copy for AI button draws.
+      expect(btn.find('svg path').attributes('d')).toMatch(/^M9\.813 15\.904/)
       expect(btn.attributes('aria-label')).toBe('Connect MCP')
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
@@ -3009,6 +3039,27 @@ describe('GenericViewer (chrome-less)', () => {
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_mcp_dialog_closed',
         expect.objectContaining({ mcp_mode: 'headless', dwell_ms: expect.any(Number) })
+      )
+    })
+
+    it('takes the Copy for AI slot in fullscreen too, and reports the fullscreen surface', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' }, modal: { macroMode: 'fullscreen' } } } }
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+      expect(btn.exists()).toBe(true)
+      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
+
+      await btn.trigger('click')
+
+      expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="connect-mcp-prompt"]').text()).toContain('pageId: 42')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ feature_area: 'agent_link', surface: 'fullscreen', mcp_mode: 'headless' })
       )
     })
 

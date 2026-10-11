@@ -7,6 +7,7 @@ import {
   callHeadlessTool,
   canonicalDiagramType,
   HeadlessToolError,
+  sourceFieldFor,
   spaceKeyFromLinks,
   type HeadlessContext,
 } from './headlessTools';
@@ -187,6 +188,41 @@ function emptyPage(): FakeSite {
   };
 }
 
+// Not a write, but list_diagrams leans on the same identity probe, and this
+// harness is the one that models it.
+describe('list_diagrams', () => {
+  it('lists diagrams on a site whose pages carry only pre-Forge macro keys', async () => {
+    // zenuml.atlassian.net, 2026-10-10: the probe found ZenUML content but no
+    // Forge-shaped extensionKey, and listing refused outright. Listing needs
+    // the variant, not the key.
+    const site = emptyPage();
+    site.pageAdf.content = [buildMacroNode('zenuml-sequence-macro-lite', 'probe-1')];
+    const { ctx } = await contextFor(site);
+    const out = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx)) as {
+      variant: string;
+      diagrams: Array<{ contentId: string }>;
+    };
+    expect(out.variant).toBe('lite');
+    expect(out.diagrams.map((d) => d.contentId)).toEqual(['probe-1']);
+  });
+
+  it('asks Confluence for the newest diagrams, not the oldest', async () => {
+    // Sorting client-side only orders whatever came back; with more diagrams
+    // than `limit`, an unsorted request returns the oldest ones.
+    const calls: string[] = [];
+    const { ctx } = await contextFor(emptyPage());
+    const inner = ctx.fetchImpl!;
+    ctx.fetchImpl = async (url, init) => {
+      calls.push(url);
+      return inner(url, init);
+    };
+    await callHeadlessTool('list_diagrams', { cloudId: CLOUD, limit: 5 }, ctx);
+    const listing = calls.filter((u) => u.includes('/custom-content?type=') && u.includes('limit=5'));
+    expect(listing.length).toBeGreaterThan(0);
+    for (const url of listing) expect(url).toContain('sort=-modified-date');
+  });
+});
+
 describe('update_diagram', () => {
   it('writes a new version and preserves fields it did not set', async () => {
     const site = emptyPage();
@@ -323,6 +359,70 @@ describe('the three blockers found in review', () => {
     ).rejects.toMatchObject({ code: 'bad_params' });
     expect(writes).toHaveLength(0);
     expect(site.content.get('cc-2')).toEqual({ xml: '<mxGraphModel>…</mxGraphModel>' });
+  });
+});
+
+// The viewer renders each type from its own field (getDiagramData in
+// src/model/Diagram/DiagramTypeConfig.ts). The first headless version used
+// `code` for everything, so a mermaid diagram it created rendered as the empty
+// "Start with Mermaid" state (zenuml.atlassian.net, 2026-10-10).
+describe('source field per diagram type', () => {
+  const MERMAID = Array.from({ length: 12 }, (_, i) => `  N${i} --> N${i + 1}`).join('\n');
+  const storedBody = (site: FakeSite, id: string) =>
+    JSON.parse((site.content.get(id) as { body: { value: string } }).body.value) as Record<string, unknown>;
+
+  it.each([
+    ['sequence', 'code'],
+    ['openapi', 'code'],
+    ['mermaid', 'mermaidCode'],
+    ['plantuml', 'plantUmlCode'],
+    ['graph', 'graphXml'],
+  ])('create_diagram stores %s source under %s', async (type, field) => {
+    const site = emptyPage();
+    const { ctx } = await contextFor(site);
+    await callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type, dsl: 'SOURCE' }, ctx);
+    const body = storedBody(site, 'new-1');
+    expect(body[field]).toBe('SOURCE');
+    if (field !== 'code') expect(body).not.toHaveProperty('code');
+  });
+
+  it('reads and updates an app-written mermaid diagram through mermaidCode, not its stale code', async () => {
+    const site = emptyPage();
+    // What the editor saves: the mermaid source, plus a sample left in `code`.
+    site.content.set('md-1', { title: 'Flow', diagramType: 'mermaid', code: 'A.sample()', mermaidCode: `flowchart LR\n${MERMAID}` });
+    const { ctx } = await contextFor(site);
+
+    const read = (await callHeadlessTool('read_diagram', { cloudId: CLOUD, contentId: 'md-1' }, ctx)) as { source: string };
+    expect(read.source).toBe(`flowchart LR\n${MERMAID}`);
+
+    await callHeadlessTool(
+      'update_diagram',
+      { cloudId: CLOUD, contentId: 'md-1', dsl: `flowchart TD\n${MERMAID}` },
+      ctx,
+    );
+    const written = storedBody(site, 'md-1');
+    expect(written.mermaidCode).toBe(`flowchart TD\n${MERMAID}`);
+    expect(written.code).toBe('A.sample()');
+  });
+
+  it('repairs a mermaid diagram the first headless version stored under code', async () => {
+    const site = emptyPage();
+    site.content.set('md-2', { title: 'Flow', diagramType: 'mermaid', code: `flowchart LR\n${MERMAID}` });
+    const { ctx } = await contextFor(site);
+
+    const read = (await callHeadlessTool('read_diagram', { cloudId: CLOUD, contentId: 'md-2' }, ctx)) as { source: string };
+    expect(read.source).toBe(`flowchart LR\n${MERMAID}`);
+
+    await callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'md-2', dsl: `flowchart TD\n${MERMAID}` }, ctx);
+    expect(storedBody(site, 'md-2').mermaidCode).toBe(`flowchart TD\n${MERMAID}`);
+  });
+
+  it('follows a Board macro to boardGraphXml, and a legacy Board record to graphXml', () => {
+    expect(sourceFieldFor('graph', { graphEditorMode: 'board', boardGraphXml: '' })).toBe('boardGraphXml');
+    expect(sourceFieldFor('graph', { graphEditorMode: 'board' })).toBe('graphXml');
+    expect(sourceFieldFor('graph', { graphEditorMode: 'diagram', boardGraphXml: '<x/>' })).toBe('graphXml');
+    expect(sourceFieldFor('OpenAPI')).toBe('code');
+    expect(sourceFieldFor(undefined)).toBe('code');
   });
 });
 

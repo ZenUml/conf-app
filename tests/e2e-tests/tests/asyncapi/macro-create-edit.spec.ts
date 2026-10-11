@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { MacroPage } from '../../pages/MacroPage.js';

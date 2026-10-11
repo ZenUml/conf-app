@@ -134,7 +134,14 @@ export type IdentitySource = 'cached' | 'discovered';
 
 export type IdentityResult =
   | { ok: true; identity: MacroIdentity; source: IdentitySource }
-  | { ok: false; reason: IdentityFailureReason; detail?: string };
+  | {
+      ok: false;
+      reason: IdentityFailureReason;
+      detail?: string;
+      /** Set on 'no_extension_node': the variant whose content was found. Enough
+       * to list diagrams, not enough to compose an extensionKey. */
+      variant?: Variant;
+    };
 
 const UUID = '[0-9a-fA-F-]{36}';
 /**
@@ -283,6 +290,15 @@ function parsePageAdf(body: unknown): unknown | null {
 const MAX_PAGES_SAMPLED = 3;
 
 /**
+ * Newest first. Confluence's default order is ascending id, so on a long-lived
+ * tenant the sample is all pre-Forge content whose macro nodes carry a bare
+ * Connect key (`zenuml-sequence-macro`) with no appId or environmentId to lift.
+ * zenuml.atlassian.net resolved to no_extension_node that way (2026-10-10)
+ * while holding Forge macros from the month before.
+ */
+export const NEWEST_FIRST = 'sort=-modified-date';
+
+/**
  * Resolve {appId, environmentId, variant} for the site behind `get`.
  *
  * Probes each variant's custom-content types in turn; the first that yields a
@@ -293,13 +309,13 @@ const MAX_PAGES_SAMPLED = 3;
  * all, and one dead sample must not condemn the whole site.
  */
 export async function resolveMacroIdentity(get: ConfluenceGet): Promise<IdentityResult> {
-  let sawAnyContent = false;
+  let firstVariantSeen: Variant | undefined;
   let lastProbeError: string | undefined;
 
   for (const profile of VARIANTS) {
     for (const type of customContentTypesFor(profile)) {
       const res = await get(
-        `/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${MAX_PAGES_SAMPLED}`,
+        `/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${MAX_PAGES_SAMPLED}&${NEWEST_FIRST}`,
       );
 
       // A 404 on an unknown type is Confluence saying "not this variant", which
@@ -313,7 +329,7 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
 
       const hits = readCustomContentHits(res.body);
       if (hits.length === 0) continue;
-      sawAnyContent = true;
+      firstVariantSeen ??= profile.variant;
 
       for (const hit of hits.slice(0, MAX_PAGES_SAMPLED)) {
         const pageRes = await get(
@@ -359,11 +375,12 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
     }
   }
 
-  if (sawAnyContent) {
+  if (firstVariantSeen) {
     return {
       ok: false,
       reason: 'no_extension_node',
       detail: lastProbeError ?? 'custom content exists but no page referenced it with a macro node',
+      variant: firstVariantSeen,
     };
   }
   if (lastProbeError) {

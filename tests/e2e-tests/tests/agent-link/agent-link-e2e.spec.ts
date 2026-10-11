@@ -20,7 +20,7 @@
  *
  * Run: APP=zenuml-lite@stg npx playwright test --project=agent-link
  */
-import { test, expect, type Frame, type Page } from '@playwright/test';
+import { test, expect, type Frame, type Page } from '../../fixtures/mixpanel-test.js';
 import {
   AGENT_LINK_STG_BASE,
   agentLinkMcp,
@@ -101,7 +101,7 @@ test.describe('Connect MCP — headless', { tag: ['@test:agent-link-e2e', '@vari
       `claude mcp add --transport http zenuml ${agentLinkMcpUrl()}`,
     );
     const prompt = (await f.getByTestId('connect-mcp-prompt').innerText()).trim();
-    expect(prompt).toMatch(/^Use the zenuml MCP to work on my ZenUML diagram/);
+    expect(prompt).toMatch(/^Use the zenuml MCP to review my ZenUML diagram/);
     expect(prompt).toMatch(/^cloudId: \S+$/m);
     expect(prompt).toMatch(/^pageId: \d+$/m);
     expect(prompt).toMatch(/^contentId: \d+$/m);

@@ -30,6 +30,7 @@ import type {
   AgentLinkWriteResult,
   AgentLinkMcpCopyTarget,
   AgentLinkMcpMode,
+  AgentLinkMcpToolOutcome,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -55,6 +56,7 @@ import type {
   HighlightFeedbackReason,
   HighlightFeedbackVariant,
   HighlightDismissStage,
+  HighlightDismissCause,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -69,6 +71,13 @@ export type AnalyticsProperties = {
   client_domain?: string;
   user_account_id?: string;
   product_type?: ProductType;
+  /** Targeted survey campaign identifier; no target identity or answer text. */
+  survey_uuid?: string;
+  survey_revision?: number;
+  /** Cross-product display claim did not produce a banner. */
+  survey_claim_result?: 'already_claimed' | 'unavailable' | 'invalid_response';
+  /** Visible step when a targeted survey is dismissed, including an in-flight send. */
+  survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent
@@ -306,6 +315,11 @@ export type AnalyticsProperties = {
   highlight_feedback_reason?: HighlightFeedbackReason;
   highlight_feedback_variant?: HighlightFeedbackVariant;
   highlight_dismiss_stage?: HighlightDismissStage;
+  // Canvas pill only: how many highlight uses preceded `feedback_shown`
+  // (the pill waits for the third), and whether `feedback_dismissed` came
+  // from the × button or the 10 s auto-dismiss.
+  highlight_use_count?: number;
+  highlight_dismiss_cause?: HighlightDismissCause;
   highlight_enabled?: boolean;
   // Feedback
   feedback_score?: number;
@@ -659,7 +673,9 @@ export type AnalyticsProperties = {
   // the free-form details of the legacy trackEvent copy_link /
   // show_content_versions / debug_bundle_downloaded events. Absent = the
   // action's own header button (or an event from before 2026-10).
-  action_location?: 'header_more_menu' | 'fullscreen_header';
+  // `canvas_hint`: the "Turn off" button on the first-use highlight hint
+  // (mermaid_highlight_preference_changed only).
+  action_location?: 'header_more_menu' | 'fullscreen_header' | 'canvas_hint';
   // viewer_more_menu_opened: the inline header's collapse stage when the More
   // menu opened. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
   // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.
@@ -890,6 +906,16 @@ export type AnalyticsProperties = {
   // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
   mcp_mode?: AgentLinkMcpMode;
   mcp_copy_target?: AgentLinkMcpCopyTarget;
+  // AA — headless MCP tool usage (agent_link_mcp_tool_called /
+  // _initialized). `mcp_tool` is the tool name from the server's own list
+  // ('unknown' for anything else); `mcp_tool_outcome` is how the call ended;
+  // latency rides `duration_ms`; the target site rides `cloud_id` (only when
+  // the argument is UUID-shaped — anything else is client free text). `mcp_client_name` / `mcp_client_version` are
+  // the client's MCP `clientInfo`, trimmed to 64 chars.
+  mcp_tool?: string;
+  mcp_tool_outcome?: AgentLinkMcpToolOutcome;
+  mcp_client_name?: string;
+  mcp_client_version?: string;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

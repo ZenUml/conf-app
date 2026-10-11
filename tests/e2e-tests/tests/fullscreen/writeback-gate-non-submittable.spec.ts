@@ -23,7 +23,7 @@
 // "not submittable"), both locked by unit tests (editDupGate.spec.ts /
 // writebackGate.spec.ts).
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';

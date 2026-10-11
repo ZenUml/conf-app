@@ -250,8 +250,8 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 
 // Effective Session Replay policy stamped on analytics events. `authoring`
-// means a macro create/edit start forced recording independently of the Forge
-// flag cohort. See macro_create_started / macro_edit_started below.
+// means a sampled macro create/edit start requested recording independently of
+// the Forge flag cohort. See macro_create_started / macro_edit_started below.
 // `plan_usage_page` is the same kind of hardcoded override, in the opposite
 // direction from the page-banner's hardcoded 0% — see _initMixpanel in
 // trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
@@ -325,8 +325,8 @@ export type AnalyticsEventName =
   | "markdown_seeded_from_mermaid"
   // macro_viewed: sequence renders also carry diagram_font=plex|fallback (hosted IBM Plex Sans loaded before first render).
   | "macro_viewed"
-  // Both authoring-start events force Session Replay at 100% before the event
-  // is sent. Editor entries must emit the event from the iframe that owns the
+  // Both authoring-start events apply the same iframe-level replay sample before
+  // the event is sent. Editor entries must emit the event from the iframe that owns the
   // interaction; the replay policy itself stays centralized here.
   | "macro_create_started"
   | "macro_create_succeeded"

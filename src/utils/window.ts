@@ -7,6 +7,7 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { decideSample } from "@/utils/analytics/eventSampling";
 import { normalizeProductType, type ProductType } from "@/utils/analytics/productType";
+import { isOctoberReplayBudgetActive } from "@/utils/analytics/octoberReplayBudget";
 
 let initialized = false;
 let identified = false;
@@ -20,6 +21,7 @@ const initMixpanel = () => {
       autocapture: false,
       persistence: "localStorage",
       ignore_dnt: true,
+      ...(isOctoberReplayBudgetActive() ? { record_sessions_percent: 0 } : {}),
       // Keep in step with trackAnalyticsEvent.ts: whichever path initializes
       // first fixes the recorder config for this iframe.
       record_console: true,
@@ -28,6 +30,11 @@ const initMixpanel = () => {
     initialized = true;
   }
 };
+
+export function _resetLegacyMixpanelForTesting(): void {
+  initialized = false;
+  identified = false;
+}
 
 const mixpanelIdentify = () => {
   if(!identified) {

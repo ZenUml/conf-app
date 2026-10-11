@@ -13,6 +13,7 @@ import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
+import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -52,19 +53,22 @@ const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
 // Re-derive from the same two numbers if the quota or the fullscreen volume
 // changes.
 const AUTHORING_REPLAY_RATE = 0.5;
+const OCTOBER_AUTHORING_REPLAY_RATE = 0.01;
 
 // Drawn once per iframe, not per event. A user who creates one macro and then
 // edits another in the same session must get one whole recording or none —
 // re-drawing per event would start the recorder partway through a session,
 // which is worse than not recording it at all for the save-failure
 // investigations this policy exists to serve.
-let _authoringReplayDecision: boolean | null = null;
+let _authoringReplayDraw: number | null = null;
 
 function _shouldRecordAuthoring(): boolean {
-  if (_authoringReplayDecision === null) {
-    _authoringReplayDecision = Math.random() < AUTHORING_REPLAY_RATE;
+  if (_authoringReplayDraw === null) {
+    _authoringReplayDraw = Math.random();
   }
-  return _authoringReplayDecision;
+  return _authoringReplayDraw < (isOctoberReplayBudgetActive()
+    ? OCTOBER_AUTHORING_REPLAY_RATE
+    : AUTHORING_REPLAY_RATE);
 }
 
 function _startExplicitReplay(
@@ -136,9 +140,10 @@ function _initMixpanel(): Promise<void> {
     _initPromise = (async () => {
       // The page-banner iframe is short-lived and has no macro context — session
       // replay there adds noise without value, so it never records and we skip
-      // the flag fetch entirely. Every other iframe's sampling rate is set live
-      // from the Forge Developer Console (see sessionReplayFlags.ts) — there is
-      // deliberately no hardcoded percentage here.
+      // the flag fetch entirely. During the October 2026 UTC budget window,
+      // every iframe's automatic baseline is off before any override or Forge
+      // flag is considered. Outside that window, other iframe rates come from
+      // the overrides below or the Forge Developer Console.
       //
       // The Plan-and-usage page is the opposite override: it's a brand-new,
       // low-traffic funnel (paywall banner -> usage -> Request Full) we want
@@ -169,7 +174,9 @@ function _initMixpanel(): Promise<void> {
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
-      const { percent, source } = isPageBanner
+      const { percent, source } = isOctoberReplayBudgetActive()
+        ? { percent: 0, source: "off" as const }
+        : isPageBanner
         ? { percent: 0, source: "off" as const }
         : isPlanUsagePage
         ? { percent: 100, source: "plan_usage_page" as const }
@@ -472,5 +479,5 @@ export async function trackAnalyticsEventBeforeUnload(
 export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
-  _authoringReplayDecision = null;
+  _authoringReplayDraw = null;
 }

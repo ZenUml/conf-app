@@ -16,11 +16,11 @@ L3 测试本地 Diagramly API 的认证、credits、job 创建、后台处理、
 pnpm exec dotenv -c -- uv run \
   ../conf-app/.claude/skills/ai-repair-case-validation/scripts/run_job_matrix.py \
   --manifest /tmp/ai-repair-case-validation/<run-id>/manifest.json \
-  --model openai/gpt-5.6-luna --trials 1 \
-  --output-dir /tmp/ai-repair-case-validation/<run-id>/l3-luna
+  --trials 1 \
+  --output-dir /tmp/ai-repair-case-validation/<run-id>/l3-primary
 ```
 
-默认单模型一次、1 秒 polling、135 秒 deadline。脚本先做 health check，再创建 job；运行前先用相同命令加 `--dry-run` 核对模型与路径。需要测试其他模型时使用单独输出目录。使用基于输入 hash 的本地 external id，不输出 key。
+默认模型从 conf-app 的 `src/utils/aiModelConfig.ts` 中读取 `DEFAULT_AI_REPAIR_MODEL`；manifest 指定模型时以 manifest 为准。每次只运行一个模型、1 秒 polling、135 秒 deadline。脚本先做 health check，再创建 job；运行前先用相同命令加 `--dry-run` 核对模型与路径。强模型重试或案例覆盖值使用独立的单模型 manifest 与输出目录。使用基于输入 hash 的本地 external id，不输出 key。
 
 ## 判断
 

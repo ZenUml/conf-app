@@ -17,12 +17,19 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MODELS = [
-    "openai/gpt-5.6-luna",
-    "deepseek/deepseek-v4-flash",
-    "google/gemini-2.5-flash",
-]
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
+MODEL_CONFIG_PATH = Path(__file__).resolve().parents[4] / "src/utils/aiModelConfig.ts"
+
+
+def configured_default_model() -> str:
+    source = MODEL_CONFIG_PATH.read_text(encoding="utf-8")
+    match = re.search(
+        r"export\s+const\s+DEFAULT_AI_REPAIR_MODEL\s*=\s*(['\"])([^'\"]+)\1",
+        source,
+    )
+    if not match:
+        raise SystemExit(f"Cannot read DEFAULT_AI_REPAIR_MODEL from {MODEL_CONFIG_PATH}")
+    return match.group(2)
 
 
 def parse_args() -> argparse.Namespace:
@@ -85,11 +92,14 @@ def main() -> int:
     dsl = manifest_relative(manifest_path, manifest["dslPath"]).read_text(
         encoding="utf-8"
     )
-    models = list(manifest.get("models") or DEFAULT_MODELS)
+    manifest_models = manifest.get("models")
+    models = list(manifest_models or [configured_default_model()])
     if args.model:
-        if args.model not in models:
+        if manifest_models and args.model not in models:
             raise SystemExit(f"Model is not listed in manifest: {args.model}")
         models = [args.model]
+    if len(models) != 1:
+        raise SystemExit("Case validation requires one model per run; pass --model")
     reasoning_specified = "reasoningDisabled" in manifest
     reasoning_disabled = (
         bool(manifest["reasoningDisabled"]) if reasoning_specified else None
@@ -136,7 +146,7 @@ def main() -> int:
     headers = {
         "x-api-key": api_key,
         "x-external-id": external_id,
-        "x-external-name": "AI Repair Benchmark Local",
+        "x-external-name": "AI Repair Case Validation Local",
         "x-team-id": external_team_id,
     }
 

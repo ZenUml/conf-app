@@ -20,14 +20,14 @@ description: 对具体 AI Repair 失败案例做原因排查、修复后验证�
 ## 准备
 
 - 首次排查时，收集线上原始 DSL、真实解析错误、图类型、用户所用模型、时间、UI 现象、`fix-diagram` / `job-status` 响应及相关日志。修复验证或历史案例回归时，读取保存的原始输入、错误、预期保留锚点和上次失败证据。分清已观察到的事实、未知项和待验证假设，不把本地结果当作线上事实。
-- 确定本轮需要验证的模型和路径。线上默认先使用 `openai/gpt-5.6-luna`；若失败案例涉及用户点击强模型重试，另对 `anthropic/claude-sonnet-5` 建立同一原始 DSL 的独立记录。每个模型/修复路径独立应用门槛，不把上一模型的输出传给下一模型。
+- 每次运行前读取 [`src/utils/aiModelConfig.ts`](../../../src/utils/aiModelConfig.ts)：首次修复模型取 `DEFAULT_AI_REPAIR_MODEL`，强模型重试取 `AI_REPAIR_RETRY_MODEL`。若案例记录或 `ai_repair_model` 本地覆盖值表明实际使用了别的模型，按实际模型复现并记录来源；不得把 skill 或脚本中的示例字符串当作产品默认值。每次只运行一个模型，每个模型/修复路径独立应用门槛，不把上一模型的输出传给下一模型。
 - 检查 conf-app 与 Diagramly 的 HEAD、工作区状态、Prompt hash、模型参数和目标环境。保留已有改动；本 skill 不自动创建分支、提交、部署或发布页面。
 - 本轮 manifest、候选和证据保存在 `/tmp/ai-repair-case-validation/<run-id>/`；复用 benchmark 文档中的命令时，将示例的 `/tmp/ai-repair-benchmark/<run-id>/` 换成此目录。
 - 完整 DSL 发给 OpenRouter 前，若来自生产或可能含客户信息，取得用户对“该 DSL → OpenRouter → 所选模型”的明确授权。客户数据和证据只保存在 `/tmp` 或 `private/`，不得写入公开仓库；不保存 token 或授权请求头。
 
 ## L2：Prompt 与模型
 
-复用 [benchmark 的 L2 方法](../ai-repair-benchmark/references/methodology.md#生成-l2-prompt)和 `build_diagramly_prompt.ts`、`run_openrouter_matrix.py`、`score_candidates.py`。为本轮模型使用单模型 manifest、`--model <model>` 和 `--trials 1`；从当前 Diagramly checkout 生成实际 messages，不手抄 Prompt。每次调用后立即验证候选，记录原始响应、Prompt hash、模型参数、解析/渲染结果和必保留锚点。`score_candidates.py` 的 PASS 只是初步评分：还须核对 `missingRequiredAnchors` 为空，并取得适用语言的真实渲染证据；Mermaid 用当前 checkout 的 Mermaid 在浏览器中 parse/render。缺少这些证据时 L2 不能放行 L3。需要确认随机波动时可在明确记录 trial 的前提下重复；只要当前修复方案尚未有满足门槛的 L2 PASS，就停在 L2 继续分析，不能提前进行 L3。
+复用 [benchmark 的 L2 方法](../ai-repair-benchmark/references/methodology.md#生成-l2-prompt)和 `build_diagramly_prompt.ts`、`run_openrouter_matrix.py`、`score_candidates.py`。用上一步从产品配置或案例证据确定的模型创建单模型 manifest，再传 `--model <model>` 与 `--trials 1`；从当前 Diagramly checkout 生成实际 messages，不手抄 Prompt。每次调用后立即验证候选，记录原始响应、Prompt hash、模型参数、解析/渲染结果和必保留锚点。`score_candidates.py` 的 PASS 只是初步评分：还须核对 `missingRequiredAnchors` 为空，并取得适用语言的真实渲染证据；Mermaid 用当前 checkout 的 Mermaid 在浏览器中 parse/render。缺少这些证据时 L2 不能放行 L3。需要确认随机波动时可在明确记录 trial 的前提下重复；只要当前修复方案尚未有满足门槛的 L2 PASS，就停在 L2 继续分析，不能提前进行 L3。
 
 ## L3：本地异步 job
 

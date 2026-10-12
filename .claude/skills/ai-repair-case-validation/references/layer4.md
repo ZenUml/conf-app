@@ -42,10 +42,10 @@ UI 无法驱动、宏不存在或登录态失效时标 `SKIPPED` 并写 blocker�
 
 ```json
 {
-  "id": "L4-1-openai_gpt-5.6-luna",
+  "id": "L4-1-selected-model",
   "runId": "<run-id>",
   "layer": "L4",
-  "model": "openai/gpt-5.6-luna",
+  "model": "<actual model from product config or case>",
   "trial": 1,
   "status": "COMPLETED",
   "repairStatus": "PASS",

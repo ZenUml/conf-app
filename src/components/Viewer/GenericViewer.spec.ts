@@ -1083,9 +1083,19 @@ describe('GenericViewer (chrome-less)', () => {
       return wrapper
     }
 
+    // The viewer resolves its account from the memoised Forge context; the
+    // bridge mock above carries no accountId, which the gate reads as an
+    // anonymous visitor. Give these tests a signed-in viewer and put the
+    // previous context back afterwards (same pattern as the Magic tests).
+    let previousContext: typeof forgeRuntime.forgeContext
     beforeEach(() => {
       renameMock.mockReset()
       renameMock.mockResolvedValue({ ok: true, id: '987654321', durationMs: 42 } as any)
+      previousContext = forgeRuntime.forgeContext
+      forgeRuntime.forgeContext = { ...previousContext, ...window.forgeGlobal!.forgeContext, accountId: 'rename-user' }
+    })
+    afterEach(() => {
+      forgeRuntime.forgeContext = previousContext
     })
 
     it('renders the title as a rename control when the diagram is editable custom content', async () => {
@@ -1111,6 +1121,14 @@ describe('GenericViewer (chrome-less)', () => {
       ['the fullscreen modal', () => { (window as any).forgeGlobal.forgeContext.extension.modal = { macroMode: 'fullscreen' } }],
       ['an embed macro', () => { (window as any).forgeGlobal.forgeContext.moduleKey = 'zenuml-embed-macro' }],
       ['a failed load', () => { store.state.viewerLoadState = 'failed_with_source' }],
+      // First rollout is the ZenUML sequence macro only: the other types keep
+      // the editor as the one place to rename until the control has proven
+      // itself there.
+      ['a Mermaid diagram', () => { store.commit('updateDiagramType', DiagramType.Mermaid) }],
+      ['a PlantUML diagram', () => { store.commit('updateDiagramType', DiagramType.PlantUml) }],
+      // No accountId in the Forge context = anonymous visitor of a public page:
+      // the bridge PUT can only fail for them, so the control is not offered.
+      ['an anonymous viewer', () => { forgeRuntime.forgeContext = { ...forgeRuntime.forgeContext, accountId: undefined } }],
     ])('renders a plain title with no rename control for %s', async (_label, arrange) => {
       arrange()
       const wrapper = mountViewer()

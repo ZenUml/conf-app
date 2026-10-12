@@ -1010,8 +1010,16 @@ export default {
     // (copy / duplicate / recovery / cached fallback). Fullscreen and embed
     // surfaces are excluded the same way Edit is — fullscreen drops the
     // action row, and an embed is a reference whose origin owns the title.
+    // First rollout: the ZenUML sequence macro only (inline page view). The
+    // control and its persistence are type-agnostic; the other types keep the
+    // editor as the one place to rename until it has proven itself here.
+    // Anonymous visitors of a public page (no accountId in the Forge context)
+    // are not offered it either: the bridge PUT can only fail for them. The
+    // account resolves asynchronously, so the control appears once it has.
     canRename() {
       if (this.hideEdit || this.isFullscreenMode || this.isEmbedded || this.isLoadFailed) return false;
+      if (this.diagramType !== DiagramType.Sequence) return false;
+      if (!this.magicIdentityReady || !this.currentAccountId) return false;
       if (!this.canUserEdit || !this.isCustomContent || !this.diagram?.id) return false;
       return !this.editDisabledReason;
     },

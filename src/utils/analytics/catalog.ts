@@ -764,7 +764,8 @@ export type AnalyticsEventName =
   // macro_save_succeeded: that event is the edit-volume signal for dashboards
   // and rides on saveToPlatform (snapshot upload, CSAT, surface: editor), none
   // of which a title-only write goes through. D1 CustomContentVersion recency
-  // still registers the rename.
+  // still registers the rename. First rollout offers the control on the
+  // ZenUML sequence macro only, so macro_type is `sequence` until it widens.
   | "viewer_rename_started"
   | "viewer_rename_succeeded"
   | "viewer_rename_failed"

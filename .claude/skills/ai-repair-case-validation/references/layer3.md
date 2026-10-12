@@ -20,7 +20,7 @@ pnpm exec dotenv -c -- uv run \
   --output-dir /tmp/ai-repair-case-validation/<run-id>/l3-primary
 ```
 
-只测试 conf-app 的 `src/utils/aiModelConfig.ts` 中 `DEFAULT_AI_REPAIR_MODEL`。manifest 若列出模型，必须恰好是这个默认模型；强模型重试只在 L2 测试。每次运行一次、1 秒 polling、135 秒 deadline。脚本先做 health check，再创建 job；运行前先用相同命令加 `--dry-run` 核对模型与路径。使用基于输入 hash 的本地 external id，不输出 key。
+未指定模型时，脚本从 conf-app 的 `src/utils/aiModelConfig.ts` 读取 `DEFAULT_AI_REPAIR_MODEL`。单模型 manifest 可指定该次运行的模型；多模型 manifest 必须使用 `--model <model>` 明确选择其中一个。强模型重试默认只测 L2；用户明确指定继续 L3 时，先确认**同一模型**的 L2 PASS，再通过单模型 manifest 或 `--model` 运行 L3。每次只测一个模型、一次 trial、1 秒 polling、135 秒 deadline。脚本先做 health check，再创建 job；运行前先用相同命令加 `--dry-run` 核对模型与路径。使用基于输入 hash 的本地 external id，不输出 key。
 
 ## 判断
 

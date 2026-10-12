@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--model", help="Model to validate; defaults to the sole manifest model or product default")
     parser.add_argument("--base-url", default="http://127.0.0.1:3000")
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--poll-interval", type=float, default=1.0)
@@ -93,12 +94,22 @@ def main() -> int:
     )
     default_model = configured_default_model()
     manifest_models = manifest.get("models")
-    if manifest_models and manifest_models != [default_model]:
-        raise SystemExit(
-            "L3 validates only DEFAULT_AI_REPAIR_MODEL; "
-            "use a default-model manifest"
-        )
-    models = [default_model]
+    if manifest_models is not None:
+        if not isinstance(manifest_models, list) or not manifest_models or any(
+            not isinstance(model, str) or not model for model in manifest_models
+        ):
+            raise SystemExit("manifest models must be a non-empty list of model names")
+    if args.model and manifest_models and args.model not in manifest_models:
+        raise SystemExit("--model must be listed in manifest models")
+    if args.model:
+        model = args.model
+    elif manifest_models:
+        if len(manifest_models) != 1:
+            raise SystemExit("L3 validates one model per run; pass --model")
+        model = manifest_models[0]
+    else:
+        model = default_model
+    models = [model]
     reasoning_specified = "reasoningDisabled" in manifest
     reasoning_disabled = (
         bool(manifest["reasoningDisabled"]) if reasoning_specified else None

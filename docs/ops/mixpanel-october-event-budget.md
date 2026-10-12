@@ -28,11 +28,20 @@ their prior rate, including unknown names from other products sharing the
 Mixpanel project. The catalog also declares some names currently emitted only
 by backend code; listing one here does not change its backend transport.
 
+The entire low-volume paid conversion path stays at its current rates:
+`paywall_*`, `upgrade_modal_*`, `plan_usage_*`, and the Request Full steps
+including `request_full_reason_copied`. This keeps the banner → usage page →
+purchase/Request Full funnel internally comparable during October.
+
 `macro_viewed` keeps its existing trigger, name, properties, and 100% event
 rate through September, October, and November. For historical comparison,
-hold the production site, product, and user population filters constant.
-Project-wide totals are not directly comparable across the earlier CI staging
-isolation change, because new staging test arrivals are now suppressed.
+filter `environment_type=PRODUCTION` and a fixed `product_type`, use
+`mp_lib=web`, exclude known staging domains, and hold the site/user population
+constant. The core event's properties are the comparison fields; Replay
+source/percent metadata changes under the October budget and should not define
+the population. Project-wide totals are not directly comparable across the
+earlier CI staging isolation change, because new staging test arrivals are now
+suppressed.
 
 The related feature-success signals
 `diagram_attribution_shown`, `diagram_audience_registration_succeeded`,

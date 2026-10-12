@@ -1,2 +1,2 @@
-// Forge export telemetry uses the same UTC billing window in plain Node JS.
+// Browser-facing alias for the UTC budget window shared with Forge exports.
 export { isOctoberBillingBudgetActive as isOctoberReplayBudgetActive } from "@/lib/octoberBudgetWindow.js";

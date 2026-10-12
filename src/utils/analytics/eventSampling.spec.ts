@@ -46,6 +46,24 @@ describe("eventSampling", () => {
       ]) expect(sampleRateFor(name, october)).toBe(sampleRateFor(name, after));
     });
 
+    it("keeps the complete paid conversion and Request Full funnel at current rates", () => {
+      const names = [
+        "paywall_banner_dismissed", "paywall_banner_shown", "paywall_bundle_cta_clicked",
+        "paywall_gate_evaluated", "paywall_triggered", "paywall_continue_used",
+        "paywall_continued_editing", "paywall_blocked_create", "paywall_blocked_edit",
+        "paywall_attempts_exhausted",
+        "paywall_marketplace_cta_clicked", "paywall_learn_more_clicked",
+        "upgrade_modal_shown", "upgrade_modal_dismissed",
+        "plan_usage_viewed", "plan_usage_purchase_clicked", "plan_usage_request_full_clicked",
+        "request_full_reason_copied", "request_full_atlassian_clicked", "request_full_guide_shown",
+      ];
+      for (const name of names) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(sampleRateFor(name, after));
+      }
+    });
+
     it("reduces only listed success/info events to one tenth of their existing arrival rate", () => {
       expect(sampleRateFor("copy_for_ai_clicked", october)).toBe(1);
       expect(sampleRateFor("copy_for_ai_menu_opened", october)).toBe(0.1);

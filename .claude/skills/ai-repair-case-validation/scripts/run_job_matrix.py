@@ -36,7 +36,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--model", help="Run only this model from the manifest.")
     parser.add_argument("--base-url", default="http://127.0.0.1:3000")
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--poll-interval", type=float, default=1.0)
@@ -92,14 +91,14 @@ def main() -> int:
     dsl = manifest_relative(manifest_path, manifest["dslPath"]).read_text(
         encoding="utf-8"
     )
+    default_model = configured_default_model()
     manifest_models = manifest.get("models")
-    models = list(manifest_models or [configured_default_model()])
-    if args.model:
-        if manifest_models and args.model not in models:
-            raise SystemExit(f"Model is not listed in manifest: {args.model}")
-        models = [args.model]
-    if len(models) != 1:
-        raise SystemExit("Case validation requires one model per run; pass --model")
+    if manifest_models and manifest_models != [default_model]:
+        raise SystemExit(
+            "L3 validates only DEFAULT_AI_REPAIR_MODEL; "
+            "use a default-model manifest"
+        )
+    models = [default_model]
     reasoning_specified = "reasoningDisabled" in manifest
     reasoning_disabled = (
         bool(manifest["reasoningDisabled"]) if reasoning_specified else None

@@ -1098,6 +1098,15 @@ describe('GenericViewer (chrome-less)', () => {
       forgeRuntime.forgeContext = previousContext
     })
 
+    it('renders the rename control on a Mermaid diagram too', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      store.state.diagram.mermaidCode = 'sequenceDiagram\n  A->>B: hi'
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(titleButton(wrapper).exists()).toBe(true)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(false)
+    })
+
     it('renders the title as a rename control when the diagram is editable custom content', async () => {
       const wrapper = mountViewer()
       await flushPromises()
@@ -1121,11 +1130,11 @@ describe('GenericViewer (chrome-less)', () => {
       ['the fullscreen modal', () => { (window as any).forgeGlobal.forgeContext.extension.modal = { macroMode: 'fullscreen' } }],
       ['an embed macro', () => { (window as any).forgeGlobal.forgeContext.moduleKey = 'zenuml-embed-macro' }],
       ['a failed load', () => { store.state.viewerLoadState = 'failed_with_source' }],
-      // First rollout is the ZenUML sequence macro only: the other types keep
+      // First rollout is the sequence and Mermaid macros: the other types keep
       // the editor as the one place to rename until the control has proven
       // itself there.
-      ['a Mermaid diagram', () => { store.commit('updateDiagramType', DiagramType.Mermaid) }],
       ['a PlantUML diagram', () => { store.commit('updateDiagramType', DiagramType.PlantUml) }],
+      ['a Graph diagram', () => { store.commit('updateDiagramType', DiagramType.Graph) }],
       // No accountId in the Forge context = anonymous visitor of a public page:
       // the bridge PUT can only fail for them, so the control is not offered.
       ['an anonymous viewer', () => { forgeRuntime.forgeContext = { ...forgeRuntime.forgeContext, accountId: undefined } }],

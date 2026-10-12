@@ -1,11 +1,11 @@
 ---
 name: ai-repair-benchmark
-description: 比较不同 OpenRouter 模型修复同一组损坏 DSL 的效果；只执行 L1 原始模型与 L2 Diagramly Prompt，统计修复质量、延迟、token 和实付费用。线上失败排查使用 ai-repair-incident。
+description: 比较不同 OpenRouter 模型修复同一组损坏 DSL 的效果；只执行 L1 原始模型与 L2 Diagramly Prompt，统计修复质量、延迟、token 和实付费用。具体案例的排查与回归使用 ai-repair-case-validation。
 ---
 
 # AI Repair Benchmark
 
-本 skill **只运行 L1 与 L2**，用于比较模型及 Diagramly Prompt 对修复结果的影响。线上 AI Repair 失败的后端与真实 UI 排查由 `ai-repair-incident` 负责。
+本 skill **只运行 L1 与 L2**，用于比较模型及 Diagramly Prompt 对修复结果的影响。具体 AI Repair 失败案例的排查、修复后验证与回归由 `ai-repair-case-validation` 负责。
 
 | 层级 | 调用 | 衡量内容 |
 |---|---|---|

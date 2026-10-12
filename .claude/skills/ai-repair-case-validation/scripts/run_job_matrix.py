@@ -129,9 +129,9 @@ def main() -> int:
     api_key = os.environ.get("DIAGRAMLY_API_KEY")
     if not api_key:
         raise SystemExit("DIAGRAMLY_API_KEY is required")
-    external_id = f"ai-repair-incident-{sha256(dsl)[:12]}"
+    external_id = f"ai-repair-case-validation-{sha256(dsl)[:12]}"
     external_team_id = str(
-        manifest.get("externalTeamId") or f"ai-repair-incident-team-{sha256(dsl)[:12]}"
+        manifest.get("externalTeamId") or f"ai-repair-case-validation-team-{sha256(dsl)[:12]}"
     )
     headers = {
         "x-api-key": api_key,

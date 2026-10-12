@@ -1,6 +1,0 @@
-interface:
-  display_name: "AI Repair Incident"
-  short_description: "按 L2→L3→L4 门槛排查线上 AI Repair 失败"
-  default_prompt: "使用 $ai-repair-incident 排查这次线上 AI Repair 修复失败。"
-policy:
-  allow_implicit_invocation: true

@@ -1,11 +1,11 @@
 ---
-name: ai-repair-incident
-description: 分析线上 AI Repair 修复失败并验证改善；先收集线上证据，再严格按 L2 Diagramly Prompt → L3 本地异步 job → L4 真实 Forge UI 排查，每层成功后才进入下一层。模型横向比较使用 ai-repair-benchmark。
+name: ai-repair-case-validation
+description: 对具体 AI Repair 失败案例做原因排查、修复后验证和历史案例回归；严格按 L2 Diagramly Prompt → L3 本地异步 job → L4 真实 Forge UI 执行，每层成功后才进入下一层。模型横向比较使用 ai-repair-benchmark。
 ---
 
-# AI Repair Incident
+# AI Repair Case Validation
 
-用于一份具体的线上失败 DSL，从 Prompt、后端 job 到真实 UI 定位问题并验证修复。先保存已有线上证据，再执行 **L2 → L3 → L4**。本 skill 不是模型横向 benchmark，也不执行 L1；比较模型时使用 `ai-repair-benchmark`。发布后通用冒烟测试仍使用 `pvt-ai-repair`。
+围绕具体失败案例执行 **L2 → L3 → L4**，可用于首次定位原因、修复后验证，或回放过去失败的案例。多案例回归时每份 DSL 独立执行和记录门槛结果。本 skill 不执行 L1，也不做模型横向比较；后者使用 `ai-repair-benchmark`。发布后的通用冒烟检查仍使用 `pvt-ai-repair`。
 
 ## 严格门槛
 
@@ -14,15 +14,15 @@ description: 分析线上 AI Repair 修复失败并验证改善；先收集线�
 3. 每层 PASS 必须有候选非空、非 no-op、适用语言解析/渲染成功，以及必保留锚点满足的证据。若不能完成必要验证，该层不是 PASS。
 4. 未进入的层级标为 `SKIPPED`，记录 `blocked_by_L2` 或 `blocked_by_L3` 和具体原因；不得把未测层级写成 FAIL 或推断其线上表现。
 
-这个门槛控制**新执行的测试**；已经发生的线上 L4 失败证据应在开始前读取和保存。修复后从失败层重测，只有它达到 PASS 才继续下一层。每次记录代码/Prompt 版本与配置，版本变化前后的结果分别保存。
+这个门槛控制**新执行的测试**；已有的线上失败证据应在开始前读取和保存。修复后验证和历史案例回归都从 L2 重新开始，逐层达到 PASS 才继续。每次记录代码/Prompt 版本与配置，版本变化前后的结果分别保存。
 若同一方案在某层多次失败，先修正该层的问题；不能用随后偶然的一次成功掩盖先前失败。记录所有试次，并确认当前修复方案能满足该层门槛后再继续。
 
 ## 准备
 
-- 收集线上原始 DSL、真实解析错误、图类型、用户所用模型、时间、UI 现象、`fix-diagram` / `job-status` 响应及相关日志。分清已观察到的事实、未知项和待验证假设，不把本地结果当作线上事实。
+- 首次排查时，收集线上原始 DSL、真实解析错误、图类型、用户所用模型、时间、UI 现象、`fix-diagram` / `job-status` 响应及相关日志。修复验证或历史案例回归时，读取保存的原始输入、错误、预期保留锚点和上次失败证据。分清已观察到的事实、未知项和待验证假设，不把本地结果当作线上事实。
 - 确定本轮需要验证的模型和路径。线上默认先使用 `openai/gpt-5.6-luna`；若失败案例涉及用户点击强模型重试，另对 `anthropic/claude-sonnet-5` 建立同一原始 DSL 的独立记录。每个模型/修复路径独立应用门槛，不把上一模型的输出传给下一模型。
 - 检查 conf-app 与 Diagramly 的 HEAD、工作区状态、Prompt hash、模型参数和目标环境。保留已有改动；本 skill 不自动创建分支、提交、部署或发布页面。
-- 本轮 manifest、候选和证据保存在 `/tmp/ai-repair-incident/<run-id>/`；复用 benchmark 文档中的命令时，将示例的 `/tmp/ai-repair-benchmark/<run-id>/` 换成此目录。
+- 本轮 manifest、候选和证据保存在 `/tmp/ai-repair-case-validation/<run-id>/`；复用 benchmark 文档中的命令时，将示例的 `/tmp/ai-repair-benchmark/<run-id>/` 换成此目录。
 - 完整 DSL 发给 OpenRouter 前，若来自生产或可能含客户信息，取得用户对“该 DSL → OpenRouter → 所选模型”的明确授权。客户数据和证据只保存在 `/tmp` 或 `private/`，不得写入公开仓库；不保存 token 或授权请求头。
 
 ## L2：Prompt 与模型
@@ -39,4 +39,4 @@ description: 分析线上 AI Repair 修复失败并验证改善；先收集线�
 
 ## 结论与交付
 
-逐层列出输入版本、模型、PASS/FAIL/SKIPPED、证据、最早失败环节、修复动作及重测结果。先描述用户看到的失败，再给运行时证据和代码路径。L2/L3 的成功不代表线上已恢复；只有 L4 的实际 UI 证据能证明本轮真实链路通过。未测层级保持 SKIPPED，并说明阻塞门槛。不要用一次成功或失败估算总体模型成功率。
+逐层列出输入版本、模型、PASS/FAIL/SKIPPED、证据、最早失败环节、修复动作及重测结果。首次排查先描述用户看到的失败，再给运行时证据和代码路径；历史案例回归还应对照上次失败点和本次结果。L2/L3 的成功不代表目标环境的 UI 已恢复；只有 L4 的实际 UI 证据能证明本轮真实链路通过。未测层级保持 SKIPPED，并说明阻塞门槛。不要用一次成功或失败估算总体模型成功率。

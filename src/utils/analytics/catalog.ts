@@ -750,6 +750,27 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Inline title rename from the viewer's top edge (no editor modal). Gated by
+  // the same predicate as the Edit button plus the click-time same-page
+  // duplicate guard (utils/guardEditClick.ts). started = the title entered
+  // edit mode; succeeded = the custom-content PUT landed (carries
+  // save_duration_ms, the fresh GET + PUT round-trip); failed = the guard
+  // refused, the PUT threw, or the returned id did not match
+  // (`failure_reason`); cancelled = edit mode left without a write
+  // (`rename_exit_reason`: escape / unchanged / empty — a blank title on
+  // Enter is refused inline and keeps editing, so it fires nothing; `empty`
+  // is a blank title on blur, where the previous title simply stands).
+  // A rename writes a new custom-content version but is deliberately NOT a
+  // macro_save_succeeded: that event is the edit-volume signal for dashboards
+  // and rides on saveToPlatform (snapshot upload, CSAT, surface: editor), none
+  // of which a title-only write goes through. D1 CustomContentVersion recency
+  // still registers the rename. First rollout offers the control on the
+  // sequence and Mermaid macros only, so macro_type is `sequence` or
+  // `mermaid` until it widens.
+  | "viewer_rename_started"
+  | "viewer_rename_succeeded"
+  | "viewer_rename_failed"
+  | "viewer_rename_cancelled"
   // Planned ahead of the Mermaid highlighting implementation. Every event
   // uses feature_area=macro, surface=viewer or fullscreen,
   // and macro_type=mermaid. Do not send
@@ -1196,6 +1217,8 @@ export type AnalyticsEventName =
   // editor; 'passed' = unique reference, modal opened; 'scan_failed' = the
   // ADF count scan errored, fail-open (modal opened; the editor-side backstop
   // below still guards Publish).
+  // Also produced by every inline title rename commit (utils/renameDiagramTitle.ts
+  // runs the same guardEditClick), so this is gate volume, not Edit-click volume.
   | "edit_dup_gate_evaluated"
   // The editor-side backstop caught what the click gate let through (its
   // fail-open path, the staleness-hint CTA on an inline page-editor render,

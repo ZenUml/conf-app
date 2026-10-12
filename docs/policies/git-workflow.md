@@ -48,6 +48,58 @@ A worktree is only ever needed to keep two *working trees* from colliding. Don't
 
 In short: create a worktree when you need an isolated *checkout* — to avoid disrupting another session's dirty tree, or to run two branches at once. Not for trivial docs or untracked local files.
 
+## Before starting: scan for overlapping work
+
+**Do this before creating a branch or a worktree, every time.** Multiple sessions (and the user)
+work this repo in parallel, so the change you are about to write may already exist half-finished on
+a branch, in an open PR, or in a worktree on this machine. Starting a second branch for it wastes
+the work and produces a merge conflict later.
+
+Three cheap checks — run all three:
+
+```bash
+# 1. Remote branches, most recently touched first (prune first: deleted branches linger otherwise)
+git fetch --prune origin
+git branch -r --sort=-committerdate \
+  --format='%(committerdate:short)  %(refname:short)  %(contents:subject)' | head -30
+
+# 2. Local worktrees — another session may be mid-change in one of them
+git worktree list
+
+# 3. Open PRs, with the files each one touches
+gh pr list --state open --json number,title,headRefName,updatedAt,author
+gh pr view <number> --json files --jq '.files[].path'
+```
+
+In the remote agent container there is no `gh` — use the `mcp__github__list_pull_requests` /
+`mcp__github__pull_request_read` tools instead (see the **Agent container** section of `CLAUDE.md`).
+The clone there may also carry only `main` and your own branch, so `git branch -r` is *not*
+sufficient evidence on its own; the GitHub tools are.
+
+For any branch or PR whose name or subject looks related, check what it actually touches before
+judging — a name is not evidence:
+
+```bash
+git log --oneline origin/main..origin/<branch>
+git diff --name-only origin/main...origin/<branch>
+```
+
+Also check whether the issue you are working already has a linked branch/PR (`gh issue view <n>`, or
+`mcp__github__issue_read`) — that link is the strongest signal of all.
+
+### What to do when you find overlap
+
+| Finding | Action |
+|---|---|
+| An open PR already implements this | **Stop.** Report the PR to the user; don't open a competing branch. If it needs finishing, work on *that* branch. |
+| A branch has partial work, no PR, and it is this session's or the user's | Continue on that branch (`git worktree add ../conf-app-<feature> <existing-branch>`), don't fork a second one. |
+| A branch has partial work and it belongs to **another session** | Don't touch it — never rebase, force-push, or commit onto another session's branch. Tell the user what you found and ask whether to build on it or work separately. |
+| Adjacent work that touches the same files but has a different goal | Proceed, and say so explicitly in the PR description so the reviewer expects the conflict. |
+| Nothing related | Proceed to the branch/worktree steps below. |
+
+When the scan is ambiguous — a related-looking branch you can't attribute — ask rather than guess.
+The cost of asking is one message; the cost of duplicate work is the whole change.
+
 ## Starting work on an issue
 
 Check the current branch state first:

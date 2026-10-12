@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { measureCacheState, trackRenderTime } from "./trackRenderTime";
 import { trackAnalyticsEvent } from "./trackAnalyticsEvent";
 import { getRenderIdentity } from "./renderIdentity";
+import { setDiagramFontState, _resetDiagramFontStateForTesting } from "@/utils/fonts/diagramFontState";
 
 vi.mock("./trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -197,6 +198,24 @@ describe("trackRenderTime", () => {
         tab_hidden: false,
       })
     );
+  });
+
+  it("adds diagram_font to sequence macro_viewed only once the font load was attempted", () => {
+    _resetDiagramFontStateForTesting();
+    trackRenderTime("sequence", true);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)![1]).not.toHaveProperty("diagram_font");
+
+    setDiagramFontState("fallback");
+    trackRenderTime("sequence", true);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)![1]).toMatchObject({ diagram_font: "fallback" });
+
+    setDiagramFontState("plex");
+    trackRenderTime("sequence", true);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)![1]).toMatchObject({ diagram_font: "plex" });
+
+    trackRenderTime("mermaid", true);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)![1]).not.toHaveProperty("diagram_font");
+    _resetDiagramFontStateForTesting();
   });
 
   it("stamps instance_nonce and time_origin on macro_viewed", () => {

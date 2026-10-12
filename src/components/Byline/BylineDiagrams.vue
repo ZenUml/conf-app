@@ -955,6 +955,10 @@ async function onAddToPage(d: PageDiagram) {
     macro_type: toMacroType(d.diagramType) as MacroTypeValue,
     result: outcome.result,
     ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
+    // Which step failed, and the code behind it. 'failed' alone is one bucket
+    // over six causes that need different fixes.
+    ...(outcome.reason === undefined ? {} : { failure_reason: outcome.reason }),
+    ...(outcome.status === undefined ? {} : { http_status: outcome.status }),
   })
 
   // Only a refusal withdraws the action. 'failed' is a blip, and the fix for a

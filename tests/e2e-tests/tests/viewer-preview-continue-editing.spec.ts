@@ -23,12 +23,12 @@
  *   npx playwright test tests/viewer-preview-continue-editing.spec.ts --project=preview
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from '../fixtures/mixpanel-test.js'
 import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('editor-preview.html')
 
-test.describe('Editor-modal paywall gate — retired block', () => {
+test.describe('Editor-modal paywall gate — retired block', { tag: ['@editor', '@paywall'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } })
 
   test('Over-limit space still mounts the editor directly; no paywall gate appears', async ({ page }) => {

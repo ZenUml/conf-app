@@ -23,7 +23,7 @@
 // "not submittable"), both locked by unit tests (editDupGate.spec.ts /
 // writebackGate.spec.ts).
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
@@ -87,7 +87,7 @@ async function insertAndPublishNonSequenceMacro(page: Page, kind: 'graph' | 'ope
   return pageId!;
 }
 
-test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', () => {
+test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', { tag: ['@test:writeback-gate-non-submittable', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@viewer', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 

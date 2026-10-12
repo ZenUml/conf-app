@@ -5,6 +5,8 @@
       :key="option.value"
       role="tab"
       type="button"
+      :aria-label="option.label"
+      :title="option.value === 'markdown' ? 'Markdown with Mermaid diagrams' : option.label"
       :aria-selected="modelValue === option.value"
       :tabindex="modelValue === option.value ? '0' : '-1'"
       :class="getButtonClass(option.value)"
@@ -56,6 +58,7 @@ export default {
           hover: 'hover:text-[#FF3670]',
           active: 'text-[#8E0F33] after:bg-[#FF3670] focus-visible:ring-[#FF3670]',
         },
+        markdown: { hover: 'hover:text-[#6554C0]', active: 'text-[#403294] after:bg-[#6554C0] focus-visible:ring-[#6554C0]' },
         plantuml: {
           hover: 'hover:text-[#B84800]',
           active: 'text-[#6B2900] after:bg-[#B84800] focus-visible:ring-[#B84800]',
@@ -77,11 +80,13 @@ export default {
       const accentDot = {
         sequence: 'bg-[#0094D9]',
         mermaid: 'bg-[#FF3670]',
+        markdown: 'bg-[#6554C0]',
         plantuml: 'bg-[#B84800]',
       }
       const hoverDot = {
         sequence: 'group-hover/tab:bg-[#0094D9]',
         mermaid: 'group-hover/tab:bg-[#FF3670]',
+        markdown: 'group-hover/tab:bg-[#6554C0]',
         plantuml: 'group-hover/tab:bg-[#B84800]',
       }
       if (isActive) {
@@ -90,7 +95,7 @@ export default {
       return `${base} bg-gray-300 ${hoverDot[value] ?? ''}`.trim()
     },
     getTextClass() {
-      return 'sr-only lg:not-sr-only'
+      return ''
     }
   }
 }

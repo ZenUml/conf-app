@@ -1,3 +1,4 @@
+import { oauthDiscoveryResponse } from "./agent-link/oauth/discovery";
 import authenticate from "./utils/authenticate";
 import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
@@ -27,8 +28,11 @@ export const AUTHENTICATED_PATHS = [
   '/forge-upload-attachment',
   '/deeplink-ticket',
   '/activation-prepared',
+  '/magic-writeback',
   '/api/diagram-impact',
   '/api/architecture-tokens',
+  '/api/feedback-report',
+  '/api/targeted-survey',
   // Conversion queue endpoints re-verify the FIT themselves, but the claim
   // response's app identity (environmentId for the ADF extensionKey rewrite)
   // is read from the middleware-populated forgeContext — without this entry
@@ -63,12 +67,31 @@ function withDeeplinkTicketCors(response: Response): Response {
 // Customer deeplink paths (/d/<cloudId>/<contentId>, /i/<token>) identify a
 // tenant + diagram and must never be logged verbatim
 // (docs/policies/client-privacy.md). Redact to just the path prefix.
-const UNLOGGED_PATH_PREFIXES = ['/d', '/i'];
+const UNLOGGED_PATH_PREFIXES = ['/d', '/i', '/magic-writeback'];
+
+// Query parameters that are credentials in their own right, wherever they
+// appear. `code` is Atlassian's authorization code and ours; `auth` is the
+// parked-authorization id, which alone completes a consent; `state` binds a
+// flow to a browser; `token` is the relay's session token, which the MCP
+// endpoint still accepts in the query string. Logging any of them writes a
+// live credential into Cloudflare's logs and Sentry breadcrumbs — the OAuth
+// callback and consent hop did exactly that until 2026-09-26.
+const REDACTED_QUERY_PARAMS = ['code', 'auth', 'state', 'token', 'code_verifier', 'refresh_token'];
 
 export function redactedRequestUrlForLogging(url: string): string {
-  const { pathname, origin } = new URL(url);
+  const parsed = new URL(url);
+  const { pathname, origin } = parsed;
   const hit = UNLOGGED_PATH_PREFIXES.find((p) => pathname === p || pathname.startsWith(`${p}/`));
-  return hit ? `${origin}${hit} [redacted]` : url;
+  if (hit) return `${origin}${hit} [redacted]`;
+
+  let redacted = false;
+  for (const name of REDACTED_QUERY_PARAMS) {
+    if (parsed.searchParams.has(name)) {
+      parsed.searchParams.set(name, '[redacted]');
+      redacted = true;
+    }
+  }
+  return redacted ? parsed.toString() : url;
 }
 
 // Create a middleware function that handles authentication
@@ -82,6 +105,16 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     console.log('Function request url:', redactedRequestUrlForLogging(request.url));
 
     const { pathname } = new URL(request.url);
+
+    // The two OAuth discovery documents are served from here rather than from
+    // route files, because the Pages router ignores directories whose name
+    // starts with a dot — a probe function under functions/.well-known/ never
+    // received a request (verified 2026-09-25; the SPA answered instead).
+    // They are public by definition: a client that has never authenticated has
+    // to be able to read them to find out how to authenticate.
+    const discovery = oauthDiscoveryResponse(request.url);
+    if (discovery) return discovery;
+
     const isDeeplinkTicket = isDeeplinkTicketPath(pathname);
     if (isDeeplinkTicket && request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: DEEPLINK_TICKET_CORS_HEADERS });

@@ -7,8 +7,11 @@ import { expect, userEvent, waitFor, within } from 'storybook/test'
 import mixpanel from 'mixpanel-browser'
 import { FeatureFlags } from '@forge/bridge'
 import GenericViewer from './GenericViewer.vue'
+import GraphPageNav from './GraphPageNav.vue'
+import DiagramPortal from '@/components/DiagramPortal.vue'
 import Sequence from '@/components/Sequence.vue'
 import Mermaid from '@/components/Mermaid.vue'
+import PlantUml from '@/components/PlantUml.vue'
 import store from '@/model/store2'
 import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
@@ -17,6 +20,7 @@ import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
 import { __resetEditGateCache } from '@/utils/guardEditClick'
+import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 
 // Header.stories.ts's `{ template: '<story/>', app: (app) => app.use(store) }`
 // decorator idiom does NOT install the plugin on @storybook/vue3-vite 10.4's
@@ -78,12 +82,48 @@ const SAMPLE_MERMAID_EDITOR_SEQUENCE = `sequenceDiagram
   Alice->>John: Hello John, how are you?
   John-->>Alice: Great!
   Alice-)John: See you later!`
+const SAMPLE_PLANTUML = '@startuml\nAlice -> Bob: Hello\nBob --> Alice: Hi there!\n@enduml'
+/**
+ * What www.plantuml.com/plantuml/svg/ actually returns: a fixed pixel size plus
+ * `preserveAspectRatio="none"`. normalizeSvg rewrites that shape, so a story that
+ * canned the already-normalised SVG would not exercise the code under test.
+ */
+const PLANTUML_SERVER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="322px" height="243px" preserveAspectRatio="none" style="width:322px;height:243px;background:#FFFFFF;" viewBox="0 0 322 243" version="1.1">
+  <rect x="10" y="10" width="90" height="30" fill="#E3F2FD" stroke="#1E88E5"/>
+  <text x="24" y="30" font-size="13">Alice</text>
+  <rect x="210" y="10" width="90" height="30" fill="#E3F2FD" stroke="#1E88E5"/>
+  <text x="226" y="30" font-size="13">Bob</text>
+  <line x1="55" y1="40" x2="55" y2="233" stroke="#333"/>
+  <line x1="255" y1="40" x2="255" y2="233" stroke="#333"/>
+  <line x1="55" y1="90" x2="250" y2="90" stroke="#333"/>
+  <text x="95" y="84" font-size="12">Hello</text>
+  <line x1="255" y1="150" x2="60" y2="150" stroke="#333" stroke-dasharray="4"/>
+  <text x="95" y="144" font-size="12">Hi there!</text>
+</svg>`
+
+/** The renderer and the linter both fetch plantuml.com; neither may in a story. */
+function stubPlantUmlServer() {
+  const realFetch = window.fetch.bind(window)
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    if (url.includes('plantuml.com')) {
+      return Promise.resolve(new Response(PLANTUML_SERVER_SVG, {
+        status: 200,
+        headers: { 'Content-Type': 'image/svg+xml' },
+      }))
+    }
+    return realFetch(input as RequestInfo, init)
+  }) as typeof window.fetch
+}
+
 const SAMPLE_SEQUENCE = 'Client->Server: POST /login\nServer-->Client: 200 OK'
 const SAMPLE_PAGE = {
   title: 'Login flow — architecture notes',
   body: { export_view: { value: '<p>Context for the AI: this page documents the login handshake.</p>' } },
   _links: { base: 'https://example-tenant.atlassian.net/wiki', webui: '/spaces/DOCS/pages/123456' },
 }
+// relatedTotal is part of the API contract (RelatedParticipant in
+// services/ArchitectureTokens.ts): the count pill over an actor renders it.
 const ARCHITECTURE_TOKENS_RESPONSE = {
   indexedAt: '2026-08-27T00:00:00.000Z',
   contentVersion: 3,
@@ -91,6 +131,7 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
     {
       actorId: 'Client',
       rawLabel: 'Client',
+      relatedTotal: 1,
       related: [
         {
           contentId: 'related-101',
@@ -101,7 +142,7 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
         },
       ],
     },
-    { actorId: 'Server', rawLabel: 'Server', related: [] },
+    { actorId: 'Server', rawLabel: 'Server', relatedTotal: 0, related: [] },
   ],
 }
 
@@ -110,12 +151,13 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
 // ---------------------------------------------------------------------------
 
 /** No real Forge bridge — same shape Header.stories.ts / GetStarted.stories.ts use. */
-function stubForge(moduleKey?: string, architectureTokensEnabled = false, customContentId?: string) {
+function stubForge(moduleKey?: string, architectureTokensEnabled = false, customContentId?: string, accountId = 'storybook-user') {
   forgeGlobal.isForge = architectureTokensEnabled
   forgeGlobal.isLite = true
   forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.invalid'
   forgeGlobal.forgeContext = {
-    accountId: 'storybook-user',
+    accountId,
+    cloudId: 'storybook-cloud',
     // isEmbedded (GenericViewer.vue) reads forgeContext.moduleKey directly —
     // set only by the Embedded story below.
     moduleKey,
@@ -235,6 +277,7 @@ function setupStore({
   diagram.recoveredFromOrphan = recoveredFromOrphan
   diagram.snapshotFallback = snapshotFallback
   diagram.snapshotAt = undefined
+  diagram.magic = undefined
 }
 
 /**
@@ -263,10 +306,11 @@ function configureStory(options: {
   architectureTokensEnabled?: boolean
   customContentId?: string
   displayMode?: boolean
+  accountId?: string
 } = {}) {
   resetStubResponses()
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
-  stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId)
+  stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId, options.accountId)
   if (options.architectureTokensEnabled) {
     stubResponses.remote = [
       { match: '/api/architecture-tokens/related', body: ARCHITECTURE_TOKENS_RESPONSE },
@@ -289,13 +333,12 @@ function configureStory(options: {
 }
 
 /**
- * The top-right action row (Edit/Source/Copy for AI/Fullscreen) is
- * hover-revealed: `.viewer-top-actions { opacity: 0 }` until the surface
- * gets `.viewer-surface--hover` on mouseenter (GenericViewer.vue's
- * `isHovering` — the same behavior GenericViewer.spec.ts exercises via
- * `surface.trigger('mouseenter')`). Every story below hovers first so the
- * row is actually visible for both the play-function assertions and anyone
- * browsing the story in Storybook.
+ * The top-right action row (Edit/Source/Copy for AI/More/Fullscreen) is
+ * revealed per control: each one sits at opacity 0 until the surface gets
+ * `.viewer-surface--revealed` (hover, keyboard focus inside, or an open
+ * menu — GenericViewer.vue's `headerRevealed`). Every story below hovers
+ * first so the row is actually visible for both the play-function
+ * assertions and anyone browsing the story in Storybook.
  */
 async function revealHeader() {
   const surface = document.querySelector<HTMLElement>('.viewer-surface')
@@ -307,23 +350,28 @@ async function revealHeader() {
   // later toBeVisible() assertions don't race it (verified live: without
   // this, `view-source-btn` intermittently read opacity 0 right after hover).
   await waitFor(() => {
-    const actions = document.querySelector<HTMLElement>('.viewer-top-actions')
+    const actions = document.querySelector<HTMLElement>('.viewer-top-actions .viewer-act-more')
     if (!actions || getComputedStyle(actions).opacity !== '1') {
       throw new Error('header actions not yet revealed')
     }
   })
 }
 
-/** Renders GenericViewer with a lightweight placeholder in the diagram slot. */
-function renderViewer(args: Args, placeholderLabel = 'Diagram preview') {
+/**
+ * Renders GenericViewer with a lightweight placeholder in the diagram slot.
+ * `minHeight` exists because the frame is only as tall as its content: the
+ * Copy for AI job menu and the View Source sheet are each ~300px and would
+ * otherwise be clipped by a frame sized to a one-line placeholder.
+ */
+function renderViewer(args: Args, placeholderLabel = 'Diagram preview', minHeight = 0) {
   return {
     components: { GenericViewer },
     setup() {
-      return { args, placeholderLabel }
+      return { args, placeholderLabel, minHeight }
     },
     template: `
       <GenericViewer v-bind="args">
-        <div style="padding: 64px 24px; text-align: center; color: #6B7280; font-size: 13px;">
+        <div :style="{ padding: '64px 24px', minHeight: minHeight + 'px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }">
           {{ placeholderLabel }}
         </div>
       </GenericViewer>
@@ -358,6 +406,131 @@ function renderMermaidEditorPreview() {
   }
 }
 
+/**
+ * The fullscreen surface as the Forge modal actually mounts it: DiagramPortal
+ * with autoResize=false, not GenericViewer directly (forgeIndex.ts).
+ */
+function renderZenUmlFullscreenViewer() {
+  return {
+    components: { DiagramPortal },
+    template: `<DiagramPortal :autoResize="false" />`,
+  }
+}
+
+/**
+ * The page viewer as forgeIndex.ts mounts it: DiagramPortal with autoResize=true,
+ * the surface where the box has to take the scaled diagram's height because the
+ * Forge macro iframe is sized by its content.
+ */
+function renderZenUmlInlineViewer() {
+  return {
+    components: { DiagramPortal },
+    template: `<DiagramPortal :autoResize="true" />`,
+  }
+}
+
+/** PlantUML's editor preview surface, without the read-only viewer chrome. */
+function renderPlantUmlEditorPreview() {
+  return {
+    components: { PlantUml },
+    template: `
+      <div style="width: 100%; height: 440px; padding: 24px; box-sizing: border-box; background: #F8F7F4;">
+        <PlantUml />
+      </div>
+    `,
+  }
+}
+
+/** Production integration: GenericViewer with the real PlantUML renderer in its slot. */
+function renderPlantUmlViewer(args: Args) {
+  return {
+    components: { GenericViewer, PlantUml },
+    setup() {
+      return { args }
+    },
+    template: `
+      <GenericViewer v-bind="args">
+        <PlantUml />
+      </GenericViewer>
+    `,
+  }
+}
+
+
+/** The page viewer: PlantUML shares Mermaid's pan/zoom viewport. */
+export const PlantUmlInlinePanZoom: Story = {
+  name: 'Normal view — PlantUML pan and zoom',
+  decorators: [
+    () => {
+      stubPlantUmlServer()
+      configureStory({
+        diagramType: DiagramType.PlantUml,
+        title: 'Alice Greets Bob',
+        plantUmlCode: SAMPLE_PLANTUML,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderPlantUmlViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('toolbar', { name: 'PlantUML zoom controls' })).toBeVisible()
+    // The regression #650 left in mermaid: with the viewBox gone, a box with no
+    // height of its own collapses to the browser's 150px default.
+    await waitFor(() => {
+      const viewport = document.querySelector<HTMLElement>('.diagram-viewport')
+      expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(200)
+    })
+  },
+}
+
+/** Fullscreen PlantUML: pan/zoom replaces the 1:1 horizontal scroll of #626. */
+export const PlantUmlFullscreenPanZoom: Story = {
+  name: 'Fullscreen — PlantUML pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    () => {
+      stubPlantUmlServer()
+      configureStory({
+        diagramType: DiagramType.PlantUml,
+        title: 'Alice Greets Bob',
+        plantUmlCode: SAMPLE_PLANTUML,
+        fullscreenMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderPlantUmlViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom in' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
+  },
+}
+
+/** The editor preview: a small diagram must not be blown up to fill the pane. */
+export const PlantUmlEditorPanZoom: Story = {
+  name: 'Editor preview — PlantUML pan and zoom',
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    () => {
+      stubPlantUmlServer()
+      configureStory({
+        diagramType: DiagramType.PlantUml,
+        title: 'Alice Greets Bob',
+        plantUmlCode: SAMPLE_PLANTUML,
+        displayMode: false,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderPlantUmlEditorPreview(),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Zoom in' })).toBeVisible()
+  },
+}
+
 /** Production integration: GenericViewer with the real ZenUML renderer. */
 function renderSequenceViewer(args: Args) {
   return {
@@ -385,10 +558,14 @@ const meta: Meta<typeof GenericViewer> = {
     docs: {
       description: {
         component:
-          'The macro viewer header (.viewer-edge-top row): the title area (title, EMBED chip, ' +
-          'READ-ONLY recovered chip) and the top-right action row — Edit, View Source, the ' +
-          '"Copy for AI ▾" split button (one-click generic copy + a chevron menu of five ' +
-          'job-framed entries, with inline Copying…/Copied/Copy failed feedback), and Fullscreen.',
+          'The macro viewer as a reader meets it on a Confluence page. The header row ' +
+          '(.viewer-edge-top): title, EMBED and READ-ONLY chips, and the hover-revealed actions — ' +
+          'Edit, View Source, the "Copy for AI ▾" split button (one-click copy plus a chevron menu ' +
+          'of five job-framed entries, with inline Copying…/Copied/Copy failed feedback) and ' +
+          'Fullscreen. Then the surfaces below it: the View Source sheet inline and fullscreen, ' +
+          'Mermaid pan and zoom across all three surfaces, the load-failed recovery panel, the ' +
+          'Architecture Tokens footer through the real Mermaid renderer, the export entry point, ' +
+          'and the fullscreen viewer mounted the way the Forge modal mounts it.',
       },
     },
   },
@@ -523,7 +700,7 @@ export const TitleRenameFailed: Story = {
  * the overlay listens to. All fixture vocabulary is invented.
  */
 export const ArchitectureTokensMermaidIntegration: Story = {
-  name: 'Architecture tokens — real Mermaid integration',
+  name: 'Architecture Tokens — footer through the real Mermaid renderer',
   loaders: [
     async () => {
       __resetMermaidLoaderForTests()
@@ -616,6 +793,159 @@ export const MermaidFullscreenPanZoom: Story = {
   },
 }
 
+/** Synthetic prepared artifact using the same stored Mermaid source as Original. */
+export const MermaidFullscreenMagic: Story = {
+  name: 'Fullscreen — Refined layout',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Input to Result',
+        mermaidCode: 'graph LR\n  A[Input]-->B[Result]',
+        fullscreenMode: true,
+      })
+      ;(store.state as any).diagram.magic = {
+        sourceHash: 'e61cfef2fd3c5a53982b84c8dc2e615f6fb6c0286fb1a4b68748c1719837c8b5',
+        rulesVersion: 'magic-v1',
+        outcome: 'validated',
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 160" role="img" aria-label="Input leads to result">
+          <style>.node { fill: #e0f2fe; stroke: #0369a1; stroke-width: 1; } .edge { stroke: #0369a1; stroke-width: 1.5; } .label { fill: #0f172a; font-family: Arial; font-size: 16px; font-weight: 400; text-anchor: middle; }</style>
+          <defs><marker id="magic-arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#0369a1"/></marker></defs>
+          <rect class="node" x="40" y="48" rx="4" width="120" height="64"/><text class="label" x="100" y="85">Input</text>
+          <path class="edge" d="M160 80L240 80" marker-end="url(#magic-arrow)"/>
+          <rect class="node" x="240" y="48" rx="4" width="120" height="64"/><text class="label" x="300" y="85">Result</text>
+        </svg>`,
+      }
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    const magic = await canvas.findByTestId('magic-toggle')
+    if (magic.getAttribute('aria-pressed') !== 'true') await userEvent.click(magic)
+    await waitFor(() => expect(magic).toHaveAttribute('aria-pressed', 'true'))
+    await waitFor(() => expect(magic).toHaveAttribute('aria-busy', 'false'))
+    await expect(canvas.getByRole('img', { name: 'Input leads to result' })).toBeVisible()
+    await userEvent.click(canvas.getByTestId('original-toggle'))
+    await expect(magic).toHaveAttribute('aria-pressed', 'false')
+    await expect(magic).toHaveAttribute('title', 'Layout refined with AI.')
+  },
+}
+
+/** The literal validated SVG from the local Pi producer, paired with its exact source bytes. */
+export const MermaidFullscreenPiProducedMagic: Story = {
+  name: 'Fullscreen — Pi-produced refined layout',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Start to Finish',
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+        fullscreenMode: true,
+      })
+      ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    const magic = await canvas.findByTestId('magic-toggle')
+    await expect(magic).toBeEnabled()
+    if (magic.getAttribute('aria-pressed') !== 'true') await userEvent.click(magic)
+    await waitFor(() => {
+      const svg = document.querySelector('.screen-capture-content .diagram-viewport svg')
+      if (!svg?.querySelector('marker#arrow') || !svg.textContent?.includes('Start') || !svg.textContent?.includes('Finish')) {
+        throw new Error('Pi-produced SVG is not visible in the Magic viewport')
+      }
+    })
+    await expect(magic).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(magic).toHaveAttribute('aria-busy', 'false'))
+    await userEvent.click(canvas.getByTestId('original-toggle'))
+    await expect(magic).toHaveAttribute('aria-pressed', 'false')
+    await expect(magic).toHaveAttribute('title', 'Layout refined with AI.')
+    await expect(document.querySelector('.screen-capture-content .diagram-viewport marker#arrow')).toBeNull()
+    await expect((store.state as any).diagram.mermaidCode).toBe(PI_MAGIC_SYNTHETIC_SOURCE)
+
+    // The artifact stays attached as a saved body would, but source edits make it stale.
+    store.commit('updateMermaidCode', PI_MAGIC_SYNTHETIC_SOURCE + ' ')
+    await waitFor(() => expect(canvas.queryByTestId('magic-toggle')).toBeNull())
+    await expect(canvas.queryByTestId('original-toggle')).toBeNull()
+    await expect(document.querySelector('.screen-capture-content .diagram-viewport marker#arrow')).toBeNull()
+  },
+}
+
+/** Browser-visible producer artifact without an automated transition, for manual visual review. */
+export const MermaidFullscreenPiProducedMagicDisplay: Story = {
+  name: 'Fullscreen — Pi-produced refined layout display',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Start to Finish',
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+        fullscreenMode: true,
+        accountId: 'storybook-layout-demo-user',
+      })
+      ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** Same saved diagram under another Forge account; only the local choice differs. */
+export const MermaidFullscreenPiProducedMagicOtherUser: Story = {
+  name: 'Fullscreen — Refined layout for another user',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true, accountId: 'storybook-user-b' })
+    ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** A newer producer generation for the same exact Mermaid source. */
+export const MermaidFullscreenPiProducedMagicNewGeneration: Story = {
+  name: 'Fullscreen — regenerated refined layout',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true })
+    ;(store.state as any).diagram.magic = {
+      ...PI_MAGIC_SYNTHETIC_ARTIFACT,
+      generatedAt: '2026-10-02T00:00:00.000Z',
+    }
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
+/** An edited source leaves the prepared artifact stale and opens Original. */
+export const MermaidFullscreenPiProducedMagicStale: Story = {
+  name: 'Fullscreen — stale refined layout opens Original',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE + ' ', fullscreenMode: true })
+    ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+}
+
 /** Normal Confluence page viewer with the same two-button viewport controls. */
 export const MermaidInlinePanZoom: Story = {
   name: 'Normal view — Mermaid pan and zoom',
@@ -642,7 +972,7 @@ export const MermaidInlinePanZoom: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
-    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    const viewport = document.querySelector<HTMLElement>('.diagram-viewport')
     await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
   },
 }
@@ -675,7 +1005,7 @@ export const MermaidEditorPanZoom: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
-    const viewport = document.querySelector<HTMLElement>('.mermaid-viewport')
+    const viewport = document.querySelector<HTMLElement>('.diagram-viewport')
     await waitFor(() => expect(viewport?.getBoundingClientRect().height).toBeGreaterThan(300))
   },
 }
@@ -692,7 +1022,7 @@ export const MermaidEditorPanZoom: Story = {
 
 /** Idle — the split button before any interaction. */
 export const CopyStateIdle: Story = {
-  name: 'CopyStates — idle',
+  name: 'Copy for AI — idle',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
@@ -711,7 +1041,7 @@ export const CopyStateIdle: Story = {
 
 /** Copying — the page-context fetch is deliberately held open. */
 export const CopyStateCopying: Story = {
-  name: 'CopyStates — copying',
+  name: 'Copy for AI — copying',
   decorators: [
     () => {
       // pageFetchDelayMs never resolves within the story's lifetime — holds
@@ -741,7 +1071,7 @@ export const CopyStateCopying: Story = {
 
 /** Copied — clipboard write succeeds. */
 export const CopyStateCopied: Story = {
-  name: 'CopyStates — copied',
+  name: 'Copy for AI — copied',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
@@ -762,7 +1092,7 @@ export const CopyStateCopied: Story = {
 
 /** Copy failed — clipboard.writeText rejects. */
 export const CopyStateFailed: Story = {
-  name: 'CopyStates — copy failed',
+  name: 'Copy for AI — copy failed',
   decorators: [
     () => {
       configureStory({
@@ -794,14 +1124,16 @@ export const CopyStateFailed: Story = {
  * five job-framed entries with their description lines.
  */
 export const JobMenuOpen: Story = {
-  name: 'JobMenuOpen — five job entries',
+  name: 'Copy for AI — job menu, five entries',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
       return { template: '<story />' }
     },
   ],
-  render: (args: Args) => renderViewer(args),
+  // The popover is ~300px tall and the frame hugs its content, so a normal
+  // placeholder clips three of the five entries the story is named for.
+  render: (args: Args) => renderViewer(args, 'Diagram preview', 300),
   play: async () => {
     await revealHeader()
     const canvas = within(document.body)
@@ -830,7 +1162,7 @@ export const JobMenuOpen: Story = {
  * (showViewSource) so both are absent; Edit and Fullscreen stay present.
  */
 export const GraphType: Story = {
-  name: 'GraphType — no Source / Copy for AI',
+  name: 'Graph diagram — no View Source, no Copy for AI',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Graph, title: 'Deployment topology' })
@@ -858,7 +1190,7 @@ export const GraphType: Story = {
  * changes, and Edit is disabled (title carries the steer-to-page-editor copy).
  */
 export const RecoveredReadOnly: Story = {
-  name: 'RecoveredReadOnly — READ-ONLY chip + banner',
+  name: 'Recovered from backup — READ-ONLY chip and banner',
   decorators: [
     () => {
       configureStory({
@@ -918,7 +1250,11 @@ export const Embedded: Story = {
 // 7. View Source panel — inline vs fullscreen (fix/viewsource-fullscreen-fit)
 // ---------------------------------------------------------------------------
 
-/** Inline surface: panel keeps the original 300px right-sheet layout. */
+/**
+ * Inline surface: the panel opens as a ~300px right-hand sheet inside the macro
+ * frame (no --fullscreen class). The slot is given a matching height so the
+ * sheet's last lines are not clipped by a frame sized to the placeholder.
+ */
 export const SourcePanelInline: Story = {
   name: 'Source panel — inline',
   decorators: [
@@ -927,7 +1263,7 @@ export const SourcePanelInline: Story = {
       return { template: '<story />' }
     },
   ],
-  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview', 300),
   play: async () => {
     await revealHeader()
     const canvas = within(document.body)
@@ -942,7 +1278,7 @@ export const SourcePanelInline: Story = {
   },
 }
 
-/** Fullscreen surface: panel is viewport-anchored and widened (the fix). */
+/** Fullscreen surface: the panel is viewport-anchored and widened to min(560px, 45vw). */
 export const SourcePanelFullscreen: Story = {
   name: 'Source panel — fullscreen',
   decorators: [
@@ -956,7 +1292,7 @@ export const SourcePanelFullscreen: Story = {
       return { template: '<story />' }
     },
   ],
-  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview', 300),
   play: async () => {
     await revealHeader()
     const canvas = within(document.body)
@@ -1046,3 +1382,274 @@ export const LoadFailedWithoutSource: Story = {
     await expect(canvas.getByRole('button', { name: 'Contact support' })).toBeVisible()
   },
 }
+
+// ---------------------------------------------------------------------------
+// Fullscreen surface — mounted through DiagramPortal, as the Forge modal does
+// ---------------------------------------------------------------------------
+
+/**
+ * The fullscreen viewer for a ZenUML sequence diagram, entered the production
+ * way: forgeIndex.ts mounts DiagramPortal with autoResize=false inside a modal
+ * whose macroMode is 'fullscreen'. The chrome differs from the inline surface —
+ * a diagram-type chip replaces the hover-revealed row's Edit and Fullscreen
+ * buttons — so mounting GenericViewer directly would not show it.
+ */
+/** The page viewer: Sequence fits to width and zooms, like the other types. */
+export const ZenUmlInlinePanZoom: Story = {
+  name: 'Normal view — ZenUML sequence pan and zoom',
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Sequence,
+        title: 'Login flow',
+        code: SAMPLE_SEQUENCE,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderZenUmlInlineViewer(),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(
+      await canvas.findByRole('toolbar', { name: 'Sequence zoom controls' }, { timeout: 15000 }),
+    ).toBeVisible()
+  },
+}
+
+export const ZenUmlFullscreen: Story = {
+  name: 'Fullscreen — ZenUML sequence via DiagramPortal',
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Sequence,
+        title: 'Login flow',
+        code: SAMPLE_SEQUENCE,
+        fullscreenMode: true,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderZenUmlFullscreenViewer(),
+  play: async () => {
+    await waitFor(
+      () => {
+        if (!document.querySelector('.zenuml')) {
+          throw new Error('ZenUML sequence diagram not rendered')
+        }
+      },
+      { timeout: 15000 },
+    )
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('viewer-type-chip')).toHaveTextContent('Sequence')
+    await expect(canvas.queryByRole('button', { name: 'Fullscreen' })).not.toBeInTheDocument()
+    await expect(canvas.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+  },
+}
+
+
+/** Starts without body.magic: the authenticated delivery seam returns persisted work. */
+export const MermaidFullscreenMagicWriteback: Story = {
+  name: 'Fullscreen — reviewed Magic delivered automatically',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true, id: '123456',
+      accountId: 'storybook-writeback-user' })
+    stubResponses.remote.push({ match: '/magic-writeback', body: { outcome: 'written', artifact: PI_MAGIC_SYNTHETIC_ARTIFACT } })
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const canvas = within(canvasElement)
+    const magic = await canvas.findByTestId('magic-toggle')
+    await waitFor(() => expect(magic).toHaveAttribute('aria-pressed', 'true'))
+    await expect(canvas.getByTestId('magic-disclosure')).toBeVisible()
+  },
+}
+
+export const MermaidFullscreenMagicWritebackMiss: Story = {
+  name: 'Fullscreen — empty Magic queue keeps Original',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Start to Finish',
+      mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE, fullscreenMode: true, id: '123456' })
+    stubResponses.remote.push({ match: '/magic-writeback', body: { outcome: 'miss' } })
+    return { template: '<story />' }
+  }],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvasElement.querySelector('.mermaid-diagram svg')).not.toBeNull())
+    await expect(canvas.queryByTestId('magic-toggle')).toBeNull()
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Staged header (Claude Design prototype "viewer-header-prototype", 2026-10)
+// ---------------------------------------------------------------------------
+// The prototype's three macros at the four column widths it was designed
+// for. Pick `columnWidth` in Controls (or ?args=columnWidth:560) to watch the
+// header collapse: S0 all labels, S1 Edit + Refined icon-only, S2 Fullscreen
+// icon-only, S3 Source + Copy for AI into More. data-stage on .viewer-frame
+// shows the stage picked. The Graph fixture has no source, so stops at S2.
+
+const STAGED_COLUMN_ARG_TYPES = {
+  columnWidth: { control: 'select', options: [560, 680, 760, 1000] },
+}
+
+/** GenericViewer inside a fixed-width page column, the way Confluence lays out a macro. */
+function renderStagedColumn(args: Args, slot: string, components: Record<string, unknown> = {}, extraSetup: Record<string, unknown> = {}) {
+  const { columnWidth = 760, ...viewerArgs } = args
+  return {
+    components: { GenericViewer, Mermaid, GraphPageNav, ...components },
+    setup() {
+      const width = typeof columnWidth === 'number' ? `${columnWidth}px` : String(columnWidth)
+      return { viewerArgs, width, ...extraSetup }
+    },
+    data: () => ({ page: 0 }),
+    template: `
+      <div :style="{ width }">
+        <GenericViewer v-bind="viewerArgs">${slot}</GenericViewer>
+      </div>
+    `,
+  }
+}
+
+const STAGED_PLACEHOLDER = (label: string) =>
+  `<div style="padding: 64px 24px; text-align: center; color: #6B7280; font-size: 13px;">${label}</div>`
+
+/** Long Mermaid title, source, and a valid refined layout (shown by default). */
+export const StagedHeaderMermaidLongTitle: Story = {
+  name: 'Staged header — Mermaid, long title, Refined',
+  args: { columnWidth: 760 },
+  argTypes: STAGED_COLUMN_ARG_TYPES,
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Checkout service: order placement with payment retry and inventory compensation',
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+      })
+      ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn(args, '<Mermaid />'),
+  play: async () => {
+    const canvas = within(document.body)
+    const refined = await canvas.findByTestId('magic-toggle')
+    await waitFor(() => expect(refined).toHaveAttribute('aria-pressed', 'true'))
+    await expect(await canvas.findByTestId('magic-layout-feedback')).toBeVisible()
+  },
+}
+
+/** Short PlantUML title: every label fits at every column width. */
+export const StagedHeaderPlantUmlShortTitle: Story = {
+  name: 'Staged header — PlantUML, short title',
+  args: { columnWidth: 760 },
+  argTypes: STAGED_COLUMN_ARG_TYPES,
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.PlantUml, title: 'Auth token refresh', plantUmlCode: '@startuml\nA -> B\n@enduml' })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn(args, STAGED_PLACEHOLDER('PlantUML diagram preview')),
+  play: async () => {
+    await revealHeader()
+    await waitFor(() => expect(document.querySelector('.viewer-frame')).toHaveAttribute('data-stage', '0'))
+  },
+}
+
+/** 3-page Graph, long title, no source: page navigation in the header, max stage 2. */
+export const StagedHeaderGraphPages: Story = {
+  name: 'Staged header — Graph, 3 pages, long title',
+  args: { columnWidth: 760 },
+  argTypes: STAGED_COLUMN_ARG_TYPES,
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Graph, title: 'Payments platform regional deployment topology (EU-West, US-East, failover)' })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn(args, `
+    ${STAGED_PLACEHOLDER('Graph (DrawIO) preview — page {{ page + 1 }}')}
+    <template #header-nav><GraphPageNav :current-page="page" :page-count="3" @go="page = $event" /></template>
+  `),
+  play: async () => {
+    const canvas = within(document.body)
+    // Visible without hover.
+    await expect(await canvas.findByText('1 of 3')).toBeVisible()
+    await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+    await expect(await canvas.findByText('2 of 3')).toBeVisible()
+  },
+}
+
+/** The More (⋯) menu open: the former bottom-pill actions, then debug info. */
+export const StagedHeaderMoreMenuOpen: Story = {
+  name: 'Staged header — More menu open',
+  args: { columnWidth: 760 },
+  argTypes: STAGED_COLUMN_ARG_TYPES,
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.PlantUml, title: 'Auth token refresh', plantUmlCode: '@startuml\nA -> B\n@enduml' })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn(args, STAGED_PLACEHOLDER('PlantUML diagram preview').replace('64px 24px', '64px 24px 220px')),
+  play: async () => {
+    await revealHeader()
+    const canvas = within(document.body)
+    await userEvent.click(canvas.getByRole('button', { name: 'More' }))
+    const menu = await canvas.findByRole('menu', { name: 'More actions' })
+    await expect(within(menu).getAllByRole('menuitem').map((item: HTMLElement) => item.textContent?.trim())).toEqual([
+      'Copy diagram link', 'Copy page link', 'Export PNG', 'Versions', 'Download debug info',
+    ])
+  },
+}
+
+/** Fullscreen header: Refined/Original switch, labelled actions by viewport, More, Exit. */
+export const StagedHeaderFullscreen: Story = {
+  name: 'Staged header — Fullscreen',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Checkout service: order placement with payment retry and inventory compensation',
+        mermaidCode: PI_MAGIC_SYNTHETIC_SOURCE,
+        fullscreenMode: true,
+      })
+      ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('fullscreen-exit')).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Export PNG' })).toBeVisible()
+  },
+}
+
+/** Fullscreen Graph: page navigation beside the title. */
+export const StagedHeaderFullscreenGraph: Story = {
+  name: 'Staged header — Fullscreen Graph, 3 pages',
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Graph, title: 'Payments platform regional deployment topology (EU-West, US-East, failover)', fullscreenMode: true })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderStagedColumn({ ...args, columnWidth: '100%' as any }, `
+    ${STAGED_PLACEHOLDER('Graph (DrawIO) preview — page {{ page + 1 }}')}
+    <template #header-nav><GraphPageNav :current-page="page" :page-count="3" @go="page = $event" /></template>
+  `),
+}
+

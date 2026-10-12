@@ -42,7 +42,7 @@ Two sections:
 - **MISSED** — payer renewals that lapsed in the past N days without a new payment landing,
   summed as income at risk.
 - **EVALUATIONS** — trials (`licenseType = EVALUATION`) expiring in the next N days (a
-  conversion window — act before they lapse) or that expired in the past N days. A conversion
+  billing observation window — not an instruction to contact them) or that expired in the past N days. A lifecycle
   signal, **not income** — shown in its own section, kept out of the $ totals. Each row shows
   `converted` (does this tenant+app already have a paid transaction). Lite is excluded (free,
   no paid conversion).
@@ -51,6 +51,8 @@ Scope: **all revenue apps** (Full + Diagramly + AsyncAPI; Lite is a free Marketp
 so it's ~$0 here — its paid layer is Stripe/KV, see `extend-space-license` / `paywall`).
 **Payers only** — clients with lifetime vendor $ > 0. A never-paying trial or free install
 never shows up in either bucket.
+
+Before presenting these candidates as a paid cohort, verify explicit source-reported Paid/Fully paid status in raw transactions: the current helper's amount-based summaries do not perform that check. Open-only orders are purchase evidence with unconfirmed settlement, not received income. A historical payer's newer Open renewal is separate from an absent renewal; do not call that customer “not purchased” or automatically chase them. Overlapping invoices or unresolved refunds can make totals uncertain.
 
 One row **per (tenant, app) subscription** — a tenant that pays for both Full and Diagramly
 gets two rows (its two real renewals), but a tenant with a paid Full license plus a leftover
@@ -61,7 +63,7 @@ are excluded.
 
 ## Definitions
 
-- **`paid_thru`** — the latest `maintenanceEndDate` among a client's *paid* transactions.
+- **`paid_thru`** — the helper's latest positive-amount transaction end; verify raw status before calling it settled coverage. A future start is not coverage today. This is not a vendor payout date.
 - **expected amount** — the `vendorAmount` of that client's most recent *paid* transaction
   (the number most likely to repeat on the next cycle).
 - **INCOMING**: `today <= paid_thru <= today + N`.
@@ -127,3 +129,7 @@ elsewhere rely on).
 - `tenant` — single-tenant lookup ("is `<domain>` paying, how big, what state").
 - `extend-space-license` / `paywall` — the Lite Stripe/KV layer; Lite paid access isn't in
   Marketplace transactions, so it never appears in this radar.
+
+## Follow-up boundary
+
+Read-only facts and gaps. A trial deadline alone is not urgency, a failed automatic payment or authority to contact. Use `customer-lifecycle` for state changes and `customer-followup` for decisions. Marketplace `all` may include vendor products beyond this document; report the actual product scope.

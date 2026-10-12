@@ -20,7 +20,7 @@ Run `forge tunnel` to proxy a live Confluence site to your local code. This lets
 pnpm build:lite           # build the variant you care about
 pnpm forge:deploy:dev     # uploads dist/ + manifest to your dev env
 pnpm forge:upgrade:dev    # upgrades the install on your test site
-pnpm start:local          # vite dev server on :8080 — leave running (separate terminal)
+FORGE_TUNNEL=1 PORT=8080 pnpm start:local:raw   # vite on :8080 with the real bridge — leave running
                          # stop any existing Forge tunnel on this machine first
 pnpm forge:tunnel         # starts the tunnel — leave running (separate terminal)
 ```
@@ -49,7 +49,9 @@ If `forge:deploy:dev` succeeds but `forge:upgrade:dev` errors with "scopes diffe
 - **`./scripts/forgex` is the canonical entry point** — it loads `.env.forge` + `.env.forge.local` and substitutes `{{VAR}}` placeholders. All `pnpm forge:*:dev` scripts use it. Don't call `forge` directly unless you're passing every env var inline.
 - **`forge install` (fresh, no `--upgrade`) requires a real TTY** for the scope-confirmation prompt. Run with `!` so it executes in the user's terminal.
 - **`forge deploy` packages whatever is in `dist/`** — always build before deploy.
-- **The tunnel proxies to localhost:8080; it does NOT own that port.** You must run `pnpm start:local` (or `start:sit`) separately to put a Vite dev server there. If port 8080 has a Vite process from *another* worktree (parent dir, sibling worktree, leftover from earlier session), the tunnel serves THAT worktree's code and you'll spend an hour debugging why your changes aren't showing up. See [Stale Vite from another worktree](#stale-vite-from-another-worktree).
+- **The tunnel proxies to localhost:8080; it does NOT own that port.** You must run `FORGE_TUNNEL=1 PORT=8080 pnpm start:local:raw` separately to put a Vite dev server there. Both variables are required:
+  - `PORT=8080` — `pnpm start:local` goes through Portless and binds a random internal port, but `manifest.yml` hardcodes `tunnel.port: 8080`, so the tunnel finds nothing.
+  - `FORGE_TUNNEL=1` — in `serve` mode `vite.config.mjs` aliases `@forge/bridge` to the Storybook stub (`src/stubs/forge-bridge.ts`) unless this is set. With the stub, `view.getContext()` returns `null`, the iframe loads Vite modules but `#app` stays empty and the macro height stays 0 — no error in the console. If port 8080 has a Vite process from *another* worktree (parent dir, sibling worktree, leftover from earlier session), the tunnel serves THAT worktree's code and you'll spend an hour debugging why your changes aren't showing up. See [Stale Vite from another worktree](#stale-vite-from-another-worktree).
 - **`adfExport` (macro export) functions are NOT proxied by the tunnel.** Atlassian's PDF/Word macro-export pipeline runs server-side independently of the user's session, even though `accountId` is attached to the payload. Empirically verified on 2026-05-16: a `console.log` probe in `src/export.js` produced ZERO log lines in the tunnel terminal when a PDF was exported from Confluence; the rendered PDF used deployed code, not local code. A control web trigger in the same tunnel session DID log immediately — so tunnel logging itself works fine. **For any iteration on `adfExport` code (`src/export.js` in this repo), `forge deploy -e development` is required after each change** — `forge tunnel` alone will not pick up your edits. See `docs/superpowers/specs/2026-05-15-paywall-research-framing-corrections.md` §B4 for the full test write-up. Tunnel still works as expected for **Custom UI resolvers, web triggers, and frontend iframe assets** — only macro-export functions are the exception.
 
 ## Setup (one-time per worktree)
@@ -191,7 +193,8 @@ Backend changes (`functions/`): the tunnel auto-detects and reloads.
 | "Prompts can not be meaningfully rendered in non-TTY environments" on a fresh `forge install` (no `--non-interactive`) | Fresh install prompts for scope confirmation | Run with `!` prefix in user's terminal |
 | "Insufficient permissions to install app" | Forge CLI can't auto-consent in headless mode, OR your user isn't admin on that site | Use interactive `!` install; if still fails, you need site-admin on that site (use a different env/site) |
 | Tunnel listening but no incoming requests when you load the page | Wrong env, wrong site, or app not installed there | `forge install list -e <env>` to verify |
-| Tunnel returns `500 AggregateError` / `Failed to connect to localhost:8080` | No Vite dev server on :8080 — tunnel proxies but doesn't host | Run `pnpm start:local` in the same worktree |
+| Tunnel returns `500 AggregateError` / `Failed to connect to localhost:8080` | No Vite dev server on :8080 — tunnel proxies but doesn't host | Run `FORGE_TUNNEL=1 PORT=8080 pnpm start:local:raw` in the same worktree |
+| Iframe is `localhost:8000` with `/@vite/client`, but `#app` is empty and the macro has 0 height | Vite started without `FORGE_TUNNEL=1` — `@forge/bridge` is the Storybook stub | Restart Vite with `FORGE_TUNNEL=1 PORT=8080 pnpm start:local:raw` |
 | Iframe loads but shows OLD code / wrong git branch in the dev bar | Stale Vite from another worktree squatting on :8080 | See [Stale Vite from another worktree](#stale-vite-from-another-worktree) |
 | `Prompts can not be meaningfully rendered in non-TTY environments` from `forge:install:dev` / `forge:upgrade:dev` | `.env.forge` / `.env.forge.local` missing → placeholders not substituted → forge prompts for site | Create the env files in this worktree (see [Setup](#setup-one-time-per-worktree)). NOT a real TTY problem despite the message |
 | Macros show old description/title | Confluence cached the old assets | Hard-refresh (Cmd+Shift+R) |
@@ -219,7 +222,7 @@ Fix:
 ```bash
 kill <pid>                                   # kill the stale Vite
 cd <your-worktree>
-pnpm start:local                              # start a fresh Vite from the right worktree
+FORGE_TUNNEL=1 PORT=8080 pnpm start:local:raw  # start a fresh Vite from the right worktree
 # then in another terminal: pnpm forge:tunnel
 ```
 

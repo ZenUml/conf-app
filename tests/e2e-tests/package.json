@@ -8,7 +8,6 @@
     "test:render": "playwright test --project=render",
     "test:insert": "playwright test --project=insert",
     "test:syntax-validation": "playwright test --project=syntax-validation",
-    "test:ai-repair": "playwright test --project=ai-repair",
     "test:lite:stg": "APP=zenuml-lite@stg playwright test",
     "test:lite:prod": "APP=zenuml-lite@prod playwright test",
     "test:full:stg": "APP=zenuml-full@stg playwright test",

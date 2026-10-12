@@ -3,21 +3,30 @@ import globals from '@/model/globals';
 import { isCsatPendingFresh } from '@/utils/csat';
 import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/byline/unplacedMarker';
 import { higherPriorityBannerPending } from '@/utils/banners/priority';
+import { whatsNewCandidate } from '@/utils/whatsNew/state';
+import type { TargetedSurveyCandidate } from '@/features/targetedSurvey/survey';
 
 /**
  * Single `confluence:pageBanner` host. Confluence creates exactly one banner
- * iframe per page; this host decides — centrally and synchronously, from
- * localStorage only — which banner (if any) it shows. Because the priority is
+ * iframe per page; this host decides existing priority synchronously from
+ * localStorage, then tries an authenticated targeted survey as a fallback.
+ * Because the priority is
  * resolved in one place, the banners never need to coordinate across iframes
  * (this replaces the old two-module + CSAT-defer arrangement, which is why no
  * defer exists here).
  *
  * Priority: the paywall warning (unpaid Lite space over the hard limit, seen by
  * a recent macro author or by a space admin of that space) outranks the CSAT
- * survey, which outranks the unplaced-diagram notice. `none` means close the
- * iframe with no work.
+ * survey, which outranks the unplaced-diagram notice, which outranks the
+ * "What's new" strip. The targeted survey is the asynchronous fallback
+ * when all synchronous banners decline. `none` means they declined.
  *
- * Why `unplaced` sits LAST despite being the most page-specific of the three:
+ * "What's new" is last for the same reason `unplaced` is below the first two,
+ * only more so: a release stays announceable for weeks and is capped at a few
+ * impressions, so a load where it loses the slot costs nothing. Everything
+ * above it is about this user's work on this page.
+ *
+ * Why `unplaced` sits below those two despite being the most page-specific:
  * it is the only one that keeps. The paywall warning is about work the user is
  * being blocked from doing right now, and a CSAT trigger is fresh for hours —
  * miss its window and the answer is gone. A diagram saved on this page and
@@ -27,7 +36,7 @@ import { higherPriorityBannerPending } from '@/utils/banners/priority';
  *
  * decidePageBanner() depends only on cheap localStorage predicates, so
  * forgeIndex can run it on the hot path (every page load) to decide whether to
- * close immediately. The heavy banner components load lazily — only when a
+ * try the survey fallback. The heavy banner components load lazily — only when a
  * banner will actually show — inside handlePageBannerRoute().
  */
 export type PageBannerChoice =
@@ -43,6 +52,7 @@ export type PageBannerChoice =
    * `paywall` / `paywall-admin` name which gate admitted them.
    */
   | 'unplaced-property'
+  | 'whats-new'
   | 'none';
 
 /**
@@ -63,6 +73,7 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
   // (utils/byline/unplacedMarker.ts). The component pays for the page ADF read
   // that confirms it, and closes without a word if it cannot.
   if (isUnplacedBannerCandidate(deriveUnplacedIdentity(), now)) return 'unplaced';
+  if (whatsNewCandidate(now)) return 'whats-new';
   return 'none';
 }
 
@@ -76,7 +87,7 @@ export function decidePageBanner(now: number = Date.now()): PageBannerChoice {
  * admin banner is gated off.
  */
 export async function handlePageBannerRoute(
-  choice: 'paywall' | 'paywall-admin' | 'csat' | 'unplaced' | 'unplaced-property',
+  choice: Exclude<PageBannerChoice, 'none'>,
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
   let effective = choice;
@@ -125,9 +136,47 @@ export async function handlePageBannerRoute(
       component: (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default,
       props: { source: 'property' },
     }),
+    'whats-new': async () => ({
+      component: (await import('@/components/WhatsNew/WhatsNewBanner.vue')).default,
+      // Re-read rather than threaded through from decidePageBanner(): it is the
+      // same synchronous localStorage read, and keeping the choice a plain
+      // string keeps every other branch's signature unchanged.
+      props: { release: whatsNewCandidate(now) },
+    }),
   };
 
   const { component, props } = await MOUNTS[effective]();
+  if (effective === 'whats-new' && !(props as { release?: unknown } | undefined)?.release) {
+    // The release window closed between the decision and the mount (a
+    // millisecond boundary). Nothing to say; never leave an empty frame open.
+    const { view } = await import('@forge/bridge');
+    view.close();
+    return 'none';
+  }
   createApp(component as any, props).mount(container);
   return effective;
+}
+
+/** Async Lite/Full fallback after every existing synchronous banner gate. */
+export async function handleTargetedSurveyRoute(candidate: TargetedSurveyCandidate): Promise<void> {
+  try {
+    const container = document.getElementById('app');
+    if (!container) throw new Error('missing banner container');
+    await globals.apWrapper.initializeContext();
+    const component = (await import('@/components/TargetedSurvey/TargetedSurveyBanner.vue')).default;
+    createApp(component, candidate).mount(container);
+  } catch {
+    const { view } = await import('@forge/bridge');
+    await view.close();
+  }
+}
+
+/** Called from the host only when all synchronous banners declined their slot. */
+export async function maybeHandleTargetedSurvey(productType: string | undefined): Promise<boolean> {
+  if (productType !== 'lite' && productType !== 'full') return false;
+  const { loadTargetedSurvey } = await import('@/features/targetedSurvey/survey');
+  const candidate = await loadTargetedSurvey();
+  if (!candidate) return false;
+  await handleTargetedSurveyRoute(candidate);
+  return true;
 }

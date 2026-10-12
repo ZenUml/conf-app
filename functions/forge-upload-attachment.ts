@@ -269,6 +269,7 @@ async function reportAsyncOutcome(
             }),
       },
       token,
+      env,
     );
   } catch (e: any) {
     console.warn('forge-upload-attachment: async outcome report failed', e?.message ?? e);

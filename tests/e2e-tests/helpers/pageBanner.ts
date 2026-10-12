@@ -146,6 +146,12 @@ export async function clearAllBannerState(page: Page): Promise<void> {
           ['mockMacroCount', 'mockSpacePaid', 'mockCSSEnabled'].includes(k),
       )
       .forEach((k) => localStorage.removeItem(k));
+    // Keep the "What's new" strip out of the slot. It is the lowest-priority
+    // banner, so whenever a live release exists it fills the slot the moment
+    // the banner under test stands down — and these specs assert that the
+    // iframe then closes (expectBannerAbsent). See isWhatsNewMockedOff() in
+    // src/utils/whatsNew/state.ts.
+    localStorage.setItem('mockWhatsNewEnabled', 'false');
   });
 }
 

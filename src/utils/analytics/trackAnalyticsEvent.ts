@@ -13,6 +13,7 @@ import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
+import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -21,7 +22,7 @@ import { normalizeProductType } from "./productType";
 let _initPromise: Promise<void> | null = null;
 let _identified = false;
 
-type AuthoringReplayProperties = Pick<
+type ExplicitReplayProperties = Pick<
   AnalyticsProperties,
   | "session_replay_source"
   | "session_replay_percent"
@@ -52,24 +53,48 @@ const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
 // Re-derive from the same two numbers if the quota or the fullscreen volume
 // changes.
 const AUTHORING_REPLAY_RATE = 0.5;
+const OCTOBER_AUTHORING_REPLAY_RATE = 0.01;
 
-// Drawn once per iframe, not per event. A user who creates one macro and then
-// edits another in the same session must get one whole recording or none —
-// re-drawing per event would start the recorder partway through a session,
-// which is worse than not recording it at all for the save-failure
-// investigations this policy exists to serve.
-let _authoringReplayDecision: boolean | null = null;
+// Draw once per iframe, not per event. Eligibility is stable while the same
+// rate applies. At the UTC budget boundary, compare the saved draw with the
+// new rate; this can change whether a later authoring event requests a start.
+// We never stop an already-running recording at that boundary.
+let _authoringReplayDraw: number | null = null;
 
 function _shouldRecordAuthoring(): boolean {
-  if (_authoringReplayDecision === null) {
-    _authoringReplayDecision = Math.random() < AUTHORING_REPLAY_RATE;
+  if (_authoringReplayDraw === null) {
+    _authoringReplayDraw = Math.random();
   }
-  return _authoringReplayDecision;
+  return _authoringReplayDraw < (isOctoberReplayBudgetActive()
+    ? OCTOBER_AUTHORING_REPLAY_RATE
+    : AUTHORING_REPLAY_RATE);
 }
 
-function _startAuthoringReplay(
+function _startExplicitReplay(
   eventName: AnalyticsEventName
-): Partial<AuthoringReplayProperties> {
+): Partial<ExplicitReplayProperties> {
+  if (eventName === "feedback_report_opened") {
+    try {
+      mixpanel.start_session_recording();
+      const replayProperties: ExplicitReplayProperties = {
+        session_replay_source: "feedback",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      };
+      mixpanel.register({
+        session_replay_percent: replayProperties.session_replay_percent,
+        session_replay_source: replayProperties.session_replay_source,
+      });
+      return replayProperties;
+    } catch (error) {
+      console.error(
+        "[session-replay] feedback start call threw",
+        error instanceof Error ? error.name : "unknown"
+      );
+      return { session_replay_start_call_outcome: "threw" };
+    }
+  }
+
   if (
     eventName !== "macro_create_started" &&
     eventName !== "macro_edit_started"
@@ -90,7 +115,7 @@ function _startAuthoringReplay(
     // baseline Forge-flag cohort resolved by _initMixpanel. The SDK call is
     // idempotent when baseline sampling already started a recording.
     mixpanel.start_session_recording();
-    const replayProperties: AuthoringReplayProperties = {
+    const replayProperties: ExplicitReplayProperties = {
       session_replay_source: "authoring",
       session_replay_percent: 100,
       session_replay_start_call_outcome: "returned",
@@ -114,9 +139,10 @@ function _initMixpanel(): Promise<void> {
     _initPromise = (async () => {
       // The page-banner iframe is short-lived and has no macro context — session
       // replay there adds noise without value, so it never records and we skip
-      // the flag fetch entirely. Every other iframe's sampling rate is set live
-      // from the Forge Developer Console (see sessionReplayFlags.ts) — there is
-      // deliberately no hardcoded percentage here.
+      // the flag fetch entirely. During the October 2026 UTC budget window,
+      // every iframe's automatic baseline is off before any override or Forge
+      // flag is considered. Outside that window, other iframe rates come from
+      // the overrides below or the Forge Developer Console.
       //
       // The Plan-and-usage page is the opposite override: it's a brand-new,
       // low-traffic funnel (paywall banner -> usage -> Request Full) we want
@@ -147,7 +173,9 @@ function _initMixpanel(): Promise<void> {
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
-      const { percent, source } = isPageBanner
+      const { percent, source } = isOctoberReplayBudgetActive()
+        ? { percent: 0, source: "off" as const }
+        : isPageBanner
         ? { percent: 0, source: "off" as const }
         : isPlanUsagePage
         ? { percent: 100, source: "plan_usage_page" as const }
@@ -162,6 +190,15 @@ function _initMixpanel(): Promise<void> {
         persistence: "localStorage",
         ignore_dnt: true,
         record_sessions_percent: percent,
+        // Replay console + network telemetry. Console is the SDK default (kept
+        // explicit; see docs/superpowers/specs/2026-08-21-authoring-session-replay-design.md
+        // for the accepted trade-off). Network capture needs mixpanel-browser
+        // >= 2.76 (added 2026-03-18; this repo was on 2.73 until 2026-09-11), so
+        // replays recorded before that upgrade have an empty Network tab. The
+        // plugin defaults record URL, method, status and timing only — no
+        // headers, no bodies — so diagram content never enters the recording.
+        record_console: true,
+        record_network: true,
       });
       // Stamp every event with the resolved rate + why, so the throttle and
       // targeting can be confirmed live in Mixpanel.
@@ -367,7 +404,7 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
-    const authoringReplayProperties = _startAuthoringReplay(eventName);
+    const explicitReplayProperties = _startExplicitReplay(eventName);
 
     const contentIds = _getContentIdentifiers();
 
@@ -397,7 +434,7 @@ export async function _awaitableTrackAnalyticsEvent(
       attachment_name: callerProps.attachment_name ?? contentIds.attachment_name,
       ...(await _getSpaceAdminTelemetry(eventName)),
       ...(await _getDemoPageTelemetry(eventName)),
-      ...authoringReplayProperties,
+      ...explicitReplayProperties,
     };
 
     if (options) {
@@ -441,5 +478,5 @@ export async function trackAnalyticsEventBeforeUnload(
 export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
-  _authoringReplayDecision = null;
+  _authoringReplayDraw = null;
 }

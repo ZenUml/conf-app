@@ -38,6 +38,25 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(connect.storage).toEqual({ inScopeEUD: true })
   })
 
+  it('allows anonymous access on every macro that allows unlicensed access', () => {
+    const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any
+    const macros = manifest.modules.macro as any[]
+    const expectedKeys = [
+      '${SEQUENCE_MACRO_KEY}',
+      'zenuml-openapi-macro${LITE_KEY_SUFFIX}',
+      'zenuml-graph-macro${LITE_KEY_SUFFIX}',
+      'zenuml-embed-macro${LITE_KEY_SUFFIX}',
+    ]
+
+    const unlicensedMacros = macros.filter((macro) =>
+      macro.unlicensedAccess?.includes('unlicensed'),
+    )
+    expect(unlicensedMacros.map((macro) => macro.key)).toEqual(expectedKeys)
+    for (const macro of unlicensedMacros) {
+      expect(macro.unlicensedAccess, macro.key).toContain('anonymous')
+    }
+  })
+
   it('all manifest-generation paths retain the shared remote EUD declaration', () => {
     for (const variant of ['lite', 'full', 'diagramly', 'asyncapi'] as const) {
       const yq = getManifestEditYqArgs(variant).map((edit) => edit.expr).join('\n')
@@ -269,13 +288,9 @@ describe('forge-wizard manifest preview helpers', () => {
     // Full is the only variant that drops TWO byline entries: aiaide is
     // Diagramly-branded and diagrams is the Lite index, leaving just the
     // activation nudge. The module itself must survive, or newuser goes too.
-    // The strip normalizes byline-diagrams' displayConditions (dropping the
-    // Lite-only `not: zenuml-full-active` leg) in the same expression before
-    // deleting it — a no-op today that makes a future un-strip safe.
     const fullYq = getManifestEditYqArgs('full').map((x: { expr: string }) => x.expr)
     expect(fullYq).toContain(
-      '(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) |= {"entityPropertyEqualTo": .and.entityPropertyEqualTo} | ' +
-        'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
+      'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-diagrams"))',
     )
     expect(fullYq).not.toContain('del(.modules["confluence:contentBylineItem"])')
     expect(getManifestEditYqArgs('full').map((x) => x.expr)).toContain(

@@ -24,6 +24,24 @@ _Avoid_: engine, kind.
 **Variant**:
 A build flavour of the add-on: **lite** (free, paywalled), **full** (paid), **diagramly** (Diagramly-branded). All three are pure Forge.
 
+**Over-limit space**:
+A Confluence space on a **lite** tenant holding more than 100 macros (strictly `> 100`). Only over-limit, unpaid spaces on a non-exempt tenant can show the [[Paywall banner]]. There is no 85–99 "warning band" for the banner; the 85 threshold survives only as an inline editor hint.
+_Avoid_: saturated space, paywalled space (the paywall no longer blocks anything — see [[Paywall banner]]).
+
+**Paywall banner**:
+The non-blocking Confluence page banner shown on pages of an [[Over-limit space]]. Since 2026-09 it is the only in-app paywall surface: editing is never blocked. Audience is decided per browser from localStorage: a [[Recent author]] always qualifies; a [[Space admin]] qualifies only while the Lite Forge flag `paywall-admin-banner-enabled` is on. Dismissing it snoozes it for 7 days per tenant+space. Impressions taper per browser+tenant+space (decided 2026-09-07): 1st immediately, 2nd and 3rd at least 24 h apart, 4th onwards at least 7 days apart — about 7 impressions per person per month at most. The taper ships before the admin audience is switched on.
+_Avoid_: warning banner, upgrade modal (the modal is retired).
+
+**Recent author**:
+A user who created or edited a macro in a given space within the last 30 days, as recorded in that browser's localStorage. The original [[Paywall banner]] audience; in the 30 days to 2026-09-07 it excluded ~93% of the people viewing over-limit spaces.
+
+**Space admin**:
+A Confluence *space* administrator of the current space, resolved by a 30-day-throttled REST probe. Can buy the per-space Enterprise Bundle alone; is **not** a site admin and cannot buy the Marketplace Full plan.
+_Avoid_: admin (ambiguous with site/org admin).
+
+**Paywall exemption**:
+A tenant listed as `true` in the `PAYWALL_EXEMPTIONS` KV map (or the `"*"` wildcard). Exempt tenants see no paywall surface at all, including the admin-audience [[Paywall banner]] — the exemption is checked before any audience rule.
+_Avoid_: CSS / CUSTOMER_SUCCESS_SERVICE (now only the macro-count snapshot list, not the gate).
 **Surface**:
 Where a piece of UI is mounted inside Confluence — the closed union in `src/utils/analytics/catalog.ts` (`Surface`). UI-bearing values: `viewer`, `editor`, `modal`, `page_banner`, `dashboard`, `route`, `byline`, `byline_modal`, `fullscreen`. Non-UI values (`forge_trigger`, `scheduled_job`, `support_automation`) exist only to label backend events. Surface is the organising axis for the Storybook sidebar, so one word names the same thing in Mixpanel, in `CONTEXT.md`, and in the component tree. The sidebar groups are *derived* from the union rather than equal to it: `editor` is subdivided into the two independent editor shells (`Workspace.vue`, `DrawIoExtension.vue`), and the `route` catch-all is split into the real pages behind it. Enforced by `src/components/storyTitles.spec.ts`.
 _Avoid_: "screen", "page", "context" — and do not organise UI by component type (atom/molecule/layout), which cuts across this axis.
@@ -36,6 +54,31 @@ A text label, arrow, callout, or rectangle added to an image in the export works
 
 **Export watermark（导出水印）**:
 A single text watermark applied to an image in the export workspace.
+
+### Release pipeline
+
+**Main build**:
+The `Build, Test and Draft Release` run that a merge to `main` triggers: deploys every variant to staging, runs the staging E2E suites, and cuts one draft release per variant. Its end is the earliest a release can be published.
+_Avoid_: "CI" (ambiguous with the PR run and the release run).
+
+**Draft**:
+The per-variant GitHub draft release the main build cuts, pinned to the commit it tested. Publishing a draft is the release; nothing else deploys to production.
+
+**Release run**:
+The `Release` workflow a published draft triggers: production Cloudflare publish, Forge production deploy, then the release smoke. Its *deploy job* going green is the deploy gate — the moment the new version is live and PVT may start.
+
+**Smoke tier**:
+The E2E tests tagged `@smoke`: one insert-and-render per macro type, one edit, one embed paste. The smallest set a release must not ship without.
+
+**Release smoke**:
+The production E2E the release run executes after the deploy job — the smoke tier only (ADR-0006). Nothing waits on it except the release report.
+_Avoid_: "prod smoke" without saying which — the nightly is also a prod smoke.
+
+**Nightly smoke**:
+The scheduled `Smoke Test in Production` run: the whole insert suite, on every variant's production site, once a day. Where the coverage the release smoke leaves out is still exercised on production.
+
+**Auth bootstrap**:
+The single Atlassian login per site that produces the Playwright storage state every E2E shard reuses. Runs at the start of the main build, before any deploy has finished.
 
 ## Relationships
 

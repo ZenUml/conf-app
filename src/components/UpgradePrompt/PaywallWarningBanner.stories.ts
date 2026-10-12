@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, within } from 'storybook/test'
 import PaywallWarningBanner from './PaywallWarningBanner.vue'
 import forgeGlobal from '@/model/globals/forgeGlobal'
-import { targetingMarkerKey, macroActivityMarkerKey } from '@/utils/paywall/warningBanner'
+import { targetingMarkerKey, macroActivityMarkerKey, dismissalMarkerKey } from '@/utils/paywall/warningBanner'
 import { spaceAdminProbeKey } from '@/utils/paywall/spaceAdminProbe'
 
 type Story = StoryObj<typeof PaywallWarningBanner>
@@ -25,6 +25,12 @@ function installMarkers() {
   localStorage.setItem('mockSpaceKey', SPACE)
 
   const identity = { clientDomain: DOMAIN, spaceKey: SPACE }
+
+  // Every impression is recorded (recordBannerShown bumps showCount and lastShownAt
+  // in the dismissal marker) and the taper then withholds the next one for 24 h.
+  // Without clearing that marker, the second banner story opened in a Storybook
+  // session renders nothing at all.
+  localStorage.removeItem(dismissalMarkerKey(identity))
 
   // Targeting marker: space is over the limit, CSS enabled, unpaid
   localStorage.setItem(
@@ -116,11 +122,14 @@ const meta: Meta<typeof PaywallWarningBanner> = {
     docs: {
       description: {
         component:
-          'Page-banner shown to macro authors when their space is over the ZenUML Lite ' +
-          'diagram limit. Reads state from localStorage markers written by the macro iframe ' +
-          '(targeting) and the editor save path (activity). Gate runs synchronously in ' +
-          '<script setup> so the banner never flashes. ' +
-          'States: shown (gate passes) → dismissed (user clicks ✕, banner hides, snooze written).',
+          'Non-blocking page banner (confluence:pageBanner) on pages of an over-limit ZenUML ' +
+          'Lite space — since the editing block was retired this is the only in-product paywall ' +
+          'surface. Two audiences: recent macro authors get the advocacy text and one action, ' +
+          'View plan and usage; space admins (behind the paywall-admin-banner-enabled flag) also ' +
+          'get the Unlock this space purchase button. The gate reads localStorage markers ' +
+          'synchronously in <script setup> — targeting written by the macro iframe, activity by ' +
+          'the editor save path — so the banner never flashes. Dismiss snoozes it for 7 days; ' +
+          'impressions taper 1 / 24h / 24h / 7d.',
       },
     },
   },
@@ -139,8 +148,8 @@ export default meta
 
 /**
  * Normal visible state: gate passes (targeting marker present, activity recent,
- * no dismissal within the snooze window). Shows macro count, both action
- * buttons, and the dismiss ✕.
+ * no dismissal within the snooze window). Shows the macro count, the single
+ * View plan and usage button, and the dismiss ✕.
  */
 export const Shown: Story = {
   name: 'Shown — gate passes, banner visible',
@@ -175,8 +184,9 @@ export const Dismissed: Story = {
  * Phase 5b: the viewer is a space admin of the over-limit space and has authored
  * nothing. The old gate showed this person nothing at all — they were the 93% of
  * reachable admins the banner never spoke to. They now get the direct purchase
- * CTA (Enterprise Bundle, per-space, card-paid, no site admin needed) instead of
- * the "copy a message to your admin" relay, which for an admin is circular.
+ * CTA (Enterprise Bundle, per-space, card-paid, no site admin needed) beside
+ * View plan and usage; the author variant instead asks a site admin to upgrade.
+ * The old "copy a message to your admin" relay is gone from the banner.
  */
 export const SpaceAdmin: Story = {
   name: 'Space admin — direct purchase CTA, no authoring required',

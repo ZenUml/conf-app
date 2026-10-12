@@ -23,6 +23,7 @@ const COPYABLE_TYPES: ReadonlyArray<string> = [
   DiagramType.Sequence,
   DiagramType.Mermaid,
   DiagramType.PlantUml,
+  DiagramType.Markdown,
 ]
 
 export interface PageDiagram {
@@ -59,6 +60,7 @@ const TYPE_LABELS: Record<string, string> = {
   [DiagramType.Sequence]: 'Sequence',
   [DiagramType.Mermaid]: 'Flowchart',
   [DiagramType.PlantUml]: 'Flowchart',
+  [DiagramType.Markdown]: 'Markdown',
   [DiagramType.Graph]: 'Graph',
   [DiagramType.OpenApi]: 'OpenAPI',
   [DiagramType.AsyncApi]: 'AsyncAPI',
@@ -104,6 +106,7 @@ const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
   [DiagramType.Sequence]: 'sequence',
   [DiagramType.Mermaid]: 'mermaid',
   [DiagramType.PlantUml]: 'plantuml',
+  [DiagramType.Markdown]: 'markdown',
   [DiagramType.Graph]: 'graph',
   [DiagramType.OpenApi]: 'openapi',
   [DiagramType.AsyncApi]: 'asyncapi',
@@ -135,6 +138,7 @@ const MODAL_ROUTING_TYPE: Record<string, string> = {
   [DiagramType.Sequence]: 'sequence',
   [DiagramType.Mermaid]: 'mermaid',
   [DiagramType.PlantUml]: 'sequence',
+  [DiagramType.Markdown]: 'sequence',
   [DiagramType.Graph]: 'graph',
   [DiagramType.OpenApi]: 'openapi',
   [DiagramType.AsyncApi]: 'asyncapi',

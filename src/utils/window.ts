@@ -7,6 +7,7 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { decideSample } from "@/utils/analytics/eventSampling";
 import { normalizeProductType, type ProductType } from "@/utils/analytics/productType";
+import { isOctoberReplayBudgetActive } from "@/utils/analytics/octoberReplayBudget";
 
 let initialized = false;
 let identified = false;
@@ -19,11 +20,21 @@ const initMixpanel = () => {
       track_pageview: false,
       autocapture: false,
       persistence: "localStorage",
-      ignore_dnt: true
+      ignore_dnt: true,
+      ...(isOctoberReplayBudgetActive() ? { record_sessions_percent: 0 } : {}),
+      // Keep in step with trackAnalyticsEvent.ts: whichever path initializes
+      // first fixes the recorder config for this iframe.
+      record_console: true,
+      record_network: true,
     });
     initialized = true;
   }
 };
+
+export function _resetLegacyMixpanelForTesting(): void {
+  initialized = false;
+  identified = false;
+}
 
 const mixpanelIdentify = () => {
   if(!identified) {
@@ -112,8 +123,8 @@ export async function _awaitableTrackEvent(
     let eventDetails = {
       event_category: category || "unknown",
       event_label: label || "",
-      ...(sample.rate < 1 ? { sample_rate: sample.rate } : {}),
       ...resetEventDetails,
+      ...(sample.rate < 1 ? { sample_rate: sample.rate } : {}),
     } as EventDetails;
     // make sure event is still sent out even if there are errors in setting up the event details
     try {

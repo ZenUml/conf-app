@@ -28,7 +28,7 @@ import { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/Att
 import { isSnapshotWriteDenied, markSnapshotWriteDenied } from '@/utils/snapshot/denialMemo';
 
 const SNAPSHOT_TYPES: ReadonlyArray<DiagramType> = [
-  DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+  DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown,
 ];
 
 export interface DiagramSnapshotV1 {
@@ -366,9 +366,10 @@ export async function maybeBackfillSnapshot(opts: {
 
 // Verified against Diagram model / DiagramTypeConfig: field is plantUmlCode
 // (capital U), not plantumlCode.
-const DSL_FIELD: Record<string, 'code' | 'mermaidCode' | 'plantUmlCode'> = {
+const DSL_FIELD: Record<string, 'code' | 'mermaidCode' | 'plantUmlCode' | 'markdownCode'> = {
   [DiagramType.Sequence]: 'code',
   [DiagramType.Mermaid]: 'mermaidCode',
+  [DiagramType.Markdown]: 'markdownCode',
   [DiagramType.PlantUml]: 'plantUmlCode',
 };
 

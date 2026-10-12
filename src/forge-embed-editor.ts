@@ -1,6 +1,5 @@
 import globals from "@/model/globals";
 import forgeGlobal, { getView, getContext as initForgeContext } from './model/globals/forgeGlobal';
-import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
@@ -14,10 +13,12 @@ installRestoreDraftBanner();
 import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { markEditorAuthoringStarted, markEditorSaved, registerEditorCloseTracking } from '@/utils/analytics/editorCloseOutcome';
 import { toast } from '@/utils/toast';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
@@ -50,6 +51,9 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
     custom_content_id: selectedCustomContentId,
     attachment_name: `zenuml-${selectedCustomContentId}.png`,
   };
+
+  // Embed bypasses Persistence.ts, so mark the save here (see editorCloseOutcome).
+  markEditorSaved();
 
   if (isNew) {
     trackAnalyticsEvent("macro_create_succeeded", {
@@ -171,6 +175,15 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
+  // Analytics only — deliberately NOT reused for the load path above, which
+  // keeps its narrower config-only read. resolveEffectiveCustomContentId also
+  // covers extension.modal and the autoconvert link, so it answers "is this a
+  // new macro" correctly for a macro opened from the modal surface.
+  const resolvedCustomContentId = resolveEffectiveCustomContentId(context);
+  setEditJourneyMeta({
+    macroType: 'embed',
+    operationMode: resolvedCustomContentId ? 'edit' : 'create',
+  });
 
   let doc: Diagram | undefined;
   if (customContentId) {
@@ -222,12 +235,21 @@ async function initializeMacro() {
     mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, contentProps);
   }
 
-  const isNew = await MacroUtil.isCreateNew();
+  // Was MacroUtil.isCreateNew(), which reads only extension.config — see the
+  // matching note in forge-graph-editor.ts.
+  const isNew = !resolvedCustomContentId;
+  markEditorAuthoringStarted();
   trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'embed',
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+  });
+  // The picker cannot tell whether the selection changed, so had_changes is
+  // left off; the close-without-save itself is what the funnel needs.
+  registerEditorCloseTracking({
+    getMacroType: () => 'embed',
+    operationMode: isNew ? 'create' : 'edit',
   });
 }
 

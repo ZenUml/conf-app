@@ -64,7 +64,9 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
 
 export async function forgeCallRemote(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
   const { invokeRemote } = await import("@forge/bridge");
-  console.debug('forgeCallRemote - url:', url, 'method:', method, 'data:', data);
+  // Request bodies may contain customer-authored content or an explicitly
+  // attached feedback image. Never copy payloads into browser diagnostics.
+  console.debug('forgeCallRemote - url:', url, 'method:', method);
   return await invokeRemote({
     path: url,
     method: method as any,

@@ -42,8 +42,9 @@ tunnel → `lite-dev.atlassian.net` work too for pre-release checks.
   deployed env, or `localhost:8000` under a tunnel) — **not** the top-level Confluence page.
   Setting them on the page domain is a silent no-op. See the **spot-check** skill § "Setting
   localStorage mocks".
-- **Playwright only** — Forge Custom UI renders in cross-origin iframes; use `frameLocator()` /
-  `contentFrame()`. `claude-in-chrome` / `chrome-devtools-mcp` / `browser-use` cannot cross the
+- **agent-browser (default) or Playwright MCP** — Forge Custom UI renders in cross-origin iframes; use
+  agent-browser `frame @ref` / `frame --url`, then `eval` / `click` (Playwright fallback: `frameLocator()` /
+  `contentFrame()`). `claude-in-chrome` / `chrome-devtools-mcp` / `browser-use` cannot cross the
   boundary (CLAUDE.md § Browser automation).
 
 ## How the banner is driven (the cross-load signal)

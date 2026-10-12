@@ -96,14 +96,31 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 ---
 
-### `macro_edit_cancelled`
+### `macro_create_cancelled` / `macro_edit_cancelled`
 
-**Trigger:** An existing Sequence / Mermaid / PlantUML editor has unsaved changes and the user
-confirms **Discard** in the close-without-saving dialog. Merely opening that dialog and choosing to
-keep editing does not fire it.
+**Trigger:** The editor iframe closed without a successful save. Fired from
+`src/utils/analytics/editorCloseOutcome.ts`, which every editor entry (sequence / mermaid /
+plantuml / markdown, graph, openapi, asyncapi, embed) registers on mount. The trigger is
+`view.onClose` — the Atlassian modal X, which is the only close control the Forge editors expose —
+plus the explicit discard dialog where one still exists. `markEditorSaved()` is called by the
+persistence layer at the moment a save is known to have succeeded, so a close that follows a save
+never fires it. At most one event per iframe.
 
-Carries `journey_id`, `session_id`, `had_global_replace`, `global_replace_count`,
-`post_replace_local_edit_count`, and final delta buckets from the active text-editor session.
+| Property | Notes |
+|---|---|
+| `macro_type` | Diagram type in the editor at close time |
+| `operation_mode` | `"create"` / `"edit"` — picks the event name |
+| `close_source` | `host_close` (modal X), `discard_dialog`, `exit_button` |
+| `had_changes` | Content differed from what was loaded; omitted when unknown |
+| `editor_open_duration_ms` | Mount → close |
+| mutation summary | On text-editor edits, the same `had_global_replace` / delta buckets as `macro_save_succeeded` |
+
+**History:** Until 2026-09-11 `macro_edit_cancelled` fired only when a user confirmed **Discard** in
+the text editors' close-without-saving dialog. That dialog is reached only from an exit button the
+header no longer renders, so the event recorded 0 occurrences in the 12 weeks to 2026-09-11 while
+the customer edit funnel (`macro_edit_started` → `macro_save_succeeded`, 1-hour window) lost ~17%
+of sessions. `macro_create_cancelled` did not exist before this date. Sent with the `sendBeacon`
+transport because the host destroys the iframe right after `view.onClose`.
 
 ---
 
@@ -531,6 +548,48 @@ Fired by `functions/forge-user-behavior.ts` from the `avi:confluence:updated:pag
 ### `feedback_link_clicked`
 
 Backend-declared event. Not currently emitted by client code.
+
+---
+
+## What's new (page banner)
+
+The release-notes strip in the shared `confluence:pageBanner` host (`src/components/WhatsNew/WhatsNewBanner.vue`). Lowest priority in the host; shown only to browsers that rendered one of our macros on the site in the last 90 days, at most 3 times per release, inside the release's 30-day window (`src/utils/whatsNew/`). Every event carries `feature_area: "whats_new"`, `surface: "page_banner"` and `whats_new_release_id`.
+
+### `whats_new_banner_evaluated`
+
+**Trigger:** The banner component mounts — only on loads the host's synchronous gate admitted, never on ordinary page loads.
+
+| Property | Notes |
+|---|---|
+| `result` | `"shown"`, `"yielded_unplaced"` (the page carries the unplaced-diagram property, or the read could not rule it out) or `"failed"` |
+
+### `whats_new_banner_shown`
+
+**Trigger:** The strip is committed to displaying. The impression; denominator for expand and dismiss rates.
+
+| Property | Notes |
+|---|---|
+| `whats_new_show_count` | Which impression of this release this browser is on (1–3) |
+
+### `whats_new_banner_expanded`
+
+**Trigger:** The user clicks "See what's new" and the item list opens inline.
+
+### `whats_new_banner_dismissed`
+
+**Trigger:** The user dismisses the strip. Retires the release for this browser; the next release re-arms it.
+
+| Property | Notes |
+|---|---|
+| `whats_new_expanded` | Whether the list was opened before dismissing |
+
+### `whats_new_link_clicked`
+
+**Trigger:** The user opens an item's "Learn more" link.
+
+| Property | Notes |
+|---|---|
+| `whats_new_item_id` | The item's stable id within its release |
 
 ---
 

@@ -9,34 +9,21 @@
            is empty (widthIsEmpty=true). Setting it inline keeps the container
            at parent width and lets GraphViewer's positionGraph fitGraph()
            scale wide diagrams down to fit. See ZEN-1168. -->
-      <div ref="graphContainer" class="graph-viewer-canvas" data-diagram-capture-root style="width:100%"></div>
-      <template v-if="pageCount > 1" #pill-prefix>
-        <button
-          @click="goToPage(currentPage - 1)"
-          :disabled="currentPage <= 0"
-          title="Previous page"
-          aria-label="Previous page"
-          class="viewer-pill-btn"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-          </svg>
-        </button>
-        <span class="viewer-pill-page-indicator" aria-live="polite">
-          {{ currentPage + 1 }} / {{ pageCount }}
-        </span>
-        <button
-          @click="goToPage(currentPage + 1)"
-          :disabled="currentPage >= pageCount - 1"
-          title="Next page"
-          aria-label="Next page"
-          class="viewer-pill-btn"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-          </svg>
-        </button>
-        <span class="viewer-pill-divider" aria-hidden="true"></span>
+      <div class="graph-viewport">
+        <div ref="graphContainer" class="graph-viewer-canvas" data-diagram-capture-root style="width:100%"></div>
+        <DiagramViewportToolbar
+          v-if="showZoomControls"
+          macro-type="graph"
+          label="Graph"
+          @zoom-in="zoomIn"
+          @zoom-out="zoomOut"
+        />
+        <ViewportZoomHint v-if="showZoomControls" ref="zoomHint" macro-type="graph" />
+      </div>
+      <!-- Multi-page navigation, rendered in GenericViewer's header (beside
+           the title in Fullscreen) and visible without hover. -->
+      <template v-if="pageCount > 1" #header-nav>
+        <GraphPageNav :current-page="currentPage" :page-count="pageCount" @go="goToPage" />
       </template>
     </generic-viewer>
   </div>
@@ -44,6 +31,8 @@
 
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
+import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
+import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
 import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
@@ -55,10 +44,17 @@ import {
 } from "@/utils/graph/boardDocument";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
+import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from "@/utils/viewport/wheelZoom";
+import { trackViewportControl } from "@/utils/viewport/trackViewportControl";
+import { wheelFallsThroughToPage } from "@/utils/viewport/surface";
+import ViewportZoomHint from "@/components/Viewer/ViewportZoomHint.vue";
 export default {
   name: "ForgeGraphViewer",
   components: {
-    GenericViewer
+    GenericViewer,
+    GraphPageNav,
+    DiagramViewportToolbar,
+    ViewportZoomHint
   },
   props: {
     graphXml: String,
@@ -73,6 +69,8 @@ export default {
       captureResizeObserver: null,
       currentPage: 0,
       pageCount: 0,
+      graphRendered: false,
+      wheelZoomHandler: null,
     };
   },
   mounted() {
@@ -81,8 +79,15 @@ export default {
   beforeUnmount() {
     this.captureResizeObserver?.disconnect();
     this.captureResizeObserver = null;
+    this.disableWheelZoom();
   },
   computed: {
+    // Same rule as DiagramViewport: the Export PNG host renders the diagram only
+    // to photograph it, and a zoom would change what `updateCaptureBox` reports.
+    showZoomControls() {
+      return this.graphRendered
+        && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport !== true;
+    },
     isBoardMode() {
       return resolveGraphEditorMode(this.$store.state.diagram, this.graphEditorMode) === 'board';
     },
@@ -123,6 +128,7 @@ export default {
       }
     },
     renderViewer() {
+      this.graphRendered = false;
       const container = this.$refs.graphContainer;
       const diagram = this.$store.state.diagram;
       if (container) {
@@ -151,7 +157,7 @@ export default {
         // (legacy single-page) via its Editor.extractGraphModel pipeline.
         // We omit the 'toolbar' config so GraphViewer doesn't render its own
         // page-nav strip — page nav is rendered into the GenericViewer
-        // bottom pill via the #pill-prefix slot above.
+        // header via the #header-nav slot above.
         // @ts-ignore
         const parsedXml = mxUtils.parseXml(this.effectiveGraphXml);
         const xmlNode = parsedXml?.documentElement;
@@ -170,6 +176,9 @@ export default {
           this.captureResizeObserver = new ResizeObserver(() => this.updateCaptureBox());
           this.captureResizeObserver.observe(container);
         }
+        this.enablePanning();
+        this.enableWheelZoom();
+        this.graphRendered = true;
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
         trackRenderTime('graph', this.$store.getters.isDisplayMode);
@@ -179,6 +188,7 @@ export default {
         // painted diagram rather than an empty container.
         EventBus.$emit('viewerRenderSettled', 'graph');
       } catch (e) {
+        this.graphRendered = false;
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
         if (this.isBoardMode) {
           this.failBoardLoad('board_document_malformed', e);
@@ -190,6 +200,104 @@ export default {
         // failure side; it must fire even though macro_viewed above did not.
         trackViewerRenderCrash('graph', this.$store.getters.isDisplayMode, e);
       }
+    },
+    // GraphViewer's built-in 'zoom' toolbar item does exactly this
+    // (viewer-static.min.js, addToolbar). We drive the same mxGraph calls from our
+    // own chip instead of enabling that toolbar, because `zoomEnabled` is derived
+    // from the toolbar config and flips GraphViewer into `resizeContainer = true`
+    // — the container would grow with every zoom step and push the page around,
+    // and the auto-refit that keeps a wide diagram fitted (ZEN-1168) is only
+    // installed while zoom is disabled.
+    zoomIn() {
+      this.graphViewer?.graph?.zoomIn();
+      this.updateCaptureBox();
+    },
+    zoomOut() {
+      this.graphViewer?.graph?.zoomOut();
+      this.updateCaptureBox();
+    },
+    /**
+     * Drag to pan. The graph is clipped by the container, so without this the only
+     * way to reach an off-screen corner of a zoomed-in diagram is the scrollbar
+     * GraphViewer's own size handler puts there.
+     */
+    enablePanning() {
+      const graph = this.graphViewer?.graph;
+      if (!graph?.panningHandler) return;
+      graph.setPanning(true);
+      graph.panningHandler.useLeftButtonForPanning = true;
+      // Panning starts only past mxGraph's drag tolerance, so a click still lands
+      // on the cell underneath and GraphViewer's link handling is unaffected.
+      graph.panningHandler.ignoreCell = true;
+      // The two flags above are ones GraphViewer already sets, and on their own
+      // they never pan here: GraphViewer's setup (viewer-static.min.js) replaces
+      // isForcePanningEvent with a gate that forces a left-button pan only while
+      // the container is overflow:auto, and this container stays overflow:hidden
+      // so zoom clips instead of growing the page. Instrumented on the sandbox
+      // graph-view preset: mousedown/move/up all reached the graph, the handler's
+      // start() never fired, and view.translate stayed put. Restoring the stock
+      // "any non-popup press" rule moves translate by exactly the drag delta.
+      // @ts-ignore - mxEvent is a DrawIO global, like mxUtils above
+      graph.panningHandler.isForcePanningEvent = (me) => !mxEvent.isPopupTrigger(me.getEvent());
+    },
+    /**
+     * Ctrl/Cmd + wheel to zoom, the same rule the other three viewports follow —
+     * a plain wheel is left to scroll the page (see `isZoomIntent`). That is also
+     * what mxGraph's own wheel handling would have asked for: GraphViewer leaves
+     * `Graph.zoomWheel` false, which requires Alt or Ctrl to be held.
+     *
+     * Still not `mxEvent.addMouseWheelListener` though — it offers no way to
+     * unbind, and the container element outlives a re-render (only its children
+     * are cleared), so every `renderViewer()` would stack another listener and
+     * multiply the step.
+     *
+     * A native listener also covers trackpad pinch for free: browsers report it as
+     * a wheel event with `ctrlKey` set. The accumulate-to-a-step behaviour and the
+     * deltaMode normalisation live in `wheelZoom.ts`, shared with the others.
+     */
+    enableWheelZoom() {
+      const container = this.$refs.graphContainer;
+      if (!container || this.wheelZoomHandler) return;
+      const startsGesture = createGestureGate();
+      const step = createWheelStepper((direction) => {
+        const graph = this.graphViewer?.graph;
+        if (direction > 0) graph.zoomIn();
+        else graph.zoomOut();
+        // One event per gesture, not per step: the gate stays shut for the
+        // rest of a continuous scroll, so a wheel zoom costs the same one event
+        // as a button click and the two can be compared.
+        if (!startsGesture()) return;
+        trackViewportControl({
+          macroType: 'graph',
+          viewportAction: direction > 0 ? 'zoom_in' : 'zoom_out',
+          viewportInput: 'wheel',
+          isDisplayMode: this.$store.getters.isDisplayMode,
+        });
+      });
+      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show() ?? false);
+      this.wheelZoomHandler = (event) => {
+        if (!this.graphViewer?.graph) return;
+        if (!isZoomIntent(event)) {
+          // The wheel is on its way to the page -- unless this surface has no
+          // page to give it to, in which case it did nothing and the reader
+          // deserves to be told why.
+          if (!wheelFallsThroughToPage(this.$store.getters.isDisplayMode)) {
+            hint(event, container.clientHeight);
+          }
+          return;
+        }
+        event.preventDefault();
+        step(event, container.clientHeight);
+        this.updateCaptureBox();
+      };
+      // Not passive: a zoom has to take the event away from page scroll. Only
+      // the zoom branch above does, so an ungated wheel still reaches the page.
+      container.addEventListener('wheel', this.wheelZoomHandler, { passive: false });
+    },
+    disableWheelZoom() {
+      if (!this.wheelZoomHandler) return;
+      this.$refs.graphContainer?.removeEventListener('wheel', this.wheelZoomHandler);
+      this.wheelZoomHandler = null;
     },
     goToPage(index) {
       if (!this.graphViewer || index < 0 || index >= this.pageCount) return;
@@ -217,26 +325,14 @@ export default {
 </script>
 
 <style scoped>
+/* Positioning context for the floating zoom chip. No width/height of its own: the
+   canvas inside keeps sizing itself, which is what GraphViewer expects. */
+.graph-viewport {
+  position: relative;
+  width: 100%;
+}
 .graph-viewer-canvas {
   width: 100%;
   min-height: 0;
-}
-.viewer-pill-page-indicator {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: #44546f;
-  user-select: none;
-  white-space: nowrap;
-}
-.viewer-pill-divider {
-  display: inline-block;
-  width: 1px;
-  height: 16px;
-  margin: 0 4px;
-  background: rgba(9, 30, 66, 0.14);
-  align-self: center;
 }
 </style>

@@ -21,6 +21,7 @@
 //
 // `macro_export_failed` keeps twice the rate of the success paths so the
 // failure-reason breakdown keeps usable counts in its smaller buckets.
+import { isOctoberBillingBudgetActive } from './octoberBudgetWindow.js';
 
 export const EXPORT_EVENT_SAMPLE_RATES = {
   macro_export_requested: 0.05,
@@ -29,9 +30,12 @@ export const EXPORT_EVENT_SAMPLE_RATES = {
 };
 
 /** Keep-probability for an export event name. Unlisted names always emit. */
-export function exportSampleRateFor(eventName) {
+export function exportSampleRateFor(eventName, now = Date.now()) {
   if (Object.prototype.hasOwnProperty.call(EXPORT_EVENT_SAMPLE_RATES, eventName)) {
-    return EXPORT_EVENT_SAMPLE_RATES[eventName];
+    const currentRate = EXPORT_EVENT_SAMPLE_RATES[eventName];
+    return isOctoberBillingBudgetActive(now) && eventName !== 'macro_export_failed'
+      ? currentRate / 10
+      : currentRate;
   }
   return 1;
 }
@@ -42,8 +46,8 @@ export function exportSampleRateFor(eventName) {
  *
  * `random` is injectable so tests are deterministic.
  */
-export function decideExportSample(eventName, random = Math.random) {
-  const rate = exportSampleRateFor(eventName);
+export function decideExportSample(eventName, random = Math.random, now = Date.now()) {
+  const rate = exportSampleRateFor(eventName, now);
   if (rate >= 1) return {};
   if (rate <= 0) return null;
   if (random() >= rate) return null;

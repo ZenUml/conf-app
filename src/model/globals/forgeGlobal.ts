@@ -70,6 +70,18 @@ export function resolveZenumlRemoteBaseUrl(
   environmentType: string,
   flags: { isAsyncApi?: boolean; isLite?: boolean; isDiagramly?: boolean },
 ): string | undefined {
+  // A Forge tunnel can point its declared remote at a local ngrok endpoint.
+  // Vite injects this only for the local dev server; deployed bundles keep the
+  // normal per-variant mapping below.
+  const localOverride = import.meta.env.DEV && import.meta.env.VITE_JOINT_DEBUG_REMOTE_BASE_URL;
+  if (environmentType === 'DEVELOPMENT' && localOverride) {
+    const url = new URL(localOverride);
+    if (url.protocol !== 'https:' || url.username || url.password ||
+        url.pathname !== '/' || url.search || url.hash) {
+      throw new Error('VITE_JOINT_DEBUG_REMOTE_BASE_URL must be an HTTPS origin');
+    }
+    return url.origin;
+  }
   const key = `${environmentType}_${remoteUrlVariant(flags)}` as keyof typeof REMOTE_BASE_URL_MAP;
   return REMOTE_BASE_URL_MAP[key];
 }

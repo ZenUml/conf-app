@@ -93,6 +93,7 @@ function emitConversionEvent(
       },
     ],
     env.MIXPANEL_TOKEN,
+    { runtime: env },
   ).catch((error) => {
     console.warn('[lite2full] Mixpanel delivery failed', {
       event,

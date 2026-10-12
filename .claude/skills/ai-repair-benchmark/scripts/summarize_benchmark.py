@@ -244,7 +244,7 @@ def render_html_report(
         cost for record in records if (cost := measured_cost(record)) is not None
     ]
     total_cost = sum(measured_costs)
-    recommended = model_rows[0]["model"] if model_rows else "—"
+    recommended = model_rows[0]["model"] if model_rows and model_rows[0]["attempted"] else "—"
     max_latency = max((number(row.get("p50WallMs")) or 0 for row in rows), default=1)
 
     failures = [
@@ -264,7 +264,7 @@ def render_html_report(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Repair 分层基准报告</title>
+  <title>AI Repair 模型基准报告</title>
   <style>
     :root { color-scheme: light; --ink:#172033; --muted:#64748b; --line:#dce3ed; --panel:#fff; --bg:#f5f7fb; --accent:#4f46e5; }
     * { box-sizing:border-box; }
@@ -279,7 +279,7 @@ def render_html_report(
     .metric small { display:block; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
     .metric strong { display:block; margin-top:5px; font-size:25px; }
     .panel { margin-top:18px; padding:22px; overflow:hidden; }
-    .layers { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+    .layers { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
     .layer-card { padding:17px; border:1px solid var(--line); border-radius:13px; background:#f8fafc; }
     .layer-card h3 { display:flex; align-items:center; gap:8px; margin:0 0 8px; font-size:15px; }
     .layer-card p { margin:0; color:#475569; }
@@ -310,17 +310,17 @@ def render_html_report(
 </head>
 <body><main>
   <section class="hero">
-    <h1>AI Repair 分层基准报告</h1>
-    <p>Raw Model → Diagramly Prompt → Async Job → conf-app E2E</p>
+    <h1>AI Repair 模型基准报告</h1>
+    <p>L1 Raw Model → L2 Diagramly Prompt</p>
   </section>
 """
     ]
     parts.append(
         '<section class="metrics">'
         f'<div class="metric"><small>实际执行</small><strong>{attempted}/{planned}</strong><span class="muted">coverage {attempted / planned:.1%}</span></div>'
-        f'<div class="metric"><small>修复通过</small><strong>{passed}</strong><span class="muted">{passed / attempted:.1%} of attempted</span></div>'
+        f'<div class="metric"><small>修复通过</small><strong>{passed}</strong><span class="muted">{passed / attempted if attempted else 0:.1%} of attempted</span></div>'
         f'<div class="metric"><small>OpenRouter 实付</small><strong>${total_cost:.6f}</strong><span class="muted">{len(measured_costs)} 次有费用记录</span></div>'
-        f'<div class="metric"><small>当前推荐</small><strong>{html_text(model_label(str(recommended)))}</strong><span class="muted">按成功率、质量、延迟、费用排序</span></div>'
+        f'<div class="metric"><small>L2 本次领先</small><strong>{html_text(model_label(str(recommended)))}</strong><span class="muted">按成功率、质量、延迟、费用排序</span></div>'
         "</section>"
     )
 
@@ -352,8 +352,8 @@ def render_html_report(
 
     parts.append(
         """<section class="panel">
-    <h2>L1、L2、L3、L4 是什么？</h2>
-    <p class="muted">L 表示 Layer（测试层级）。层级越高，覆盖的真实产品环节越多。</p>
+    <h2>L1、L2 是什么？</h2>
+    <p class="muted">本报告只比较直接模型调用与 Diagramly Prompt 下的修复结果。</p>
     <div class="layers">
       <article class="layer-card">
         <h3><span class="pill">L1</span> Raw Model</h3>
@@ -363,19 +363,11 @@ def render_html_report(
         <h3><span class="pill">L2</span> Diagramly Prompt</h3>
         <p>在同一模型上加入当前 <b>Diagramly AI 修改 Prompt、错误上下文和修复提示</b>。只测试 LLM 修改部分，用于衡量产品 Prompt 带来的提升。</p>
       </article>
-      <article class="layer-card">
-        <h3><span class="pill">L3</span> Async Job</h3>
-        <p>请求本地 Diagramly 异步修复接口并轮询 job 状态，覆盖<b>后端、认证、队列、数据库和轮询</b>。它模拟 conf-app 请求，但不经过 Forge 与页面 UI。</p>
-      </article>
-      <article class="layer-card">
-        <h3><span class="pill">L4</span> conf-app E2E</h3>
-        <p>从真实 conf-app 页面点击 AI Repair，经过 <b>Forge、Worker、Diagramly job、差异确认、应用代码和预览渲染</b>，衡量用户感知的完整端到端体验。</p>
-      </article>
     </div>
   </section>"""
     )
 
-    parts.append('<section class="panel"><h2>模型总览</h2><table><thead><tr>')
+    parts.append('<section class="panel"><h2>L2 模型总览</h2><table><thead><tr>')
     for heading in (
         "排名",
         "模型",
@@ -441,7 +433,6 @@ def render_html_report(
         "p50 LLM",
         "Token（输入/输出/推理/cache）",
         "实付",
-        "L2 估算",
         "质量档",
     ):
         parts.append(f"<th>{heading}</th>")
@@ -466,7 +457,6 @@ def render_html_report(
             f"<td>{fmt_ms(row['p50LlmMs'])}</td>"
             f"<td>{token_text}</td>"
             f"<td>{fmt_usd(row['measuredCostUsd'], row['measuredCostRuns'])}</td>"
-            f"<td>{fmt_usd(row['estimatedFromL2Usd'], row['estimatedRuns'])}</td>"
             f"<td>{html_text(json.dumps(row['quality'], ensure_ascii=False, sort_keys=True))}</td>"
             "</tr>"
         )
@@ -493,8 +483,8 @@ def render_html_report(
     <h2>口径与限制</h2>
     <ul>
       <li>成功率按 PASS / 实际执行计算；SKIPPED 只影响 coverage。</li>
-      <li>实付费用只汇总 OpenRouter response usage 或 generation API；L3/L4 估算不计入实付。</li>
-      <li>L3/L4 单次结果用于链路诊断，不能描述为 SLA。</li>
+      <li>实付费用只汇总 OpenRouter response usage 或 generation API。</li>
+      <li>L1/L2 结果不验证异步 job 或真实 Forge UI；单次结果不能描述为稳定成功率或 SLA。</li>
       <li>A/B/C 反映语法门槛与标识符保留；业务语义仍需 required anchors 或人工复核。</li>
     </ul>
   </section>
@@ -514,6 +504,24 @@ def main() -> int:
     records = [record for path in input_paths for record in load_records(path)]
     if not records:
         raise SystemExit("No benchmark records found")
+    unexpected_layers = sorted({str(record.get("layer")) for record in records} - {"L1", "L2"})
+    if unexpected_layers:
+        raise SystemExit(f"Benchmark accepts only L1/L2 records: {', '.join(unexpected_layers)}")
+    for record in records:
+        if str(record.get("repairStatus", "")).upper() != "PASS":
+            continue
+        if record.get("missingRequiredAnchors"):
+            record["repairStatus"] = "FAIL"
+            record["qualityGrade"] = "FAIL"
+            record["error"] = "Required anchors were not preserved"
+        elif record.get("renderValid") is False:
+            record["repairStatus"] = "FAIL"
+            record["qualityGrade"] = "FAIL"
+            record["error"] = "Candidate failed render validation"
+        elif record.get("renderValid") is not True:
+            record["repairStatus"] = "SKIPPED"
+            record["qualityGrade"] = "UNVERIFIED"
+            record["blocker"] = "Render validation was not recorded"
 
     l2_medians = l2_cost_medians(records)
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -522,14 +530,15 @@ def main() -> int:
         layer = str(record.get("layer") or "UNKNOWN")
         model = str(record.get("model") or "unknown")
         grouped[(layer, model)].append(record)
-        by_model[model].append(record)
+        if layer == "L2":
+            by_model[model].append(record)
 
     rows = [
         summarize(layer, model, items, l2_medians)
         for (layer, model), items in sorted(grouped.items())
     ]
     model_rows = [
-        summarize("ALL", model, items, l2_medians) for model, items in by_model.items()
+        summarize("L2", model, items, l2_medians) for model, items in by_model.items()
     ]
     model_rows.sort(
         key=lambda row: (

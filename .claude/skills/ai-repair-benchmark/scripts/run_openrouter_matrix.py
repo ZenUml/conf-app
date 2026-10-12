@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--mode", required=True, choices=("raw", "diagramly"))
     parser.add_argument("--messages")
+    parser.add_argument("--model", help="Run only this model from the manifest.")
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--dry-run", action="store_true")
@@ -244,6 +245,10 @@ def main() -> int:
     dsl_path = manifest_relative(manifest_path, manifest["dslPath"])
     dsl = dsl_path.read_text(encoding="utf-8")
     models = list(manifest.get("models") or DEFAULT_MODELS)
+    if args.model:
+        if args.model not in models:
+            raise SystemExit(f"Model is not listed in manifest: {args.model}")
+        models = [args.model]
     if not models or args.trials < 1:
         raise SystemExit("models and trials must be non-empty")
 

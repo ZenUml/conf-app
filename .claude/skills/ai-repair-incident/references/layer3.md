@@ -14,12 +14,13 @@ L3 测试本地 Diagramly API 的认证、credits、job 创建、后台处理、
 
 ```bash
 pnpm exec dotenv -c -- uv run \
-  ../conf-app/.claude/skills/ai-repair-benchmark/scripts/run_job_matrix.py \
-  --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
-  --output-dir /tmp/ai-repair-benchmark/<run-id>/l3
+  ../conf-app/.claude/skills/ai-repair-incident/scripts/run_job_matrix.py \
+  --manifest /tmp/ai-repair-incident/<run-id>/manifest.json \
+  --model openai/gpt-5.6-luna --trials 1 \
+  --output-dir /tmp/ai-repair-incident/<run-id>/l3-luna
 ```
 
-默认每模型一次、1 秒 polling、135 秒 deadline。脚本先做 health check，再逐模型串行创建 job。使用基于输入 hash 的本地 benchmark external id，不输出 key。
+默认单模型一次、1 秒 polling、135 秒 deadline。脚本先做 health check，再创建 job；运行前先用相同命令加 `--dry-run` 核对模型与路径。需要测试其他模型时使用单独输出目录。使用基于输入 hash 的本地 external id，不输出 key。
 
 ## 判断
 
@@ -27,7 +28,7 @@ pnpm exec dotenv -c -- uv run \
 - 至少一次 job-status polling；
 - 最终状态必须为 COMPLETED 且有 diagramCode；
 - FAILED/CANCELLED/timeout 都保留最后 output 和错误；
-- 使用与 L1/L2 相同的候选验证规则；
+- 使用与 L2 相同的候选验证规则；
 - wall time、后端 duration、LLM duration、poll count 分开报告。
 
 当前 job schema 不暴露 OpenRouter generation id、tokens 或 cost。不要根据静态价格计算“实付费用”。可展示对应 L2 的费用中位数作为估算，并标为 `estimated_from_l2`。

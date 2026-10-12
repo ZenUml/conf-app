@@ -1,4 +1,4 @@
-# 方法与命令
+# L1/L2 方法与命令
 
 ## Run manifest
 
@@ -12,11 +12,7 @@
   "languageKey": "LANG_MERMAID",
   "subTypeKey": "GENERAL",
   "command": "Please fix the reported error and change nothing else.",
-  "models": [
-    "openai/gpt-5.6-luna",
-    "deepseek/deepseek-v4-flash",
-    "google/gemini-2.5-flash"
-  ],
+  "models": ["openai/gpt-5.6-luna", "anthropic/claude-sonnet-5"],
   "requiredAnchors": [],
   "temperature": 0.2,
   "maxTokens": 10000,
@@ -24,13 +20,11 @@
 }
 ```
 
-不要把 DSL 内容复制进 manifest。报告使用文件 SHA-256、字符数和行数标识输入。
-
-`temperature`、`maxTokens`、`reasoningDisabled` 都可省略：L1/L2 会继承 Diagramly `.env` 的 `AI_TEMPERATURE`、`AI_MAX_TOKENS`、`AI_DISABLE_REASONING`；L3/L4 不显式覆盖 reasoning。若 manifest 指定 `reasoningDisabled`，四层必须保持相同设置。
+不要把 DSL 内容复制进 manifest。记录两个仓库的 HEAD、工作区状态、Prompt hash、模型参数、trial 数和 seed；不同 Prompt 或代码版本的结果不直接合并。`temperature`、`maxTokens`、`reasoningDisabled` 可省略，L1/L2 继承 Diagramly `.env` 的 `AI_TEMPERATURE`、`AI_MAX_TOKENS`、`AI_DISABLE_REASONING`。同一比较组固定有效参数。
 
 ## 生成 L2 Prompt
 
-从 Diagramly checkout 运行，并加载与本地服务相同的 `.env`，使 `AI_PROMPT_CACHE` 行为一致：
+从 Diagramly checkout 运行，加载与本地服务相同的 `.env`：
 
 ```bash
 pnpm exec dotenv -c -- pnpm exec tsx --tsconfig scripts/tsconfig.json \
@@ -40,82 +34,52 @@ pnpm exec dotenv -c -- pnpm exec tsx --tsconfig scripts/tsconfig.json \
   --diagramly-path "$PWD"
 ```
 
-输出含 messages、prompt hash、Diagramly commit、Prompt/预处理 hook 源文件 hash和 cache-control 设置。L2 必须使用这个输出；Prompt 生成失败时不允许退回手写近似版本。
+输出包含实际 messages、prompt hash、Diagramly commit、Prompt/预处理 hook 源文件 hash 和 cache-control 设置。生成失败时不得退回手写近似 Prompt。
 
-## L1/L2 模型矩阵
+## 单模型、单层调用
 
-在 Diagramly checkout 中用 `.env` 注入 OpenRouter 配置，但不要打印变量值：
+先用相同命令加 `--dry-run` 检查计划。以下在 Diagramly checkout 中运行，示例只调用 Luna 一次；更换 `--model` 和独立输出目录测试其他模型。每次调用后先评分，再进行下一次模型请求。真实调用会发送完整 DSL 到 OpenRouter，不打印 key。
 
 ```bash
 pnpm exec dotenv -c -- uv run \
   ../conf-app/.claude/skills/ai-repair-benchmark/scripts/run_openrouter_matrix.py \
   --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
-  --mode raw \
-  --trials 3 \
-  --output-dir /tmp/ai-repair-benchmark/<run-id>/l1
+  --mode raw --model openai/gpt-5.6-luna --trials 1 \
+  --output-dir /tmp/ai-repair-benchmark/<run-id>/l1-luna
 
 pnpm exec dotenv -c -- uv run \
   ../conf-app/.claude/skills/ai-repair-benchmark/scripts/run_openrouter_matrix.py \
   --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
   --mode diagramly \
   --messages /tmp/ai-repair-benchmark/<run-id>/diagramly-messages.json \
-  --trials 3 \
-  --output-dir /tmp/ai-repair-benchmark/<run-id>/l2
+  --model openai/gpt-5.6-luna --trials 1 \
+  --output-dir /tmp/ai-repair-benchmark/<run-id>/l2-luna
 ```
 
-先用 `--dry-run` 检查路径、模型和计划。实际调用会发送完整 DSL 到 OpenRouter。
-
-若只修改了响应提取逻辑，用原命令加 `--reparse-only` 从保存的 `response-*.json` 离线重建候选；不得为解析器修正重复付费调用模型。
-
-runner 中断后用原命令加 `--resume`，按已存在的 record id 跳过完成项并追加剩余计划。中断中的请求需先写成 `INTERRUPTED` 记录，不能悄悄重跑并覆盖。
-
-## 验证候选
-
-L3 完成后一次验证 L1/L2/L3 的全部候选：
+每条命令后立即用下述评分命令，把 `--results` 和 `--output` 指向该次调用的目录：
 
 ```bash
 uv run .claude/skills/ai-repair-benchmark/scripts/score_candidates.py \
   --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
-  --results /tmp/ai-repair-benchmark/<run-id>/l1/results.jsonl \
-  --results /tmp/ai-repair-benchmark/<run-id>/l2/results.jsonl \
-  --results /tmp/ai-repair-benchmark/<run-id>/l3/results.jsonl \
+  --results /tmp/ai-repair-benchmark/<run-id>/l1-luna/results.jsonl \
   --diagramly-path ../diagramly.ai \
-  --output /tmp/ai-repair-benchmark/<run-id>/scored-l123.jsonl
+  --output /tmp/ai-repair-benchmark/<run-id>/l1-luna/scored.jsonl
 ```
 
-## 结果 schema
+评分脚本的 `repairStatus: PASS` 只表示其确定性语法检查通过。汇总前还要为适用语言检查实际渲染，并核对 `missingRequiredAnchors`；Mermaid 的 Node 确定性 parser 结果不能替代浏览器中的 Mermaid parse/render。将已观察到的渲染结果写入逐次记录的 `renderValid`，并在 `evidencePaths` 留证；缺少该字段时汇总器会标为 `UNVERIFIED/SKIPPED`，不能称为完整修复通过。
 
-每次 trial 至少含：
-
-```text
-runId, layer, model, trial, status, wallMs, llmMs, pollCount,
-promptTokens, completionTokens, reasoningTokens, cachedTokens, totalTokens,
-costUsd, costProvenance, generationId, provider,
-syntaxValid, renderValid, noOp, identifierRetention, changedLineRatio,
-qualityGrade, error, candidatePath, evidencePaths
-```
-
-原始模型回复可保存在 run 目录供排查。默认的本地/私有报告必须展示本次输入 DSL 全文，便于确认比较对象；包含客户 DSL 的报告不得进入公开仓库或公开分享。
+每个 trial 只允许一次模型请求，网络失败单独记录，不在客户端悄悄重试。若仅修复响应提取逻辑，使用 `--reparse-only` 从保存的 response JSON 离线重建候选，不重复付费调用。中断后使用 `--resume`，保留中断记录，不覆盖既有结果。记录实际 provider、generation id、prompt/completion/reasoning/cache tokens 和费用来源；缓存命中在原始速度分析中单列。
 
 ## 汇总
 
-把 L1/L2/L3 scored JSONL 和按 UI 证据整理的 L4 results.jsonl 一起传入：
+把实际执行的 L1/L2 scored JSONL 分别传入；不要传入 L3/L4：
 
 ```bash
 uv run .claude/skills/ai-repair-benchmark/scripts/summarize_benchmark.py \
   --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
-  --input /tmp/ai-repair-benchmark/<run-id>/scored-l123.jsonl \
-  --input /tmp/ai-repair-benchmark/<run-id>/l4/results.jsonl \
+  --input /tmp/ai-repair-benchmark/<run-id>/l1-luna/scored.jsonl \
+  --input /tmp/ai-repair-benchmark/<run-id>/l2-luna/scored.jsonl \
   --html /tmp/ai-repair-benchmark/<run-id>/report.html
 ```
 
-汇总阶段只交付这个自包含 HTML，不另外生成 Markdown 或 CSV。报告默认从 manifest 的 `dslPath` 读取并嵌入完整 DSL，同时显示类型、真实解析错误、行数、字符数和 SHA-256。只有用户明确要求生成公开/脱敏版本时才加 `--redact-dsl`；不得用脱敏报告替换用户要求的 full-code 报告。
-
-## 可比性规则
-
-- L1 与 L2 固定同一模型参数。`reasoningDisabled` 未指定时，L1/L2 继承 `AI_DISABLE_REASONING`，L3/L4 沿用应用默认；指定时四层使用同一值，并在 L4 证据中确认请求 payload。
-- 每个 trial 只允许一次模型请求，不在客户端偷偷重试。网络失败单独记录。
-- 模型顺序每轮打乱，避免把时间段抖动固定给同一个模型。
-- 缓存 token 和 provider 必须记录。缓存命中是实际系统表现，但在模型原始速度分析中单列。
-- Prompt 或代码 commit 不同的 run 不直接合并。
-- p95 在样本量小于 5 时仍可显示，但必须同时显示 n，不能据此下稳定性结论。
+其余模型的 scored 文件也逐个添加 `--input`。本地/私有报告默认展示输入 DSL 全文、图类型、真实错误、行数、字符数和 SHA-256；只有用户明确要求公开/脱敏时才加 `--redact-dsl`。报告注明每组 n；n 很小时 p95 不能说明稳定性能。

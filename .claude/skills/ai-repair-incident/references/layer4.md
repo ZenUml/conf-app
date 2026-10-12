@@ -6,7 +6,7 @@ L4 是唯一覆盖真实 conf-app → Forge bridge → Cloudflare Worker → Dia
 
 - 按 `joint-debug` skill 启动并验证五服务栈；除非用户明确要求，不执行 Forge upgrade。
 - 先枚举当前浏览器标签页，再接管用户已经登录并打开的目标页；不要调用 create/open 创建真实账号浏览器、tab 或新 session。
-- 使用当前环境中既能接管该 tab、又能进入 Forge OOPIF 的浏览器工具。若唯一可用方案会新建浏览器 session，L4 标为 `SKIPPED` 并记录 blocker，不得绕过用户的当前浏览器约束。
+- 使用当前环境中既能接管该 tab、又能进入 Forge OOPIF 的浏览器工具。无法操作当前浏览器时，按项目指令改用 Codex 内置浏览器并切换到标准桌面视口；两者都不可用时标为 `SKIPPED` 并记录 blocker。
 - 使用 Diagramly 开发宏，确认 moduleKey、Forge tunnel 和 Vite `PRODUCT_TYPE=diagramly` 一致。
 
 ## 每个模型的流程
@@ -42,10 +42,10 @@ UI 无法驱动、宏不存在或登录态失效时标 `SKIPPED` 并写 blocker�
 
 ```json
 {
-  "id": "L4-1-google_gemini-2.5-flash",
+  "id": "L4-1-openai_gpt-5.6-luna",
   "runId": "<run-id>",
   "layer": "L4",
-  "model": "google/gemini-2.5-flash",
+  "model": "openai/gpt-5.6-luna",
   "trial": 1,
   "status": "COMPLETED",
   "repairStatus": "PASS",

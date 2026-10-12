@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--model", help="Run only this model from the manifest.")
     parser.add_argument("--base-url", default="http://127.0.0.1:3000")
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--poll-interval", type=float, default=1.0)
@@ -85,6 +86,10 @@ def main() -> int:
         encoding="utf-8"
     )
     models = list(manifest.get("models") or DEFAULT_MODELS)
+    if args.model:
+        if args.model not in models:
+            raise SystemExit(f"Model is not listed in manifest: {args.model}")
+        models = [args.model]
     reasoning_specified = "reasoningDisabled" in manifest
     reasoning_disabled = (
         bool(manifest["reasoningDisabled"]) if reasoning_specified else None
@@ -124,9 +129,9 @@ def main() -> int:
     api_key = os.environ.get("DIAGRAMLY_API_KEY")
     if not api_key:
         raise SystemExit("DIAGRAMLY_API_KEY is required")
-    external_id = f"ai-repair-benchmark-{sha256(dsl)[:12]}"
+    external_id = f"ai-repair-incident-{sha256(dsl)[:12]}"
     external_team_id = str(
-        manifest.get("externalTeamId") or f"ai-repair-benchmark-team-{sha256(dsl)[:12]}"
+        manifest.get("externalTeamId") or f"ai-repair-incident-team-{sha256(dsl)[:12]}"
     )
     headers = {
         "x-api-key": api_key,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   EXPORT_EVENT_SAMPLE_RATES,
   decideExportSample,
@@ -6,6 +6,23 @@ import {
 } from '@/lib/exportSampling.js'
 
 describe('exportSampling', () => {
+  beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z')))
+  afterEach(() => vi.mocked(Date.now).mockRestore())
+
+  it('reduces requested/succeeded from 5% to 0.5% only in October UTC', () => {
+    const october = Date.parse('2026-10-12T00:00:00Z')
+    const before = Date.parse('2026-09-30T23:59:59.999Z')
+    const after = Date.parse('2026-11-01T00:00:00Z')
+    for (const name of ['macro_export_requested', 'macro_export_succeeded']) {
+      expect(exportSampleRateFor(name, before)).toBe(0.05)
+      expect(exportSampleRateFor(name, october)).toBe(0.005)
+      expect(exportSampleRateFor(name, after)).toBe(0.05)
+      expect(decideExportSample(name, () => 0.004, october)).toEqual({ sample_rate: 0.005 })
+      expect(decideExportSample(name, () => 0.005, october)).toBeNull()
+    }
+    expect(exportSampleRateFor('macro_export_failed', october)).toBe(0.1)
+    expect(exportSampleRateFor('unknown_other_product_event', october)).toBe(1)
+  })
   it('samples the three export events and leaves everything else alone', () => {
     expect(exportSampleRateFor('macro_export_requested')).toBe(0.05)
     expect(exportSampleRateFor('macro_export_succeeded')).toBe(0.05)

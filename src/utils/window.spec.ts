@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import mixpanel from 'mixpanel-browser'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
-import { _awaitableTrackEvent, addonKey, addonKeyForProductType, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
+import { _awaitableTrackEvent, _resetLegacyMixpanelForTesting, addonKey, addonKeyForProductType, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { normalizeProductType } from '@/utils/analytics/productType';
 
@@ -57,7 +57,49 @@ describe('window utils', async () => {
     vi.mocked(forgeGlobal).forgeContext = { localId: 'forge-local-id-123' } as any
   })
 
+  describe('October 2026 Replay budget in legacy analytics', () => {
+    afterEach(() => vi.mocked(Date.now).mockRestore())
+
+    it('disables baseline recording during October but still tracks', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-12T00:00:00Z'))
+      _resetLegacyMixpanelForTesting()
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      )
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.any(Object))
+    })
+
+    it('restores the previous SDK default after the budget expires', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z'))
+      _resetLegacyMixpanelForTesting()
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+      expect(vi.mocked(mixpanel.init).mock.calls[0][1]).not.toHaveProperty('record_sessions_percent')
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.any(Object))
+    })
+  })
+
   describe('event sampling (legacy trackEvent path)', () => {
+    beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z')))
+    afterEach(() => vi.mocked(Date.now).mockRestore())
+
+    it('emits October success events with the final absolute rate and keeps errors full-rate', async () => {
+      vi.mocked(Date.now).mockReturnValue(Date.parse('2026-10-12T00:00:00Z'))
+      const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.009)
+      await _awaitableTrackEvent('toPng', 'convert_to_png', 'export', { sample_rate: 0.9 })
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        'convert_to_png', expect.objectContaining({ sample_rate: 0.01 }),
+      )
+      vi.clearAllMocks()
+      rnd.mockReturnValue(0.99)
+      await _awaitableTrackEvent('toPng_failed', 'convert_to_png', 'error')
+      const errorCall = vi.mocked(mixpanel.track).mock.calls.find((c) => c[0] === 'convert_to_png')
+      expect(errorCall).toBeTruthy()
+      expect(errorCall![1]).not.toHaveProperty('sample_rate')
+      rnd.mockRestore()
+    })
+
     it('drops a down-sampled action when the sampling roll misses', async () => {
       const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99) // ≥ 0.1 → drop
       await _awaitableTrackEvent('toPng', 'convert_to_png', 'export')

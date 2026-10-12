@@ -258,8 +258,10 @@ export async function trackExportEvent(eventName, properties) {
         // not a change in user behaviour.
         $insert_id: crypto.randomUUID(),
         source: 'forge_export',
-        ...sampleProps,
         ...properties,
+        // The sampler returns the final absolute rate. Caller metadata must
+        // not replace it or make downstream extrapolation wrong.
+        ...sampleProps,
       },
     }]);
 

@@ -2,10 +2,10 @@
  * Mixpanel session-replay BASELINE sampling — controlled live from the Forge
  * Developer Console rather than hardcoded in this module.
  *
- * The typed analytics path has one deliberate override: every
- * macro_create_started / macro_edit_started event forces recording at 100%.
- * That authoring policy does not use a Forge flag; these flags continue to
- * control viewer and other non-authoring iframe sessions.
+ * The typed analytics path has a separate authoring policy: create/edit start
+ * events share one per-iframe draw (50% normally, 1% in October 2026 UTC).
+ * These flags control the non-authoring baseline outside that budget window;
+ * they are not evaluated during the window.
  *
  * Uses the @forge/bridge client-side FeatureFlags SDK (bridge ≥ 5.15):
  * `initialize()` downloads the flag configuration once through the Forge

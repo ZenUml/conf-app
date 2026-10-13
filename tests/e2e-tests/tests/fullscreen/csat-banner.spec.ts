@@ -25,7 +25,7 @@ import { test, expect, Page, FrameLocator } from '../../fixtures/mixpanel-test.j
 import { testConfig } from '../../config/test-config.js';
 import { insertMacro, openEditModal } from '../../helpers/MacroFlowHelper.js';
 import { clickEditorPublish, expectModalClosed, fillEditorTitle, modalContentFrame } from '../../helpers/FullscreenModalHelper.js';
-import { pageBannerFrame as csatBannerFrame, expectBannerAbsent } from '../../helpers/pageBanner.js';
+import { pageBannerFrame as csatBannerFrame, expectBannerAbsent, setAppMocks, clearPaywallMarkers } from '../../helpers/pageBanner.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 
 // Matches CsatBanner.vue's productName; Diagramly has its own survey branding.
@@ -48,6 +48,14 @@ async function clearCsatState(frame: FrameLocator): Promise<void> {
   });
 }
 
+/** Keep the paywall warning out of the single page-banner slot for CSAT tests. */
+async function showCsatAfterSave(page: Page): Promise<void> {
+  await setAppMocks(page, { mockSpacePaid: 'true' });
+  await clearPaywallMarkers(page);
+  await page.reload();
+  await expect((await csatBannerFrame(page)).locator('.pb-face-btn').first()).toBeVisible({ timeout: 20_000 });
+}
+
 /**
  * Insert and publish a macro. Persistence.ts sets csatPending on every save
  * (create and edit), so the pageBanner will show after the page reload that
@@ -63,17 +71,7 @@ async function prepareCsatBannerFlow(page: Page): Promise<void> {
   await new MacroPage(page).dismissSpotlightModal();
   // Publishing can reuse Confluence's existing page-banner iframe. CSAT reads
   // its newly armed signal on a page load, so reload the published page.
-  await page.reload();
-  const frame = await csatBannerFrame(page);
-  const warningDismiss = frame.getByTestId('paywall-banner-dismiss');
-  const rating = frame.locator('.pb-face-btn').first();
-  await expect(warningDismiss.or(rating)).toBeVisible({ timeout: 20_000 });
-  if (await warningDismiss.isVisible()) {
-    // Follow the user's normal snooze path; preserve targeting and policy.
-    await warningDismiss.click();
-    await expectBannerAbsent(page);
-    await page.reload();
-  }
+  await showCsatAfterSave(page);
 }
 
 
@@ -112,6 +110,8 @@ test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '
     await openEditModal(page, 'sequence');
     await clickEditorPublish(page);
     await expectModalClosed(page, 'edit');
+
+    await showCsatAfterSave(page);
 
     const frame = await csatBannerFrame(page);
     await expect(frame.getByText(CSAT_QUESTION)).toBeVisible({ timeout: 20_000 });

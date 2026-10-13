@@ -186,8 +186,8 @@ async function initializeCriticalPath() {
   // Confluence page load and decides — synchronously, from localStorage only —
   // which banner (if any) to show: paywall warning outranks the CSAT survey.
   // The paywall branch is eligible only when the space is unpaid, over the
-  // Lite hard limit, CSS targeting is on, recent macro authoring activity is
-  // present, and the user is not snoozed. When existing banners decline,
+  // Lite hard limit, effective paywall policy is on, and the user recently
+  // authored a macro or administers the space. When existing banners decline,
   // Lite and Full check one bounded targeted-survey lookup before closing.
   // Diagramly and AsyncAPI still close without that lookup. One module +
   // central priority means the banners never coordinate across iframes (no

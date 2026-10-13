@@ -29,7 +29,7 @@ A Confluence space on a **lite** tenant holding more than 100 macros (strictly `
 _Avoid_: saturated space, paywalled space (the paywall no longer blocks anything — see [[Paywall banner]]).
 
 **Paywall banner**:
-The non-blocking Confluence page banner shown on pages of an [[Over-limit space]]. Since 2026-09 it is the only in-app paywall surface: editing is never blocked. Audience is decided per browser from localStorage: a [[Recent author]] always qualifies; a [[Space admin]] qualifies only while the Lite Forge flag `paywall-admin-banner-enabled` is on. Dismissing it snoozes it for 7 days per tenant+space. Impressions taper per browser+tenant+space (decided 2026-09-07): 1st immediately, 2nd and 3rd at least 24 h apart, 4th onwards at least 7 days apart — about 7 impressions per person per month at most. The taper ships before the admin audience is switched on.
+The non-blocking Confluence page banner shown on pages of an [[Over-limit space]]. Since 2026-09 it is the only in-app paywall surface: editing is never blocked. Audience is decided per browser from localStorage: a [[Recent author]] or an eligible [[Space admin]] qualifies. Dismissing it snoozes it for 7 days per tenant+space. Impressions taper per browser+tenant+space (decided 2026-09-07): 1st immediately, 2nd and 3rd at least 24 h apart, 4th onwards at least 7 days apart — about 7 impressions per person per month at most.
 _Avoid_: warning banner, upgrade modal (the modal is retired).
 
 **Recent author**:

@@ -39,8 +39,8 @@ export type HigherPriorityBanner = 'paywall' | 'paywall-admin' | 'csat'
 
 export function higherPriorityBannerPending(now: number = Date.now()): HigherPriorityBanner | null {
   const identity = deriveWarningBannerIdentity()
-  // Pre-Phase-5b gate first: if this user qualified as a recent author, nothing
-  // about their experience changes and no flag is involved.
+  // The author gate is first: an author who also administers the space keeps
+  // the editor audience and copy.
   if (shouldShowPaywallBanner(now, identity, false)) return 'paywall'
   // The admin verdict is a third localStorage read, still synchronous.
   if (isCurrentUserSpaceAdmin(identity) && shouldShowPaywallBanner(now, identity, true)) {

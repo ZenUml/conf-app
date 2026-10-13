@@ -125,7 +125,7 @@ const meta: Meta<typeof PaywallWarningBanner> = {
           'Non-blocking page banner (confluence:pageBanner) on pages of an over-limit ZenUML ' +
           'Lite space — since the editing block was retired this is the only in-product paywall ' +
           'surface. Two audiences: recent macro authors get the advocacy text and one action, ' +
-          'View plan and usage; space admins (behind the paywall-admin-banner-enabled flag) also ' +
+          'View plan and usage; eligible space admins also ' +
           'get the Unlock this space purchase button. The gate reads localStorage markers ' +
           'synchronously in <script setup> — targeting written by the macro iframe, activity by ' +
           'the editor save path — so the banner never flashes. Dismiss snoozes it for 7 days; ' +
@@ -190,7 +190,7 @@ export const Dismissed: Story = {
  */
 export const SpaceAdmin: Story = {
   name: 'Space admin — direct purchase CTA, no authoring required',
-  // Since 16459050 the audience is resolved by the host route (Phase 5b flag)
+  // The audience is resolved by the host route
   // and passed down as a prop — the component never re-derives it from the
   // probe marker, so the story must pass the prop explicitly.
   args: { isSpaceAdmin: true },

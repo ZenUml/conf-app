@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import { openModal, resolveZenumlRemoteBaseUrl } from './forgeGlobal'
+import { getAppConfig } from '../../../scripts/forge-wizard.mjs'
 
 const openSpy = vi.fn()
 vi.mock('@forge/bridge', () => ({
@@ -143,12 +144,17 @@ describe('resolveZenumlRemoteBaseUrl — DEVELOPMENT targets a maintained backen
     expect(DEPLOYED_BY_CI).toContain(url)
   })
 
-  it('dev lite matches what the whimet4 workflow sets as BACKEND_API_BASE_URL', () => {
-    // .github/workflows/deploy-whimet4.yml sets conf-stg-lite. A mismatch here
-    // means invokeRemote cannot resolve a declared remote — the failure this
-    // mapping caused in the first place.
-    expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isLite: true }))
-      .toBe('https://conf-stg-lite.zenuml.com')
+  it.each([
+    ['lite', { isLite: true }],
+    ['full', {}],
+    ['asyncapi', { isAsyncApi: true }],
+  ])('dev %s matches what the whimet4 workflow sets as BACKEND_API_BASE_URL', (variant, flags) => {
+    // .github/workflows/deploy-whimet4.yml sets the wizard's staging backend
+    // for the variant it deploys. A mismatch here means invokeRemote cannot
+    // resolve a declared remote — the failure this mapping caused in the
+    // first place.
+    expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', flags))
+      .toBe(getAppConfig(variant).backendUrls.staging)
   })
 
   it('keeps asyncapi off the full backend in dev, as in staging and prod', () => {

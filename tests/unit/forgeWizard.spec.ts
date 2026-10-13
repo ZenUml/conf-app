@@ -116,16 +116,16 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
   })
 
-  // scripts/forge-wizard.mjs is the source of truth, but three workflows carry
+  // scripts/forge-wizard.mjs is the source of truth, but two workflows carry
   // hand-copied duplicates of its yq edits and have drifted before (#383/#460,
-  // and deploy-whimet4.yml was missed when ADR-0005 landed). Pin the Lite
+  // and deploy-whimet4.yml, which then held a third copy, was missed when
+  // ADR-0005 landed). Pin the Lite
   // asyncapi edits across every workflow that deploys Lite, so the next drift
   // fails here instead of shipping a manifest nobody intended.
   describe('Lite asyncapi manifest edits are mirrored in every Lite-deploying workflow', () => {
     const LITE_WORKFLOWS = [
       '.github/workflows/release.yml',
       '.github/workflows/staging-deploy.yml',
-      '.github/workflows/deploy-whimet4.yml',
     ]
     const BROAD_ASYNCAPI_STRIP =
       'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))'
@@ -143,11 +143,14 @@ describe('forge-wizard manifest preview helpers', () => {
       expect(yaml).toContain(cspEdit!)
     })
 
-    // deploy-whimet4.yml deploys ONLY Lite, so unlike release.yml /
-    // staging-deploy.yml it has no legitimate reason to carry the broad
-    // filter — that filter would strip the page macro Lite is meant to ship.
-    it('deploy-whimet4.yml never uses the broad asyncapi filter', () => {
+    // deploy-whimet4.yml deploys any variant and carries no copy at all: it
+    // reads the identity and the edits from this wizard in the deployed ref.
+    // Pin that, so nobody reintroduces a hand-copied edit that drifts.
+    it('deploy-whimet4.yml applies the wizard\'s edits instead of copying them', () => {
       const yaml = fs.readFileSync('.github/workflows/deploy-whimet4.yml', 'utf8')
+      expect(yaml).toContain('./scripts/forge-wizard.mjs')
+      expect(yaml).toContain('getAppConfig(process.env.VARIANT).manifestEdits')
+      expect(yaml).not.toContain('mikefarah/yq@')
       expect(yaml).not.toContain(BROAD_ASYNCAPI_STRIP)
     })
 

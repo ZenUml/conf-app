@@ -301,6 +301,15 @@ describe('forge-wizard manifest preview helpers', () => {
       expect(expr, variant).toContain(
         `sub("^https://confluence[.]zenuml[.]com/"; "https://${typedDeeplinkHostForProductType(variant)}/")`,
       )
+      // The `|=` above creates `matchers: []` on every kept macro that had no
+      // autoConvert (AsyncAPI keeps zenuml-asyncapi-embed-macro), and Forge
+      // lint rejects an empty list. The cleanup must run AFTER it.
+      expect(expr!.endsWith('| del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)'), variant).toBe(true)
+      // release.yml and staging-deploy.yml carry hand copies; a copy without
+      // the cleanup is what failed the AsyncAPI deploy.
+      for (const file of ['.github/workflows/release.yml', '.github/workflows/staging-deploy.yml']) {
+        expect(fs.readFileSync(file, 'utf8'), `${file} (${variant})`).toContain(expr!)
+      }
     }
     const hosts = ['lite', 'full', 'asyncapi'].map(typedDeeplinkHostForProductType)
     expect(new Set(hosts).size, 'byline variants mint on distinct hosts').toBe(hosts.length)

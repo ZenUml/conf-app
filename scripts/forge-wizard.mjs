@@ -165,7 +165,7 @@ export const APPS = {
         // release.yml and staging-deploy.yml.
         description: 'Move byline paste-to-place matchers to conf-full.zenuml.com and drop /new/ matchers (Full byline mints conf-full links)',
         yqEvalExpr:
-          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://conf-full.zenuml.com/")',
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://conf-full.zenuml.com/") | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
@@ -387,10 +387,15 @@ export const APPS = {
         // at custom content scoped to the other app, which it cannot read.
         // buildDiagramDeeplink mints zenapi.zenuml.com here
         // (typedDeeplinkHostForProductType). /new/<type> goes: nothing in this
-        // app mints it. Mirrored in release.yml and staging-deploy.yml.
+        // app mints it. The trailing del is not optional: yq's `|=` over
+        // `.modules.macro[].autoConvert.matchers[]` CREATES `matchers: []` on
+        // every macro that had no autoConvert (here zenuml-asyncapi-embed-macro),
+        // and Forge's lint rejects an empty matchers list, failing the deploy.
+        // Full's edit carries it too, for when the macros Full keeps change.
+        // Mirrored in release.yml and staging-deploy.yml.
         description: 'Move byline paste-to-place matchers to zenapi.zenuml.com and drop /new/ matchers (AsyncAPI byline mints zenapi links)',
         yqEvalExpr:
-          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://zenapi.zenuml.com/")',
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://zenapi.zenuml.com/") | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
         description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',

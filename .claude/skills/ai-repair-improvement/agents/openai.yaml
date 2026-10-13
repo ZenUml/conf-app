@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Repair 持续改进"
+  short_description: "保存线上失败 DSL，协调修复并验证最终预览"
+  default_prompt: "使用 $ai-repair-improvement 创建并协调多个任务会话，处理线上 AI Repair 失败案例并保存回归证据。"
+policy:
+  allow_implicit_invocation: true

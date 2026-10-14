@@ -171,6 +171,16 @@ export const Initial: Story = {
   render: (args: Args) => withCaptureStage(args),
 }
 
+/**
+ * Copy feedback. Click the toolbar Copy image button: the check icon and the
+ * "Image copied to clipboard" message hold for 2.5 s, fade out over 0.3 s, then
+ * the toolbar returns to the copy icon.
+ */
+export const CopyFeedback: Story = {
+  name: 'Copy feedback (hold, fade, reset)',
+  render: (args: Args) => withCaptureStage(args),
+}
+
 /** Real toolbar interaction coverage for every background mode, including the
  * app-owned custom palette used when native color wells are unavailable. */
 export const BackgroundChoices: Story = {

@@ -3,7 +3,7 @@
     <header role="toolbar" aria-label="Export tools" class="workspace-toolbar">
       <button aria-label="Close export" data-tooltip="Close" @click="$emit('close')"><AdsIcon glyph="cross" /></button>
       <span class="separator" />
-      <button aria-label="Copy image" data-tooltip="Copy image" :disabled="busy || !clipboardSupported" @click="$emit('copy')"><AdsIcon :glyph="state.copySucceeded.value ? 'check' : 'copy'" /></button>
+      <button aria-label="Copy image" data-tooltip="Copy image" :disabled="busy || !clipboardSupported" @click="$emit('copy')"><AdsIcon class="copy-feedback" :class="{ 'is-fading': state.copyFading.value }" :glyph="state.copySucceeded.value ? 'check' : 'copy'" /></button>
       <button aria-label="Download image" data-tooltip="Download image" :disabled="busy" @click="$emit('export')"><AdsIcon glyph="download" /></button>
       <span class="format-label">PNG</span>
       <span v-if="busyLabel" class="busy-status" role="status"><span class="spinner" aria-hidden="true" />{{ busyLabel }}</span>
@@ -93,7 +93,7 @@
            squeezed into a clipped column at the right edge and pushed the
            preview off-centre. -->
       <p v-if="state.exportError.value" class="stage-message stage-message-error" role="alert">{{ state.exportError.value }}</p>
-      <p v-else-if="state.copySucceeded.value" class="stage-message" role="status">Image copied to clipboard</p>
+      <p v-else-if="state.copySucceeded.value" class="stage-message copy-feedback" :class="{ 'is-fading': state.copyFading.value }" role="status">Image copied to clipboard</p>
     </div>
   </section>
 </template>
@@ -492,6 +492,8 @@ input[type=color] { width:28px; height:28px; padding:2px; }
 .empty-preview { text-align:center; }
 .context-tools { position:absolute; top:12px; right:16px; display:flex; align-items:center; gap:8px; padding:6px 8px; background:white; box-shadow:0 1px 4px #0000001a; border:1px solid #e5e7eb; border-radius:6px; z-index:2; }
 .stage-message { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); max-width:min(560px,calc(100% - 32px)); margin:0; padding:8px 12px; border-radius:6px; background:white; border:1px solid #e5e7eb; box-shadow:0 1px 4px #0000001a; text-align:center; line-height:1.4; z-index:2; }
+.copy-feedback { opacity:1; transition:opacity 0.3s ease-out; }
+.copy-feedback.is-fading { opacity:0; }
 .stage-message-error { border-color:#fecaca; background:#fef2f2; color:#b91c1c; }
 .context-tools label { display:flex; align-items:center; gap:4px; font-size:12px; }
 .context-tools input[type=range] { width:72px; }

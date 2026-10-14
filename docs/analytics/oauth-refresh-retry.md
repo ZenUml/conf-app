@@ -5,10 +5,12 @@
 Emit one event when the MCP refresh request reaches a terminal response:
 
 - `rotated`: the request completed a token rotation successfully.
-- `retried`: the same inbound refresh request was replayed within the server's 120-second receipt window, and the original token pair was returned. It is one event for the replay request; the original request has its own event.
+- `retried`: the same inbound refresh request was replayed within the server's 300-second receipt window, and the original token pair was returned. It is one event for the replay request; the original request has its own event.
 - `rejected`: the request was refused as an authorization or refresh-token failure.
 - `unavailable`: the server could not complete or classify the refresh because a transient dependency or service failure remained after any retry.
 
-Properties: `feature_area: agent_link`, `surface: backend`, and `user_account_id` when the authenticated identity is known; `oauth_refresh_outcome` is required; `reason` carries only an existing closed failure code when applicable; `refresh_reuse_age_ms` is optional and is present only when the server can calculate the age of a reused refresh token; `duration_ms` is the elapsed time from receipt of the inbound request to its terminal result; and `oauth_request_id` is a server-generated UUID that identifies this inbound request; each replay has its own ID.
+Properties: `feature_area: agent_link`, `surface: backend`, and `user_account_id` when the authenticated identity is known; `oauth_refresh_outcome` is required; `reason` carries only an existing closed failure code when applicable; `refresh_reuse_age_ms` is optional and is present only when the server can calculate the age of a reused refresh token; `duration_ms` is the elapsed time from receipt of the inbound request to its terminal result; and `oauth_request_id` is a server-generated UUID that identifies this inbound request; each replay has its own ID. The age is measured from the first consumption of the reused token, not from the preceding retry.
+
+Use `refresh_reuse_age_ms` to tune the 300-second window from production behavior. Count `retried` events as accepted retries, and count `rejected` events with `reason: reused` or `reason: advanced` as rejected reuses. Build interval buckets of [0, 30) seconds, [30, 120) seconds, [120, 300) seconds, and ≥300 seconds, then track p50, p95, and p99. Count events with a missing age separately. These are request counts: one person or client can generate multiple events, so do not treat them as distinct users.
 
 Do not send access tokens, refresh tokens, authorization codes, token hashes, request bodies, or provider error text to analytics. Backend `mixpanelTrack` emits directly and bypasses browser event sampling; do not add this event to the browser sampling table.

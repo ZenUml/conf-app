@@ -1,6 +1,10 @@
 import { ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS, hashSecret, newChainId, randomToken, type RefreshTokenRecord } from './asStore';
 
-const RETRY_MS = 120_000;
+// Keep the original response receipt long enough to cover ordinary network
+// retries, client wake-up, and a short-lived process restart. The window is
+// fixed from the first consumption; it never extends when the old token is
+// replayed.
+const RETRY_MS = 300_000;
 const ENC = new TextEncoder();
 const DEC = new TextDecoder();
 

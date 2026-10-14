@@ -120,7 +120,7 @@ What already exists, and bears on the choice:
    successor insert. Exactly one rotation wins across Workers. The winner
    saves an AES-GCM sealed response receipt with a fresh IV and associated
    data binding issuer, parent hash, client and chain. A matching retry during
-   the fixed 120-second window receives the same access and refresh pair if
+   the fixed 300-second window receives the same access and refresh pair if
    the successor is still unused; its access expiry remains the original
    absolute time. A later reuse revokes the chain. Access handles remain in
    KV, but headless validation consults D1 for a chain's revocation state.

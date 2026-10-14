@@ -80,19 +80,52 @@ describe('D1 refresh retry ledger', () => {
     expect(c.expires_in).toBeLessThan(a.expires_in);
   });
 
-  it('revokes on reuse at the 120 second boundary and invalidates issued access', async () => {
+  it('accepts a retry after two minutes but keeps the original absolute expiry', async () => {
+    const { store, ledger } = fixture();
+    const initial = await ledger.issue({ userId: 'acct-1', clientId: 'client-A', scope: 'diagram.read', resource: resourceFor(ORIGIN), chainId: 'chain-a' }, 1_000_000);
+    const first = await handleToken(refresh(initial), { store, refreshLedger: ledger, nowMs: () => 1_000_000 });
+    const original = await first.json() as any;
+    const retry = await handleToken(refresh(initial), { store, refreshLedger: ledger, nowMs: () => 1_250_000 });
+    expect(retry.status).toBe(200);
+    const returned = await retry.json() as any;
+    expect(returned.access_token).toBe(original.access_token);
+    expect(returned.refresh_token).toBe(original.refresh_token);
+    expect(returned.expires_in).toBeLessThan(original.expires_in);
+  });
+
+  it('accepts a retry at 299.999 seconds and records age from first consumption', async () => {
+    const { store, ledger } = fixture();
+    const events: unknown[] = [];
+    const initial = await ledger.issue({ userId: 'acct-1', clientId: 'client-A', scope: 'diagram.read', resource: resourceFor(ORIGIN), chainId: 'chain-a' }, 1_000_000);
+    const first = await handleToken(refresh(initial), { store, refreshLedger: ledger, nowMs: () => 1_000_000,
+      onRefreshCompleted: (event) => { events.push(event); } });
+    const original = await first.json() as any;
+    const retry = await handleToken(refresh(initial), { store, refreshLedger: ledger, nowMs: () => 1_299_999,
+      onRefreshCompleted: (event) => { events.push(event); } });
+    expect(retry.status).toBe(200);
+    const returned = await retry.json() as any;
+    expect(returned.access_token).toBe(original.access_token);
+    expect(returned.refresh_token).toBe(original.refresh_token);
+    expect(events[0]).toMatchObject({ outcome: 'rotated', userId: 'acct-1' });
+    expect(events[1]).toEqual({ outcome: 'retried', userId: 'acct-1', reuseAgeMs: 299_999 });
+  });
+
+  it('revokes on reuse at the 300 second boundary and invalidates issued access', async () => {
     const { db, store, ledger } = fixture();
     const initial = await ledger.issue({ userId: 'acct-1', clientId: 'client-A', scope: 'diagram.read', resource: resourceFor(ORIGIN), chainId: 'chain-a' }, 1_000_000);
     const first = await handleToken(refresh(initial), { store, refreshLedger: ledger, nowMs: () => 1_000_000 });
     const pair = await first.json() as any;
-    const replay = await handleToken(refresh(initial), { store, refreshLedger: createRefreshLedger(db as never, SECRET, ORIGIN), nowMs: () => 1_120_000 });
+    const events: unknown[] = [];
+    const replay = await handleToken(refresh(initial), { store, refreshLedger: createRefreshLedger(db as never, SECRET, ORIGIN), nowMs: () => 1_300_000,
+      onRefreshCompleted: (event) => { events.push(event); } });
     expect(replay.status).toBe(400);
     expect(await ledger.isRevoked('chain-a')).toBe(true);
-    expect(await loadAccessToken(store, pair.access_token, 1_120_000)).not.toBeNull();
+    expect(await loadAccessToken(store, pair.access_token, 1_300_000)).not.toBeNull();
     const auth = await authenticateHeadless(new Request(`${ORIGIN}/agent-link/mcp`, {
       headers: { authorization: `Bearer ${pair.access_token}` },
-    }), store, 1_120_000, ledger);
+    }), store, 1_300_000, ledger);
     expect(auth).toEqual({ ok: false, reason: 'invalid' });
+    expect(events).toEqual([{ outcome: 'rejected', reason: 'reused', userId: 'acct-1', reuseAgeMs: 300_000 }]);
   });
 
   it('imports an unused legacy token but refuses a used one', async () => {

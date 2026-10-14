@@ -1,9 +1,9 @@
 <template>
   <div class="group/title inline-flex items-center h-7 min-w-0 px-2 gap-1.5 rounded-md transition-colors duration-200"
-    :class="titleError ? 'bg-red-50 border border-red-400' : isFocused ? 'bg-white border border-[#0094D9]' : 'border border-transparent hover:bg-gray-200'">
+    :class="titleError ? 'bg-red-50 border border-red-400' : isFocused ? 'bg-white border border-transparent shadow-[inset_0_0_0_1px_rgba(9,30,66,.16),0_0_0_1px_rgba(9,30,66,.16),0_2px_10px_rgba(9,30,66,.06)]' : 'border border-transparent hover:bg-gray-200'">
 
     <button v-if="aiTitleEnabled || autoNameAnimationDone" type="button"
-      class="rounded p-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+      class="rounded p-0.5 flex-shrink-0 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_#fff,0_0_0_4px_#0C66E4] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
       :class="[
         (isGeneratingTitle || showSpark) && !sparkFadingOut ? 'autoname-spark-in text-purple-500' : '',
         sparkFadingOut ? 'autoname-spark-out' : '',
@@ -38,7 +38,7 @@
       <IconDismiss />
     </button>
     <button v-else-if="inputValue" type="button" title="Clear title"
-      class="flex items-center justify-center w-4 h-4 flex-shrink-0 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+      class="flex items-center justify-center w-4 h-4 flex-shrink-0 rounded focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_#fff,0_0_0_4px_#0C66E4] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"
       :class="isFocused ? 'opacity-100' : 'opacity-0 group-hover/title:opacity-100 group-focus-within/title:opacity-100'"
       @click="onClear">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">

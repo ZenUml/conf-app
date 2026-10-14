@@ -40,7 +40,7 @@
               </div>
               <button
                 data-testid="unlock-space-btn"
-                class="shrink-0 rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-1"
+                class="shrink-0 rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_#fff,0_0_0_4px_#0C66E4] active:scale-95 motion-reduce:active:scale-100 transition-transform duration-fast ease-snap"
                 @click="onUnlockSpace"
               >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
             </div>
@@ -90,7 +90,7 @@
               </p>
               <button
                 data-testid="request-extension-btn"
-                class="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                class="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_#fff,0_0_0_4px_#0C66E4] active:scale-95 motion-reduce:active:scale-100 transition-transform duration-fast ease-snap"
                 @click="onRequestExtension"
               >Request extension</button>
             </div>

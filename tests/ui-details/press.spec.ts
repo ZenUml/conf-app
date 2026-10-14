@@ -58,3 +58,14 @@ test('icon-only spark button does not scale', async ({ page }) => {
   const t = await pressedTransform(page, btn, 'press-spark-icon');
   expect(scaleX(t)).toBe(1);
 });
+
+// A disabled button still matches :active in Chromium, so an unguarded
+// active:scale-95 shrinks "Publishing…" on press as if the click were taken.
+for (const story of ['shared-publishbutton--publishing', 'shared-publishbutton--disabled']) {
+  test(`${story}: disabled button does not scale when pressed`, async ({ page }) => {
+    await openStory(page, story);
+    const btn = page.getByRole('button', { name: 'Publish' });
+    await expect(btn).toBeDisabled();
+    expect(scaleX(await pressedTransform(page, btn, `press-${story}`))).toBe(1);
+  });
+}

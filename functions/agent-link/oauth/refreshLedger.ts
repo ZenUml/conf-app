@@ -111,10 +111,10 @@ export function createRefreshLedger(db: RefreshDb, secret: string, issuer: strin
       .bind(nowMs, issuer, chainId).run();
     if (!result.success) throw new Error('D1 refresh revoke failed');
   }
-  async function inspect(token: string): Promise<{ legacy: boolean; legacyLineage: boolean; chainId: string; resource: string } | null> {
+  async function inspect(token: string): Promise<{ legacy: boolean; legacyLineage: boolean; chainId: string; resource: string; usedAtMs: number | null } | null> {
     const row = await read(await hashSecret(token));
     return row ? { legacy: row.legacy === 1, legacyLineage: row.legacyLineage === 1,
-      chainId: row.chainId, resource: row.resource } : null;
+      chainId: row.chainId, resource: row.resource, usedAtMs: row.usedAtMs } : null;
   }
   async function isRevoked(chainId: string): Promise<boolean> {
     const state = await chainState(chainId);

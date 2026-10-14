@@ -128,8 +128,9 @@ What already exists, and bears on the choice:
    path. Legacy KV refresh rows are imported on first presentation; used rows
    and KV revocation markers retain their rejection behavior. First import
    still inherits KV's consistency limits while old-version Workers may be
-   serving. Deployment must drain old Workers before claiming globally atomic
-   rotation for legacy credentials. The cutover does not alter storage of the
+   serving. Deployment must drain old Workers and allow their final KV writes to
+   propagate before treating legacy import as stable; draining alone does not
+   prove that every KV reader has observed the latest state. The cutover does not alter storage of the
    separate upstream Atlassian grant.
 
 3. **Our consent screen is the security boundary, not a formality.** The

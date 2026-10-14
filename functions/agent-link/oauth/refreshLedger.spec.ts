@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { handleToken } from './authServer';
-import { issueAccessToken, issueRefreshToken, loadAccessToken, revokeChain, type GrantStoreLike } from './asStore';
+import { hashSecret, issueAccessToken, issueRefreshToken, loadAccessToken, revokeChain, type GrantStoreLike } from './asStore';
 import { createRefreshLedger } from './refreshLedger';
 import { resourceFor } from './asMetadata';
 import { authenticateHeadless } from './headlessAuth';
@@ -199,6 +199,31 @@ describe('D1 refresh retry ledger', () => {
     await revokeChain(store, 'chain-a', 1_001_000);
     expect((await handleToken(refresh(successor.refresh_token), { store, refreshLedger: ledger, nowMs: () => 1_001_000 })).status).toBe(400);
     expect(await ledger.isRevoked('chain-a')).toBe(true);
+  });
+
+  it('returns a committed legacy receipt after the old KV token expires during grace', async () => {
+    const { store, ledger } = fixture();
+    const record = { userId: 'acct-1', clientId: 'client-A', scope: 'diagram.read', resource: resourceFor(ORIGIN), chainId: 'chain-a' };
+    const legacy = await issueRefreshToken(store, record);
+    const first = await handleToken(refresh(legacy), { store, refreshLedger: ledger, nowMs: () => 1_000_000 });
+    expect(first.status).toBe(200);
+    const original = await first.json() as any;
+    await store.delete(`agent-link:oauth-refresh:${await hashSecret(legacy)}`);
+    const retry = await handleToken(refresh(legacy), { store, refreshLedger: ledger, nowMs: () => 1_090_258 });
+    expect(retry.status).toBe(200);
+    const returned = await retry.json() as any;
+    expect(returned.access_token).toBe(original.access_token);
+    expect(returned.refresh_token).toBe(original.refresh_token);
+    expect(returned.expires_in).toBeLessThan(original.expires_in);
+  });
+
+  it('requires the original KV row before first use of an imported legacy token', async () => {
+    const { store, ledger } = fixture();
+    const record = { userId: 'acct-1', clientId: 'client-A', scope: 'diagram.read', resource: resourceFor(ORIGIN), chainId: 'chain-a' };
+    const legacy = await issueRefreshToken(store, record);
+    await ledger.importLegacy(legacy, record, 1_000_000);
+    await store.delete(`agent-link:oauth-refresh:${await hashSecret(legacy)}`);
+    expect((await handleToken(refresh(legacy), { store, refreshLedger: ledger, nowMs: () => 1_000_000 })).status).toBe(400);
   });
 
   it('emits exactly one rejected outcome for a malformed refresh request', async () => {

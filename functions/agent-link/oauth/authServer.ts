@@ -559,7 +559,7 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
           await completeRefresh({ outcome: 'rejected', reason: 'reused' });
           return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
         }
-        if (known?.legacy && !legacy) {
+        if (known?.legacy && !legacy && known.usedAtMs === null) {
           await completeRefresh({ outcome: 'rejected', reason: 'expired' });
           return oauthError(400, 'invalid_grant', 'the refresh token is expired');
         }

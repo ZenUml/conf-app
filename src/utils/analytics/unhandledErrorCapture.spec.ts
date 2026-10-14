@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   installUnhandledErrorCapture,
+  setUnhandledErrorContext,
+  surfaceFromForgeContext,
   _resetUnhandledErrorCaptureForTests,
 } from './unhandledErrorCapture';
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
@@ -24,11 +26,14 @@ function fireRejection(reason: unknown): Event {
 
 const track = vi.mocked(trackAnalyticsEvent);
 
+const MACRO_VIEW = { moduleKey: 'zenuml-macro', extension: { type: 'confluence:macro', macro: {} } };
+
 describe('unhandledErrorCapture', () => {
   beforeEach(() => {
     _resetUnhandledErrorCaptureForTests();
     vi.clearAllMocks();
     installUnhandledErrorCapture();
+    setUnhandledErrorContext(MACRO_VIEW);
   });
 
   it('reports a window error with location and stack head', () => {
@@ -39,7 +44,9 @@ describe('unhandledErrorCapture', () => {
     expect(track).toHaveBeenCalledTimes(1);
     expect(track).toHaveBeenCalledWith('client_unhandled_error', {
       feature_area: 'system',
-      surface: 'iframe',
+      surface: 'viewer',
+      module_key: 'zenuml-macro',
+      extension_type: 'confluence:macro',
       error_source: 'error',
       error_name: 'TypeError',
       error_message: 'x is undefined',
@@ -157,5 +164,83 @@ describe('unhandledErrorCapture', () => {
       },
     };
     expect(() => fireRejection(hostile)).not.toThrow();
+  });
+});
+
+describe('surfaceFromForgeContext', () => {
+  const cases: Array<[string, Record<string, unknown>, string | undefined]> = [
+    ['opened modal', { extension: { type: 'confluence:macro', modal: { macroMode: 'editor' } } }, 'modal'],
+    ['modal on a global page', { extension: { type: 'confluence:globalPage', modal: { macroMode: 'viewer' } } }, 'modal'],
+    ['fullscreen modal', { extension: { type: 'confluence:macro', modal: { macroMode: 'fullscreen' } } }, 'fullscreen'],
+    ['byline item', { moduleKey: 'zenuml-byline-newuser', extension: { type: 'confluence:contentBylineItem' } }, 'byline'],
+    ['page banner host', { moduleKey: 'zenuml-page-banner', extension: { type: 'confluence:pageBanner' } }, 'page_banner'],
+    ['unplaced banner', { moduleKey: 'zenuml-unplaced-banner', extension: { type: 'confluence:pageBanner' } }, 'page_banner'],
+    ['global settings', { extension: { type: 'confluence:globalSettings' } }, 'get_started'],
+    ['global page', { extension: { type: 'confluence:globalPage' } }, 'dashboard'],
+    ['space page', { extension: { type: 'confluence:spacePage' } }, 'dashboard'],
+    ['homepage feed', { extension: { type: 'confluence:homepageFeed' } }, 'route'],
+    ['macro, display', { extension: { type: 'confluence:macro', macro: {} } }, 'viewer'],
+    ['macro, configuring', { extension: { type: 'confluence:macro', macro: { isConfiguring: true } } }, 'editor'],
+    ['macro, inserting', { extension: { type: 'confluence:macro', macro: { isInserting: true } } }, 'editor'],
+    ['unknown extension', { extension: { type: 'confluence:other' } }, undefined],
+    ['empty context', {}, undefined],
+  ];
+  it.each(cases)('%s', (_name, context, expected) => {
+    expect(surfaceFromForgeContext(context)).toBe(expected);
+  });
+});
+
+describe('unhandledErrorCapture before the Forge context arrives', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    _resetUnhandledErrorCaptureForTests();
+    vi.clearAllMocks();
+    installUnhandledErrorCapture();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('queues errors and flushes them with the surface once the context is set', () => {
+    fireError({ error: new Error('early'), message: 'early' });
+    expect(track).not.toHaveBeenCalled();
+    setUnhandledErrorContext({ moduleKey: 'zenuml-page-banner', extension: { type: 'confluence:pageBanner' } });
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track.mock.calls[0][1]).toMatchObject({
+      surface: 'page_banner',
+      module_key: 'zenuml-page-banner',
+      extension_type: 'confluence:pageBanner',
+      error_message: 'early',
+    });
+  });
+
+  it('applies dedupe and the 5 cap to queued errors', () => {
+    for (let i = 0; i < 8; i++) fireError({ error: new Error(`q${i % 7}`), message: `q${i % 7}` });
+    setUnhandledErrorContext(MACRO_VIEW);
+    expect(track).toHaveBeenCalledTimes(5);
+  });
+
+  it('flushes without surface after 5 s when the context never arrives', () => {
+    fireError({ error: new Error('late'), message: 'late' });
+    vi.advanceTimersByTime(4999);
+    expect(track).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track.mock.calls[0][1]).not.toHaveProperty('surface');
+    expect(track.mock.calls[0][1]).not.toHaveProperty('module_key');
+  });
+
+  it('does not flush twice when the context arrives after the timeout', () => {
+    fireError({ error: new Error('x'), message: 'x' });
+    vi.advanceTimersByTime(5000);
+    setUnhandledErrorContext(MACRO_VIEW);
+    expect(track).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels the timer when the context arrives in time', () => {
+    fireError({ error: new Error('x'), message: 'x' });
+    setUnhandledErrorContext(MACRO_VIEW);
+    vi.advanceTimersByTime(10000);
+    expect(track).toHaveBeenCalledTimes(1);
   });
 });

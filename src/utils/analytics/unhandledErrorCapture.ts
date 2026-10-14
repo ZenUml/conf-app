@@ -8,11 +8,14 @@
 // Safety rules: the handlers never throw, never call preventDefault (the
 // browser console output stays), and never re-enter themselves.
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
+import type { Surface } from './catalog';
+import type { AnalyticsProperties } from './types';
 
 const MAX_EVENTS_PER_PAGE = 5;
 const MAX_MESSAGE_CHARS = 200;
 const MAX_STACK_LINES = 5;
 const MAX_STACK_CHARS = 1000;
+const CONTEXT_WAIT_MS = 5000;
 const NON_ERROR_NAME = 'non_error';
 
 const RESIZE_OBSERVER_NOISE = /ResizeObserver loop/;
@@ -22,6 +25,44 @@ let installed = false;
 let sentCount = 0;
 let reporting = false;
 const seen = new Set<string>();
+
+type ForgeLikeContext = Record<string, any>;
+let forgeContext: ForgeLikeContext | null = null;
+// Set once the 5 s wait for the Forge context has expired.
+let contextWaitExpired = false;
+let waitTimer: ReturnType<typeof setTimeout> | null = null;
+let queue: AnalyticsProperties[] = [];
+
+/**
+ * Maps the Forge context that forgeIndex.ts routes on to an existing Surface.
+ * Choices follow what each route's own producers already stamp: PlanUsage and
+ * AsyncApiDashboard use 'dashboard', HomepageFeedCard uses 'route', and
+ * feedbackSurfaceForContext() maps globalSettings to 'get_started'. The
+ * viewer/editor split mirrors ApWrapper2.isDisplayMode(). Returns undefined for
+ * anything unrecognised so the caller omits `surface` rather than guessing.
+ */
+export function surfaceFromForgeContext(context: ForgeLikeContext | null | undefined): Surface | undefined {
+  const extension = context?.extension ?? {};
+  const moduleKey = String(context?.moduleKey ?? '');
+  const type = extension.type;
+
+  // Same test forgeIndex.ts routes on: Forge's default extension.modal has no
+  // macroMode, so a bare `extension.modal` would mislabel non-modal iframes.
+  if (extension.modal?.macroMode) {
+    return extension.modal.macroMode === 'fullscreen' ? 'fullscreen' : 'modal';
+  }
+  if (type === 'confluence:contentBylineItem') return 'byline';
+  if (moduleKey === 'zenuml-page-banner' || moduleKey === 'zenuml-unplaced-banner') {
+    return 'page_banner';
+  }
+  if (type === 'confluence:globalSettings') return 'get_started';
+  if (type === 'confluence:globalPage' || type === 'confluence:spacePage') return 'dashboard';
+  if (type === 'confluence:homepageFeed') return 'route';
+  if (type === 'confluence:macro') {
+    return extension.macro?.isConfiguring || extension.macro?.isInserting ? 'editor' : 'viewer';
+  }
+  return undefined;
+}
 
 type ErrorSource = 'error' | 'unhandledrejection';
 
@@ -85,9 +126,8 @@ function report(
   sentCount += 1;
 
   const head = stackHead(info.stack);
-  trackAnalyticsEvent('client_unhandled_error', {
+  dispatch({
     feature_area: 'system',
-    surface: 'iframe',
     error_source: source,
     error_name: info.name,
     error_message: message,
@@ -100,6 +140,58 @@ function report(
       ? { error_colno: location.colno }
       : {}),
   });
+}
+
+function withContext(props: AnalyticsProperties): AnalyticsProperties {
+  const surface = surfaceFromForgeContext(forgeContext);
+  const moduleKey = forgeContext?.moduleKey;
+  const extensionType = forgeContext?.extension?.type;
+  return {
+    ...props,
+    ...(surface ? { surface } : {}),
+    ...(typeof moduleKey === 'string' && moduleKey ? { module_key: moduleKey } : {}),
+    ...(typeof extensionType === 'string' && extensionType ? { extension_type: extensionType } : {}),
+  };
+}
+
+function send(props: AnalyticsProperties): void {
+  trackAnalyticsEvent('client_unhandled_error', withContext(props));
+}
+
+function dispatch(props: Partial<AnalyticsProperties>): void {
+  const full = props as AnalyticsProperties; // surface is stamped in withContext
+  if (forgeContext || contextWaitExpired) {
+    send(full);
+    return;
+  }
+  queue.push(full);
+  if (!waitTimer) {
+    waitTimer = setTimeout(() => {
+      waitTimer = null;
+      contextWaitExpired = true;
+      flushQueue();
+    }, CONTEXT_WAIT_MS);
+  }
+}
+
+function flushQueue(): void {
+  const pending = queue;
+  queue = [];
+  for (const props of pending) guarded(() => send(props));
+}
+
+/** Call once the Forge context is known. Flushes errors queued before it. */
+export function setUnhandledErrorContext(context: ForgeLikeContext): void {
+  try {
+    forgeContext = context;
+    if (waitTimer) {
+      clearTimeout(waitTimer);
+      waitTimer = null;
+    }
+    flushQueue();
+  } catch {
+    // Telemetry must never surface as a new error.
+  }
 }
 
 function guarded(fn: () => void): void {
@@ -153,4 +245,9 @@ export function _resetUnhandledErrorCaptureForTests(): void {
   sentCount = 0;
   reporting = false;
   seen.clear();
+  forgeContext = null;
+  contextWaitExpired = false;
+  if (waitTimer) clearTimeout(waitTimer);
+  waitTimer = null;
+  queue = [];
 }

@@ -116,11 +116,7 @@ export type Surface =
   // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
   // the variants that ship it), so every event carrying this surface is a
   // deliberate user action — there are no byline impressions to filter out.
-  | "byline"
-  // Process-wide handlers (unhandledErrorCapture) fire before any surface is
-  // known and from any Forge iframe, so no specific surface can be claimed.
-  // Using `viewer` here would repeat the #368 misclassification.
-  | "iframe";
+  | "byline";
 
 export type EntryPoint =
   | "page_view"
@@ -1123,7 +1119,7 @@ export type AnalyticsEventName =
   // once per iframe by utils/analytics/unhandledErrorCapture.ts. Guards: at most
   // 5 events and one per name+message per iframe page lifetime; ResizeObserver
   // loop noise and opaque cross-origin "Script error." are dropped.
-  // Properties: feature_area=system, surface=iframe, error_source=error|
+  // Properties: feature_area=system, surface=viewer|editor|modal|fullscreen|byline|page_banner|get_started|dashboard|route (from the Forge context; omitted if unknown), module_key, extension_type, error_source=error|
   // unhandledrejection, error_name ('non_error' for a non-Error rejection
   // reason), error_message (200 chars), stack_head (first 5 lines, 1000 chars),
   // error_filename/error_lineno/error_colno (error events only).

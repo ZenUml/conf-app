@@ -959,6 +959,9 @@ export type AnalyticsProperties = {
   // 'unhandledrejection'. `stack_head` is the first 5 stack lines, capped at
   // 1000 chars, and is omitted when the error carries no stack. The location
   // fields exist only on 'error' events.
+  // Raw Forge context behind `surface`, so analysis does not depend on the mapping.
+  module_key?: string;
+  extension_type?: string;
   error_source?: "error" | "unhandledrejection";
   stack_head?: string;
   error_filename?: string;

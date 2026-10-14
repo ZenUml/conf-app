@@ -39,7 +39,12 @@ describe('FeedbackDialog', () => {
     const disclosure = wrapper.get('.context-disclosure')
     expect(disclosure.attributes('aria-expanded')).toBe('false')
     expect(disclosure.text()).toContain('8 fields attached automatically')
-    expect(wrapper.find('.context-details dl').exists()).toBe(false)
+    // The panel stays mounted for the height animation but is inert and hidden from assistive tech.
+    const panel = wrapper.get('#feedback-context-panel')
+    expect(disclosure.attributes('aria-controls')).toBe('feedback-context-panel')
+    expect(panel.classes()).not.toContain('expanded')
+    expect(panel.attributes('inert')).toBeDefined()
+    expect(panel.attributes('aria-hidden')).toBe('true')
     expect(wrapper.find('fieldset').exists()).toBe(false)
     expect(wrapper.get('textarea').attributes('placeholder')).toBe('What would you like us to know?')
     const captureAction = wrapper.get('[data-testid="capture-current-view"]')
@@ -76,6 +81,11 @@ describe('FeedbackDialog', () => {
       // The panel itself must not carry its own scroll region — .feedback-body is the
       // only scroller; a computed max-height/overflow pair isn't assertable in jsdom anyway.
       expect(wrapper.get('.context-details dl').classes()).toEqual([])
+      const panel = wrapper.get('#feedback-context-panel')
+      expect(panel.classes()).toContain('expanded')
+      expect(panel.attributes('inert')).toBeUndefined()
+      expect(panel.attributes('aria-hidden')).toBeUndefined()
+      expect(disclosure.attributes('aria-expanded')).toBe('true')
     } finally {
       window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView
     }

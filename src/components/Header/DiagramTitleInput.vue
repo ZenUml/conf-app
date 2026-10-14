@@ -1,6 +1,6 @@
 <template>
   <div class="group/title inline-flex items-center h-7 min-w-0 px-2 gap-1.5 rounded-md transition-colors duration-200"
-    :class="titleError ? 'bg-red-50 border border-red-400' : isFocused ? 'bg-white border border-transparent shadow-[inset_0_0_0_1px_rgba(9,30,66,.16),0_0_0_1px_rgba(9,30,66,.16),0_2px_10px_rgba(9,30,66,.06)]' : 'border border-transparent hover:bg-gray-200'">
+    :class="titleError ? 'bg-red-50 border border-red-400' : isFocused ? 'bg-white border border-transparent shadow-[inset_0_0_0_1px_rgba(9,30,66,.16),0_0_0_1px_rgba(9,30,66,.55),0_2px_10px_rgba(9,30,66,.06)]' : 'border border-transparent hover:bg-gray-200'">
 
     <button v-if="aiTitleEnabled || autoNameAnimationDone" type="button"
       class="rounded p-0.5 flex-shrink-0 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_#fff,0_0_0_4px_#0C66E4] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors duration-200"

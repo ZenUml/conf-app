@@ -52,6 +52,13 @@ for (const { name, story, target } of buttons) {
   });
 }
 
+function contrastOnWhite(rgb: [number, number, number], alpha: number): number {
+  const lin = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const [r, g, b] = rgb.map((c) => 255 - alpha * (255 - c));
+  const l = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  return 1.05 / (l + 0.05);
+}
+
 async function fieldFocus(page: Page, field: Locator, ringHost: Locator) {
   const before = await ringHost.evaluate((el) => getComputedStyle(el).borderColor);
   const beforeShadow = await ringHost.evaluate((el) => getComputedStyle(el).boxShadow);
@@ -63,6 +70,10 @@ async function fieldFocus(page: Page, field: Locator, ringHost: Locator) {
   expect(after.border).not.toContain('59, 130, 246');
   expect(after.shadow).not.toBe('none');
   expect(after.shadow).toContain('rgba(9, 30, 66, 0.16)');
+  // The outer ring is the only focus cue on inputs (they match :focus-visible on
+  // mouse focus too), so it must reach 3:1 against the white page (WCAG 1.4.11).
+  expect(after.shadow).toContain('rgba(9, 30, 66, 0.55)');
+  expect(contrastOnWhite([9, 30, 66], 0.55)).toBeGreaterThanOrEqual(3);
   return { before, after };
 }
 

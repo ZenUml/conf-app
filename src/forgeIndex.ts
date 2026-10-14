@@ -61,6 +61,12 @@ import {
   receiveExportSession,
 } from '@/components/ExportModal/exportSession';
 import { openWithExportSessionHandoff } from '@/components/ExportModal/exportSessionHandoff';
+import { installUnhandledErrorCapture } from '@/utils/analytics/unhandledErrorCapture';
+
+// Every Forge iframe (macros, editors, modals, byline, banner, pages) boots
+// through index.html -> this file, so one call here covers them all. Earliest
+// point after static imports have evaluated.
+installUnhandledErrorCapture();
 
 // Track editor session start time
 const editorStartTime = Date.now();

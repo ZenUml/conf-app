@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import path from 'node:path'
+import ts from 'typescript'
 import mixpanel from 'mixpanel-browser'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { _awaitableTrackEvent, _resetLegacyMixpanelForTesting, addonKey, addonKeyForProductType, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
@@ -188,6 +190,65 @@ describe('window utils', async () => {
   })
 
   describe('trackEvent', () => {
+    it('typechecks the public tracking signatures against valid and invalid callers', () => {
+      // Vitest transpiles test files without typechecking. Compile a focused
+      // consumer so the production function signatures are actually checked.
+      const fileName = path.resolve(process.cwd(), 'src/utils/__window_track_contract__.ts')
+      const source = `
+        import { trackEvent, _awaitableTrackEvent } from './window'
+        trackEvent('label', 'action', 'custom-category')
+        const result: Promise<void> = _awaitableTrackEvent('label', 'action', 'future-category')
+        // @ts-expect-error label must be a string
+        trackEvent(42, 'action', 'category')
+        // @ts-expect-error action must be a string
+        _awaitableTrackEvent('label', 42, 'category')
+        // @ts-expect-error category must be string-like
+        trackEvent('label', 'action', 42)
+        // @ts-expect-error category must be string-like
+        _awaitableTrackEvent('label', 'action', 42)
+        void result
+      `
+      const options: ts.CompilerOptions = {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Node10,
+        baseUrl: process.cwd(),
+        paths: { '@/*': ['src/*'] },
+        strict: true,
+        noEmit: true,
+        skipLibCheck: true,
+        allowJs: true,
+        types: [],
+      }
+      const host = ts.createCompilerHost(options)
+      const originalGetSourceFile = host.getSourceFile.bind(host)
+      host.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) =>
+        name === fileName
+          ? ts.createSourceFile(name, source, languageVersion, true)
+          : originalGetSourceFile(name, languageVersion, onError, shouldCreateNewSourceFile)
+      const windowPath = path.resolve(process.cwd(), 'src/utils/window.ts')
+      const resolved = ts.resolveModuleName('./window', fileName, options, host).resolvedModule?.resolvedFileName
+      const diagramTypePath = ts.resolveModuleName(
+        '@/model/Diagram/Diagram', windowPath, options, host,
+      ).resolvedModule?.resolvedFileName
+      expect(resolved).toBe(windowPath)
+      expect(diagramTypePath).toBe(path.resolve(process.cwd(), 'src/model/Diagram/Diagram.ts'))
+      const program = ts.createProgram([fileName], options, host)
+      const consumer = program.getSourceFile(fileName)
+      expect(consumer).toBeDefined()
+      expect(program.getSourceFile(resolved!)).toBeDefined()
+      expect(program.getSourceFile(diagramTypePath!)).toBeDefined()
+      // Only this consumer's diagnostics are relevant; other files in the
+      // window.ts dependency graph already have unrelated typecheck errors.
+      const diagnostics = [
+        ...program.getSyntacticDiagnostics(consumer),
+        ...program.getSemanticDiagnostics(consumer),
+      ]
+      expect(diagnostics.map((diagnostic) =>
+        `${diagnostic.file?.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line}: ${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')}`,
+      )).toEqual([])
+    })
+
     it('passes a caller-defined category through to Mixpanel', async () => {
       await _awaitableTrackEvent('label', 'action', 'custom-category');
       expect(mixpanel.track).toHaveBeenCalledWith(

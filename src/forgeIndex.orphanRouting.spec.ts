@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 
 const h = vi.hoisted(() => ({
   context: {} as any,
   loadCustomContentWithOrphanRecovery: vi.fn(),
   graphViewerImported: vi.fn(),
+  reportOrphanObserved: vi.fn(),
+  mountRoot: vi.fn(),
 }));
 
 vi.mock('@/model/globals', () => ({
@@ -13,6 +14,7 @@ vi.mock('@/model/globals', () => ({
       initializeContext: vi.fn(async () => undefined),
       getMacroData: vi.fn(async () => ({})),
       isLite: vi.fn(() => false),
+      isDisplayMode: vi.fn(() => true),
       loadCustomContentWithOrphanRecovery: h.loadCustomContentWithOrphanRecovery,
     },
   },
@@ -45,11 +47,12 @@ vi.mock('@/utils/renderGate/maybeGateViewerRender', () => ({
   getGateMode: vi.fn(() => 'load'),
 }));
 vi.mock('@/utils/orphanTelemetry', () => ({
-  reportOrphanObserved: vi.fn(),
+  reportOrphanObserved: h.reportOrphanObserved,
   reportOrphanMacroRepaired: vi.fn(),
 }));
 vi.mock('@/model/Attachment', () => ({ default: vi.fn() }));
-vi.mock('@/mount-root', () => ({ mountRoot: vi.fn() }));
+vi.mock('@/mount-root', () => ({ mountRoot: h.mountRoot }));
+vi.mock('@/components/DiagramPortal.vue', () => ({ default: {} }));
 vi.mock('@/forge-graph-viewer', () => {
   h.graphViewerImported();
   return { default: Promise.resolve() };
@@ -67,6 +70,7 @@ describe('shared Forge entrypoint orphan routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
+    localStorage.clear();
     h.context = {
       moduleKey: 'zenuml-graph-macro-lite',
       extension: {
@@ -83,6 +87,46 @@ describe('shared Forge entrypoint orphan routing', () => {
 
     expect(h.graphViewerImported).toHaveBeenCalledTimes(1);
     expect(h.loadCustomContentWithOrphanRecovery).not.toHaveBeenCalled();
-    expect(reportOrphanObserved).not.toHaveBeenCalled();
+    expect(h.reportOrphanObserved).not.toHaveBeenCalled();
   });
+  it.each([
+    {
+      label: 'sequence macro',
+      moduleKey: 'zenuml-sequence-macro-lite',
+      modal: undefined,
+    },
+    {
+      label: 'Mermaid modal',
+      moduleKey: 'zenuml-byline-diagrams',
+      modal: { diagramType: 'mermaid', macroMode: 'viewer' },
+    },
+  ])('loads and reports one sequence-family orphan for $label', async ({ moduleKey, modal }) => {
+    h.context.moduleKey = moduleKey;
+    if (modal) h.context.extension.modal = modal;
+    const probeResult = {
+      recoverable: false,
+      candidateCount: 0,
+      pageChildrenTotal: 0,
+    };
+    h.loadCustomContentWithOrphanRecovery.mockResolvedValue({
+      customContent: undefined,
+      directFetchStatus: 'not_found',
+      probeResult,
+    });
+
+    const { default: initialized } = await import('@/forgeIndex');
+    await initialized;
+
+    expect(h.loadCustomContentWithOrphanRecovery).toHaveBeenCalledTimes(1);
+    expect(h.loadCustomContentWithOrphanRecovery).toHaveBeenCalledWith(
+      'page-1', 'orphan-1', { copyCheckMode: 'cross-page-only' },
+    );
+    expect(h.reportOrphanObserved).toHaveBeenCalledTimes(1);
+    expect(h.reportOrphanObserved).toHaveBeenCalledWith(
+      'page-1', 'orphan-1', 'sequence', probeResult, { recoveryUsed: false },
+    );
+    expect(h.graphViewerImported).not.toHaveBeenCalled();
+    expect(h.mountRoot).toHaveBeenCalledTimes(1);
+  });
+
 });

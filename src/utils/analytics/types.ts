@@ -26,6 +26,7 @@ import type {
   AgentLinkIdentityFailure,
   AgentLinkOAuthRevokeReason,
   AgentLinkOAuthChainRevokeReason,
+  AgentLinkOAuthTokenRefreshOutcome,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
   AgentLinkMcpCopyTarget,
@@ -897,6 +898,11 @@ export type AnalyticsProperties = {
   // (agent_link_oauth_revoked) or an AgentLinkOAuthChainRevokeReason
   // (agent_link_oauth_chain_revoked).
   site_count?: number;
+  // The MCP authorization server's own refresh endpoint, separate from the
+  // upstream Atlassian grant refresh. One terminal event per inbound request.
+  oauth_refresh_outcome?: AgentLinkOAuthTokenRefreshOutcome;
+  oauth_request_id?: string;
+  refresh_reuse_age_ms?: number;
   // X — headless writes (agent_link_diagram_created / _updated). The outcome
   // rides the shared `result` field above as an AgentLinkWriteResult.
   // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,

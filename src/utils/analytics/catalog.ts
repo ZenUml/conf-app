@@ -1311,6 +1311,12 @@ export type AnalyticsEventName =
   // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
   | "agent_link_oauth_authorized"
   | "agent_link_oauth_refresh_failed"
+  // OUR MCP authorization-server refresh endpoint (oauth/authServer.ts), not
+  // the upstream Atlassian grant refresh above. One event per inbound refresh
+  // request at its terminal result; oauth_request_id correlates a replayed
+  // inbound request with the original response without exposing credentials.
+  // See docs/analytics/oauth-refresh-retry.md.
+  | "agent_link_oauth_token_refresh_completed"
   | "agent_link_oauth_revoked"
   // OUR refresh-token chain (one per MCP sign-in) revoked by the token
   // endpoint, distinct from `_revoked` above, which is about the upstream
@@ -1555,6 +1561,10 @@ export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthor
 // Why the token endpoint revoked a refresh-token chain
 // (agent_link_oauth_chain_revoked), carried in the shared `reason` field.
 export type AgentLinkOAuthChainRevokeReason = "refresh_reused" | "client_mismatch";
+
+// Terminal result of one MCP refresh-token request. This is our OAuth token
+// endpoint lifecycle, separate from refreshing the stored Atlassian grant.
+export type AgentLinkOAuthTokenRefreshOutcome = "rotated" | "retried" | "rejected" | "unavailable";
 
 // The outcome of a headless write (agent_link_diagram_created / _updated).
 // Mirrors AddToPageResult so the headless and byline paths are comparable:

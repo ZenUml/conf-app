@@ -116,7 +116,11 @@ export type Surface =
   // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
   // the variants that ship it), so every event carrying this surface is a
   // deliberate user action — there are no byline impressions to filter out.
-  | "byline";
+  | "byline"
+  // Process-wide handlers (unhandledErrorCapture) fire before any surface is
+  // known and from any Forge iframe, so no specific surface can be claimed.
+  // Using `viewer` here would repeat the #368 misclassification.
+  | "iframe";
 
 export type EntryPoint =
   | "page_view"
@@ -1114,6 +1118,16 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // Uncaught frontend exception in any Forge Custom UI iframe: a window
+  // `error` or an `unhandledrejection` that no component handled. Installed
+  // once per iframe by utils/analytics/unhandledErrorCapture.ts. Guards: at most
+  // 5 events and one per name+message per iframe page lifetime; ResizeObserver
+  // loop noise and opaque cross-origin "Script error." are dropped.
+  // Properties: feature_area=system, surface=iframe, error_source=error|
+  // unhandledrejection, error_name ('non_error' for a non-Error rejection
+  // reason), error_message (200 chars), stack_head (first 5 lines, 1000 chars),
+  // error_filename/error_lineno/error_colno (error events only).
+  | "client_unhandled_error"
   // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
   // `retry()` is a bare location.reload(), so the click and its result sit in
   // two different page lifetimes: the click event is emitted before the reload,

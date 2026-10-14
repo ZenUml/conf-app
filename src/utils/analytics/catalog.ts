@@ -1313,8 +1313,9 @@ export type AnalyticsEventName =
   | "agent_link_oauth_refresh_failed"
   // OUR MCP authorization-server refresh endpoint (oauth/authServer.ts), not
   // the upstream Atlassian grant refresh above. One event per inbound refresh
-  // request at its terminal result; oauth_request_id joins retries within that
-  // request without exposing credentials. See docs/analytics/oauth-refresh-retry.md.
+  // request at its terminal result; oauth_request_id correlates a replayed
+  // inbound request with the original response without exposing credentials.
+  // See docs/analytics/oauth-refresh-retry.md.
   | "agent_link_oauth_token_refresh_completed"
   | "agent_link_oauth_revoked"
   // OUR refresh-token chain (one per MCP sign-in) revoked by the token

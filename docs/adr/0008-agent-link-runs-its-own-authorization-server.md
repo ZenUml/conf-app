@@ -114,6 +114,24 @@ What already exists, and bears on the choice:
    window can still fork the chain rather than revoke it. See `asStore.ts`,
    "refresh chains".
 
+   *Amended 2026-10-14 (issue #787):* D1 now owns refresh-token state and
+   chain revocation. Each token is stored by hash under the authorization
+   server issuer, and a transactional, conditional parent update gates the
+   successor insert. Exactly one rotation wins across Workers. The winner
+   saves an AES-GCM sealed response receipt with a fresh IV and associated
+   data binding issuer, parent hash, client and chain. A matching retry during
+   the fixed 120-second window receives the same access and refresh pair if
+   the successor is still unused; its access expiry remains the original
+   absolute time. A later reuse revokes the chain. Access handles remain in
+   KV, but headless validation consults D1 for a chain's revocation state.
+   D1 failures are service failures, never a reason to use the old KV rotation
+   path. Legacy KV refresh rows are imported on first presentation; used rows
+   and KV revocation markers retain their rejection behavior. First import
+   still inherits KV's consistency limits while old-version Workers may be
+   serving. Deployment must drain old Workers before claiming globally atomic
+   rotation for legacy credentials. The cutover does not alter storage of the
+   separate upstream Atlassian grant.
+
 3. **Our consent screen is the security boundary, not a formality.** The
    spec's rule exists because one static upstream client id (ours at
    Atlassian) fronts many dynamically registered MCP clients. Without a

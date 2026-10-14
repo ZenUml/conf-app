@@ -25,6 +25,8 @@ import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from '
 import type { GateEnv } from './headlessGate';
 import type { GrantEvent } from './tokenStore';
 import { mixpanelTrack } from '../../service/mixpanelService';
+import { createRefreshLedger } from './refreshLedger';
+import { issuerFor } from './asMetadata';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -313,7 +315,15 @@ export async function handleHeadlessRpc(
     throw e;
   }
 
-  const auth = await authenticateHeadless(request, store, now());
+  if (!env.DB) return error(503, id, RPC_AUTH_ERROR, 'Headless authorization is temporarily unavailable.');
+
+  let auth;
+  try {
+    auth = await authenticateHeadless(request, store, now(),
+      env.DB && env.OAUTH_GRANT_SECRET ? createRefreshLedger(env.DB as never, env.OAUTH_GRANT_SECRET, issuerFor(request.url)) : undefined);
+  } catch {
+    return error(503, id, RPC_AUTH_ERROR, 'Headless authorization is temporarily unavailable.');
+  }
   if (!auth.ok) {
     return error(401, id, RPC_AUTH_ERROR, authMessage(auth.reason), {
       headers: { 'WWW-Authenticate': challengeFor(request.url, auth.reason) },

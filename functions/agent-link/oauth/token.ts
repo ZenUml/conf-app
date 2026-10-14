@@ -4,15 +4,43 @@
 import { handleToken } from './authServer';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
 import { mixpanelTrack } from '../../service/mixpanelService';
+import { createRefreshLedger } from './refreshLedger';
+import { issuerFor } from './asMetadata';
+import type { D1Database } from '@cloudflare/workers-types';
 
 interface Env extends OAuthEnv {
   MIXPANEL_TOKEN?: string;
+  DB?: D1Database;
 }
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
-  const { store } = loadGrantStore(env);
+export const onRequestPost: PagesFunction<Env> = async ({ request, env, waitUntil }) => {
+  const started = Date.now();
+  const requestId = crypto.randomUUID();
+  if (!env.DB || !env.OAUTH_GRANT_KV || !env.OAUTH_GRANT_SECRET) {
+    try {
+      if ((await request.clone().formData()).get('grant_type') === 'refresh_token' && env.MIXPANEL_TOKEN) {
+        waitUntil(mixpanelTrack({ event: 'agent_link_oauth_token_refresh_completed',
+          feature_area: 'agent_link', surface: 'backend', oauth_refresh_outcome: 'unavailable',
+          reason: 'storage_unavailable', duration_ms: Date.now() - started, oauth_request_id: requestId,
+        }, env.MIXPANEL_TOKEN, env).catch(() => undefined));
+      }
+    } catch { /* malformed body cannot contain a trustworthy grant type */ }
+    return new Response(JSON.stringify({ error: 'temporarily_unavailable' }), {
+      status: 503, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    });
+  }
+  const { store, secret } = loadGrantStore(env);
   return handleToken(request, {
     store,
+    refreshLedger: createRefreshLedger(env.DB as never, secret, issuerFor(request.url)),
+    onRefreshCompleted: ({ outcome, reason, userId, reuseAgeMs }) => {
+      if (!env.MIXPANEL_TOKEN) return;
+      waitUntil(mixpanelTrack({
+        event: 'agent_link_oauth_token_refresh_completed', feature_area: 'agent_link', surface: 'backend',
+        oauth_refresh_outcome: outcome, reason, user_account_id: userId,
+        refresh_reuse_age_ms: reuseAgeMs, duration_ms: Date.now() - started, oauth_request_id: requestId,
+      }, env.MIXPANEL_TOKEN, env).catch(() => undefined));
+    },
     // A revoked chain is the one sign that a refresh token may have been
     // copied; without the event it is invisible until a user complains.
     onChainRevoked: async ({ reason, userId }) => {

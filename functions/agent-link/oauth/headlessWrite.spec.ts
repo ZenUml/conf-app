@@ -571,6 +571,7 @@ describe('write analytics', () => {
       ATLASSIAN_OAUTH_REDIRECT_URI: 'https://conf-stg-lite.zenuml.com/agent-link/oauth/callback',
       OAUTH_GRANT_KV: ctx.store,
       OAUTH_GRANT_SECRET: 'grant-key',
+      DB: { prepare: () => ({ bind: () => ({ first: async () => null }) }) } as never,
       MIXPANEL_TOKEN: 'mp-token',
       ...gateEnv,
     };

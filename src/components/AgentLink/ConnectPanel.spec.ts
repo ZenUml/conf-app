@@ -243,6 +243,7 @@ describe('ConnectPanel', () => {
   it('already_linked: renders the rejected notice with honest (no-fake-time) copy and actions', async () => {
     const wrapper = mountPanel({ state: 'already_linked' })
 
+    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--already_linked')
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
     expect(notice.exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(
@@ -411,18 +412,6 @@ describe('ConnectPanel — Track H rail composition', () => {
 
     await wrapper.find('[data-testid="agent-link-reconnect-btn"]').trigger('click')
     expect(wrapper.emitted('reconnect')).toHaveLength(1)
-  })
-
-  it('already-linked rejection: shows the rejected notice and Revoke & re-link, not an empty rail', () => {
-    const wrapper = mountRail({ state: 'already_linked', diagramTitle: 'Checkout flow' })
-
-    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--already_linked')
-    expect(wrapper.find('[data-testid="agent-link-notice"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(
-      'This diagram is already linked to an agent'
-    )
-    expect(wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').exists()).toBe(true)
   })
 
   it('idle: renders an empty panel (no header, notice, feed or actions) — nothing before connect', () => {

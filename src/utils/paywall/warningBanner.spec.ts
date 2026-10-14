@@ -171,6 +171,10 @@ describe('shouldShowPaywallBanner — reads from localStorage', () => {
     expect(shouldShowPaywallBanner(now, ID)).toBe(true)
   })
 
+  it('false without a targeting marker', () => {
+    expect(shouldShowPaywallBanner(now, ID)).toBe(false)
+  })
+
   it.each([1, 2, 3, 50].flatMap((showCount) => [false, true].map((isSpaceAdmin) => [showCount, isSpaceAdmin] as const)))(
     'stays true with legacy dismissal and %i prior impressions (admin: %s)',
     (showCount, isSpaceAdmin) => {
@@ -189,23 +193,6 @@ describe('shouldShowPaywallBanner — reads from localStorage', () => {
     })
     expect(shouldShowPaywallBanner(now, ID)).toBe(false)
     spy.mockRestore()
-  })
-})
-
-describe('CSAT defer contract', () => {
-  // forgeIndex's CSAT branch yields when shouldShowPaywallBanner() is true, so
-  // the two pageBanner modules never stack (paywall > CSAT). This asserts the
-  // signal CSAT keys off of.
-  const now = Date.parse('2026-06-10T00:00:00.000Z')
-
-  it('paywall eligible (policy enabled, unpaid, over 100, recent activity) → CSAT must defer', () => {
-    writeTargetingMarker(warning, ID)
-    markRecentMacroActivity('edit', ID, new Date('2026-06-09T00:00:00.000Z'))
-    expect(shouldShowPaywallBanner(now, ID)).toBe(true)
-  })
-
-  it('paywall not eligible (no marker) → CSAT proceeds', () => {
-    expect(shouldShowPaywallBanner(now, ID)).toBe(false)
   })
 })
 

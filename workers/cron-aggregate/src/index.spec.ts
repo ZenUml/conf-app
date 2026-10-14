@@ -20,11 +20,49 @@ function database(changes: number) {
 
 describe('feedback attachment retention', () => {
   it('deletes expired D1 image bytes in a bounded batch', async () => {
-    const db = database(1)
-    const deleted = await purgeExpiredFeedbackScreenshots(db as any, '2026-10-10T00:00:00.000Z')
+    const sqlite = new DatabaseSync(':memory:')
+    try {
+      sqlite.exec(`CREATE TABLE FeedbackReport (
+        reportReference TEXT PRIMARY KEY,
+        screenshotData TEXT,
+        screenshotContentType TEXT,
+        screenshotExpiresAt TEXT
+      )`)
+      const insert = sqlite.prepare(`INSERT INTO FeedbackReport VALUES (?, ?, ?, ?)`)
+      for (let i = 0; i < 103; i++) {
+        insert.run(`expired-${i}`, 'image-bytes', 'image/png', '2026-10-09T00:00:00.000Z')
+      }
+      insert.run('fresh', 'fresh-image', 'image/png', '2026-10-11T00:00:00.000Z')
+      insert.run('at-deadline', 'deadline-image', 'image/png', '2026-10-10T00:00:00.000Z')
+      insert.run('no-image', null, null, '2026-10-09T00:00:00.000Z')
 
-    expect(deleted).toBe(1)
-    expect(db.updateBind).toHaveBeenCalledWith('2026-10-10T00:00:00.000Z', 100)
+      const db = {
+        prepare(sql: string) {
+          return {
+            bind(...values: unknown[]) {
+              return {
+                run() {
+                  const result = sqlite.prepare(sql).run(...values as never[])
+                  return { meta: { changes: Number(result.changes) } }
+                },
+              }
+            },
+          }
+        },
+      }
+      const now = '2026-10-10T00:00:00.000Z'
+      expect(await purgeExpiredFeedbackScreenshots(db as any, now)).toBe(100)
+      expect(Number(sqlite.prepare(`SELECT COUNT(*) AS count FROM FeedbackReport WHERE screenshotData IS NOT NULL AND screenshotExpiresAt <= ?`).get(now)?.count)).toBe(4)
+      expect(sqlite.prepare(`SELECT screenshotData, screenshotExpiresAt FROM FeedbackReport WHERE reportReference = 'fresh'`).get())
+        .toEqual({ screenshotData: 'fresh-image', screenshotExpiresAt: '2026-10-11T00:00:00.000Z' })
+
+      expect(await purgeExpiredFeedbackScreenshots(db as any, now)).toBe(4)
+      expect(Number(sqlite.prepare(`SELECT COUNT(*) AS count FROM FeedbackReport WHERE screenshotData IS NOT NULL AND screenshotExpiresAt <= ?`).get(now)?.count)).toBe(0)
+      expect(sqlite.prepare(`SELECT screenshotData, screenshotContentType, screenshotExpiresAt FROM FeedbackReport WHERE reportReference = 'at-deadline'`).get())
+        .toEqual({ screenshotData: null, screenshotContentType: null, screenshotExpiresAt: null })
+    } finally {
+      sqlite.close()
+    }
   })
 
   it('returns zero when no expired D1 screenshots are found', async () => {

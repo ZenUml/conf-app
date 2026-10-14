@@ -3887,14 +3887,23 @@ describe('GenericViewer — auto-opening the export dialog in Fullscreen', () =>
   })
 })
 
-describe('GenericViewer embed detection', () => {
-  const source = readFileSync(resolve(__dirname, './GenericViewer.vue'), 'utf-8')
+describe('GenericViewer embed module context', () => {
+  beforeEach(() => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.source = DataSource.CustomContent
+  })
 
-  it('uses a Forge moduleKey-based embed detection (inline or via isEmbedMode helper)', () => {
-    // The viewer uses inline regex on forgeContext.moduleKey instead of importing
-    // the isEmbedMode helper — both are equivalent; accept either pattern.
-    const usesHelper = /isEmbedMode/.test(source)
-    const usesInline = /moduleKey/.test(source) && /embed-macro/.test(source)
-    expect(usesHelper || usesInline).toBe(true)
+  it.each([
+    ['zenuml-embed-macro', true],
+    ['zenuml-sequence-macro', false],
+    ['', false],
+  ])('renders the embed chip only for %s (embedded: %s)', async (moduleKey, embedded) => {
+    window.forgeGlobal = { forgeContext: { moduleKey, extension: {} } } as any
+    const wrapper = mountViewer()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.isEmbedded).toBe(embedded)
+    expect(wrapper.find('.viewer-embed-chip').exists()).toBe(embedded)
+    wrapper.unmount()
   })
 })

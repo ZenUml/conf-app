@@ -17,18 +17,26 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MODELS = [
-    "openai/gpt-5.6-luna",
-    "deepseek/deepseek-v4-flash",
-    "google/gemini-2.5-flash",
-]
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
+MODEL_CONFIG_PATH = Path(__file__).resolve().parents[4] / "src/utils/aiModelConfig.ts"
+
+
+def configured_default_model() -> str:
+    source = MODEL_CONFIG_PATH.read_text(encoding="utf-8")
+    match = re.search(
+        r"export\s+const\s+DEFAULT_AI_REPAIR_MODEL\s*=\s*(['\"])([^'\"]+)\1",
+        source,
+    )
+    if not match:
+        raise SystemExit(f"Cannot read DEFAULT_AI_REPAIR_MODEL from {MODEL_CONFIG_PATH}")
+    return match.group(2)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--model", help="Model to validate; defaults to the sole manifest model or product default")
     parser.add_argument("--base-url", default="http://127.0.0.1:3000")
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--poll-interval", type=float, default=1.0)
@@ -84,7 +92,24 @@ def main() -> int:
     dsl = manifest_relative(manifest_path, manifest["dslPath"]).read_text(
         encoding="utf-8"
     )
-    models = list(manifest.get("models") or DEFAULT_MODELS)
+    default_model = configured_default_model()
+    manifest_models = manifest.get("models")
+    if manifest_models is not None:
+        if not isinstance(manifest_models, list) or not manifest_models or any(
+            not isinstance(model, str) or not model for model in manifest_models
+        ):
+            raise SystemExit("manifest models must be a non-empty list of model names")
+    if args.model and manifest_models and args.model not in manifest_models:
+        raise SystemExit("--model must be listed in manifest models")
+    if args.model:
+        model = args.model
+    elif manifest_models:
+        if len(manifest_models) != 1:
+            raise SystemExit("L3 validates one model per run; pass --model")
+        model = manifest_models[0]
+    else:
+        model = default_model
+    models = [model]
     reasoning_specified = "reasoningDisabled" in manifest
     reasoning_disabled = (
         bool(manifest["reasoningDisabled"]) if reasoning_specified else None
@@ -124,14 +149,14 @@ def main() -> int:
     api_key = os.environ.get("DIAGRAMLY_API_KEY")
     if not api_key:
         raise SystemExit("DIAGRAMLY_API_KEY is required")
-    external_id = f"ai-repair-benchmark-{sha256(dsl)[:12]}"
+    external_id = f"ai-repair-case-validation-{sha256(dsl)[:12]}"
     external_team_id = str(
-        manifest.get("externalTeamId") or f"ai-repair-benchmark-team-{sha256(dsl)[:12]}"
+        manifest.get("externalTeamId") or f"ai-repair-case-validation-team-{sha256(dsl)[:12]}"
     )
     headers = {
         "x-api-key": api_key,
         "x-external-id": external_id,
-        "x-external-name": "AI Repair Benchmark Local",
+        "x-external-name": "AI Repair Case Validation Local",
         "x-team-id": external_team_id,
     }
 

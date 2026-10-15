@@ -21,7 +21,8 @@ import type { FetchLike } from './atlassianClient';
 
 const ACCOUNT = '712020:abc';
 const ORIGIN = 'https://conf-stg-lite.zenuml.com';
-const CLOUD = 'cloud-1';
+// A real UUID: analytics only records a cloudId that looks like one.
+const CLOUD = '11111111-2222-4333-8444-555555555555';
 const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const ENV_ID = '26ad8f7e-aa24-4afe-83a3-e8216f9e5220';
 /** Long enough to clear the guard's DATA_LOSS_MIN_CURRENT_NONWS floor. */
@@ -601,6 +602,7 @@ describe('write analytics', () => {
     expect(events[0].event).toBe('agent_link_diagram_created');
     expect(events[0].properties.result).toBe('added');
     expect(events[0].properties.paywall_gate).toBe('under_limit');
+    expect(events[0].properties.cloud_id).toBe(CLOUD);
   });
 
   it('records the fail-open path distinctly, so its volume is measurable', async () => {
@@ -617,6 +619,7 @@ describe('write analytics', () => {
     expect(res.status).toBe(200); // a tool-level refusal, not a transport error
     expect(events[0].properties.paywall_gate).toBe('limit_reached');
     expect(events[0].properties.reason).toBe('limit_reached');
+    expect(events[0].properties.cloud_id).toBe(CLOUD);
   });
 });
 

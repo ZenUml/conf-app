@@ -122,7 +122,13 @@ function withTimeout(work: Promise<unknown>): Promise<void> {
   ]).catch(() => undefined);
 }
 
-async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value: unknown): Promise<void> {
+async function trackWrite(
+  env: HeadlessEnv,
+  tool: string,
+  userId: string,
+  cloudId: string | undefined,
+  value: unknown,
+): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const out = (value ?? {}) as { result?: unknown; gate?: unknown };
   const event = WRITE_EVENT_BY_TOOL[tool];
@@ -134,6 +140,7 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
         user_account_id: userId,
         feature_area: 'agent_link',
         surface: 'backend',
+        cloud_id: cloudId,
         result: typeof out.result === 'string' ? out.result : undefined,
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
       },
@@ -175,6 +182,7 @@ async function trackWriteRefusal(
   env: HeadlessEnv,
   tool: string,
   userId: string,
+  cloudId: string | undefined,
   failure: HeadlessToolError,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
@@ -187,6 +195,7 @@ async function trackWriteRefusal(
         user_account_id: userId,
         feature_area: 'agent_link',
         surface: 'backend',
+        cloud_id: cloudId,
         // The closed-vocabulary refusal code only — never the message, which
         // can quote a Confluence error.
         reason: failure.code,
@@ -403,7 +412,7 @@ export async function handleHeadlessRpc(
           (params.arguments ?? {}) as Record<string, unknown>,
           ctx,
         );
-        await trackWrite(env, params.name, auth.token.userId, value);
+        await trackWrite(env, params.name, auth.token.userId, cloudId, value);
         await trackCall('success');
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
@@ -413,7 +422,7 @@ export async function handleHeadlessRpc(
         });
       } catch (e) {
         if (e instanceof HeadlessToolError) {
-          await trackWriteRefusal(env, params.name, auth.token.userId, e);
+          await trackWriteRefusal(env, params.name, auth.token.userId, cloudId, e);
           await trackCall('tool_error', e.code);
           // A dead grant is the one failure the user can act on, so it is a
           // 401 with the challenge rather than a tool-level error buried in a

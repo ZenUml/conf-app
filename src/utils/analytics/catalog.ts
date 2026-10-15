@@ -1358,6 +1358,12 @@ export type AnalyticsEventName =
   // (`mcp_copy_target`, `outcome` copied | clipboard_failed); closed = the
   // dialog dismissed, with `dwell_ms`. Whether the agent then connected is
   // counted server-side by the headless OAuth and tool events.
+  // shown = the denominator for opened: the button was rendered for a viewer,
+  // with where it sat (`mcp_button_placement`) and whether it was visible at
+  // rest or only on hover (`mcp_button_reveal`, also on opened). At most one
+  // per viewer per UTC day (localStorage), not one per macro: a per-instance
+  // impression is what made copy_for_ai_impression 19% of billable volume.
+  | "agent_link_mcp_button_shown"
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
@@ -1577,6 +1583,15 @@ export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "u
 // (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
 // command, or the prompt naming this diagram for the agent.
 export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
+
+// Where the inline Connect MCP button sat when shown: its own header button,
+// or the More (⋯) menu, where header collapse stage 3 moves it.
+export type AgentLinkMcpButtonPlacement = "toolbar" | "more_menu";
+
+// How the button showed: 'always' = visible at rest (the first-use discovery
+// window, see connectMcpDiscovery.ts); 'hover' = only on hover or focus, like
+// the other inline header actions. Fullscreen headers are always visible.
+export type AgentLinkMcpButtonReveal = "always" | "hover";
 
 // How a Connect MCP dialog connects the agent: 'headless' = the agent signs
 // in with OAuth and edits through Confluence directly (the only mode offered

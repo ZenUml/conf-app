@@ -11,7 +11,7 @@
 //
 // Set either variable first to use a different Playwright or bundle; set
 // MERMAID_HIGHLIGHTS_CHROMIUM_EXECUTABLE to use a different browser.
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { once } from 'node:events';
 import { run } from 'node:test';
@@ -69,7 +69,10 @@ async function main() {
   process.exitCode = result.ok ? 0 : 1;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Compare real paths: Node resolves import.meta.url through symlinks but keeps
+// argv[1] as typed, and a false "not the entry point" would exit 0 untested.
+const realPath = file => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realPath(process.argv[1]) === realPath(fileURLToPath(import.meta.url))) {
   main().catch(error => {
     console.error(`mermaid-highlights: FAILED - ${error.message}`);
     process.exitCode = 1;

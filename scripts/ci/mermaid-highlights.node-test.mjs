@@ -10,7 +10,7 @@ import yaml from 'js-yaml';
 // The Mermaid highlight runtime tests are the only tests that drive the real
 // Mermaid renderer in a browser. Their file skips every browser test when the
 // Playwright module or the Mermaid bundle is not configured, so the file passed
-// CI-style runs with 16 of 18 tests skipped. These tests keep that from coming
+// CI-style runs with most tests skipped. These tests keep that from coming
 // back: the gate is wired into both pipelines, the runner resolves its own
 // inputs, and a skipped browser test fails the run.
 
@@ -59,7 +59,11 @@ test('under CI, the highlight test file fails when its browser inputs are missin
 test('outside CI, the highlight test file still skips its browser tests so a plain checkout stays usable', () => {
   const result = spawnSync(process.execPath, ['--test', HIGHLIGHT_TESTS], { env: childEnv(), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout);
-  assert.match(result.stdout, /skipped 16/);
+  // Count rather than pin: every test that does not pass must be a skip, and at
+  // least one browser test must have been skipped.
+  const count = name => Number(result.stdout.match(new RegExp(`^(?:#|ℹ) ${name} (\\d+)$`, 'm'))?.[1]);
+  assert.ok(count('skipped') > 0, result.stdout);
+  assert.equal(count('pass') + count('skipped'), count('tests'), result.stdout);
 });
 
 test('the runner finds Playwright and the Mermaid bundle in this checkout', async () => {

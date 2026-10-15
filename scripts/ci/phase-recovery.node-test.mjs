@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expandPhaseFailures } from './phase-recovery.mjs';
 import { largeRunListing, withFakeGh } from './fake-gh.mjs';
@@ -37,5 +38,99 @@ test('recovery CLI reads a phase run listing larger than the default 1 MiB buffe
     });
     assert.equal(result.status, 0, result.stderr.slice(0, 400));
     assert.deepEqual(JSON.parse(result.stdout), ['Validate: Lite']);
+  });
+});
+
+// The whitelist production recovery applies to the expanded list. Parse the jq string
+// literal out of the workflow, as tests/unit/testSelectionWorkflow.spec.ts does, so the
+// examples below exercise the real rule rather than a second copy of it.
+const rerunWorkflow = readFileSync(new URL('../../.github/workflows/e2e-rerun.yml', import.meta.url), 'utf8');
+const whitelist = new RegExp(JSON.parse(rerunWorkflow.match(/select\(test\(("(?:[^"\\]|\\.)*")\)/)[1]));
+const canRecover = names => names.length > 0 && names.every(name => whitelist.test(name));
+
+// A root run whose Staging validation and Draft preparation phases each have one child run.
+const stagingRun = phase;
+const draftRun = { ...phase, id: 43, display_title: 'Draft preparation · parent 12 · attempt 1 · source abc' };
+const jobsOf = rows => rows.map(([name, conclusion]) => ({ name, conclusion }));
+const pipeline = ({ staging, draft, draftRuns = [draftRun] }) => path => {
+  const listing = path.match(/^actions\/workflows\/(.+)\/runs\?/);
+  if (listing) return { workflow_runs: { 'main-staging-validation.yml': [stagingRun], 'main-draft-preparation.yml': draftRuns }[listing[1]] ?? [] };
+  const jobs = path.match(/^actions\/runs\/(\d+)\/attempts\/1\/jobs/);
+  if (jobs) return { jobs: jobsOf({ 42: staging, 43: draft }[jobs[1]]) };
+  throw new Error(`unexpected api call: ${path}`);
+};
+const rootFailures = ['Staging validation', 'Draft preparation', 'Pipeline outcome'];
+
+// Main run 38745939051, attempt 1: a slash-menu flake failed the Full and Diagramly validators.
+const stagingWithFullAndDiagramlyRed = [
+  ['Verify root ownership', 'success'], ['Shared staging D1 migrations', 'success'],
+  ['E2E auth: Full / auth bootstrap', 'success'], ['E2E auth: Lite / auth bootstrap', 'success'],
+  ['E2E auth: Diagramly / auth bootstrap', 'success'], ['E2E auth: AsyncAPI / auth bootstrap', 'success'],
+  ['Deploy: Full / deploy', 'success'], ['Deploy: Lite / deploy', 'success'],
+  ['Deploy: Diagramly / deploy', 'success'], ['Deploy: AsyncAPI / deploy', 'success'],
+  ['Validate: Lite', 'success'], ['Validate: AsyncAPI', 'success'],
+  ['Validate: Full', 'failure'], ['Validate: Diagramly', 'failure'], ['Record variant validation results', 'success'],
+];
+const draftSkippedForFullAndDiagramly = [
+  ['Verify root ownership', 'success'], ['Resolve variant draft eligibility', 'success'],
+  ['Draft: Lite', 'success'], ['Draft: AsyncAPI', 'success'],
+  ['Draft: Diagramly', 'skipped'], ['Draft: Full', 'skipped'], ['Draft gate outcome', 'failure'],
+];
+
+test('recovery re-runs a root whose only real failures are E2E validations and the drafts they skipped', () => {
+  const expanded = expandPhaseFailures(rootFailures, root, pipeline({ staging: stagingWithFullAndDiagramlyRed, draft: draftSkippedForFullAndDiagramly }));
+  assert.equal(canRecover(expanded), true, `would not re-run: ${JSON.stringify(expanded)}`);
+  assert.deepEqual(expanded, ['Validate: Full', 'Validate: Diagramly', 'Pipeline outcome']);
+});
+
+test('recovery explains a skipped draft by a failed auth bootstrap, which skips that variant validation', () => {
+  const staging = stagingWithFullAndDiagramlyRed.map(([name, conclusion]) =>
+    name === 'E2E auth: Full / auth bootstrap' ? [name, 'failure'] : name === 'Validate: Full' ? [name, 'skipped'] : name === 'Validate: Diagramly' ? [name, 'success'] : [name, conclusion]);
+  const draft = draftSkippedForFullAndDiagramly.map(([name, conclusion]) => name === 'Draft: Diagramly' ? [name, 'success'] : [name, conclusion]);
+  const expanded = expandPhaseFailures(rootFailures, root, pipeline({ staging, draft }));
+  assert.deepEqual(expanded, ['E2E auth: Full / auth bootstrap', 'Pipeline outcome']);
+  assert.equal(canRecover(expanded), true);
+});
+
+test('recovery still refuses when a draft failed for a reason other than a failed E2E validation', () => {
+  const draftRow = (name, conclusion) => draftSkippedForFullAndDiagramly.map(row => row[0] === name ? [name, conclusion] : row);
+  const cases = {
+    'a draft job that really failed': draftRow('Draft: Lite', 'failure'),
+    'root ownership that failed': draftRow('Verify root ownership', 'failure'),
+    'eligibility that failed to resolve': draftRow('Resolve variant draft eligibility', 'failure'),
+    'a draft job that was cancelled': draftRow('Draft: AsyncAPI', 'cancelled'),
+    'a draft skipped although its validation passed': draftRow('Draft: Lite', 'skipped'),
+    // The daily regression gate skips all four drafts whatever the E2E results were.
+    'a closed daily gate': draftSkippedForFullAndDiagramly.map(([name, conclusion]) => [name, name.startsWith('Draft: ') ? 'skipped' : conclusion]),
+    'a gate failure with nothing to explain it': draftSkippedForFullAndDiagramly.map(([name, conclusion]) => [name, name.startsWith('Draft: ') ? 'success' : conclusion]),
+  };
+  for (const [reason, draft] of Object.entries(cases)) {
+    const expanded = expandPhaseFailures(rootFailures, root, pipeline({ staging: stagingWithFullAndDiagramlyRed, draft }));
+    assert.equal(canRecover(expanded), false, `${reason}: ${JSON.stringify(expanded)}`);
+  }
+});
+
+test('recovery refuses when the draft phase run is missing, ambiguous, running or already rerun', () => {
+  for (const draftRuns of [[], [draftRun, draftRun], [{ ...draftRun, status: 'in_progress' }], [{ ...draftRun, run_attempt: 2 }]]) {
+    const expanded = expandPhaseFailures(rootFailures, root, pipeline({ staging: stagingWithFullAndDiagramlyRed, draft: draftSkippedForFullAndDiagramly, draftRuns }));
+    assert.equal(canRecover(expanded), false, JSON.stringify(expanded));
+  }
+});
+
+test('recovery CLI prints the E2E-only list for the observed draft cascade', async () => {
+  const listing = run => JSON.stringify({ workflow_runs: [run] });
+  const routes = {
+    'workflows/main-staging-validation.yml/runs': listing(stagingRun),
+    'workflows/main-draft-preparation.yml/runs': listing(draftRun),
+    '/runs/42/attempts/1/jobs': JSON.stringify({ jobs: jobsOf(stagingWithFullAndDiagramlyRed) }),
+    '/runs/43/attempts/1/jobs': JSON.stringify({ jobs: jobsOf(draftSkippedForFullAndDiagramly) }),
+    'actions/runs/12': JSON.stringify(root),
+  };
+  await withFakeGh(routes, () => {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('./phase-recovery.mjs', import.meta.url))], {
+      encoding: 'utf8', env: { ...process.env, GITHUB_REPOSITORY: 'example/repo', RUN_ID: '12', FAILED: JSON.stringify(rootFailures) },
+    });
+    assert.equal(result.status, 0, result.stderr.slice(0, 400));
+    assert.deepEqual(JSON.parse(result.stdout), ['Validate: Full', 'Validate: Diagramly', 'Pipeline outcome']);
   });
 });

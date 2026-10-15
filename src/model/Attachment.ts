@@ -7,6 +7,7 @@ import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/for
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
 import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { recordPublishStep } from '@/utils/analytics/publishTiming';
 
 // ============================================================================
 // Type Definitions
@@ -988,7 +989,12 @@ async function createAttachmentIfContentChanged(
       trackEvent('version:' + target.versionNumber, 'upload_attachment', 'export', ctx);
 
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
+      const captureStartedAt = performance.now();
       const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+      // Publish timing: only the save-time capture is on the publish path (a
+      // view-time backfill is not), and only a produced PNG is timed — a failed
+      // capture throws above and records nothing.
+      if (opts?.fromSave) recordPublishStep('attachment_capture_ms', captureStartedAt);
 
       // Save-time path (perf/publish-async-backup): the editor blocks its
       // dialog close on this write only because view.submit tears down the

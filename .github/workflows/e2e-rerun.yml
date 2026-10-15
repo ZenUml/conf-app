@@ -31,8 +31,9 @@ name: Run recovery
 #
 #    The re-run is always the WHOLE root, never `--failed`. `Source and version`
 #    uploads `main-root-options-<attempt>` and a failed-jobs-only re-run does
-#    not execute it again, so every phase's "Verify root ownership" then fails
-#    to download the artifact for the new attempt (run 38745939051, attempt 2).
+#    not execute it again, so every phase the re-run starts fails at "Verify
+#    root ownership", unable to download the artifact for the new attempt (run
+#    38745939051, attempt 2).
 #
 # 2. Resurrection of a `main` run cancelled while it was still pending.
 #

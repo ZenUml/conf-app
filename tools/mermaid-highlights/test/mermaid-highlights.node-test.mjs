@@ -136,6 +136,89 @@ test('tracing a nested subgraph keeps members and nested boxes at every level an
   assert.deepEqual(errors,[]);
 }));
 
+// Cost model for tracing a subgraph. Painting a node deep-clones it and copies its computed styles, so the
+// cost must follow the connectors, not the subgraph size. A member kept only because its subgraph is traced
+// is un-faded where it already sits and never cloned. These tests count clones; they do not time anything.
+const SPARSE_SOURCE='flowchart LR\n A[Start] --> G\n subgraph G[Group]\n B[Alpha] --> D[Beta]\n E[Gamma]\n F[Delta]\n end\n G --> C[End]';
+const CONTAINED=['B','D','E','F'];
+// Opacity a viewer actually sees: the product along the ancestor chain.
+const visibleOpacity=(page,selector)=>page.locator(selector).evaluate(el=>{let o=1;for(let e=el;e&&e.nodeType===1;e=e.parentElement)o*=Number(getComputedStyle(e).opacity);return o});
+const overlayTexts=page=>page.evaluate(()=>[...document.querySelectorAll('.interaction-node-overlay-layer > .active-node-overlay')].map(e=>e.textContent.trim()).sort());
+// Records the data-node of every element passed to a deep cloneNode, which is how paintNode copies a node.
+const countNodeClones=page=>page.evaluate(()=>{
+  window.deepClones=[];const original=Node.prototype.cloneNode;window.restoreCloneNode=()=>{Node.prototype.cloneNode=original};
+  Node.prototype.cloneNode=function(deep){if(deep&&this.dataset?.node)window.deepClones.push(this.dataset.node);return original.call(this,deep)};
+});
+
+test('tracing a subgraph clones only its edge-connected nodes and keeps the rest visible in place', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,SPARSE_SOURCE);
+  const border=await borderPoint(page,'G');
+  await page.mouse.click(border.x,border.y);
+  assert.equal((await state(page)).kind,'group');
+  assert.deepEqual((await state(page)).nodes,['A','B','C','D','E','F','G']);
+  // Members, their frames and the subgraph title stay at full strength without a copy.
+  for(const id of CONTAINED){
+    assert.equal(await inactive(page,`g[data-node="${id}"]`),false,`${id} faded`);
+    assert.equal(await visibleOpacity(page,`g[data-node="${id}"]`),1,`${id} dimmed`);
+  }
+  assert.equal(await visibleOpacity(page,'g.cluster[data-group="G"]'),1);
+  assert.equal(await visibleOpacity(page,'g.cluster[data-group="G"] .cluster-label'),1);
+  assert.deepEqual(await overlayTexts(page),['End','Start']);
+  assert.deepEqual(errors,[]);
+}));
+
+test('with a subgraph selected, crossing other nodes never repaints its contained members', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,SPARSE_SOURCE);
+  const border=await borderPoint(page,'G');
+  await page.mouse.click(border.x,border.y);
+  assert.equal((await state(page)).kind,'group');
+  await countNodeClones(page);
+  try{
+    // Every pointerenter and pointerleave repaints the selection.
+    for(const id of ['B','A','E','C'])await page.locator(`.node-hit[data-hit-node="${id}"]`).hover();
+    await page.mouse.move(1000,700);
+  }finally{await page.evaluate(()=>window.restoreCloneNode())}
+  const cloned=await page.evaluate(()=>window.deepClones);
+  // The instrument works: connected nodes are still repainted on each pass.
+  assert.ok(cloned.includes('A')&&cloned.includes('C'),JSON.stringify(cloned));
+  const memberClones=cloned.filter(id=>CONTAINED.includes(id));
+  assert.equal(memberClones.length,0,`${memberClones.length} of ${cloned.length} deep clones were contained members`);
+  assert.equal((await state(page)).kind,'group');
+  assert.deepEqual(await overlayTexts(page),['End','Start']);
+  for(const id of CONTAINED)assert.equal(await visibleOpacity(page,`g[data-node="${id}"]`),1,`${id} dimmed`);
+  assert.deepEqual(errors,[]);
+}));
+
+test('prepared SVG tracing a subgraph also clones only its edge-connected nodes', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,GROUP_SOURCE);
+  await page.evaluate(()=>{
+    window.control.destroy();
+    document.getElementById('diagram').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" width="480" height="300">
+      <g data-group="G"><rect x="180" y="20" width="120" height="260" fill="none" stroke="black"/></g>
+      <g data-node="A"><rect x="20" y="130" width="80" height="40"/><text x="30" y="155">Start</text></g>
+      <g data-node="B"><rect x="200" y="50" width="80" height="40"/><text x="210" y="75">Alpha</text></g>
+      <g data-node="E"><rect x="200" y="130" width="80" height="40"/><text x="210" y="155">Gamma</text></g>
+      <g data-node="F"><rect x="200" y="210" width="80" height="40"/><text x="210" y="235">Delta</text></g>
+      <g data-node="C"><rect x="380" y="130" width="80" height="40"/><text x="390" y="155">End</text></g>
+      <path data-edge="prepared-1" data-source="A" data-target="G" d="M100 150L180 150" stroke="black"/>
+      <path data-edge="prepared-2" data-source="G" data-target="C" d="M300 150L380 150" stroke="black"/>
+    </svg>`;
+    window.prepared=document.querySelector('svg');
+    const node=id=>({id}),model={type:'flowchart-v2',nodes:['A','B','E','F','C'].map(node),edges:[{id:'p1',source:'A',target:'G'},{id:'p2',source:'G',target:'C'}],groups:[{id:'G',nodes:['B','E','F']}]};
+    window.control=attachPreparedSvgHighlights(window.prepared,model);
+  });
+  await countNodeClones(page);
+  await page.locator('#diagram .node-hit[data-hit-group="G"]').dispatchEvent('click');
+  const cloned=await page.evaluate(()=>{window.restoreCloneNode();return window.deepClones});
+  assert.deepEqual(cloned.sort(),['A','C']);
+  assert.deepEqual(await overlayTexts(page),['End','Start']);
+  for(const id of ['B','E','F']){
+    assert.equal(await inactive(page,`g[data-node="${id}"]`),false,`${id} faded`);
+    assert.equal(await visibleOpacity(page,`g[data-node="${id}"]`),1,`${id} dimmed`);
+  }
+  assert.deepEqual(errors,[]);
+}));
+
 test('prepared SVG binds every source node, group and directed connector before enabling hover', {skip:!enabled},async()=>withBrowser(async browser=>{
   const {page,errors}=await setup(browser,GROUP_SOURCE);
   await page.evaluate(()=>{

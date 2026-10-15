@@ -11,7 +11,8 @@ name: Run recovery
 #    bootstrap that lost the TOTP race, a runner reaped at the job timeout, a
 #    checkout or install hiccup. Those are the cases a human used to fix by
 #    pressing "Re-run failed jobs" and losing 10-20 minutes to noticing. This
-#    workflow presses it once, and only when EVERY failed job in the run is an
+#    workflow re-runs the whole run (all jobs, not only the failed ones; see
+#    below) once, and only when EVERY failed job in the run is an
 #    E2E job (shard, auth bootstrap or report merge): a failed build, unit
 #    test, deploy or draft is never re-run, and a run already on its second
 #    attempt is left red — a second failure is real. Re-running the failed

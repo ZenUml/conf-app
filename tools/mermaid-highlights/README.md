@@ -55,13 +55,15 @@ The adapter depends on Mermaid's flowchart database and rendered DOM structure; 
 
 ## Tests and provenance
 
-With the three environment variables configured, run:
+From the repository root, run:
 
 ```sh
-node --test tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs
+pnpm test:mermaid-highlights
 ```
 
-There are twenty-two tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, pan/zoom geometry, subgraph containment, clone counts while a subgraph is traced, and empty subgraphs. The twenty browser tests skip when Playwright module or Mermaid bundle paths are missing, so check that the summary reports `skipped 0`. This file is not run by CI.
+The command finds Playwright and the Mermaid bundle in `node_modules`, runs the test file, and fails if any test is skipped. CI runs this same command in the "E2E: Viewer preview" job of the PR and main pipelines, after that job installs Chromium. Set `MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE` or `MERMAID_HIGHLIGHTS_MERMAID_BUNDLE` first to use a different copy, and `MERMAID_HIGHLIGHTS_CHROMIUM_EXECUTABLE` to use a different browser.
+
+There are twenty-two tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, pan/zoom geometry, subgraph containment, clone counts while a subgraph is traced, and empty subgraphs. Twenty of them need a browser. Running the file directly with `node --test tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs` skips those twenty unless the two required variables are set, so check that the summary reports `skipped 0`. When `CI` is set and a variable is missing, the file fails instead of skipping.
 
 Extracted from commit `bd78520a683e978f665219b8e0c87794c01328cf`, originally under `tools/pi-diagram-agent/`. Runtime environment variables and Symbol namespaces now belong to this independent tool. The generic runtime retains optional `sharedSections` support; the Mermaid adapter installs no shared sections. No static SVG exporter is required.
 

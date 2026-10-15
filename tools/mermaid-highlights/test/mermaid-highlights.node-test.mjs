@@ -219,6 +219,101 @@ test('prepared SVG tracing a subgraph also clones only its edge-connected nodes'
   assert.deepEqual(errors,[]);
 }));
 
+// Mermaid draws a subgraph that has no members as one plain node (id `<svg id>-<subgraph id>`), not as a cluster
+// frame. The model still lists it as a group, so it must bind as the node it is drawn as. Refusing the whole
+// diagram because of it would switch relationship highlighting off for every other node and connector.
+const EMPTY_SOURCE='flowchart LR\n A[Start] --> B[End]\n subgraph E[Empty]\n end';
+const EMPTY_LINKED_SOURCE='flowchart LR\n A[Start] --> E\n subgraph E[Empty]\n end';
+const EMPTY_NESTED_SOURCE='flowchart LR\n A[Start] --> B[End]\n subgraph O[Outer]\n subgraph I[Inner]\n end\n C[Sibling]\n end';
+
+test('an empty subgraph binds as a node and the rest of the diagram still highlights', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,EMPTY_SOURCE);
+  // Drawn as a node, so no group frame is bound for it.
+  assert.equal(await page.locator('g.cluster').count(),0);
+  assert.equal(await page.locator('g[data-node="E"]').count(),1);
+  assert.equal(await page.locator('g[data-node="E"][data-group]').count(),0);
+  assert.equal(await page.locator('.node-hit[data-hit-node="E"]').count(),1);
+  assert.equal(await page.evaluate(()=>window.control.nodeCount),3);
+  assert.equal(await page.evaluate(()=>window.control.edgeCount),1);
+  await page.locator('.node-hit[data-hit-node="A"]').hover();
+  assert.equal((await state(page)).edges.length,1);
+  assert.deepEqual((await state(page)).nodes,['A','B']);
+  assert.equal(await inactive(page,'g[data-node="E"]'),true);
+  await page.locator('.node-hit[data-hit-node="E"]').click();
+  assert.deepEqual(await state(page),{edges:[],nodes:['E'],kind:'node'});
+  assert.equal(await inactive(page,'g[data-node="A"]'),true);
+  await page.keyboard.press('Escape');
+  assert.equal((await state(page)).kind,'none');
+  // Destroying restores the Mermaid SVG exactly, including the node that stands for the empty subgraph.
+  await page.evaluate(()=>window.control.destroy());
+  assert.equal(await page.evaluate(()=>document.querySelector('svg').outerHTML===window.originalSvg),true);
+  assert.deepEqual(errors,[]);
+}));
+
+test('a connector that ends at an empty subgraph is traced from both ends', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,EMPTY_LINKED_SOURCE);
+  assert.equal(await page.locator('path.flowchart-link[data-edge]').count(),1);
+  await page.locator('.node-hit[data-hit-node="E"]').click();
+  assert.deepEqual(await state(page),{edges:await page.evaluate(()=>[document.querySelector('path[data-edge]').dataset.edge]),nodes:['A','E'],kind:'node'});
+  // It is a node joined by a traced connector, so it is painted above the connector like any other.
+  assert.deepEqual(await overlayTexts(page),['Empty','Start']);
+  await page.keyboard.press('Escape');
+  await page.locator('.node-hit[data-hit-node="A"]').hover();
+  assert.deepEqual((await state(page)).nodes,['A','E']);
+  assert.deepEqual(errors,[]);
+}));
+
+test('an empty subgraph inside another keeps the enclosing frame, and a traced frame keeps it without a copy', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,EMPTY_NESTED_SOURCE);
+  assert.equal(await page.locator('g.cluster[data-group="O"]').count(),1);
+  assert.equal(await page.locator('g[data-node="I"]:not([data-group])').count(),1);
+  await page.locator('.node-hit[data-hit-node="I"]').click();
+  assert.deepEqual((await state(page)).nodes,['I','O']);
+  assert.equal(await inactive(page,'g.cluster[data-group="O"]'),false);
+  assert.equal(await inactive(page,'g[data-node="C"]'),true);
+  await page.keyboard.press('Escape');
+  const outer=await borderPoint(page,'O');
+  await countNodeClones(page);
+  try{await page.mouse.click(outer.x,outer.y)}finally{await page.evaluate(()=>window.restoreCloneNode())}
+  assert.equal((await state(page)).kind,'group');
+  assert.deepEqual((await state(page)).nodes,['C','I','O']);
+  for(const id of ['C','I']){
+    assert.equal(await inactive(page,`g[data-node="${id}"]`),false,`${id} faded`);
+    assert.equal(await visibleOpacity(page,`g[data-node="${id}"]`),1,`${id} dimmed`);
+  }
+  // Nothing in the outer frame is joined by a connector, so nothing is copied.
+  assert.deepEqual(await page.evaluate(()=>window.deepClones),[]);
+  assert.deepEqual(await overlayTexts(page),[]);
+  assert.deepEqual(errors,[]);
+}));
+
+test('a subgraph that Mermaid drew as neither a frame nor its own node is still refused', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,MEMBER_SOURCE);
+  const result=await page.evaluate(()=>{
+    window.control.destroy();
+    const svg=document.querySelector('svg'),failures=[];
+    const expectFailure=(label,change)=>{
+      const bad=structuredClone(window.model);change(bad);const before=svg.outerHTML;
+      try{attachMermaidHighlights(svg,bad);failures.push(`${label}: false pass`)}catch(e){failures.push(`${label}: ${e.message}`)}
+      if(svg.outerHTML!==before)failures.push(`${label}: mutation`);
+    };
+    expectFailure('empty, nothing drawn',m=>m.groups.push({id:'Ghost',nodes:[]}));
+    expectFailure('with members, nothing drawn',m=>m.groups.push({id:'Ghost',nodes:['B']}));
+    // Only a subgraph with no members may stand on a node: one with members must have been drawn as a frame.
+    expectFailure('with members, id of a drawn node',m=>m.groups.push({id:'flowchart-A-0',nodes:['B']}));
+    // A node that already belongs to a vertex is not available to an empty subgraph.
+    expectFailure('empty, id of a drawn node',m=>m.groups.push({id:'flowchart-A-0',nodes:[]}));
+    return failures;
+  });
+  assert.equal(result.length,4);
+  assert.match(result[0],/^empty, nothing drawn: MERMAID_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:Ghost$/);
+  assert.match(result[1],/^with members, nothing drawn: MERMAID_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:Ghost$/);
+  assert.match(result[2],/^with members, id of a drawn node: MERMAID_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:flowchart-A-0$/);
+  // Whichever check refuses it first, it is refused with a highlight error and the SVG is left untouched.
+  assert.match(result[3],/^empty, id of a drawn node: MERMAID_HIGHLIGHTS_[A-Z_]+/);
+  assert.deepEqual(errors,[]);
+}));
+
 test('prepared SVG binds every source node, group and directed connector before enabling hover', {skip:!enabled},async()=>withBrowser(async browser=>{
   const {page,errors}=await setup(browser,GROUP_SOURCE);
   await page.evaluate(()=>{

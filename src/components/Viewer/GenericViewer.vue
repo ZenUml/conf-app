@@ -16,7 +16,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen || copyForAiMenuOpen, 'viewer-frame--connect-mcp': showConnectMcpDialog}" :data-stage="isFullscreenMode ? null : headerStage">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen || copyForAiMenuOpen, 'viewer-frame--connect-mcp': showConnectMcpDialog, 'viewer-frame--dark': darkSurface}" :data-stage="isFullscreenMode ? null : headerStage">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -659,6 +659,7 @@ import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
 import { controlsWidth, maxHeaderStage, moreMenuItems, pickHeaderStage } from '@/utils/viewerHeaderLayout'
+import { rendersDark, useHostColorMode } from '@/utils/theme/hostColorMode'
 
 const DEFAULT_TITLE = 'Untitled diagram'
 // Inline title rename input sizing (see startRename / updateRenameWidth).
@@ -724,6 +725,9 @@ export default {
     relationshipHighlights: { type: Boolean, default: false },
   },
   emits: ['capture-mode-change', 'magic-highlight-ready', 'magic-highlight-used'],
+  setup() {
+    return { hostColorMode: useHostColorMode() };
+  },
   data: () => ({
     canUserEdit: true,
     isHovering: false,
@@ -840,6 +844,11 @@ export default {
     // the pointer leaves for it).
     headerRevealed() {
       return this.isHovering || this.headerFocusWithin || this.moreMenuOpen || this.copyForAiMenuOpen;
+    },
+    // Inline card on a dark Confluence page, for a diagram that renders dark.
+    // Fullscreen keeps its light canvas: Export PNG photographs it.
+    darkSurface() {
+      return !this.isFullscreenMode && rendersDark(this.diagramType, this.hostColorMode);
     },
     // Same availability gate as Fullscreen's version switch.
     showInlineRefined() {
@@ -3664,6 +3673,56 @@ export default {
 .viewer-body--with-sidebar { display: flex; }
 .viewer-frame--fullscreen .viewer-body--with-sidebar { flex-direction: row; }
 .viewer-body--with-sidebar > .viewer-surface { flex: 1 1 auto; min-width: 0; }
+
+/* Dark Confluence (data-color-mode=dark, set by Forge after view.theme.enable).
+   Only diagrams that render dark get this; see rendersDark(). Atlassian design
+   tokens first, their published dark values as fallbacks for Storybook. */
+.viewer-frame--dark {
+  --magic-surface: var(--ds-surface, #1F1F21);
+  --magic-subtle: var(--ds-background-neutral-subtle-hovered, #2B2C2F);
+  --magic-hover: var(--ds-background-neutral-hovered, #37383C);
+  --magic-border: var(--ds-border, #3D3F43);
+  --magic-border-strong: var(--ds-border-bold, #7E8188);
+  --magic-text: var(--ds-text, #CECFD2);
+  --magic-text-soft: var(--ds-text-subtle, #A9ABAF);
+  --magic-primary: var(--ds-background-brand-bold, #579DFF);
+  --magic-primary-hover: var(--ds-background-brand-bold-hovered, #85B8FF);
+  --magic-on-primary: var(--ds-text-inverse, #1F1F21);
+  color-scheme: dark;
+  background: var(--ds-surface, #1F1F21);
+  border-color: var(--ds-border, #3D3F43);
+  box-shadow: none;
+}
+.viewer-frame--dark .viewer-edge-top,
+.viewer-frame--dark .viewer-canvas { background: var(--ds-surface, #1F1F21); }
+.viewer-frame--dark .viewer-surface--revealed .viewer-edge-top,
+.viewer-frame--dark .viewer-recovered-banner { border-bottom-color: var(--ds-border, #3D3F43); }
+.viewer-frame--dark .viewer-title,
+.viewer-frame--dark .viewer-title--editable { color: var(--ds-text, #CECFD2); }
+.viewer-frame--dark .viewer-title--editable:hover,
+.viewer-frame--dark .viewer-title--editable:focus-visible { background: var(--ds-background-neutral-subtle-hovered, #2B2C2F); }
+.viewer-frame--dark .viewer-title-pencil,
+.viewer-frame--dark .viewer-fs-act .viewer-icon,
+.viewer-frame--dark:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary { color: var(--ds-icon-subtle, #A9ABAF); }
+.viewer-frame--dark .viewer-title-input {
+  background: var(--ds-background-input, #242528);
+  color: var(--ds-text, #CECFD2);
+}
+.viewer-frame--dark .viewer-btn-ghost,
+.viewer-frame--dark .viewer-btn-ghost:disabled:hover { color: var(--ds-text-subtle, #A9ABAF); }
+.viewer-frame--dark .viewer-btn-ghost:hover,
+.viewer-frame--dark:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover {
+  background: var(--ds-background-neutral-subtle-hovered, #2B2C2F);
+  color: var(--ds-text, #CECFD2);
+}
+.viewer-frame--dark .viewer-header-sep { background: var(--ds-border, #3D3F43); }
+.viewer-frame--dark .viewer-embed-chip,
+.viewer-frame--dark .viewer-recovered-chip,
+.viewer-frame--dark .viewer-recovered-banner {
+  background: var(--ds-background-neutral, #2B2C2F);
+  border-color: var(--ds-border, #3D3F43);
+  color: var(--ds-text-subtle, #A9ABAF);
+}
 </style>
 
 <!--

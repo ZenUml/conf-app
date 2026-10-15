@@ -30,7 +30,7 @@ import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
 import { markWhatsNewAudience } from '@/utils/whatsNew/state';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
+import { markPublishClicked, trackPublishCompleted, recordPublishStep, recordPublishFlag } from '@/utils/analytics/publishTiming'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { handleHomepageFeedRoute } from './routes/homepageFeed';
@@ -1428,6 +1428,11 @@ EventBus.$on('save', async () => {
   // remains as a backfill.
   const savedDiagramType = store.state.diagram.diagramType;
   if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml' || savedDiagramType === 'markdown')) {
+    // Publish timing (attachment_ack_ms / attachment_timed_out): the clock starts
+    // before the dynamic-import await so a slow chunk load counts. The capture
+    // slice inside it is timed in Attachment.ts (attachment_capture_ms).
+    const attachmentStartedAt = performance.now();
+    let attachmentTimedOut = false;
     try {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await Promise.race([
@@ -1441,10 +1446,18 @@ EventBus.$on('save', async () => {
         // attachment.ts). So this await only bounds the client-side PNG capture
         // + a fast backend ack (~1.5–3.5s), not the full upload. The cap is a
         // hang-guard for a wedged capture; 6s is generous headroom.
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 6000)),
+        new Promise<never>((_, reject) => setTimeout(() => {
+          attachmentTimedOut = true;
+          reject(new Error('save-attachment timeout'));
+        }, 6000)),
       ]);
     } catch (e) {
       console.warn('save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);
+    } finally {
+      // Read here, when the race settles. The cap timer is never cleared, so
+      // it can fire later and flip the flag after a backup that finished first.
+      recordPublishStep('attachment_ack_ms', attachmentStartedAt);
+      recordPublishFlag('attachment_timed_out', attachmentTimedOut);
     }
   }
 
@@ -1461,7 +1474,11 @@ EventBus.$on('save', async () => {
     // duplicate POST branch), (c) we recovered from an orphan and must
     // repoint the macro at the recovered sibling id, or (d) we migrated a
     // legacy uuid-only macro and must write customContentId for the first time.
+    // Publish timing (writeback_context_ms): both read the cached forge context,
+    // so this is expected to be ~0; recorded to rule it in or out.
+    const writebackContextStartedAt = performance.now();
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
+    recordPublishStep('writeback_context_ms', writebackContextStartedAt);
     // #170: never view.submit in a non-submittable surface — see writebackGate.ts.
     const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback(
       deriveWritebackSignals({

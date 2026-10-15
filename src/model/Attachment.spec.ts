@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to define mocks before they're used in vi.mock factories
-const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence } = vi.hoisted(() => {
+const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence, mockRecordPublishStep } = vi.hoisted(() => {
   const mockTrackEvent = vi.fn();
+  const mockRecordPublishStep = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
     getAttachmentsV2: vi.fn(),
@@ -19,7 +20,8 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCal
     mockGetContext,
     mockForgeRequest,
     mockCallRemote,
-    mockRequestConfluence
+    mockRequestConfluence,
+    mockRecordPublishStep
   };
 });
 
@@ -28,6 +30,11 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCal
 vi.mock('@/model/captureBlob', () => ({
   captureBlob: vi.fn(),
   default: vi.fn()
+}));
+
+// Per-step publish timing: only the save-time PNG capture reports into it.
+vi.mock('@/utils/analytics/publishTiming', () => ({
+  recordPublishStep: (...args: any[]) => mockRecordPublishStep(...args)
 }));
 
 // Mock md5
@@ -955,6 +962,49 @@ describe('Attachment', () => {
           (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
         );
         expect(succeeded).toBeUndefined();
+      });
+
+      it('reports how long the save-time PNG capture took as attachment_capture_ms', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockCallRemote.mockResolvedValue({ ok: true, queued: true });
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1002',
+          fromSave: true,
+        });
+
+        expect(mockRecordPublishStep).toHaveBeenCalledTimes(1);
+        expect(mockRecordPublishStep).toHaveBeenCalledWith('attachment_capture_ms', expect.any(Number));
+      });
+
+      it('does NOT report capture timing for a view-time backfill (no fromSave): it is not on the publish path', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-saved-4' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1003',
+        });
+
+        expect(mockRecordPublishStep).not.toHaveBeenCalled();
+      });
+
+      it('does NOT report capture timing when no PNG was produced', async () => {
+        vi.mocked(captureBlob).mockRejectedValue(new Error('Conversion failed'));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1004',
+          fromSave: true,
+        });
+
+        expect(mockRecordPublishStep).not.toHaveBeenCalled();
       });
 
       it('does NOT set from_save when opts.fromSave is absent', async () => {

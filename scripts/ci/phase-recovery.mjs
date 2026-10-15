@@ -20,7 +20,8 @@ export function expandPhaseFailures(failures, root, api) {
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-  const api = path => JSON.parse(execFileSync('gh', ['api', `repos/${process.env.GITHUB_REPOSITORY}/${path}`], { encoding: 'utf8', timeout: 30000 }));
+  // A 100-run listing exceeds Node's default 1 MiB maxBuffer; see wait-for-e2e.mjs.
+  const api = path => JSON.parse(execFileSync('gh', ['api', `repos/${process.env.GITHUB_REPOSITORY}/${path}`], { encoding: 'utf8', timeout: 30000, maxBuffer: 64 * 1024 * 1024 }));
   const root = api(`actions/runs/${process.env.RUN_ID}`);
   console.log(JSON.stringify(expandPhaseFailures(JSON.parse(process.env.FAILED), root, api)));
 }

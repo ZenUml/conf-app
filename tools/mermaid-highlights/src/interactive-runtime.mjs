@@ -83,8 +83,13 @@ export function installInteractiveSvg(svg,sharedSections=[],status=null,parentOf
     for(const el of all)el.classList.add('interaction-inactive');
     const activate=el=>{if(!el)return;el.classList.remove('interaction-inactive');el.classList.add('is-active');for(let parent=el.parentElement;parent&&parent!==svg;parent=parent.parentElement){remember(parent,['class']);parent.classList.add('has-active-descendant');parent.classList.remove('interaction-inactive')}};
     // A group is only un-faded in place. Its clone would be painted above its
-    // members and, with the theme's cluster fill, hide them.
-    for(const id of activeNodes){const node=nodes.get(id);activate(node);if(node&&!node.hasAttribute('data-group'))paintNode(node)}
+    // members and, with the theme's cluster fill, hide them. A node kept only by
+    // containment (a member of a traced group) is un-faded in place too. Cloning
+    // one costs a deep copy and a computed-style copy of every descendant, about
+    // 2 ms a node, and a selected group repaints on every pointer crossing, so the
+    // work would grow with the size of the group. Only a node joined by a traced
+    // connector gets a copy, drawn above the connector overlays.
+    for(const id of activeNodes){const node=nodes.get(id);activate(node);if(node&&!node.hasAttribute('data-group')&&connected.has(id))paintNode(node)}
     for(const id of activeEdges){
       const original=edges.get(id).element;activate(original);const copy=original.cloneNode(false),style=getComputedStyle(original);
       for(const attr of [...copy.attributes])if(attr.name==='id'||attr.name.startsWith('data-')||['class','style','tabindex','role','aria-label'].includes(attr.name))copy.removeAttribute(attr.name);

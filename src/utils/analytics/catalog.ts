@@ -405,10 +405,19 @@ export type AnalyticsEventName =
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
   // WIDER window than macro_save_succeeded's `save_duration_ms` (which is only
   // the persistence round-trip inside saveToPlatform): it additionally covers
-  // the ~500ms pre-submit delay, the save-time attachment race, and the
-  // macro-config writeback. Emitted from all 5 save flows (sequence/mermaid/
-  // plantuml via forgeIndex, graph, openapi, asyncapi, embed). See
-  // utils/analytics/publishTiming.ts.
+  // the post-save work — snapshot upload, D1 mirror sync, the save-time
+  // attachment race, and the writeback context lookup. Only the graph, openapi
+  // and embed editors still add a fixed 500 ms setTimeout before the redirect;
+  // the sequence family (forgeIndex.ts) and asyncapi do not. Emitted from all
+  // 5 save flows (sequence/mermaid/plantuml via forgeIndex, graph, openapi,
+  // asyncapi, embed).
+  //
+  // Per-step properties say WHERE that wait goes: `snapshot_ms`,
+  // `mirror_sync_ms` (every flow that saves through saveToPlatform) and
+  // `attachment_capture_ms`, `attachment_ack_ms`, `attachment_timed_out`,
+  // `writeback_context_ms` (sequence family only). A step that did not run is
+  // absent, never 0. Definitions: types.ts, next to `publish_duration_ms`.
+  // See utils/analytics/publishTiming.ts.
   | "macro_publish_completed"
   // Embed re-target attempted from a non-submittable surface (e.g. the
   // view-mode Edit modal). view.submit() throws "view is not submittable"

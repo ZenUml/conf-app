@@ -779,10 +779,52 @@ export type AnalyticsProperties = {
   // User-perceived publish latency, in ms: the interval from the Publish/Save
   // click (save-handler entry, synchronous with the click) to the editor's
   // redirect (view.submit() / view.close()). Rides on macro_publish_completed.
-  // Superset of save_duration_ms — additionally covers the ~500ms pre-submit
-  // delay, the save-time attachment race, and the macro-config writeback. See
-  // utils/analytics/publishTiming.ts.
+  // Superset of save_duration_ms — additionally covers the post-save work
+  // (snapshot upload, D1 mirror sync, save-time attachment race, writeback
+  // context lookup). Only the graph, openapi and embed editors still add a
+  // fixed 500 ms setTimeout before the redirect; the sequence family
+  // (forgeIndex.ts) and asyncapi do not. See utils/analytics/publishTiming.ts.
   publish_duration_ms?: number;
+  // Per-step breakdown of publish_duration_ms (macro_publish_completed only).
+  // Each is the wall time of ONE awaited step on the close path, in ms. A step
+  // that did not run in this publish is ABSENT, never 0 — a missing key means
+  // "skipped", a 0 means "ran and was instant". snapshot_ms, mirror_sync_ms,
+  // attachment_ack_ms and writeback_context_ms run one after another and never
+  // overlap; attachment_capture_ms is a slice INSIDE attachment_ack_ms. They do
+  // not sum to publish_duration_ms: save_duration_ms (above) and untimed glue
+  // make up the remainder.
+  //   snapshot_ms           — diagram-source snapshot upload after the save
+  //                           (Persistence.ts): the page-id lookup plus the
+  //                           upload, also when the upload fails. Absent when
+  //                           no upload was attempted (no snapshot built, or no
+  //                           page id).
+  //   mirror_sync_ms        — the awaited D1 mirror sync (syncCustomContent)
+  //                           that ends saveToPlatform (Persistence.ts).
+  //   attachment_capture_ms — save-time PNG backup: time spent producing the
+  //                           PNG (DOM capture plus source-metadata injection;
+  //                           model/Attachment.ts). Absent when no PNG was
+  //                           produced. Sequence family only.
+  //   attachment_ack_ms     — save-time PNG backup: race entry until the race
+  //                           settled — the existing-attachment lookup, the
+  //                           capture above, the backend ack, an error, or the
+  //                           6000 ms cap. attachment_ack_ms minus
+  //                           attachment_capture_ms is therefore lookup + ack.
+  //                           Sequence family only (forgeIndex.ts).
+  //   attachment_timed_out  — true when the 6000 ms cap won that race; false
+  //                           when the backup settled first (success or error).
+  //   writeback_context_ms  — the isInserting()/isConfiguring() awaits that
+  //                           run before the redirect (forgeIndex.ts). Named
+  //                           writeback_context_ms, NOT context_ms: renderPerf
+  //                           already emits `context_ms` (getContext() latency)
+  //                           on macro_viewed, and save-latency and
+  //                           render-latency never share a property name (see
+  //                           save_duration_ms above).
+  snapshot_ms?: number;
+  mirror_sync_ms?: number;
+  attachment_capture_ms?: number;
+  attachment_ack_ms?: number;
+  attachment_timed_out?: boolean;
+  writeback_context_ms?: number;
   // P1.3 fetch split (children of fetch_ms — NOT part of measured_sum_ms):
   // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
   custom_content_fetch_ms?: number;

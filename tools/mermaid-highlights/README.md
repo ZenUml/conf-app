@@ -61,7 +61,7 @@ With the three environment variables configured, run:
 node --test tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs
 ```
 
-There are eighteen tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, pan/zoom geometry, subgraph containment, and clone counts while a subgraph is traced. The sixteen browser tests skip when Playwright module or Mermaid bundle paths are missing, so check that the summary reports `skipped 0`. This file is not run by CI.
+There are twenty-two tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, pan/zoom geometry, subgraph containment, clone counts while a subgraph is traced, and empty subgraphs. The twenty browser tests skip when Playwright module or Mermaid bundle paths are missing, so check that the summary reports `skipped 0`. This file is not run by CI.
 
 Extracted from commit `bd78520a683e978f665219b8e0c87794c01328cf`, originally under `tools/pi-diagram-agent/`. Runtime environment variables and Symbol namespaces now belong to this independent tool. The generic runtime retains optional `sharedSections` support; the Mermaid adapter installs no shared sections. No static SVG exporter is required.
 

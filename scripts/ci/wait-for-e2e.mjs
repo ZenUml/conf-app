@@ -3,10 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendFileSync, existsSync, writeFileSync, readFileSync, mkdtempSync } from 'node:fs';
 
+// Node's default maxBuffer is 1 MiB, but one page of 100 workflow runs is already about
+// 1.3 MB. GitHub caps a page at 100 items, so 64 MiB leaves a wide margin.
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
+
 export function createApi(repo) {
   return (path, args = [], input) => {
     const output = execFileSync('gh', ['api', `${repo}/${path}`, ...args], {
-      encoding: 'utf8', input, timeout: 30000,
+      encoding: 'utf8', input, timeout: 30000, maxBuffer: GH_MAX_BUFFER,
     });
     return output.trim() ? JSON.parse(output) : null;
   };

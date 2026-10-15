@@ -1492,7 +1492,7 @@ export const MermaidFullscreenMagicWritebackMiss: Story = {
 // ---------------------------------------------------------------------------
 // The prototype's three macros at the four column widths it was designed
 // for. Pick `columnWidth` in Controls (or ?args=columnWidth:560) to watch the
-// header collapse: S0 all labels, S1 Edit + Refined icon-only, S2 Fullscreen
+// header collapse: S0 all labels, S1 Edit + Refined (+ Connect MCP) icon-only, S2 Fullscreen
 // icon-only, S3 Source + Copy for AI into More. data-stage on .viewer-frame
 // shows the stage picked. The Graph fixture has no source, so stops at S2.
 

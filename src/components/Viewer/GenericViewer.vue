@@ -280,12 +280,15 @@
               <!-- Connect MCP (agent-link flag on, agent-editable types) takes
                    the Copy for AI slot, inline and in fullscreen, and opens
                    ConnectMcpDialog with the headless MCP setup and a prompt
-                   naming this diagram. Inline it is icon-only and stage 3 moves
-                   it into More; fullscreen labels it as it does Copy for AI. -->
+                   naming this diagram. Inline it is labelled at stage 0,
+                   icon-only from stage 1, and stage 3 moves it into More;
+                   during first-use discovery it stays visible at rest
+                   (connectMcpDiscovery.ts). Fullscreen always labels it. -->
               <button
                 v-if="showAgentLinkConnect"
                 type="button"
                 class="viewer-btn-ghost viewer-act-connect-mcp"
+                :class="{ 'viewer-act-connect-mcp--discover': connectMcpReveal === 'always' }"
                 aria-label="Connect MCP"
                 title="Connect MCP"
                 data-testid="connect-mcp-btn"
@@ -627,6 +630,7 @@ import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
 import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
+import { createConnectMcpDiscovery } from '@/composables/agentLink/connectMcpDiscovery'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -698,12 +702,13 @@ const ICON_PATHS = {
   link: 'M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244',
   // Official Model Context Protocol mark, as its three stroke centerlines
   // scaled to this 24px grid so it takes the same stroke weight as the rest.
+  mcp: 'M2.05 11.25L11.49 1.81C12.79 0.51 14.91 0.51 16.21 1.81C17.51 3.11 17.51 5.23 16.21 6.53L9.08 13.66M9.18 13.56L16.21 6.53C17.51 5.23 19.63 5.23 20.93 6.53L20.98 6.58C22.28 7.88 22.28 10 20.98 11.3L12.44 19.84C12.01 20.27 12.01 20.98 12.44 21.41L14.19 23.17M13.85 4.17L6.87 11.15C5.56 12.46 5.56 14.57 6.87 15.87C8.17 17.18 10.28 17.18 11.59 15.87L18.57 8.89',
   bug: 'M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25',
 };
 const MORE_MENU_META = {
   'source': { label: 'Source', icon: ICON_PATHS.code },
   'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
-  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.spark },
+  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.mcp },
   'copy-diagram-link': { label: 'Copy diagram link', icon: ICON_PATHS.share },
   'copy-page-link': { label: 'Copy page link', icon: ICON_PATHS.link },
   'export-png': { label: 'Export PNG', icon: ICON_PATHS.download },
@@ -755,6 +760,11 @@ export default {
     copyForAiImpressionTracked: false,
     // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
     showConnectMcpDialog: false,
+    // First-use discovery (connectMcpDiscovery.ts): 'always' keeps the inline
+    // button visible at rest; null until the flag resolves on.
+    connectMcpDiscovery: null,
+    connectMcpReveal: null,
+    connectMcpShownTracked: false,
     connectMcpOpenedAt: 0,
     // Set once isAgentLinkEnabled() settles either way (see copyForAiSlotSettled).
     agentLinkFlagResolved: false,
@@ -860,6 +870,7 @@ export default {
         magic: this.showInlineRefined,
         pages: 0,
         hasEdit: this.showEdit && !this.isFullscreenMode,
+        connectMcp: this.showAgentLinkConnect && !this.isFullscreenMode,
       };
     },
     // Anything that changes the header's content without resizing the viewer.
@@ -1034,6 +1045,23 @@ export default {
     showViewSource() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
     },
+    // agent_link_mcp_button_shown: the button is rendered for a viewer.
+    connectMcpShownEligible() {
+      return this.showAgentLinkConnect
+        && this.connectMcpDiscovery !== null
+        && this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed;
+    },
+    // Where the button sits and how it shows, for the analytics properties.
+    connectMcpPlacement() {
+      return !this.isFullscreenMode && this.headerStage >= 3 ? 'more_menu' : 'toolbar';
+    },
+    connectMcpEffectiveReveal() {
+      if (this.isFullscreenMode) return 'always';
+      if (this.connectMcpPlacement === 'more_menu') return 'hover';
+      return this.connectMcpReveal ?? 'hover';
+    },
     copyForAiImpressionEligible() {
       return this.copyForAiPermissionResolved
         && this.isDisplayMode
@@ -1123,9 +1151,11 @@ export default {
     copyForAiSlotSettled() {
       return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
     },
-    // Connect MCP takes Copy for AI's slot, so it keeps Copy for AI's sparkles.
+    // Connect MCP takes Copy for AI's slot but not its sparkles: with the same
+    // icon, icon-only and hover-revealed, a customer could not find it
+    // (2026-10). It draws the official MCP mark instead.
     connectMcpIcon() {
-      return ICON_PATHS.spark;
+      return ICON_PATHS.mcp;
     },
     // The ids the headless tools take (read_diagram / update_diagram), so the
     // prompt sends the agent straight to this diagram. All synchronous: the
@@ -1275,6 +1305,22 @@ export default {
     'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
+    // Fires once per viewer per UTC day (the discovery record dedupes across
+    // every macro), after the header layout has settled so `header_stage` and
+    // the placement are the ones the viewer actually sees.
+    connectMcpShownEligible(eligible) {
+      if (!eligible || this.connectMcpShownTracked) return;
+      this.connectMcpShownTracked = true;
+      const raf = window.requestAnimationFrame?.bind(window) ?? (cb => setTimeout(cb, 16));
+      this.$nextTick(() => raf(() => raf(() => {
+        if (!this.connectMcpShownEligible || !this.connectMcpDiscovery?.recordShown()) return;
+        trackAnalyticsEvent('agent_link_mcp_button_shown', this.connectMcpAnalytics({
+          mcp_button_placement: this.connectMcpPlacement,
+          mcp_button_reveal: this.connectMcpEffectiveReveal,
+          ...(this.isFullscreenMode ? {} : { header_stage: this.headerStage }),
+        }));
+      })));
+    },
     copyForAiImpressionEligible: {
       immediate: true,
       handler(eligible) {
@@ -1417,6 +1463,13 @@ export default {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
     } finally {
+      if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
+        this.connectMcpDiscovery = createConnectMcpDiscovery({
+          cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
+          accountId: this.currentAccountId,
+        });
+        this.connectMcpReveal = this.connectMcpDiscovery.reveal();
+      }
       this.agentLinkFlagResolved = true;
     }
     try {
@@ -2298,8 +2351,11 @@ export default {
       if (this.showConnectMcpDialog) return;
       this.showConnectMcpDialog = true;
       this.connectMcpOpenedAt = Date.now();
-      trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics(
-        where === 'header_more_menu' ? { action_location: where } : {}));
+      trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics({
+        mcp_button_reveal: this.connectMcpEffectiveReveal,
+        ...(where === 'header_more_menu' ? { action_location: where } : {}),
+      }));
+      this.connectMcpDiscovery?.recordOpened();
     },
     closeConnectMcpDialog() {
       if (!this.showConnectMcpDialog) return;
@@ -3230,10 +3286,10 @@ export default {
 }
 /* Inline reveal, per control: hidden until hover, keyboard focus inside the
    macro, or an open header menu (headerRevealed). Create (a discovery
-   affordance), the page navigation and a pressed Refined toggle stay visible
-   at rest. Opacity only — a hidden control still takes focus, which reveals. */
+   affordance), the page navigation, a pressed Refined toggle and Connect MCP
+   during its first-use discovery window stay visible at rest. Opacity only — a hidden control still takes focus, which reveals. */
 .viewer-top-actions > * { transition: opacity 200ms ease; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed) {
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed):not(.viewer-act-connect-mcp--discover) {
   opacity: 0;
 }
 /* Inline order (prototype), in DOM order so Tab follows what is seen:
@@ -3439,28 +3495,36 @@ export default {
    transient text state (Copying… / Copy failed / Nothing to copy) still
    shows its words briefly. */
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp,
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary {
   min-width: 28px;
   padding: 0;
   color: #6B7280;
 }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source:hover,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp:hover,
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell > span:only-child { padding: 0 6px; }
 .copy-for-ai-split-primary[data-copy-state="copied"] .viewer-icon { color: #36B37E; }
 
+/* Inline Connect MCP keeps its label at stage 0 (it is the one header action a
+   viewer has to discover, and an unlabelled icon was missed), and goes
+   icon-only from stage 1 with Edit and Refined. */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp { min-width: 28px; color: #6B7280; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp:hover { color: #374151; }
+.viewer-frame[data-stage="1"] .viewer-act-connect-mcp,
+.viewer-frame[data-stage="2"] .viewer-act-connect-mcp { width: 28px; padding: 0; }
+.viewer-frame[data-stage="1"] .viewer-act-connect-mcp .viewer-btn-label,
+.viewer-frame[data-stage="2"] .viewer-act-connect-mcp .viewer-btn-label { display: none; }
+
 /* Staged collapse (data-stage on .viewer-frame, set by updateHeaderStage).
-   1: Edit + Refined → icon. 2: Fullscreen → icon. 3: Source + Copy for AI
-   move into More (the Copy for AI wrapper stays mounted, visually hidden,
-   so its live region still announces a copy started from the menu). */
+   1: Edit + Refined (+ Connect MCP) → icon. 2: Fullscreen → icon.
+   3: Source + Copy for AI (or Connect MCP) move into More (the Copy for AI
+   wrapper stays mounted, visually hidden, so its live region still announces
+   a copy started from the menu). */
 .viewer-frame[data-stage="1"] .viewer-act-edit .viewer-btn-label,
 .viewer-frame[data-stage="2"] .viewer-act-edit .viewer-btn-label,
 .viewer-frame[data-stage="3"] .viewer-act-edit .viewer-btn-label,

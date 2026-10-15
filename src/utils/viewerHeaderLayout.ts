@@ -5,7 +5,7 @@
  * container-query breakpoints that ignored how long the title actually is:
  *
  *   stage 0  every label shown
- *   stage 1  Edit and Refined become icon-only
+ *   stage 1  Edit, Refined and Connect MCP become icon-only
  *   stage 2  Fullscreen becomes icon-only
  *   stage 3  Source and Copy for AI move into the More (⋯) menu
  *            (only when the diagram has source; otherwise stage 2 is the last)
@@ -22,7 +22,7 @@ export const MIN_TITLE_CHARS = 24
 
 export const HEADER_STAGE_NAMES: Record<HeaderStage, string> = {
   0: 'all labels',
-  1: 'Edit + Refined → icon',
+  1: 'Edit + Refined + Connect MCP → icon',
   2: 'Fullscreen → icon',
   3: 'Source + Copy for AI → More',
 }
@@ -37,6 +37,8 @@ export interface HeaderModel {
   pages: number
   /** The Edit button is present. */
   hasEdit: boolean
+  /** Connect MCP holds the Copy for AI slot (agent-link flag on). */
+  connectMcp?: boolean
 }
 
 /** Width in px of a button label at the given font size (500 weight). */
@@ -71,8 +73,14 @@ export function controlsWidth(model: HeaderModel, stage: HeaderStage, measureLab
   }
   const toolbar: number[] = []
   if (model.hasSource && stage < 3) {
-    // Source icon, 2px, Copy for AI split (28px icon + 18px chevron), separator.
-    toolbar.push(ICON + 2 + ICON + 18, SEPARATOR)
+    if (model.connectMcp) {
+      // Source icon, then Connect MCP: labelled at stage 0 (8px padding +
+      // 1px border each side, 16px icon, 6px gap, label), icon-only after.
+      toolbar.push(ICON, stage < 1 ? 40 + measureLabel('Connect MCP', 13) : ICON, SEPARATOR)
+    } else {
+      // Source icon, 2px, Copy for AI split (28px icon + 18px chevron), separator.
+      toolbar.push(ICON + 2 + ICON + 18, SEPARATOR)
+    }
   }
   toolbar.push(ICON) // More
   if (model.hasEdit) {

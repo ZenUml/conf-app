@@ -15,6 +15,8 @@ description: 用私有语料中已保存的普通 AI Chat 原图与修改指令�
 
 ## 执行
 
+`reasoningDisabled` 适用于 AI Repair 和 AI Chat 的 L1–L4。本 skill 默认从 L2 开始；若另做 L1，也要沿用同一生效值。普通 AI Chat 当前由 Diagramly `ai-config.ts` 按 `AI_DISABLE_REASONING !== "false"` 决定 provider 默认值；Fix syntax 还经 `resolveRepairAIOptions`（默认 `true`）。在本轮派生 manifest 显式写入布尔值，核对 L2 模型记录、L3 请求与 job 输出、L4 UI 请求及目标环境。参数不同或无法证明时不得判跨层完整 PASS。
+
 在私有 `runs/<run-id>/run.json` 新建记录，保存所选案例、模式、预算台账、授权、conf-app 与 diagramly.ai 版本、Prompt hash、输入/指令 hash、模型和逐层证据路径。每例从**不变的原图和指令**开始，按 `ai-chat-case-validation` 的同一模型逐层门槛执行；不能把旧候选作为新输入，也不能拿历史 L4 成功替代本轮 UI 证据。简易模式将 L3/L4 记 `SKIPPED (simple_regression)`。
 
 每层至少检查请求返回与无 Error；完整 PASS 还需真实解析/渲染、指令要求和保留条款满足。`noChange` 只能按案例预期判定。L3 必须走版本化异步 job；L4 必须观察 Forge UI 中请求、终态、编辑器代码和有效预览，检查本次相关页面/网络/控制台错误。UI 不可操作时记 `BLOCKED` 或 `SKIPPED` 并给出原因，不以单元测试替代。

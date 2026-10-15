@@ -270,10 +270,10 @@ def main() -> int:
     max_tokens = int(
         manifest.get("maxTokens", os.environ.get("AI_MAX_TOKENS", "10000"))
     )
-    reasoning_disabled = (
-        bool(manifest["reasoningDisabled"])
-        if "reasoningDisabled" in manifest
-        else os.environ.get("AI_DISABLE_REASONING") == "true"
+    if "reasoningDisabled" in manifest and not isinstance(manifest["reasoningDisabled"], bool):
+        raise SystemExit("manifest reasoningDisabled must be a boolean")
+    reasoning_disabled = manifest.get(
+        "reasoningDisabled", os.environ.get("AI_DISABLE_REASONING") != "false"
     )
     seed = int(manifest.get("seed", 0))
     plan: list[tuple[int, str]] = []

@@ -1,5 +1,7 @@
 # L2：普通修改指令与产品 Prompt
 
+运行前从当前 Diagramly `ai-config.ts` 及环境读取有效 `reasoningDisabled`（只有 `AI_DISABLE_REASONING=false` 才会启用 reasoning），显式写入本轮派生 manifest，并让 L2/L3/L4 使用同一值。若另外执行 L1，也沿用此值。`--dry-run` 必须核对该字段。
+
 案例 manifest 使用 [案例格式](case-format.md)，`command` 为真实用户指令，`errorMessage` 缺失。运行前读取 conf-app `DEFAULT_AI_CHAT_MODEL`，把该模型写入私有 manifest 的 `models` 数组；强制只选该模型、一次 trial。若测试本地覆盖模型，单独记录来源，不拿覆盖模型结果替代默认模型。先记录两个 checkout 的 HEAD/脏状态。
 
 从 Diagramly checkout 运行，使用当前服务相同的本地 `.env`。以下路径示例仅是私有目录占位，运行时换成现存绝对路径：

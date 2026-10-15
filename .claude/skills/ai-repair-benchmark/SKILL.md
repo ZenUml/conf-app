@@ -22,7 +22,7 @@ description: 比较不同 OpenRouter 模型修复同一组损坏 DSL 的效果�
 
 ## 执行
 
-先读 [methodology.md](references/methodology.md)，创建 run manifest。用 `scripts/build_diagramly_prompt.ts` 从当前 Diagramly checkout 生成实际 L2 messages 和 prompt hash，不手抄 Prompt。L1 与 L2 的同一比较组保持 temperature、max tokens、reasoning 设置一致，并记录生效值、provider 和缓存信息。
+先读 [methodology.md](references/methodology.md)，创建 run manifest。用 `scripts/build_diagramly_prompt.ts` 从当前 Diagramly checkout 生成实际 L2 messages 和 prompt hash，不手抄 Prompt。`reasoningDisabled` 是 AI Repair 与 AI Chat 的跨层配置；L1 与 L2 的同一比较组保持 temperature、max tokens、reasoning 设置一致，并记录生效值、provider 和缓存信息。用于产品回归时，它还须与同一路径的 L3/L4 一致。
 
 用 `uv run scripts/run_openrouter_matrix.py` 分别运行 raw 和 diagramly 模式。每次模型调用后立即用 `uv run scripts/score_candidates.py` 验证候选，再进行后续调用；不得先批量调用后验证。默认每份 DSL、每个模型、每层一次；只有用户要求评估随机波动时才增加重复试验，并分开报告。单次结果是一次观察，不能称为模型成功率。若要比较普遍修复效果，使用有代表性的多份 DSL。
 

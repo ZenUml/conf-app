@@ -111,8 +111,10 @@ def main() -> int:
         model = default_model
     models = [model]
     reasoning_specified = "reasoningDisabled" in manifest
+    if reasoning_specified and not isinstance(manifest["reasoningDisabled"], bool):
+        raise SystemExit("manifest reasoningDisabled must be a boolean")
     reasoning_disabled = (
-        bool(manifest["reasoningDisabled"]) if reasoning_specified else None
+        manifest["reasoningDisabled"] if reasoning_specified else True
     )
     base_url = args.base_url.rstrip("/")
     host = urllib.parse.urlparse(base_url).hostname
@@ -164,6 +166,7 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     results_path = output_dir / "results.jsonl"
     run_id = output_dir.parent.name
+    configuration_mismatch = False
     with results_path.open("w", encoding="utf-8") as results_file:
         for sequence, (trial, model) in enumerate(plan, start=1):
             started = time.perf_counter()
@@ -195,8 +198,7 @@ def main() -> int:
                     "command": manifest.get("command") or "",
                     "model": model,
                 }
-                if reasoning_specified:
-                    payload["disableReasoning"] = reasoning_disabled
+                payload["disableReasoning"] = reasoning_disabled
                 start_response = request_json(
                     "POST",
                     f"{base_url}/api/chat/modify-async",
@@ -250,10 +252,17 @@ def main() -> int:
                         "llmMs": output.get("llmDurationMs"),
                         "repairAttempts": output.get("repairAttempts"),
                         "reasoningDisabled": output.get("reasoningDisabled"),
+                        "reasoningConfigurationStatus": (
+                            "MATCH"
+                            if output.get("reasoningDisabled") == reasoning_disabled
+                            else "MISMATCH"
+                        ),
                         "candidatePath": str(candidate_path) if candidate else None,
                         "error": status.get("error"),
                     }
                 )
+                if record["reasoningConfigurationStatus"] == "MISMATCH":
+                    configuration_mismatch = True
             except Exception as error:  # noqa: BLE001 - preserve each trial failure
                 record.update(
                     {
@@ -277,7 +286,7 @@ def main() -> int:
                     ensure_ascii=False,
                 )
             )
-    return 0
+    return 1 if configuration_mismatch else 0
 
 
 if __name__ == "__main__":

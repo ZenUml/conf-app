@@ -17,6 +17,8 @@ description: 验证一条普通 AI Chat 图表修改指令，逐层检查模型�
 
 ## 准备与调用
 
+`reasoningDisabled` 在 AI Chat 和 AI Repair 的 L1–L4 都是生效参数；本 skill 从 L2 开始。普通 AI Chat 读取 Diagramly `ai-config.ts` 的 provider 默认值（当前仅 `AI_DISABLE_REASONING=false` 会启用 reasoning），Fix syntax 还要读取 `resolveRepairAIOptions`。本轮派生 manifest 显式写入布尔值，L2 核对模型调用记录，L3 核对请求与 job 输出，L4 核对 UI 请求和目标后端配置。UI 省略字段时按后端默认值判定，不能把字段缺失等同于 `false`；不同生效值的结果不得串成一条 PASS 链路。
+
 - 核对 conf-app 与 diagramly.ai 的当前代码、Prompt、模型配置及工作区状态；默认模型从 [`src/utils/aiModelConfig.ts`](../../../src/utils/aiModelConfig.ts) 的 `DEFAULT_AI_CHAT_MODEL` 读取，不能沿用 AI Repair 的模型键。记录 DSL 和指令的 SHA-256、代码/Prompt 版本、有效参数及目标环境。现有 `ai_chat_model` 本地覆盖值若影响实际 UI 请求，也要记录。
 - 原始 DSL、指令、模型响应、候选和截图只放在 `/tmp/ai-chat-case-validation/<run-id>/` 或 `private/local-data/ai-chat-regression/`。不得把客户内容放进公开仓库、PR、任务标题或普通消息。向外部模型发送前，核对用户对本轮案例、服务、模型和调用预算的授权；把客户 DSL 放进测试 Confluence 宏则需单独确认站点与草稿处理方式。
 - L2 按 [产品 Prompt 操作](references/prompt-layer.md) 复用 AI Repair benchmark 的构建器与单模型 runner，但 manifest **必须提供真实普通修改 `command`、不得提供 `errorMessage`，且只用 `--mode diagramly`**。现有构建器的末尾 user turn 虽写着 “repair instructions”，它与当前 Diagramly `buildModifyMessages` 一致；每次运行前核对该源实现，若已变化先更新构建方式，不手写近似 Prompt。`score_candidates.py` 的 PASS 只是初步语法评分，不能代替渲染及语义验收。

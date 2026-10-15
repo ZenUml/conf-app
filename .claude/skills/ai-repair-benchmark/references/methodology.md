@@ -20,7 +20,7 @@
 }
 ```
 
-不要把 DSL 内容复制进 manifest。记录两个仓库的 HEAD、工作区状态、Prompt hash、模型参数、trial 数和 seed；不同 Prompt 或代码版本的结果不直接合并。`temperature`、`maxTokens`、`reasoningDisabled` 可省略，L1/L2 继承 Diagramly `.env` 的 `AI_TEMPERATURE`、`AI_MAX_TOKENS`、`AI_DISABLE_REASONING`。同一比较组固定有效参数。
+不要把 DSL 内容复制进 manifest。记录两个仓库的 HEAD、工作区状态、Prompt hash、模型参数、trial 数和 seed；不同 Prompt 或代码版本的结果不直接合并。纯模型横向比较时，`temperature`、`maxTokens`、`reasoningDisabled` 可省略；runner 对未设置的 `AI_DISABLE_REASONING` 按 Diagramly `ai-config.ts` 的默认规则处理：只有明确为 `false` 才启用 reasoning，其余情况 `reasoningDisabled: true`。**验证产品 AI Repair 或 AI Chat 路径时，L1/L2 的派生 manifest 必须显式写入与 L3/L4 相同的 `reasoningDisabled` 布尔值**。AI Repair 读取 `resolveRepairAIOptions`（当前默认 `true`）；AI Chat 读取版本化 worker 的显式覆盖及 `ai-config.ts` 的 provider 默认值（当前默认 `true`）。L1/L2 核对模型调用记录，L3 核对请求和 job 输出，L4 核对 UI 请求及目标环境配置；参数不一致的结果不可跨层比较或判为整条链路 PASS。同一比较组固定有效参数。
 
 ## 生成 L2 Prompt
 

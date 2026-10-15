@@ -17,7 +17,7 @@ description: 用私有语料中已保存的 AI Repair 原始 error DSL 回归当
 
 在私有 `private/local-data/ai-repair-regression/runs/<run-id>/run.json` 新建本轮记录，写入所选案例、模式、授权范围、预算台账、模型与目的地、两个仓库版本、逐例状态和证据路径。生产时间窗口与聚合数量记为 `not_applicable`；不覆盖语料根目录的旧 `run.json` 或历史结果。原始 DSL、候选、响应与截图只保存在本机私有目录，不写入公开仓库、PR、任务标题或普通消息。
 
-从 `src/utils/aiModelConfig.ts` 读取当前 `DEFAULT_AI_REPAIR_MODEL`。按 [L2 方法](../ai-repair-benchmark/references/methodology.md#生成-l2-prompt) 从当前 Diagramly checkout 生成真实 Prompt，逐例记录 Prompt hash、有效参数与原始输入 hash；不得手抄 Prompt、改写错误 DSL 或把 `reference-fixed.*` 传给模型。每次调用前预约预算，调用后立即保存原始响应、候选、token/费用来源并验证该例，不因失败自动追加调用。
+从 `src/utils/aiModelConfig.ts` 读取当前 `DEFAULT_AI_REPAIR_MODEL`。按 [L2 方法](../ai-repair-benchmark/references/methodology.md#生成-l2-prompt) 从当前 Diagramly checkout 生成真实 Prompt，逐例记录 Prompt hash、有效参数与原始输入 hash；不得手抄 Prompt、改写错误 DSL 或把 `reference-fixed.*` 传给模型。`reasoningDisabled` 作用于 AI Repair 的 L1–L4（执行哪些层就核验哪些层），也作用于 AI Chat 的 L1–L4。先读当前 Diagramly `resolveRepairAIOptions`，把产品生效值（当前默认 `true`）显式写入本轮派生 manifest；L1/L2 的模型调用记录、L3 的请求和 Job 输出、L4 的 UI 请求与目标环境均须与该值一致。若无法直接看到 L4 请求字段，就结合后端默认值与环境配置证明生效值；缺少证据不得判整条链路 PASS。参数不一致的结果标为配置无效，不得放行下一层。每次调用前预约预算，调用后立即保存原始响应、候选、token/费用来源并验证该例，不因失败自动追加调用。
 
 L2 的 PASS 必须同时满足：候选非空且非原文返回、`missingRequiredAnchors` 为空、适用语言的语法检查通过，并有**实际本地渲染**证据。Mermaid 用当前 Diagramly 安装的 Mermaid 在浏览器中 parse/render；PlantUML 使用离线本地验证器检查并渲染，不把客户 DSL 发往额外的在线验证服务。验证器不可用时记 `UNVERIFIED`，不能用模型响应成功或 `score_candidates.py` 的初步评分代替渲染。保留每例的候选、检查结果、可见预览和失败证据；无可见预览不得标 L2 PASS。
 

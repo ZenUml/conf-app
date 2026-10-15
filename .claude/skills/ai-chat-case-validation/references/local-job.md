@@ -1,5 +1,7 @@
 # L3：本地版本化 AI Chat job
 
+本轮派生 manifest 的 `reasoningDisabled` 必须与 L2 一致；脚本把它作为 `disableReasoning` 发送，并核对 job 回报值。普通 AI Chat 的 UI 请求若省略该字段，需结合目标后端 `ai-config.ts` 和环境证明其有效值；不得把字段缺失当成 `false`。
+
 本层覆盖 Diagramly 的图绑定、team/credits、版本化异步 job、确定性语法校验和轮询；不经过 conf-app 的 Forge bridge。普通修改请求必须传非空 `command`，**不传 `errorMessage`**。脚本按 conf-app `functions/service/diagramlyService.js` 的类型映射把客户端 `mermaid` 转为后端 `flow`、`OpenAPI` 转为 `openapi`；变更映射时先同步脚本。真实路径见 Diagramly 的 `apps/web/app/api/chat/{ensure-diagram,modify-version-async,job-status}`。
 
 准备：用 `joint-debug` skill 启动本地 Diagramly 与 PostgreSQL，确认 `DATABASE_URL` 指向 localhost，`GET /api/health?deep=1` 返回数据库 `up`。从 Diagramly 本地 `.env` 注入 `DIAGRAMLY_API_KEY`，不要打印。先用 `--dry-run` 核对输入 hash、模型和 URL；脚本默认拒绝非本地主机。

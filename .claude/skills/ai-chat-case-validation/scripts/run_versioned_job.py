@@ -129,6 +129,11 @@ def main() -> int:
     expected_outcome = manifest.get("expectedOutcome")
     if expected_outcome not in {"change", "no_change"}:
         raise SystemExit("manifest expectedOutcome must be change or no_change")
+    if "reasoningDisabled" in manifest and not isinstance(manifest["reasoningDisabled"], bool):
+        raise SystemExit("manifest reasoningDisabled must be a boolean")
+    reasoning_disabled = manifest.get(
+        "reasoningDisabled", os.environ.get("AI_DISABLE_REASONING") != "false"
+    )
     dsl = relative_path(manifest_path, manifest["dslPath"]).read_text(encoding="utf-8")
     if not dsl.strip():
         raise SystemExit("DSL file must not be empty")
@@ -155,6 +160,7 @@ def main() -> int:
         "clientDiagramType": manifest["diagramType"],
         "backendDiagramType": backend_diagram_type,
         "expectedOutcome": expected_outcome,
+        "requestedReasoningDisabled": reasoning_disabled,
         "inputSha256": input_hash,
         "commandSha256": command_hash,
         "manifestPath": str(manifest_path),
@@ -180,6 +186,7 @@ def main() -> int:
             "subTypeKey": manifest["subTypeKey"],
             "command": manifest["command"],
             "model": model,
+            "disableReasoning": reasoning_disabled,
         }
         prepare_output_dir(output_dir)
         write_result(result_path, record)
@@ -217,6 +224,7 @@ def main() -> int:
             "subTypeKey": manifest["subTypeKey"],
             "command": manifest["command"],
             "model": model,
+            "disableReasoning": reasoning_disabled,
         }
         if "errorMessage" in modify_payload:
             raise AssertionError("versioned AI Chat payload must not include errorMessage")
@@ -260,6 +268,7 @@ def main() -> int:
         )
         output = status.get("output")
         output = output if isinstance(output, dict) else {}
+        record["reportedReasoningDisabled"] = output.get("reasoningDisabled")
         candidate = output.get("diagramCode")
         has_code = isinstance(candidate, str) and bool(candidate.strip())
         no_change = output.get("noChange") is True
@@ -270,6 +279,8 @@ def main() -> int:
             record["failureReason"] = "job_not_completed"
         elif status.get("error"):
             record["failureReason"] = "job_error"
+        elif output.get("reasoningDisabled") != reasoning_disabled:
+            record["failureReason"] = "reasoning_setting_mismatch"
         elif not has_code:
             record["failureReason"] = "diagram_code_missing"
         elif expected_outcome == "change" and no_change:

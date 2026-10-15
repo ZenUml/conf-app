@@ -1,5 +1,7 @@
 # 普通 AI Chat 案例格式
 
+每轮从不变的案例 manifest 派生运行 manifest，写入本轮默认模型和布尔型 `reasoningDisabled`；L1（若执行）、L2、L3、L4 共用该生效值，不能把它当作只属于 AI Repair 的配置。
+
 一个案例固定 `原图代码 + 用户指令 + 预期结果`，不能只按 DSL 去重。同一张图的两条不同指令是两个案例。客户数据只存在本机私有目录：`private/local-data/ai-chat-regression/cases/<opaque-id>/`；临时诊断可放 `/tmp/ai-chat-case-validation/<run-id>/`。不要把目录加入 public repo 或提交 private 子模块。
 
 ```text

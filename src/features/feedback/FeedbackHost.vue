@@ -114,7 +114,7 @@ function closeDialog() { dialogOpen.value = false }
 </script>
 
 <style scoped>
-.feedback-edge { position: fixed; z-index: 10002; right: 0; top: 50%; width: 104px; height: 40px; transform: translateY(-50%); overflow: visible; display: flex; justify-content: flex-end; }
+.feedback-edge { position: fixed; z-index: 10002; right: 0; top: 50%; height: 40px; transform: translateY(-50%); overflow: visible; display: flex; justify-content: flex-end; }
 .edge-trigger { width: 32px; height: 40px; padding: 0 0 0 8px; border: 0; border-radius: 6px 0 0 6px; background: #4b5563; color: #fff; font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; overflow: hidden; transition: width 150ms ease; cursor: pointer; display: flex; flex: none; align-items: center; justify-content: flex-start; gap: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.20); }
 .edge-trigger svg { width: 16px; height: 16px; flex: none; }.edge-trigger span { white-space: nowrap; opacity: 0; transition: opacity 150ms ease; }
 .feedback-edge:hover .edge-trigger, .feedback-edge.revealed .edge-trigger, .feedback-edge.nudging .edge-trigger, .edge-trigger:focus-visible { width: 104px; }

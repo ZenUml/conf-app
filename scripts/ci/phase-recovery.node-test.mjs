@@ -22,7 +22,9 @@ test('recovery rejects missing, ambiguous, running and rerun phase producers', (
 });
 
 test('recovery preserves build and draft failures as blockers', () => {
-  assert.deepEqual(expandPhaseFailures(['Draft preparation', 'Build preparation'], root, api([{ ...phase, display_title: phase.display_title.replace('Staging validation', 'Build preparation') }], ['Build and Unit Test'])), ['Draft preparation', 'Build and Unit Test']);
+  // No draft child run is available here, so Draft preparation cannot be shown to be a
+  // consequence of an E2E failure. It stays a blocker, now as an unverified phase.
+  assert.deepEqual(expandPhaseFailures(['Draft preparation', 'Build preparation'], root, api([{ ...phase, display_title: phase.display_title.replace('Staging validation', 'Build preparation') }], ['Build and Unit Test'])), ['Unverified phase failure', 'Build and Unit Test']);
 });
 
 test('recovery CLI reads a phase run listing larger than the default 1 MiB buffer', async () => {
@@ -78,9 +80,12 @@ const draftSkippedForFullAndDiagramly = [
 ];
 
 test('recovery re-runs a root whose only real failures are E2E validations and the drafts they skipped', () => {
-  const expanded = expandPhaseFailures(rootFailures, root, pipeline({ staging: stagingWithFullAndDiagramlyRed, draft: draftSkippedForFullAndDiagramly }));
+  const notes = [];
+  const expanded = expandPhaseFailures(rootFailures, root, pipeline({ staging: stagingWithFullAndDiagramlyRed, draft: draftSkippedForFullAndDiagramly }), note => notes.push(note));
   assert.equal(canRecover(expanded), true, `would not re-run: ${JSON.stringify(expanded)}`);
   assert.deepEqual(expanded, ['Validate: Full', 'Validate: Diagramly', 'Pipeline outcome']);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /Draft: Diagramly, Draft: Full skipped because the E2E validation of full, diagramly failed/);
 });
 
 test('recovery explains a skipped draft by a failed auth bootstrap, which skips that variant validation', () => {
@@ -94,20 +99,34 @@ test('recovery explains a skipped draft by a failed auth bootstrap, which skips 
 
 test('recovery still refuses when a draft failed for a reason other than a failed E2E validation', () => {
   const draftRow = (name, conclusion) => draftSkippedForFullAndDiagramly.map(row => row[0] === name ? [name, conclusion] : row);
-  const cases = {
-    'a draft job that really failed': draftRow('Draft: Lite', 'failure'),
-    'root ownership that failed': draftRow('Verify root ownership', 'failure'),
-    'eligibility that failed to resolve': draftRow('Resolve variant draft eligibility', 'failure'),
-    'a draft job that was cancelled': draftRow('Draft: AsyncAPI', 'cancelled'),
-    'a draft skipped although its validation passed': draftRow('Draft: Lite', 'skipped'),
-    // The daily regression gate skips all four drafts whatever the E2E results were.
-    'a closed daily gate': draftSkippedForFullAndDiagramly.map(([name, conclusion]) => [name, name.startsWith('Draft: ') ? 'skipped' : conclusion]),
-    'a gate failure with nothing to explain it': draftSkippedForFullAndDiagramly.map(([name, conclusion]) => [name, name.startsWith('Draft: ') ? 'success' : conclusion]),
-  };
-  for (const [reason, draft] of Object.entries(cases)) {
+  const notValidated = name => `${name} (skipped although its validation did not fail)`;
+  const cases = [
+    ['a draft job that really failed', draftRow('Draft: Lite', 'failure'), ['Draft: Lite']],
+    ['root ownership that failed', draftRow('Verify root ownership', 'failure'), ['Verify root ownership']],
+    ['eligibility that failed to resolve', draftRow('Resolve variant draft eligibility', 'failure'), ['Resolve variant draft eligibility']],
+    ['a draft job that was cancelled', draftRow('Draft: AsyncAPI', 'cancelled'), ['Unverified phase failure']],
+    ['a draft skipped although its validation passed', draftRow('Draft: Lite', 'skipped'), [notValidated('Draft: Lite')]],
+    // The daily regression gate skips all four drafts whatever the E2E results were; the
+    // two variants whose validation passed show that this is not an E2E failure.
+    ['a closed daily gate', draftSkippedForFullAndDiagramly.map(([name, conclusion]) => [name, name.startsWith('Draft: ') ? 'skipped' : conclusion]),
+      [notValidated('Draft: Lite'), notValidated('Draft: AsyncAPI')]],
+    ['skipped drafts although the gate did not fail', draftRow('Draft gate outcome', 'success'), ['Unverified phase failure']],
+    ['a gate failure with nothing to explain it', draftSkippedForFullAndDiagramly.map(([name, conclusion]) => [name, name.startsWith('Draft: ') ? 'success' : conclusion]), ['Unverified phase failure']],
+  ];
+  for (const [reason, draft, blockers] of cases) {
     const expanded = expandPhaseFailures(rootFailures, root, pipeline({ staging: stagingWithFullAndDiagramlyRed, draft }));
-    assert.equal(canRecover(expanded), false, `${reason}: ${JSON.stringify(expanded)}`);
+    assert.deepEqual(expanded, ['Validate: Full', 'Validate: Diagramly', ...blockers, 'Pipeline outcome'], reason);
+    assert.equal(canRecover(expanded), false, reason);
   }
+});
+
+test('recovery does not excuse a draft skipped by a failed build or migration', () => {
+  // Nothing in the staging child failed at E2E level, so no skipped draft has an excuse.
+  const staging = stagingWithFullAndDiagramlyRed.map(([name, conclusion]) => [name, name.startsWith('Validate: ') ? 'success' : name === 'Shared staging D1 migrations' ? 'failure' : conclusion]);
+  const expanded = expandPhaseFailures(rootFailures, root, pipeline({ staging, draft: draftSkippedForFullAndDiagramly }));
+  assert.equal(canRecover(expanded), false, JSON.stringify(expanded));
+  assert.ok(expanded.includes('Shared staging D1 migrations'));
+  assert.ok(expanded.includes('Draft: Full (skipped although its validation did not fail)'), JSON.stringify(expanded));
 });
 
 test('recovery refuses when the draft phase run is missing, ambiguous, running or already rerun', () => {

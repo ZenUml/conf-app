@@ -27,12 +27,18 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
   const drawnEdges = [...svg.querySelectorAll('path.flowchart-link')];
   const nodeIds = new Set(), edgeIds = new Set();
   const groupIds = new Set();
+  // Mermaid draws a subgraph as a cluster frame, except one with no members: that is a single plain node.
+  // It binds as the node it is drawn as. A subgraph with members must have been drawn as a frame.
   const groupBindings = (model.groups || []).map(g => {
     if (typeof g.id !== 'string' || !g.id || groupIds.has(g.id)) throw Error('MERMAID_HIGHLIGHTS_GROUP_ID_INVALID');
     groupIds.add(g.id);
-    const matches = drawnGroups.filter(el => el.id === g.id || el.id === `${svg.id}-${g.id}`);
-    if (matches.length !== 1) throw Error(`MERMAID_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:${g.id}`);
-    return {element:matches[0], id:g.id, kind:'group'};
+    const named = el => el.id === g.id || el.id === `${svg.id}-${g.id}`;
+    const frames = drawnGroups.filter(named);
+    if (frames.length === 1) return {element:frames[0], id:g.id, kind:'group'};
+    const empty = !frames.length && !(Array.isArray(g.nodes) && g.nodes.length);
+    const standIns = empty ? drawnNodes.filter(named) : [];
+    if (standIns.length !== 1) throw Error(`MERMAID_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:${g.id}`);
+    return {element:standIns[0], id:g.id, kind:'node'};
   });
   const nodeBindings = model.nodes.filter(n => !groupIds.has(n.id)).map(n => {
     if (typeof n.id !== 'string' || !n.id || typeof n.domId !== 'string' || !n.domId || nodeIds.has(n.id)) throw Error('MERMAID_HIGHLIGHTS_NODE_ID_INVALID');
@@ -46,7 +52,8 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
     nodeIds.add(group.id);
   }
   nodeBindings.push(...groupBindings);
-  if (drawnNodes.length !== model.nodes.filter(n => !groupIds.has(n.id)).length || drawnGroups.length !== groupBindings.length) {
+  const frameCount = groupBindings.filter(b => b.kind === 'group').length;
+  if (drawnNodes.length !== nodeBindings.length - frameCount || drawnGroups.length !== frameCount) {
     throw Error('MERMAID_HIGHLIGHTS_INCOMPLETE_DRAWING');
   }
   const edgeBindings = model.edges.map(e => {

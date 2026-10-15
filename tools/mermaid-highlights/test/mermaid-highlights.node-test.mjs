@@ -9,6 +9,8 @@ import {installInteractiveSvg, INTERACTIVE_SVG_STYLE} from '../src/interactive-r
 import {exportMermaidInteractive} from '../src/mermaid-interactive-export.mjs';
 
 const enabled=!!process.env.MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE&&!!process.env.MERMAID_HIGHLIGHTS_MERMAID_BUNDLE;
+// Skipping is for a plain local checkout. Under CI it would hide that the runtime never ran.
+if(!enabled&&/^(1|true)$/i.test(process.env.CI??''))throw Error('MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE and MERMAID_HIGHLIGHTS_MERMAID_BUNDLE are required when CI is set; run `pnpm test:mermaid-highlights`, which supplies them.');
 const SOURCE='flowchart LR\n A-B[Input<br/>Details] -->|one| C[Result]\n A-B -->|two| C\n C --> A-B\n subgraph G[Group]\n D[Inside]\n end\n C --> D';
 const GROUP_SOURCE='flowchart LR\n A[Start] --> G\n subgraph G[Group]\n B[Inside]\n end\n G --> C[End]';
 const customSource='flowchart LR\n A_B[First] ab@--> C_D[Second]\n A[Third] ac@--> B_C_D[Fourth]';

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dispatchBody, findChild, closeChild, verifyParent, verifyChildRun } from './wait-for-e2e.mjs';
+import { createApi, dispatchBody, findChild, closeChild, verifyParent, verifyChildRun } from './wait-for-e2e.mjs';
+import { largeRunListing, withFakeGh } from './fake-gh.mjs';
 
 test('dispatch serializes regex without changing its escapes', () => {
   const env = { GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc', GREP: '(?:^|\\s)@smoke' };
@@ -131,4 +132,21 @@ test('root accepts a blocked daily gate only from its immutable draft producer',
   for (const patch of [{ run_attempt: 2 }, { status: 'in_progress' }, { actor: { login: 'maintainer' } }, { display_title: producer.display_title.replace('attempt 2', 'attempt 1') }]) {
     assert.throws(() => verifyDailyGate(gate, { ...producer, ...patch }, '12', '2', 'abc', '43'), /does not match/);
   }
+});
+
+test('child discovery reads a run listing larger than the default 1 MiB buffer', async () => {
+  const title = 'PR E2E · parent 12 · attempt 2 · source abc';
+  await withFakeGh({ '/runs?': largeRunListing({ id: 777, display_title: title }) }, () => {
+    const api = createApi('repos/example/repo');
+    const { workflow_runs } = api('actions/workflows/pr-e2e-validation.yml/runs?event=workflow_dispatch&per_page=100');
+    assert.equal(findChild(workflow_runs, title).id, 777);
+  });
+});
+
+test('cleanup finds the dispatched child in a run listing larger than 1 MiB', async () => {
+  const title = 'Staging validation · parent 12 · attempt 2 · source abc';
+  await withFakeGh({ '/runs?': largeRunListing({ id: 778, display_title: title }) }, async () => {
+    const pause = () => new Promise(resolve => setTimeout(resolve, 200));
+    await closeChild(createApi('repos/example/repo'), title, 'main-staging-validation.yml', pause, Date.now() + 2000, true);
+  });
 });

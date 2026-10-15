@@ -1,4 +1,7 @@
-export function installInteractiveSvg(svg,sharedSections=[],status=null){
+// parentOf maps a bound id to the bound group that directly contains it. Mermaid
+// draws a cluster as a sibling of its members, never as their DOM ancestor, so
+// containment has to come from the model rather than from the SVG tree.
+export function installInteractiveSvg(svg,sharedSections=[],status=null,parentOf=new Map()){
   const slot=Symbol.for('mermaid-highlights.interactive-svg');
   svg[slot]?.destroy?.();
   const ns='http://www.w3.org/2000/svg',nodes=new Map(),edges=new Map(),sections=new Map(sharedSections.map(s=>[s.id,s]));
@@ -37,6 +40,7 @@ export function installInteractiveSvg(svg,sharedSections=[],status=null){
   const same=(a,b)=>a&&b&&a.kind===b.kind&&a.id===b.id;
   const rootTransform=(source,clone)=>{const root=layerParent.getScreenCTM(),matrix=source.getScreenCTM();if(!root||!matrix)throw Error('SVG transform unavailable');const m=root.inverse().multiply(matrix);clone.setAttribute('transform',`matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`)};
   const all=[...nodes.values(),...[...edges.values()].map(e=>e.element)];
+  const childrenOf=new Map();for(const [child,group] of parentOf){if(!childrenOf.has(group))childrenOf.set(group,[]);childrenOf.get(group).push(child)}
   function paintNode(node){
     const copy=node.cloneNode(true),originals=[node,...node.querySelectorAll('*')],clones=[copy,...copy.querySelectorAll('*')];
     for(let i=0;i<clones.length;i++){
@@ -68,9 +72,19 @@ export function installInteractiveSvg(svg,sharedSections=[],status=null){
     else if(current.kind==='edge')activeEdges.add(current.id);
     else for(const id of sections.get(current.id)?.members||[])activeEdges.add(id);
     for(const id of activeEdges){const edge=edges.get(id);activeNodes.add(edge.source);activeNodes.add(edge.target)}
+    // Connector adjacency alone would fade the frame around a traced node and the
+    // members of a traced group, so keep containment visible too: every ancestor
+    // group of every kept id, and, for a traced group, everything it contains at
+    // any depth. Connectors stay as they are. The status text counts only the
+    // connected ids.
+    const connected=new Set(activeNodes);
+    if(current.kind==='group'){const seen=new Set([current.id]),queue=[current.id];for(const id of queue)for(const child of childrenOf.get(id)||[])if(!seen.has(child)){seen.add(child);activeNodes.add(child);queue.push(child)}}
+    for(const id of [...activeNodes])for(let up=parentOf.get(id);up&&!activeNodes.has(up);up=parentOf.get(up))activeNodes.add(up);
     for(const el of all)el.classList.add('interaction-inactive');
     const activate=el=>{if(!el)return;el.classList.remove('interaction-inactive');el.classList.add('is-active');for(let parent=el.parentElement;parent&&parent!==svg;parent=parent.parentElement){remember(parent,['class']);parent.classList.add('has-active-descendant');parent.classList.remove('interaction-inactive')}};
-    for(const id of activeNodes){const node=nodes.get(id);activate(node);if(node)paintNode(node)}
+    // A group is only un-faded in place. Its clone would be painted above its
+    // members and, with the theme's cluster fill, hide them.
+    for(const id of activeNodes){const node=nodes.get(id);activate(node);if(node&&!node.hasAttribute('data-group'))paintNode(node)}
     for(const id of activeEdges){
       const original=edges.get(id).element;activate(original);const copy=original.cloneNode(false),style=getComputedStyle(original);
       for(const attr of [...copy.attributes])if(attr.name==='id'||attr.name.startsWith('data-')||['class','style','tabindex','role','aria-label'].includes(attr.name))copy.removeAttribute(attr.name);
@@ -78,7 +92,7 @@ export function installInteractiveSvg(svg,sharedSections=[],status=null){
       for(const key of ['stroke','stroke-width','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','fill','vector-effect','marker-start','marker-mid','marker-end'])copy.style.setProperty(key,style.getPropertyValue(key));
       copy.setAttribute('pointer-events','none');copy.setAttribute('aria-hidden','true');overlays.append(copy);
     }
-    const drawnNodes=[...activeNodes].filter(id=>nodes.has(id)),lock=selection?'Selected':'Tracing';
+    const drawnNodes=[...connected].filter(id=>nodes.has(id)),lock=selection?'Selected':'Tracing';
     if(status)status.textContent=current.kind==='node'||current.kind==='group'?`${lock} ${current.kind} ${label(current.id)}: ${activeEdges.size} incident connectors; ${drawnNodes.filter(id=>id!==current.id).length} neighboring nodes.`:current.kind==='edge'?`${lock} connector ${label(edges.get(current.id).source)} → ${label(edges.get(current.id).target)}: 1 connector; ${drawnNodes.length} endpoint nodes.`:`${lock} shared section: ${activeEdges.size} connectors; ${new Set([...activeEdges].map(id=>edges.get(id).source).filter(id=>nodes.has(id))).size} source nodes; ${drawnNodes.length} endpoint nodes.`;
   }
   const reset=()=>{if(destroyed)return;selection=null;hover=null;focus=null;paint()};

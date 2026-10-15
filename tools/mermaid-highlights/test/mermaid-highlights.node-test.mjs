@@ -68,10 +68,71 @@ test('a source group endpoint binds to its actual Mermaid cluster and traces bot
   const hovered=await state(page);
   assert.equal(hovered.kind,'none');
   assert.equal(hovered.edges.length,2);
-  assert.deepEqual(hovered.nodes,['A','C','G']);
+  assert.deepEqual(hovered.nodes,['A','B','C','G']);
   await page.mouse.click(border.x,border.y);
   assert.equal((await state(page)).kind,'group');
   assert.match(await page.locator('g.cluster[data-group="G"]').getAttribute('aria-label'),/^Trace group /);
+  // Members kept by containment are not connector neighbours.
+  assert.match(await page.locator('#status').textContent(),/: 2 incident connectors; 2 neighboring nodes\.$/);
+  assert.deepEqual(errors,[]);
+}));
+
+test('flowchart model keeps subgraph membership as a detached copy of Mermaid state',()=>{
+  const subgraphs=[{id:'Inner',nodes:['D']},{id:'G',nodes:['B','Inner']}];
+  const model=readMermaidFlowchartModel({type:'flowchart-v2',db:{
+    getVertices:()=>new Map([['B',{id:'B',domId:'flowchart-B-0'}],['D',{id:'D',domId:'flowchart-D-1'}]]),
+    getEdges:()=>[],getSubGraphs:()=>subgraphs}});
+  assert.deepEqual(model.groups,[{id:'Inner',nodes:['D']},{id:'G',nodes:['B','Inner']}]);
+  subgraphs[1].nodes.push('changed');subgraphs[0].id='changed';
+  assert.deepEqual(model.groups,[{id:'Inner',nodes:['D']},{id:'G',nodes:['B','Inner']}]);
+});
+
+const MEMBER_SOURCE='flowchart LR\n A[Start] --> B\n subgraph G[Group]\n B[Inside] --> D[Also inside]\n end';
+const NESTED_SOURCE='flowchart LR\n A[Start] --> B\n subgraph Outer[Outer]\n B[Inside] --> C[Sibling]\n subgraph Inner[Inner]\n D[Deep] --> E[Deeper]\n end\n end\n E --> F[Elsewhere]';
+const inactive=(page,selector)=>page.locator(selector).evaluate(e=>e.classList.contains('interaction-inactive'));
+const borderPoint=(page,id)=>page.locator(`.node-hit[data-hit-group="${id}"]`).evaluate(e=>{const p=e.getPointAtLength(4),m=e.getScreenCTM(),v=new DOMPoint(p.x,p.y).matrixTransform(m);return {x:v.x,y:v.y}});
+
+test('tracing a node keeps every enclosing subgraph frame and title visible', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,MEMBER_SOURCE);
+  await page.locator('.node-hit[data-hit-node="B"]').click();
+  assert.equal((await state(page)).kind,'node');
+  assert.equal(await inactive(page,'g.cluster[data-group="G"]'),false);
+  assert.equal(await page.locator('g.cluster[data-group="G"]').evaluate(e=>getComputedStyle(e).opacity),'1');
+  await page.keyboard.press('Escape');
+  await page.mouse.move(1000,700);
+  const deep=await setup(browser,NESTED_SOURCE);
+  await deep.page.locator('.node-hit[data-hit-node="E"]').click();
+  for(const id of ['Inner','Outer'])assert.equal(await inactive(deep.page,`g.cluster[data-group="${id}"]`),false,`${id} faded`);
+  assert.equal(await inactive(deep.page,'g[data-node="C"]'),true);
+  assert.deepEqual(errors,[]);assert.deepEqual(deep.errors,[]);
+}));
+
+test('tracing a subgraph keeps its members and never paints the filled frame over them', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,MEMBER_SOURCE);
+  const border=await borderPoint(page,'G');
+  await page.mouse.click(border.x,border.y);
+  assert.equal((await state(page)).kind,'group');
+  for(const id of ['B','D'])assert.equal(await inactive(page,`g[data-node="${id}"]`),false,`${id} faded`);
+  assert.equal(await page.locator('.interaction-node-overlay-layer .active-node-overlay .cluster').count(),0);
+  // A group that is only a connector neighbour is kept, but its filled frame must not cover members either.
+  await page.keyboard.press('Escape');
+  await page.locator('.node-hit[data-hit-node="A"]').click();
+  assert.equal(await inactive(page,'g.cluster[data-group="G"]'),false);
+  assert.equal(await page.locator('.interaction-node-overlay-layer .active-node-overlay .cluster').count(),0);
+  assert.deepEqual(errors,[]);
+}));
+
+test('tracing a nested subgraph keeps members and nested boxes at every level and its outer frames', {skip:!enabled},async()=>withBrowser(async browser=>{
+  const {page,errors}=await setup(browser,NESTED_SOURCE);
+  const outer=await borderPoint(page,'Outer');
+  await page.mouse.click(outer.x,outer.y);
+  assert.equal((await state(page)).kind,'group');
+  assert.deepEqual((await state(page)).nodes,['B','C','D','E','Inner','Outer']);
+  await page.keyboard.press('Escape');
+  const inner=await borderPoint(page,'Inner');
+  await page.mouse.click(inner.x,inner.y);
+  assert.equal((await state(page)).kind,'group');
+  assert.deepEqual((await state(page)).nodes,['D','E','Inner','Outer']);
   assert.deepEqual(errors,[]);
 }));
 

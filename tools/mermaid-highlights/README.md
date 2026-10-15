@@ -49,7 +49,7 @@ The exporter renders with local Mermaid and headless Chromium, blocks render-tim
 
 ## Scope and limitations
 
-Supported: Mermaid flowcharts with resolvable node DOM IDs and edge IDs, curved and parallel connectors, explicit edge IDs, and HTML labels. Subgraphs can contain nodes; connectors whose endpoints are group IDs are rejected. Other Mermaid diagram types are rejected. Invisible connectors are excluded from interaction.
+Supported: Mermaid flowcharts with resolvable node DOM IDs and edge IDs, curved and parallel connectors, explicit edge IDs, and HTML labels. Subgraphs can contain nodes and nested subgraphs, and a connector may end at a subgraph. Tracing a node or connector keeps every enclosing subgraph frame visible. Tracing a subgraph keeps everything it contains at every depth, plus its own enclosing frames; connectors between its members stay faded. Containment comes from the `nodes` list of each subgraph in the model snapshot, because Mermaid draws a cluster beside its members rather than around them in the SVG tree. Other Mermaid diagram types are rejected. Invisible connectors are excluded from interaction.
 
 The adapter depends on Mermaid's flowchart database and rendered DOM structure; upgrades need verification. Attach again after rerendering or geometry changes. Export preserves the rendered diagram and highlights, but does not serialize application callbacks or Mermaid `bindFunctions` closures. The renderer uses strict security mode and a neutral theme. External resources are blocked. Source is limited to 256,000 bytes. This is a local tool, with no dependency installation or hosted rendering service.
 
@@ -61,7 +61,7 @@ With the three environment variables configured, run:
 node --test tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs
 ```
 
-There are nine tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, and pan/zoom geometry. Eight browser tests skip when Playwright module or Mermaid bundle paths are missing.
+There are fifteen tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, pan/zoom geometry, and subgraph containment. The thirteen browser tests skip when Playwright module or Mermaid bundle paths are missing. This file is not run by CI.
 
 Extracted from commit `bd78520a683e978f665219b8e0c87794c01328cf`, originally under `tools/pi-diagram-agent/`. Runtime environment variables and Symbol namespaces now belong to this independent tool. The generic runtime retains optional `sharedSections` support; the Mermaid adapter installs no shared sections. No static SVG exporter is required.
 

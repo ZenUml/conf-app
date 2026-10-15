@@ -37,10 +37,10 @@
       @click="onCopy"
     >
       <template v-if="state === 'copied'">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg :class="feedbackFadeClass" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="m5 12 5 5L20 7" />
         </svg>
-        <span>Copied — paste into Slack or email</span>
+        <span :class="feedbackFadeClass">Copied — paste into Slack or email</span>
       </template>
       <template v-else>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -54,7 +54,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { computed, ref, nextTick, watch } from 'vue'
+import { useTransientFlag } from '../../composables/useTransientFlag'
 
 const props = defineProps<{
   message: string
@@ -68,7 +69,15 @@ type State = 'default' | 'copied' | 'failed'
 const state = ref<State>('default')
 const fallbackTextareaRef = ref<HTMLTextAreaElement | null>(null)
 
-let revertTimer: ReturnType<typeof setTimeout> | null = null
+// Holds the "Copied" state for 2.5 s, then fades the label out before it reverts.
+const copiedFlag = useTransientFlag()
+watch(copiedFlag.active, (active) => {
+  if (!active && state.value === 'copied') state.value = 'default'
+})
+const feedbackFadeClass = computed(() => [
+  'transition-opacity duration-300 ease-out',
+  copiedFlag.fading.value ? 'opacity-0' : 'opacity-100',
+])
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -98,19 +107,13 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 async function onCopy() {
-  if (revertTimer) {
-    clearTimeout(revertTimer)
-    revertTimer = null
-  }
   const ok = await copyText(props.message)
   if (ok) {
     state.value = 'copied'
     emit('copied')
-    revertTimer = setTimeout(() => {
-      state.value = 'default'
-      revertTimer = null
-    }, 2000)
+    copiedFlag.trigger()
   } else {
+    copiedFlag.reset()
     state.value = 'failed'
     await nextTick()
     fallbackTextareaRef.value?.focus()

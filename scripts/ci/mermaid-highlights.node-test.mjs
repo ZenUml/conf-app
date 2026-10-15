@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, symlinkSync, unlinkSync, rmdirSync } from 'node:fs';
+import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -88,6 +89,23 @@ test('the runner command exits non-zero with the missing path, before any browse
   const result = spawnSync(process.execPath, [RUNNER], { env: childEnv({ MERMAID_HIGHLIGHTS_MERMAID_BUNDLE: '/nonexistent/mermaid.min.js' }), encoding: 'utf8' });
   assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
   assert.match(result.stderr, /\/nonexistent\/mermaid\.min\.js/);
+});
+
+// Node gives process.argv[1] as typed but import.meta.url as the real path, so a
+// plain comparison treats a run through a symlinked checkout as "imported" and
+// exits 0 without running a single test.
+test('the runner command still runs when the checkout is reached through a symlink', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'mermaid-highlights-'));
+  const link = path.join(dir, 'checkout');
+  symlinkSync(root, link, 'dir');
+  try {
+    const result = spawnSync(process.execPath, [path.join(link, 'scripts/ci/mermaid-highlights.mjs')], { env: childEnv({ MERMAID_HIGHLIGHTS_MERMAID_BUNDLE: '/nonexistent/mermaid.min.js' }), encoding: 'utf8' });
+    assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
+    assert.match(result.stderr, /\/nonexistent\/mermaid\.min\.js/);
+  } finally {
+    unlinkSync(link);
+    rmdirSync(dir);
+  }
 });
 
 test('a run only passes when every test ran and passed', async () => {

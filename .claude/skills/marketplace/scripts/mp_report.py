@@ -368,7 +368,7 @@ def cmd_radar(args, auth):
     lic = export("licenses", auth, addon=None)       # all vendor apps; scoped to payers below
     txs = export("sales/transactions", auth, addon=None)
     agg = aggregate_tx_by_app(txs)                   # keyed by (cloudId, addonKey) — no cross-app double count
-    incoming, missed, seen = [], [], set()
+    incoming, missed, in_grace, seen = [], [], [], set()
     for r in lic:
         cid = r.get("cloudId"); app_key = r.get("addonKey"); host = r.get("cloudSiteHostname") or ""
         if host.split(".")[0] in INTERNAL_HOSTS: continue
@@ -391,15 +391,26 @@ def cmd_radar(args, auth):
                 "entitlement": r.get("appEntitlementNumber"),
                 "app": APP_LABEL.get(app_key, app_key),
                 "billing": billing_of(a), "amount": amount, "tier": r.get("tier"), "flags": flags}
-        if today <= paid_thru <= fwd_end:
+        # Paid coverage ended but the license is still in its grace period: the renewal is
+        # pending, not missed. Listed regardless of the look-back window until grace closes
+        # (2026-10-17: an annual renewal in grace read as "2 days late, $911 at risk").
+        grace_until = pdate(r.get("maintenanceEndDate"))
+        if (paid_thru < today and r.get("inGracePeriod") == "Yes"
+                and grace_until and grace_until >= today):
+            in_grace.append({**base, "flags": ",".join(f for f in flags.split(",") if f != "grace") or "-",
+                             "paid_thru": str(paid_thru), "grace_until": str(grace_until),
+                             "days_left": (grace_until - today).days})
+        elif today <= paid_thru <= fwd_end:
             incoming.append({**base, "due": str(paid_thru)})
         elif back_start <= paid_thru < today:
             missed.append({**base, "paid_thru": str(paid_thru), "days_late": (today - paid_thru).days})
     incoming.sort(key=lambda x: (x["due"], -x["amount"]))
     missed.sort(key=lambda x: -x["amount"])
+    in_grace.sort(key=lambda x: (x["grace_until"], -x["amount"]))
     inc_total = round(sum(x["amount"] for x in incoming), 2)
     inc_at_risk = round(sum(x["amount"] for x in incoming if x["flags"] != "-"), 2)
     miss_total = round(sum(x["amount"] for x in missed), 2)
+    grace_total = round(sum(x["amount"] for x in in_grace), 2)
     # Evaluations (trials) are a conversion signal, NOT income ($0) — kept out of the totals
     # above and shown separately: trials about to expire (convert now) or that just lapsed.
     # `converted` = this (tenant, app) already has a paid transaction. Lite excluded (free).
@@ -427,6 +438,7 @@ def cmd_radar(args, auth):
                           "incoming": {"total": inc_total, "at_risk": inc_at_risk,
                                        "count": len(incoming), "rows": incoming},
                           "missed": {"total": miss_total, "count": len(missed), "rows": missed},
+                          "in_grace": {"total": grace_total, "count": len(in_grace), "rows": in_grace},
                           "evaluations": {"expiring": {"count": len(evals_soon), "rows": evals_soon},
                                           "expired": {"count": len(evals_expired), "rows": evals_expired}}},
                          indent=2, default=str))
@@ -437,6 +449,8 @@ def cmd_radar(args, auth):
     _print_table(incoming, ["due", "app", "billing", "amount", "flags", "tier", "company", "host", "entitlement"])
     print(f"\nMISSED (past {n}d): {len(missed)} renewals overdue, ~ ${miss_total:,.2f} at risk")
     _print_table(missed, ["paid_thru", "days_late", "app", "billing", "amount", "flags", "company", "host", "entitlement"])
+    print(f"\nIN GRACE: {len(in_grace)} renewals pending (paid coverage ended, license still active), ~ ${grace_total:,.2f}")
+    _print_table(in_grace, ["grace_until", "days_left", "paid_thru", "app", "billing", "amount", "flags", "company", "host", "entitlement"])
     print("\nnote: dates are customer-renewal timing (a proxy for income); Atlassian disburses on its")
     print("own monthly cycle. A lapse in the last 1-2 days may be settlement lag, not a true miss —")
     print("read the grace / no-payment-method flags.")

@@ -11,10 +11,10 @@
   </head>
   <body>
     <!-- The MCP Apps view (functions/agent-link/oauth/mcpApps.ts serves this
-         file's built output as the ui://zenuml/diagram resource body). It is a
-         normal Vite entry, so the hashed script reference below is written by
-         the build and always matches the bundle actually deployed. -->
+         file's built output as the ui://zenuml/diagram resource body). Built
+         by vite.mcp-app.config.mjs, not the app build, so the hashed script
+         reference below always matches the bundle actually deployed. -->
     <div id="app"></div>
-    <script type="module" src="/src/mcp-app-view.ts"></script>
+    <script type="module" src="../src/mcp-app-view.ts"></script>
   </body>
 </html>

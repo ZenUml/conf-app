@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION } from './mcp-app-view';
+import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION, PLANTUML_SVG_BASE } from './mcp-app-view';
+import { plantumlEncode } from '@/utils/plantuml/encode';
 
 describe('extractDiagram', () => {
   // The host decides which of these shapes it hands us, and the answer has
@@ -165,5 +166,46 @@ describe('the host handshake', () => {
     posted.length = 0;
     fire({ jsonrpc: '2.0', id, error: { code: -32000, message: 'nope' } });
     expect(posted.map((m) => m.method)).not.toContain('ui/notifications/initialized');
+  });
+});
+
+describe('drawing a PlantUML result', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="app"></div>';
+  });
+
+  it('draws the PlantUML server SVG for the encoded source', async () => {
+    const dsl = '@startuml\nAlice -> Bob: hi\n@enduml';
+    onHostMessage({
+      data: {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/tool-result',
+        params: { structuredContent: { diagramType: 'PlantUml', dsl, title: 'Greeting' } },
+      },
+    } as MessageEvent);
+
+    // The renderer is a dynamic import, so the <img> lands a tick later.
+    await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
+    const img = document.querySelector('#app img') as HTMLImageElement;
+    // Same server and encoding as the Confluence macro (PlantUml.vue), so the
+    // host shows what the page shows.
+    expect(img.getAttribute('src')).toBe(PLANTUML_SVG_BASE + plantumlEncode(dsl));
+    expect(img.alt).toBe('Greeting');
+  });
+
+  it('says so when the PlantUML server cannot be reached', async () => {
+    onHostMessage({
+      data: {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/tool-result',
+        params: { structuredContent: { diagramType: 'plantuml', dsl: '@startuml\n@enduml' } },
+      },
+    } as MessageEvent);
+
+    await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
+    (document.querySelector('#app img') as HTMLImageElement).onerror?.(new Event('error'));
+    await vi.waitFor(() =>
+      expect(document.querySelector('#app')?.textContent).toMatch(/PlantUML server did not answer/),
+    );
   });
 });

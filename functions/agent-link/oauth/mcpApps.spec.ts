@@ -105,19 +105,20 @@ describe('withUiMeta', () => {
   it('carries each deploy its own origin, so staging never advertises prod', () => {
     const [stg] = uiResourceList('https://conf-stg-lite.zenuml.com') as
       Array<{ _meta: { ui: { csp: { resourceDomains: string[] } } } }>;
-    expect(stg._meta.ui.csp.resourceDomains).toEqual(['https://conf-stg-lite.zenuml.com']);
+    expect(stg._meta.ui.csp.resourceDomains).toEqual(['https://conf-stg-lite.zenuml.com', 'https://www.plantuml.com']);
   });
 });
 
 describe('isRenderableType', () => {
   it('accepts the text-DSL family this view draws', () => {
-    expect([...RENDERABLE_TYPES].sort()).toEqual(['mermaid', 'sequence']);
+    expect([...RENDERABLE_TYPES].sort()).toEqual(['mermaid', 'plantuml', 'sequence']);
     expect(isRenderableType('sequence')).toBe(true);
     expect(isRenderableType('Mermaid')).toBe(true);
+    expect(isRenderableType('PlantUml')).toBe(true);
   });
 
   it('rejects the types that need a renderer this view does not bundle', () => {
-    for (const t of ['plantuml', 'graph', 'OpenAPI', 'AsyncAPI', 'embed', '', undefined, 42]) {
+    for (const t of ['graph', 'OpenAPI', 'AsyncAPI', 'embed', '', undefined, 42]) {
       expect(isRenderableType(t)).toBe(false);
     }
   });
@@ -204,11 +205,11 @@ describe('readUiResource', () => {
 
   it('reports fetch_failed when Pages answers with the SPA shell instead of the view', async () => {
     // Observed on staging 2026-09-29: the entry is not in the build, Pages
-    // answers /mcp-app-view.html with the app shell and a 200, and the host
+    // answers /mcp-app/view.html with the app shell and a 200, and the host
     // was handed the Forge app as the diagram view — reported as success.
     const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(SPA_SHELL));
     expect(res).toMatchObject({ ok: false, reason: 'fetch_failed' });
-    expect(res.ok === false && res.detail).toMatch(/mcp-app-view\.html/);
+    expect(res.ok === false && res.detail).toMatch(/mcp-app\/view\.html/);
   });
 
   it('refuses html that merely looks like a page — only the marker counts', async () => {
@@ -240,14 +241,14 @@ describe('readUiResource', () => {
 describe('csp placement', () => {
   it('puts the csp on the resources/list entry', () => {
     const [entry] = uiResourceList(ORIGIN) as Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }>;
-    expect(entry._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN]);
+    expect(entry._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN, 'https://www.plantuml.com']);
   });
 
   it('puts the csp on the resources/read contents, which is the one enforced', async () => {
     const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(VIEW_HTML));
     expect(res.ok).toBe(true);
     const contents = (res as { contents: Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }> }).contents;
-    expect(contents[0]._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN]);
+    expect(contents[0]._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN, 'https://www.plantuml.com']);
     expect(contents[0]._meta?.ui?.csp?.baseUriDomains).toEqual([ORIGIN]);
   });
 

@@ -40,6 +40,14 @@ function host(): Window | null {
 
 type Json = Record<string, unknown>;
 
+/**
+ * The public PlantUML server the Confluence app already draws with
+ * (PlantUml.vue). PlantUML has no browser renderer, so the diagram is an <img>
+ * of the server's SVG; `www.plantuml.com` is in the resource csp for exactly
+ * this (mcpApps.ts uiCsp).
+ */
+export const PLANTUML_SVG_BASE = 'https://www.plantuml.com/plantuml/svg/';
+
 /** Diagram payload, once we have found it in whatever shape the host delivered. */
 interface DiagramPayload {
   diagramType: string;
@@ -172,6 +180,22 @@ async function render(payload: DiagramPayload): Promise<void> {
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
       const { svg } = await mermaid.render(`zen-mcp-${Date.now()}`, payload.dsl);
       el.innerHTML = svg;
+    } else if (type === 'plantuml') {
+      const { plantumlEncode } = await import('@/utils/plantuml/encode');
+      const img = document.createElement('img');
+      img.alt = payload.title ?? 'PlantUML diagram';
+      img.style.maxWidth = '100%';
+      // The frame's height is only right once the image has a size, and a
+      // syntax error still answers with an SVG (PlantUML draws the error), so
+      // `error` here means the server itself was unreachable.
+      const loaded = new Promise<void>((resolveLoad, rejectLoad) => {
+        img.onload = () => resolveLoad();
+        img.onerror = () => rejectLoad(new Error('the PlantUML server did not answer'));
+      });
+      img.src = PLANTUML_SVG_BASE + plantumlEncode(payload.dsl);
+      el.innerHTML = '';
+      el.appendChild(img);
+      await loaded;
     } else if (type === 'sequence') {
       const { default: ZenUml } = await import('@zenuml/core');
       el.innerHTML = '';
@@ -182,8 +206,8 @@ async function render(payload: DiagramPayload): Promise<void> {
       // iframe) — this frame does not scroll and has no per-diagram theme.
       await zenuml.render(payload.dsl, { theme: 'theme-default', stickyOffset: false });
     } else {
-      // Only the text-DSL family is wired up; anything else would render blank,
-      // and saying so beats an empty frame.
+      // Only the text-DSL family (Sequence, Mermaid, PlantUML) is wired up;
+      // anything else would render blank, and saying so beats an empty frame.
       status(`This view cannot draw a ${payload.diagramType} diagram yet.`);
       return;
     }

@@ -22,8 +22,8 @@
 // WHY THE VIEW IS FETCHED RATHER THAN INLINED. The renderers are big —
 // mermaid's own minified bundle is 2.9 MB, @zenuml/core's is 3.4 MB — so
 // inlining one into every `resources/read` response would ship megabytes per
-// call. Instead the view is an ordinary Vite entry (`mcp-app-view.html`) built
-// into the Pages deploy, and this module serves THAT html as the ui:// body.
+// call. Instead the view is built on its own (`vite.mcp-app.config.mjs`) into
+// the Pages deploy, and this module serves THAT html as the ui:// body.
 // The html already references its own hashed script, so the resource and the
 // bundle can never drift apart; the alternative (hardcoding an asset URL here)
 // breaks on the next build. `_meta.ui.csp` is what lets the iframe load it:
@@ -41,22 +41,20 @@ export const DIAGRAM_VIEW_URI = 'ui://zenuml/diagram';
 /**
  * Path of the built view inside the Pages deploy.
  *
- * `mcp-app-view.html` is a root Vite entry, so the build emits this file and the
- * hashed script reference inside it always matches the bundle deployed next to
- * it. Nothing here hardcodes an asset URL, which is why a rebuild cannot
- * silently break the view.
+ * `mcp-app/view.html` is built by its own config (`vite.mcp-app.config.mjs`,
+ * run by every `build:*` script after the app build), so the hashed script
+ * references inside it always match the bundles deployed next to it. Nothing
+ * here hardcodes an asset URL, which is why a rebuild cannot silently break
+ * the view.
  *
- * Watch the file count. `resources: path: dist/` in manifest.yml uploads the
- * whole directory as ONE Forge resource, and Forge caps a resource at 5000
- * files. Adding this entry the first time broke `Deploy: Lite` with
- * `Each resource can only have up to 5000 files` — and not because of the
- * view's own weight: adding any root entry makes Rollup re-split the whole
- * build, so the extra files were mostly the app's own chunks re-hashed. Forge
- * reports only the limit, never the actual count, so if that failure returns the
- * number has to come from a CI build; a local `build:lite` has measured well
- * under the cap while CI was over it, and the discrepancy is unexplained.
+ * Why its own build: `resources: path: dist/` in manifest.yml uploads the
+ * whole directory as ONE Forge resource, capped at 5000 files. As a root entry
+ * of the app build, the view broke `Deploy: Lite` with `Each resource can only
+ * have up to 5000 files` — not by its own weight, but because any root entry
+ * makes Rollup re-split the whole app. Built separately it adds seven files
+ * under dist/mcp-app/ and leaves the app's chunks alone.
  */
-export const DIAGRAM_VIEW_ASSET_PATH = '/mcp-app-view.html';
+export const DIAGRAM_VIEW_ASSET_PATH = '/mcp-app/view.html';
 
 /**
  * What proves the fetched html is the view and not something else.
@@ -81,12 +79,22 @@ export const VIEW_TOOLS: readonly string[] = ['read_diagram', 'update_diagram', 
 /**
  * Diagram types this view can draw.
  *
- * The text-DSL family that already shares one macro and one custom-content
- * type. PlantUML needs a server-side render, Graph is DrawIO XML, and
+ * The text-DSL family that shares one macro and one custom-content type.
+ * PlantUML is drawn by the public PlantUML server, as the Confluence app
+ * already does (see PLANTUML_ORIGIN). Graph is DrawIO XML, and
  * OpenAPI/AsyncAPI would pull in swagger-ui or @asyncapi/react-component —
  * each is its own decision, not a line in a list.
  */
-export const RENDERABLE_TYPES: readonly string[] = ['sequence', 'mermaid'];
+export const RENDERABLE_TYPES: readonly string[] = ['sequence', 'mermaid', 'plantuml'];
+
+/**
+ * Where a PlantUML diagram's SVG comes from: the view draws it as an <img>.
+ *
+ * Not a new recipient of diagram source — the Confluence app's PlantUML macro
+ * sends the same encoded source to the same server on every render, and
+ * manifest.yml already declares it as an egress.
+ */
+export const PLANTUML_ORIGIN = 'https://www.plantuml.com';
 
 export function isRenderableType(diagramType: unknown): boolean {
   return typeof diagramType === 'string' && RENDERABLE_TYPES.includes(diagramType.toLowerCase());
@@ -119,7 +127,9 @@ export function uiCapability(): Record<string, unknown> {
  */
 export function uiCsp(origin: string): Record<string, unknown> {
   return {
-    resourceDomains: [origin],
+    // PLANTUML_ORIGIN is img-src only in practice: the view loads no script
+    // from it, but the spec has one list for every resource type.
+    resourceDomains: [origin, PLANTUML_ORIGIN],
     baseUriDomains: [origin],
     connectDomains: [],
     frameDomains: [],
@@ -154,7 +164,7 @@ export function uiResourceList(origin: string): Array<Record<string, unknown>> {
     {
       uri: DIAGRAM_VIEW_URI,
       name: 'ZenUML diagram view',
-      description: 'Renders a sequence or Mermaid diagram from a tool result.',
+      description: 'Renders a ZenUML sequence, Mermaid or PlantUML diagram from a tool result.',
       mimeType: UI_MIME_TYPE,
       _meta: uiResourceMeta(origin),
     },
@@ -231,7 +241,7 @@ export async function readUiResource(
     return {
       ok: false,
       reason: 'fetch_failed',
-      detail: `asset did not carry ${VIEW_MARKER} — is mcp-app-view.html in the build, or did the SPA fallback answer?`,
+      detail: `asset did not carry ${VIEW_MARKER} — is mcp-app/view.html in the build (build:mcp-app), or did the SPA fallback answer?`,
     };
   }
 

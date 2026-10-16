@@ -57,6 +57,24 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
     window.mxUtils = { parseXml: vi.fn(() => ({ documentElement: {} })) };
   });
 
+  it('fits Graph axes from the current scaled bounds and centres the same graph', () => {
+    const scaleAndTranslate = vi.fn();
+    // @ts-ignore — GraphViewer global
+    window.GraphViewer = vi.fn(() => ({ diagrams: [], graph: {
+      getGraphBounds: () => ({ x: 60, y: 80, width: 1000, height: 400 }),
+      view: { scale: 2, translate: { x: 10, y: 20 }, scaleAndTranslate },
+    } }));
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    const container = wrapper.get('.graph-viewer-canvas').element;
+    Object.defineProperties(container, {
+      clientWidth: { value: 800 }, clientHeight: { value: 300 },
+    });
+    wrapper.vm.fitAxis('height');
+    expect(scaleAndTranslate).toHaveBeenLastCalledWith(1.5, expect.closeTo(-3.333333, 4), -20);
+    wrapper.vm.fitAxis('width');
+    expect(scaleAndTranslate).toHaveBeenLastCalledWith(1.6, -20, -26.25);
+  });
+
   it('fires viewer_load_failed AND does not fire macro_viewed when GraphViewer construction throws — audit §4: neither used to fire', async () => {
     // @ts-ignore
     window.GraphViewer = vi.fn(() => {

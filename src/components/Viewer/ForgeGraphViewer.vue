@@ -17,6 +17,8 @@
           label="Graph"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
+          @fit-height="fitAxis('height')"
+          @fit-width="fitAxis('width')"
         />
         <ViewportZoomHint v-if="showZoomControls" ref="zoomHint" macro-type="graph" />
       </div>
@@ -214,6 +216,25 @@ export default {
     },
     zoomOut() {
       this.graphViewer?.graph?.zoomOut();
+      this.updateCaptureBox();
+    },
+    fitAxis(axis) {
+      const graph = this.graphViewer?.graph;
+      const container = this.$refs.graphContainer;
+      const bounds = graph?.getGraphBounds?.();
+      const view = graph?.view;
+      if (!container || !view || !bounds || !(view.scale > 0)) return;
+      const width = bounds.width / view.scale;
+      const height = bounds.height / view.scale;
+      const available = axis === 'width' ? container.clientWidth : container.clientHeight;
+      const extent = axis === 'width' ? width : height;
+      if (!(extent > 0) || !(available > 0)) return;
+      const x = bounds.x / view.scale - view.translate.x;
+      const y = bounds.y / view.scale - view.translate.y;
+      const scale = available / extent;
+      view.scaleAndTranslate(scale,
+        (container.clientWidth / scale - width) / 2 - x,
+        (container.clientHeight / scale - height) / 2 - y);
       this.updateCaptureBox();
     },
     /**

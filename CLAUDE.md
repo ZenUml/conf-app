@@ -220,7 +220,7 @@ So when checking a PR before merge:
 
 ### Release order — diagramly → lite → full
 
-Production releases go **Diagramly first** (canary), then **Lite** for the same commit SHA, then **Full** no sooner than 7 days after Lite; AsyncAPI is independent. Never offer Lite or Full as the first release step. Gates and scripts: the **release-app** skill, "Variants & gates".
+Production releases go **Diagramly first** (canary), then **Lite** for the same commit SHA, then **Full** no sooner than 24 hours after Lite; AsyncAPI is independent. Never offer Lite or Full as the first release step. Gates and scripts: the **release-app** skill, "Variants & gates".
 
 ### Release pipeline time budget
 

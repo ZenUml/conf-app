@@ -90,8 +90,8 @@ describe('viewerHeaderLayout', () => {
       const s0 = controlsWidth(mcp, 0, measureLabel)
       const s1 = controlsWidth(mcp, 1, measureLabel)
       // Labelled: 8px padding + 1px border each side, 16px icon, 6px gap and
-      // 'Connect MCP' (11 glyphs at 7px), against a 28px icon-only button.
-      expect(s0 - s1).toBe(40 + 11 * 7 - 28)
+      // 'MCP' (3 glyphs at 7px), against a 28px icon-only button.
+      expect(s0 - s1).toBe(40 + 3 * 7 - 28)
       // Icon-only it is a 28px button 6px from Source, not Copy for AI's
       // 2px-joined split with its 18px chevron.
       const copy = { ...mcp, connectMcp: false }

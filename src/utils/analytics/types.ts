@@ -29,6 +29,8 @@ import type {
   AgentLinkOAuthTokenRefreshOutcome,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
+  AgentLinkMcpButtonPlacement,
+  AgentLinkMcpButtonReveal,
   AgentLinkMcpCopyTarget,
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
@@ -683,7 +685,8 @@ export type AnalyticsProperties = {
   // (mermaid_highlight_preference_changed only).
   action_location?: 'header_more_menu' | 'fullscreen_header' | 'canvas_hint';
   // viewer_more_menu_opened: the inline header's collapse stage when the More
-  // menu opened. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
+  // menu opened, and agent_link_mcp_button_shown: the stage when the button
+  // was shown. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
   // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.
   header_stage?: 0 | 1 | 2 | 3;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
@@ -960,6 +963,11 @@ export type AnalyticsProperties = {
   // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
   mcp_mode?: AgentLinkMcpMode;
   mcp_copy_target?: AgentLinkMcpCopyTarget;
+  // agent_link_mcp_button_shown (and `mcp_button_reveal` on _dialog_opened):
+  // where the button sat and whether it was visible at rest. Inline shown
+  // events also carry `header_stage`.
+  mcp_button_placement?: AgentLinkMcpButtonPlacement;
+  mcp_button_reveal?: AgentLinkMcpButtonReveal;
   // AA — headless MCP tool usage (agent_link_mcp_tool_called /
   // _initialized). `mcp_tool` is the tool name from the server's own list
   // ('unknown' for anything else); `mcp_tool_outcome` is how the call ended;

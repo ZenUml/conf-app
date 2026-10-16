@@ -3220,7 +3220,12 @@ describe('GenericViewer (chrome-less)', () => {
   // Flag resolution is async (mounted()), so every assertion here awaits
   // flushPromises() after mount to let that promise settle before asserting.
   describe('Connect MCP (headless only)', () => {
+    beforeEach(() => { localStorage.clear() })
     afterEach(() => { delete (window as any).forgeGlobal })
+    // agent_link_mcp_button_shown waits for the header layout (two frames).
+    const settleLayout = () => new Promise(r => setTimeout(r, 50))
+    const shownCalls = () => vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([name]) => name === 'agent_link_mcp_button_shown')
 
     it('keeps Copy for AI and shows no Connect MCP when the flag resolves false (default)', async () => {
       const wrapper = mountViewer()
@@ -3236,11 +3241,10 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
-      // Inline it is icon-only (CSS hides the label outside fullscreen), with
-      // Copy for AI's sparkles; the accessible name carries the label.
+      // Labelled at stage 0 (CSS drops the label from stage 1), and drawn
+      // with the MCP mark, not Copy for AI's sparkles.
       expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
-      // Same sparkles path the Copy for AI button draws.
-      expect(btn.find('svg path').attributes('d')).toMatch(/^M9\.813 15\.904/)
+      expect(btn.find('svg path').attributes('d')).toMatch(/^M2\.05 11\.25/)
       expect(btn.attributes('aria-label')).toBe('Connect MCP')
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
@@ -3326,6 +3330,63 @@ describe('GenericViewer (chrome-less)', () => {
         'agent_link_mcp_dialog_opened',
         expect.objectContaining({ feature_area: 'agent_link', surface: 'fullscreen', mcp_mode: 'headless' })
       )
+    })
+
+    it('stays visible at rest for a viewer who has not opened it yet', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').classes()).toContain('viewer-act-connect-mcp--discover')
+    })
+
+    it('reveals on hover only once the viewer has opened the dialog', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const first = mountViewer()
+      await flushPromises()
+      await first.find('[data-testid="connect-mcp-btn"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ mcp_button_reveal: 'always' })
+      )
+      first.unmount()
+
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const second = mountViewer()
+      await flushPromises()
+      expect(second.find('[data-testid="connect-mcp-btn"]').classes()).not.toContain('viewer-act-connect-mcp--discover')
+    })
+
+    it('reports agent_link_mcp_button_shown once per viewer per day, not per macro', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toEqual([[
+        'agent_link_mcp_button_shown',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+          mcp_mode: 'headless',
+          mcp_button_placement: 'toolbar',
+          mcp_button_reveal: 'always',
+          header_stage: 0,
+        }),
+      ]])
+
+      // A second macro on the same page (same storage) stays quiet.
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toHaveLength(1)
+    })
+
+    it('does not report agent_link_mcp_button_shown when the flag is off', async () => {
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toHaveLength(0)
     })
 
     it('does not try to reattach a relay session on mount', async () => {

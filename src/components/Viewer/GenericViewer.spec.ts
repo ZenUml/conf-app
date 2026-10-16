@@ -3220,10 +3220,20 @@ describe('GenericViewer (chrome-less)', () => {
   // Flag resolution is async (mounted()), so every assertion here awaits
   // flushPromises() after mount to let that promise settle before asserting.
   describe('Connect MCP (headless only)', () => {
-    beforeEach(() => { localStorage.clear() })
-    afterEach(() => { delete (window as any).forgeGlobal })
-    // agent_link_mcp_button_shown waits for the header layout (two frames).
-    const settleLayout = () => new Promise(r => setTimeout(r, 50))
+    // agent_link_mcp_button_shown waits two animation frames for the header
+    // layout. Run frames synchronously here so each viewer reports inside its
+    // own test: with real frames, a viewer an earlier test left mounted could
+    // report after the next test cleared the mocks and the per-day dedupe.
+    let rafSpy: ReturnType<typeof vi.spyOn>
+    beforeEach(() => {
+      localStorage.clear()
+      rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => { cb(0); return 0 })
+    })
+    afterEach(() => {
+      rafSpy.mockRestore()
+      delete (window as any).forgeGlobal
+    })
+    const settleLayout = () => flushPromises()
     const shownCalls = () => vi.mocked(trackAnalyticsEvent).mock.calls
       .filter(([name]) => name === 'agent_link_mcp_button_shown')
 

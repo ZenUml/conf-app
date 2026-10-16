@@ -765,6 +765,9 @@ export default {
     connectMcpDiscovery: null,
     connectMcpReveal: null,
     connectMcpShownTracked: false,
+    // Set on unmount so a shown event still waiting for the header layout
+    // is dropped instead of reporting a viewer that no longer exists.
+    connectMcpUnmounted: false,
     connectMcpOpenedAt: 0,
     // Set once isAgentLinkEnabled() settles either way (see copyForAiSlotSettled).
     agentLinkFlagResolved: false,
@@ -1313,7 +1316,8 @@ export default {
       this.connectMcpShownTracked = true;
       const raf = window.requestAnimationFrame?.bind(window) ?? (cb => setTimeout(cb, 16));
       this.$nextTick(() => raf(() => raf(() => {
-        if (!this.connectMcpShownEligible || !this.connectMcpDiscovery?.recordShown()) return;
+        if (this.connectMcpUnmounted || !this.connectMcpShownEligible) return;
+        if (!this.connectMcpDiscovery?.recordShown()) return;
         trackAnalyticsEvent('agent_link_mcp_button_shown', this.connectMcpAnalytics({
           mcp_button_placement: this.connectMcpPlacement,
           mcp_button_reveal: this.connectMcpEffectiveReveal,
@@ -1577,6 +1581,7 @@ export default {
     }
   },
   beforeUnmount() {
+    this.connectMcpUnmounted = true;
     this.headerResizeObserver?.disconnect();
     this.headerResizeObserver = null;
     if (this.magicThanksTimer) {

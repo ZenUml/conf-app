@@ -280,15 +280,15 @@
               <!-- Connect MCP (agent-link flag on, agent-editable types) takes
                    the Copy for AI slot, inline and in fullscreen, and opens
                    ConnectMcpDialog with the headless MCP setup and a prompt
-                   naming this diagram. Inline it is labelled at stage 0,
-                   icon-only from stage 1, and stage 3 moves it into More;
-                   during first-use discovery it stays visible at rest
-                   (connectMcpDiscovery.ts). Fullscreen always labels it. -->
+                   naming this diagram. Inline it is labelled "MCP" at stage 0,
+                   icon-only from stage 1, and stage 3 moves it into More; it
+                   reveals on hover like the rest of the header. Fullscreen
+                   always labels it. Tooltip and accessible name say
+                   "Connect MCP". -->
               <button
                 v-if="showAgentLinkConnect"
                 type="button"
                 class="viewer-btn-ghost viewer-act-connect-mcp"
-                :class="{ 'viewer-act-connect-mcp--discover': connectMcpReveal === 'always' }"
                 aria-label="Connect MCP"
                 title="Connect MCP"
                 data-testid="connect-mcp-btn"
@@ -299,7 +299,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
                 </svg>
-                <span class="viewer-btn-label">Connect MCP</span>
+                <span class="viewer-btn-label">MCP</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
               <!-- Fullscreen: the actions the inline macro keeps in More are
@@ -630,7 +630,7 @@ import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
 import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
-import { createConnectMcpDiscovery } from '@/composables/agentLink/connectMcpDiscovery'
+import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -760,10 +760,9 @@ export default {
     copyForAiImpressionTracked: false,
     // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
     showConnectMcpDialog: false,
-    // First-use discovery (connectMcpDiscovery.ts): 'always' keeps the inline
-    // button visible at rest; null until the flag resolves on.
-    connectMcpDiscovery: null,
-    connectMcpReveal: null,
+    // Per-viewer daily dedupe for agent_link_mcp_button_shown
+    // (connectMcpShown.ts); null until the flag resolves on.
+    connectMcpShownRecord: null,
     connectMcpShownTracked: false,
     // Set on unmount so a shown event still waiting for the header layout
     // is dropped instead of reporting a viewer that no longer exists.
@@ -1051,7 +1050,7 @@ export default {
     // agent_link_mcp_button_shown: the button is rendered for a viewer.
     connectMcpShownEligible() {
       return this.showAgentLinkConnect
-        && this.connectMcpDiscovery !== null
+        && this.connectMcpShownRecord !== null
         && this.isDisplayMode
         && !this.hideHeader
         && !this.isLoadFailed;
@@ -1060,10 +1059,9 @@ export default {
     connectMcpPlacement() {
       return !this.isFullscreenMode && this.headerStage >= 3 ? 'more_menu' : 'toolbar';
     },
+    // Fullscreen headers are always visible; inline ones reveal on hover.
     connectMcpEffectiveReveal() {
-      if (this.isFullscreenMode) return 'always';
-      if (this.connectMcpPlacement === 'more_menu') return 'hover';
-      return this.connectMcpReveal ?? 'hover';
+      return this.isFullscreenMode ? 'always' : 'hover';
     },
     copyForAiImpressionEligible() {
       return this.copyForAiPermissionResolved
@@ -1308,7 +1306,7 @@ export default {
     'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
-    // Fires once per viewer per UTC day (the discovery record dedupes across
+    // Fires once per viewer per UTC day (the shown record dedupes across
     // every macro), after the header layout has settled so `header_stage` and
     // the placement are the ones the viewer actually sees.
     connectMcpShownEligible(eligible) {
@@ -1317,7 +1315,7 @@ export default {
       const raf = window.requestAnimationFrame?.bind(window) ?? (cb => setTimeout(cb, 16));
       this.$nextTick(() => raf(() => raf(() => {
         if (this.connectMcpUnmounted || !this.connectMcpShownEligible) return;
-        if (!this.connectMcpDiscovery?.recordShown()) return;
+        if (!this.connectMcpShownRecord?.recordShown()) return;
         trackAnalyticsEvent('agent_link_mcp_button_shown', this.connectMcpAnalytics({
           mcp_button_placement: this.connectMcpPlacement,
           mcp_button_reveal: this.connectMcpEffectiveReveal,
@@ -1468,11 +1466,10 @@ export default {
       this.agentLinkFeatureEnabled = false;
     } finally {
       if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
-        this.connectMcpDiscovery = createConnectMcpDiscovery({
+        this.connectMcpShownRecord = createConnectMcpShownRecord({
           cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
           accountId: this.currentAccountId,
         });
-        this.connectMcpReveal = this.connectMcpDiscovery.reveal();
       }
       this.agentLinkFlagResolved = true;
     }
@@ -2360,7 +2357,6 @@ export default {
         mcp_button_reveal: this.connectMcpEffectiveReveal,
         ...(where === 'header_more_menu' ? { action_location: where } : {}),
       }));
-      this.connectMcpDiscovery?.recordOpened();
     },
     closeConnectMcpDialog() {
       if (!this.showConnectMcpDialog) return;
@@ -3291,10 +3287,10 @@ export default {
 }
 /* Inline reveal, per control: hidden until hover, keyboard focus inside the
    macro, or an open header menu (headerRevealed). Create (a discovery
-   affordance), the page navigation, a pressed Refined toggle and Connect MCP
-   during its first-use discovery window stay visible at rest. Opacity only — a hidden control still takes focus, which reveals. */
+   affordance), the page navigation and a pressed Refined toggle stay visible
+   at rest. Opacity only — a hidden control still takes focus, which reveals. */
 .viewer-top-actions > * { transition: opacity 200ms ease; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed):not(.viewer-act-connect-mcp--discover) {
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed) {
   opacity: 0;
 }
 /* Inline order (prototype), in DOM order so Tab follows what is seen:

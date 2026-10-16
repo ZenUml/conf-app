@@ -1600,9 +1600,8 @@ export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
 // or the More (⋯) menu, where header collapse stage 3 moves it.
 export type AgentLinkMcpButtonPlacement = "toolbar" | "more_menu";
 
-// How the button showed: 'always' = visible at rest (the first-use discovery
-// window, see connectMcpDiscovery.ts); 'hover' = only on hover or focus, like
-// the other inline header actions. Fullscreen headers are always visible.
+// How the button showed: 'hover' = only on hover or focus, like the other
+// inline header actions; 'always' = visible at rest (Fullscreen headers).
 export type AgentLinkMcpButtonReveal = "always" | "hover";
 
 // How a Connect MCP dialog connects the agent: 'headless' = the agent signs

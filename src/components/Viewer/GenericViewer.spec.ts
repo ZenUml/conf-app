@@ -3253,7 +3253,7 @@ describe('GenericViewer (chrome-less)', () => {
       expect(btn.exists()).toBe(true)
       // Labelled at stage 0 (CSS drops the label from stage 1), and drawn
       // with the MCP mark, not Copy for AI's sparkles.
-      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
+      expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
       expect(btn.find('svg path').attributes('d')).toMatch(/^M2\.05 11\.25/)
       expect(btn.attributes('aria-label')).toBe('Connect MCP')
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
@@ -3328,7 +3328,7 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
-      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
+      expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
 
@@ -3342,28 +3342,15 @@ describe('GenericViewer (chrome-less)', () => {
       )
     })
 
-    it('stays visible at rest for a viewer who has not opened it yet', async () => {
+    it('reveals on hover like the rest of the inline header, also before it is opened', async () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
-      expect(wrapper.find('[data-testid="connect-mcp-btn"]').classes()).toContain('viewer-act-connect-mcp--discover')
-    })
-
-    it('reveals on hover only once the viewer has opened the dialog', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const first = mountViewer()
-      await flushPromises()
-      await first.find('[data-testid="connect-mcp-btn"]').trigger('click')
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_mcp_dialog_opened',
-        expect.objectContaining({ mcp_button_reveal: 'always' })
+        expect.objectContaining({ surface: 'viewer', mcp_button_reveal: 'hover' })
       )
-      first.unmount()
-
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const second = mountViewer()
-      await flushPromises()
-      expect(second.find('[data-testid="connect-mcp-btn"]').classes()).not.toContain('viewer-act-connect-mcp--discover')
     })
 
     it('reports agent_link_mcp_button_shown once per viewer per day, not per macro', async () => {
@@ -3379,7 +3366,7 @@ describe('GenericViewer (chrome-less)', () => {
           macro_type: DiagramType.Sequence,
           mcp_mode: 'headless',
           mcp_button_placement: 'toolbar',
-          mcp_button_reveal: 'always',
+          mcp_button_reveal: 'hover',
           header_stage: 0,
         }),
       ]])

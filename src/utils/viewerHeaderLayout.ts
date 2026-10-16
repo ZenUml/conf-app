@@ -74,9 +74,9 @@ export function controlsWidth(model: HeaderModel, stage: HeaderStage, measureLab
   const toolbar: number[] = []
   if (model.hasSource && stage < 3) {
     if (model.connectMcp) {
-      // Source icon, then Connect MCP: labelled at stage 0 (8px padding +
-      // 1px border each side, 16px icon, 6px gap, label), icon-only after.
-      toolbar.push(ICON, stage < 1 ? 40 + measureLabel('Connect MCP', 13) : ICON, SEPARATOR)
+      // Source icon, then Connect MCP: labelled "MCP" at stage 0 (8px padding
+      // + 1px border each side, 16px icon, 6px gap, label), icon-only after.
+      toolbar.push(ICON, stage < 1 ? 40 + measureLabel('MCP', 13) : ICON, SEPARATOR)
     } else {
       // Source icon, 2px, Copy for AI split (28px icon + 18px chevron), separator.
       toolbar.push(ICON + 2 + ICON + 18, SEPARATOR)

@@ -237,10 +237,10 @@ describe('headless RPC', () => {
     const served = body.result.contents[0];
     expect(served.uri).toBe('ui://zenuml/diagram');
     expect(served.mimeType).toBe('text/html;profile=mcp-app');
-    // The base is what makes the built bundle's relative src resolve against us
-    // instead of the host's frame, where it would silently fetch nothing.
-    expect(served.text).toContain(`<base href="${new URL(MCP).origin}/">`);
-    expect(served.text).toContain('src="./assets/v.js"');
+    // The asset URL is made absolute on our origin. A <base> would do it in
+    // principle, but claude.ai's sandbox refuses one (mcpApps.ts).
+    expect(served.text).toContain(`src="${new URL(MCP).origin}/mcp-app/assets/v.js"`);
+    expect(served.text).not.toMatch(/<base\s/i);
   });
 
   it('rejects a resources/read for a URI it does not publish', async () => {

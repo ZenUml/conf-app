@@ -14,7 +14,7 @@ import {
   uiResourceList,
   uiResourceMeta,
   readUiResource,
-  withAbsoluteBase,
+  withAbsoluteAssetUrls,
 } from './mcpApps';
 
 const ORIGIN = 'https://zenapi.zenuml.com';
@@ -124,44 +124,39 @@ describe('isRenderableType', () => {
   });
 });
 
-describe('withAbsoluteBase', () => {
-  // Regression for the bug the first build surfaced: Vite writes relative asset
-  // URLs, and inside the host's sandboxed frame those resolve against the frame,
-  // not us — fetching nothing, silently, because the sandbox is default-src 'none'.
-  it('inserts a base pointing at our origin, right after <head>', () => {
-    const html = '<!doctype html><html><head><title>x</title></head><body></body></html>';
-    expect(withAbsoluteBase(html, ORIGIN)).toBe(
-      `<!doctype html><html><head><base href="${ORIGIN}/"><title>x</title></head><body></body></html>`,
-    );
-  });
+describe('withAbsoluteAssetUrls', () => {
+  const VIEW_URL = `${ORIGIN}${DIAGRAM_VIEW_ASSET_PATH}`;
 
-  it('makes the real built markup resolve against our origin', () => {
+  // Regression for claude.ai, 2026-10-16: an injected <base> is refused by its
+  // sandbox's own base-uri directive, so every relative asset resolved against
+  // *.claudemcpcontent.com and no view code ran. The URLs themselves must be
+  // absolute.
+  it('makes the real built markup absolute on our origin, with no <base>', () => {
     const built = '<!doctype html><html lang="en"><head><meta charset="utf-8" />'
-      + '<script type="module" crossorigin src="./assets/mcp-app-view-mfuxWIL2.js"></script>'
+      + '<script type="module" crossorigin src="./assets/view-CWgFJfD1.js"></script>'
+      + '<link rel="modulepreload" crossorigin href="./assets/runtime-C4mxaqyl.js">'
       + '</head><body><div id="app"></div></body></html>';
-    const out = withAbsoluteBase(built, ORIGIN);
-    expect(out).toContain(`<base href="${ORIGIN}/">`);
-    // The relative src is deliberately left alone — the base is what resolves it.
-    expect(out).toContain('src="./assets/mcp-app-view-mfuxWIL2.js"');
-    expect(out.indexOf('<base')).toBeLessThan(out.indexOf('<script'));
+    const out = withAbsoluteAssetUrls(built, VIEW_URL);
+    expect(out).toContain(`src="${ORIGIN}/mcp-app/assets/view-CWgFJfD1.js"`);
+    expect(out).toContain(`href="${ORIGIN}/mcp-app/assets/runtime-C4mxaqyl.js"`);
+    expect(out).not.toMatch(/<base\s/i);
   });
 
-  it('leaves an existing base alone rather than fighting it', () => {
-    const html = '<html><head><base href="https://example.com/"></head></html>';
-    expect(withAbsoluteBase(html, ORIGIN)).toBe(html);
+  it('resolves root-relative references against our origin too', () => {
+    expect(withAbsoluteAssetUrls('<script src="/mcp-app/assets/a.js"></script>', VIEW_URL))
+      .toBe(`<script src="${ORIGIN}/mcp-app/assets/a.js"></script>`);
   });
 
-  it('still resolves a fragment with no head', () => {
-    const out = withAbsoluteBase('<div id="app"></div><script src="./a.js"></script>', ORIGIN);
-    expect(out.startsWith(`<base href="${ORIGIN}/">`)).toBe(true);
+  it('leaves absolute, protocol-relative, data and fragment URLs alone', () => {
+    const html = '<img src="https://www.plantuml.com/x"><a href="#top"></a>'
+      + '<img src="data:image/png;base64,AA"><script src="//cdn.example.com/a.js"></script>';
+    expect(withAbsoluteAssetUrls(html, VIEW_URL)).toBe(html);
   });
 
-  it('allows the base in the CSP, or the tag is refused', () => {
-    const csp = uiCsp(ORIGIN) as { baseUriDomains: string[] };
-    expect(csp.baseUriDomains).toEqual([ORIGIN]);
+  it('declares no base-uri allowance, since there is no <base> to allow', () => {
+    expect(uiCsp(ORIGIN)).not.toHaveProperty('baseUriDomains');
   });
 });
-
 describe('readUiResource', () => {
   it('serves the built view as the resource body', async () => {
     const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(VIEW_HTML));
@@ -169,7 +164,7 @@ describe('readUiResource', () => {
     expect(res.ok && res.contents[0]).toEqual({
       uri: DIAGRAM_VIEW_URI,
       mimeType: UI_MIME_TYPE,
-      text: withAbsoluteBase(VIEW_HTML, ORIGIN),
+      text: withAbsoluteAssetUrls(VIEW_HTML, `${ORIGIN}${DIAGRAM_VIEW_ASSET_PATH}`),
       _meta: uiResourceMeta(ORIGIN),
     });
   });
@@ -249,7 +244,6 @@ describe('csp placement', () => {
     expect(res.ok).toBe(true);
     const contents = (res as { contents: Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }> }).contents;
     expect(contents[0]._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN, 'https://www.plantuml.com']);
-    expect(contents[0]._meta?.ui?.csp?.baseUriDomains).toEqual([ORIGIN]);
   });
 
   it('keeps the tool meta to the association only', () => {

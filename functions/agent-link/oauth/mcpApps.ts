@@ -121,16 +121,13 @@ export function uiCapability(): Record<string, unknown> {
  * working. Everything upstream can be correct and the view will still draw
  * nothing if this object is attached to the wrong object.
  *
- * baseUriDomains is what lets the injected <base> stick — see withAbsoluteBase.
- * Without it the tag is refused and every relative asset URL resolves against
- * the frame instead of our origin.
+ * No baseUriDomains: the view carries no <base> (see withAbsoluteAssetUrls).
  */
 export function uiCsp(origin: string): Record<string, unknown> {
   return {
     // PLANTUML_ORIGIN is img-src only in practice: the view loads no script
     // from it, but the spec has one list for every resource type.
     resourceDomains: [origin, PLANTUML_ORIGIN],
-    baseUriDomains: [origin],
     connectDomains: [],
     frameDomains: [],
   };
@@ -172,31 +169,34 @@ export function uiResourceList(origin: string): Array<Record<string, unknown>> {
 }
 
 /**
- * Give the served HTML an absolute base, or its scripts never load.
+ * Make every asset URL in the served HTML absolute, or its scripts never load.
  *
- * Vite emits relative references (`src="./assets/mcp-app-view-<hash>.js"`),
- * which is right for a page served from our own origin and wrong here: the host
- * renders this html as the ui:// resource BODY, inside a sandboxed frame whose
- * base URL is not ours. `./assets/...` then resolves against the frame and
- * fetches nothing — and because the app sandbox runs `default-src 'none'`, it
- * fetches nothing SILENTLY. Found 2026-09-28 by building the entry and reading
- * what Vite actually wrote.
+ * The host renders this html as the ui:// resource BODY, inside a sandboxed
+ * frame whose base URL is not ours, so a relative `./assets/view-<hash>.js`
+ * resolves against the frame and fetches nothing — silently, because the app
+ * sandbox runs `default-src 'none'`.
  *
- * One `<base>` fixes every relative reference at once, which is why the spec
- * gives `csp.baseUriDomains` a place to allow it. Rewriting each URL instead
- * would mean keeping a list of the attributes Vite might emit.
+ * A single injected `<base href="<origin>/">` was the first fix, and it does
+ * not work in claude.ai: its sandbox sends its own `base-uri` directive and
+ * ignores `csp.baseUriDomains`, so the tag is refused (`securitypolicyviolation:
+ * base-uri`), every asset resolved against `*.claudemcpcontent.com`, and no
+ * view code ran — the frame stayed hidden at 0 px with no `ui/initialize`
+ * (claude.ai, 2026-10-16). Rewriting each URL depends on no host honouring
+ * anything but `resourceDomains`, which claude.ai was seen to honour.
+ *
+ * Only `src` and `href` are rewritten: they are the only URL attributes Vite
+ * writes into an entry html. Inside the bundles, URLs are built from
+ * `import.meta.url` (vite.mcp-app.config.mjs uses a relative base for that), so
+ * they are already absolute on our origin.
  */
-export function withAbsoluteBase(html: string, origin: string): string {
-  if (/<base\s/i.test(html)) return html;
-  const tag = `<base href="${origin}/">`;
-  // After <head> where there is one; otherwise lead with it, so a
-  // head-less fragment still resolves rather than half-loading.
-  const headOpen = html.match(/<head[^>]*>/i);
-  if (headOpen?.index !== undefined) {
-    const at = headOpen.index + headOpen[0].length;
-    return html.slice(0, at) + tag + html.slice(at);
-  }
-  return tag + html;
+export function withAbsoluteAssetUrls(html: string, viewUrl: string): string {
+  return html.replace(/\b(src|href)="([^"]*)"/gi, (whole, attr: string, value: string) => {
+    // Already absolute (scheme or protocol-relative), a fragment, or empty.
+    if (!value || value.startsWith('#') || value.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(value)) {
+      return whole;
+    }
+    return `${attr}="${new URL(value, viewUrl).href}"`;
+  });
 }
 
 export type ViewReadResult =
@@ -254,7 +254,7 @@ export async function readUiResource(
       {
         uri: DIAGRAM_VIEW_URI,
         mimeType: UI_MIME_TYPE,
-        text: withAbsoluteBase(text, origin),
+        text: withAbsoluteAssetUrls(text, `${origin}${DIAGRAM_VIEW_ASSET_PATH}`),
         _meta: uiResourceMeta(origin),
       },
     ],

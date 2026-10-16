@@ -31,9 +31,12 @@ function reachedFrom(id, pkg, getModuleInfo, seen = new Set()) {
 
 export default defineConfig({
   root: resolve(__dirname, 'mcp-app'),
-  // Absolute, so the bundle resolves against our origin once mcpApps.ts puts
-  // <base href="<origin>/"> in front of it inside the host's frame.
-  base: '/mcp-app/',
+  // Relative, so the preload links Vite builds INSIDE the bundles resolve from
+  // import.meta.url — the chunk's own absolute URL on our origin. A root base
+  // ('/mcp-app/') made them root-relative, which inside the host's frame point
+  // at the host's sandbox origin and 404. The entry html's own ./ references
+  // are made absolute when served (mcpApps.ts withAbsoluteAssetUrls).
+  base: './',
   // The app's public/ (drawio, studio, _routes.json) belongs to the main build.
   publicDir: false,
   resolve: {

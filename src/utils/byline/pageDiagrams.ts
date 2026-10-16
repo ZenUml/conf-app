@@ -1,4 +1,5 @@
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { inferLegacyDiagramType } from '@/model/Diagram/legacyDiagramType'
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig'
 
 /**
@@ -168,10 +169,9 @@ export function toModalDiagramType(diagramType: string): string {
  * An API spec is recognised by its own text first, so a spec stored in the
  * shared content type is never mistaken for a sequence diagram. The AsyncAPI
  * app's `async-api-doc` type holds nothing else, so it stops there. Elsewhere
- * the remaining fields decide: `graphXml` is a Graph, then the precedence the
- * editor uses when it restores a legacy body (forgeIndex.ts, ZEN-1170): `code`
- * first — Sequence is the dominant legacy shape — then `mermaidCode`, then
- * `plantUmlCode`. Full
+ * the remaining fields decide: `graphXml` is a Graph, then the text-DSL rule
+ * the viewer applies to the same bodies (model/Diagram/legacyDiagramType), so
+ * the row's type is the type the placed macro renders as. Full
  * ships no AsyncAPI macro, so an AsyncAPI spec there stays Unknown rather than
  * being given a key the app cannot render.
  */
@@ -183,10 +183,7 @@ function inferLegacyType(body: any, productType: string | undefined): string | u
   }
   if (spec || productType === 'asyncapi') return spec
   if (typeof body.graphXml === 'string' && body.graphXml) return DiagramType.Graph
-  if (typeof body.code === 'string' && body.code) return DiagramType.Sequence
-  if (typeof body.mermaidCode === 'string' && body.mermaidCode) return DiagramType.Mermaid
-  if (typeof body.plantUmlCode === 'string' && body.plantUmlCode) return DiagramType.PlantUml
-  return undefined
+  return inferLegacyDiagramType(body)
 }
 
 function inferApiSpecType(body: any): string | undefined {

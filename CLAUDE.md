@@ -193,6 +193,8 @@ If `forge whoami` says not logged in (or `forge login` fails on keychain), see [
 
 Lite / full / diagramly map to `conf-stg-lite`, `conf-stg-full`, `conf-lite`, `conf-full`. See [docs/ops/cloudflare-pages.md](docs/ops/cloudflare-pages.md) for the full table, CI sources, and `wrangler pages secret put` usage.
 
+`dist/` also carries a second, separately built page: the MCP Apps diagram view (`pnpm build:mcp-app` → `dist/mcp-app/`, run at the end of every `build:*`), served from Pages to MCP hosts such as claude.ai. Build, deploy and host constraints: [docs/features/mcp-app-view.md](docs/features/mcp-app-view.md).
+
 ### Forge Functions usage & cost (GB-seconds)
 
 When a "Forge Functions usage" alert fires, use the **forge-functions-cost** skill — it holds the

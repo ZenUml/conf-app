@@ -13,6 +13,10 @@ A Pages project is a hostname plus a copy of `functions/`, not a data boundary. 
 
 Sources: `.github/workflows/main-staging-validation.yml` + `.github/workflows/staging-deploy.yml` (staging), `.github/workflows/release.yml` (prod). CI builds `wrangler.toml` at deploy time from `wrangler-stg.toml` / `wrangler-prod.toml`, replacing the placeholder `name="conf-<environment>"` with the project name via `sed` in `.github/actions/wrangler-publish/action.yml`.
 
+## Static assets beyond the Forge app
+
+`dist/` is not only the Forge app. Every `build:*` script also runs a second Vite build (`pnpm build:mcp-app`) into `dist/mcp-app/`: the MCP Apps diagram view, which `/agent-link/mcp` serves to hosts such as claude.ai from `/mcp-app/view.html` on the same Pages project. Its files also land in the Forge resource upload, where they count toward the 5,000-file cap. See [MCP Apps diagram view](../features/mcp-app-view.md).
+
 ## Setting a Pages secret
 
 Example: `STRIPE_WEBHOOK_SECRET` (also used by [stripe-webhook.md](stripe-webhook.md)):

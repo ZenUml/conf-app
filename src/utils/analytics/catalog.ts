@@ -740,6 +740,13 @@ export type AnalyticsEventName =
   //     are not a behaviour change; filter `viewport_input == "toolbar"` for a
   //     series comparable with what came before (older events carry no
   //     `viewport_input` at all, so treat absent as toolbar).
+  // Header fit controls: one click on Fit height / Fit width fires this event
+  // after the ready renderer applies the requested axis fit. Properties:
+  // viewport_action=fit_height|fit_width, viewport_input=toolbar,
+  // viewport_control_location=header, viewport_outcome=applied; macro_type and
+  // surface identify the actual renderer and viewer/fullscreen host. Header
+  // zoom clicks use zoom_in|zoom_out with the same location/outcome. Disabled
+  // (not ready) controls do not emit. Existing editor/wheel events are retained.
   | "viewport_control_used"
   // Shown when a reader wheels over a diagram WITHOUT the Ctrl/Cmd modifier on a
   // surface where a plain wheel has nowhere to go (fullscreen and the editor

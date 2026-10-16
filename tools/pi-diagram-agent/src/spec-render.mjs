@@ -540,6 +540,12 @@ export function renderSpec(input, {model = null} = {}) {
   }
   // nodes: overlap, membership, text fit, contrast
   for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) if (boxOverlap(bbox(nodes[i]), bbox(nodes[j]))) add('node-overlap', 'blocking', [nodes[i].id, nodes[j].id], regionOf([[nodes[i].x, nodes[i].y], [nodes[j].x + nodes[j].w, nodes[j].y + nodes[j].h]]), `${nodes[i].id} and ${nodes[j].id} overlap`, 'no overlapping nodes (T1/B10)', 'separate the nodes');
+  // Range rule: independent sibling containers never overlap. Nested means exactly one rect contains the other (0.25 tolerance); partial overlap and identical rects are not nesting.
+  const holdsRect = (p, q) => q[0] >= p[0] - 0.25 && q[1] >= p[1] - 0.25 && q[0] + q[2] <= p[0] + p[2] + 0.25 && q[1] + q[3] <= p[1] + p[3] + 0.25;
+  for (let i = 0; i < groups.length; i++) for (let j = i + 1; j < groups.length; j++) {
+    const a = groups[i].rect, b = groups[j].rect, ox = Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0]), oy = Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]);
+    if (ox > EPS && oy > EPS && holdsRect(a, b) === holdsRect(b, a)) add('group-overlap', 'blocking', [groups[i].id, groups[j].id], {x: r1(Math.max(a[0], b[0])), y: r1(Math.max(a[1], b[1])), w: r1(ox), h: r1(oy)}, `groups ${groups[i].id} and ${groups[j].id} overlap ${r1(ox)}x${r1(oy)} at (${r1(Math.max(a[0], b[0]))}, ${r1(Math.max(a[1], b[1]))})`, 'sibling groups are disjoint; a group is either wholly inside another or wholly apart (B10)', `move or resize ${groups[i].id} or ${groups[j].id} so the ${r1(ox)}x${r1(oy)} overlap disappears, or nest one wholly inside the other`);
+  }
   for (const n of nodes) {
     const inside = (g, pad) => n.x >= g.rect[0] + pad && n.y >= g.rect[1] + pad && n.x + n.w <= g.rect[0] + g.rect[2] - pad && n.y + n.h <= g.rect[1] + g.rect[3] - pad;
     if (n.group) { const g = groupById.get(n.group); if (!inside(g, 0)) add('group-membership', 'blocking', [n.id, g.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `${n.id} is declared in group ${g.id} but is not inside its rectangle`, 'declared members drawn inside their container (B10)', `enlarge group ${g.id} or move ${n.id} inside it`); else if (!inside(g, 4)) add('group-membership', 'minor', [n.id, g.id], regionOf([[n.x, n.y], [n.x + n.w, n.y + n.h]]), `${n.id} is within 4 units of the border of ${g.id}`, 'margin >= 4 (B10)', 'leave margin between the node and the container border'); }
@@ -614,13 +620,27 @@ export function renderSpec(input, {model = null} = {}) {
   for (const g of groups) lowContrast([g.id], g.text, g.fill, `group ${g.id} heading`);
   lowContrast(['legend'], canvas.ink, canvas.fill, 'canvas ink');
   // canvas bounds
-  const outside = (el, box, what) => { if (box[0] < -0.01 || box[1] < -0.01 || box[0] + box[2] > spec.canvas.w + 0.01 || box[1] + box[3] > spec.canvas.h + 0.01) add('out-of-canvas', 'minor', el, rectOf(box), `${what} extends outside the ${spec.canvas.w}x${spec.canvas.h} canvas`, 'inside the canvas', 'enlarge the canvas or move it'); };
+  // Range rule: each side that leaves the canvas is reported with its value and the declared range (blocking: a clipped element is lost or misread).
+  const outside = (el, box, what) => {
+    const W = spec.canvas.w, H = spec.canvas.h, parts = [];
+    if (box[0] < -0.01) parts.push(`x=${r1(box[0])} outside canvas 0..${W}`);
+    if (box[1] < -0.01) parts.push(`y=${r1(box[1])} outside canvas 0..${H}`);
+    if (box[0] + box[2] > W + 0.01) parts.push(`${box[2] > 0 ? 'x+w' : 'x'}=${r1(box[0] + box[2])} outside canvas 0..${W}`);
+    if (box[1] + box[3] > H + 0.01) parts.push(`${box[3] > 0 ? 'y+h' : 'y'}=${r1(box[1] + box[3])} outside canvas 0..${H}`);
+    if (parts.length) add('out-of-canvas', 'blocking', el, rectOf(box), `${what}: ${parts.join('; ')}`, `inside the ${W}x${H} canvas`, 'enlarge the canvas or move it');
+  };
   for (const n of nodes) outside([n.id], bbox(n), `node ${n.id}`);
   for (const g of groups) outside([g.id], g.rect, `group ${g.id}`);
   for (const p of pills) outside([p.edge.id], p.box, `label of ${p.edge.id}`);
   for (const e of edges) if (e.route) { const r = regionOf(e.route.pts); outside([e.id], [r.x, r.y, r.w, r.h], `route ${e.id}`); }
+  if (spec.legend) {
+    const lg = spec.legend, gap = lg.gap ?? (lg.direction === 'right' ? 32 : 28);
+    outside(['legend'], [lg.x, lg.y, 0, 0], 'legend');
+    // entries stack down by `gap` (a right-running legend has widths that depend on text, so only explicit entry positions are checked there)
+    (lg.entries ?? []).forEach((en, i) => { if (en.x !== undefined || en.y !== undefined || (lg.direction !== 'right' && i > 0)) outside(['legend'], [en.x ?? lg.x, en.y ?? lg.y + (lg.direction === 'right' ? 0 : gap * i), 24, 18], `legend entry ${JSON.stringify(en.label)}`); });
+  }
   // census against the parsed source
-  if (model) census(model, nodes, edges, add);
+  if (model) census(model, nodes, edges, add, groups);
 
   // ---- SVG ----
   const parts = [];
@@ -674,11 +694,19 @@ function legend(lg, roles, canvas, parts, colours) {
 }
 
 const SOURCE_NOTATION = {rect: 'rect', capsule: 'capsule', diamond: 'decision', cylinder: 'cylinder', subroutine: 'subroutine'};
-function census(model, nodes, edges, add) {
+function census(model, nodes, edges, add, groups = []) {
   const want = new Map(model.nodes.map(n => [n.id, n])), have = new Map(nodes.map(n => [n.id, n]));
   for (const id of want.keys()) if (!have.has(id)) add('census', 'blocking', [id], null, `missing node ${id}`, 'every source node drawn', `add node ${id}`);
   for (const id of have.keys()) if (!want.has(id)) add('census', 'blocking', [id], null, `extra node ${id}`, 'no invented nodes', `remove node ${id}`);
   for (const [id, w] of want) { const h = have.get(id); if (h && norm(Array.isArray(h.text) ? h.text.join(' ') : h.text) !== norm(w.text)) add('census', 'blocking', [id], null, `text of node ${id} is ${JSON.stringify(norm(Array.isArray(h.text) ? h.text.join(' ') : h.text))}, source says ${JSON.stringify(norm(w.text))}`, 'exact source text', `use the source text for ${id}`); }
+  // group conservation: every source group drawn once, none invented, and each node declared in the group the source gives it
+  const wantGroups = new Set((model.groups ?? []).map(g => g.id)), haveGroups = new Set(groups.map(g => g.id));
+  for (const id of wantGroups) if (!haveGroups.has(id)) add('census', 'blocking', [id], null, `missing group ${id}`, 'every source group drawn', `add group ${id} with its rect`);
+  for (const id of haveGroups) if (!wantGroups.has(id)) add('census', 'blocking', [id], null, `extra group ${id}`, 'no invented groups', `remove group ${id}`);
+  for (const [id, w] of want) {
+    const h = have.get(id); if (!h || (w.group ?? null) !== null && !haveGroups.has(w.group)) continue;
+    if ((h.group ?? null) !== (w.group ?? null)) add('census', 'blocking', [id], null, `node ${id} is declared ${h.group ? `in group ${h.group}` : 'in no group'}, source says ${w.group ? w.group : 'no group'}`, 'declared membership equals source membership', `set "group": ${w.group ? JSON.stringify(w.group) : 'null'} on ${id}`);
+  }
   // shape-change (rules, Shapes): a source shape that has a rule notation keeps it. Source shapes without one (stadium, circle, hexagon, parallelograms, ...) are never checked.
   for (const [id, w] of want) {
     const h = have.get(id), expect = SOURCE_NOTATION[w.shape];

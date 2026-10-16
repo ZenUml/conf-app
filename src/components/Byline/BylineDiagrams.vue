@@ -159,6 +159,11 @@
            Copy source is a power-user affordance on a minority of types, so it
            stays out of the way until the row is hovered or focused — the open,
            which is what the whole row does, is the labelled action. -->
+      <!-- A write that could not land says so. It used to say nothing: the
+           button flipped to "Adding…" and back, which reads as a dead click. -->
+      <div v-if="addFailure" class="byline__notice" role="status" data-testid="byline-add-failed">
+        {{ addFailure }}
+      </div>
       <div
         v-for="d in orderedDiagrams"
         :key="d.id"
@@ -384,6 +389,8 @@ const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
 const copiedId = ref<string | null>(null)
 const addingId = ref<string | null>(null)
+/** Why the last Add to page did not land; cleared when the next one starts. */
+const addFailure = ref<string | null>(null)
 /** Flips off the first time a write is refused; the Copy URL fallback takes
  *  over. Optimistic on purpose — see the banner for the same reasoning. */
 const canEdit = ref(true)
@@ -941,6 +948,7 @@ async function onAddToPage(d: PageDiagram) {
   if (addingId.value) return
   acted = true
   addingId.value = d.id
+  addFailure.value = null
 
   const outcome = await placeDiagram(pageId, d, async () => {
     // Before the reload, so the reloaded page reads the rewritten record: fold
@@ -966,6 +974,7 @@ async function onAddToPage(d: PageDiagram) {
   // blip is to try again — clearing this on it took the button off every
   // remaining row of the panel.
   if (outcome.refused) canEdit.value = false
+  addFailure.value = outcome.message
 }
 
 async function onCopySource(d: PageDiagram) {
@@ -1454,6 +1463,15 @@ async function onLearnMore() {
   font-size: 13px;
   color: #7a869a;
 }
+.byline__notice {
+  font-size: 13px;
+  color: #ae2e24;
+  background: #ffeceb;
+  border-radius: 3px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
 .byline__lede {
   font-size: 13px;
   color: #5e6c84;

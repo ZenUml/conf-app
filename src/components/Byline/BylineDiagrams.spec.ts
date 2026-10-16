@@ -911,6 +911,29 @@ describe('BylineDiagrams', () => {
       expect(events('diagram_added_to_page')[0][1]).toMatchObject({ result: 'forbidden' });
     });
 
+    it('says why when the write did not land, and keeps the button to retry', async () => {
+      // It used to say nothing: "Adding…" flipped back to "Add to page" and
+      // the click read as dead (whimet4, 2026-10-16).
+      const FAILED = "Couldn't add it to the page. Try again, or copy the link and paste it into the editor.";
+      placeDiagram.mockResolvedValueOnce({
+        result: 'failed', reason: 'unresolved_macro_key', placed: false, refused: false, message: FAILED,
+      });
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="byline-add-failed"]').text()).toBe(FAILED);
+      expect(wrapper.find('[data-testid="byline-add-to-page"]').exists()).toBe(true);
+
+      // The retry clears the old reason before it runs.
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[data-testid="byline-add-failed"]').exists()).toBe(false);
+    });
+
     it('renders the rows in the order the page reads, strays last', async () => {
       // The API returns them grouped by custom-content type, which bears no
       // relation to what the reader sees on the page.

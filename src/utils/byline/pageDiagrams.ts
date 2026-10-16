@@ -157,19 +157,40 @@ export function toModalDiagramType(diagramType: string): string {
 }
 
 /**
- * Turn raw `/api/v2/pages/{id}/custom-content?body-format=raw` responses into
- * the modal's list. Accepts the array of responses (one per probed content
- * type) exactly as the REST layer returns them, including error-shaped ones.
+ * The type of a body that predates the `diagramType` field.
+ *
+ * Left as Unknown, such a row reads "Diagram", opens in the wrong renderer and
+ * fails Add to page with `unresolved_macro_key` — silently, from the user's
+ * side (whimet4, 2026-10-16: every Full-era diagram on an old page). These
+ * bodies are common wherever the app has been installed for years, which is
+ * exactly where Full now ships this panel.
+ *
+ * An API spec is recognised by its own text first, so a spec stored in the
+ * shared content type is never mistaken for a sequence diagram. The AsyncAPI
+ * app's `async-api-doc` type holds nothing else, so it stops there. Elsewhere
+ * the remaining fields decide: `graphXml` is a Graph, then the precedence the
+ * editor uses when it restores a legacy body (forgeIndex.ts, ZEN-1170): `code`
+ * first — Sequence is the dominant legacy shape — then `mermaidCode`, then
+ * `plantUmlCode`. Full
+ * ships no AsyncAPI macro, so an AsyncAPI spec there stays Unknown rather than
+ * being given a key the app cannot render.
  */
-/**
- * The AsyncAPI app's `async-api-doc` type holds only API specs, so a body that
- * predates the `diagramType` field can still be typed from its own text. Left
- * as Unknown it would open in the sequence renderer and fail Add to page with
- * `unresolved_macro_key`. Other variants share their content type across every
- * diagram kind, so there is nothing safe to infer there.
- */
-function inferApiSpecType(body: any, productType: string | undefined): string | undefined {
-  if (productType !== 'asyncapi' || typeof body?.code !== 'string') return undefined
+function inferLegacyType(body: any, productType: string | undefined): string | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const spec = inferApiSpecType(body)
+  if (spec === DiagramType.AsyncApi && productType !== 'asyncapi' && productType !== 'lite') {
+    return undefined
+  }
+  if (spec || productType === 'asyncapi') return spec
+  if (typeof body.graphXml === 'string' && body.graphXml) return DiagramType.Graph
+  if (typeof body.code === 'string' && body.code) return DiagramType.Sequence
+  if (typeof body.mermaidCode === 'string' && body.mermaidCode) return DiagramType.Mermaid
+  if (typeof body.plantUmlCode === 'string' && body.plantUmlCode) return DiagramType.PlantUml
+  return undefined
+}
+
+function inferApiSpecType(body: any): string | undefined {
+  if (typeof body?.code !== 'string') return undefined
   const head = body.code.trimStart().slice(0, 200)
   // YAML (`asyncapi: 3.0.0`) or JSON (`{"asyncapi": "3.0.0"`).
   if (/^\{?\s*["']?asyncapi["']?\s*:/m.test(head)) return DiagramType.AsyncApi
@@ -177,6 +198,11 @@ function inferApiSpecType(body: any, productType: string | undefined): string | 
   return undefined
 }
 
+/**
+ * Turn raw `/api/v2/pages/{id}/custom-content?body-format=raw` responses into
+ * the modal's list. Accepts the array of responses (one per probed content
+ * type) exactly as the REST layer returns them, including error-shaped ones.
+ */
 export function parsePageDiagrams(
   responses: Array<any>,
   productType: string | undefined = import.meta.env.PRODUCT_TYPE,
@@ -209,12 +235,13 @@ export function parsePageDiagrams(
       const diagramType =
         typeof body?.diagramType === 'string'
           ? body.diagramType
-          : inferApiSpecType(body, productType) ?? DiagramType.Unknown
+          : inferLegacyType(body, productType) ?? DiagramType.Unknown
       const copyable = COPYABLE_TYPES.includes(diagramType)
       let source = ''
       if (copyable) {
         try {
-          source = getDiagramData(body) || ''
+          // The inferred type, not the body's: a legacy body has none of its own.
+          source = getDiagramData({ ...body, diagramType }) || ''
         } catch {
           source = ''
         }

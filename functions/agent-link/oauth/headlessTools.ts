@@ -184,7 +184,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'update_diagram',
     description:
-      'Replace a diagram’s source with new DSL. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Publishes one new version, so page history can revert it.',
+      'Replace a diagram’s source with new DSL. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change.',
     inputSchema: {
       type: 'object',
       properties: {

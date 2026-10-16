@@ -64,7 +64,7 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
       {
         id: 'mcp-read-edit',
         title: 'Your agent reads and edits diagrams',
-        body: 'The agent can find, read, create and update diagrams and pages without a browser tab. Each edit publishes a new version, so page history can revert it.',
+        body: 'The agent can find, read, create and update diagrams and pages without a browser tab. A page edit publishes a new page version that page history can revert. A diagram edit saves a new version of the diagram, so to undo one, ask your agent to put the previous source back.',
       },
     ],
   },

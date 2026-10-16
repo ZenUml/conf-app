@@ -6,6 +6,7 @@ import {
   MAX_PROPERTY_ENTRIES,
   UNPLACED_PROPERTY_KEY,
   unplacedPropertyKeyFor,
+  unlistedCount,
 } from './unplacedProperty'
 
 const requestConfluence = vi.hoisted(() => vi.fn())
@@ -21,12 +22,19 @@ const res = (status: number, body?: unknown) => ({
   ok: status >= 200 && status < 300,
   json: async () => body,
 })
-const found = (entries: unknown[], version = 1) =>
+const found = (entries: unknown[], version = 1, total?: number) =>
   res(200, {
     results: [
-      { id: '9001', version: { number: version }, key: UNPLACED_PROPERTY_KEY, value: { entries, updatedAt: '2026-08-30T00:00:00.000Z' } },
+      {
+        id: '9001',
+        version: { number: version },
+        key: UNPLACED_PROPERTY_KEY,
+        value: { entries, ...(total === undefined ? {} : { total }), updatedAt: '2026-08-30T00:00:00.000Z' },
+      },
     ],
   })
+const many = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({ id: `cc-${i}`, title: `D${i}`, diagramType: 'sequence' }))
 const absent = () => res(200, { results: [] })
 
 const callsTo = (method: string) =>
@@ -74,7 +82,7 @@ describe('unplacedProperty — the cross-user store behind the displayConditions
       expect(url).toBe('/wiki/api/v2/pages/page-1/properties')
       expect(JSON.parse(opts.body)).toEqual({
         key: UNPLACED_PROPERTY_KEY,
-        value: { entries: [ENTRY], updatedAt: '2026-08-31T10:00:00.000Z' },
+        value: { entries: [ENTRY], total: 1, updatedAt: '2026-08-31T10:00:00.000Z' },
       })
     })
 
@@ -134,16 +142,47 @@ describe('unplacedProperty — the cross-user store behind the displayConditions
       expect(callsTo('PUT')).toHaveLength(0)
     })
 
-    it('caps how many entries travel in the property', async () => {
-      const many = Array.from({ length: MAX_PROPERTY_ENTRIES + 5 }, (_, i) => ({
-        id: `cc-${i}`,
-        title: `D${i}`,
-        diagramType: 'sequence',
-      }))
+    it('caps how many entries travel in the property, but not the count', async () => {
       requestConfluence.mockResolvedValueOnce(absent()).mockResolvedValueOnce(res(200, {}))
-      await persistUnplacedProperty('page-1', many, NOW)
+      await persistUnplacedProperty('page-1', many(MAX_PROPERTY_ENTRIES + 5), NOW)
 
-      expect(JSON.parse(callsTo('POST')[0][1].body).value.entries).toHaveLength(MAX_PROPERTY_ENTRIES)
+      const value = JSON.parse(callsTo('POST')[0][1].body).value
+      expect(value.entries).toHaveLength(MAX_PROPERTY_ENTRIES)
+      // The banner said "20 diagrams" on a page with 23 before the count travelled.
+      expect(value.total).toBe(MAX_PROPERTY_ENTRIES + 5)
+    })
+
+    it('rewrites when only the count past the cap moved', async () => {
+      // A diagram placed beyond the named twenty leaves the entries identical.
+      const listed = many(MAX_PROPERTY_ENTRIES)
+      requestConfluence
+        .mockResolvedValueOnce(found(listed, 2, MAX_PROPERTY_ENTRIES + 3))
+        .mockResolvedValueOnce(res(200, {}))
+      expect(await persistUnplacedProperty('page-1', many(MAX_PROPERTY_ENTRIES + 2), NOW)).toBe('written')
+      expect(JSON.parse(callsTo('PUT')[0][1].body).value.total).toBe(MAX_PROPERTY_ENTRIES + 2)
+    })
+
+    it('writes nothing when a record without a count already says the same', async () => {
+      // Records written before `total` existed read as total = entries.length.
+      requestConfluence.mockResolvedValueOnce(found([ENTRY, OTHER]))
+      expect(await persistUnplacedProperty('page-1', [ENTRY, OTHER], NOW)).toBe('unchanged')
+    })
+  })
+
+  describe('the count past the cap', () => {
+    it('reads the stored total, and ignores one smaller than the names it carries', async () => {
+      requestConfluence.mockResolvedValueOnce(found([ENTRY], 1, 23))
+      const read = await readUnplacedProperty('page-1')
+      expect(read.status === 'ok' && read.value.total).toBe(23)
+
+      requestConfluence.mockResolvedValueOnce(found([ENTRY, OTHER], 1, 1))
+      const bad = await readUnplacedProperty('page-1')
+      expect(bad.status === 'ok' && bad.value.total).toBeUndefined()
+    })
+
+    it('counts what the record does not name', () => {
+      expect(unlistedCount({ entries: many(20), total: 23 })).toBe(3)
+      expect(unlistedCount({ entries: many(2) })).toBe(0)
     })
   })
 

@@ -25,6 +25,9 @@ import type {
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
   AgentLinkOAuthRevokeReason,
+  AgentLinkOAuthRoute,
+  AgentLinkOAuthAtlassianReason,
+  AgentLinkAppViewFailure,
   AgentLinkOAuthChainRevokeReason,
   AgentLinkOAuthTokenRefreshOutcome,
   AgentLinkPaywallGate,
@@ -885,6 +888,8 @@ export type AnalyticsProperties = {
     | AgentLinkSessionSuspendReason
     | AgentLinkIdentityFailure
     | AgentLinkOAuthRevokeReason
+    | AgentLinkAppViewFailure
+    | AgentLinkOAuthAtlassianReason
     | AgentLinkOAuthChainRevokeReason;
   session_duration_ms?: number;
   edits_count?: number;
@@ -943,6 +948,10 @@ export type AnalyticsProperties = {
   // (agent_link_oauth_revoked) or an AgentLinkOAuthChainRevokeReason
   // (agent_link_oauth_chain_revoked).
   site_count?: number;
+  // Where an MCP /authorize was routed (agent_link_oauth_authorize_routed).
+  // When it is 'atlassian', the shared `reason` field carries an
+  // AgentLinkOAuthAtlassianReason.
+  oauth_route?: AgentLinkOAuthRoute;
   // The MCP authorization server's own refresh endpoint, separate from the
   // upstream Atlassian grant refresh. One terminal event per inbound request.
   oauth_refresh_outcome?: AgentLinkOAuthTokenRefreshOutcome;

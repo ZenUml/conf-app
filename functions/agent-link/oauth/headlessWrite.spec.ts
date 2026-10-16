@@ -26,6 +26,13 @@ const CLOUD = '11111111-2222-4333-8444-555555555555';
 const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const ENV_ID = '26ad8f7e-aa24-4afe-83a3-e8216f9e5220';
 /** Long enough to clear the guard's DATA_LOSS_MIN_CURRENT_NONWS floor. */
+/**
+ * The ZenUML parser's first call loads its grammar and can take several
+ * seconds on a cold worker, which made the guard-touching tests flake against
+ * vitest's 5s default (seen 2026-09-29, 1 in 3 runs).
+ */
+const GUARD_TIMEOUT_MS = 30_000;
+
 const CURRENT_DSL = Array.from({ length: 20 }, (_, i) => `A${i}.method${i}()`).join('\n');
 
 function memoryStore(): { store: GrantStore; kv: Map<string, string> } {
@@ -200,11 +207,13 @@ describe('list_diagrams', () => {
     site.pageAdf.content = [buildMacroNode('zenuml-sequence-macro-lite', 'probe-1')];
     const { ctx } = await contextFor(site);
     const out = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx)) as {
-      variant: string;
+      variants: string[];
       diagrams: Array<{ contentId: string }>;
     };
-    expect(out.variant).toBe('lite');
-    expect(out.diagrams.map((d) => d.contentId)).toEqual(['probe-1']);
+    // The harness answers every variant's content type, so each variant lists
+    // the same row; a real site's types hold distinct content.
+    expect(out.variants).toContain('lite');
+    expect(out.diagrams.map((d) => d.contentId)).toContain('probe-1');
   });
 
   it('asks Confluence for the newest diagrams, not the oldest', async () => {
@@ -245,7 +254,7 @@ describe('update_diagram', () => {
     expect(stored.version.message).toContain('Agent Link');
     expect(stored.version.message).toContain('add a step');
     expect(writes.filter((w) => w.method === 'PUT')).toHaveLength(1);
-  });
+  }, GUARD_TIMEOUT_MS);
 
   it('refuses a change that would truncate the diagram, writing nothing', async () => {
     const site = emptyPage();
@@ -254,7 +263,7 @@ describe('update_diagram', () => {
       callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl: 'A.one()' }, ctx),
     ).rejects.toMatchObject({ code: 'guardrail_rejected' });
     expect(writes).toHaveLength(0);
-  });
+  }, GUARD_TIMEOUT_MS);
 
   it('refuses a change that does not parse', async () => {
     const site = emptyPage();
@@ -265,7 +274,7 @@ describe('update_diagram', () => {
       callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl: broken }, ctx),
     ).rejects.toBeInstanceOf(HeadlessToolError);
     expect(writes).toHaveLength(0);
-  });
+  }, GUARD_TIMEOUT_MS);
 
   it('reports a concurrent edit as conflict rather than forcing', async () => {
     const site = emptyPage();

@@ -1346,7 +1346,10 @@ export type AnalyticsEventName =
   // closed, or not, has to be made on. `_updated` has no gate (updating an
   // existing diagram consumes no limit, §9.1) and instead carries
   // `guardrail_rejected`, so the write guard's refusal rate is readable on the
-  // headless path the way it already is on the relay.
+  // headless path the way it already is on the relay. Both carry the target
+  // site in `cloud_id` (from the tool's `cloudId` argument), so outcomes and
+  // gate branches can be split per customer without joining on
+  // agent_link_mcp_tool_called.
   | "agent_link_diagram_created"
   | "agent_link_diagram_updated"
   // Y — headless PAGE writes, as distinct from the diagram writes above. A
@@ -1355,7 +1358,7 @@ export type AnalyticsEventName =
   // body is replaced wholesale, so the accident worth counting is an agent
   // truncating somebody's page. `result` uses the same AgentLinkWriteResult
   // vocabulary, so page and diagram writes share one conflict/success
-  // breakdown.
+  // breakdown. Like X, these carry the target site in `cloud_id`.
   | "agent_link_page_created"
   | "agent_link_page_updated"
   // Z — "Connect MCP" dialog (inline macro viewer; replaces the Copy for AI
@@ -1378,9 +1381,9 @@ export type AnalyticsEventName =
   // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
   // for list_sites / get_status, which take none), how the call ended in
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
-  // and server-side latency in `duration_ms`. The write events stay as they
-  // are: they carry write-specific properties (paywall_gate, result) this one
-  // does not. `_initialized` fires on each `initialize` handshake and carries
+  // and server-side latency in `duration_ms`. The write events stay
+  // separate: they carry write-specific properties (paywall_gate, result) this
+  // one does not, and the same `cloud_id`. `_initialized` fires on each `initialize` handshake and carries
   // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
   // `mcp_client_version`), so usage can be split by agent (Claude Code,
   // Cursor, …). Tool arguments and results are never sent.

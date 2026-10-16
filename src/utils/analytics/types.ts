@@ -950,7 +950,8 @@ export type AnalyticsProperties = {
   // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,
   // including 'count_unknown' for its fail-open path; `guardrail_rejected`
   // marks an update the write guard refused (parse error or data loss) rather
-  // than one that reached Confluence.
+  // than one that reached Confluence. The target site rides the shared
+  // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
   // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the

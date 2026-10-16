@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Repair 历史回归"
+  short_description: "重放私有历史 DSL，验证当前 AI Repair Prompt"
+  default_prompt: "使用 $ai-repair-regression 对已保存的 AI Repair 历史 error DSL 做简易回归。"
+policy:
+  allow_implicit_invocation: true

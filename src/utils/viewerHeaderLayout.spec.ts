@@ -85,6 +85,21 @@ describe('viewerHeaderLayout', () => {
       expect(controlsWidth(noEdit, 0, measureLabel)).toBe(controlsWidth(noEdit, 1, measureLabel))
     })
 
+    it('labels Connect MCP at stage 0 and makes it icon-only from stage 1', () => {
+      const mcp = { ...PLANTUML_SHORT.model, connectMcp: true, hasEdit: false }
+      const s0 = controlsWidth(mcp, 0, measureLabel)
+      const s1 = controlsWidth(mcp, 1, measureLabel)
+      // Labelled: 8px padding + 1px border each side, 16px icon, 6px gap and
+      // 'MCP' (3 glyphs at 7px), against a 28px icon-only button.
+      expect(s0 - s1).toBe(40 + 3 * 7 - 28)
+      // Icon-only it is a 28px button 6px from Source, not Copy for AI's
+      // 2px-joined split with its 18px chevron.
+      const copy = { ...mcp, connectMcp: false }
+      expect(s1).toBe(controlsWidth(copy, 1, measureLabel) - 18 + 4)
+      // Stage 3 moves it into More with Source.
+      expect(controlsWidth(mcp, 3, measureLabel)).toBe(controlsWidth(copy, 3, measureLabel))
+    })
+
     it('reserves the page navigation width for multi-page diagrams', () => {
       const one = { ...GRAPH_PAGES.model, pages: 1 }
       expect(controlsWidth(GRAPH_PAGES.model, 0, measureLabel)).toBeGreaterThan(controlsWidth(one, 0, measureLabel))

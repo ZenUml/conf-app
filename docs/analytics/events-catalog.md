@@ -420,7 +420,7 @@ Same properties as `paywall_continue_used` with `remaining_attempts: 0`.
 
 ### `paywall_banner_shown`
 
-**Trigger:** The paywall warning banner (served from the `confluence:pageBanner` iframe) is committed to displaying. Fired in `PaywallWarningBanner.vue` on mount.
+**Trigger:** The paywall warning banner (served from the `confluence:pageBanner` iframe) is committed to displaying. Fired in `PaywallWarningBanner.vue` on every eligible mount. There is no dismissal or impression-frequency suppression. `show_count` and optional `hours_since_last_shown` remain descriptive analytics properties.
 
 | Property | Notes |
 |---|---|
@@ -434,9 +434,7 @@ Same properties as `paywall_continue_used` with `remaining_attempts: 0`.
 
 ### `paywall_banner_dismissed`
 
-**Trigger:** User clicks Dismiss on the paywall warning banner. Fired in `PaywallWarningBanner.vue`.
-
-Same properties as `paywall_banner_shown`. The snooze window that starts on dismiss is kept in local storage by `src/utils/paywall/warningBanner.ts` and is not sent as an event property.
+**Historical event:** Previously fired when a user dismissed the paywall warning banner, with the same properties as `paywall_banner_shown`. The persistent banner has no dismissal control and no longer emits this event. Legacy `dismissedAt` values do not suppress it.
 
 ---
 

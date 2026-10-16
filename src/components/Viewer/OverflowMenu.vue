@@ -43,7 +43,7 @@
 </template>
 
 <script>
-import { handleMenuKeydown, shouldAlignMenuStart } from './menuKeyboard'
+import { MENU_ITEM_SELECTOR, handleMenuKeydown, shouldAlignMenuStart } from './menuKeyboard'
 
 /**
  * Icon-trigger menu ("More", ⋯). Lives in the viewer header since the staged
@@ -83,7 +83,7 @@ export default {
       this.alignStart = false
       this.$nextTick(() => {
         this.alignStart = shouldAlignMenuStart(this.$refs.menuRef)
-        const firstItem = this.$refs.containerRef?.querySelector('[role="menuitem"]:not([disabled])')
+        const firstItem = this.$refs.containerRef?.querySelector(MENU_ITEM_SELECTOR)
         firstItem?.focus()
       })
     },

@@ -29,10 +29,14 @@ import type {
   AgentLinkOAuthAtlassianReason,
   AgentLinkAppViewFailure,
   AgentLinkOAuthChainRevokeReason,
+  AgentLinkOAuthTokenRefreshOutcome,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
+  AgentLinkMcpButtonPlacement,
+  AgentLinkMcpButtonReveal,
   AgentLinkMcpCopyTarget,
   AgentLinkMcpMode,
+  AgentLinkMcpToolOutcome,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -58,6 +62,7 @@ import type {
   HighlightFeedbackReason,
   HighlightFeedbackVariant,
   HighlightDismissStage,
+  HighlightDismissCause,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -72,6 +77,13 @@ export type AnalyticsProperties = {
   client_domain?: string;
   user_account_id?: string;
   product_type?: ProductType;
+  /** Targeted survey campaign identifier; no target identity or answer text. */
+  survey_uuid?: string;
+  survey_revision?: number;
+  /** Cross-product display claim did not produce a banner. */
+  survey_claim_result?: 'already_claimed' | 'unavailable' | 'invalid_response';
+  /** Visible step when a targeted survey is dismissed, including an in-flight send. */
+  survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent
@@ -309,6 +321,11 @@ export type AnalyticsProperties = {
   highlight_feedback_reason?: HighlightFeedbackReason;
   highlight_feedback_variant?: HighlightFeedbackVariant;
   highlight_dismiss_stage?: HighlightDismissStage;
+  // Canvas pill only: how many highlight uses preceded `feedback_shown`
+  // (the pill waits for the third), and whether `feedback_dismissed` came
+  // from the × button or the 10 s auto-dismiss.
+  highlight_use_count?: number;
+  highlight_dismiss_cause?: HighlightDismissCause;
   highlight_enabled?: boolean;
   // Feedback
   feedback_score?: number;
@@ -405,11 +422,11 @@ export type AnalyticsProperties = {
   // users reached on the 'editor' gate across 19 CSS tenants, against 5,021
   // unique space admins already loading the banner iframe unreached.
   banner_audience?: 'editor' | 'space_admin';
-  // Impression taper (2026-09-07), on every page-banner event. `show_count` is
+  // Impression metadata on every page-banner event. `show_count` is
   // the 1-based ordinal of the CURRENT impression for this browser+tenant+space
   // (prior showCount + 1); `hours_since_last_shown` is the whole-hour gap since
-  // the previous impression and is absent on a first impression. Together they
-  // verify the 1 / 24h / 24h / 7d schedule from Mixpanel alone.
+  // the previous impression and is absent on a first impression. These fields
+  // describe exposure; they do not limit when the banner appears.
   show_count?: number;
   hours_since_last_shown?: number;
   // Advertised annual price on the bundle CTA at click time (USD, per space).
@@ -574,6 +591,11 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // Inline title rename from the viewer (viewer_rename_cancelled): why edit
+  // mode was left without a write. 'escape' = Esc pressed; 'unchanged' =
+  // committed the same title; 'empty' = committed a blank title (refused,
+  // the previous title stands).
+  rename_exit_reason?: 'escape' | 'unchanged' | 'empty';
   // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts) AND the
   // "Copy diagram link" pill action (deeplink_copied — catalog.ts) share this
   // one `outcome` axis. For copy_for_ai_clicked: 'copied' = full page+diagram
@@ -662,9 +684,12 @@ export type AnalyticsProperties = {
   // the free-form details of the legacy trackEvent copy_link /
   // show_content_versions / debug_bundle_downloaded events. Absent = the
   // action's own header button (or an event from before 2026-10).
-  action_location?: 'header_more_menu' | 'fullscreen_header';
+  // `canvas_hint`: the "Turn off" button on the first-use highlight hint
+  // (mermaid_highlight_preference_changed only).
+  action_location?: 'header_more_menu' | 'fullscreen_header' | 'canvas_hint';
   // viewer_more_menu_opened: the inline header's collapse stage when the More
-  // menu opened. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
+  // menu opened, and agent_link_mcp_button_shown: the stage when the button
+  // was shown. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
   // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.
   header_stage?: 0 | 1 | 2 | 3;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
@@ -760,10 +785,52 @@ export type AnalyticsProperties = {
   // User-perceived publish latency, in ms: the interval from the Publish/Save
   // click (save-handler entry, synchronous with the click) to the editor's
   // redirect (view.submit() / view.close()). Rides on macro_publish_completed.
-  // Superset of save_duration_ms — additionally covers the ~500ms pre-submit
-  // delay, the save-time attachment race, and the macro-config writeback. See
-  // utils/analytics/publishTiming.ts.
+  // Superset of save_duration_ms — additionally covers the post-save work
+  // (snapshot upload, D1 mirror sync, save-time attachment race, writeback
+  // context lookup). Only the graph, openapi and embed editors still add a
+  // fixed 500 ms setTimeout before the redirect; the sequence family
+  // (forgeIndex.ts) and asyncapi do not. See utils/analytics/publishTiming.ts.
   publish_duration_ms?: number;
+  // Per-step breakdown of publish_duration_ms (macro_publish_completed only).
+  // Each is the wall time of ONE awaited step on the close path, in ms. A step
+  // that did not run in this publish is ABSENT, never 0 — a missing key means
+  // "skipped", a 0 means "ran and was instant". snapshot_ms, mirror_sync_ms,
+  // attachment_ack_ms and writeback_context_ms run one after another and never
+  // overlap; attachment_capture_ms is a slice INSIDE attachment_ack_ms. They do
+  // not sum to publish_duration_ms: save_duration_ms (above) and untimed glue
+  // make up the remainder.
+  //   snapshot_ms           — diagram-source snapshot upload after the save
+  //                           (Persistence.ts): the page-id lookup plus the
+  //                           upload, also when the upload fails. Absent when
+  //                           no upload was attempted (no snapshot built, or no
+  //                           page id).
+  //   mirror_sync_ms        — the awaited D1 mirror sync (syncCustomContent)
+  //                           that ends saveToPlatform (Persistence.ts).
+  //   attachment_capture_ms — save-time PNG backup: time spent producing the
+  //                           PNG (DOM capture plus source-metadata injection;
+  //                           model/Attachment.ts). Absent when no PNG was
+  //                           produced. Sequence family only.
+  //   attachment_ack_ms     — save-time PNG backup: race entry until the race
+  //                           settled — the existing-attachment lookup, the
+  //                           capture above, the backend ack, an error, or the
+  //                           6000 ms cap. attachment_ack_ms minus
+  //                           attachment_capture_ms is therefore lookup + ack.
+  //                           Sequence family only (forgeIndex.ts).
+  //   attachment_timed_out  — true when the 6000 ms cap won that race; false
+  //                           when the backup settled first (success or error).
+  //   writeback_context_ms  — the isInserting()/isConfiguring() awaits that
+  //                           run before the redirect (forgeIndex.ts). Named
+  //                           writeback_context_ms, NOT context_ms: renderPerf
+  //                           already emits `context_ms` (getContext() latency)
+  //                           on macro_viewed, and save-latency and
+  //                           render-latency never share a property name (see
+  //                           save_duration_ms above).
+  snapshot_ms?: number;
+  mirror_sync_ms?: number;
+  attachment_capture_ms?: number;
+  attachment_ack_ms?: number;
+  attachment_timed_out?: boolean;
+  writeback_context_ms?: number;
   // P1.3 fetch split (children of fetch_ms — NOT part of measured_sum_ms):
   // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
   custom_content_fetch_ms?: number;
@@ -885,12 +952,18 @@ export type AnalyticsProperties = {
   // When it is 'atlassian', the shared `reason` field carries an
   // AgentLinkOAuthAtlassianReason.
   oauth_route?: AgentLinkOAuthRoute;
+  // The MCP authorization server's own refresh endpoint, separate from the
+  // upstream Atlassian grant refresh. One terminal event per inbound request.
+  oauth_refresh_outcome?: AgentLinkOAuthTokenRefreshOutcome;
+  oauth_request_id?: string;
+  refresh_reuse_age_ms?: number;
   // X — headless writes (agent_link_diagram_created / _updated). The outcome
   // rides the shared `result` field above as an AgentLinkWriteResult.
   // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,
   // including 'count_unknown' for its fail-open path; `guardrail_rejected`
   // marks an update the write guard refused (parse error or data loss) rather
-  // than one that reached Confluence.
+  // than one that reached Confluence. The target site rides the shared
+  // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
   // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
@@ -899,6 +972,21 @@ export type AnalyticsProperties = {
   // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
   mcp_mode?: AgentLinkMcpMode;
   mcp_copy_target?: AgentLinkMcpCopyTarget;
+  // agent_link_mcp_button_shown (and `mcp_button_reveal` on _dialog_opened):
+  // where the button sat and whether it was visible at rest. Inline shown
+  // events also carry `header_stage`.
+  mcp_button_placement?: AgentLinkMcpButtonPlacement;
+  mcp_button_reveal?: AgentLinkMcpButtonReveal;
+  // AA — headless MCP tool usage (agent_link_mcp_tool_called /
+  // _initialized). `mcp_tool` is the tool name from the server's own list
+  // ('unknown' for anything else); `mcp_tool_outcome` is how the call ended;
+  // latency rides `duration_ms`; the target site rides `cloud_id` (only when
+  // the argument is UUID-shaped — anything else is client free text). `mcp_client_name` / `mcp_client_version` are
+  // the client's MCP `clientInfo`, trimmed to 64 chars.
+  mcp_tool?: string;
+  mcp_tool_outcome?: AgentLinkMcpToolOutcome;
+  mcp_client_name?: string;
+  mcp_client_version?: string;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

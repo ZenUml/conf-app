@@ -134,7 +134,14 @@ export type IdentitySource = 'cached' | 'discovered';
 
 export type IdentityResult =
   | { ok: true; identity: MacroIdentity; source: IdentitySource }
-  | { ok: false; reason: IdentityFailureReason; detail?: string };
+  | {
+      ok: false;
+      reason: IdentityFailureReason;
+      detail?: string;
+      /** Set on 'no_extension_node': the variant whose content was found. Enough
+       * to list diagrams, not enough to compose an extensionKey. */
+      variant?: Variant;
+    };
 
 const UUID = '[0-9a-fA-F-]{36}';
 /**
@@ -286,6 +293,15 @@ const PROBE_ROWS = 25;
 const MAX_PAGES_SAMPLED = 5;
 
 /**
+ * Newest first. Confluence's default order is ascending id, so on a long-lived
+ * tenant the sample is all pre-Forge content whose macro nodes carry a bare
+ * Connect key (`zenuml-sequence-macro`) with no appId or environmentId to lift.
+ * zenuml.atlassian.net resolved to no_extension_node that way (2026-10-10)
+ * while holding Forge macros from the month before.
+ */
+export const NEWEST_FIRST = 'sort=-modified-date';
+
+/**
  * One custom-content probe, newest first.
  *
  * NEWEST FIRST IS THE FIX, not a nicety. Confluence's default order is oldest
@@ -301,7 +317,7 @@ const MAX_PAGES_SAMPLED = 5;
 function probePath(type: string): string {
   return (
     `/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}` +
-    `&limit=${PROBE_ROWS}&sort=-created-date`
+    `&limit=${PROBE_ROWS}&${NEWEST_FIRST}`
   );
 }
 
@@ -354,6 +370,7 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
   let pagesSampled = 0;
   let legacyNodes = 0;
   let foreignNodes = 0;
+  let firstVariantSeen: Variant | undefined;
   let lastProbeError: string | undefined;
 
   for (const profile of VARIANTS) {
@@ -372,6 +389,7 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
       const hits = readCustomContentHits(res.body);
       if (hits.length === 0) continue;
       contentSeen += hits.length;
+      firstVariantSeen ??= profile.variant;
 
       // Many diagrams share a page; fetching it once per diagram would spend
       // the sample on one page.
@@ -449,6 +467,7 @@ export async function resolveMacroIdentity(get: ConfluenceGet): Promise<Identity
     return {
       ok: false,
       reason: 'no_extension_node',
+      variant: firstVariantSeen,
       detail:
         `found ${contentSeen} ZenUML custom content item(s) but no Forge macro node for that app on the ` +
         `${pagesSampled} page(s) sampled` +

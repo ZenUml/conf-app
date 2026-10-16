@@ -20,7 +20,7 @@ describe('ConnectMcpDialog (headless)', () => {
     expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(false)
   })
 
-  it('shows the setup command, the sign-in note and a prompt naming this diagram', () => {
+  it('shows the setup command, the sign-in note and a review prompt naming this diagram', () => {
     forgeGlobal.zenumlRemoteBaseUrl = 'https://conf-lite.zenuml.com'
     const wrapper = mountDialog({ diagramTitle: 'Login flow', cloudId: 'c-1', pageId: '42', contentId: '99' })
     forgeGlobal.zenumlRemoteBaseUrl = undefined
@@ -29,14 +29,20 @@ describe('ConnectMcpDialog (headless)', () => {
     expect(wrapper.find('[data-testid="connect-mcp-setup-command"]').text()).toBe(
       'claude mcp add --transport http zenuml https://conf-lite.zenuml.com/agent-link/mcp'
     )
-    expect(wrapper.text()).toContain('URL https://conf-lite.zenuml.com/agent-link/mcp')
+    // The hint points at the setup command's URL instead of repeating it.
+    expect(wrapper.find('.connect-mcp-hint').text().replace(/\s+/g, ' ')).toContain('add a remote HTTP server named zenuml with the above URL.')
+    expect(wrapper.find('.connect-mcp-hint').text()).not.toContain('https://')
     expect(wrapper.text()).toContain('sign in with Atlassian')
     const prompt = wrapper.find('[data-testid="connect-mcp-prompt"]').text()
     expect(prompt).toContain('"Login flow"')
     expect(prompt).toContain('cloudId: c-1')
     expect(prompt).toContain('contentId: 99')
+    expect(prompt).toContain('review my ZenUML diagram')
+    expect(prompt).toContain('wait for my go-ahead before changing it')
     expect(prompt).not.toContain('session:')
-    expect(wrapper.find('[data-testid="connect-mcp-reload-note"]').text()).toContain('Reload the page')
+    // The reload footer is gone.
+    expect(wrapper.find('[data-testid="connect-mcp-reload-note"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Reload the page')
   })
 
   it('has no session states: no waiting indicator, disconnect or retry', () => {

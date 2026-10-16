@@ -28,6 +28,8 @@ import type { GrantEvent } from './tokenStore';
 import { mixpanelTrack } from '../../service/mixpanelService';
 import { loadClient, type McpTokenRecord } from './asStore';
 import type { GrantStore } from './tokenStore';
+import { createRefreshLedger } from './refreshLedger';
+import { issuerFor } from './asMetadata';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -123,7 +125,13 @@ function withTimeout(work: Promise<unknown>): Promise<void> {
   ]).catch(() => undefined);
 }
 
-async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value: unknown): Promise<void> {
+async function trackWrite(
+  env: HeadlessEnv,
+  tool: string,
+  userId: string,
+  cloudId: string | undefined,
+  value: unknown,
+): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const out = (value ?? {}) as { result?: unknown; gate?: unknown };
   const event = WRITE_EVENT_BY_TOOL[tool];
@@ -135,10 +143,12 @@ async function trackWrite(env: HeadlessEnv, tool: string, userId: string, value:
         user_account_id: userId,
         feature_area: 'agent_link',
         surface: 'backend',
+        cloud_id: cloudId,
         result: typeof out.result === 'string' ? out.result : undefined,
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
       },
       env.MIXPANEL_TOKEN,
+      env,
     ));
   } catch {
     // analytics must never fail a write that already happened
@@ -203,9 +213,11 @@ async function trackInitialize(
         user_account_id: userId,
         feature_area: 'agent_link',
         surface: 'backend',
+        mcp_mode: 'headless',
         client_declares_ui: clientDeclaresUi(params),
         protocol_version: negotiated,
-        mcp_client_name: typeof info?.name === 'string' ? info.name : 'unknown',
+        mcp_client_name: clip(info?.name) ?? 'unknown',
+        mcp_client_version: clip(info?.version),
         // The key the view events carry too, so a handshake and the view fetch
         // it led to (or did not) can be joined per host.
         oauth_client_id: clientId,
@@ -290,6 +302,7 @@ async function trackGrantEvent(env: HeadlessEnv, userId: string, event: GrantEve
       reason: event.type === 'revoked' ? event.reason : event.failure,
     },
     env.MIXPANEL_TOKEN,
+    env,
   ));
 }
 
@@ -302,6 +315,7 @@ async function trackWriteRefusal(
   env: HeadlessEnv,
   tool: string,
   userId: string,
+  cloudId: string | undefined,
   failure: HeadlessToolError,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
@@ -314,6 +328,7 @@ async function trackWriteRefusal(
         user_account_id: userId,
         feature_area: 'agent_link',
         surface: 'backend',
+        cloud_id: cloudId,
         // The closed-vocabulary refusal code only — never the message, which
         // can quote a Confluence error.
         reason: failure.code,
@@ -321,16 +336,70 @@ async function trackWriteRefusal(
         paywall_gate: failure.code === 'limit_reached' ? 'limit_reached' : undefined,
       },
       env.MIXPANEL_TOKEN,
+      env,
     ));
   } catch {
     // never fail the response on analytics
   }
 }
 
+/** How one tools/call ended — AgentLinkMcpToolOutcome in the frontend catalog. */
+type ToolOutcome = 'success' | 'tool_error' | 'scope_denied' | 'unknown_tool' | 'exception';
+
+/** Atlassian cloudIds are UUIDs; anything else is client free text and is dropped. */
+const CLOUD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function cloudIdOf(args: unknown): string | undefined {
+  const value = ((args ?? {}) as { cloudId?: unknown }).cloudId;
+  return typeof value === 'string' && CLOUD_ID_RE.test(value) ? value : undefined;
+}
+
+/** Client-supplied text, bounded before it reaches Mixpanel. */
+function clip(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value.slice(0, 64) : undefined;
+}
+
+/**
+ * One event per authenticated tools/call, for every tool. The write events
+ * above only see the four writes; reads, scope refusals and unexpected throws
+ * are otherwise invisible on the headless path. Arguments and results are
+ * never sent — only the tool's name, the site it targeted, how it ended, and
+ * how long it took. `cloud_id` is what makes usage readable per customer: the
+ * token says who, but only the call says which site.
+ */
+async function trackToolCall(
+  env: HeadlessEnv,
+  userId: string,
+  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string },
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  await withTimeout(mixpanelTrack(
+    {
+      event: 'agent_link_mcp_tool_called',
+      user_account_id: userId,
+      feature_area: 'agent_link',
+      surface: 'backend',
+      mcp_mode: 'headless',
+      mcp_tool: call.tool,
+      cloud_id: call.cloudId,
+      mcp_tool_outcome: call.outcome,
+      reason: call.reason,
+      duration_ms: call.durationMs,
+    },
+    env.MIXPANEL_TOKEN,
+  ));
+}
+
 export interface HeadlessMcpDeps {
   /** Injected so tests need no network; production passes a wrapped global fetch. */
   fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
   nowMs?: () => number;
+  /**
+   * The Pages context's waitUntil. When given, usage events run after the
+   * response is sent instead of delaying it; without it (tests) they are
+   * awaited, still bounded by ANALYTICS_TIMEOUT_MS.
+   */
+  waitUntil?: (work: Promise<unknown>) => void;
 }
 
 /**
@@ -348,6 +417,11 @@ export async function handleHeadlessRpc(
   const id = body.id ?? null;
   const fetchImpl = deps.fetchImpl ?? ((url: string, init?: RequestInit) => fetch(url, init));
   const now = deps.nowMs ?? Date.now;
+  const defer = async (work: Promise<void>): Promise<void> => {
+    const bounded = work.catch(() => undefined); // analytics never fails a response
+    if (deps.waitUntil) deps.waitUntil(bounded);
+    else await bounded;
+  };
 
   let store;
   let app;
@@ -365,7 +439,15 @@ export async function handleHeadlessRpc(
     throw e;
   }
 
-  const auth = await authenticateHeadless(request, store, now());
+  if (!env.DB) return error(503, id, RPC_AUTH_ERROR, 'Headless authorization is temporarily unavailable.');
+
+  let auth;
+  try {
+    auth = await authenticateHeadless(request, store, now(),
+      env.DB && env.OAUTH_GRANT_SECRET ? createRefreshLedger(env.DB as never, env.OAUTH_GRANT_SECRET, issuerFor(request.url)) : undefined);
+  } catch {
+    return error(503, id, RPC_AUTH_ERROR, 'Headless authorization is temporarily unavailable.');
+  }
   if (!auth.ok) {
     return error(401, id, RPC_AUTH_ERROR, authMessage(auth.reason), {
       headers: { 'WWW-Authenticate': challengeFor(request.url, auth.reason) },
@@ -399,7 +481,7 @@ export async function handleHeadlessRpc(
       const negotiated = negotiateProtocolVersion(
         (body.params as { protocolVersion?: unknown } | undefined)?.protocolVersion,
       );
-      await trackInitialize(env, auth.token.userId, auth.token.clientId, body.params, negotiated);
+      await defer(trackInitialize(env, auth.token.userId, auth.token.clientId, body.params, negotiated));
       return result(id, {
         protocolVersion: negotiated,
         // `resources` exists solely to serve the MCP Apps view, so the two are
@@ -455,8 +537,21 @@ export async function handleHeadlessRpc(
       if (typeof params.name !== 'string') {
         return error(400, id, RPC_INVALID_PARAMS, 'params.name is required');
       }
-      if (!HEADLESS_TOOLS.some((t) => t.name === params.name)) {
-        return error(200, id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${params.name}`);
+      const tool = params.name;
+      const cloudId = cloudIdOf(params.arguments);
+      const startedMs = now();
+      const trackCall = (outcome: ToolOutcome, reason?: string) =>
+        defer(trackToolCall(env, auth.token.userId, {
+          tool,
+          outcome,
+          reason,
+          cloudId,
+          durationMs: Math.max(0, now() - startedMs),
+        }));
+      if (!HEADLESS_TOOLS.some((t) => t.name === tool)) {
+        // Never the client's string: an unknown name is free text.
+        await defer(trackToolCall(env, auth.token.userId, { tool: 'unknown', outcome: 'unknown_tool', durationMs: 0 }));
+        return error(200, id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${tool}`);
       }
       // Reads need diagram.read; the two write tools need diagram.write. A
       // client that asked for only one scope gets only that half of the
@@ -464,6 +559,7 @@ export async function handleHeadlessRpc(
       const needsWrite = WRITE_TOOLS.has(params.name);
       const required = needsWrite ? 'diagram.write' : 'diagram.read';
       if (!hasScope(auth.token, required)) {
+        await trackCall('scope_denied', required);
         return error(403, id, RPC_AUTH_ERROR, `This token was not granted ${required} access.`);
       }
 
@@ -473,7 +569,8 @@ export async function handleHeadlessRpc(
           (params.arguments ?? {}) as Record<string, unknown>,
           ctx,
         );
-        await trackWrite(env, params.name, auth.token.userId, value);
+        await trackWrite(env, params.name, auth.token.userId, cloudId, value);
+        await trackCall('success');
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {
@@ -482,7 +579,8 @@ export async function handleHeadlessRpc(
         });
       } catch (e) {
         if (e instanceof HeadlessToolError) {
-          await trackWriteRefusal(env, params.name, auth.token.userId, e);
+          await trackWriteRefusal(env, params.name, auth.token.userId, cloudId, e);
+          await trackCall('tool_error', e.code);
           // A dead grant is the one failure the user can act on, so it is a
           // 401 with the challenge rather than a tool-level error buried in a
           // 200 that a client will just print.
@@ -494,6 +592,7 @@ export async function handleHeadlessRpc(
           }
           return error(200, id, RPC_TOOL_ERROR, e.message, { data: { code: e.code, detail: e.detail } });
         }
+        await trackCall('exception');
         throw e;
       }
     }

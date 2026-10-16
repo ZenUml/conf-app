@@ -100,6 +100,8 @@ export interface McpTokenRecord {
    * existed; those live out their hour unaffected.
    */
   chainId?: string;
+  /** D1 owns revocation for credentials minted after the refresh ledger cutover. */
+  ledger?: boolean;
 }
 
 export interface RefreshTokenRecord {
@@ -240,6 +242,19 @@ export async function issueAccessToken(
   return { token, expiresInSeconds: ttlSeconds };
 }
 
+/** Publish a preselected handle after the D1 rotation commits. Repeating this
+ * write repairs a failed KV publication without changing token lifetime. */
+export async function publishAccessToken(
+  store: GrantStore,
+  token: string,
+  record: McpTokenRecord,
+  nowMs: number,
+): Promise<void> {
+  const remaining = Math.ceil((record.expiresAtMs - nowMs) / 1000);
+  if (remaining <= 0) throw new Error('access receipt expired');
+  await putJson(store, `${PREFIX}-token:${await hashSecret(token)}`, record, remaining);
+}
+
 /**
  * The record behind a bearer token, or null if it is unknown or expired.
  *
@@ -266,6 +281,10 @@ export async function issueRefreshToken(store: GrantStore, record: RefreshTokenR
   const token = randomToken();
   await putJson(store, `${PREFIX}-refresh:${await hashSecret(token)}`, record, REFRESH_TOKEN_TTL_SECONDS);
   return token;
+}
+
+export function loadLegacyRefreshToken(store: GrantStore, token: string): Promise<RefreshTokenRecord | null> {
+  return hashSecret(token).then((hash) => getJson<RefreshTokenRecord>(store, `${PREFIX}-refresh:${hash}`));
 }
 
 // ---------------------------------------------------------- refresh chains

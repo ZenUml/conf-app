@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Repair Benchmark"
+  short_description: "通过 L1/L2 比较模型修复质量、延迟与费用"
+  default_prompt: "使用 $ai-repair-benchmark 比较不同模型修复这份 DSL 的效果。"
+policy:
+  allow_implicit_invocation: true

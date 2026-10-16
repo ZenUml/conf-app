@@ -68,7 +68,56 @@
                 </svg>
                 READ-ONLY
               </span>
-              <span class="viewer-title" :title="title">{{ title }}</span>
+              <!-- Inline title rename: the title itself is the affordance.
+                   Click swaps it for a plain input (Enter / blur commit, Esc
+                   cancels, blank refused). Same gate as the Edit button
+                   (canRename) — the editor stays the place for everything
+                   else, this just spares a modal round-trip for a one-word
+                   change. Persistence: utils/renameDiagramTitle.ts. -->
+              <!-- Off-screen twin of the draft, measured so the input keeps
+                   the title's own footprint and grows with the text instead of
+                   sitting in a fixed box — the frame is fit-content, so a
+                   fixed-width input would widen the whole macro on click.
+                   Placed BEFORE the button/input/span chain: its own v-if
+                   must not sit between that chain's v-else-if and v-else. -->
+              <span v-if="isRenaming" ref="renameMeasure" class="viewer-title-measure" aria-hidden="true">{{ renameDraft || 'Untitled diagram' }}</span>
+              <button
+                v-if="canRename && !isRenaming"
+                type="button"
+                class="viewer-title viewer-title--editable"
+                :title="`${title} — click to rename`"
+                :aria-label="`Rename diagram: ${title}`"
+                data-testid="viewer-title-rename"
+                ref="titleButton"
+                @click="startRename"
+              >
+                <span class="viewer-title-text">{{ title }}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-title-pencil" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                </svg>
+              </button>
+              <input
+                v-else-if="isRenaming"
+                ref="renameInput"
+                type="text"
+                class="viewer-title viewer-title-input"
+                :class="{ 'viewer-title-input--error': renameError, 'viewer-title-input--saving': isSavingRename }"
+                aria-label="Diagram title"
+                :aria-invalid="renameError ? 'true' : undefined"
+                data-testid="viewer-title-input"
+                maxlength="255"
+                placeholder="Untitled diagram"
+                autocomplete="off"
+                spellcheck="false"
+                :value="renameDraft"
+                :disabled="isSavingRename"
+                :style="renameInputWidth ? { width: renameInputWidth + 'px' } : undefined"
+                @input="onRenameInput"
+                @keydown.enter.prevent="commitRename"
+                @keydown.esc.prevent="cancelRename"
+                @blur="onRenameBlur"
+              />
+              <span v-else class="viewer-title" :title="title">{{ title }}</span>
               <!-- Fullscreen: multi-page navigation (Graph) sits beside the title. -->
               <div v-if="isFullscreenMode && $slots['header-nav']" class="viewer-header-nav" role="group" aria-label="Diagram pages">
                 <slot name="header-nav"></slot>
@@ -228,10 +277,14 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
-              <!-- Connect MCP (agent-link flag on, agent-editable types, inline
-                   only) takes the Copy for AI slot and opens ConnectMcpDialog
-                   with the headless MCP setup and a prompt naming this diagram.
-                   Stage 3 moves it into More, as it does Copy for AI. -->
+              <!-- Connect MCP (agent-link flag on, agent-editable types) takes
+                   the Copy for AI slot, inline and in fullscreen, and opens
+                   ConnectMcpDialog with the headless MCP setup and a prompt
+                   naming this diagram. Inline it is labelled "MCP" at stage 0,
+                   icon-only from stage 1, and stage 3 moves it into More; it
+                   reveals on hover like the rest of the header. Fullscreen
+                   always labels it. Tooltip and accessible name say
+                   "Connect MCP". -->
               <button
                 v-if="showAgentLinkConnect"
                 type="button"
@@ -246,10 +299,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
                 </svg>
-                <!-- Visible "MCP" next to the icon, even inline where Source and
-                     Copy for AI are icon-only: the mark alone is not yet widely
-                     recognised. aria-label keeps the full "Connect MCP". -->
-                <span class="viewer-act-connect-mcp-label" aria-hidden="true">MCP</span>
+                <span class="viewer-btn-label">MCP</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
               <!-- Fullscreen: the actions the inline macro keeps in More are
@@ -267,6 +317,14 @@
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
                 @opened="onMoreMenuOpened" @closed="moreMenuOpen = false">
                 <template #default="{ close }">
+                  <!-- Lead items from the diagram-type wrapper (the Mermaid
+                       relationship-highlights switch, design "Viewer Header
+                       Highlight Analysis" 1e), then the standard entries. The
+                       slot receives close() so an item can shut the menu. -->
+                  <template v-if="$slots['viewer-more-menu-start']">
+                    <slot name="viewer-more-menu-start" :close="close"></slot>
+                    <div role="separator" class="overflow-menu-separator"></div>
+                  </template>
                   <template v-for="(item, index) in moreMenuEntries" :key="`${item}-${index}`">
                     <div v-if="item === 'separator'" role="separator" class="overflow-menu-separator"></div>
                     <button
@@ -289,7 +347,8 @@
                   </template>
                 </template>
               </OverflowMenu>
-              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit">
+              <!-- Also disabled while a title rename PUT is in flight: the modal would boot on the pre-rename body and its later save would reinstate the old title. -->
+              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason || isSavingRename" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                 </svg>
@@ -433,6 +492,16 @@
                 label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
             </div>
+            <!-- Canvas overlay anchor: a zero-height block between the diagram
+                 and the footer row. Slot content (the Mermaid highlight feedback
+                 pill) positions itself against this box, so it floats over the
+                 diagram's bottom edge, stays above the byline / related-diagrams
+                 row, and is never inside captureNode's export clone. Only
+                 mounted when a parent fills the slot, so other diagram types'
+                 DOM is unchanged. -->
+            <div v-if="!isLoadFailed && $slots['viewer-canvas-overlay']" class="viewer-canvas-overlay">
+              <slot name="viewer-canvas-overlay"></slot>
+            </div>
             <div
               v-if="!isLoadFailed && (diagramAttribution || (architectureTokensEnabled && showRelatedDiagrams))"
               class="viewer-footer-row"
@@ -561,6 +630,7 @@ import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
 import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
+import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -582,6 +652,7 @@ import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
 import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
+import { renameDiagramTitle } from '@/utils/renameDiagramTitle'
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
 import { validateMagicArtifact } from '@/utils/magic/artifact'
 import { callRemote } from '@/utils/requestUtil'
@@ -594,6 +665,13 @@ import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/s
 import { controlsWidth, maxHeaderStage, moreMenuItems, pickHeaderStage } from '@/utils/viewerHeaderLayout'
 
 const DEFAULT_TITLE = 'Untitled diagram'
+// Inline title rename input sizing (see startRename / updateRenameWidth).
+// MAX mirrors .viewer-title's max-width; CHROME is the input's horizontal
+// padding (6px × 2) + border (1px × 2) plus a few px so the caret has room
+// after the last glyph, added to the measured text width.
+const RENAME_INPUT_MIN_WIDTH_PX = 160
+const RENAME_INPUT_MAX_WIDTH_PX = 420
+const RENAME_INPUT_CHROME_PX = 18
 const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'
 
 function isMermaidSequenceSource(source) {
@@ -682,6 +760,13 @@ export default {
     copyForAiImpressionTracked: false,
     // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
     showConnectMcpDialog: false,
+    // Per-viewer daily dedupe for agent_link_mcp_button_shown
+    // (connectMcpShown.ts); null until the flag resolves on.
+    connectMcpShownRecord: null,
+    connectMcpShownTracked: false,
+    // Set on unmount so a shown event still waiting for the header layout
+    // is dropped instead of reporting a viewer that no longer exists.
+    connectMcpUnmounted: false,
     connectMcpOpenedAt: 0,
     // Set once isAgentLinkEnabled() settles either way (see copyForAiSlotSettled).
     agentLinkFlagResolved: false,
@@ -703,6 +788,15 @@ export default {
     // fails closed (no accountId, no match, no render).
     currentAccountId: null,
     retryOutcomeEmitted: false,
+    // Inline title rename (see the title control in the template). The draft
+    // lives here, not in the store, so a cancelled or failed rename never
+    // touches diagram.title — the store only changes once the PUT has landed.
+    isRenaming: false,
+    renameDraft: '',
+    isSavingRename: false,
+    renameError: false,
+    renameInputWidth: 0,
+    renameMinWidth: 0,
     magicActive: false,
     magicSvg: null,
     magicHighlightController: null,
@@ -778,6 +872,7 @@ export default {
         magic: this.showInlineRefined,
         pages: 0,
         hasEdit: this.showEdit && !this.isFullscreenMode,
+        connectMcp: this.showAgentLinkConnect && !this.isFullscreenMode,
       };
     },
     // Anything that changes the header's content without resizing the viewer.
@@ -921,6 +1016,27 @@ export default {
         // page editor, the one surface where the fork can be linked.
         : 'This is one of several copies of this diagram on this page. To edit it, open the page in edit mode and edit this macro there — it will become an independent diagram.';
     },
+    // Inline title rename gate. Deliberately the Edit button's predicate
+    // spelled out (not `showEdit`, whose DEV shortcut would offer a rename
+    // that has no custom content to write to): a permitted user, a live
+    // custom content id, and none of the states that already disable Edit
+    // (copy / duplicate / recovery / cached fallback). Fullscreen and embed
+    // surfaces are excluded the same way Edit is — fullscreen drops the
+    // action row, and an embed is a reference whose origin owns the title.
+    // First rollout: the ZenUML sequence and Mermaid macros (inline page
+    // view). The control and its persistence are type-agnostic; the other
+    // types keep the editor as the one place to rename until it has proven
+    // itself here.
+    // Anonymous visitors of a public page (no accountId in the Forge context)
+    // are not offered it either: the bridge PUT can only fail for them. The
+    // account resolves asynchronously, so the control appears once it has.
+    canRename() {
+      if (this.hideEdit || this.isFullscreenMode || this.isEmbedded || this.isLoadFailed) return false;
+      if (this.diagramType !== DiagramType.Sequence && this.diagramType !== DiagramType.Mermaid) return false;
+      if (!this.magicIdentityReady || !this.currentAccountId) return false;
+      if (!this.canUserEdit || !this.isCustomContent || !this.diagram?.id) return false;
+      return !this.editDisabledReason;
+    },
     // Live Agent Link MVP scope (design §11/§12): agent-native DSL types only.
     // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.
     agentLinkMvpSupported() {
@@ -930,6 +1046,22 @@ export default {
     // audience includes readers without edit permission.
     showViewSource() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
+    },
+    // agent_link_mcp_button_shown: the button is rendered for a viewer.
+    connectMcpShownEligible() {
+      return this.showAgentLinkConnect
+        && this.connectMcpShownRecord !== null
+        && this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed;
+    },
+    // Where the button sits and how it shows, for the analytics properties.
+    connectMcpPlacement() {
+      return !this.isFullscreenMode && this.headerStage >= 3 ? 'more_menu' : 'toolbar';
+    },
+    // Fullscreen headers are always visible; inline ones reveal on hover.
+    connectMcpEffectiveReveal() {
+      return this.isFullscreenMode ? 'always' : 'hover';
     },
     copyForAiImpressionEligible() {
       return this.copyForAiPermissionResolved
@@ -1009,15 +1141,20 @@ export default {
     // Small-macro action-area affordance — hidden once already in Fullscreen
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
     showAgentLinkConnect() {
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+      // With relay sessions on, fullscreen connects through its rail instead.
+      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported
+        && !(this.isFullscreenMode && RELAY_SESSIONS_ENABLED);
     },
     // The Copy for AI slot renders only once it is known not to be Connect
-    // MCP's: on an inline agent-editable macro that waits for the async flag,
-    // so Copy for AI never flashes and then swaps out. Fullscreen and the other
-    // text types never show Connect MCP, so they need not wait.
+    // MCP's: on an agent-editable macro, inline or fullscreen, that waits for
+    // the async flag, so Copy for AI never flashes and then swaps out. The
+    // other text types never show Connect MCP, so they need not wait.
     copyForAiSlotSettled() {
-      return this.agentLinkFlagResolved || this.isFullscreenMode || !this.agentLinkMvpSupported;
+      return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
     },
+    // Connect MCP takes Copy for AI's slot but not its sparkles: with the same
+    // icon, icon-only and hover-revealed, a customer could not find it
+    // (2026-10). It draws the official MCP mark instead.
     connectMcpIcon() {
       return ICON_PATHS.mcp;
     },
@@ -1169,6 +1306,23 @@ export default {
     'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
+    // Fires once per viewer per UTC day (the shown record dedupes across
+    // every macro), after the header layout has settled so `header_stage` and
+    // the placement are the ones the viewer actually sees.
+    connectMcpShownEligible(eligible) {
+      if (!eligible || this.connectMcpShownTracked) return;
+      this.connectMcpShownTracked = true;
+      const raf = window.requestAnimationFrame?.bind(window) ?? (cb => setTimeout(cb, 16));
+      this.$nextTick(() => raf(() => raf(() => {
+        if (this.connectMcpUnmounted || !this.connectMcpShownEligible) return;
+        if (!this.connectMcpShownRecord?.recordShown()) return;
+        trackAnalyticsEvent('agent_link_mcp_button_shown', this.connectMcpAnalytics({
+          mcp_button_placement: this.connectMcpPlacement,
+          mcp_button_reveal: this.connectMcpEffectiveReveal,
+          ...(this.isFullscreenMode ? {} : { header_stage: this.headerStage }),
+        }));
+      })));
+    },
     copyForAiImpressionEligible: {
       immediate: true,
       handler(eligible) {
@@ -1311,6 +1465,12 @@ export default {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
     } finally {
+      if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
+        this.connectMcpShownRecord = createConnectMcpShownRecord({
+          cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
+          accountId: this.currentAccountId,
+        });
+      }
       this.agentLinkFlagResolved = true;
     }
     try {
@@ -1418,6 +1578,7 @@ export default {
     }
   },
   beforeUnmount() {
+    this.connectMcpUnmounted = true;
     this.headerResizeObserver?.disconnect();
     this.headerResizeObserver = null;
     if (this.magicThanksTimer) {
@@ -1694,8 +1855,10 @@ export default {
       this.$emit('magic-highlight-ready', false);
     },
     async installMagicHighlights() {
+      // Inline too: the staged header shows the refined layout in the page
+      // macro, and the original Mermaid canvas is highlighted there as well.
       if (!this.magicActive || !this.relationshipHighlights || this.showExportModal
-        || !this.isFullscreenMode || this.diagramType !== DiagramType.Mermaid) return;
+        || this.diagramType !== DiagramType.Mermaid) return;
       const generation = this.magicGeneration;
       const source = this.diagram?.mermaidCode ?? '';
       const artifact = this.diagram?.magic;
@@ -1707,7 +1870,9 @@ export default {
         if (!svg) return;
         this.clearMagicHighlights();
         this.magicHighlightController = attachPreparedSvgHighlights(svg, model);
-        let used = false, timer = null, hovered = null;
+        // Every distinct target is one use (the feedback pill waits for the
+        // third); a hover that turns into a click on the same target is one use.
+        let reported = null, timer = null, hovered = null;
         const target = event => {
           const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
           if (!el || !svg.contains(el)) return null;
@@ -1716,12 +1881,12 @@ export default {
         };
         const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
         const report = item => {
-          if (!item || used || generation !== this.magicGeneration) return;
-          used = true; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
+          if (!item || item.el === reported || generation !== this.magicGeneration) return;
+          reported = item.el; cancel(); this.$emit('magic-highlight-used', { kind: item.kind });
         };
         const over = event => {
           const item = target(event);
-          if (!item || used || hovered === item.el) return;
+          if (!item || hovered === item.el) return;
           cancel(); hovered = item.el;
           timer = setTimeout(() => report(item), 700);
         };
@@ -1778,6 +1943,9 @@ export default {
     // so one Escape dismisses one layer.
     onEscapeKeydown(e) {
       if (e.key !== 'Escape') return;
+      // The rename input's own keydown.esc handler owns Escape while it is
+      // open — cancelling the rename must not also close the source panel.
+      if (this.isRenaming) return;
       if (this.$refs.copyForAiMenu?.open || this.$refs.moreMenu?.open) return;
       if (this.showConnectMcpDialog) {
         this.closeConnectMcpDialog();
@@ -1995,6 +2163,123 @@ export default {
       trackEvent('edit', 'click', 'editing');
       EventBus.$emit('edit');
     },
+    // ---- Inline title rename ------------------------------------------------
+    // State machine: idle -> (click) renaming -> (Enter/blur) saving -> idle.
+    // Esc, an unchanged title, or a blank blur go straight back to idle with a
+    // viewer_rename_cancelled; a blank Enter stays put with the error state so
+    // the user sees why nothing happened. The store's title changes only on a
+    // landed write; every other exit leaves it exactly as it was.
+    startRename() {
+      if (!this.canRename || this.isRenaming) return;
+      this.renameDraft = this.diagram?.title?.trim?.() || '';
+      this.renameError = false;
+      // The input opens at exactly the title's rendered width (never
+      // narrower), so the header — and the fit-content frame around it —
+      // does not move on click.
+      this.renameMinWidth = this.$refs.titleButton?.offsetWidth || RENAME_INPUT_MIN_WIDTH_PX;
+      this.renameInputWidth = this.renameMinWidth;
+      this.isRenaming = true;
+      this.trackRename('viewer_rename_started');
+      this.$nextTick(() => {
+        this.updateRenameWidth();
+        const el = this.$refs.renameInput;
+        if (el) {
+          el.focus();
+          el.select();
+        }
+      });
+    },
+    onRenameInput(e) {
+      this.renameDraft = e.target.value;
+      if (this.renameError && this.renameDraft.trim()) this.renameError = false;
+      this.$nextTick(this.updateRenameWidth);
+    },
+    updateRenameWidth() {
+      const measure = this.$refs.renameMeasure;
+      if (!measure) return;
+      // Text width + the input's own horizontal padding and border.
+      const measured = measure.scrollWidth + RENAME_INPUT_CHROME_PX;
+      this.renameInputWidth = Math.min(RENAME_INPUT_MAX_WIDTH_PX, Math.max(this.renameMinWidth, measured));
+    },
+    onRenameBlur() {
+      // A commit and an Escape both flip these flags before the input leaves
+      // the DOM, so the blur that removal fires in some browsers is a no-op.
+      if (!this.isRenaming || this.isSavingRename) return;
+      if (!this.renameDraft.trim()) {
+        this.exitRename('empty');
+        return;
+      }
+      this.commitRename();
+    },
+    cancelRename() {
+      if (!this.isRenaming || this.isSavingRename) return;
+      this.exitRename('escape');
+    },
+    exitRename(reason) {
+      this.isRenaming = false;
+      this.renameError = false;
+      this.renameDraft = '';
+      this.trackRename('viewer_rename_cancelled', { rename_exit_reason: reason });
+    },
+    async commitRename() {
+      if (!this.isRenaming || this.isSavingRename) return;
+      const next = this.renameDraft.trim();
+      const prev = this.diagram?.title?.trim?.() || '';
+      if (!next) {
+        // Same rule as the editor's Publish button: a diagram needs a title.
+        this.renameError = true;
+        this.$refs.renameInput?.focus?.();
+        return;
+      }
+      if (next === prev) {
+        this.exitRename('unchanged');
+        return;
+      }
+      this.isSavingRename = true;
+      this.renameError = false;
+      const customContentId = String(this.diagram?.id ?? '');
+      let result;
+      try {
+        result = await renameDiagramTitle({
+          customContentId,
+          title: next,
+          macroType: this.diagramType ?? 'none',
+          attribution: this.diagramAttribution,
+        });
+      } catch (error) {
+        result = { ok: false, reason: 'save_error', durationMs: 0, error };
+      }
+      this.isSavingRename = false;
+      this.isRenaming = false;
+      this.renameDraft = '';
+      if (result.ok) {
+        this.$store.dispatch('updateTitle', next);
+        this.trackRename('viewer_rename_succeeded', { save_duration_ms: result.durationMs });
+        return;
+      }
+      // gate_blocked: guardEditClick already toasted the duplicate explanation
+      // and flipped the viewer into the disabled-Edit state (which also hides
+      // this control via canRename) — a second toast would just repeat it.
+      if (result.reason !== 'gate_blocked') {
+        console.error('rename failed', result.reason, result.error);
+        toast({ message: "Couldn't rename the diagram. Try again, or open the editor.", duration: 5000 });
+      }
+      this.trackRename('viewer_rename_failed', {
+        failure_reason: result.reason,
+        save_duration_ms: result.durationMs,
+      });
+    },
+    trackRename(eventName, extra = {}) {
+      const id = String(this.diagram?.id ?? '');
+      trackAnalyticsEvent(eventName, {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+        custom_content_id: id,
+        content_id: id,
+        ...extra,
+      });
+    },
     // The Source button is a toggle: a second click closes the panel it opened
     // (Fullscreen Viewer v2). Only the opening half is tracked —
     // `viewer_source_opened` still counts one event per open, so the toggle
@@ -2058,7 +2343,7 @@ export default {
     connectMcpAnalytics(extra = {}) {
       return {
         feature_area: 'agent_link',
-        surface: 'viewer',
+        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
         macro_type: this.diagramType ?? 'none',
         mcp_mode: 'headless',
         ...extra,
@@ -2068,8 +2353,10 @@ export default {
       if (this.showConnectMcpDialog) return;
       this.showConnectMcpDialog = true;
       this.connectMcpOpenedAt = Date.now();
-      trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics(
-        where === 'header_more_menu' ? { action_location: where } : {}));
+      trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics({
+        mcp_button_reveal: this.connectMcpEffectiveReveal,
+        ...(where === 'header_more_menu' ? { action_location: where } : {}),
+      }));
     },
     closeConnectMcpDialog() {
       if (!this.showConnectMcpDialog) return;
@@ -2839,6 +3126,100 @@ export default {
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-title {
   max-width: var(--viewer-title-max, 420px);
 }
+/* Inline title rename. At rest the control is indistinguishable from the
+   plain title (same type, same position — negative margins cancel its own
+   padding); hover/focus reveal a soft field and the pencil, the same
+   #F3F4F6 the ghost action buttons use so the row reads as one system.
+   The pencil is faintly visible whenever the surface is hovered (the edges
+   are already revealed then) so the affordance is discoverable without
+   shouting. */
+.viewer-title--editable {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: -3px -6px;
+  padding: 3px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #172B4D;
+  text-align: left;
+  cursor: text;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+.viewer-title--editable:hover,
+.viewer-title--editable:focus-visible {
+  background: #F3F4F6;
+}
+.viewer-title--editable:focus-visible {
+  outline: 2px solid #0094D9;
+  outline-offset: 1px;
+}
+.viewer-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.viewer-title-pencil {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: #6B7280;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.viewer-surface--hover .viewer-title-pencil { opacity: 0.45; }
+.viewer-title--editable:hover .viewer-title-pencil,
+.viewer-title--editable:focus-visible .viewer-title-pencil { opacity: 1; }
+
+.viewer-title-input {
+  box-sizing: border-box;
+  /* Width is set inline from the measured title (updateRenameWidth); this is
+     only the no-measurement fallback. No max-width: 100% here — the negative
+     margins make the title-area 12px narrower than the input, so a percentage
+     cap resolved against it clipped the last glyph (measured live: style
+     333px, rendered 321px). The 420px cap lives in updateRenameWidth. */
+  width: 160px;
+  margin: -3px -6px;
+  padding: 3px 6px;
+  background: #fff;
+  border: 1px solid #0094D9;
+  border-radius: 6px;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #172B4D;
+  /* An input clips rather than ellipsises; drop the inherited ellipsis so
+     the caret and the text scroll normally while editing. */
+  text-overflow: clip;
+}
+.viewer-title-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre;
+  font-size: 14px;
+  font-weight: 600;
+}
+.viewer-title-input::placeholder {
+  color: #9CA3AF;
+  font-style: italic;
+  font-weight: 500;
+}
+.viewer-title-input--error {
+  border-color: #DE350B;
+  background: #FFF5F3;
+}
+.viewer-title-input--saving {
+  opacity: 0.6;
+  cursor: progress;
+}
 .viewer-embed-chip {
   flex-shrink: 0;
   padding: 2px 6px;
@@ -3121,7 +3502,6 @@ export default {
   color: #6B7280;
 }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source:hover,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp:hover,
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
@@ -3130,19 +3510,22 @@ export default {
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell > span:only-child { padding: 0 6px; }
 .copy-for-ai-split-primary[data-copy-state="copied"] .viewer-icon { color: #36B37E; }
-/* Connect MCP keeps a short "MCP" label beside its icon (it moves into More
-   at stage 3, like Copy for AI). */
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp {
-  gap: 4px;
-  padding: 0 8px 0 6px;
-  color: #6B7280;
-}
-.viewer-act-connect-mcp-label { font-size: 12px; font-weight: 500; }
+
+/* Inline Connect MCP keeps its label at stage 0 (it is the one header action a
+   viewer has to discover, and an unlabelled icon was missed), and goes
+   icon-only from stage 1 with Edit and Refined. */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp { min-width: 28px; color: #6B7280; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp:hover { color: #374151; }
+.viewer-frame[data-stage="1"] .viewer-act-connect-mcp,
+.viewer-frame[data-stage="2"] .viewer-act-connect-mcp { width: 28px; padding: 0; }
+.viewer-frame[data-stage="1"] .viewer-act-connect-mcp .viewer-btn-label,
+.viewer-frame[data-stage="2"] .viewer-act-connect-mcp .viewer-btn-label { display: none; }
 
 /* Staged collapse (data-stage on .viewer-frame, set by updateHeaderStage).
-   1: Edit + Refined → icon. 2: Fullscreen → icon. 3: Source + Copy for AI
-   move into More (the Copy for AI wrapper stays mounted, visually hidden,
-   so its live region still announces a copy started from the menu). */
+   1: Edit + Refined (+ Connect MCP) → icon. 2: Fullscreen → icon.
+   3: Source + Copy for AI (or Connect MCP) move into More (the Copy for AI
+   wrapper stays mounted, visually hidden, so its live region still announces
+   a copy started from the menu). */
 .viewer-frame[data-stage="1"] .viewer-act-edit .viewer-btn-label,
 .viewer-frame[data-stage="2"] .viewer-act-edit .viewer-btn-label,
 .viewer-frame[data-stage="3"] .viewer-act-edit .viewer-btn-label,
@@ -3175,7 +3558,8 @@ export default {
 
 /* ----- Fullscreen header actions -----------------------------------------
    Labels by viewport (the modal is the viewport): >= 1280px every action is
-   labelled; 1100-1279px only Source and Copy for AI; below 1100px all are
+   labelled; 1100-1279px only Source and Copy for AI (or Connect MCP in its
+   slot); below 1100px all are
    icon-only and the version switch reads Refined / Original. */
 .viewer-fs-act .viewer-icon { color: #6B7280; flex-shrink: 0; }
 .viewer-frame--fullscreen .viewer-fs-act { min-width: 28px; padding: 0; }
@@ -3186,8 +3570,10 @@ export default {
 }
 @media (max-width: 1099px) {
   .viewer-frame--fullscreen .viewer-act-source,
+  .viewer-frame--fullscreen .viewer-act-connect-mcp,
   .viewer-frame--fullscreen .copy-for-ai-split-primary { min-width: 28px; padding: 0; }
   .viewer-frame--fullscreen .viewer-act-source .viewer-btn-label,
+  .viewer-frame--fullscreen .viewer-act-connect-mcp .viewer-btn-label,
   .viewer-frame--fullscreen .viewer-act-copy .viewer-btn-label,
   .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
   .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
@@ -3313,6 +3699,12 @@ export default {
 }
 .viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
 .viewer-canvas .screen-capture-content.w-full { width: 100%; }
+/* Zero height: adds nothing to the canvas layout. Its width comes from the
+   canvas (never from its children), which is what makes inline-size
+   containment safe here — the inline frame is width:fit-content, so the
+   same declaration on .viewer-canvas itself would collapse the macro. The
+   container name is what the pill's @container rule queries. */
+.viewer-canvas-overlay { position: relative; width: 100%; height: 0; container: viewer-canvas / inline-size; }
 
 .viewer-footer-row {
   display: flex;

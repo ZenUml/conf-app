@@ -35,7 +35,7 @@ export const onRequest = async (event: any) => {
     const r2Key = await archiveAnalyticsEvent(event.env.EVENT_BUCKET, analyticsEvent, body as unknown as Record<string, unknown>);
     await insertAnalyticsEventFact(event.env.DB, analyticsEvent, r2Key);
   })());
-  event.waitUntil(mixpanelTrack(body, event.env.MIXPANEL_TOKEN)); //async handling
+  event.waitUntil(mixpanelTrack(body, event.env.MIXPANEL_TOKEN, event.env)); //async handling
 
   return new Response(null, { status: 204 });
 };

@@ -11,6 +11,7 @@ import {
   resolveMacroIdentityCached,
   identityCacheKey,
   IDENTITY_CACHE_TTL_SECONDS,
+  NEWEST_FIRST,
   type ConfluenceGet,
   type IdentityStore,
   type MacroIdentity,
@@ -101,10 +102,13 @@ function fakeSite(opts: {
     if (forced) return { status: forced, body: null };
 
     if (path.startsWith('/wiki/api/v2/custom-content')) {
-      const type = decodeURIComponent(new URL(path, 'https://x').searchParams.get('type') ?? '');
+      const params = new URL(path, 'https://x').searchParams;
+      const type = decodeURIComponent(params.get('type') ?? '');
       const rows = opts.customContent?.[type];
       if (!rows) return { status: 404, body: null };
-      return { status: 200, body: { results: rows } };
+      const ordered = params.get('sort') === '-modified-date' ? [...rows].reverse() : rows;
+      const limit = Number(params.get('limit')) || ordered.length;
+      return { status: 200, body: { results: ordered.slice(0, limit) } };
     }
     if (path.startsWith('/wiki/api/v2/pages/')) {
       const pageId = path.split('/wiki/api/v2/pages/')[1].split('?')[0];
@@ -425,6 +429,49 @@ describe('resolveMacroIdentity', () => {
     expect(result.ok && result.identity.variant).toBe('lite');
   });
 
+  it('samples the newest content, so pre-Forge history cannot hide a Forge macro', async () => {
+    // zenuml.atlassian.net, 2026-10-10: the oldest rows sit on pages whose
+    // macro nodes carry a bare Connect key with no appId or environmentId.
+    // Sampling oldest-first never reached the Forge macros written since.
+    const legacy = (id: string) => ({ id, pageId: `old-${id}` });
+    const { get, calls } = fakeSite({
+      customContent: {
+        'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence': [
+          legacy('1'),
+          legacy('2'),
+          legacy('3'),
+          legacy('4'),
+          { id: '99', pageId: 'new' },
+        ],
+      },
+      pages: {
+        'old-1': pageAdf('zenuml-sequence-macro-lite', '1'),
+        'old-2': pageAdf('zenuml-sequence-macro-lite', '2'),
+        'old-3': pageAdf('zenuml-sequence-macro-lite', '3'),
+        'old-4': pageAdf('zenuml-sequence-macro-lite', '4'),
+        new: pageAdf(keyFor(LITE.appId, 'zenuml-sequence-macro-lite'), '99'),
+      },
+    });
+    const result = await resolveMacroIdentity(get);
+    expect(result.ok && result.identity.variant).toBe('lite');
+    expect(calls[0]).toContain('sort=-modified-date');
+  });
+
+  it('names the variant it saw when no page yields a Forge key', async () => {
+    // Enough for list_diagrams, which needs the content type and not the key.
+    const { get } = fakeSite({
+      customContent: {
+        'ac:com.zenuml.confluence-addon:zenuml-content-sequence': [{ id: '5', pageId: '7' }],
+      },
+      pages: { '7': pageAdf('zenuml-sequence-macro', '5') },
+    });
+    expect(await resolveMacroIdentity(get)).toMatchObject({
+      ok: false,
+      reason: 'no_extension_node',
+      variant: 'full',
+    });
+  });
+
   it('stops probing once a variant resolves', async () => {
     const { get, calls } = fakeSite({
       customContent: {
@@ -594,7 +641,7 @@ describe('legacy Connect macros and multi-app sites', () => {
     await resolveMacroIdentity(get);
     const probes = calls.filter((c) => c.includes('/custom-content?type='));
     expect(probes.length).toBeGreaterThan(0);
-    for (const probe of probes) expect(probe).toContain('sort=-created-date');
+    for (const probe of probes) expect(probe).toContain(NEWEST_FIRST);
   });
 
   it('samples past Connect-era pages to a Forge-written one', async () => {

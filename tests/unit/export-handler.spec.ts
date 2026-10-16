@@ -49,7 +49,7 @@ vi.mock('@forge/api', () => ({
   },
 }));
 
-import { handler } from '../../src/export.js';
+import { handler, trackExportEvent } from '../../src/export.js';
 
 function mixpanelBodiesFromFetch(fetchMock: typeof fetch): unknown[] {
   const calls = vi.mocked(fetchMock).mock.calls;
@@ -92,6 +92,31 @@ describe('Forge export resolver (src/export.js)', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     delete process.env.MIXPANEL_TOKEN;
+    delete process.env.MIXPANEL_DISABLED;
+  });
+
+  it('suppresses Forge export telemetry in the disabled staging environment while production still imports', async () => {
+    process.env.MIXPANEL_DISABLED = 'true';
+    await trackExportEvent('macro_export_requested', { account_id: 'example-account', client_domain: 'example-tenant' });
+    expect(fetch).not.toHaveBeenCalled();
+
+    process.env.MIXPANEL_DISABLED = 'false';
+    await trackExportEvent('macro_export_requested', { account_id: 'example-account', client_domain: 'example-tenant' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.mixpanel.com/import?strict=1');
+  });
+
+  it('sends the final October export rate in the Mixpanel import payload', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-12T00:00:00Z'));
+    await trackExportEvent('macro_export_requested', {
+      account_id: 'example-account',
+      client_domain: 'example-tenant',
+      sample_rate: 0.9,
+    });
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event: string; properties: { sample_rate: number } }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].event).toBe('macro_export_requested');
+    expect(rows[0].properties.sample_rate).toBe(0.005);
   });
 
   it('includes custom_content_id on macro_export_failed when catch runs (Word config path)', async () => {

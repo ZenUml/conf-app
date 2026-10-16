@@ -34,6 +34,9 @@ function makeEnv() {
       OAUTH_GRANT_KV: store,
       OAUTH_GRANT_SECRET: 'grant-key',
       MIXPANEL_TOKEN: 'mp-token',
+      // handleHeadlessRpc refuses with 503 when D1 is unbound; the refresh
+      // ledger never runs on these paths, so an inert stub is enough.
+      DB: { prepare: () => ({ bind: () => ({ first: async () => null }) }) } as never,
     },
   };
 }

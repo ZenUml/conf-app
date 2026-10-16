@@ -64,11 +64,23 @@ export type HighlightFeedbackReason =
   | "not_useful"
   | "other";
 
-/** Surface variant that displayed the Mermaid highlight feedback prompt. */
-export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar";
+/**
+ * Surface variant that displayed the Mermaid highlight feedback prompt.
+ * `sidebar` is the retired 260px side card (shipped to 2026-10-10);
+ * `canvas_pill` is the auto-dismissing pill floating at the canvas bottom.
+ */
+export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar" | "canvas_pill";
 
 /** Prompt step at which planned Mermaid highlight feedback was dismissed. */
 export type HighlightDismissStage = "question" | "reason";
+
+/**
+ * Why a Mermaid highlight pill closed without an answer. Feedback pill:
+ * `close` is the × button, `timeout` is its 10 s auto-dismiss. First-use
+ * hint ("Highlighting connections"): `close` is ×, `turn_off` is its
+ * "Turn off" button, which also disables highlights.
+ */
+export type HighlightDismissCause = "close" | "timeout" | "turn_off";
 
 export type Surface =
   // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
@@ -238,8 +250,8 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 
 // Effective Session Replay policy stamped on analytics events. `authoring`
-// means a macro create/edit start forced recording independently of the Forge
-// flag cohort. See macro_create_started / macro_edit_started below.
+// means a sampled macro create/edit start requested recording independently of
+// the Forge flag cohort. See macro_create_started / macro_edit_started below.
 // `plan_usage_page` is the same kind of hardcoded override, in the opposite
 // direction from the page-banner's hardcoded 0% — see _initMixpanel in
 // trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
@@ -259,9 +271,10 @@ export type SessionReplayEventSource =
 // asynchronously. `returned` records only that the call did not synchronously
 // throw; it is not proof that a replay was uploaded. `$mp_replay_id` on a later
 // event is the outcome evidence. `skipped_sampled` means the call was never
-// made: authoring replay is sampled, and this session was outside the sample,
-// so whatever the Forge-flag cohort decided stands. Its share of authoring
-// events is the live measurement of the sampling rate.
+// made for this event: authoring replay is sampled, and this event was outside
+// the current sample. It does not prove that a recorder is inactive (an earlier
+// event or an SDK-resumed recording may already have started one). Its share
+// of authoring events is the live measurement of the sampling rate.
 export type SessionReplayStartCallOutcome =
   | "returned"
   | "threw"
@@ -313,8 +326,8 @@ export type AnalyticsEventName =
   | "markdown_seeded_from_mermaid"
   // macro_viewed: sequence renders also carry diagram_font=plex|fallback (hosted IBM Plex Sans loaded before first render).
   | "macro_viewed"
-  // Both authoring-start events force Session Replay at 100% before the event
-  // is sent. Editor entries must emit the event from the iframe that owns the
+  // Both authoring-start events apply the same iframe-level replay sample before
+  // the event is sent. Editor entries must emit the event from the iframe that owns the
   // interaction; the replay policy itself stays centralized here.
   | "macro_create_started"
   | "macro_create_succeeded"
@@ -392,10 +405,19 @@ export type AnalyticsEventName =
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
   // WIDER window than macro_save_succeeded's `save_duration_ms` (which is only
   // the persistence round-trip inside saveToPlatform): it additionally covers
-  // the ~500ms pre-submit delay, the save-time attachment race, and the
-  // macro-config writeback. Emitted from all 5 save flows (sequence/mermaid/
-  // plantuml via forgeIndex, graph, openapi, asyncapi, embed). See
-  // utils/analytics/publishTiming.ts.
+  // the post-save work — snapshot upload, D1 mirror sync, the save-time
+  // attachment race, and the writeback context lookup. Only the graph, openapi
+  // and embed editors still add a fixed 500 ms setTimeout before the redirect;
+  // the sequence family (forgeIndex.ts) and asyncapi do not. Emitted from all
+  // 5 save flows (sequence/mermaid/plantuml via forgeIndex, graph, openapi,
+  // asyncapi, embed).
+  //
+  // Per-step properties say WHERE that wait goes: `snapshot_ms`,
+  // `mirror_sync_ms` (every flow that saves through saveToPlatform) and
+  // `attachment_capture_ms`, `attachment_ack_ms`, `attachment_timed_out`,
+  // `writeback_context_ms` (sequence family only). A step that did not run is
+  // absent, never 0. Definitions: types.ts, next to `publish_duration_ms`.
+  // See utils/analytics/publishTiming.ts.
   | "macro_publish_completed"
   // Embed re-target attempted from a non-submittable surface (e.g. the
   // view-mode Edit modal). view.submit() throws "view is not submittable"
@@ -651,6 +673,17 @@ export type AnalyticsEventName =
   | "csat_displayed"
   | "csat_submitted"
   | "csat_dismissed"
+  // Lite/Full targeted survey funnel. The server selects the recipient from a
+  // verified Forge identity; events contain campaign metadata only, never the
+  // target, selected answer, or free text.
+  | "targeted_survey_shown"
+  | "targeted_survey_claim_requested"
+  | "targeted_survey_claim_failed"
+  | "targeted_survey_opened"
+  | "targeted_survey_dismissed"
+  | "targeted_survey_submit_requested"
+  | "targeted_survey_submitted"
+  | "targeted_survey_submit_failed"
   | "feedback_link_clicked"
   // In-product feedback funnel. feedback_report_opened fires as the surface
   // trigger opens the dialog, after requesting Session Replay, and carries
@@ -726,6 +759,27 @@ export type AnalyticsEventName =
   // text-DSL types only (sequence / mermaid / plantuml).
   | "viewer_source_opened"
   | "viewer_source_copied"
+  // Inline title rename from the viewer's top edge (no editor modal). Gated by
+  // the same predicate as the Edit button plus the click-time same-page
+  // duplicate guard (utils/guardEditClick.ts). started = the title entered
+  // edit mode; succeeded = the custom-content PUT landed (carries
+  // save_duration_ms, the fresh GET + PUT round-trip); failed = the guard
+  // refused, the PUT threw, or the returned id did not match
+  // (`failure_reason`); cancelled = edit mode left without a write
+  // (`rename_exit_reason`: escape / unchanged / empty — a blank title on
+  // Enter is refused inline and keeps editing, so it fires nothing; `empty`
+  // is a blank title on blur, where the previous title simply stands).
+  // A rename writes a new custom-content version but is deliberately NOT a
+  // macro_save_succeeded: that event is the edit-volume signal for dashboards
+  // and rides on saveToPlatform (snapshot upload, CSAT, surface: editor), none
+  // of which a title-only write goes through. D1 CustomContentVersion recency
+  // still registers the rename. First rollout offers the control on the
+  // sequence and Mermaid macros only, so macro_type is `sequence` or
+  // `mermaid` until it widens.
+  | "viewer_rename_started"
+  | "viewer_rename_succeeded"
+  | "viewer_rename_failed"
+  | "viewer_rename_cancelled"
   // Planned ahead of the Mermaid highlighting implementation. Every event
   // uses feature_area=macro, surface=viewer or fullscreen,
   // and macro_type=mermaid. Do not send
@@ -743,6 +797,14 @@ export type AnalyticsEventName =
   | "mermaid_highlight_feedback_reason_selected"
   | "mermaid_highlight_feedback_dismissed"
   | "mermaid_highlight_preference_changed"
+  // First-use hint at the canvas bottom-left ("Highlighting connections ·
+  // Turn off"), design "Viewer Header Highlight Analysis" option 1e. `shown`
+  // fires on the first highlight use per device (localStorage-gated, so at
+  // most once per browser); `dismissed` carries highlight_dismiss_cause
+  // (`close` = ×, `turn_off` = the button, which also records
+  // preference_changed with action_location=canvas_hint).
+  | "mermaid_highlight_hint_shown"
+  | "mermaid_highlight_hint_dismissed"
   // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
   // instance; menu_opened fires on every closed -> open transition.
   | "copy_for_ai_impression"
@@ -1164,6 +1226,8 @@ export type AnalyticsEventName =
   // editor; 'passed' = unique reference, modal opened; 'scan_failed' = the
   // ADF count scan errored, fail-open (modal opened; the editor-side backstop
   // below still guards Publish).
+  // Also produced by every inline title rename commit (utils/renameDiagramTitle.ts
+  // runs the same guardEditClick), so this is gate volume, not Edit-click volume.
   | "edit_dup_gate_evaluated"
   // The editor-side backstop caught what the click gate let through (its
   // fail-open path, the staleness-hint CTA on an inline page-editor render,
@@ -1256,6 +1320,12 @@ export type AnalyticsEventName =
   // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
   | "agent_link_oauth_authorized"
   | "agent_link_oauth_refresh_failed"
+  // OUR MCP authorization-server refresh endpoint (oauth/authServer.ts), not
+  // the upstream Atlassian grant refresh above. One event per inbound refresh
+  // request at its terminal result; oauth_request_id correlates a replayed
+  // inbound request with the original response without exposing credentials.
+  // See docs/analytics/oauth-refresh-retry.md.
+  | "agent_link_oauth_token_refresh_completed"
   | "agent_link_oauth_revoked"
   // `_authorize_routed` fires once per MCP /authorize request and says where
   // it went (`oauth_route`, AgentLinkOAuthRoute): to Atlassian, straight to our
@@ -1305,7 +1375,10 @@ export type AnalyticsEventName =
   // closed, or not, has to be made on. `_updated` has no gate (updating an
   // existing diagram consumes no limit, §9.1) and instead carries
   // `guardrail_rejected`, so the write guard's refusal rate is readable on the
-  // headless path the way it already is on the relay.
+  // headless path the way it already is on the relay. Both carry the target
+  // site in `cloud_id` (from the tool's `cloudId` argument), so outcomes and
+  // gate branches can be split per customer without joining on
+  // agent_link_mcp_tool_called.
   | "agent_link_diagram_created"
   | "agent_link_diagram_updated"
   // Y — headless PAGE writes, as distinct from the diagram writes above. A
@@ -1314,7 +1387,7 @@ export type AnalyticsEventName =
   // body is replaced wholesale, so the accident worth counting is an agent
   // truncating somebody's page. `result` uses the same AgentLinkWriteResult
   // vocabulary, so page and diagram writes share one conflict/success
-  // breakdown.
+  // breakdown. Like X, these carry the target site in `cloud_id`.
   | "agent_link_page_created"
   | "agent_link_page_updated"
   // Z — "Connect MCP" dialog (inline macro viewer; replaces the Copy for AI
@@ -1326,9 +1399,31 @@ export type AnalyticsEventName =
   // (`mcp_copy_target`, `outcome` copied | clipboard_failed); closed = the
   // dialog dismissed, with `dwell_ms`. Whether the agent then connected is
   // counted server-side by the headless OAuth and tool events.
+  // shown = the denominator for opened: the button was rendered for a viewer,
+  // with where it sat (`mcp_button_placement`) and whether it was visible at
+  // rest or only on hover (`mcp_button_reveal`, also on opened). At most one
+  // per viewer per UTC day (localStorage), not one per macro: a per-instance
+  // impression is what made copy_for_ai_impression 19% of billable volume.
+  | "agent_link_mcp_button_shown"
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
+  // AA — headless MCP tool usage. Backend-emitted (oauth/headlessMcp.ts),
+  // like the W/X/Y blocks above. `_tool_called` fires once per authenticated
+  // `tools/call`, for EVERY tool — reads included, which nothing else counts
+  // on the headless path (X/Y cover only the four writes, and the relay's
+  // per-tool events come from the macro, which a headless call has none of).
+  // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
+  // for list_sites / get_status, which take none), how the call ended in
+  // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
+  // and server-side latency in `duration_ms`. The write events stay
+  // separate: they carry write-specific properties (paywall_gate, result) this
+  // one does not, and the same `cloud_id`. `_initialized` fires on each `initialize` handshake and carries
+  // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
+  // `mcp_client_version`), so usage can be split by agent (Claude Code,
+  // Cursor, …). Tool arguments and results are never sent.
+  | "agent_link_mcp_tool_called"
+  | "agent_link_mcp_initialized"
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1543,6 +1638,10 @@ export type AgentLinkOAuthAtlassianReason =
 // (agent_link_oauth_chain_revoked), carried in the shared `reason` field.
 export type AgentLinkOAuthChainRevokeReason = "refresh_reused" | "client_mismatch";
 
+// Terminal result of one MCP refresh-token request. This is our OAuth token
+// endpoint lifecycle, separate from refreshing the stored Atlassian grant.
+export type AgentLinkOAuthTokenRefreshOutcome = "rotated" | "retried" | "rejected" | "unavailable";
+
 // The outcome of a headless write (agent_link_diagram_created / _updated).
 // Mirrors AddToPageResult so the headless and byline paths are comparable:
 // 'already_present' is a SUCCESS (an agent retried; nothing was duplicated)
@@ -1555,10 +1654,26 @@ export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "u
 // command, or the prompt naming this diagram for the agent.
 export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
 
+// Where the inline Connect MCP button sat when shown: its own header button,
+// or the More (⋯) menu, where header collapse stage 3 moves it.
+export type AgentLinkMcpButtonPlacement = "toolbar" | "more_menu";
+
+// How the button showed: 'hover' = only on hover or focus, like the other
+// inline header actions; 'always' = visible at rest (Fullscreen headers).
+export type AgentLinkMcpButtonReveal = "always" | "hover";
+
 // How a Connect MCP dialog connects the agent: 'headless' = the agent signs
 // in with OAuth and edits through Confluence directly (the only mode offered
 // in the first release); 'relay' = a macro-minted session over the live relay.
 export type AgentLinkMcpMode = "headless" | "relay";
+
+// How one headless `tools/call` ended (agent_link_mcp_tool_called).
+// 'success' = the tool returned a result; 'tool_error' = the tool refused with
+// a HeadlessToolError (its code rides `reason`); 'scope_denied' = the token
+// lacks the diagram.read / diagram.write scope the tool needs;
+// 'unknown_tool' = no such tool (`mcp_tool` is then 'unknown', never the
+// client's string); 'exception' = an unexpected throw (a 500).
+export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception";
 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit

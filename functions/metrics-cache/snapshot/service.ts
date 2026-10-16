@@ -182,7 +182,7 @@ function scheduleAnalytics(
   events: Parameters<typeof mixpanelImportServiceEvents>[0],
 ): void {
   if (!env.MIXPANEL_TOKEN || events.length === 0) return;
-  const delivery = mixpanelImportServiceEvents(events, env.MIXPANEL_TOKEN).catch((error) => {
+  const delivery = mixpanelImportServiceEvents(events, env.MIXPANEL_TOKEN, { runtime: env }).catch((error) => {
     console.warn('[macro-count:snapshot] Mixpanel delivery failed', {
       reason: error instanceof Error ? error.name : 'unknown_error',
       eventCount: events.length,

@@ -16,7 +16,7 @@
  * is a string the rendered diagram must contain.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import fs from 'node:fs';
 import path from 'node:path';
 

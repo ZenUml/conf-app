@@ -22,7 +22,7 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
-import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
+import { decidePageBanner, handlePageBannerRoute, maybeHandleTargetedSurvey } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
@@ -30,7 +30,7 @@ import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
 import { markWhatsNewAudience } from '@/utils/whatsNew/state';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
+import { markPublishClicked, trackPublishCompleted, recordPublishStep, recordPublishFlag } from '@/utils/analytics/publishTiming'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { handleHomepageFeedRoute } from './routes/homepageFeed';
@@ -186,13 +186,13 @@ async function initializeCriticalPath() {
   // Confluence page load and decides — synchronously, from localStorage only —
   // which banner (if any) to show: paywall warning outranks the CSAT survey.
   // The paywall branch is eligible only when the space is unpaid, over the
-  // Lite hard limit, CSS targeting is on, recent macro authoring activity is
-  // present, and the user is not snoozed. On the ~99% of loads where neither
-  // banner is eligible we close immediately WITHOUT importing the banner
-  // route, initializing the macro context, or mounting Vue. One module +
+  // Lite hard limit, effective paywall policy is on, and the user recently
+  // authored a macro or administers the space. When existing banners decline,
+  // Lite and Full check one bounded targeted-survey lookup before closing.
+  // Diagramly and AsyncAPI still close without that lookup. One module +
   // central priority means the banners never coordinate across iframes (no
-  // defer). decidePageBanner() touches only the cheap predicates, so this
-  // stays a true fast-exit.
+  // defer). decidePageBanner() touches only cheap local predicates; the survey
+  // lookup runs after they decline.
   // (Routed by moduleKey, not extension.type, because the pageBanner extension
   // carries no macro config to discriminate on.)
   // The unplaced-diagram banner. A SEPARATE pageBanner module from the host
@@ -238,6 +238,10 @@ async function initializeCriticalPath() {
 
     const choice = decidePageBanner();
     if (choice === 'none') {
+      // The targeted survey is a Lite/Full authenticated fallback. The
+      // lookup has a strict deadline and fails closed. It runs only after the
+      // existing banners decline their slot, so it never delays their display.
+      if (await maybeHandleTargetedSurvey(import.meta.env.PRODUCT_TYPE)) return { macroData: null };
       // Idle renderer prefetch (EAG-64): the banner mounts on every page —
       // including pages with no macros — making it the only surface that can
       // warm the renderer-bundle cache for macro-free browsing. Gated by a
@@ -1424,6 +1428,11 @@ EventBus.$on('save', async () => {
   // remains as a backfill.
   const savedDiagramType = store.state.diagram.diagramType;
   if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml' || savedDiagramType === 'markdown')) {
+    // Publish timing (attachment_ack_ms / attachment_timed_out): the clock starts
+    // before the dynamic-import await so a slow chunk load counts. The capture
+    // slice inside it is timed in Attachment.ts (attachment_capture_ms).
+    const attachmentStartedAt = performance.now();
+    let attachmentTimedOut = false;
     try {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await Promise.race([
@@ -1437,10 +1446,18 @@ EventBus.$on('save', async () => {
         // attachment.ts). So this await only bounds the client-side PNG capture
         // + a fast backend ack (~1.5–3.5s), not the full upload. The cap is a
         // hang-guard for a wedged capture; 6s is generous headroom.
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 6000)),
+        new Promise<never>((_, reject) => setTimeout(() => {
+          attachmentTimedOut = true;
+          reject(new Error('save-attachment timeout'));
+        }, 6000)),
       ]);
     } catch (e) {
       console.warn('save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);
+    } finally {
+      // Read here, when the race settles. The cap timer is never cleared, so
+      // it can fire later and flip the flag after a backup that finished first.
+      recordPublishStep('attachment_ack_ms', attachmentStartedAt);
+      recordPublishFlag('attachment_timed_out', attachmentTimedOut);
     }
   }
 
@@ -1457,7 +1474,11 @@ EventBus.$on('save', async () => {
     // duplicate POST branch), (c) we recovered from an orphan and must
     // repoint the macro at the recovered sibling id, or (d) we migrated a
     // legacy uuid-only macro and must write customContentId for the first time.
+    // Publish timing (writeback_context_ms): both read the cached forge context,
+    // so this is expected to be ~0; recorded to rule it in or out.
+    const writebackContextStartedAt = performance.now();
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
+    recordPublishStep('writeback_context_ms', writebackContextStartedAt);
     // #170: never view.submit in a non-submittable surface — see writebackGate.ts.
     const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback(
       deriveWritebackSignals({

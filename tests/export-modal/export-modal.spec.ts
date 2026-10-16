@@ -1,4 +1,4 @@
-import { test, expect, type Download, type Page } from '@playwright/test';
+import { test, expect, type Download, type Page } from './mixpanel-test.js';
 import { readFileSync } from 'node:fs';
 
 const TEST_URL = '/test-viewer.html';

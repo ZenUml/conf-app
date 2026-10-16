@@ -141,8 +141,12 @@ describe('the host handshake', () => {
     const params = init!.params as Record<string, unknown>;
     // Empty params are what the first version sent; the host needs these.
     expect(params.protocolVersion).toBe(UI_PROTOCOL_VERSION);
-    expect(params.clientInfo).toMatchObject({ name: expect.any(String) });
-    expect(params.capabilities).toBeDefined();
+    // The schema's names, not the spec example's clientInfo/capabilities,
+    // which claude.ai refuses.
+    expect(params.appInfo).toMatchObject({ name: expect.any(String), version: expect.any(String) });
+    expect(params.appCapabilities).toBeDefined();
+    expect(params).not.toHaveProperty('clientInfo');
+    expect(params).not.toHaveProperty('capabilities');
   });
 
   it('answers the initialize response with ui/notifications/initialized', () => {

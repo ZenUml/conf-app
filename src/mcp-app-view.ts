@@ -13,7 +13,7 @@
  * THE PROTOCOL, MINIMALLY. The host speaks JSON-RPC over postMessage, and the
  * handshake has THREE steps, not one:
  *
- *   1. View  -> `ui/initialize` (a request, with clientInfo/protocolVersion)
+ *   1. View  -> `ui/initialize` (a request, with appInfo/appCapabilities/protocolVersion)
  *   2. Host  -> McpUiInitializeResult (the response to that request)
  *   3. View  -> `ui/notifications/initialized`
  *
@@ -258,9 +258,13 @@ export function start(): void {
   window.addEventListener('message', onHostMessage);
   // Announce ourselves, then wait. A view that draws nothing until the host
   // speaks is correct: there is no diagram to draw before the tool answers.
+  // `appInfo` / `appCapabilities` are the names McpUiInitializeRequestSchema
+  // requires. The spec's prose example says `clientInfo` / `capabilities`, and
+  // claude.ai validates against the schema: with those names it answered with
+  // an error and the view showed "The host refused this view." (2026-10-17).
   initializeId = request('ui/initialize', {
-    capabilities: {},
-    clientInfo: { name: 'zenuml-diagram-view', version: '1' },
+    appCapabilities: { availableDisplayModes: ['inline'] },
+    appInfo: { name: 'zenuml-diagram-view', version: '1' },
     protocolVersion: UI_PROTOCOL_VERSION,
   });
   status('Waiting for the diagram…');

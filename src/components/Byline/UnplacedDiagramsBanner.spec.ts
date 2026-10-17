@@ -17,7 +17,11 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: v
 // The cross-user store. Its REST behaviour is covered in unplacedProperty.spec.ts.
 const readUnplacedProperty = vi.hoisted(() => vi.fn());
 const clearUnplacedProperty = vi.hoisted(() => vi.fn(async () => 'deleted'));
-vi.mock('@/utils/byline/unplacedProperty', () => ({ readUnplacedProperty, clearUnplacedProperty }));
+vi.mock('@/utils/byline/unplacedProperty', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/byline/unplacedProperty')>()),
+  readUnplacedProperty,
+  clearUnplacedProperty,
+}));
 
 // The cross-iframe half of the banner priority order.
 const higherPriorityBannerPending = vi.hoisted(() => vi.fn(() => null as string | null));
@@ -86,15 +90,20 @@ async function mountBanner(props?: { source?: 'property' | 'marker' }) {
 }
 
 /** What the byline recorded on the page itself. */
-const propertyHolding = (entries: unknown[]) => ({
+const propertyHolding = (entries: unknown[], total?: number) => ({
   status: 'ok',
-  value: { entries, updatedAt: '2026-08-30T00:00:00.000Z' },
+  value: { entries, ...(total === undefined ? {} : { total }), updatedAt: '2026-08-30T00:00:00.000Z' },
   propertyId: '9001',
   version: 1,
 });
 
 describe('UnplacedDiagramsBanner', () => {
   enableAutoUnmount(afterEach);
+
+  // These specs assert Lite's shape (every picker tile, confluence.zenuml.com
+  // links); the unit-test build defaults PRODUCT_TYPE to 'full'.
+  beforeEach(() => vi.stubEnv('PRODUCT_TYPE', 'lite'));
+  afterEach(() => vi.unstubAllEnvs());
 
   beforeEach(() => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-31T00:00:00.000Z'));
@@ -214,6 +223,53 @@ describe('UnplacedDiagramsBanner', () => {
       expect(readUnplacedProperty).toHaveBeenCalledWith('page-1');
       expect(wrapper.find('[data-testid="unplaced-banner-text"]').text()).toContain('Login flow');
       expect(events('unplaced_banner_shown')[0][1]).toMatchObject({ unplaced_source: 'property' });
+    });
+
+    // The property names at most 20 diagrams. Counting those read "20
+    // diagrams" on a page with 23 (whimet4 page 32997, 2026-10-16).
+    it('counts the diagrams the capped record does not name', async () => {
+      const named = Array.from({ length: 20 }, (_, i) => ({ id: `cc-${i}`, title: `D${i}`, diagramType: 'sequence' }));
+      readUnplacedProperty.mockResolvedValue(propertyHolding(named, 23));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner-text"]').text()).toContain('23 diagrams');
+      expect(events('unplaced_banner_shown')[0][1]).toMatchObject({ unplaced_count: 23 });
+      await wrapper.find('[data-testid="unplaced-banner-toggle"]').trigger('click');
+      expect(wrapper.findAll('[data-testid="unplaced-banner-row"]')).toHaveLength(20);
+      expect(wrapper.find('[data-testid="unplaced-banner-more"]').text()).toContain('3 more');
+    });
+
+    it('keeps the record while diagrams past the cap remain, even with every named one placed', async () => {
+      // Those three cannot be checked from here; deleting the property would
+      // hide the notice with them still unplaced.
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY], 4));
+      apWrapper.referencedCustomContentIds.mockResolvedValue([STRAY.id]);
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(clearUnplacedProperty).not.toHaveBeenCalled();
+      expect(wrapper.find('[data-testid="unplaced-banner-text"]').text()).toContain('3 diagrams');
+    });
+
+    it('says "1 diagram is", not "1 diagrams are", when the one left is past the cap', async () => {
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY], 2));
+      apWrapper.referencedCustomContentIds.mockResolvedValue([STRAY.id]);
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner-text"]').text())
+        .toBe("1 diagram is saved on this page but isn't placed on it.");
+    });
+
+    it('speaks of API docs in the AsyncAPI app', async () => {
+      vi.stubEnv('PRODUCT_TYPE', 'asyncapi');
+      const named = Array.from({ length: 20 }, (_, i) => ({ id: `cc-${i}`, title: `D${i}`, diagramType: 'openapi' }));
+      readUnplacedProperty.mockResolvedValue(propertyHolding(named, 22));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner-text"]').text())
+        .toBe("22 API docs are saved on this page but aren't placed on it.");
+      expect(wrapper.find('[data-testid="unplaced-banner-toggle"]').text()).toBe('Show API docs');
+      await wrapper.find('[data-testid="unplaced-banner-toggle"]').trigger('click');
+      expect(wrapper.find('[data-testid="unplaced-banner-more"]').text()).toContain('open API Docs under the page title');
     });
 
     it('shows the fallback when no property covers the page', async () => {

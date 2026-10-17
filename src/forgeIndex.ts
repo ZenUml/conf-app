@@ -51,6 +51,7 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { inferLegacyDiagramType, withLegacyDiagramType } from '@/model/Diagram/legacyDiagramType';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
@@ -167,7 +168,7 @@ async function initializeCriticalPath() {
   // entry's UI.
   //
   //   zenuml-byline-newuser  → the activation nudge ("View as diagram")
-  //   zenuml-byline-diagrams → the Lite diagram index
+  //   zenuml-byline-diagrams → the diagram index (Lite, Full, AsyncAPI)
   //   zenuml-byline-aiaide   → the Aide chat (the fallback)
   if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
     if (context.moduleKey === 'zenuml-byline-newuser') {
@@ -454,7 +455,10 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
   // moments later, so nothing is silently dropped — it's deferred off the
   // critical path, same as the fetch itself.
   // See utils/renderCache/contentCacheStore.ts.
-  const mountSequenceViewer = async (viewerDoc: Diagram, attribution: DiagramAttribution | null = null) => {
+  const mountSequenceViewer = async (storedDoc: Diagram, attribution: DiagramAttribution | null = null) => {
+    // Both SWR mounts (cache hit, revalidate) hand over the stored body as-is;
+    // one older than `diagramType` would pick no renderer and show an empty card.
+    const viewerDoc = withLegacyDiagramType(storedDoc);
     // #382: hold the mount until the viewport gate releases (the gate shows
     // its own shimmer placeholder while holding — index.html has no real
     // skeleton element). awaitGateBlocking also records the ACTUAL wait at
@@ -587,7 +591,10 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
     const loaded = await renderPerf.time('fetch', () =>
       globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
     console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
-    doc = loaded.customContent?.value;
+    // A body older than `diagramType` would otherwise mount no renderer (an
+    // empty card) and save back typeless. The cache below keeps the RAW value:
+    // its hash must match the next fetch.
+    doc = withLegacyDiagramType(loaded.customContent?.value);
     diagramAttribution = attributionFromCustomContent(loaded.customContent);
     if (isSequence && loaded.customContent?.value) {
       // Prime the id-keyed SWR cache so a later viewer revisit can render
@@ -710,10 +717,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
           && VALID_DIAGRAM_TYPES.includes(restored.diagramType);
         const inferredDiagramType = storedTypeIsValid
           ? restored.diagramType!
-          : (restored.code ? DiagramType.Sequence
-            : restored.mermaidCode ? DiagramType.Mermaid
-            : restored.plantUmlCode ? DiagramType.PlantUml
-            : DiagramType.Sequence);
+          : (inferLegacyDiagramType(restored) ?? DiagramType.Sequence);
         doc = {
           ...restored,
           diagramType: inferredDiagramType,

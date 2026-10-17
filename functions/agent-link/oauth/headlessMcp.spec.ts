@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi } from './headlessMcp';
+import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi, macroTypeOf } from './headlessMcp';
 import { authenticateHeadless, challengeFor } from './headlessAuth';
 import { issueAccessToken, type GrantStoreLike } from './asStore';
 import { saveGrant } from './tokenStore';
@@ -553,5 +553,26 @@ describe('clientDeclaresUi', () => {
   it('is false for a client that advertises nothing', () => {
     expect(clientDeclaresUi({ capabilities: {} })).toBe(false);
     expect(clientDeclaresUi(undefined)).toBe(false);
+  });
+});
+
+describe('macroTypeOf', () => {
+  it('takes read_diagram\'s type from the result, folded into the macro_type vocabulary', () => {
+    expect(macroTypeOf('read_diagram', {}, { diagramType: 'OpenAPI' })).toBe('openapi');
+    expect(macroTypeOf('read_diagram', {}, { diagramType: 'graph' })).toBe('graph');
+  });
+
+  it('takes create_diagram\'s type from the arguments', () => {
+    expect(macroTypeOf('create_diagram', { diagramType: 'mermaid' }, {})).toBe('mermaid');
+  });
+
+  it('leaves update_diagram and other tools untyped rather than guessing', () => {
+    expect(macroTypeOf('update_diagram', { diagramType: 'mermaid' }, { diagramType: 'mermaid' })).toBeUndefined();
+    expect(macroTypeOf('list_sites', {}, {})).toBeUndefined();
+  });
+
+  it('drops a stored type outside the closed vocabulary', () => {
+    expect(macroTypeOf('read_diagram', {}, { diagramType: 'something-else' })).toBeUndefined();
+    expect(macroTypeOf('read_diagram', {}, null)).toBeUndefined();
   });
 });

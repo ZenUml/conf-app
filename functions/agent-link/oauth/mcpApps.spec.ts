@@ -99,9 +99,9 @@ describe('withUiMeta', () => {
     // used to assert it on the tool, which is how the real bug passed review.
   });
 
-  it('grants no network reach the view does not need', () => {
+  it('grants no network reach beyond our own origin (DrawIO stencil XHRs)', () => {
     const csp = uiCsp(ORIGIN) as { connectDomains: string[]; frameDomains: string[] };
-    expect(csp.connectDomains).toEqual([]);
+    expect(csp.connectDomains).toEqual([ORIGIN]);
     expect(csp.frameDomains).toEqual([]);
   });
 
@@ -119,15 +119,17 @@ describe('withUiMeta', () => {
 });
 
 describe('isRenderableType', () => {
-  it('accepts the text-DSL family this view draws', () => {
-    expect([...RENDERABLE_TYPES].sort()).toEqual(['mermaid', 'plantuml', 'sequence']);
+  it('accepts the types this view draws, in the stored casing too', () => {
+    expect([...RENDERABLE_TYPES].sort()).toEqual(['graph', 'mermaid', 'openapi', 'plantuml', 'sequence']);
     expect(isRenderableType('sequence')).toBe(true);
     expect(isRenderableType('Mermaid')).toBe(true);
     expect(isRenderableType('PlantUml')).toBe(true);
+    expect(isRenderableType('graph')).toBe(true);
+    expect(isRenderableType('OpenAPI')).toBe(true);
   });
 
   it('rejects the types that need a renderer this view does not bundle', () => {
-    for (const t of ['graph', 'OpenAPI', 'AsyncAPI', 'embed', '', undefined, 42]) {
+    for (const t of ['AsyncAPI', 'embed', 'markdown', '', undefined, 42]) {
       expect(isRenderableType(t)).toBe(false);
     }
   });

@@ -80,6 +80,20 @@ let initializeId: number | null = null;
 export const UI_PROTOCOL_VERSION = '2026-01-26';
 
 /**
+ * The stored custom-content body, if `source` is one: a JSON object carrying
+ * `diagramType`. Anything else, a JSON OpenAPI spec included, is not.
+ */
+function storedEnvelope(source: unknown): Record<string, unknown> | null {
+  if (typeof source !== 'string' || !source.trimStart().startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(source) as unknown;
+    return parsed && typeof parsed === 'object' && 'diagramType' in parsed ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Find the diagram in a tool result.
  *
  * Hosts may hand us `structuredContent`, or only the text block, and our own
@@ -109,26 +123,25 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
   // Without unwrapping it no real read_diagram result ever renders — the shapes
   // above only match payloads we wrote ourselves.
   for (const candidate of [...candidates]) {
-    const source = (candidate as { source?: unknown } | null)?.source;
-    if (typeof source !== 'string') continue;
-    try {
-      const stored = JSON.parse(source) as Record<string, unknown>;
-      if (stored && typeof stored === 'object') {
-        // The stored body keeps one source field per type (the editor's tabs):
-        // `code` is ZenUML, `mermaidCode` Mermaid, `plantUmlCode` PlantUML, and
-        // the inactive ones keep stale drafts. Only the field for `diagramType`
-        // is the diagram the page shows.
-        const type = typeof stored.diagramType === 'string' ? stored.diagramType.toLowerCase() : '';
-        const field = type === 'mermaid' ? 'mermaidCode' : type === 'plantuml' ? 'plantUmlCode' : 'code';
-        candidates.push({
-          diagramType: stored.diagramType,
-          dsl: stored[field],
-          title: stored.title ?? (candidate as { title?: unknown }).title,
-        });
-      }
-    } catch {
-      // an older record whose source is bare DSL carries no diagramType; skip it
-    }
+    const stored = storedEnvelope((candidate as { source?: unknown } | null)?.source);
+    if (!stored) continue;
+    // The stored body keeps one source field per type (the editor's tabs):
+    // `code` is ZenUML and OpenAPI, `mermaidCode` Mermaid, `plantUmlCode`
+    // PlantUML, `graphXml` (or `boardGraphXml` for a Board) Graph, and the
+    // inactive ones keep stale drafts. Only the field for `diagramType` is the
+    // diagram the page shows. Mirrors sourceFieldFor in headlessTools.ts.
+    const type = typeof stored.diagramType === 'string' ? stored.diagramType.toLowerCase() : '';
+    const field =
+      type === 'mermaid' ? 'mermaidCode'
+        : type === 'plantuml' ? 'plantUmlCode'
+          : type === 'graph'
+            ? stored.graphEditorMode === 'board' && stored.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml'
+            : 'code';
+    candidates.push({
+      diagramType: stored.diagramType,
+      dsl: stored[field],
+      title: stored.title ?? (candidate as { title?: unknown }).title,
+    });
   }
 
   for (const candidate of candidates) {
@@ -138,9 +151,9 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
     // so a payload passed straight through from Confluence still renders.
     // `source` beside a `diagramType` is read_diagram's current shape: the DSL
     // already unwrapped from the stored envelope (95920e6d). A `source` that is
-    // still the JSON envelope was handled above and is not DSL.
-    const bareSource =
-      typeof c?.source === 'string' && !c.source.trimStart().startsWith('{') ? c.source : undefined;
+    // still the JSON envelope was handled above and is not DSL — but a JSON
+    // OpenAPI spec is also JSON, and is the diagram.
+    const bareSource = typeof c?.source === 'string' && !storedEnvelope(c.source) ? c.source : undefined;
     const dsl =
       typeof c?.dsl === 'string' ? c.dsl : typeof c?.code === 'string' ? c.code : bareSource;
     if (type && dsl) {
@@ -167,6 +180,73 @@ function status(message: string): void {
   const p = el?.querySelector('.zen-mcp-status');
   if (p) p.textContent = message;
   reportSize();
+}
+
+/**
+ * Our own origin, where the Pages deploy serves `drawio/` next to `mcp-app/`.
+ * The frame's document base is the host's sandbox, so it cannot be used.
+ */
+function viewOrigin(): string {
+  // Through a variable: Vite rewrites the literal `new URL(<path>, import.meta.url)`
+  // as a build-time asset reference, and `/` is not one.
+  const self = import.meta.url;
+  return new URL('/', self).href;
+}
+
+/**
+ * Graph (DrawIO XML), drawn by the same static DrawIO viewer the Confluence
+ * app uses, loaded from our origin. Its stencil XML arrives by XHR, which is
+ * why mcpApps.ts uiCsp puts our origin in `connectDomains`.
+ */
+async function renderGraph(el: HTMLElement, source: string): Promise<void> {
+  let xml = source.trim();
+  // Legacy records stored the XML LZUTF8-compressed (ForgeGraphViewerEmbed.vue
+  // decompresses the same way). read_diagram passes the stored field through.
+  if (!xml.startsWith('<')) {
+    const { decompress } = await import('@/utils/compress');
+    xml = String(decompress(xml) ?? '').trim();
+  }
+  if (!xml.startsWith('<')) throw new Error('the diagram is not DrawIO XML');
+
+  const { ensureDrawioViewerLoaded } = await import('@/utils/drawio/loadDrawioViewer');
+  await ensureDrawioViewerLoaded(viewOrigin());
+  const w = window as typeof window & {
+    mxUtils: { parseXml(xml: string): Document };
+    GraphViewer: new (container: HTMLElement, xml: Element, config: Record<string, unknown>) => unknown;
+  };
+  el.innerHTML = '';
+  const container = document.createElement('div');
+  el.appendChild(container);
+  // No toolbar and no lightbox: both link out to diagrams.net, which this
+  // frame cannot open. Same options as ForgeGraphViewer.vue otherwise.
+  new w.GraphViewer(container, w.mxUtils.parseXml(xml).documentElement, {
+    'auto-fit': true,
+    border: 10,
+    lightbox: false,
+  });
+}
+
+/**
+ * OpenAPI, drawn by swagger-ui as OpenApiViewer.vue does, but read-only:
+ * no "Try it out" (it would call the API from someone else's iframe) and no
+ * validator badge (it calls validator.swagger.io).
+ */
+async function renderOpenApi(el: HTMLElement, spec: string): Promise<void> {
+  const [{ default: SwaggerUI }] = await Promise.all([
+    import('swagger-ui'),
+    import('swagger-ui/dist/swagger-ui.css'),
+  ]);
+  el.innerHTML = '';
+  const container = document.createElement('div');
+  el.appendChild(container);
+  const ui = SwaggerUI({
+    domNode: container,
+    presets: [SwaggerUI.presets.apis],
+    supportedSubmitMethods: [],
+    validatorUrl: null,
+  });
+  // A string, YAML or JSON, as the app passes it.
+  ui.specActions.updateSpec(spec);
 }
 
 async function render(payload: DiagramPayload): Promise<void> {
@@ -205,9 +285,13 @@ async function render(payload: DiagramPayload): Promise<void> {
       // Confluence store (scoped themes, sticky offset against a scrolling
       // iframe) — this frame does not scroll and has no per-diagram theme.
       await zenuml.render(payload.dsl, { theme: 'theme-default', stickyOffset: false });
+    } else if (type === 'graph') {
+      await renderGraph(el, payload.dsl);
+    } else if (type === 'openapi') {
+      await renderOpenApi(el, payload.dsl);
     } else {
-      // Only the text-DSL family (Sequence, Mermaid, PlantUML) is wired up;
-      // anything else would render blank, and saying so beats an empty frame.
+      // AsyncAPI, Markdown and Embed are not wired up; anything else would
+      // render blank, and saying so beats an empty frame.
       status(`This view cannot draw a ${payload.diagramType} diagram yet.`);
       return;
     }
@@ -269,6 +353,11 @@ export function start(): void {
   });
   status('Waiting for the diagram…');
   window.addEventListener('resize', reportSize);
+  // swagger-ui and the DrawIO viewer keep laying out after render() returns
+  // (sections expand, fonts and stencils arrive), so follow the content's own
+  // size rather than measuring once.
+  const app = document.getElementById('app');
+  if (app && typeof ResizeObserver !== 'undefined') new ResizeObserver(() => reportSize()).observe(app);
 }
 
 if (typeof window !== 'undefined' && window.parent !== window) start();

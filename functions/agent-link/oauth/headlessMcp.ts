@@ -370,7 +370,7 @@ function clip(value: unknown): string | undefined {
 async function trackToolCall(
   env: HeadlessEnv,
   userId: string,
-  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string },
+  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string; macroType?: string },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   await withTimeout(mixpanelTrack(
@@ -385,9 +385,37 @@ async function trackToolCall(
       mcp_tool_outcome: call.outcome,
       reason: call.reason,
       duration_ms: call.durationMs,
+      macro_type: call.macroType,
     },
     env.MIXPANEL_TOKEN,
   ));
+}
+
+/** The analytics macro_type vocabulary, keyed by the stored diagramType folded to lower case. */
+const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
+  sequence: 'sequence',
+  mermaid: 'mermaid',
+  plantuml: 'plantuml',
+  graph: 'graph',
+  openapi: 'openapi',
+  asyncapi: 'asyncapi',
+  markdown: 'markdown',
+};
+
+/**
+ * Which diagram type a successful diagram tool call touched: read_diagram
+ * reports it, create_diagram was told it. update_diagram knows neither, so it
+ * goes untyped rather than guessed. Anything outside the closed vocabulary is
+ * dropped — the stored field is free text.
+ */
+export function macroTypeOf(tool: string, args: unknown, value: unknown): string | undefined {
+  const from =
+    tool === 'read_diagram'
+      ? (value as { diagramType?: unknown } | null)?.diagramType
+      : tool === 'create_diagram'
+        ? (args as { diagramType?: unknown } | null)?.diagramType
+        : undefined;
+  return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
 }
 
 export interface HeadlessMcpDeps {
@@ -540,12 +568,13 @@ export async function handleHeadlessRpc(
       const tool = params.name;
       const cloudId = cloudIdOf(params.arguments);
       const startedMs = now();
-      const trackCall = (outcome: ToolOutcome, reason?: string) =>
+      const trackCall = (outcome: ToolOutcome, reason?: string, macroType?: string) =>
         defer(trackToolCall(env, auth.token.userId, {
           tool,
           outcome,
           reason,
           cloudId,
+          macroType,
           durationMs: Math.max(0, now() - startedMs),
         }));
       if (!HEADLESS_TOOLS.some((t) => t.name === tool)) {
@@ -570,7 +599,7 @@ export async function handleHeadlessRpc(
           ctx,
         );
         await trackWrite(env, params.name, auth.token.userId, cloudId, value);
-        await trackCall('success');
+        await trackCall('success', undefined, macroTypeOf(params.name, params.arguments, value));
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {

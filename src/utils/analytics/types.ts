@@ -986,7 +986,11 @@ export type AnalyticsProperties = {
   // ('unknown' for anything else); `mcp_tool_outcome` is how the call ended;
   // latency rides `duration_ms`; the target site rides `cloud_id` (only when
   // the argument is UUID-shaped — anything else is client free text). `mcp_client_name` / `mcp_client_version` are
-  // the client's MCP `clientInfo`, trimmed to 64 chars.
+  // the client's MCP `clientInfo`, trimmed to 64 chars. On a successful
+  // read_diagram / create_diagram the diagram's type rides the shared
+  // `macro_type` (closed vocabulary; omitted when unknown, and always on
+  // update_diagram, whose result carries no type), so MCP Apps view usage can
+  // be split by type.
   mcp_tool?: string;
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;
   mcp_client_name?: string;

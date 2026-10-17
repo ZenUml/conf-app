@@ -4,7 +4,7 @@
 // capped at 5000 files, and a root HTML entry in vite.config.mjs makes Rollup
 // re-split the whole Confluence app: the first attempt broke `Deploy: Lite`
 // with "Each resource can only have up to 5000 files", mostly from the app's
-// own chunks re-hashed. Built here, the view adds seven files under
+// own chunks re-hashed. Built here, the view adds a dozen files under
 // dist/mcp-app/ and leaves the app's chunks exactly as they were.
 //
 // It runs AFTER the main build (see the build:* scripts), because that build
@@ -17,6 +17,13 @@ import { fileURLToPath } from 'url';
 import { defineConfig } from 'vite';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** [chunk name, path fragment of the renderer package], one chunk per renderer. */
+const RENDERERS = [
+  ['zenuml', '/@zenuml/'],
+  ['mermaid', '/mermaid/'],
+  ['openapi', '/swagger-ui/'],
+];
 
 /** Whether `id` is imported, directly or transitively, by a module whose path contains `pkg`. */
 function reachedFrom(id, pkg, getModuleInfo, seen = new Set()) {
@@ -62,13 +69,15 @@ export default defineConfig({
           // and the entry then imports that whole renderer up front.
           if (id === '\0vite/preload-helper.js' || id === '\0commonjsHelpers.js') return 'runtime';
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('/@zenuml/')) return 'zenuml';
-          const zen = reachedFrom(id, '/@zenuml/', getModuleInfo);
-          const mer = reachedFrom(id, '/mermaid/', getModuleInfo);
-          if (zen && mer) return 'shared';
-          if (zen) return 'zenuml';
-          if (mer) return 'mermaid';
-          return undefined; // the view's own small deps (pako) stay in its entry
+          const own = RENDERERS.find(([, pkg]) => id.includes(pkg));
+          if (own) return own[0];
+          // A dependency goes with the renderer that uses it; one used by
+          // several goes in a chunk named for exactly those, so no renderer
+          // downloads another's code (mermaid and swagger-ui share dompurify).
+          const users = RENDERERS.filter(([, pkg]) => reachedFrom(id, pkg, getModuleInfo)).map(([name]) => name);
+          if (users.length > 1) return `shared-${users.join('-')}`;
+          if (users.length === 1) return users[0];
+          return undefined; // the view's own small deps (pako, lzutf8) stay in their own chunks
         },
       },
     },

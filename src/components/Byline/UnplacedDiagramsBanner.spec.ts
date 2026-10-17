@@ -250,6 +250,15 @@ describe('UnplacedDiagramsBanner', () => {
       expect(wrapper.find('[data-testid="unplaced-banner-text"]').text()).toContain('3 diagrams');
     });
 
+    it('says "1 diagram is", not "1 diagrams are", when the one left is past the cap', async () => {
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY], 2));
+      apWrapper.referencedCustomContentIds.mockResolvedValue([STRAY.id]);
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner-text"]').text())
+        .toBe("1 diagram is saved on this page but isn't placed on it.");
+    });
+
     it('shows the fallback when no property covers the page', async () => {
       writeUnplacedMarker(IDENTITY, [STRAY], FALLBACK);
       readUnplacedProperty.mockResolvedValue({ status: 'absent' });

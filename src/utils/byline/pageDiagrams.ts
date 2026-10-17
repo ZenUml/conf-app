@@ -1,5 +1,5 @@
 import { DiagramType } from '@/model/Diagram/Diagram'
-import { inferLegacyDiagramType } from '@/model/Diagram/legacyDiagramType'
+import { inferLegacyDiagramType, inferLegacySpecType } from '@/model/Diagram/legacyDiagramType'
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig'
 
 /**
@@ -170,29 +170,22 @@ export function toModalDiagramType(diagramType: string): string {
  * shared content type is never mistaken for a sequence diagram. The AsyncAPI
  * app's `async-api-doc` type holds nothing else, so it stops there. Elsewhere
  * the remaining fields decide: `graphXml` is a Graph, then the text-DSL rule
- * the viewer applies to the same bodies (model/Diagram/legacyDiagramType), so
- * the row's type is the type the placed macro renders as. Full
- * ships no AsyncAPI macro, so an AsyncAPI spec there stays Unknown rather than
- * being given a key the app cannot render.
+ * the sequence viewer applies to the same bodies (model/Diagram/
+ * legacyDiagramType). A row's type picks the macro Add to page places — a spec
+ * goes under the OpenAPI macro, a DSL body under the sequence macro — and each
+ * renders what the row says. Full ships no AsyncAPI macro, so an AsyncAPI
+ * spec there stays Unknown rather than being given a key the app cannot
+ * render.
  */
 function inferLegacyType(body: any, productType: string | undefined): string | undefined {
   if (!body || typeof body !== 'object') return undefined
-  const spec = inferApiSpecType(body)
+  const spec = inferLegacySpecType(body)
   if (spec === DiagramType.AsyncApi && productType !== 'asyncapi' && productType !== 'lite') {
     return undefined
   }
   if (spec || productType === 'asyncapi') return spec
   if (typeof body.graphXml === 'string' && body.graphXml) return DiagramType.Graph
   return inferLegacyDiagramType(body)
-}
-
-function inferApiSpecType(body: any): string | undefined {
-  if (typeof body?.code !== 'string') return undefined
-  const head = body.code.trimStart().slice(0, 200)
-  // YAML (`asyncapi: 3.0.0`) or JSON (`{"asyncapi": "3.0.0"`).
-  if (/^\{?\s*["']?asyncapi["']?\s*:/m.test(head)) return DiagramType.AsyncApi
-  if (/^\{?\s*["']?(openapi|swagger)["']?\s*:/m.test(head)) return DiagramType.OpenApi
-  return undefined
 }
 
 /**

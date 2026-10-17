@@ -37,3 +37,29 @@ export function withLegacyDiagramType<T>(body: T): T {
   const inferred = inferLegacyDiagramType(body)
   return inferred ? { ...body, diagramType: inferred } : body
 }
+
+/**
+ * An API spec stored without a type, recognised by its own text.
+ *
+ * Only the document's first statement counts: leading blank lines, `#`
+ * comments and a YAML `---` marker are skipped, and `\s*` lets a JSON object
+ * open on its own line. Matching `openapi:` on any later line (a `/m` regex)
+ * would call a DSL body with such a line a spec.
+ *
+ * Kept apart from inferLegacyDiagramType on purpose. The byline uses both,
+ * and places a spec under the OpenAPI macro, which renders it. The sequence
+ * viewer uses only the DSL rule: DiagramPortal has no OpenAPI renderer, so a
+ * spec typed there would mount nothing.
+ */
+export function inferLegacySpecType(body: unknown): DiagramType | undefined {
+  const code = (body as { code?: unknown } | null)?.code
+  if (typeof code !== 'string') return undefined
+  const lines = code.slice(0, 400).split('\n')
+  let i = 0
+  while (i < lines.length && /^\s*(#.*|---\s*)?$/.test(lines[i])) i++
+  const head = lines.slice(i).join('\n')
+  // YAML (`asyncapi: 3.0.0`) or JSON (`{"asyncapi": "3.0.0"`).
+  if (/^\{?\s*["']?asyncapi["']?\s*:/.test(head)) return DiagramType.AsyncApi
+  if (/^\{?\s*["']?(openapi|swagger)["']?\s*:/.test(head)) return DiagramType.OpenApi
+  return undefined
+}

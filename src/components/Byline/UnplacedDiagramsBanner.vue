@@ -19,7 +19,10 @@
           <strong>{{ rows[0].title || 'A diagram' }}</strong> is saved on this page but isn't placed on it.
         </template>
         <template v-else>
-          {{ count }} diagrams are saved on this page but aren't placed on it.
+          <!-- count is 1 here only when the one diagram is past the record's
+               cap, so it has no name to show. -->
+          <template v-if="count === 1">1 diagram is saved on this page but isn't placed on it.</template>
+          <template v-else>{{ count }} diagrams are saved on this page but aren't placed on it.</template>
         </template>
       </span>
 

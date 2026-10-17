@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { DiagramType } from './Diagram'
-import { inferLegacyDiagramType, withLegacyDiagramType } from './legacyDiagramType'
+import { inferLegacyDiagramType, inferLegacySpecType, withLegacyDiagramType } from './legacyDiagramType'
 
 // Verbatim shape of whimet4 custom content 376471593, which rendered as an
 // empty card once placed: `code` plus the placeholder mermaidCode every old
@@ -52,5 +52,31 @@ describe('withLegacyDiagramType', () => {
     const empty = { title: 'x' }
     expect(withLegacyDiagramType(empty)).toBe(empty)
     expect(withLegacyDiagramType(undefined)).toBeUndefined()
+  })
+})
+
+describe('inferLegacySpecType', () => {
+  it('reads the first statement of a YAML or JSON spec', () => {
+    expect(inferLegacySpecType({ code: 'openapi: 3.0.0\ninfo:\n  title: x' })).toBe(DiagramType.OpenApi)
+    expect(inferLegacySpecType({ code: 'swagger: "2.0"' })).toBe(DiagramType.OpenApi)
+    expect(inferLegacySpecType({ code: 'asyncapi: 3.0.0' })).toBe(DiagramType.AsyncApi)
+    // Pretty-printed JSON opens the object on its own line.
+    expect(inferLegacySpecType({ code: '{\n  "openapi": "3.0.0"\n}' })).toBe(DiagramType.OpenApi)
+  })
+
+  it('skips leading blank lines, comments and a YAML document marker', () => {
+    expect(inferLegacySpecType({ code: '\n# Orders API\n---\nopenapi: 3.0.0' })).toBe(DiagramType.OpenApi)
+  })
+
+  it('does not call a DSL body a spec because a later line looks like one', () => {
+    // With a /m regex, `^` matched any line in the head.
+    expect(inferLegacySpecType({ code: 'title Orders\nopenapi: Client.call()' })).toBeUndefined()
+    expect(inferLegacySpecType({ code: 'A->B: hi\nasyncapi: B.reply()' })).toBeUndefined()
+  })
+
+  it('leaves the sequence viewer\'s rule alone: a spec body is not typed by withLegacyDiagramType', () => {
+    // The sequence macro has no OpenAPI renderer; typing the body OpenAPI there
+    // would mount nothing.
+    expect(withLegacyDiagramType({ code: 'openapi: 3.0.0' }).diagramType).toBe(DiagramType.Sequence)
   })
 })

@@ -1411,6 +1411,9 @@ export type AnalyticsEventName =
   // rest or only on hover (`mcp_button_reveal`, also on opened). At most one
   // per viewer per UTC day (localStorage), not one per macro: a per-instance
   // impression is what made copy_for_ai_impression 19% of billable volume.
+  // The Confluence Home page card offers the same setup inline: its opens,
+  // copies and closes carry `mcp_button_placement: 'homepage_feed'` and
+  // `surface: 'route'`, and its prompt names no diagram.
   | "agent_link_mcp_button_shown"
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
@@ -1661,9 +1664,12 @@ export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "u
 // command, or the prompt naming this diagram for the agent.
 export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
 
-// Where the inline Connect MCP button sat when shown: its own header button,
-// or the More (⋯) menu, where header collapse stage 3 moves it.
-export type AgentLinkMcpButtonPlacement = "toolbar" | "more_menu";
+// Where the Connect MCP entry sat: the macro's own header button, the More
+// (⋯) menu, where header collapse stage 3 moves it, or the Confluence Home
+// page card (confluence:homepageFeed), which has no diagram to name. Home-page
+// rows carry it on agent_link_mcp_dialog_opened/_copied/_closed; the card's
+// denominator is homepage_feed_viewed, not agent_link_mcp_button_shown.
+export type AgentLinkMcpButtonPlacement = "toolbar" | "more_menu" | "homepage_feed";
 
 // How the button showed: 'hover' = only on hover or focus, like the other
 // inline header actions; 'always' = visible at rest (Fullscreen headers).

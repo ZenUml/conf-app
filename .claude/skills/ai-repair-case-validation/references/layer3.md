@@ -1,16 +1,16 @@
-# L3：Diagramly 异步 Job
+# L3: Diagramly Async Job
 
-L3 测试本地 Diagramly API 的认证、credits、job 创建、后台处理、确定性校验、数据库状态和 polling。它模拟 conf-app 的请求 payload，但不经过 Forge Worker。
+L3 tests authentication, credits, job creation, background processing, deterministic validation, database state, and polling against the local Diagramly API. It simulates the request payload from conf-app but does not pass through the Forge Worker.
 
-## 前置条件
+## Prerequisites
 
-- 按 `joint-debug` skill 使用本地 PostgreSQL；`DATABASE_URL` 必须指向 localhost/127.0.0.1。
-- `GET http://127.0.0.1:3000/api/health?deep=1` 必须返回 `db: "up"`。
-- 从 Diagramly `.env` 注入 `DIAGRAMLY_API_KEY`；不得打印。
-- `x-external-id` 和 `x-team-id` 默认由输入 hash 派生，保证本地样本相互隔离；manifest 可用 `externalTeamId` 显式覆盖团队 ID。
-- 默认后端必须是 `http://127.0.0.1:3000` 或 `http://localhost:3000`。远端运行需要用户单独授权。
+- Use local PostgreSQL as directed by the `joint-debug` skill; `DATABASE_URL` must point to localhost/127.0.0.1.
+- `GET http://127.0.0.1:3000/api/health?deep=1` must return `db: "up"`.
+- Inject `DIAGRAMLY_API_KEY` from Diagramly `.env`; do not print it.
+- By default, derive `x-external-id` and `x-team-id` from the input hash to isolate local samples. The manifest may explicitly override the team ID with `externalTeamId`.
+- The default backend must be `http://127.0.0.1:3000` or `http://localhost:3000`. Remote runs require separate user authorization.
 
-## 命令
+## Command
 
 ```bash
 pnpm exec dotenv -c -- uv run \
@@ -20,15 +20,15 @@ pnpm exec dotenv -c -- uv run \
   --output-dir /tmp/ai-repair-case-validation/<run-id>/l3-primary
 ```
 
-未指定模型时，脚本从 conf-app 的 `src/utils/aiModelConfig.ts` 读取 `DEFAULT_AI_REPAIR_MODEL`。单模型 manifest 可指定该次运行的模型；多模型 manifest 必须使用 `--model <model>` 明确选择其中一个。强模型重试默认只测 L2；用户明确指定继续 L3 时，先确认**同一模型**的 L2 PASS，再通过单模型 manifest 或 `--model` 运行 L3。每次只测一个模型、一次 trial、1 秒 polling、135 秒 deadline。脚本先做 health check，再创建 job；运行前先用相同命令加 `--dry-run` 核对模型与路径。使用基于输入 hash 的本地 external id，不输出 key。
+If no model is specified, the script reads `DEFAULT_AI_REPAIR_MODEL` from conf-app's `src/utils/aiModelConfig.ts`. A single-model manifest may specify the model for that run; a multi-model manifest requires explicitly selecting one with `--model <model>`. Stronger-model retries test L2 only by default. If the user explicitly asks to continue that model through L3, first confirm that **the same model** passed L2, then run L3 with a single-model manifest or `--model`. Test one model and one trial at a time, with 1-second polling and a 135-second deadline. The script runs a health check before creating a job. First verify the model and paths with the same command plus `--dry-run`. Use a local external ID derived from the input hash and do not print the key.
 
-## 判断
+## Evaluation
 
-- 创建响应必须有非空 jobId；
-- 至少一次 job-status polling；
-- 最终状态必须为 COMPLETED 且有 diagramCode；
-- FAILED/CANCELLED/timeout 都保留最后 output 和错误；
-- 使用与 L2 相同的候选验证规则；
-- wall time、后端 duration、LLM duration、poll count 分开报告。
+- The create response must contain a non-empty jobId.
+- At least one job-status poll must occur.
+- The final status must be COMPLETED and include diagramCode.
+- Preserve the last output and error for FAILED/CANCELLED/timeout.
+- Use the same candidate validation rules as L2.
+- Report wall time, backend duration, LLM duration, and poll count separately.
 
-当前 job schema 不暴露 OpenRouter generation id、tokens 或 cost。不要根据静态价格计算“实付费用”。可展示对应 L2 的费用中位数作为估算，并标为 `estimated_from_l2`。
+The current job schema does not expose the OpenRouter generation id, tokens, or cost. Do not calculate “actual cost” from static prices. You may show the corresponding L2 median cost as an estimate, labeled `estimated_from_l2`.

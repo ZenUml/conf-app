@@ -1,22 +1,22 @@
-# 任务会话分配与收口
+# Task Session Assignment and Wrap-up
 
-## 派工
+## Delegation
 
-主会话先按语法/根因与可能改动文件分组。可并行派发互不冲突的取证和分析；共用 Prompt、解析器、工作区、本地服务或真实浏览器的修改/验证串行。创建 Codex 独立任务前确认本轮用户确实要求多个任务会话；若只是当前任务内分工，用 collaboration.spawn_agent。每个任务收到的说明只包含私有案例绝对路径，不复制客户内容到任务消息。
+The main session first groups cases by syntax/root cause and likely files to change. Evidence gathering and analysis that do not conflict may run in parallel; edits or validation involving a shared Prompt, parser, workspace, local service, or real browser must be serialized. Before creating separate Codex tasks, confirm the user actually requested multiple task sessions. For work divided within the current task, use collaboration.spawn_agent. Task instructions must include only absolute paths to private cases; do not copy customer content into task messages.
 
-任务说明至少写清：
+Each task instruction must specify at least:
 
-1. 案例目录、原始输入/错误 hash、来源状态和已有失败证据；禁止改写原始文件。
-2. 指定的默认/重试模型、该任务可使用的模型调用授权范围和从主会话预算台账预约的次数；无授权仅做离线分析。任务用完配额先返回结果，不自行追加调用。
-3. 自己负责的文件或“只分析不改共享文件”；已有工作区改动和其他任务的文件不得重置、暂存或提交。
-4. 按 ai-repair-case-validation 从最早失败层开始，L2/L3 不通过则停止后续层；候选、Prompt hash、模型、解析/渲染证据写到专属 attempts/<run-id>/。
-5. 若需要更改共享 Prompt/代码，先向主会话报告最小改动和影响案例，等主会话分配独占修改权；不要让多个任务并发改同一文件。
-6. 返回简洁的“已证实事实、建议修复、改动文件、各层状态、证据路径、阻塞项”。不要只回一句成功，也不要在消息正文粘贴客户 DSL。
+1. Case directory, original input/error hashes, source status, and existing failure evidence; the original files must not be changed.
+2. Assigned default/retry model, the task's authorized model-call scope, and the number of calls reserved from the main session's budget ledger. Without authorization, perform offline analysis only. After using its quota, return results; do not make extra calls.
+3. Files owned by the task, or “analysis only; do not edit shared files.” Do not reset, stage, or commit existing workspace changes or files owned by other tasks.
+4. Follow ai-repair-case-validation from the earliest failing layer; stop if L2/L3 fails. Save candidates, Prompt hash, model, and parse/render evidence under its dedicated attempts/<run-id>/.
+5. If a shared Prompt/code change is needed, first report the minimum change and affected cases to the main session and wait for exclusive edit assignment. Do not allow multiple tasks to edit the same file concurrently.
+6. Return a concise report of “verified facts, proposed fix, changed files, each layer's status, evidence paths, and blockers.” Do not reply only “success,” and do not paste customer DSL into the message.
 
-对明确创建的其他任务，只有在用户直接授权跨任务协调时才用 send_message_to_thread 发送后续指令；否则让用户在目标任务中继续。主会话用 wait_threads 等待完成并整合，避免频繁轮询；子代理则使用当前协作工具。任务状态不能替代读取实际产物与验收。
+For other tasks created explicitly, use send_message_to_thread for follow-up instructions only when the user directly authorized cross-task coordination; otherwise let the user continue in the target task. The main session waits using wait_threads and integrates results without frequent polling; subagents use the current collaboration tools. A task's status is not a substitute for reading and accepting its actual artifacts.
 
-## 集成与最终 UI
+## Integration and final UI
 
-主会话核对每项改动对全部已选案例的影响；共享 Prompt 改动后，受影响案例从最早改变层重测。不要让后一任务的 PASS 覆盖前一任务失败记录。L4 由一个会话顺序使用当前浏览器；在把客户 DSL 放入指定 Confluence 测试站点前单独取得授权，并遵守 conf-app 浏览器规则和 ai-repair-case-validation/references/layer4.md。每例最终 PASS 必须指向真实 Apply 后预览截图，而不是候选代码生成的模拟图。若浏览器不能驱动或站点数据授权缺失，标 SKIPPED/BLOCKED，不要生成 final-preview.json。
+The main session checks the impact of each change on all selected cases. After a shared Prompt change, retest affected cases from the earliest changed layer. Do not let a later task's PASS overwrite an earlier failure record. One session uses the current browser serially for L4. Obtain separate authorization before placing customer DSL in the specified Confluence test site, and follow the conf-app browser rules and ai-repair-case-validation/references/layer4.md. Each final PASS must point to a real post-Apply preview screenshot, not a simulated image generated from candidate code. If the browser cannot be controlled or site-data authorization is missing, mark SKIPPED/BLOCKED; do not create final-preview.json.
 
-最终清单区分 PASS、FAIL、SKIPPED、BLOCKED 和尚未轮到的案例。中断后按 corpus.json、各任务结果和 runs/<run-id>/run.json 继续；不得因为已有候选或旧截图跳过本轮版本的门槛。提交、推送、部署、发布或设置自动化另按用户当次授权与仓库规则处理。
+The final checklist distinguishes PASS, FAIL, SKIPPED, BLOCKED, and cases not yet reached. After interruption, resume from corpus.json, task results, and runs/<run-id>/run.json; do not skip this run's version gates because a candidate or old screenshot exists. Handle commits, pushes, deployments, publishing, and automation according to the user's current authorization and repository rules.

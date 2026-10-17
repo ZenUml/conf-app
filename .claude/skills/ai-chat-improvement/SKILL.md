@@ -1,30 +1,30 @@
 ---
 name: ai-chat-improvement
-description: 从普通 AI Chat 修改的失败与可疑结果中建立私有案例，修复并完成单例分层验证及历史回归；用于持续改进。只重放既有案例使用 ai-chat-regression。
+description: Build private cases from failed or suspicious ordinary AI Chat modifications, fix them, complete layered case validation, and run historical regression; use for continuous improvement. Use ai-chat-regression only to replay existing cases.
 ---
 
-# 普通 AI Chat 持续改进
+# Ordinary AI Chat Continuous Improvement
 
-一次批次的闭环是：发现实际问题 → 固定原图、指令和验收要求 → 修复 → 用 [ai-chat-case-validation](../ai-chat-case-validation/SKILL.md) 逐层验证 → 用 [ai-chat-regression](../ai-chat-regression/SKILL.md) 检查旧案例。模型横向比较不是完成此闭环的前置条件。本 skill 只处理普通 AI Chat 修改；带 `errorMessage` 的 AI Chat 语法修复另行处理，旧 `/fix-diagram` 入口才使用 [AI Repair 流程](../ai-repair-improvement/SKILL.md)。
+The cycle for one batch is: identify an actual issue → preserve the original diagram, instruction, and acceptance criteria → fix → validate layer by layer with [ai-chat-case-validation](../ai-chat-case-validation/SKILL.md) → check existing cases with [ai-chat-regression](../ai-chat-regression/SKILL.md). Comparing models is not a prerequisite for completing this cycle. This skill covers ordinary AI Chat modifications only; AI Chat syntax repair with an `errorMessage` is handled separately, and only the legacy `/fix-diagram` entry point uses the [AI Repair workflow](../ai-repair-improvement/SKILL.md).
 
-## 发现与选择案例
+## Find and select cases
 
-先确定用户关心的时间范围、环境与产品变体；没有明确范围时，只询问会影响取数的缺项。按 [线上取数](references/production-intake.md) 先做只读聚合，再按用户选定的案例数量上限取原始记录。只选已验证属于 conf-app 普通聊天修改的 job：版本化图 ID、非空 `command`、空 `errorMessage`；不能仅凭 `Job.type = diagram_modification` 把语法修复或 Diagramly 原生会话算进来。
+First establish the time range, environment, and product variant the user cares about. If the scope is unclear, ask only about missing details that affect data retrieval. Follow [Production intake](references/production-intake.md): start with read-only aggregates, then retrieve raw records up to the case-count limit selected by the user. Select only jobs verified as ordinary conf-app chat modifications: versioned diagram ID, non-empty `command`, and empty `errorMessage`. Do not classify syntax repair or native Diagramly sessions as conf-app traffic based only on `Job.type = diagram_modification`.
 
-`FAILED` job 是技术失败候选；`COMPLETED` + `noChange` 是待审查结果，用户要求可能本来已满足；`COMPLETED` + 版本号也只说明后端写入，不证明指令正确或 Confluence 保存成功。结合用户报告、可见预览及必要时的人工语义复核选案例。Mixpanel 事件不带完整 DSL、指令或 jobId，不能凭事件数重建原文或一一对应 job。
+A `FAILED` job is a technical-failure candidate; `COMPLETED` + `noChange` is a result to review because the request may already have been satisfied; `COMPLETED` + a version number indicates only that the backend wrote a version, not that the instruction was correct or saved to Confluence. Select cases using user reports, visible previews, and, when needed, manual semantic review. Mixpanel events do not contain the complete DSL, instruction, or jobId; do not reconstruct source text or assume one-to-one job correspondence from event counts.
 
-在调用模型前明确本轮最多处理的案例数、模型调用次数或费用上限，并核对把所选原图、指令和当前 Prompt 发往实际 AI 服务/模型的授权。把客户原图放进测试 Confluence 宏是独立的数据目的地，执行 UI 复现前确认站点与草稿处理。授权只覆盖说明过的本轮范围；预算用单一台账记录，重试也计数。只读统计和离线整理可以先做，不把它们说成模型验证完成。
+Before calling a model, define the maximum number of cases, model calls, or cost for this run, and verify authorization to send the selected original diagrams, instructions, and current Prompt to the actual AI service/model. Putting a customer's original diagram in a test Confluence macro is a separate data destination; confirm the site and draft handling before reproducing in the UI. Authorization covers only the stated scope of this run. Track all spending in one ledger, including retries. Read-only statistics and offline organization may proceed first, but do not describe them as completed model validation.
 
-## 固化、修复与验收
+## Preserve cases, fix, and accept
 
-按 [案例格式](../ai-chat-case-validation/references/case-format.md) 把原始 DSL、完整 `command`、来源 job、模型、时间、输出、用户报告和验收条款保存在 `private/local-data/ai-chat-regression/`。如缺少“应该怎样改、哪些内容不能变”的证据，标 `UNVERIFIED (missing_expectation)`，通过用户报告或人工评审补齐，不凭模型流畅回复自拟成功标准。不要将客户正文、身份、租户信息或密钥写入公开文件、任务标题、PR 或普通消息；不要提交 private 子模块中的案例。
+Use the [case format](../ai-chat-case-validation/references/case-format.md) to store the original DSL, complete `command`, source job, model, time, output, user report, and acceptance criteria in `private/local-data/ai-chat-regression/`. If evidence is missing about “what should change and what must stay the same,” mark `UNVERIFIED (missing_expectation)` and fill the gap using a user report or manual review; do not invent success criteria based on a fluent model response. Do not put customer content, identity, tenant information, or secrets in public files, task titles, PRs, or ordinary messages. Do not commit cases in the private submodule.
 
-每例调用 `ai-chat-case-validation` 的 L2 → L3 → L4 门槛。至少要观察到 AI Chat 返回结果、job 无 Error；完整 PASS 还要有语法/渲染、指令满足和真实 UI 预览证据。遇到空输出、超时、版本缺失、错误代码、指令未满足或 UI 更新失败，从最早失败层定位并修改，再用同一原图和指令复测。保留所有尝试及代码/Prompt 版本，不能让一次偶然成功抹掉先前失败，也不能放宽验收条款。`noChange` 按案例预期判定。
+Run each case through the L2 → L3 → L4 gates in `ai-chat-case-validation`. At minimum, observe an AI Chat result with no job Error; a full PASS also requires syntax/rendering, instruction fulfillment, and actual UI preview evidence. For empty output, timeout, missing version, error code, unmet instruction, or failed UI update, locate and change the earliest failing layer, then retest with the same original diagram and instruction. Preserve all attempts and code/Prompt versions; a lucky success must not erase an earlier failure, and acceptance criteria must not be relaxed. Judge `noChange` against the case's expected outcome.
 
-修复代码若引入新产品行为，先按仓库规则规划并登记 Mixpanel 事件；现有 `ai_chat_change_*` 成功埋点不代表用户主动接受。与其他任务并行时，不改其正在修改的埋点或 Excel 文件。保留工作区既有改动；未经用户同意不创建 worktree，不自动提交或部署。
+If a code fix introduces new product behavior, plan and register Mixpanel events first under the repository rules; existing `ai_chat_change_*` success events do not represent the user's explicit acceptance. When other tasks are running in parallel, do not modify their analytics events or Excel files. Preserve existing worktree changes. Do not create a worktree without the user's consent, and do not commit or deploy automatically.
 
-## 历史回归与交付
+## Historical regression and delivery
 
-本批选中的案例完成 L4 后，用最终代码/Prompt 对用户选定的历史范围做 `ai-chat-regression`。简易回归只到 L2，完全回归走 L2 → L3 → L4；两者的结果不能混称“全链路通过”。回归调用扣同一预算，历史客户数据不在本轮模型/UI 授权范围内时先核对授权。发现退化，保留证据并回到对应案例的最早失败层；预算不足就记录 `BLOCKED`，不能报告全语料通过。
+After the selected cases in this batch complete L4, run `ai-chat-regression` against the historical scope selected by the user, using the final code/Prompt. Simple regression covers L2 only; full regression runs L2 → L3 → L4. Do not describe either as full end-to-end coverage unless it actually is. Regression calls count against the same budget. If historical customer data is outside this run's model/UI authorization, verify authorization first. If a regression finds a regression, preserve evidence and return to the earliest failing layer for the relevant case; if the budget is insufficient, record `BLOCKED` and do not report the full corpus as passing.
 
-交付私有语料索引、每例源证据和验收条款、失败根因、修复改动、各层状态与真实 UI 预览、历史回归覆盖率和未覆盖项。没有实际执行过的层级保持 `SKIPPED` 或 `BLOCKED`。这个 skill 是一次有上限的人工发起批次；不自行创建定时任务、对外消息、提交、推送、部署或发布页面。
+Deliver the private corpus index, source evidence and acceptance criteria for each case, root causes, code changes, per-layer statuses and actual UI previews, plus historical regression coverage and uncovered items. Keep layers that were not actually run as `SKIPPED` or `BLOCKED`. This skill is a manually started batch with a defined limit; it does not authorize scheduled tasks, external messages, commits, pushes, deployments, or page publishing.

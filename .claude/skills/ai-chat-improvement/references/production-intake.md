@@ -1,6 +1,6 @@
-# 普通 AI Chat 线上取数
+# Ordinary AI Chat Production Data Intake
 
-先读 Diagramly `scripts/db-access.md`，核对当前连接确实指向预期生产库、只读账号或只读事务、UTC 时间窗口和查询超时。以下 SQL 是按当前版本化 job 结构的候选筛选，运行前仍须核对实时 schema。`Job.input`/`output` 存储 JSON，可能含客户图和完整指令；初次只返回聚合数字。
+Read Diagramly `scripts/db-access.md` first. Verify that the current connection points to the intended production database, that the account or transaction is read-only, and that the UTC time window and query timeout are correct. The SQL below is a candidate filter for the current versioned-job structure; verify the live schema before running it. `Job.input`/`output` store JSON and may contain customer diagrams and complete instructions; initially return aggregate counts only.
 
 ```sql
 BEGIN TRANSACTION READ ONLY;
@@ -29,8 +29,8 @@ FROM scoped;
 COMMIT;
 ```
 
-这只是 **版本化普通修改候选**：Diagramly 原生页面也可能调用同一路由。只有核对可信的外部 team/user 映射后，才能称为 conf-app 流量；`Job.source = api` 不是充分证明。内部测试与客户记录也须用已验证的身份清单区分，不能凭域名外观猜测。计数同时注明窗口、时区、查询时间、过滤条件和身份核对结果；`no_change_review_candidates` 不等于失败数。
+These are only **versioned ordinary-modification candidates**: native Diagramly pages may call the same route. Call them conf-app traffic only after verifying a trusted external team/user mapping; `Job.source = api` is not sufficient proof. Distinguish internal tests from customer records using a verified identity allowlist; do not guess based on domain appearance. Report the counting window, timezone, query time, filters, and identity verification result. `no_change_review_candidates` is not a failure count.
 
-用户选定上限后，在私有目录分页导出所需 job 的 `id/createdAt/status/input/output/error`，用 `(createdAt,id)` 游标限量，不把原始行打印到终端。检查导出完整性和 JSON 可解析性；记录检索条件、筛选数量和未覆盖量。来源若只有前端错误事件、没有对应 job，记录为链路证据缺口，不能推测其 DSL 或指令。
+After the user selects a limit, page through the required jobs into a private directory, exporting `id/createdAt/status/input/output/error` with a bounded `(createdAt,id)` cursor. Do not print raw rows to the terminal. Check export completeness and JSON parseability; record retrieval conditions, selected count, and uncovered count. If the source is only a frontend error event with no corresponding job, record the evidence gap in the flow; do not infer its DSL or instruction.
 
-优先收录有明确用户报告的错误结果和 `FAILED` job；对 `COMPLETED`、版本已创建、但用户撤销或报告改错的案例，必须先核实指令语义和原图/输出。`ai_chat_change_*` 事件的触发点随实现可能更名，取数前读取当前 catalog 与面板代码；成功事件只反映其定义的客户端状态，不是用户满意、接受或 Confluence 持久化证明。
+Prioritize error results with explicit user reports and `FAILED` jobs. For `COMPLETED` jobs with a created version that the user undid or reported as wrong, first verify the instruction semantics and original/output diagrams. The trigger points for `ai_chat_change_*` events may change with implementation; read the current catalog and panel code before querying. A success event reflects only its defined client-side state; it does not prove user satisfaction, acceptance, or persistence in Confluence.

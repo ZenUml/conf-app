@@ -1,10 +1,10 @@
-# L3：本地版本化 AI Chat job
+# L3: Local Versioned AI Chat Job
 
-本轮派生 manifest 的 `reasoningDisabled` 必须与 L2 一致；脚本把它作为 `disableReasoning` 发送，并核对 job 回报值。普通 AI Chat 的 UI 请求若省略该字段，需结合目标后端 `ai-config.ts` 和环境证明其有效值；不得把字段缺失当成 `false`。
+The derived manifest for this run must use the same `reasoningDisabled` value as L2; the script sends it as `disableReasoning` and verifies the value reported by the job. If an ordinary AI Chat UI request omits this field, establish its effective value from the target backend's `ai-config.ts` and environment; do not treat a missing field as `false`.
 
-本层覆盖 Diagramly 的图绑定、team/credits、版本化异步 job、确定性语法校验和轮询；不经过 conf-app 的 Forge bridge。普通修改请求必须传非空 `command`，**不传 `errorMessage`**。脚本按 conf-app `functions/service/diagramlyService.js` 的类型映射把客户端 `mermaid` 转为后端 `flow`、`OpenAPI` 转为 `openapi`；变更映射时先同步脚本。真实路径见 Diagramly 的 `apps/web/app/api/chat/{ensure-diagram,modify-version-async,job-status}`。
+This layer covers Diagramly diagram binding, team/credits, versioned asynchronous jobs, deterministic syntax validation, and polling; it does not pass through the conf-app Forge bridge. An ordinary modification request must include a non-empty `command` and **must not include `errorMessage`**. The script follows the type mapping in conf-app `functions/service/diagramlyService.js`, converting client `mermaid` to backend `flow` and `OpenAPI` to `openapi`; update the script first if the mapping changes. The actual routes are in Diagramly `apps/web/app/api/chat/{ensure-diagram,modify-version-async,job-status}`.
 
-准备：用 `joint-debug` skill 启动本地 Diagramly 与 PostgreSQL，确认 `DATABASE_URL` 指向 localhost，`GET /api/health?deep=1` 返回数据库 `up`。从 Diagramly 本地 `.env` 注入 `DIAGRAMLY_API_KEY`，不要打印。先用 `--dry-run` 核对输入 hash、模型和 URL；脚本默认拒绝非本地主机。
+Preparation: use the `joint-debug` skill to start local Diagramly and PostgreSQL. Confirm `DATABASE_URL` points to localhost and `GET /api/health?deep=1` reports database `up`. Load `DIAGRAMLY_API_KEY` from Diagramly's local `.env` without printing it. First use `--dry-run` to check the input hash, model, and URL; the script rejects non-local hosts by default.
 
 ```bash
 pnpm exec dotenv -c -- uv run \
@@ -14,6 +14,6 @@ pnpm exec dotenv -c -- uv run \
   --dry-run
 ```
 
-移除 `--dry-run` 才实际创建本地图和 job、调用模型。默认模型从 conf-app `DEFAULT_AI_CHAT_MODEL` 读取；若 manifest 指定其他模型，应在结果中明确标注。脚本将完整响应写到私有输出目录，终端仅显示状态、hash 与路径。每例默认一次调用；重试需单独占用预算并保留旧试次。
+Remove `--dry-run` to actually create a local diagram and job and call the model. The default model is read from conf-app `DEFAULT_AI_CHAT_MODEL`; if the manifest specifies another model, label it clearly in the results. The script writes the full response to the private output directory; the terminal displays only status, hashes, and paths. One call per case is the default; retries must consume a separate budget allocation and preserve earlier attempts.
 
-脚本的 `technicalStatus: PASS` 只覆盖返回、无 job Error、候选非空，以及预期修改时的版本与非 no-op。还要检查适用语言的解析和真实渲染、指令满足与保留条款，才能判本层完整 PASS。`noChange: true` 只按案例的明确预期判定。`FAILED`、`CANCELLED`、超时、缺少输出或版本都是本层失败或环境阻塞，不能用模型原始响应替代 job 结果。保留 jobId、轮询次数、wall time、backend duration 与错误，但不向公开输出泄露原文。
+The script's `technicalStatus: PASS` covers only a returned result, no job Error, a non-empty candidate, and (for expected modifications) a version and non-no-op result. To mark the full layer PASS, also check parsing and actual rendering for the applicable language, instruction fulfillment, and preservation criteria. Judge `noChange: true` only against the case's explicit expected outcome. `FAILED`, `CANCELLED`, timeout, or missing output/version means this layer failed or was blocked by the environment; a raw model response cannot substitute for the job result. Retain the jobId, polling count, wall time, backend duration, and errors, but do not expose the original content in public output.

@@ -1,8 +1,8 @@
-# L1/L2 方法与命令
+# L1/L2 Methodology and Commands
 
 ## Run manifest
 
-在 `/tmp/ai-repair-benchmark/<run-id>/manifest.json` 保存：
+Save the following to `/tmp/ai-repair-benchmark/<run-id>/manifest.json`:
 
 ```json
 {
@@ -20,11 +20,11 @@
 }
 ```
 
-不要把 DSL 内容复制进 manifest。记录两个仓库的 HEAD、工作区状态、Prompt hash、模型参数、trial 数和 seed；不同 Prompt 或代码版本的结果不直接合并。纯模型横向比较时，`temperature`、`maxTokens`、`reasoningDisabled` 可省略；runner 对未设置的 `AI_DISABLE_REASONING` 按 Diagramly `ai-config.ts` 的默认规则处理：只有明确为 `false` 才启用 reasoning，其余情况 `reasoningDisabled: true`。**验证产品 AI Repair 或 AI Chat 路径时，L1/L2 的派生 manifest 必须显式写入与 L3/L4 相同的 `reasoningDisabled` 布尔值**。AI Repair 读取 `resolveRepairAIOptions`（当前默认 `true`）；AI Chat 读取版本化 worker 的显式覆盖及 `ai-config.ts` 的 provider 默认值（当前默认 `true`）。L1/L2 核对模型调用记录，L3 核对请求和 job 输出，L4 核对 UI 请求及目标环境配置；参数不一致的结果不可跨层比较或判为整条链路 PASS。同一比较组固定有效参数。
+Do not copy the DSL contents into the manifest. Record both repository HEADs, working-tree status, prompt hash, model parameters, trial count, and seed. Do not merge results produced with different prompt or code versions. For model-only comparisons, `temperature`, `maxTokens`, and `reasoningDisabled` may be omitted. For an unset `AI_DISABLE_REASONING`, the runner follows the default in Diagramly `ai-config.ts`: reasoning is enabled only when explicitly set to `false`; otherwise `reasoningDisabled: true`. **When validating the product AI Repair or AI Chat path, the derived L1/L2 manifest must explicitly include the same `reasoningDisabled` boolean used by L3/L4.** AI Repair reads `resolveRepairAIOptions` (currently defaults to `true`); AI Chat reads explicit overrides in the versioned worker and the provider defaults in `ai-config.ts` (currently defaults to `true`). Check L1/L2 model-call records, L3 requests and job output, and L4 UI requests and target-environment configuration. Results with mismatched settings cannot be compared across layers or counted as a full-path PASS. Keep effective parameters fixed within each comparison group.
 
-## 生成 L2 Prompt
+## Generate the L2 prompt
 
-从 Diagramly checkout 运行，加载与本地服务相同的 `.env`：
+Run from the Diagramly checkout, loading the same `.env` as the local service:
 
 ```bash
 pnpm exec dotenv -c -- pnpm exec tsx --tsconfig scripts/tsconfig.json \
@@ -34,11 +34,11 @@ pnpm exec dotenv -c -- pnpm exec tsx --tsconfig scripts/tsconfig.json \
   --diagramly-path "$PWD"
 ```
 
-输出包含实际 messages、prompt hash、Diagramly commit、Prompt/预处理 hook 源文件 hash 和 cache-control 设置。生成失败时不得退回手写近似 Prompt。
+The output includes the actual messages, prompt hash, Diagramly commit, hashes of prompt/preprocessing hook source files, and cache-control settings. If generation fails, do not fall back to a hand-written approximation of the prompt.
 
-## 单模型、单层调用
+## One model call for one layer
 
-先用相同命令加 `--dry-run` 检查计划。以下在 Diagramly checkout 中运行，示例只调用 Luna 一次；更换 `--model` 和独立输出目录测试其他模型。每次调用后先评分，再进行下一次模型请求。真实调用会发送完整 DSL 到 OpenRouter，不打印 key。
+First use the same command with `--dry-run` to check the plan. Run the following from the Diagramly checkout. The example calls Luna once; change `--model` and use a separate output directory to test other models. Score each call before making the next model request. A real call sends the full DSL to OpenRouter and does not print the key.
 
 ```bash
 pnpm exec dotenv -c -- uv run \
@@ -56,7 +56,7 @@ pnpm exec dotenv -c -- uv run \
   --output-dir /tmp/ai-repair-benchmark/<run-id>/l2-luna
 ```
 
-每条命令后立即用下述评分命令，把 `--results` 和 `--output` 指向该次调用的目录：
+Immediately after each command, run the scoring command below, pointing `--results` and `--output` to that call's directory:
 
 ```bash
 uv run .claude/skills/ai-repair-benchmark/scripts/score_candidates.py \
@@ -66,13 +66,13 @@ uv run .claude/skills/ai-repair-benchmark/scripts/score_candidates.py \
   --output /tmp/ai-repair-benchmark/<run-id>/l1-luna/scored.jsonl
 ```
 
-评分脚本的 `repairStatus: PASS` 只表示其确定性语法检查通过。汇总前还要为适用语言检查实际渲染，并核对 `missingRequiredAnchors`；Mermaid 的 Node 确定性 parser 结果不能替代浏览器中的 Mermaid parse/render。将已观察到的渲染结果写入逐次记录的 `renderValid`，并在 `evidencePaths` 留证；缺少该字段时汇总器会标为 `UNVERIFIED/SKIPPED`，不能称为完整修复通过。
+`repairStatus: PASS` from the scoring script means only that its deterministic syntax check passed. Before aggregation, check actual rendering for the applicable language and inspect `missingRequiredAnchors`. The deterministic Node parser result for Mermaid does not replace Mermaid parse/render in a browser. Write the observed render result to `renderValid` in the trial record and preserve evidence in `evidencePaths`. If this field is missing, the aggregator marks the record `UNVERIFIED/SKIPPED`; do not call it a complete repair PASS.
 
-每个 trial 只允许一次模型请求，网络失败单独记录，不在客户端悄悄重试。若仅修复响应提取逻辑，使用 `--reparse-only` 从保存的 response JSON 离线重建候选，不重复付费调用。中断后使用 `--resume`，保留中断记录，不覆盖既有结果。记录实际 provider、generation id、prompt/completion/reasoning/cache tokens 和费用来源；缓存命中在原始速度分析中单列。
+Allow only one model request per trial. Record network failures separately; do not silently retry in the client. If only response extraction logic needs repair, use `--reparse-only` to rebuild candidates offline from saved response JSON without another paid call. After an interruption, use `--resume`, retaining interruption records and not overwriting existing results. Record the actual provider, generation id, prompt/completion/reasoning/cache tokens, and cost provenance; report cache hits separately in raw latency analysis.
 
-## 汇总
+## Aggregate
 
-把实际执行的 L1/L2 scored JSONL 分别传入；不要传入 L3/L4：
+Pass the scored JSONL files from the L1/L2 runs; do not pass L3/L4 files:
 
 ```bash
 uv run .claude/skills/ai-repair-benchmark/scripts/summarize_benchmark.py \
@@ -82,4 +82,4 @@ uv run .claude/skills/ai-repair-benchmark/scripts/summarize_benchmark.py \
   --html /tmp/ai-repair-benchmark/<run-id>/report.html
 ```
 
-其余模型的 scored 文件也逐个添加 `--input`。本地/私有报告默认展示输入 DSL 全文、图类型、真实错误、行数、字符数和 SHA-256；只有用户明确要求公开/脱敏时才加 `--redact-dsl`。报告注明每组 n；n 很小时 p95 不能说明稳定性能。
+Add each other model's scored file as another `--input`. Local/private reports show the full input DSL, diagram type, real error, line count, character count, and SHA-256 by default. Add `--redact-dsl` only when the user explicitly requests a public/redacted report. State n for each group; p95 does not indicate stable performance when n is small.

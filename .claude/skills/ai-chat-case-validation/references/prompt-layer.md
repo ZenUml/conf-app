@@ -1,10 +1,10 @@
-# L2：普通修改指令与产品 Prompt
+# L2: Ordinary Modification Instruction and Product Prompt
 
-运行前从当前 Diagramly `ai-config.ts` 及环境读取有效 `reasoningDisabled`（只有 `AI_DISABLE_REASONING=false` 才会启用 reasoning），显式写入本轮派生 manifest，并让 L2/L3/L4 使用同一值。若另外执行 L1，也沿用此值。`--dry-run` 必须核对该字段。
+Before running, read the effective `reasoningDisabled` value from the current Diagramly `ai-config.ts` and environment (reasoning is enabled only when `AI_DISABLE_REASONING=false`), write it explicitly into this run's derived manifest, and use the same value for L2/L3/L4. If you also run L1, use this value there too. Verify this field in `--dry-run`.
 
-案例 manifest 使用 [案例格式](case-format.md)，`command` 为真实用户指令，`errorMessage` 缺失。运行前读取 conf-app `DEFAULT_AI_CHAT_MODEL`，把该模型写入私有 manifest 的 `models` 数组；强制只选该模型、一次 trial。若测试本地覆盖模型，单独记录来源，不拿覆盖模型结果替代默认模型。先记录两个 checkout 的 HEAD/脏状态。
+Use the [case format](case-format.md) for the case manifest. `command` must be the real user instruction and `errorMessage` must be absent. Before running, read conf-app `DEFAULT_AI_CHAT_MODEL` and put that model in the `models` array in the private manifest; force selection of only that model and one trial. If testing a local model override, record its source separately and do not use its result as a substitute for the default model. First record the HEAD and dirty state of both checkouts.
 
-从 Diagramly checkout 运行，使用当前服务相同的本地 `.env`。以下路径示例仅是私有目录占位，运行时换成现存绝对路径：
+Run from the Diagramly checkout and use the same local `.env` as the current service. The paths below are private-directory placeholders only; replace them at runtime with existing absolute paths:
 
 ```bash
 pnpm exec dotenv -c -- pnpm exec tsx --tsconfig scripts/tsconfig.json \
@@ -22,6 +22,6 @@ pnpm exec dotenv -c -- uv run \
   --output-dir /absolute/private/local-data/ai-chat-regression/runs/<run-id>/l2
 ```
 
-先为模型调用命令加 `--dry-run` 核对输入 hash、模型、参数和 Prompt hash。正式调用前核对本轮外部服务、数据发送和预算授权。runner 当前使用 OpenRouter；它不是 Diagramly 服务内部的 provider fallback 和质量重试，因此 L2 只回答“当前 Prompt 下单次模型输出是否合格”，L3 再验证产品 job。若产品 Prompt 或消息拼装实现变更，核对构建器和 Diagramly `packages/core/ai/services/ai-diagram-service.ts`、`packages/core/ai/prompts/builder.ts` 一致；不一致就先修构建器。
+Add `--dry-run` to the model-call command first and verify the input hash, model, parameters, and Prompt hash. Before the actual call, verify authorization for the external service, data transfer, and budget for this run. The runner currently uses OpenRouter; it is not Diagramly's internal provider fallback and quality retry mechanism. Therefore L2 answers only whether a single model output is acceptable under the current Prompt; L3 validates the product job. If the product Prompt or message assembly implementation changes, confirm that the builder matches Diagramly `packages/core/ai/services/ai-diagram-service.ts` and `packages/core/ai/prompts/builder.ts`; fix the builder first if they do not match.
 
-用既有 `score_candidates.py` 检查候选非空、语法和 `requiredAnchors`，再做适用语言的**实际渲染**与 `requiredEffects`/`forbiddenEffects` 人工核对。`score_candidates.py` 的 `repairStatus` 名称仅来自复用脚本，不能直接当 AI Chat 语义结论。预期 `change` 时，原文返回是 FAIL；预期 `no_change` 时，只有已标注的指令本来满足、输出无 Error 且保持图表有效才可通过，不沿用脚本的 no-op FAIL 判定。保存响应、候选、验证结果和 Prompt hash，不把客户正文打印到终端。
+Use the existing `score_candidates.py` to check that the candidate is non-empty and to check syntax and `requiredAnchors`; then perform **actual rendering** for the applicable language and manually check `requiredEffects`/`forbiddenEffects`. The `repairStatus` name from `score_candidates.py` comes from a reused script and is not an AI Chat semantic conclusion. For expected `change`, returning the original text is FAIL. For expected `no_change`, pass only if the instruction is documented as already satisfied, the output has no Error, and the diagram remains valid; do not reuse the script's no-op FAIL judgment. Save the response, candidate, validation result, and Prompt hash without printing customer content in the terminal.

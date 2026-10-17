@@ -38,6 +38,14 @@ The **Handbook** is our internal, team-only knowledge site — *not* customer-fa
 
 ## Hard rules
 
+### Confluence UI changes require ordered visual validation
+
+For changes that affect the Confluence app UI, validate the same candidate in this order: **Storybook → Forge Tunnel → CI-deployed Staging**. Each stage must pass before starting the next. At every stage, record the tested branch/commit or deployed build and confirm where the visible UI is served from. Keep actual UI evidence (such as screenshots or snapshots) for the assertions. A blocked or skipped UI assertion is not a pass, and unit tests do not replace UI evidence.
+
+Pure documentation changes and changes with no UI impact are not applicable; state that and give the reason. Do not invent a Storybook check for a pure backend change. If a stage fails, fix the issue and repeat the affected stage; later acceptance must use the final candidate version. Staging checks start only after the candidate branch's CI deployment succeeds. Never deploy staging from a local shell; see the Forge deployment rule below.
+
+The **validate-branch** skill defines the execution order and distinguishes local readiness to push from completion of the full validation path. The **forge-tunnel** skill remains the source for tunnel setup, identity, and connection checks.
+
 ### Confluence app UI design targets desktop
 
 For the Confluence app, design for the desktop surface. Do not create narrow/mobile layouts or separate narrow-screen artboards unless the user explicitly requests them.

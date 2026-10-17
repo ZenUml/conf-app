@@ -2,7 +2,16 @@
 
 The headless MCP endpoint (`POST /agent-link/mcp`, `functions/agent-link/oauth/headlessMcp.ts`) answers `read_diagram`, `create_diagram` and `update_diagram` with a rendered diagram, not just DSL text. It does this through the MCP Apps extension (`io.modelcontextprotocol/ui`, [spec](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx)). The host (claude.ai, the Claude desktop app, …) fetches a `ui://` resource and mounts it in a sandboxed iframe. That page is **the view**.
 
-It draws Sequence (`@zenuml/core`), Mermaid (`mermaid`) and PlantUML (an `<img>` of `https://www.plantuml.com/plantuml/svg/<encoded>`, same encoder as `PlantUml.vue`). Graph, OpenAPI and AsyncAPI are not supported; the view says so instead of rendering blank.
+It draws:
+- Sequence (`@zenuml/core`);
+- Mermaid (`mermaid`);
+- PlantUML, as an `<img>` of `https://www.plantuml.com/plantuml/svg/<encoded>` (same encoder as `PlantUml.vue`);
+- Graph, with the static DrawIO viewer (`GraphViewer`, via `src/utils/drawio/loadDrawioViewer.ts`), loaded from the deploy's own `drawio/`. Legacy LZUTF8-compressed XML is decompressed first;
+- OpenAPI, with `swagger-ui`, read-only: no "Try it out" (`supportedSubmitMethods: []`) and no validator call-out (`validatorUrl: null`).
+
+AsyncAPI, Markdown and Embed are not supported; the view says so instead of rendering blank.
+
+`update_diagram` returns no diagram type or source, so after an update the view says "No diagram in this result." for every type.
 
 ## Pieces
 
@@ -17,17 +26,23 @@ It draws Sequence (`@zenuml/core`), Mermaid (`mermaid`) and PlantUML (an `<img>`
 
 Every `build:*` script (`build:lite`, `build:full`, `build:diagramly`, `build:asyncapi`) ends with `pnpm run build:mcp-app`, which runs `vite build -c vite.mcp-app.config.mjs`. It must run **after** the app build, because the app build empties `dist/`. The view build empties only `dist/mcp-app/`.
 
-Output, about 7 files:
+Output, 11 files:
 
 ```
 dist/mcp-app/view.html
-dist/mcp-app/assets/view-<hash>.js        entry (handshake, extraction)
-dist/mcp-app/assets/runtime-<hash>.js     Vite preload + commonjs helpers
-dist/mcp-app/assets/zenuml-<hash>.js      @zenuml/core, loaded only for Sequence
-dist/mcp-app/assets/mermaid-<hash>.js     mermaid, loaded only for Mermaid
-dist/mcp-app/assets/mermaid.core-<hash>.js
-dist/mcp-app/assets/encode-<hash>.js      PlantUML encoder (pako)
+dist/mcp-app/assets/view-<hash>.js                    entry (handshake, extraction)
+dist/mcp-app/assets/runtime-<hash>.js                 Vite preload + commonjs helpers
+dist/mcp-app/assets/zenuml-<hash>.js                  @zenuml/core, loaded only for Sequence
+dist/mcp-app/assets/mermaid-<hash>.js                 mermaid, loaded only for Mermaid
+dist/mcp-app/assets/openapi-<hash>.js                 swagger-ui, loaded only for OpenAPI
+dist/mcp-app/assets/openapi-<hash>.css                swagger-ui's stylesheet
+dist/mcp-app/assets/shared-mermaid-openapi-<hash>.js  what both use (dompurify)
+dist/mcp-app/assets/encode-<hash>.js                  PlantUML encoder (pako)
+dist/mcp-app/assets/loadDrawioViewer-<hash>.js        Graph: loads the DrawIO viewer
+dist/mcp-app/assets/compress-<hash>.js                Graph: LZUTF8, for legacy compressed XML
 ```
+
+The DrawIO viewer itself is not in this build. The view loads `drawio/js/viewer-static.min.js`, its shapes, stencils and `drawio/math4` (MathJax) from the same deploy, where the app build already puts them.
 
 **Where it is served from:** the Cloudflare Pages project that also serves `/agent-link/mcp` (see [Cloudflare Pages](../ops/cloudflare-pages.md)), at `/mcp-app/view.html`. Pages answers that path with a redirect to `/mcp-app/view`, which `fetch` follows. Nothing else is needed:
 - these are static assets, so `public/_routes.json` is not involved;
@@ -43,6 +58,7 @@ The view was first a root HTML entry of the app build (`vite.config.mjs` picks u
 
 `manualChunks` in `vite.mcp-app.config.mjs` keeps that count small and the loads lazy:
 - one chunk per renderer;
+- a dependency that several renderers share goes in a `shared-<renderers>` chunk named for exactly those, so no renderer downloads another's code;
 - the Vite/commonjs helpers in `runtime`, so the entry does not import a renderer up front.
 
 Left to itself, Rollup splits mermaid into dozens of files.
@@ -57,7 +73,8 @@ Each of these passed every unit test and a hand-built test host, and failed in c
    - `withAbsoluteAssetUrls` rewrites the entry HTML's relative `src`/`href` to absolute URLs on the requesting origin;
    - the view build uses `base: './'`, so Vite's in-bundle preload URLs resolve from `import.meta.url`.
 2. **`ui/initialize` must match the ext-apps schema.** The request needs `appInfo` and `appCapabilities` (not `clientInfo` / `capabilities` from the spec's prose example). claude.ai validates against `McpUiInitializeRequestSchema` and otherwise rejects the request with an error, and the view shows "The host refused this view."
-3. **CSP lives on the resource, not the tool.** `_meta.ui.csp` goes on the `resources/list` entry and the `resources/read` contents. `resourceDomains` lists our origin and `https://www.plantuml.com`, and `connectDomains` is empty.
+3. **CSP lives on the resource, not the tool.** `_meta.ui.csp` goes on the `resources/list` entry and the `resources/read` contents. `resourceDomains` lists our origin and `https://www.plantuml.com`. `connectDomains` lists only our origin, because the DrawIO viewer fetches stencil XML by XHR.
+4. **Nothing may load from a third-party origin.** GraphViewer loads MathJax on every render, by default from `viewer.diagrams.net`, which the host's CSP refuses. When `ensureDrawioViewerLoaded` is given an asset base, it points `DRAW_MATH_URL` at the deploy's own `drawio/math4/es5`.
 
 ## Testing
 

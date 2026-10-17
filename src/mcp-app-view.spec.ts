@@ -1,6 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION, PLANTUML_SVG_BASE } from './mcp-app-view';
 import { plantumlEncode } from '@/utils/plantuml/encode';
+import { compress } from '@/utils/compress';
+
+const drawio = vi.hoisted(() => ({ ensureDrawioViewerLoaded: vi.fn(async (_base?: string) => {}) }));
+vi.mock('@/utils/drawio/loadDrawioViewer', () => drawio);
+
+const swagger = vi.hoisted(() => {
+  const updateSpec = vi.fn();
+  const SwaggerUI = Object.assign(vi.fn((_config: Record<string, unknown>) => ({ specActions: { updateSpec } })), {
+    presets: { apis: 'apis-preset' },
+  });
+  return { SwaggerUI, updateSpec };
+});
+vi.mock('swagger-ui', () => ({ default: swagger.SwaggerUI }));
+vi.mock('swagger-ui/dist/swagger-ui.css', () => ({}));
 
 describe('extractDiagram', () => {
   // The host decides which of these shapes it hands us, and the answer has
@@ -62,6 +76,32 @@ describe('extractDiagram', () => {
       structuredContent: { contentId: '1', title: 'Flow', diagramType: 'mermaid', source: 'graph TD; A-->B;' },
     };
     expect(extractDiagram(result)).toEqual({ diagramType: 'mermaid', dsl: 'graph TD; A-->B;', title: 'Flow' });
+  });
+
+  it('keeps a JSON OpenAPI spec in `source`: it is JSON, but not the stored envelope', () => {
+    const spec = JSON.stringify({ openapi: '3.0.0', info: { title: 'Pets', version: '1' }, paths: {} });
+    expect(
+      extractDiagram({ structuredContent: { contentId: '1', title: 'Pets', diagramType: 'OpenAPI', source: spec } }),
+    ).toEqual({ diagramType: 'OpenAPI', dsl: spec, title: 'Pets' });
+  });
+
+  it('takes a Board\'s boardGraphXml from the stored envelope, not the stale graphXml', () => {
+    const stored = {
+      title: 'Board',
+      diagramType: 'graph',
+      graphEditorMode: 'board',
+      graphXml: '<mxGraphModel>stale</mxGraphModel>',
+      boardGraphXml: '<mxfile>board</mxfile>',
+    };
+    expect(extractDiagram({ structuredContent: { source: JSON.stringify(stored) } })).toEqual({
+      diagramType: 'graph',
+      dsl: '<mxfile>board</mxfile>',
+      title: 'Board',
+    });
+    const plain = { ...stored, graphEditorMode: undefined };
+    expect(extractDiagram({ structuredContent: { source: JSON.stringify(plain) } })?.dsl).toBe(
+      '<mxGraphModel>stale</mxGraphModel>',
+    );
   });
 
   it('skips a read_diagram source that is bare DSL with no type', () => {
@@ -211,5 +251,69 @@ describe('drawing a PlantUML result', () => {
     await vi.waitFor(() =>
       expect(document.querySelector('#app')?.textContent).toMatch(/PlantUML server did not answer/),
     );
+  });
+});
+
+function deliver(structuredContent: Record<string, unknown>): void {
+  onHostMessage({
+    data: { jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } },
+  } as MessageEvent);
+}
+
+describe('drawing a Graph result', () => {
+  const GraphViewer = vi.fn();
+  const parseXml = vi.fn((xml: string) => new DOMParser().parseFromString(xml, 'text/xml'));
+
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="app"></div>';
+    GraphViewer.mockClear();
+    drawio.ensureDrawioViewerLoaded.mockClear();
+    vi.stubGlobal('GraphViewer', GraphViewer);
+    vi.stubGlobal('mxUtils', { parseXml });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('loads the DrawIO viewer from our origin and draws the XML, with no link-out lightbox', async () => {
+    deliver({ diagramType: 'graph', source: '<mxGraphModel><root/></mxGraphModel>' });
+
+    await vi.waitFor(() => expect(GraphViewer).toHaveBeenCalledTimes(1));
+    // An absolute base, never the frame's: the frame's base is the host sandbox.
+    expect(drawio.ensureDrawioViewerLoaded.mock.calls[0][0]).toMatch(/^[a-z]+:\/\//);
+    const [container, node, config] = GraphViewer.mock.calls[0];
+    expect(document.querySelector('#app')?.contains(container)).toBe(true);
+    expect((node as Element).nodeName).toBe('mxGraphModel');
+    expect(config).toMatchObject({ 'auto-fit': true, lightbox: false });
+  });
+
+  it('decompresses a legacy compressed record before drawing it', async () => {
+    deliver({ diagramType: 'graph', source: compress('<mxGraphModel><root/></mxGraphModel>') });
+
+    await vi.waitFor(() => expect(GraphViewer).toHaveBeenCalledTimes(1));
+    expect((GraphViewer.mock.calls[0][1] as Element).nodeName).toBe('mxGraphModel');
+  });
+
+  it('says so rather than drawing garbage when the source is not XML', async () => {
+    deliver({ diagramType: 'graph', source: 'A -> B' });
+
+    await vi.waitFor(() => expect(document.querySelector('#app')?.textContent).toMatch(/Could not draw/));
+    expect(GraphViewer).not.toHaveBeenCalled();
+  });
+});
+
+describe('drawing an OpenAPI result', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="app"></div>';
+    swagger.SwaggerUI.mockClear();
+    swagger.updateSpec.mockClear();
+  });
+
+  it('hands the spec to a read-only swagger-ui: no Try it out, no validator call-out', async () => {
+    const spec = 'openapi: 3.0.0\ninfo:\n  title: Pets\n  version: "1"\npaths: {}\n';
+    deliver({ diagramType: 'OpenAPI', source: spec });
+
+    await vi.waitFor(() => expect(swagger.updateSpec).toHaveBeenCalledWith(spec));
+    const config = swagger.SwaggerUI.mock.calls[0][0];
+    expect(config).toMatchObject({ supportedSubmitMethods: [], validatorUrl: null, presets: ['apis-preset'] });
+    expect(document.querySelector('#app')?.contains(config.domNode as Node)).toBe(true);
   });
 });

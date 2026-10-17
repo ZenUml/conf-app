@@ -124,3 +124,7 @@ Profile 8
 # Concrete CI selection measurements
 tests/e2e-tests/selection-metrics.json
 tests/e2e-tests/test-plan.json
+
+# The plugin package ships its own MCP config and logo (docs/features/ai-plugin-distribution.md).
+!integrations/zenuml-plugin/.mcp.json
+!integrations/zenuml-plugin/assets/*.png

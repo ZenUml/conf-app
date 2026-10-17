@@ -11,6 +11,12 @@ It draws:
 
 AsyncAPI, Markdown and Embed are not supported; the view says so instead of rendering blank.
 
+**Why not AsyncAPI.** `@asyncapi/react-component` cannot run in the host's frame. It imports `@asyncapi/parser`, which imports Spectral and Ajv. Ajv compiles every validator with `new Function`, and Spectral does that at module load (`spectral-core/dist/ruleset/function.js` and `ajv-formats`). The host's CSP has no `'unsafe-eval'`, and `_meta.ui.csp` can only add domains. Turning off the parser's rulesets (`ruleset: { core: false, recommended: false }`, `parseSchemas: false`) does not help, because the import alone throws "Refused to evaluate a string as JavaScript" (found 2026-10-17 in a simulated host; reproducible with `node --disallow-code-generation-from-strings`).
+
+Two ways forward were considered and not built:
+- a nested frame on our own origin (listed in `frameDomains`), whose own CSP allows eval, with the spec passed to it by `postMessage`. This depends on the host honouring `frameDomains`, which is unverified for claude.ai;
+- a lightweight renderer of our own over the parsed YAML.
+
 `update_diagram` returns no diagram type or source, so after an update the view says "No diagram in this result." for every type.
 
 ## Pieces

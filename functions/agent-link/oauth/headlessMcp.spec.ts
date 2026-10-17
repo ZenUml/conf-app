@@ -200,6 +200,7 @@ describe('headless RPC', () => {
     const body = await res.json();
     const byName = Object.fromEntries(body.result.tools.map((t: { name: string }) => [t.name, t]));
     expect(byName.read_diagram._meta.ui.resourceUri).toBe('ui://zenuml/diagram');
+    expect(byName.read_diagram._meta['ui/resourceUri']).toBe('ui://zenuml/diagram');
     // The csp lives on the RESOURCE, not the tool — asserting it here is what
     // let the real misplacement pass. resources/list and resources/read carry it.
     expect(byName.read_diagram._meta.ui.csp).toBeUndefined();

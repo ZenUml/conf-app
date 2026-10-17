@@ -259,6 +259,19 @@ describe('UnplacedDiagramsBanner', () => {
         .toBe("1 diagram is saved on this page but isn't placed on it.");
     });
 
+    it('speaks of API docs in the AsyncAPI app', async () => {
+      vi.stubEnv('PRODUCT_TYPE', 'asyncapi');
+      const named = Array.from({ length: 20 }, (_, i) => ({ id: `cc-${i}`, title: `D${i}`, diagramType: 'openapi' }));
+      readUnplacedProperty.mockResolvedValue(propertyHolding(named, 22));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      expect(wrapper.find('[data-testid="unplaced-banner-text"]').text())
+        .toBe("22 API docs are saved on this page but aren't placed on it.");
+      expect(wrapper.find('[data-testid="unplaced-banner-toggle"]').text()).toBe('Show API docs');
+      await wrapper.find('[data-testid="unplaced-banner-toggle"]').trigger('click');
+      expect(wrapper.find('[data-testid="unplaced-banner-more"]').text()).toContain('open API Docs under the page title');
+    });
+
     it('shows the fallback when no property covers the page', async () => {
       writeUnplacedMarker(IDENTITY, [STRAY], FALLBACK);
       readUnplacedProperty.mockResolvedValue({ status: 'absent' });

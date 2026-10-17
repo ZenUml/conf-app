@@ -347,12 +347,16 @@ export const APPS = {
         // Diagramly-branded; the newuser nudge opens prepared diagrams of
         // generic types this app does not ship. Its Lite-only display
         // condition goes for the same reason as Full's: it reads Full's
-        // presence marker, which says nothing about this app.
+        // presence marker, which says nothing about this app. It is titled
+        // "API Docs": this app's byline lists and creates OpenAPI/AsyncAPI
+        // specs, not diagrams (its panel copy follows, src/utils/byline/
+        // bylineNoun.ts). No collision: Full, the other app with a plain
+        // title, cannot be installed beside this one.
         // Mirrored in release.yml and staging-deploy.yml.
         description:
-          'Keep only zenuml-byline-diagrams in confluence:contentBylineItem, without its Lite-only displayConditions',
+          'Keep only zenuml-byline-diagrams in confluence:contentBylineItem, titled "API Docs", without its Lite-only displayConditions',
         yqEvalExpr:
-          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)',
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) | (.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .title) = "API Docs" | (.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .tooltip) = "See the API docs on this page, or add one"',
       },
       {
         // ${LITE_KEY_SUFFIX} is empty here, so the templated key would be

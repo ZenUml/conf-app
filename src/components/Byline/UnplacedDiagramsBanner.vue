@@ -16,13 +16,13 @@
            macro, and it is the reason the link below can place it. -->
       <span class="unplaced__text" data-testid="unplaced-banner-text">
         <template v-if="single">
-          <strong>{{ rows[0].title || 'A diagram' }}</strong> is saved on this page but isn't placed on it.
+          <strong>{{ rows[0].title || capitalize(noun.aOne) }}</strong> is saved on this page but isn't placed on it.
         </template>
         <template v-else>
           <!-- count is 1 here only when the one diagram is past the record's
                cap, so it has no name to show. -->
-          <template v-if="count === 1">1 diagram is saved on this page but isn't placed on it.</template>
-          <template v-else>{{ count }} diagrams are saved on this page but aren't placed on it.</template>
+          <template v-if="count === 1">1 {{ noun.one }} is saved on this page but isn't placed on it.</template>
+          <template v-else>{{ count }} {{ noun.many }} are saved on this page but aren't placed on it.</template>
         </template>
       </span>
 
@@ -61,7 +61,7 @@
         data-testid="unplaced-banner-toggle"
         :aria-expanded="expanded"
         @click="expanded = !expanded"
-      >{{ expanded ? 'Hide' : 'Show diagrams' }}</button>
+      >{{ expanded ? 'Hide' : `Show ${noun.many}` }}</button>
 
       <button
         class="unplaced__dismiss"
@@ -88,7 +88,7 @@
 
     <div v-if="expanded && !single" class="unplaced__rows">
       <div v-for="d in rows" :key="d.id" class="unplaced__row" data-testid="unplaced-banner-row">
-        <span class="unplaced__row-title" :title="d.title">{{ d.title || 'Untitled diagram' }}</span>
+        <span class="unplaced__row-title" :title="d.title">{{ d.title || `Untitled ${noun.one}` }}</span>
         <span class="unplaced__row-type">{{ typeLabel(d.diagramType) }}</span>
         <button
           v-if="canEdit"
@@ -108,7 +108,7 @@
       <!-- The record names at most MAX_PROPERTY_ENTRIES; the rest are counted
            above but only the byline panel can list them. -->
       <div v-if="unlisted > 0" class="unplaced__hint unplaced__hint--more" data-testid="unplaced-banner-more">
-        {{ unlisted }} more — open Diagrams under the page title to see them all.
+        {{ unlisted }} more — open {{ noun.title }} under the page title to see them all.
       </div>
     </div>
   </div>
@@ -138,6 +138,7 @@ import {
 } from '@/utils/byline/unplacedMarker'
 import { clearUnplacedProperty, readUnplacedProperty, unlistedCount } from '@/utils/byline/unplacedProperty'
 import { higherPriorityBannerPending } from '@/utils/banners/priority'
+import { bylineNounFor, capitalize } from '@/utils/byline/bylineNoun'
 import { placeDiagram } from '@/utils/byline/placeDiagram'
 
 /**
@@ -175,6 +176,8 @@ const props = withDefaults(defineProps<{ source?: 'property' | 'marker' }>(), {
 
 const visible = ref(false)
 const expanded = ref(false)
+/** "API doc" in the AsyncAPI app, whose byline is titled API Docs; "diagram" elsewhere. */
+const noun = bylineNounFor(import.meta.env.PRODUCT_TYPE)
 const rows = ref<UnplacedDiagramEntry[]>([])
 /**
  * Unplaced diagrams the record counts but does not name. The property names at

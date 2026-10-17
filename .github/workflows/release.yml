@@ -300,11 +300,11 @@ jobs:
           cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:homepageFeed"])' -i manifest.yml
       # AsyncAPI keeps only the diagram-index byline (OpenAPI + AsyncAPI
       # tiles), without the Lite-only display condition.
-      - name: Keep only zenuml-byline-diagrams in the byline module (AsyncAPI)
+      - name: Keep only zenuml-byline-diagrams in the byline module, titled API Docs (AsyncAPI)
         if: ${{ steps.properties.outputs.license == 'asyncapi' }}
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)' -i manifest.yml
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) | (.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .title) = "API Docs" | (.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .tooltip) = "See the API docs on this page, or add one"' -i manifest.yml
       - name: Remove non-asyncapi custom content types (AsyncAPI)
         if: ${{ steps.properties.outputs.license == 'asyncapi' }}
         uses: mikefarah/yq@master

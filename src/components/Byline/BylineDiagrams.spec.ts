@@ -159,6 +159,25 @@ describe('BylineDiagrams', () => {
       expect(events('byline_opened')[0][1]).toMatchObject({ listing_failed: false });
     });
 
+    // The AsyncAPI app titles this byline "API Docs"; its panel says so too.
+    it('speaks of API docs in the AsyncAPI app', async () => {
+      vi.stubEnv('PRODUCT_TYPE', 'asyncapi');
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(), ok()]);
+      const wrapper = await mountByline();
+
+      expect(wrapper.find('[data-testid="byline-heading"]').text()).toBe('Add an API doc to this page');
+      expect(wrapper.find('[data-testid="byline-empty"]').text()).toContain('Write it here');
+      expect(wrapper.text()).not.toMatch(/diagram/i);
+    });
+
+    it('keeps "diagram" in Lite', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(), ok()]);
+      const wrapper = await mountByline();
+
+      expect(wrapper.find('[data-testid="byline-heading"]').text()).toBe('Add a diagram to this page');
+      expect(wrapper.find('[data-testid="byline-empty"]').text()).toContain('Draw it here');
+    });
+
     it('treats empty survivors plus a failed type as unknown, not empty', async () => {
       // A graphs-only page whose graph listing 403s while the sequence listing
       // succeeds with nothing: whether the page is empty is unknown — the

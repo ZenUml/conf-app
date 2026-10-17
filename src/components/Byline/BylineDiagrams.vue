@@ -37,10 +37,10 @@
           Close this popup and paste the link into the page.
         </div>
         <div v-else-if="hostInEditor" class="created__sub" data-testid="byline-created-sub-editing">
-          Paste the link where you want it. Confluence turns it into the diagram itself.
+          Paste the link where you want it. Confluence turns it into the {{ noun.one }} itself.
         </div>
         <div v-else class="created__sub">
-          Paste the link into the page editor. Confluence turns it into the diagram itself.
+          Paste the link into the page editor. Confluence turns it into the {{ noun.one }} itself.
         </div>
       </div>
 
@@ -91,7 +91,7 @@
       </div>
       <p v-if="navFailed" class="created__warn" data-testid="byline-nav-failed">
         We couldn't open the page editor from here. Edit the page yourself and
-        paste the link — the diagram is already saved.
+        paste the link — the {{ noun.one }} is already saved.
       </p>
     </div>
 
@@ -102,7 +102,7 @@
       <div class="banner">
         <div class="banner__text">
           <div class="banner__title">Couldn't check what you saved</div>
-          <div class="banner__sub">If you saved a diagram it's on the page — we just can't read the list right now.</div>
+          <div class="banner__sub">If you saved {{ noun.aOne }} it's on the page — we just can't read the list right now.</div>
         </div>
         <button type="button" class="btn-secondary" data-testid="byline-retry-create" @click="onRetryCreate">Try again</button>
       </div>
@@ -128,7 +128,7 @@
     <div v-else-if="failed" class="byline__body byline__body--stack" data-testid="byline-failed">
       <div class="banner">
         <div class="banner__text">
-          <div class="banner__title">Couldn't list this page's diagrams</div>
+          <div class="banner__title">Couldn't list this page's {{ noun.many }}</div>
           <div class="banner__sub">Usually restricted content. Adding one still works.</div>
         </div>
         <button type="button" class="btn-secondary" data-testid="byline-retry" @click="onRetry">Try again</button>
@@ -197,7 +197,7 @@
           class="row__add"
           :disabled="addingId === d.id"
           data-testid="byline-add-to-page"
-          title="Add this diagram to the end of the page"
+          :title="`Add this ${noun.one} to the end of the page`"
           @click="onAddToPage(d)"
         >{{ addingId === d.id ? 'Adding…' : 'Add to page' }}</button>
         <!-- The fallback for a reader who cannot edit the page. -->
@@ -206,7 +206,7 @@
           type="button"
           class="row__copy row__copy--url"
           :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-url'"
-          title="Copy a link that places this diagram on the page"
+          :title="`Copy a link that places this ${noun.one} on the page`"
           @click="onCopyUrl(d)"
         >{{ copiedId === d.id ? '✓ Copied' : 'Copy URL' }}</button>
         <!-- Copy URL takes the slot when it applies: on a diagram that is not on
@@ -232,7 +232,7 @@
          valid on every page, so rendering it immediately beats a skeleton that
          promises four diagrams to a page that has none. -->
     <div v-else class="byline__body byline__body--stack" data-testid="byline-empty">
-      <div class="byline__lede">Draw it here, then drop it on the page. Takes about a minute.</div>
+      <div class="byline__lede">{{ noun.make }} it here, then drop it on the page. Takes about a minute.</div>
       <div class="picker">
         <button
           v-for="t in DIAGRAM_TYPES"
@@ -268,7 +268,7 @@
          "Add a diagram", not a 12px grey caption that read as metadata about
          the list above. -->
     <div v-if="showAddAnother" class="addrow" data-testid="byline-type-strip">
-      <div class="addrow__label">Add a diagram</div>
+      <div class="addrow__label">Add {{ noun.aOne }}</div>
       <div class="chips">
         <button
           v-for="t in DIAGRAM_TYPES"
@@ -287,7 +287,7 @@
     <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
     <div class="byline__footer">
       <span class="byline__hint">
-        <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the diagram is already saved.</template>
+        <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the {{ noun.one }} is already saved.</template>
         <template v-else-if="createdLink">Saved either way — paste it any time.</template>
         <template v-else-if="createUnresolved">Nothing was lost — retry when you're ready.</template>
         <!-- Nothing, deliberately: the body already says it is reading, and a
@@ -298,7 +298,7 @@
         <!-- Says what the click actually does. The old hint promised the modal
              would scroll the page to the macro; onOpenDiagram takes the
              documented fallback and opens the fullscreen viewer instead. -->
-        <template v-else-if="diagrams.length">Opens the diagram full screen — it stays where it is on the page.</template>
+        <template v-else-if="diagrams.length">Opens the {{ noun.one }} full screen — it stays where it is on the page.</template>
         <!-- The empty state carries no hint. Its whole job is the first diagram,
              and a note about the slash command points at a different way to do
              the same thing — competing with the four rows above it at the exact
@@ -362,6 +362,7 @@ import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/Context
 import { DiagramType } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import { bylineTileMacroTypes } from '@/utils/byline/pickerTypes'
+import { bylineNounFor, capitalize } from '@/utils/byline/bylineNoun'
 import {
   parsePageDiagrams,
   summarizeDiagrams,
@@ -496,16 +497,16 @@ const linkChip = computed(() => {
 
 /** The header names whatever is actually below it. */
 const heading = computed(() => {
-  if (createdLink.value) return createdTitle.value || 'Diagram saved'
-  if (createUnresolved.value) return 'Diagrams on this page'
+  if (createdLink.value) return createdTitle.value || `${capitalize(noun.one)} saved`
+  if (createUnresolved.value) return `${capitalize(noun.many)} on this page`
   // While the count is unknown, name the module rather than guess. This is the
   // one place the old pinned title was right: over "Reading this page…" it
   // contradicts nothing, and it is what "Add a diagram to this page" got wrong
   // by answering a question we had not asked yet.
-  if (loading.value) return 'Diagrams on this page'
+  if (loading.value) return `${capitalize(noun.many)} on this page`
   const n = diagrams.value.length
-  if (!failed.value && n) return `${n} diagram${n === 1 ? '' : 's'} on this page`
-  return 'Add a diagram to this page'
+  if (!failed.value && n) return `${n} ${n === 1 ? noun.one : noun.many} on this page`
+  return `Add ${noun.aOne} to this page`
 })
 
 const showAddAnother = computed(
@@ -601,6 +602,9 @@ const ALL_DIAGRAM_TYPES: TypeTile[] = [
     macroType: 'asyncapi',
   },
 ]
+
+/** "diagram" everywhere but the AsyncAPI app, whose byline is titled API Docs. */
+const noun = bylineNounFor(import.meta.env.PRODUCT_TYPE)
 
 const DIAGRAM_TYPES: TypeTile[] = ALL_DIAGRAM_TYPES.filter(t =>
   bylineTileMacroTypes(import.meta.env.PRODUCT_TYPE).includes(t.macroType),

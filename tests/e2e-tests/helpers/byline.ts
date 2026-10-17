@@ -29,7 +29,8 @@ import { dismissStarterGalleryIfPresent } from './starterGallery.js';
  * e2e runs on lite-stg, which has only Lite — but tighten this to require the
  * suffix before pointing these tests at a site carrying both.
  */
-const BYLINE_TITLE = /^Diagrams\b/;
+// "Diagrams" on Lite and Full; the AsyncAPI app titles the same entry "API Docs".
+const BYLINE_TITLE = /^(Diagrams|API Docs)\b/;
 
 /**
  * Confluence's test id for a Forge contentBylineItem button. Distinct from its

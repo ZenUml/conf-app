@@ -321,6 +321,23 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(diagramly).toContain('length == 0) | .autoConvert)')
   })
 
+  // The AsyncAPI app's byline lists and creates specs, not diagrams. Its panel
+  // copy (src/utils/byline/bylineNoun.ts) assumes this title.
+  it('titles the AsyncAPI byline "API Docs", and both workflows carry the same edit', () => {
+    const edit = getManifestEditYqArgs('asyncapi')
+      .map((x: { expr: string }) => x.expr)
+      .find((e: string) => e.includes('confluence:contentBylineItem') && e.includes('.title'))
+    expect(edit).toBeDefined()
+    expect(edit).toContain('.title) = "API Docs"')
+    expect(edit).toContain('.tooltip) = "See the API docs on this page, or add one"')
+    for (const file of ['.github/workflows/release.yml', '.github/workflows/staging-deploy.yml']) {
+      expect(fs.readFileSync(file, 'utf8'), file).toContain(edit!)
+    }
+    for (const v of ['lite', 'full', 'diagramly']) {
+      expect(getManifestEditYqArgs(v).map((x: { expr: string }) => x.expr).join('\n'), v).not.toContain('API Docs')
+    }
+  })
+
   // The banner is gated on a content property only the diagram-index byline
   // writes, keyed per app because content properties are site-global.
   it('ships the unplaced banner wherever the byline writes its property, on that app\'s key', () => {
@@ -449,10 +466,11 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq).toContain(
       'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:homepageFeed"])',
     )
-    // The byline module survives with only the diagram index in it.
-    expect(yq).toContain(
+    // The byline module survives with only the diagram index in it (retitled
+    // "API Docs" by the same edit — pinned in its own test).
+    expect(yq.some((e: string) => e.startsWith(
       'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)',
-    )
+    ))).toBe(true)
     expect(yq).not.toContain('del(.modules["confluence:contentBylineItem"])')
     expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
     expect(yq.join(' ')).toContain('macroCountSnapshotFn')

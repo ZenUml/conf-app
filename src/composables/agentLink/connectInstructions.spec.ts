@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import forgeGlobal from '@/model/globals/forgeGlobal'
-import { buildConnectPrompt, buildHeadlessPrompt, mcpAddCommand, mcpServerName, mcpServerUrl } from './connectInstructions'
+import { buildConnectPrompt, buildHeadlessPrompt, buildHomepagePrompt, mcpAddCommand, mcpServerName, mcpServerUrl } from './connectInstructions'
 
 describe('connectInstructions', () => {
   afterEach(() => {
@@ -76,5 +76,22 @@ describe('connectInstructions', () => {
     expect(prompt).toContain('Find the site with list_sites.')
     expect(prompt).toContain('Find it with list_diagrams for this page')
     expect(prompt).not.toContain('contentId')
+  })
+
+  it('asks the agent to list the viewer\'s diagrams on the Home page, which names no diagram', () => {
+    expect(buildHomepagePrompt({ cloudId: 'c-1' })).toBe([
+      'Use the zenuml MCP to work with my ZenUML diagrams in Confluence.',
+      'cloudId: c-1',
+      '',
+      '1. List my most recently modified diagrams with list_diagrams.',
+      '2. Summarize what each one shows.',
+      '3. Ask me which one to work on, and wait for my go-ahead before changing it with update_diagram.',
+    ].join('\n'))
+  })
+
+  it('finds the site with list_sites when the Home page has no cloudId', () => {
+    const prompt = buildHomepagePrompt()
+    expect(prompt).toContain('Find the site with list_sites.')
+    expect(prompt).not.toContain('cloudId')
   })
 })

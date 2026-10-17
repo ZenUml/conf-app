@@ -177,7 +177,7 @@ describe('viewerHeaderLayout', () => {
     it('lists the former bottom-pill actions, then debug info, below stage 3', () => {
       for (const stage of [0, 1, 2] as HeaderStage[]) {
         expect(moreMenuItems({ ...base, stage })).toEqual([
-          'copy-diagram-link', 'copy-page-link', 'export-png', 'versions', 'separator', 'debug',
+          'copy-diagram-link', 'export-png', 'versions', 'separator', 'debug',
         ])
       }
     })
@@ -185,7 +185,7 @@ describe('viewerHeaderLayout', () => {
     it('leads with Source and Copy for AI at stage 3', () => {
       expect(moreMenuItems({ ...base, stage: 3 })).toEqual([
         'source', 'copy-for-ai', 'separator',
-        'copy-diagram-link', 'copy-page-link', 'export-png', 'versions', 'separator', 'debug',
+        'copy-diagram-link', 'export-png', 'versions', 'separator', 'debug',
       ])
     })
 
@@ -198,24 +198,26 @@ describe('viewerHeaderLayout', () => {
 
     it('never lists Source or Copy for AI for a diagram without source', () => {
       expect(moreMenuItems({ ...base, hasSource: false, stage: 3 })).toEqual([
-        'copy-diagram-link', 'copy-page-link', 'export-png', 'versions', 'separator', 'debug',
+        'copy-diagram-link', 'export-png', 'versions', 'separator', 'debug',
       ])
     })
 
     it('drops Copy diagram link and Versions without custom content', () => {
       expect(moreMenuItems({ ...base, isCustomContent: false, stage: 0 })).toEqual([
-        'copy-page-link', 'export-png', 'separator', 'debug',
+        'export-png', 'separator', 'debug',
       ])
     })
 
     it('drops Copy diagram link when the variant has no deeplink host (asyncapi)', () => {
       expect(moreMenuItems({ ...base, hasDeeplinkHost: false, stage: 0 })).toEqual([
-        'copy-page-link', 'export-png', 'versions', 'separator', 'debug',
+        'export-png', 'versions', 'separator', 'debug',
       ])
     })
 
-    it('holds only Download debug info in Fullscreen, whose header shows the rest as buttons', () => {
-      expect(moreMenuItems({ ...base, fullscreen: true, stage: 3 })).toEqual(['debug'])
+    it('puts Versions before a divider and debug in Fullscreen for custom content', () => {
+      expect(moreMenuItems({ ...base, fullscreen: true, stage: 3 })).toEqual(['versions', 'separator', 'debug'])
+      expect(moreMenuItems({ ...base, fullscreen: true, stage: 0, isCustomContent: false })).toEqual(['debug'])
+      expect(moreMenuItems({ ...base, fullscreen: true, stage: 3, hasDeeplinkHost: false })).toEqual(['versions', 'separator', 'debug'])
     })
   })
 })

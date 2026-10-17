@@ -30,19 +30,6 @@
                stage is published as data-stage on .viewer-frame. -->
           <div class="viewer-edge-top" :style="headerTitleSpace == null || isFullscreenMode ? null : { '--viewer-title-max': `${headerTitleSpace}px` }">
             <div class="viewer-title-area">
-              <!-- Fullscreen diagram-type chip (Fullscreen Viewer v2). Read-only
-                   type indicator, NOT the editor's TabSwitcher: this surface has
-                   no type to switch to, and TabSwitcher.vue writes the user's
-                   preferred type to localStorage on click. Renders the same
-                   pixels the design system's TabSwitcher produces when handed a
-                   single active tab (tray + accent-tinted pill). Inline macros
-                   keep their current title row untouched. -->
-              <span v-if="fullscreenTypeChip" class="viewer-type-chip-tray" data-testid="viewer-type-chip">
-                <span class="viewer-type-chip" :class="`viewer-type-chip--${fullscreenTypeChip.id}`">
-                  <span class="viewer-type-chip-dot" aria-hidden="true"></span>
-                  {{ fullscreenTypeChip.label }}
-                </span>
-              </span>
               <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
               <LiveBadge
                 v-if="showAgentLinkBadge"
@@ -174,6 +161,7 @@
                   @click="magicActive && toggleMagic('manual')">Original<span class="viewer-version-long"> layout</span></button>
               </div>
               <span v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-header-sep" aria-hidden="true"></span>
+              <span :ref="setZoomHeaderTarget" class="viewer-header-zoom"></span>
               <!-- View Source (#333): visible to ALL viewers, including users without
                    edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
               <button
@@ -277,6 +265,18 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
+              <!-- Fullscreen: the actions the inline macro keeps in More are
+                   header buttons here (labels by viewport width, see CSS). -->
+              <template v-if="isFullscreenMode">
+                <button v-for="action in fullscreenHeaderActions" :key="action.id" type="button"
+                  class="viewer-btn-ghost viewer-fs-act" :class="`viewer-fs-act--${action.id}`"
+                  :aria-label="action.label" :title="action.label" @click="onFullscreenHeaderAction(action.id)">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" :d="action.icon" />
+                  </svg>
+                  <span class="viewer-btn-label">{{ action.label }}</span>
+                </button>
+              </template>
               <!-- Connect MCP (agent-link flag on, agent-editable types) takes
                    the Copy for AI slot, inline and in fullscreen, and opens
                    ConnectMcpDialog with the headless MCP setup and a prompt
@@ -302,18 +302,6 @@
                 <span class="viewer-btn-label">MCP</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
-              <!-- Fullscreen: the actions the inline macro keeps in More are
-                   header buttons here (labels by viewport width, see CSS). -->
-              <template v-if="isFullscreenMode">
-                <button v-for="action in fullscreenHeaderActions" :key="action.id" type="button"
-                  class="viewer-btn-ghost viewer-fs-act" :class="`viewer-fs-act--${action.id}`"
-                  :aria-label="action.label" :title="action.label" @click="onFullscreenHeaderAction(action.id)">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" :d="action.icon" />
-                  </svg>
-                  <span class="viewer-btn-label">{{ action.label }}</span>
-                </button>
-              </template>
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
                 @opened="onMoreMenuOpened" @closed="moreMenuOpen = false">
                 <template #default="{ close }">
@@ -376,15 +364,6 @@
                 </svg>
                 <span class="viewer-btn-label">Create</span>
               </button>
-              <template v-if="isFullscreenMode">
-                <span class="viewer-header-sep" aria-hidden="true"></span>
-                <button type="button" class="viewer-fs-exit" aria-label="Exit fullscreen" title="Exit fullscreen"
-                  data-testid="fullscreen-exit" @click="exitFullscreen">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </template>
             </div>
           </div>
 
@@ -612,7 +591,8 @@
 import {trackEvent} from "@/utils/window";
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
 
-import { markRaw } from 'vue'
+import { computed, markRaw } from 'vue'
+import { VIEWER_ZOOM_HEADER } from '@/utils/viewport/headerZoom'
 import {mapState, mapGetters} from "vuex";
 import EventBus from '../../EventBus'
 import Debug from '@/components/Debug/Debug.vue'
@@ -710,7 +690,6 @@ const MORE_MENU_META = {
   'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
   'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.mcp },
   'copy-diagram-link': { label: 'Copy diagram link', icon: ICON_PATHS.share },
-  'copy-page-link': { label: 'Copy page link', icon: ICON_PATHS.link },
   'export-png': { label: 'Export PNG', icon: ICON_PATHS.download },
   'versions': { label: 'Versions', icon: ICON_PATHS.clock },
   'debug': { label: 'Download debug info', icon: ICON_PATHS.bug },
@@ -730,6 +709,7 @@ export default {
   },
   emits: ['capture-mode-change', 'magic-highlight-ready', 'magic-highlight-used'],
   data: () => ({
+    zoomHeaderTarget: null,
     canUserEdit: true,
     isHovering: false,
     // Staged header (see updateHeaderStage): collapse stage 0-3 of the inline
@@ -822,6 +802,17 @@ export default {
     magicFeedbackPrompted: {},
     magicThanksTimer: null,
   }),
+  provide() {
+    return {
+      [VIEWER_ZOOM_HEADER]: {
+        target: computed(() => this.zoomHeaderTarget),
+        changed: async () => {
+          await this.$nextTick();
+          this.scheduleHeaderLayout();
+        },
+      },
+    };
+  },
   components: {
     Debug,
     ExportModal,
@@ -893,14 +884,11 @@ export default {
     moreMenuMeta() {
       return MORE_MENU_META;
     },
-    // Fullscreen header buttons, in the prototype's order. Source and Copy for
-    // AI keep their own (existing) buttons ahead of these.
+    // Reference and export stay together after Source (and optional Copy for AI).
     fullscreenHeaderActions() {
       const actions = [];
       if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
-      actions.push({ id: 'page-link', label: 'Page link', icon: ICON_PATHS.link });
       actions.push({ id: 'export-png', label: 'Export PNG', icon: ICON_PATHS.download });
-      if (this.isCustomContent) actions.push({ id: 'versions', label: 'Versions', icon: ICON_PATHS.clock });
       return actions;
     },
     isLoadFailed() {
@@ -1071,30 +1059,6 @@ export default {
         && this.showViewSource
         && this.copyForAiSlotSettled
         && !this.showAgentLinkConnect;
-    },
-    // Fullscreen-only diagram-type indicator (Fullscreen Viewer v2). Fullscreen
-    // drops Edit and Fullscreen from the action row and the Confluence modal
-    // owns the close button, so the header has room the inline macro doesn't —
-    // and unlike the inline macro, whose Confluence context surrounds it, the
-    // fullscreen modal is the whole screen with nothing else naming the type.
-    // Only the five types the accent system defines (colors_and_type.css's
-    // --accent-<sequence|mermaid|plantuml|drawio|openapi>-* ramps, which the
-    // design's TABS map names one-for-one). Graph and OpenAPI reach this
-    // component through ForgeGraphViewer.vue / OpenApiViewer.vue, which wrap
-    // GenericViewer for their own chrome, so the chip names them on the same
-    // fullscreen surface. AsyncAPI and Embed have no accent and get no chip
-    // rather than an invented one.
-    fullscreenTypeChip() {
-      if (!this.isFullscreenMode) return null;
-      switch (this.diagramType) {
-        case DiagramType.Sequence: return { id: 'sequence', label: 'Sequence' };
-        case DiagramType.Markdown: return { id: 'markdown', label: 'Markdown' };
-        case DiagramType.Mermaid: return { id: 'mermaid', label: 'Mermaid' };
-        case DiagramType.PlantUml: return { id: 'plantuml', label: 'PlantUML' };
-        case DiagramType.Graph: return { id: 'graph', label: 'Graph' };
-        case DiagramType.OpenApi: return { id: 'openapi', label: 'OpenAPI' };
-        default: return null;
-      }
     },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
@@ -1605,6 +1569,9 @@ export default {
     }
   },
   methods: {
+    setZoomHeaderTarget(element) {
+      this.zoomHeaderTarget = element ? markRaw(element) : null;
+    },
     magicIdentity(sourceHash) {
       return { accountId: this.currentAccountId, cloudId: this.magicCloudId,
         contentId: this.diagram?.id, sourceHash };
@@ -2056,7 +2023,6 @@ export default {
         case 'copy-for-ai': this.copyForAi('generic', where); close(); return;
         case 'connect-mcp': close(); this.openConnectMcpDialog(where); return;
         case 'copy-diagram-link': this.copyDeeplink(where); close(); return;
-        case 'copy-page-link': this.copyLink(where); close(); return;
         case 'export-png': close(); this.openExport(where); return;
         case 'versions': close(); this.showContentVersions(where); return;
         case 'debug': this.onDownloadDebugInfo(close, where); return;
@@ -2067,14 +2033,9 @@ export default {
       const where = 'fullscreen_header';
       switch (id) {
         case 'diagram-link': this.copyDeeplink(where); return;
-        case 'page-link': this.copyLink(where); return;
         case 'export-png': this.openExport(where); return;
-        case 'versions': this.showContentVersions(where); return;
         default:
       }
-    },
-    exitFullscreen() {
-      EventBus.$emit('closeFullscreen');
     },
     getCaptureNode() {
       return this.$refs.captureNode ?? null;
@@ -2896,47 +2857,6 @@ export default {
   gap: 12px;
 }
 
-/* Read-only diagram-type indicator. Reproduces what the design system's
-   TabSwitcher renders for a single active tab — tray plus accent-tinted
-   pill — without the editor TabSwitcher's click-to-switch behaviour, which
-   this surface has no use for. Accents are the shared five from DESIGN.md §2
-   (--accent-<type>-50 / -500 / -800). */
-.viewer-type-chip-tray {
-  display: inline-flex;
-  flex-shrink: 0;
-  padding: 3px;
-  background: #F4F5F7;
-  border-radius: 6px;
-}
-.viewer-type-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-}
-.viewer-type-chip-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-}
-.viewer-type-chip--sequence { background: #E8F6FD; color: #054E76; }
-.viewer-type-chip--sequence .viewer-type-chip-dot { background: #0094D9; }
-.viewer-type-chip--mermaid { background: #FFF0F4; color: #8E0F33; }
-.viewer-type-chip--mermaid .viewer-type-chip-dot { background: #FF3670; }
-.viewer-type-chip--plantuml { background: #FDF1E9; color: #6B2900; }
-.viewer-type-chip--plantuml .viewer-type-chip-dot { background: #B84800; }
-.viewer-type-chip--graph { background: #FFF7E8; color: #8A4B00; }
-.viewer-type-chip--graph .viewer-type-chip-dot { background: #F08705; }
-.viewer-type-chip--openapi { background: #F1F8EA; color: #3A5C1D; }
-.viewer-type-chip--openapi .viewer-type-chip-dot { background: #6BA539; }
-
 /* .viewer-frame--auto sizes the frame to fit-content, which in fullscreen made
    it as wide as the diagram — leaving the rest of the window bare (the
    min-height rule above fixed the same thing vertically). That was survivable
@@ -3579,24 +3499,6 @@ export default {
   .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
   .viewer-frame--fullscreen .viewer-version-long { display: none; }
 }
-.viewer-fs-exit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #44546F;
-  cursor: pointer;
-}
-.viewer-fs-exit svg { width: 20px; height: 20px; }
-.viewer-fs-exit:hover { background: #F3F4F6; color: #172B4D; }
-.viewer-fs-exit:focus-visible { outline: 2px solid #0C66E4; outline-offset: 1px; }
-
 .viewer-load-failed {
   display: flex;
   flex-direction: column;
@@ -3750,4 +3652,32 @@ export default {
   font-weight: revert;
   margin: revert;
 }
+</style>
+
+<style scoped>
+.viewer-header-zoom { display: inline-flex; flex: 0 0 auto; }
+.viewer-header-zoom:empty { display: none; }
+.viewer-frame--fullscreen .viewer-title-area { flex: 1 1 auto; }
+.viewer-frame--fullscreen .viewer-top-actions { gap: 6px; }
+.viewer-frame--fullscreen .viewer-header-zoom,
+.viewer-frame--fullscreen .viewer-act-source,
+.viewer-frame--fullscreen .viewer-fs-act--diagram-link,
+.viewer-frame--fullscreen .viewer-act-connect-mcp,
+.viewer-frame--fullscreen .viewer-act-more { margin-left: 18px; }
+.viewer-frame--fullscreen .viewer-header-zoom:first-child { margin-left: 0; }
+.viewer-frame--fullscreen .viewer-fs-act { padding: 0 8px; }
+.viewer-frame--fullscreen .viewer-fs-act .viewer-btn-label { display: inline; }
+/* Source reserves 45vw beside the viewer. Use compact actions in the remaining
+   desktop column so the title and every action still fit in the same row. */
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-source,
+.generic--source-panel-open .viewer-frame--fullscreen .copy-for-ai-split-primary,
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-fs-act,
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-connect-mcp {
+  min-width: 28px;
+  padding: 0;
+}
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-btn-label,
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-version-long { display: none; }
 </style>

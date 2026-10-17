@@ -57,9 +57,9 @@ export function maxHeaderStage(model: Pick<HeaderModel, 'hasSource'>): HeaderSta
 }
 
 /**
- * Width of the controls to the right of the title at a given stage. Inline
- * zoom is not part of the header (it lives in each renderer's viewport), so the
- * prototype's zoom group is not counted.
+ * Stage-dependent width of the controls to the right of the title. The zoom
+ * group keeps the same width at every stage and is accounted for by the DOM
+ * measurement in GenericViewer, alongside badges and injected actions.
  */
 export function controlsWidth(model: HeaderModel, stage: HeaderStage, measureLabel: MeasureLabel): number {
   const parts: number[] = []
@@ -141,7 +141,6 @@ export type MoreMenuItemId =
   | 'connect-mcp'
   | 'separator'
   | 'copy-diagram-link'
-  | 'copy-page-link'
   | 'export-png'
   | 'versions'
   | 'debug'
@@ -150,7 +149,7 @@ export type MoreMenuItemId =
  * Contents of the header More (⋯) menu, top to bottom. Inline, it holds the
  * actions the bottom pill used to carry, led by Source and Copy for AI once
  * stage 3 moves them out of the toolbar. Fullscreen shows those actions as
- * header buttons, so its menu holds only Download debug info.
+ * header buttons, so its menu holds Versions and Download debug info.
  */
 export function moreMenuItems(options: {
   stage: HeaderStage
@@ -161,11 +160,11 @@ export function moreMenuItems(options: {
   hasDeeplinkHost: boolean
   fullscreen: boolean
 }): MoreMenuItemId[] {
-  if (options.fullscreen) return ['debug']
+  if (options.fullscreen) return options.isCustomContent ? ['versions', 'separator', 'debug'] : ['debug']
   const items: MoreMenuItemId[] = []
   if (options.stage >= 3 && options.hasSource) items.push('source', options.connectMcp ? 'connect-mcp' : 'copy-for-ai', 'separator')
   if (options.isCustomContent && options.hasDeeplinkHost) items.push('copy-diagram-link')
-  items.push('copy-page-link', 'export-png')
+  items.push('export-png')
   if (options.isCustomContent) items.push('versions')
   items.push('separator', 'debug')
   return items

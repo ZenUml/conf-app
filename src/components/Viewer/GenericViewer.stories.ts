@@ -307,7 +307,9 @@ function configureStory(options: {
   customContentId?: string
   displayMode?: boolean
   accountId?: string
+  agentLinkEnabled?: boolean
 } = {}) {
+  localStorage.setItem('mockAgentLinkEnabled', String(Boolean(options.agentLinkEnabled)))
   resetStubResponses()
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
   stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId, options.accountId)
@@ -474,7 +476,9 @@ export const PlantUmlInlinePanZoom: Story = {
   render: (args: Args) => renderPlantUmlViewer(args),
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByRole('toolbar', { name: 'PlantUML zoom controls' })).toBeVisible()
+    const toolbar = await canvas.findByRole('toolbar', { name: 'PlantUML zoom controls' })
+    await expect(toolbar).toBeVisible()
+    await expect(toolbar.closest('.viewer-header-zoom')).not.toBeNull()
     // The regression #650 left in mermaid: with the viewBox gone, a box with no
     // height of its own collapses to the browser's 150px default.
     await waitFor(() => {
@@ -786,7 +790,9 @@ export const MermaidFullscreenPanZoom: Story = {
   render: (args: Args) => renderMermaidViewer(args),
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByRole('toolbar', { name: 'Mermaid zoom controls' })).toBeVisible()
+    const toolbar = await canvas.findByRole('toolbar', { name: 'Mermaid zoom controls' })
+    await expect(toolbar).toBeVisible()
+    await expect(toolbar.closest('.viewer-header-zoom')).not.toBeNull()
     await expect(canvas.queryByRole('button', { name: 'Reset view' })).toBeNull()
     await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
@@ -1410,9 +1416,9 @@ export const ZenUmlInlinePanZoom: Story = {
   render: () => renderZenUmlInlineViewer(),
   play: async () => {
     const canvas = within(document.body)
-    await expect(
-      await canvas.findByRole('toolbar', { name: 'Sequence zoom controls' }, { timeout: 15000 }),
-    ).toBeVisible()
+    const toolbar = await canvas.findByRole('toolbar', { name: 'Sequence zoom controls' }, { timeout: 15000 })
+    await expect(toolbar).toBeVisible()
+    await expect(toolbar.closest('.viewer-header-zoom')).not.toBeNull()
   },
 }
 
@@ -1441,7 +1447,7 @@ export const ZenUmlFullscreen: Story = {
       { timeout: 15000 },
     )
     const canvas = within(document.body)
-    await expect(await canvas.findByTestId('viewer-type-chip')).toHaveTextContent('Sequence')
+    await expect(canvas.queryByTestId('viewer-type-chip')).toBeNull()
     await expect(canvas.queryByRole('button', { name: 'Fullscreen' })).not.toBeInTheDocument()
     await expect(canvas.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
   },
@@ -1607,12 +1613,13 @@ export const StagedHeaderMoreMenuOpen: Story = {
     await userEvent.click(canvas.getByRole('button', { name: 'More' }))
     const menu = await canvas.findByRole('menu', { name: 'More actions' })
     await expect(within(menu).getAllByRole('menuitem').map((item: HTMLElement) => item.textContent?.trim())).toEqual([
-      'Copy diagram link', 'Copy page link', 'Export PNG', 'Versions', 'Download debug info',
+      'Copy diagram link', 'Export PNG', 'Versions', 'Download debug info',
     ])
+    await expect(within(menu).queryByText('Copy page link')).toBeNull()
   },
 }
 
-/** Fullscreen header: Refined/Original switch, labelled actions by viewport, More, Exit. */
+/** Fullscreen header: Refined/Original switch, zoom, two actions and More. */
 export const StagedHeaderFullscreen: Story = {
   name: 'Staged header — Fullscreen',
   parameters: { layout: 'fullscreen' },
@@ -1632,8 +1639,18 @@ export const StagedHeaderFullscreen: Story = {
   render: (args: Args) => renderMermaidViewer(args),
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByTestId('fullscreen-exit')).toBeVisible()
+    await expect(canvas.queryByTestId('fullscreen-exit')).toBeNull()
+    await expect(canvas.queryByTestId('viewer-type-chip')).toBeNull()
+    await expect(canvas.queryByRole('button', { name: 'Page link' })).toBeNull()
+    await expect(canvas.queryByRole('button', { name: 'Versions' })).toBeNull()
+    await expect(canvas.getByRole('button', { name: 'Diagram link' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Export PNG' })).toBeVisible()
+    await userEvent.click(canvas.getByRole('button', { name: 'More' }))
+    const menu = await canvas.findByRole('menu', { name: 'More actions' })
+    await expect(within(menu).getAllByRole('menuitem').map((item: HTMLElement) => item.textContent?.trim())).toEqual([
+      'Versions', 'Download debug info',
+    ])
+    await expect(within(menu).getByRole('separator')).toBeVisible()
   },
 }
 
@@ -1653,3 +1670,62 @@ export const StagedHeaderFullscreenGraph: Story = {
   `),
 }
 
+
+
+/** Approved header, using the production wrapper so conditional highlights
+ * are supplied by MermaidHighlightViewer rather than a synthetic menu slot. */
+export const HeaderMermaidFullscreen: Story = {
+  name: 'Header redesign — Mermaid fullscreen with relationship menu',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Basic pipelines',
+      mermaidCode: SAMPLE_MERMAID_WIDE, fullscreenMode: true, agentLinkEnabled: true })
+    return { template: '<story />' }
+  }],
+  render: () => renderZenUmlFullscreenViewer(),
+  play: async () => {
+    const canvas = within(document.body)
+    await waitFor(() => expect(canvas.getByRole('button', { name: 'Fit width' })).toBeEnabled())
+    await userEvent.click(canvas.getByRole('button', { name: 'More', exact: true }))
+    await expect(await canvas.findByRole('menuitemcheckbox', { name: /Relationship highlights/ })).toBeVisible()
+    const items = canvas.getAllByRole('menuitem')
+    expect(items.map((item: HTMLElement) => item.textContent?.trim())).toEqual(['Versions', 'Download debug info'])
+  },
+}
+
+export const HeaderMermaidInline: Story = {
+  ...HeaderMermaidFullscreen,
+  name: 'Header redesign — Mermaid inline with relationship menu',
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Basic pipelines', mermaidCode: SAMPLE_MERMAID_WIDE, agentLinkEnabled: true })
+    return { template: '<story />' }
+  }],
+  render: () => renderZenUmlInlineViewer(),
+  play: async () => {
+    await revealHeader()
+    const canvas = within(document.body)
+    await waitFor(() => expect(canvas.getByRole('button', { name: 'Fit width' })).toBeEnabled())
+    await userEvent.click(canvas.getByRole('button', { name: 'More', exact: true }))
+    await expect(await canvas.findByRole('menuitemcheckbox', { name: /Relationship highlights/ })).toBeVisible()
+  },
+}
+
+export const HeaderSequenceEditorPreview: Story = {
+  name: 'Header redesign — unchanged Sequence editor preview',
+  parameters: { layout: 'fullscreen' },
+  decorators: [() => {
+    configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE, displayMode: false })
+    return { template: '<story />' }
+  }],
+  render: () => ({
+    components: { DiagramPortal },
+    template: '<div style="height:640px"><DiagramPortal hide-header /></div>',
+  }),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('toolbar', { name: 'Sequence zoom controls' })).toBeVisible()
+    expect(canvas.getAllByRole('button', { name: /Zoom in|Zoom out/ })).toHaveLength(2)
+    expect(canvas.queryByRole('button', { name: 'Fit width' })).toBeNull()
+  },
+}

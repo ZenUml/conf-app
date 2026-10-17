@@ -9,7 +9,7 @@
         :options="diagramOptions"
       />
     </div>
-    <div class="flex items-center gap-3 shrink-0 ml-auto">
+    <div class="editor-header-actions flex items-center gap-3 shrink-0 ml-auto">
       <button
         v-if="aiChatAvailable"
         class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-sm font-medium rounded-md transition-colors duration-200"
@@ -19,20 +19,22 @@
             : 'text-gray-500 hover:bg-violet-50 hover:text-violet-700'
         "
         data-testid="ai-chat-toggle"
+        aria-label="AI Chat"
+        title="AI Chat"
         @click="$emit('toggle-ai-chat')"
       >
         <SparklesIcon class="w-4 h-4" />
-        <span>AI Chat</span>
+        <span class="editor-action-label">AI Chat</span>
       </button>
-      <button v-if="diagramType !== DiagramType.Markdown" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+      <button v-if="diagramType !== DiagramType.Markdown" aria-label="Templates" title="Templates" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="openTemplateGallery()">
         <LightBulbIcon class="w-4 h-4" />
-        <span>Templates</span>
+        <span class="editor-action-label">Templates</span>
       </button>
-      <button class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+      <button aria-label="Help" title="Help" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="helpClick">
         <QuestionMarkCircleIcon class="w-4 h-4" />
-        <span>Help</span>
+        <span class="editor-action-label">Help</span>
       </button>
       <div class="h-5 w-px bg-gray-300"></div>
       <div class="relative group/save">
@@ -551,18 +553,28 @@ export default {
 
 @media (max-width: 1280px) {
   .toolbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    height: auto;
-    min-height: 80px;
-    flex-shrink: 0;
-    gap: 4px 12px;
-    padding-top: 6px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
-  .notch {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-self: center;
+
+  .editor-header-actions {
+    gap: 6px;
+  }
+
+  .editor-action-label {
+    display: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .notch :deep([role="tab"]) {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .editor-header-actions > button {
+    padding-left: 6px;
+    padding-right: 6px;
   }
 }
 </style>

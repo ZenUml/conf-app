@@ -1,17 +1,28 @@
 <template>
-  <div class="diagram-viewport-toolbar" role="toolbar" :aria-label="`${label} zoom controls`">
-    <button type="button" class="diagram-viewport-button" aria-label="Zoom out" :title="`Zoom out (${wheelShortcut})`" @click="emitAction('zoom_out')">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></svg>
+  <Teleport :to="headerTarget || 'body'" :disabled="!headerTarget">
+  <div class="diagram-viewport-toolbar" :class="{ 'diagram-viewport-toolbar--header': !!headerTarget }" role="toolbar" :aria-label="`${label} zoom controls`">
+    <button type="button" class="diagram-viewport-button" :disabled="headerTarget && !ready" aria-label="Zoom out" :title="`Zoom out (${wheelShortcut})`" @click="emitAction('zoom_out')">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="headerTarget" d="M5 12h14"/><template v-else><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></template></svg>
     </button>
-    <button type="button" class="diagram-viewport-button" aria-label="Zoom in" :title="`Zoom in (${wheelShortcut})`" @click="emitAction('zoom_in')">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></svg>
+    <button type="button" class="diagram-viewport-button" :disabled="headerTarget && !ready" aria-label="Zoom in" :title="`Zoom in (${wheelShortcut})`" @click="emitAction('zoom_in')">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="headerTarget" d="M5 12h14M12 5v14"/><template v-else><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></template></svg>
     </button>
+    <template v-if="headerTarget">
+      <button type="button" class="diagram-viewport-button diagram-viewport-button--fit" aria-label="Fit height" title="Fit height" :disabled="!ready" @click="emitAction('fit_height')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16M4 21h16M12 6v12M8 10l4-4 4 4M8 14l4 4 4-4"/></svg>
+      </button>
+      <button type="button" class="diagram-viewport-button" aria-label="Fit width" title="Fit width" :disabled="!ready" @click="emitAction('fit_width')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4v16M21 4v16M6 12h12M10 8l-4 4 4 4M14 8l4 4-4 4"/></svg>
+      </button>
+    </template>
   </div>
+  </Teleport>
 </template>
 
 <script>
 /**
- * The floating zoom chip, and the analytics behind it.
+ * Shared zoom controls. A visible viewer header hosts four actions; a
+ * chrome-less/editor preview retains the original two-button floating chip.
  *
  * Separate from DiagramViewport because the two buttons outlived that component's
  * one engine: Mermaid and PlantUML zoom through svg-pan-zoom, Graph through
@@ -19,6 +30,7 @@
  * the surface — only the thing being zoomed differs, so the parent handles the
  * emitted action and this stays presentational.
  */
+import { VIEWER_ZOOM_HEADER } from '@/utils/viewport/headerZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
 
 /**
@@ -32,7 +44,9 @@ const WHEEL_SHORTCUT = '\u2318/Ctrl + scroll';
 
 export default {
   name: 'DiagramViewportToolbar',
+  inject: { zoomHeader: { from: VIEWER_ZOOM_HEADER, default: null } },
   props: {
+    ready: { type: Boolean, default: true },
     /** Analytics `macro_type` — the renderer this toolbar is driving. */
     macroType: {
       type: String,
@@ -44,8 +58,12 @@ export default {
       required: true,
     },
   },
-  emits: ['zoom-in', 'zoom-out'],
+  emits: ['zoom-in', 'zoom-out', 'fit-height', 'fit-width'],
+  watch: {
+    headerTarget() { this.zoomHeader?.changed(); },
+  },
   computed: {
+    headerTarget() { return this.zoomHeader?.target.value ?? null; },
     // A module constant, exposed for the template rather than kept in `data`,
     // where Vue would make it reactive for nothing.
     wheelShortcut() {
@@ -54,12 +72,14 @@ export default {
   },
   methods: {
     emitAction(viewportAction) {
-      this.$emit(viewportAction === 'zoom_in' ? 'zoom-in' : 'zoom-out');
+      if (this.headerTarget && !this.ready) return;
+      this.$emit(viewportAction.replace('_', '-'));
       trackViewportControl({
         macroType: this.macroType,
         viewportAction,
         viewportInput: 'toolbar',
         isDisplayMode: this.$store.getters.isDisplayMode,
+        ...(this.headerTarget ? { controlLocation: 'header' } : {}),
       });
     },
   },
@@ -114,4 +134,25 @@ export default {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+</style>
+
+<style scoped>
+.diagram-viewport-toolbar--header {
+  position: static;
+  width: 128px;
+  height: 32px;
+  flex-shrink: 0;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: #F9FAFB;
+  box-shadow: none;
+}
+.diagram-viewport-toolbar--header .diagram-viewport-button { flex: 0 0 32px; position: relative; }
+.diagram-viewport-button--fit::before {
+  content: ''; position: absolute; left: 0; top: 8px; height: 16px; width: 1px; background: #E5E7EB;
+}
+.diagram-viewport-button:disabled { opacity: .4; cursor: not-allowed; }
+.diagram-viewport-button:disabled:hover { background: transparent; }
 </style>

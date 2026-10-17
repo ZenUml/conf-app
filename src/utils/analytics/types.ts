@@ -118,7 +118,11 @@ export type AnalyticsProperties = {
   magic_layout_preference?: 'magic' | 'original' | 'no_preference';
   // Diagram viewport pan/zoom. This is the user's explicit control intent, not
   // every intermediate wheel, drag, or pinch callback.
-  viewport_action?: "zoom_in" | "zoom_out";
+  viewport_action?: "zoom_in" | "zoom_out" | "fit_height" | "fit_width";
+  /** Header relocation is distinct from the existing floating editor toolbar. */
+  viewport_control_location?: "header" | "canvas";
+  /** Fit/zoom was applied by a ready renderer; disabled controls emit nothing. */
+  viewport_outcome?: "applied";
   // Which control the reader used to zoom. `wheel` is one whole Ctrl/Cmd +
   // scroll gesture, not one per step, so a wheel zoom and a button click cost
   // the same one event and the two are directly comparable.

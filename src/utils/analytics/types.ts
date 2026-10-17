@@ -63,6 +63,7 @@ import type {
   HighlightFeedbackVariant,
   HighlightDismissStage,
   HighlightDismissCause,
+  ColorMode,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -777,6 +778,10 @@ export type AnalyticsProperties = {
   // before the first render. 'fallback' = core measured text with Helvetica (Forge CSP
   // refuses core's own data: font). Absent on other macro types.
   diagram_font?: 'plex' | 'fallback';
+  // macro_viewed on an inline viewer with Forge host theming enabled: the
+  // Confluence colour mode the diagram was shown under. Answers how many views
+  // happen in dark mode and whether dark-mode Mermaid renders hold up.
+  color_mode?: ColorMode;
   // Publish/save round-trip latency, in ms. Rides on macro_create_succeeded /
   // macro_save_succeeded. Measures how long the persistence to Confluence took
   // — from the start of saveToPlatform's real work (custom-content save +

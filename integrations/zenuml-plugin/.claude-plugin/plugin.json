@@ -1,0 +1,15 @@
+{
+  "name": "zenuml",
+  "displayName": "ZenUML for Confluence",
+  "version": "1.0.0",
+  "description": "Read, create and update ZenUML, Mermaid, PlantUML and diagrams.net diagrams on your Confluence Cloud pages, acting as you through Atlassian OAuth.",
+  "author": {
+    "name": "ZenUML",
+    "email": "support@zenuml.com",
+    "url": "https://zenuml.com"
+  },
+  "homepage": "https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/",
+  "repository": "https://github.com/ZenUml/zenuml-plugin",
+  "license": "MIT",
+  "keywords": ["confluence", "diagrams", "sequence-diagram", "mermaid", "plantuml", "uml", "documentation"]
+}

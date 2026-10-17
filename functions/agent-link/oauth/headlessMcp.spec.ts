@@ -170,6 +170,27 @@ describe('headless RPC', () => {
     ]);
   });
 
+  it('annotates every tool the way the connector directories require', async () => {
+    // Claude's and ChatGPT's directories both reject a tool without a title
+    // and its read-only or destructive hint, and Claude prompts before every
+    // destructive call — so each write tool must say it is one.
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'tools/list');
+    const body = (await res.json()) as {
+      result: { tools: Array<{ name: string; title?: string; annotations?: Record<string, unknown> }> };
+    };
+    for (const tool of body.result.tools) {
+      expect(tool.title, tool.name).toBeTruthy();
+      expect(tool.annotations?.title, tool.name).toBe(tool.title);
+      expect(typeof tool.annotations?.readOnlyHint, tool.name).toBe('boolean');
+      expect(tool.annotations?.destructiveHint, tool.name).toBe(!tool.annotations?.readOnlyHint);
+      expect(tool.annotations?.openWorldHint, tool.name).toBe(true);
+    }
+    const writes = body.result.tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name).sort();
+    expect(writes).toEqual(['create_diagram', 'create_page', 'update_diagram', 'update_page']);
+  });
+
   it('answers initialize without an Atlassian round trip', async () => {
     const env = makeEnv();
     const token = await tokenFor(env.store);

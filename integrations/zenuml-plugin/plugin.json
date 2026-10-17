@@ -1,0 +1,97 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "zenuml",
+  "version": "1.0.0",
+  "description": "Read, create and update ZenUML, Mermaid, PlantUML and diagrams.net diagrams on your Confluence Cloud pages, acting as you through Atlassian OAuth.",
+  "author": {
+    "name": "ZenUML",
+    "email": "support@zenuml.com",
+    "url": "https://zenuml.com"
+  },
+  "homepage": "https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/",
+  "repository": "https://github.com/ZenUml/zenuml-plugin",
+  "license": "MIT",
+  "keywords": ["confluence", "diagrams", "sequence-diagram", "mermaid", "plantuml", "uml", "documentation"],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/confluence-diagrams/SKILL.md",
+      "interface": {
+        "displayName": "ZenUML for Confluence",
+        "shortDescription": "Diagrams in your Confluence",
+        "longDescription": "Read, create and update the diagrams on your Confluence Cloud pages from ChatGPT.\n\nAsk for a sequence diagram of a code path, a Mermaid flowchart of a runbook, or a fix to a diagram that no longer matches your system. ChatGPT writes the diagram source and ZenUML saves it to the page, as you, through your own Atlassian sign-in. It can reach only the sites and pages your Atlassian account can already reach.\n\nSupports ZenUML sequence diagrams, Mermaid, PlantUML, diagrams.net (draw.io) graphs and OpenAPI specifications. Sequence, Mermaid and PlantUML diagrams are shown rendered in the conversation.\n\nRequires the ZenUML Diagrams for Confluence app on your Confluence Cloud site.",
+        "developerName": "ZenUML",
+        "category": "Productivity",
+        "capabilities": [
+          "List the Confluence sites and ZenUML diagrams you can access",
+          "Read a diagram's source and show it rendered",
+          "Update a diagram with new source, refusing source that does not parse",
+          "Add a new diagram to an existing Confluence page",
+          "Read, create and update Confluence pages"
+        ],
+        "websiteURL": "https://zenuml.com",
+        "supportURL": "https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/",
+        "privacyPolicyURL": "https://zenuml.com/privacy/",
+        "termsOfServiceURL": "https://zenuml.com/terms/",
+        "defaultPrompt": [
+          "List the ZenUML diagrams on my Confluence site",
+          "Update the login sequence diagram to add a token refresh step",
+          "Add a Mermaid flowchart of our deploy steps to a Confluence page"
+        ],
+        "brandColor": "#0052CC",
+        "logo": "./assets/logo.png"
+      },
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Lists the Confluence sites the signed-in account can reach.",
+              "prompt": "Which Confluence sites can ZenUML reach for me?",
+              "tools_triggered": "list_sites",
+              "expected_behavior": "Returns the test site with its name, URL and cloudId."
+            },
+            {
+              "description": "Lists diagrams on the test site, newest first.",
+              "prompt": "List the ZenUML diagrams on my Confluence site.",
+              "tools_triggered": "list_sites, list_diagrams",
+              "expected_behavior": "Returns the sample diagrams with titles, types and the pages they are on."
+            },
+            {
+              "description": "Reads one diagram and shows it rendered.",
+              "prompt": "Show me the Order checkout sequence diagram.",
+              "tools_triggered": "list_sites, list_diagrams, read_diagram",
+              "expected_behavior": "Returns the diagram's ZenUML source and renders the sequence diagram inline."
+            },
+            {
+              "description": "Updates an existing diagram with a new step.",
+              "prompt": "In the Order checkout diagram, add a call from OrderService to InventoryService.reserve(items) before payment.",
+              "tools_triggered": "list_sites, list_diagrams, read_diagram, update_diagram",
+              "expected_behavior": "After confirmation, saves the new source; the rendered diagram shows the added reserve call and the Confluence page shows it too."
+            },
+            {
+              "description": "Adds a new Mermaid diagram to an existing page.",
+              "prompt": "Add a Mermaid flowchart of the steps build, test, deploy to staging, deploy to production to the Release process page.",
+              "tools_triggered": "list_sites, read_page, create_diagram",
+              "expected_behavior": "After confirmation, appends the flowchart to the end of the page and publishes one page version; reports success with the page title."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Unrelated request; the app should not be used.",
+              "prompt": "What is the capital of Australia?"
+            },
+            {
+              "description": "Diagramming request with no Confluence involvement; ChatGPT can answer directly without these tools.",
+              "prompt": "Explain what a UML sequence diagram is."
+            },
+            {
+              "description": "Request for an unsupported product (Jira issues); the app has no tool for it and should not claim to.",
+              "prompt": "Create a Jira ticket for the login bug."
+            }
+          ]
+        },
+        "demo_recording_url": "https://example.com/replace-with-demo-recording",
+        "commerce": false
+      }
+    }
+  }
+}

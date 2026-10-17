@@ -253,18 +253,18 @@ def render_html_report(
         for item in row["failureReasons"]
     ]
     blockers = Counter(
-        str(record.get("blocker") or "未记录阻塞原因")
+        str(record.get("blocker") or "Blocker not recorded")
         for record in records
         if str(record.get("repairStatus", "")).upper() == "SKIPPED"
     )
 
     parts = [
         """<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Repair 模型基准报告</title>
+  <title>AI Repair Model Benchmark Report</title>
   <style>
     :root { color-scheme: light; --ink:#172033; --muted:#64748b; --line:#dce3ed; --panel:#fff; --bg:#f5f7fb; --accent:#4f46e5; }
     * { box-sizing:border-box; }
@@ -310,73 +310,73 @@ def render_html_report(
 </head>
 <body><main>
   <section class="hero">
-    <h1>AI Repair 模型基准报告</h1>
+    <h1>AI Repair Model Benchmark Report</h1>
     <p>L1 Raw Model → L2 Diagramly Prompt</p>
   </section>
 """
     ]
     parts.append(
         '<section class="metrics">'
-        f'<div class="metric"><small>实际执行</small><strong>{attempted}/{planned}</strong><span class="muted">coverage {attempted / planned:.1%}</span></div>'
-        f'<div class="metric"><small>修复通过</small><strong>{passed}</strong><span class="muted">{passed / attempted if attempted else 0:.1%} of attempted</span></div>'
-        f'<div class="metric"><small>OpenRouter 实付</small><strong>${total_cost:.6f}</strong><span class="muted">{len(measured_costs)} 次有费用记录</span></div>'
-        f'<div class="metric"><small>L2 本次领先</small><strong>{html_text(model_label(str(recommended)))}</strong><span class="muted">按成功率、质量、延迟、费用排序</span></div>'
+        f'<div class="metric"><small>Attempted</small><strong>{attempted}/{planned}</strong><span class="muted">coverage {attempted / planned:.1%}</span></div>'
+        f'<div class="metric"><small>Repairs passed</small><strong>{passed}</strong><span class="muted">{passed / attempted if attempted else 0:.1%} of attempted</span></div>'
+        f'<div class="metric"><small>OpenRouter actual cost</small><strong>${total_cost:.6f}</strong><span class="muted">{len(measured_costs)} runs with cost data</span></div>'
+        f'<div class="metric"><small>L2 leader in this run</small><strong>{html_text(model_label(str(recommended)))}</strong><span class="muted">Ranked by success rate, quality, latency, and cost</span></div>'
         "</section>"
     )
 
-    parts.append('<section class="panel"><h2>本次修复输入 DSL</h2>')
+    parts.append('<section class="panel"><h2>Repair input DSL</h2>')
     parts.append(
         '<div class="dsl-meta">'
-        f"<span><b>文件：</b><code>{html_text(input_context['fileName'])}</code></span>"
-        f"<span><b>类型：</b><code>{html_text(input_context['diagramType'])}</code></span>"
-        f"<span><b>语言：</b><code>{html_text(input_context['languageKey'])}</code></span>"
-        f"<span><b>子类型：</b><code>{html_text(input_context['subTypeKey'])}</code></span>"
-        f"<span><b>行数：</b>{input_context['lines']}</span>"
-        f"<span><b>字符数：</b>{input_context['characters']}</span>"
-        f"<span><b>SHA-256：</b><code>{html_text(input_context['sha256'])}</code></span>"
+        f"<span><b>File: </b><code>{html_text(input_context['fileName'])}</code></span>"
+        f"<span><b>Type: </b><code>{html_text(input_context['diagramType'])}</code></span>"
+        f"<span><b>Language: </b><code>{html_text(input_context['languageKey'])}</code></span>"
+        f"<span><b>Subtype: </b><code>{html_text(input_context['subTypeKey'])}</code></span>"
+        f"<span><b>Lines: </b>{input_context['lines']}</span>"
+        f"<span><b>Characters: </b>{input_context['characters']}</span>"
+        f"<span><b>SHA-256: </b><code>{html_text(input_context['sha256'])}</code></span>"
         "</div>"
     )
     parts.append(
-        f'<div class="callout"><b>解析错误：</b> {html_text(input_context["errorMessage"])}</div>'
+        f'<div class="callout"><b>Parser error: </b> {html_text(input_context["errorMessage"])}</div>'
     )
     if input_context["redacted"]:
         parts.append(
-            '<p class="muted">DSL 全文已通过 <code>--redact-dsl</code> 显式隐藏；此模式仅用于公开或脱敏报告。</p>'
+            '<p class="muted">The full DSL was explicitly hidden with <code>--redact-dsl</code>; use this mode only for public or redacted reports.</p>'
         )
     else:
         parts.append(
-            '<p class="muted">以下为本次所有层级使用的完整原始 DSL。报告含输入全文，仅限本地或私有位置保存。</p>'
+            '<p class="muted">The following is the complete original DSL used across all layers in this run. This report contains the full input and must be stored only locally or in a private location.</p>'
             f'<pre class="dsl-code"><code>{html_text(input_context["dsl"])}</code></pre>'
         )
     parts.append("</section>")
 
     parts.append(
         """<section class="panel">
-    <h2>L1、L2 是什么？</h2>
-    <p class="muted">本报告只比较直接模型调用与 Diagramly Prompt 下的修复结果。</p>
+    <h2>What are L1 and L2?</h2>
+    <p class="muted">This report compares repairs from direct model calls with repairs using the Diagramly prompt.</p>
     <div class="layers">
       <article class="layer-card">
         <h3><span class="pill">L1</span> Raw Model</h3>
-        <p><b>直接调用 OpenRouter 指定模型</b>，只提供最小修复指令、原始 DSL 和真实错误。用于衡量模型自身的基础修复能力。</p>
+        <p><b>Direct call to the selected OpenRouter model</b>, providing only the minimal repair instruction, original DSL, and actual error. Measures the model’s baseline repair ability.</p>
       </article>
       <article class="layer-card">
         <h3><span class="pill">L2</span> Diagramly Prompt</h3>
-        <p>在同一模型上加入当前 <b>Diagramly AI 修改 Prompt、错误上下文和修复提示</b>。只测试 LLM 修改部分，用于衡量产品 Prompt 带来的提升。</p>
+        <p>Add the current <b>Diagramly AI modification prompt, error context, and repair hints</b> for the same model. Tests only the LLM modification stage and measures the improvement from the product prompt.</p>
       </article>
     </div>
   </section>"""
     )
 
-    parts.append('<section class="panel"><h2>L2 模型总览</h2><table><thead><tr>')
+    parts.append('<section class="panel"><h2>L2 Model Overview</h2><table><thead><tr>')
     for heading in (
-        "排名",
-        "模型",
-        "PASS/执行",
-        "成功率",
+        "Rank",
+        "Model",
+        "PASS/Attempted",
+        "Success rate",
         "coverage",
-        "质量均值",
+        "Mean quality",
         "p50",
-        "实付费用",
+        "Actual cost",
     ):
         parts.append(f"<th>{heading}</th>")
     parts.append("</tr></thead><tbody>")
@@ -397,7 +397,7 @@ def render_html_report(
     parts.append("</tbody></table></section>")
 
     parts.append('<section class="grid2">')
-    parts.append('<div class="panel"><h2>成功率</h2>')
+    parts.append('<div class="panel"><h2>Success rate</h2>')
     for row in rows:
         width = max(0.0, min(100.0, row["successRate"] * 100))
         color = model_color(str(row["model"]))
@@ -408,7 +408,7 @@ def render_html_report(
             f"<b>{row['successRate']:.1%}</b></div>"
         )
     parts.append("</div>")
-    parts.append('<div class="panel"><h2>p50 总耗时</h2>')
+    parts.append('<div class="panel"><h2>p50 total latency</h2>')
     for row in rows:
         latency = number(row.get("p50WallMs"))
         if latency is None:
@@ -423,17 +423,17 @@ def render_html_report(
         )
     parts.append("</div></section>")
 
-    parts.append('<section class="panel"><h2>分层明细</h2><table><thead><tr>')
+    parts.append('<section class="panel"><h2>Layer Details</h2><table><thead><tr>')
     for heading in (
-        "层级",
-        "模型",
-        "PASS/执行",
-        "成功率",
+        "Layer",
+        "Model",
+        "PASS/Attempted",
+        "Success rate",
         "p50 / p95",
         "p50 LLM",
-        "Token（输入/输出/推理/cache）",
-        "实付",
-        "质量档",
+        "Tokens (input/output/reasoning/cache)",
+        "Actual cost",
+        "Quality grade",
     ):
         parts.append(f"<th>{heading}</th>")
     parts.append("</tr></thead><tbody>")
@@ -463,7 +463,7 @@ def render_html_report(
     parts.append("</tbody></table></section>")
 
     if failures:
-        parts.append('<section class="panel"><h2>主要失败原因</h2><ul>')
+        parts.append('<section class="panel"><h2>Main Failure Reasons</h2><ul>')
         for layer, model, item in failures:
             parts.append(
                 f"<li><b>{html_text(layer)}</b> / <code>{html_text(model)}</code> × {item['count']}: "
@@ -471,7 +471,7 @@ def render_html_report(
             )
         parts.append("</ul></section>")
     if blockers:
-        parts.append('<section class="panel"><h2>覆盖阻塞</h2>')
+        parts.append('<section class="panel"><h2>Coverage Blockers</h2>')
         for blocker, count in blockers.most_common():
             parts.append(
                 f'<div class="callout"><b>× {count}</b> {html_text(blocker)}</div>'
@@ -480,15 +480,15 @@ def render_html_report(
 
     parts.append(
         """<section class="panel">
-    <h2>口径与限制</h2>
+    <h2>Definitions and Limitations</h2>
     <ul>
-      <li>成功率按 PASS / 实际执行计算；SKIPPED 只影响 coverage。</li>
-      <li>实付费用只汇总 OpenRouter response usage 或 generation API。</li>
-      <li>L1/L2 结果不验证异步 job 或真实 Forge UI；单次结果不能描述为稳定成功率或 SLA。</li>
-      <li>A/B/C 反映语法门槛与标识符保留；业务语义仍需 required anchors 或人工复核。</li>
+      <li>Success rate is calculated as PASS / attempted; SKIPPED affects coverage only.</li>
+      <li>Actual cost includes only OpenRouter response usage or generation API amounts.</li>
+      <li>L1/L2 results do not validate async jobs or the real Forge UI; a single result does not establish a stable success rate or SLA.</li>
+      <li>A/B/C grades reflect syntax gates and identifier retention; business semantics still require required anchors or manual review.</li>
     </ul>
   </section>
-  <footer>AI Repair Benchmark · 自包含报告，无外部脚本或资源</footer>
+  <footer>AI Repair Benchmark · Self-contained report with no external scripts or resources.</footer>
 </main></body></html>
 """
     )

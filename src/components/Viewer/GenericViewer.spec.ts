@@ -885,7 +885,7 @@ describe('GenericViewer (chrome-less)', () => {
         expect(headerToolbar.exists()).toBe(true)
         expect(headerToolbar.attributes('aria-label')).toBe('Mermaid zoom controls')
         expect(headerToolbar.findAll('button').map(button => button.attributes('aria-label'))).toEqual([
-          'Zoom out', 'Zoom in', 'Fit height', 'Fit width',
+          'Zoom out', 'Zoom in',
         ])
       } finally {
         inline.unmount()

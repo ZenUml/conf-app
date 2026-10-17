@@ -1,13 +1,13 @@
 <template>
   <Teleport :to="headerTarget || 'body'" :disabled="!headerTarget">
-  <div class="diagram-viewport-toolbar" :class="{ 'diagram-viewport-toolbar--header': !!headerTarget }" role="toolbar" :aria-label="`${label} zoom controls`">
+  <div class="diagram-viewport-toolbar" :class="{ 'diagram-viewport-toolbar--header': !!headerTarget, 'diagram-viewport-toolbar--compact': !!headerTarget && !showFitControls }" role="toolbar" :aria-label="`${label} zoom controls`">
     <button type="button" class="diagram-viewport-button" :disabled="headerTarget && !ready" aria-label="Zoom out" :title="`Zoom out (${wheelShortcut})`" @click="emitAction('zoom_out')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="headerTarget" d="M5 12h14"/><template v-else><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></template></svg>
     </button>
     <button type="button" class="diagram-viewport-button" :disabled="headerTarget && !ready" aria-label="Zoom in" :title="`Zoom in (${wheelShortcut})`" @click="emitAction('zoom_in')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="headerTarget" d="M5 12h14M12 5v14"/><template v-else><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></template></svg>
     </button>
-    <template v-if="headerTarget">
+    <template v-if="headerTarget && showFitControls">
       <button type="button" class="diagram-viewport-button diagram-viewport-button--fit" aria-label="Fit height" title="Fit height" :disabled="!ready" @click="emitAction('fit_height')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16M4 21h16M12 6v12M8 10l4-4 4 4M8 14l4 4 4-4"/></svg>
       </button>
@@ -21,7 +21,8 @@
 
 <script>
 /**
- * Shared zoom controls. A visible viewer header hosts four actions; a
+ * Shared zoom controls. A fullscreen viewer header hosts four actions; an
+ * inline viewer header hosts only zoom in/out. A
  * chrome-less/editor preview retains the original two-button floating chip.
  *
  * Separate from DiagramViewport because the two buttons outlived that component's
@@ -64,6 +65,7 @@ export default {
   },
   computed: {
     headerTarget() { return this.zoomHeader?.target.value ?? null; },
+    showFitControls() { return this.zoomHeader?.fitControls?.value ?? false; },
     // A module constant, exposed for the template rather than kept in `data`,
     // where Vue would make it reactive for nothing.
     wheelShortcut() {
@@ -149,6 +151,7 @@ export default {
   background: #F9FAFB;
   box-shadow: none;
 }
+.diagram-viewport-toolbar--compact { width: 64px; }
 .diagram-viewport-toolbar--header .diagram-viewport-button { flex: 0 0 32px; position: relative; }
 .diagram-viewport-button--fit::before {
   content: ''; position: absolute; left: 0; top: 8px; height: 16px; width: 1px; background: #E5E7EB;

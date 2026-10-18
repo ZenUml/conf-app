@@ -73,7 +73,7 @@ describe('main Jev behavior selection', () => {
       [{ apiKey: '' }, 'missing-api-key'],
       [{ diff: { ...infrastructureDiff, complete: false } }, 'incomplete-diff'],
       [{ diff: { ...infrastructureDiff, paths: ['private/report.md'] } }, 'excluded-sensitive-path'],
-      [{ diff: { ...infrastructureDiff, diff: 'https://example-tenant.atlassian.net/wiki' } }, 'potential-sensitive-diff'],
+      [{ diff: { ...infrastructureDiff, diff: 'https://customer.atlassian.net/wiki' } }, 'potential-sensitive-diff'],
     ] as const) {
       const fetchImpl = vi.fn(fakeResponse());
       const s = await classifyMain({ diff: infrastructureDiff, fetchImpl, ...extra });

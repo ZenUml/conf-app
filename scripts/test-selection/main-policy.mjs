@@ -53,9 +53,17 @@ const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 60000, 
 const PAGE_SIZE = 100, MAX_PAGES = 100, MAX_IN_FLIGHT = 6;
 // Page 1 reveals total_count; pages 2..N are then requested together (at most MAX_IN_FLIGHT at once) and joined in page order,
 // so callers see exactly the array the former one-page-at-a-time loop produced.
-export async function fetchRuns(api, workflow, repo) {
+//
+// GitHub caps a filtered listing: "This endpoint will return up to 1,000 results for each search when using the following
+// parameters: actor, branch, check_suite_id, created, event, head_sha, status."
+// (https://docs.github.com/en/rest/actions/workflow-runs, "List workflow runs for a workflow"). Unbounded, branch=main would
+// eventually exceed 1,000 runs and fail as an incomplete inventory, so only the last BASELINE_WINDOW_DAYS days are listed.
+// `gh api` passes the path verbatim, hence ">=" is sent percent-encoded.
+export const BASELINE_WINDOW_DAYS = 60;
+export async function fetchRuns(api, workflow, repo, { now = new Date() } = {}) {
+  const since = new Date(new Date(now).getTime() - BASELINE_WINDOW_DAYS * 86400000).toISOString().slice(0, 10);
   const fetchPage = async page => {
-    const response = await api(`repos/${repo}/actions/workflows/${workflow}/runs?branch=main&per_page=${PAGE_SIZE}&page=${page}`);
+    const response = await api(`repos/${repo}/actions/workflows/${workflow}/runs?branch=main&created=%3E%3D${since}&per_page=${PAGE_SIZE}&page=${page}`);
     if (!Array.isArray(response.workflow_runs) || !Number.isInteger(response.total_count)) throw new Error('Invalid workflow run inventory');
     return response;
   };

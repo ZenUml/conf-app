@@ -54,3 +54,56 @@ describe('reviewed historical replay', () => {
   it('does not count smoke or a selected second category as missed coverage', () => { const r = evaluate({ mode: 'selected', categories: { one: { selected: true }, two: { selected: false } } }, { reviewed_by: 'reviewer', expected_categories: ['one', 'two'], tests: [{ id: 'both', categories: ['one', 'two'], duration_ms: 100 }, { id: 'smoke', categories: ['two'], smoke: true, duration_ms: 200 }, { id: 'omitted', categories: ['two'], duration_ms: 300 }] }); expect(r.misses).toEqual(['two']); expect(r.selected_test_ids).toEqual(['both', 'smoke']); expect(r.missed_test_ids).toEqual(['omitted']); });
   it('requires reviewed expectations', () => expect(() => evaluate({}, { expected_categories: [] })).toThrow());
 });
+describe('SENSITIVE_DIFF_PATTERN narrowing', () => {
+  // These fixtures never reach the pattern in CI: readDiff() drops unit-spec file contents via isUnitTestPath.
+  const uuid = '0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b';
+  it.each([
+    '-/** Fail-closed: standalone env, missing cloudId, missing flag, any error => off,',
+    '+  cloudId: string | undefined,',
+    'agg = aggregate_tx_by_app(txs)                   # keyed by (cloudId, addonKey) — no cross-app double count',
+    '# opens a blank AsyncAPI editor; `/d/asyncapi/<cloudId>/<contentId>`',
+    'call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string }',
+    'buildHomepagePrompt: ({ cloudId }: { cloudId?: string }) => `home prompt for ${cloudId || "-"}`',
+    'cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,',
+    '"cloudId": "<verified cloud ID>",',
+    'cloud_id: cloudId,',
+    'encodeURIComponent(cloudId)',
+    "const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'",
+    'https://lite-stg.atlassian.net/wiki/home',
+    'https://example-tenant.atlassian.net/wiki',
+    'cloudId: process.env.CLOUD_ID',
+    'https://${domain}.atlassian.net/wiki',
+    'https://<site>.atlassian.net/wiki',
+    'https://zenuml-stg.atlassian.net/wiki/spaces/X',
+    '<https://zenuml.atlassian.net>',
+    'see https://zenuml.atlassian.net.',
+  ])('does not treat %s as sensitive', line => {
+    expect(SENSITIVE_DIFF_PATTERN.test(line)).toBe(false);
+  });
+  it.each([
+    'https://customer.atlassian.net/wiki',
+    'https://evil-zenuml.atlassian.net/wiki',
+    `cloudId: "${uuid}"`,
+    `"cloudId": "${uuid}"`,
+    `cloud_id = '${uuid}'`,
+    `?cloudId=${uuid}`,
+    "token: 'actual-secret'",
+    'cloudId:"0F1E2D3C-4B5A-6978-8A9B-0C1D2E3F4A5B"',
+    'cloudId = 0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b',
+    'cloudId: `0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b`',
+    "fn(cloudId, '0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b')",
+    'https://zenuml.atlassian.net.evil.atlassian.net/x',
+    'https://zenuml.atlassian.net@customer.atlassian.net/',
+  ])('still treats %s as sensitive', line => {
+    expect(SENSITIVE_DIFF_PATTERN.test(line)).toBe(true);
+  });
+  it('documented gap: a bare UUID with no cloud-id key is not sensitive', () => {
+    expect(SENSITIVE_DIFF_PATTERN.test(uuid)).toBe(false);
+  });
+  it('still lets an identifier-only diff reach the Jev call', async () => {
+    let called = false;
+    const r = await classify({ diff: { ...diff, diff: '+  call: { tool: string; cloudId?: string }' }, apiKey: 'fake', fetchImpl: async () => { called = true; throw new Error('abort'); } });
+    expect(called).toBe(true);
+    expect(r.fallback_reason).not.toBe('potential-sensitive-diff');
+  });
+});

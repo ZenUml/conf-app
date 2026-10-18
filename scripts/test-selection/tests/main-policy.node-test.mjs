@@ -142,3 +142,21 @@ test('baseline follows successful completion order when an older main run is rer
   const baseline = await findBaseline([run(6), olderCompletedLater], { sourceSha: sha, rootRunId: 7, isAncestor: () => true });
   assert.equal(baseline['base-sha'], unrelated);
 });
+test('baseline lookup is bounded to a created window so the 1,000-result search cap is never reached', async () => {
+  const policy = await import('../main-policy.mjs');
+  assert.equal(policy.BASELINE_WINDOW_DAYS, 60);
+  const endpoints = [];
+  const api = async endpoint => {
+    endpoints.push(endpoint);
+    return { total_count: 150, workflow_runs: Number(new URL(`https://x/${endpoint}`).searchParams.get('page')) === 1 ? batch(1, 100) : batch(200, 50) };
+  };
+  await fetchRuns(api, 'build-test-deploy.yml', 'o/r', { now: Date.parse('2026-10-19T12:00:00Z') });
+  assert.equal(endpoints.length, 2);
+  for (const endpoint of endpoints) {
+    // gh api passes the path verbatim, so ">=" must already be percent-encoded.
+    assert.match(endpoint, /[?&]created=%3E%3D2026-08-20(&|$)/);
+    assert.ok(!/created=>/.test(endpoint));
+    assert.equal(new URL(`https://x/${endpoint}`).searchParams.get('created'), '>=2026-08-20');
+    assert.equal(new URL(`https://x/${endpoint}`).searchParams.get('branch'), 'main');
+  }
+});

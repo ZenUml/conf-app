@@ -21,18 +21,13 @@ describe('viewport header toolbar', () => {
     const wrapper = mount(Toolbar, {
       props: { macroType: 'sequence', label: 'Sequence' },
       global: {
-        provide: { [VIEWER_ZOOM_HEADER]: { target, changed: vi.fn() } },
+        provide: { [VIEWER_ZOOM_HEADER]: { target, fitControls: ref(false), changed: vi.fn() } },
         mocks: { $store: { getters: { isDisplayMode: true } } },
       },
     });
     expect([...host.querySelectorAll('button')].map(b => b.getAttribute('aria-label')))
-      .toEqual(['Zoom out', 'Zoom in', 'Fit height', 'Fit width']);
-    host.querySelector<HTMLButtonElement>('[aria-label="Fit width"]')!.click();
-    expect(wrapper.emitted('fit-width')).toHaveLength(1);
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', expect.objectContaining({
-      surface: 'viewer', macro_type: 'sequence', viewport_action: 'fit_width',
-      viewport_control_location: 'header', viewport_outcome: 'applied',
-    }));
+      .toEqual(['Zoom out', 'Zoom in']);
+    expect(host.firstElementChild?.classList.contains('diagram-viewport-toolbar--compact')).toBe(true);
     target.value = null;
     await nextTick();
     expect(host.children).toHaveLength(0);
@@ -45,12 +40,12 @@ describe('viewport header toolbar', () => {
     const wrapper = mount(Toolbar, {
       props: { macroType: 'mermaid', label: 'Mermaid', ready: false },
       global: {
-        provide: { [VIEWER_ZOOM_HEADER]: { target, changed: vi.fn() } },
+        provide: { [VIEWER_ZOOM_HEADER]: { target, fitControls: ref(false), changed: vi.fn() } },
         mocks: { $store: { getters: { isDisplayMode: true } } },
       },
     });
     const buttons = target.value.querySelectorAll('button');
-    expect(buttons).toHaveLength(4);
+    expect(buttons).toHaveLength(2);
     buttons.forEach(button => { expect(button.disabled).toBe(true); button.click(); });
     expect(trackAnalyticsEvent).not.toHaveBeenCalled();
     wrapper.unmount();
@@ -62,7 +57,7 @@ describe('viewport header toolbar', () => {
     const wrapper = mount(Toolbar, {
       props: { macroType: 'plantuml', label: 'PlantUML' },
       global: {
-        provide: { [VIEWER_ZOOM_HEADER]: { target, changed: vi.fn() } },
+        provide: { [VIEWER_ZOOM_HEADER]: { target, fitControls: ref(true), changed: vi.fn() } },
         mocks: { $store: { getters: { isDisplayMode: true } } },
       },
     });

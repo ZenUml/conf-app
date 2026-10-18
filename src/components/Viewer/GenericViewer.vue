@@ -806,6 +806,7 @@ export default {
     return {
       [VIEWER_ZOOM_HEADER]: {
         target: computed(() => this.zoomHeaderTarget),
+        fitControls: computed(() => this.isFullscreenMode),
         changed: async () => {
           await this.$nextTick();
           this.scheduleHeaderLayout();

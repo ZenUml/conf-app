@@ -1705,7 +1705,9 @@ export const HeaderMermaidInline: Story = {
   play: async () => {
     await revealHeader()
     const canvas = within(document.body)
-    await waitFor(() => expect(canvas.getByRole('button', { name: 'Fit width' })).toBeEnabled())
+    await waitFor(() => expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeEnabled())
+    expect(canvas.queryByRole('button', { name: 'Fit width' })).toBeNull()
+    expect(canvas.queryByRole('button', { name: 'Fit height' })).toBeNull()
     await userEvent.click(canvas.getByRole('button', { name: 'More', exact: true }))
     await expect(await canvas.findByRole('menuitemcheckbox', { name: /Relationship highlights/ })).toBeVisible()
   },

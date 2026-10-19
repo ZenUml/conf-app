@@ -1,15 +1,15 @@
 # 0009 — Main promotes PR-validated artifacts, and the staging gate moves to release
 
 Date: 2026-10-19
-Status: proposed — the owner decides; nothing in this record is implemented
+Status: accepted (2026-10-19 — the owner accepted the recommendation, option A with C's per-variant drafts; not implemented yet, see "Decided next steps")
 Related: [ADR-0006](0006-release-pipeline-optimised-for-wall-clock.md), [ADR-0007](0007-release-order-aware-pipeline.md), [docs/ops/pipeline-graphs.md](../ops/pipeline-graphs.md), [docs/ops/release-pipeline-time-budget.md](../ops/release-pipeline-time-budget.md), `.github/workflows/build-test-deploy.yml`, `.github/workflows/main-draft-preparation.yml`, `.github/workflows/release.yml`, `scripts/test-selection/reuse.mjs`, `.claude/skills/release-app/SKILL.md`, PR #818 (sensitive-diff regex), PR #819 (baseline pagination)
 
 The repository owner asked on 2026-10-18 for the main pipeline to finish in one
 minute, to shorten the wait between a merge and release work. A measurement run
 that day asked how fast a draft can follow a merge. Under the current contract
 the floor is about 7.5 minutes (estimate, section 2). This record answers what
-one minute would take, and asks whether the contract itself should change. It
-does not decide.
+one minute would take, and asks whether the contract itself should change. The
+owner accepted the recommendation on 2026-10-19: keep the contract, land A+C.
 
 ## The three clocks
 
@@ -144,7 +144,7 @@ release, depends on a merge-queue availability fact nobody has verified, and
 gives up a property the current graph keeps (pipeline-graphs.md: drafts are
 created only for variants whose validation gates passed; ADR-0006: a draft is
 never cut from a commit whose unit tests failed). Do not pay that price without a
-person who needs sub-5-minute drafts. Status stays proposed.
+person who needs sub-5-minute drafts. Accepted 2026-10-19.
 
 ## Verification plan (whichever option lands)
 
@@ -157,12 +157,14 @@ person who needs sub-5-minute drafts. Status stays proposed.
 
 ## Open questions for the owner
 
-1. **Sensitive-diff definition (PR #818).** Accept the narrowed regex (a true match still falls to full regression), or fall to the deterministic floor instead, which is cheaper and weaker.
-2. **Merge order against PR #779.** Both touch `classify.mjs`; either order works with a routine rebase.
-3. **First main run after #818 merges.** PR #818's own diff replays as `selected` through `readDiff` (no sensitive match, floor `@smoke`, `POLICY_VERSION` unchanged), so no full run is expected from it; if that run is full anyway, read its `Selection saved:` line before judging the change.
-4. **Migration gate and shard cap.** Migration gate behind the deploys (−35 s) weakens PR #751's guard; the 4-shard cap is model-based and needs a paired measurement.
-5. **Option choice (this ADR).** A+C, B, or none.
+1. **Sensitive-diff definition (PR #818).** Resolved 2026-10-19: narrowed regex accepted and merged (`9ab9af0d`); a true match still falls to full regression.
+2. **Merge order against PR #779.** Resolved 2026-10-19: #818, then #819 (`cd53d334`), then #779 rebased with no conflict and merged (`b12e1ea4`).
+3. **First main run after #818 merges.** Resolved 2026-10-19: runs 39167045010 (658 s), 39168073424 (624 s) and 39172438864 (623 s) all logged `proposal=selected, execution=enabled, fallback=none`. Three runs; the 20-run check in the verification plan still applies.
+4. **Migration gate and shard cap.** Open. Migration gate behind the deploys (−35 s) weakens PR #751's guard; the 4-shard cap is model-based and needs a paired measurement.
+5. **Option choice (this ADR).** Resolved 2026-10-19: A+C.
 
 ## Decided next steps
 
-None. Proposed only.
+1. Restore per-variant drafts (C) in a main-only YAML change; measure Lite draft `created_at` minus merge time against the 585 s estimate.
+2. Land the remaining A trims as separate PRs, each re-measured: the migration gate move after open question 4 is settled, the 4-shard cap only after a paired `lite-deploy-benchmark.yml` measurement.
+3. B is not pursued. Reopen it only on an explicit need for merge → draft near 2 minutes, after checking that "Require merge queue" is offered for `main`.

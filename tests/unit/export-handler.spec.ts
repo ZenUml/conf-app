@@ -785,6 +785,50 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.macro_type).toBe('graph');
   });
 
+  it('records the first unexplained missing PNG, then shows a known placeholder without repeated failure, and recovers when the attachment appears', async () => {
+    let property: any = null;
+    let attachmentExists = false;
+    asAppRequest.mockImplementation(async (url: unknown, opts?: { method?: string; body?: string; headers?: Record<string, string> }) => {
+      const value = String(url);
+      if (value.includes('/attachments?')) return new Response(JSON.stringify({
+        results: attachmentExists ? [{ fileId: 'file-new', downloadLink: '/wiki/download/new.png' }] : [],
+        _links: { base: 'https://example.atlassian.net' },
+      }));
+      if (value.includes('/properties')) {
+        if (opts?.method === 'POST' || opts?.method === 'PUT') {
+          property = { id: 'property-1', value: JSON.parse(opts.body!).value, version: { number: (property?.version.number ?? 0) + 1 } };
+          return new Response('{}');
+        }
+        return new Response(JSON.stringify({ results: property ? [property] : [] }));
+      }
+      if (opts?.headers?.Range) return new Response(new Uint8Array(32));
+      return new Response(JSON.stringify({ body: { raw: { value: JSON.stringify({ diagramType: 'sequence' }) } } }));
+    });
+    const payload = {
+      exportType: 'pdf', context: { siteUrl: 'https://example.atlassian.net', extension: { content: { id: '123' } } },
+      extensionPayload: { config: { customContentId: '456' } },
+    };
+    await handler(payload);
+    expect(property.value.state).toBe('missing');
+    let rows = mixpanelBodiesFromFetch(fetch) as Array<{ event: string; properties?: { failure_reason?: string } }>;
+    expect(rows.filter(r => r.event === 'macro_export_failed')).toHaveLength(1);
+    vi.mocked(fetch).mockClear();
+
+    const placeholder = await handler(payload) as any;
+    expect(placeholder.content[0].content[0].text).toContain('missing');
+    rows = mixpanelBodiesFromFetch(fetch) as typeof rows;
+    expect(rows.filter(r => r.event === 'macro_export_placeholder_shown')).toHaveLength(1);
+    expect(rows.filter(r => r.event === 'macro_export_failed')).toHaveLength(0);
+    vi.mocked(fetch).mockClear();
+
+    attachmentExists = true;
+    const recovered = await handler(payload) as any;
+    expect(recovered.content[0].content[0].attrs.id).toBe('file-new');
+    expect(asAppRequest.mock.calls.filter(([url]) => String(url).includes('/properties'))).toHaveLength(4);
+    rows = mixpanelBodiesFromFetch(fetch) as typeof rows;
+    expect(rows.some(r => r.event === 'macro_export_succeeded')).toBe(true);
+  });
+
   it('#435: records macro_type "none" (not omitted) when the type genuinely cannot be determined — no customContentId', async () => {
     const payload = {
       exportType: 'pdf',

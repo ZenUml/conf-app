@@ -463,6 +463,12 @@ export type AnalyticsEventName =
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
+  // A PNG was absent and a fresh page property explained why. This is a
+  // rendered text placeholder, never a successful media export.
+  | "macro_export_placeholder_shown"
+  // Persisted PNG lifecycle changes and best-effort property failures.
+  | "png_export_state_changed"
+  | "png_export_state_persistence_failed"
   // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
   // (background + note/arrow/callout/watermark overlays), tracked separately
   // from the generic macro_export_* triple above (unused by any call site as

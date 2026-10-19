@@ -950,7 +950,10 @@ describe('Attachment', () => {
           'POST',
           expect.objectContaining({ async: true, attachmentName: 'zenuml-saved-id-1000.png' }),
         );
-        expect(mockRequestConfluence).not.toHaveBeenCalled();
+        // A best-effort page-property read records the PNG generation state;
+        // no user-side attachment POST runs on the save path.
+        expect(mockRequestConfluence.mock.calls.every(([url]) =>
+          String(url).includes('/properties'))).toBe(true);
 
         // Emits a queued (not succeeded) signal carrying from_save:true.
         const queued = mockTrackEvent.mock.calls.find(

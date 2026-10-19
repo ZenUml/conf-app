@@ -169,6 +169,12 @@ export type AnalyticsProperties = {
   // AI Chat failure events use only closed-vocabulary categories here. Never
   // attach the raw backend error, prompt, diagram code, or job id.
   failure_reason?: string;
+  /** PNG export lifecycle stored in a Confluence page content property. */
+  png_export_state?: 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready' | 'missing';
+  /** Bounded reason for a rendered export text placeholder. */
+  png_export_placeholder_reason?: 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'missing';
+  /** Property operation whose failure did not interrupt saving or export. */
+  png_export_property_operation?: 'read' | 'create' | 'update';
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
   // _failed), plus the benign ordinary-chat ai_chat_no_change outcome.
   // `duration_ms` below is click-to-visible-result wall time;

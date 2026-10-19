@@ -8,6 +8,42 @@ import {forgeRequest, callRemote} from '@/utils/requestUtil';
 import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { writePngState } from '@/lib/pngExportState.js';
+
+type PngState = 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready';
+
+async function recordPngState(
+  pageId: string, customContentId: string, state: PngState,
+  attemptId: string, startedAt: number, contentHash: string, attachmentId?: string,
+  surface: 'editor' | 'viewer' = 'viewer',
+  startAttempt = false,
+): Promise<void> {
+  try {
+  const { requestConfluence } = await import('@forge/bridge');
+  const reportFailure = (operation: 'read' | 'create' | 'update', error: unknown) => {
+    trackAnalyticsEvent('png_export_state_persistence_failed', {
+      feature_area: 'macro', surface, page_id: pageId,
+      custom_content_id: customContentId, png_export_property_operation: operation,
+      failure_reason: error instanceof Error ? error.message.split('_')[0] : 'unknown',
+    });
+  };
+  const ok = await writePngState(
+    (url: string, method: string, body?: unknown) => requestConfluence(url, {
+      method: method as 'GET' | 'POST' | 'PUT',
+      ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
+    }),
+    { pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt },
+    reportFailure,
+  );
+  if (ok) trackAnalyticsEvent('png_export_state_changed', {
+    feature_area: 'macro', surface, page_id: pageId,
+    custom_content_id: customContentId, png_export_state: state,
+  });
+  } catch (error) {
+    console.warn('PNG export state write failed:', error);
+  }
+}
 
 // ============================================================================
 // Type Definitions
@@ -811,6 +847,7 @@ async function uploadAttachmentViaApp(
   effectiveHash: string,
   blob: Blob,
   opts?: { async?: boolean },
+  attemptId?: string,
 ): Promise<AttachmentMeta> {
   const pngBase64 = await blobToBase64(blob);
   let raw: unknown;
@@ -821,6 +858,7 @@ async function uploadAttachmentViaApp(
       attachmentName,
       hash: effectiveHash,
       versionNumber: target.versionNumber,
+      ...(attemptId ? { pngAttemptId: attemptId } : {}),
       pngBase64,
       // Async mode: the backend acks after validation and completes the write
       // in waitUntil (survives editor teardown). See createAttachmentIfContentChanged.
@@ -947,6 +985,11 @@ async function createAttachmentIfContentChanged(
   // The v1 attachment API only accepts status=current pages — a draft page returns a
   // wrapped 404 body, causing a misleading "no results" error downstream.
   if (forgeGlobal.forgeContext?.extension?.content?.status === 'draft') {
+    if (opts?.fromSave) {
+      const startedAt = Date.now();
+      await recordPngState(attachmentPageId, macroCustomContentId, 'waiting_for_publish',
+        crypto.randomUUID(), startedAt, hash, undefined, 'editor', true);
+    }
     return;
   }
 
@@ -960,6 +1003,10 @@ async function createAttachmentIfContentChanged(
   // Mixpanel instead of only recoverable by count-matching against
   // `attachment_upload_app_fallback_started` at 10% sampling (#392).
   let fallbackFromStatus: number | undefined;
+  const pngAttemptId = crypto.randomUUID();
+  const pngStartedAt = Date.now();
+  let pngAttemptStarted = false;
+  let pngCaptureCompleted = false;
 
   try {
     const attachment = await tryGetAttachment(overrideId);
@@ -972,6 +1019,9 @@ async function createAttachmentIfContentChanged(
     // When diagramType is absent injection is skipped, so no version token.
     const metaKey = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
     if (!attachment || metaKey !== attachment.comment) {
+      await recordPngState(attachmentPageId, macroCustomContentId, 'generating',
+        pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer', true);
+      pngAttemptStarted = true;
       const isUpdate = Boolean(attachment);
       const pageId = await global.apWrapper._getCurrentPageId();
       const identifier = overrideId ?? await getIdentifier();
@@ -991,6 +1041,7 @@ async function createAttachmentIfContentChanged(
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
       const captureStartedAt = performance.now();
       const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+      pngCaptureCompleted = true;
       // Publish timing: only the save-time capture is on the publish path (a
       // view-time backfill is not), and only a produced PNG is timed — a failed
       // capture throws above and records nothing.
@@ -1004,7 +1055,7 @@ async function createAttachmentIfContentChanged(
       // (~1.5–3.5s) instead of capture + the full upload (~3–8s). The user is
       // the page editor here, so the app-token read-check always passes.
       if (opts?.fromSave) {
-        await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, { async: true });
+        await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, { async: true }, pngAttemptId);
         // Not "succeeded": the write completes server-side after we return, so
         // this is a queued signal. The view-time backfill + downstream
         // macro_export_* events measure the ultimate outcome.
@@ -1037,7 +1088,7 @@ async function createAttachmentIfContentChanged(
             ...ctx,
             recovered_from_status: e.status,
           });
-          attachmentMeta = await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob);
+          attachmentMeta = await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, undefined, pngAttemptId);
           viaAppFallback = true;
           trackEvent(`http_${e.status}`, 'attachment_upload_app_fallback_succeeded', 'export', {
             ...ctx,
@@ -1059,6 +1110,8 @@ async function createAttachmentIfContentChanged(
         via_app_fallback: viaAppFallback,
         ...(opts?.fromSave ? { from_save: true } : {}),
       });
+      await recordPngState(pageId, macroCustomContentId, 'ready', pngAttemptId,
+        pngStartedAt, hash, attachmentMeta.attachmentId, opts?.fromSave ? 'editor' : 'viewer');
     }
   } catch (e: any) {
     const httpStatus = extractHttpStatus(e);
@@ -1088,6 +1141,8 @@ async function createAttachmentIfContentChanged(
     // a post-fallback 404 falls through to the genuine-failure path below and
     // is labelled `app_no_access` there (#392).
     if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback)) {
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'waiting_for_publish', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       // Both branches are the 404-class skip; DraftPageError carries no numeric
       // status of its own, so normalise to 404 for a consistent denominator.
       // `content_status` is resolved from the API rather than taken from the
@@ -1109,8 +1164,13 @@ async function createAttachmentIfContentChanged(
     // an empty state for blank diagrams; for non-empty diagrams a toast was shown
     // in uploadAttachment. Either way, skip the upload — don't count as a failure.
     if (e instanceof ToPngError) {
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'generation_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       return;
     }
+    if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+      !pngCaptureCompleted ? 'generation_failed' : httpStatus === 401 || httpStatus === 403 ? 'upload_denied' : 'upload_failed',
+      pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
     // The function still throws (callers wrap this in try/catch already), but we
     // now record the failure with full join-key context so it can be correlated
     // with the backend `macro_export_failed` event.

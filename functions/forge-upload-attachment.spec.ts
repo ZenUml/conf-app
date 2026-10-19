@@ -309,6 +309,74 @@ describe('forge-upload-attachment', () => {
         expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/properties'))).toBe(false);
       });
 
+      async function runWithPngState(uploadStatus: number, stateWriteStatus = 200) {
+        const attemptId = 'attempt-12345678';
+        const start = Date.now() - 1000;
+        const property = {
+          id: 'property-77', version: { number: 1 },
+          value: { schemaVersion: 1, pageId: '12345', customContentId: '456',
+            state: 'generating', attemptId, startedAt: start, updatedAt: start,
+            contentHash: basePayload.hash },
+        };
+        fetchMock.mockImplementation((url: string, init: any) => {
+          const target = String(url);
+          if (target.includes('api.mixpanel.com')) return Promise.resolve(fetchResponse(200, '{}'));
+          if (target.endsWith('/api/v2/pages/12345')) return Promise.resolve(fetchResponse(200, '{"status":"current"}'));
+          if (target.includes('/api/v2/pages/12345/properties')) {
+            if (init?.method === 'PUT') {
+              if (stateWriteStatus !== 200) return Promise.resolve(new Response('', { status: stateWriteStatus }));
+              property.value = JSON.parse(init.body).value;
+              property.version.number++;
+              return Promise.resolve(new Response('{}'));
+            }
+            return Promise.resolve(new Response(JSON.stringify({ results: [property] })));
+          }
+          if (target.includes('/child/attachment/') && init?.method === 'PUT') return Promise.resolve(fetchResponse(200, '{}'));
+          if (target.endsWith('/child/attachment') && init?.method === 'POST') return Promise.resolve(fetchResponse(
+            uploadStatus,
+            uploadStatus === 200 ? '{"results":[{"id":"att-ready"}]}' : 'permission denied',
+          ));
+          throw new Error(`unexpected ${init?.method} ${target}`);
+        });
+        const scheduled: Promise<unknown>[] = [];
+        const ack = await onRequest({
+          request: makeRequest({ ...basePayload, attachmentName: 'zenuml-456.png', pngAttemptId: attemptId, async: true }),
+          data: { forgeContext: { ...FORGE_CONTEXT, accountId: 'acct-9' } }, env: ENV,
+          waitUntil: (p: Promise<unknown>) => scheduled.push(p),
+        } as any);
+        await Promise.all(scheduled);
+        const events = fetchMock.mock.calls
+          .filter(([url]) => String(url).includes('api.mixpanel.com/import'))
+          .map(([, init]) => JSON.parse(init.body)[0]);
+        return { property, events, ack: await readJson(ack) };
+      }
+
+      it('writes ready for the matching async attempt after a successful upload', async () => {
+        const { property, events, ack } = await runWithPngState(200);
+        expect(ack).toEqual({ ok: true, queued: true });
+        expect(property.value).toMatchObject({ state: 'ready', attemptId: 'attempt-12345678', attachmentId: 'att-ready' });
+        const propertyPut = fetchMock.mock.calls.find(([url, init]) => String(url).includes('/properties/property-77') && init.method === 'PUT');
+        expect(propertyPut?.[0]).toBe('https://api.atlassian.com/ex/confluence/cloud-1/api/v2/pages/12345/properties/property-77');
+        expect(propertyPut?.[1].headers.Authorization).toBe('Bearer sys-token');
+        expect(events.some(e => e.event === 'png_export_state_changed' && e.properties.cloud_id === 'cloud-1')).toBe(true);
+        expect(events.some(e => e.event === 'attachment_upload_async_succeeded')).toBe(true);
+      });
+
+      it('writes upload_denied after an authorized async upload rejection', async () => {
+        const { property, events, ack } = await runWithPngState(403);
+        expect(ack).toEqual({ ok: true, queued: true });
+        expect(property.value).toMatchObject({ state: 'upload_denied', attemptId: 'attempt-12345678' });
+        expect(events.some(e => e.event === 'attachment_upload_async_failed')).toBe(true);
+      });
+
+      it('keeps the successful upload result when PNG page-property PUT fails', async () => {
+        const { property, events, ack } = await runWithPngState(200, 500);
+        expect(ack).toEqual({ ok: true, queued: true });
+        expect(property.value.state).toBe('generating');
+        expect(events.some(e => e.event === 'png_export_state_persistence_failed')).toBe(true);
+        expect(events.some(e => e.event === 'attachment_upload_async_succeeded')).toBe(true);
+      });
+
       it('distinguishes a properties-PUT failure', async () => {
         const calls = await runAsync({
           read: fetchResponse(200, '{}'),

@@ -49,6 +49,14 @@ describe('PNG export page state', () => {
     expect(records.get(pngStateKey('10'))?.version.number).toBe(3);
   });
 
+  it('does not let an older delayed start replace a newer expired record', async () => {
+    const { request } = store();
+    await writePngState(request, { ...input(), startedAt: now + 1000 }, undefined, now + 1000);
+    const expired = now + 25 * 60 * 60 * 1000;
+    expect((await readPngState(request, '1', '10', undefined, expired)).kind).toBe('stale');
+    expect(await writePngState(request, { ...input('1', '10', 'older-attempt'), startedAt: now }, undefined, expired)).toBe(false);
+  });
+
   it('blocks old terminal results and a stale export missing write racing a new upload', async () => {
     const { request } = store();
     await writePngState(request, input(), undefined, now);

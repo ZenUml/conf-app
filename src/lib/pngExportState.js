@@ -84,7 +84,7 @@ export async function writePngState(request, input, onFailure = () => {}, now = 
         : current.kind === 'absent' || current.version !== expectedVersion) return false;
     }
     if (current.kind === 'ok' || current.kind === 'stale') {
-      if (isStart && current.kind === 'ok' && current.value.attemptId !== attemptId
+      if (isStart && current.value.attemptId !== attemptId
         && current.value.startedAt >= startedAt) return false;
       if (!isStart && current.value.attemptId !== attemptId) return false;
       if (current.kind === 'ok' && current.value.attemptId === attemptId

@@ -106,6 +106,15 @@ describe('draft phase provenance and independent variant gates', () => {
     expect(build.provenance.if).toContain('always()');
     expect(build.provenance.steps[0].env.RESULTS).toBe('${{ toJSON(needs) }}');
   });
+  it('resolves eligibility beside the root check, and drafts skip the unused source checkout', () => {
+    expect(draft.provenance.needs).toBeUndefined();
+    for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
+      const job = draft[`draft-release-${variant}`];
+      expect(job.if).toContain("needs.parent.result == 'success'");
+      expect(job.if).toContain("needs.provenance.result == 'success'");
+      expect(job.steps.some((step: any) => step.uses?.startsWith('actions/checkout@'))).toBe(false);
+    }
+  });
   it('gates each draft separately and downloads its exact build phase artifacts', () => {
     for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
       const job = draft[`draft-release-${variant}`];

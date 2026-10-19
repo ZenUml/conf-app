@@ -119,6 +119,10 @@ export default {
       
       // First validate syntax
       const validationResult = await validatePlantUmlSyntax(code);
+
+      // The active diagram may have changed while validation was pending.
+      // Do not publish a PlantUML error for another diagram type or source.
+      if (this.plantUmlCode !== code) return;
       
       if (!validationResult.valid) {
         // Update store error for SyntaxErrorBox (only if different)

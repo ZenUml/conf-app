@@ -7,9 +7,9 @@ The main session first groups cases by syntax/root cause and likely files to cha
 Each task instruction must specify at least:
 
 1. Case directory, original input/error hashes, source status, and existing failure evidence; the original files must not be changed.
-2. Assigned default/retry model, the task's authorized model-call scope, and the number of calls reserved from the main session's budget ledger. Without authorization, perform offline analysis only. After using its quota, return results; do not make extra calls.
+2. Assigned default/retry model and the task's authorized model-data scope. Without authorization, perform offline analysis only. Model calls have no preset count cap; report each call and its actual usage to the main session for the shared ledger.
 3. Files owned by the task, or “analysis only; do not edit shared files.” Do not reset, stage, or commit existing workspace changes or files owned by other tasks.
-4. Follow ai-repair-case-validation from the earliest failing layer; stop if L2/L3 fails. Save candidates, Prompt hash, model, and parse/render evidence under its dedicated attempts/<run-id>/.
+4. Follow ai-repair-case-validation from the earliest failing layer; stop if L2/L3 fails unless the user explicitly requested diagnostic execution of later layers. Save candidates, Prompt hash, model, and parse/render evidence under its dedicated attempts/<run-id>/.
 5. If a shared Prompt/code change is needed, first report the minimum change and affected cases to the main session and wait for exclusive edit assignment. Do not allow multiple tasks to edit the same file concurrently.
 6. Return a concise report of “verified facts, proposed fix, changed files, each layer's status, evidence paths, and blockers.” Do not reply only “success,” and do not paste customer DSL into the message.
 

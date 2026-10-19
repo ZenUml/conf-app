@@ -4,6 +4,7 @@ import PlantUml from '@/components/PlantUml.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -67,6 +68,7 @@ describe('PlantUml pan/zoom viewport', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(validatePlantUmlSyntax).mockResolvedValue({ valid: true, error: null, location: null });
     // jsdom lays nothing out, and DiagramViewport refuses to attach to a 0 x 0
     // SVG (svg-pan-zoom would throw InvalidStateError on the singular matrix).
     vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
@@ -175,5 +177,22 @@ describe('PlantUml pan/zoom viewport', () => {
     await vi.waitFor(() => expect(wrapper.find('.plantuml-render svg').exists()).toBe(true));
 
     expect(svgPanZoomMock).not.toHaveBeenCalled();
+  });
+
+  it('does not publish a PlantUML validation error after switching to Mermaid', async () => {
+    let resolveValidation!: (result: any) => void;
+    vi.mocked(validatePlantUmlSyntax).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveValidation = resolve;
+    }));
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    expect(validatePlantUmlSyntax).toHaveBeenCalled();
+
+    store.commit('updateDiagramType', DiagramType.Mermaid);
+    await wrapper.vm.$nextTick();
+    resolveValidation({ valid: false, error: 'PlantUML syntax error at line 2: Assumed diagram type: sequence', location: null });
+    await Promise.resolve();
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.error).toBeNull();
   });
 });

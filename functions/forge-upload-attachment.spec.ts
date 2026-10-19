@@ -297,6 +297,18 @@ describe('forge-upload-attachment', () => {
         });
       });
 
+      it('does not write PNG state with the app token after the user read-check fails', async () => {
+        routeFetch({ read: fetchResponse(403, 'no access') });
+        const scheduled: Promise<unknown>[] = [];
+        await onRequest({
+          request: makeRequest({ ...basePayload, attachmentName: 'zenuml-456.png', pngAttemptId: 'attempt-12345678', async: true }),
+          data: FORGE_DATA,
+          waitUntil: (p: Promise<unknown>) => scheduled.push(p),
+        } as any);
+        await Promise.all(scheduled);
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/properties'))).toBe(false);
+      });
+
       it('distinguishes a properties-PUT failure', async () => {
         const calls = await runAsync({
           read: fetchResponse(200, '{}'),

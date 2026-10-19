@@ -3,6 +3,7 @@ import type { ForgeRequestData } from "./utils/authenticate";
 import { mixpanelTrack } from "./service/mixpanelService";
 import { getAtlassianInstanceClientDomain } from "./utils/dbUtils";
 import type { D1Database } from "@cloudflare/workers-types";
+import { writePngState } from "../src/lib/pngExportState.js";
 
 // ---------------------------------------------------------------------------
 // Attachment-upload fallback (issue #166)
@@ -431,7 +432,7 @@ export const onRequest = async ({
     const body: any = await request.json();
     const {
       pageId, attachmentId, attachmentName, hash, versionNumber,
-      pngBase64, dataBase64, contentType: rawContentType, async: asyncMode,
+      pngBase64, dataBase64, contentType: rawContentType, async: asyncMode, pngAttemptId,
     } = body ?? {};
 
     // ---- input validation (confused-deputy mitigation) --------------------
@@ -502,11 +503,59 @@ export const onRequest = async ({
         attachmentName: params.attachmentName,
         contentType,
       };
+      const recordTerminalState = async (r: UploadResult) => {
+        if (contentType !== 'image/png' || typeof pngAttemptId !== 'string' || !/^[\w-]{8,80}$/.test(pngAttemptId)) return;
+        // A failed user read-check never authorizes an app-token page write.
+        // A thrown handler has unknown authorization progress, so skip too.
+        if (!r.ok && (r.stage === 'read_check' || r.stage === 'handler_error')) return;
+        const customContentId = /^zenuml-(\d+)\.png$/.exec(String(attachmentName))?.[1];
+        if (!customContentId) return;
+        const state = r.ok ? 'ready'
+          : r.stage === 'upload' && r.status === 404 && r.pageStatus && r.pageStatus !== 'current' ? 'waiting_for_publish'
+          : r.status === 401 || r.status === 403 ? 'upload_denied' : 'upload_failed';
+        const requestProperty = (url: string, method: string, value?: unknown) => fetch(`${apiBaseUrl}${url.replace(/^\/wiki/, '')}`, {
+          method,
+          headers: { Authorization: `Bearer ${systemToken}`, Accept: 'application/json',
+            ...(value ? { 'Content-Type': 'application/json' } : {}) },
+          ...(value ? { body: JSON.stringify(value) } : {}),
+        });
+        try {
+          const propertyFailures: Array<{ operation: string; reason: string }> = [];
+          const changed = await writePngState(requestProperty, {
+            pageId: String(pageId), customContentId, state, attemptId: pngAttemptId,
+            startedAt: Date.now(), contentHash: String(hash),
+            ...(r.ok ? { attachmentId: r.attachmentId } : {}),
+          }, (operation: string, error: unknown) => {
+            console.warn(`forge-upload-attachment: PNG state ${operation} failed`, error);
+            propertyFailures.push({ operation, reason: error instanceof Error ? error.message.slice(0, 40) : 'unknown' });
+          });
+          if (env?.MIXPANEL_TOKEN) {
+            for (const failure of propertyFailures) {
+              await mixpanelTrack({
+                event: 'png_export_state_persistence_failed', feature_area: 'macro', surface: 'backend',
+                page_id: String(pageId), custom_content_id: customContentId,
+                cloud_id: data.forgeContext?.cloudId, user_account_id: data.forgeContext?.accountId,
+                attachment_name: String(attachmentName),
+                png_export_property_operation: failure.operation, failure_reason: failure.reason,
+              }, env.MIXPANEL_TOKEN, env);
+            }
+            if (changed) await mixpanelTrack({
+              event: 'png_export_state_changed', feature_area: 'macro', surface: 'backend',
+              page_id: String(pageId), custom_content_id: customContentId, png_export_state: state,
+              cloud_id: data.forgeContext?.cloudId, user_account_id: data.forgeContext?.accountId,
+              attachment_name: String(attachmentName),
+            }, env.MIXPANEL_TOKEN, env);
+          }
+        } catch (error) {
+          console.warn('forge-upload-attachment: PNG state update failed', error);
+        }
+      };
       const work = doUpload(apiBaseUrl, systemToken, userToken, params)
         .then(async (r) => {
           if (!r.ok) console.warn(`forge-upload-attachment[async]: ${r.status} page=${pageId} name=${attachmentName}: ${r.body.slice(0, 200)}`);
           // The client is gone by now, so this is the ONLY place the outcome
           // can be recorded (#392).
+          await recordTerminalState(r);
           await reportAsyncOutcome(env, data.forgeContext, reportParams, r);
         })
         .catch(async (e) => {
@@ -514,12 +563,14 @@ export const onRequest = async ({
           // A thrown handler is still an outcome — reporting only the returned
           // `{ok:false}` results would leave network/runtime errors invisible,
           // which is the exact blind spot this reporting exists to close.
-          await reportAsyncOutcome(env, data.forgeContext, reportParams, {
+          const failed: UploadResult = {
             ok: false,
             status: 0,
             body: String(e?.message ?? e).slice(0, 200),
             stage: 'handler_error',
-          });
+          };
+          await recordTerminalState(failed);
+          await reportAsyncOutcome(env, data.forgeContext, reportParams, failed);
         });
       if (typeof waitUntil === 'function') {
         waitUntil(work);

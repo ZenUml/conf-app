@@ -394,6 +394,94 @@ describe('Attachment', () => {
       );
     });
 
+    describe('properties PUT HTTP status (#801)', () => {
+      // The real forgeRequest answers a JSON 4xx/5xx with the parsed body unless
+      // the caller opts in; model both behaviours so the spec fails when the
+      // properties PUT does not opt in.
+      const putFails = (status: number) => {
+        const body = JSON.stringify({ statusCode: status, message: `com.atlassian.confluence.api.service.exceptions.PermissionException: put ${status}` });
+        mockForgeRequest.mockImplementation(async (url: string, method: string, _data: unknown, opts?: { throwOnHttpError?: boolean }) => {
+          if (opts?.throwOnHttpError) {
+            throw new ForgeRequestError({ status, method, url, contentType: 'application/json', body, nonJson: false });
+          }
+          return JSON.parse(body);
+        });
+      };
+      const arrange = () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] })),
+        });
+      };
+
+      it('routes a JSON 403 on the properties PUT to the app fallback instead of reporting success', async () => {
+        arrange();
+        putFails(403);
+        mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'rescued-456', versionNumber: 1 });
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_app_fallback_started', 'export',
+          expect.objectContaining({ recovered_from_status: 403 }),
+        );
+        expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.anything());
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'created', 'attachment_upload_succeeded', 'export',
+          expect.objectContaining({ attachment_id: 'rescued-456', via_app_fallback: true }),
+        );
+      });
+
+      it('fails a JSON 500 on the properties PUT with http_status 500, never as success', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        arrange();
+        putFails(500);
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_succeeded', expect.any(String), expect.anything(),
+        );
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_500', 'attachment_upload_failed', 'export',
+          expect.objectContaining({ http_status: 500, failed_request: expect.stringMatching(/^PUT /) }),
+        );
+      });
+
+      it('treats a 200-wrapped {"statusCode":403} body on the properties PUT like a 403', async () => {
+        arrange();
+        mockForgeRequest.mockResolvedValue({ statusCode: 403, data: { authorized: true } });
+        mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'rescued-789', versionNumber: 1 });
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_app_fallback_started', 'export',
+          expect.objectContaining({ recovered_from_status: 403 }),
+        );
+      });
+
+      it('leaves a successful properties PUT unchanged and opts it in to HTTP-status errors', async () => {
+        arrange();
+        mockForgeRequest.mockResolvedValue({ id: 'attachment-123' });
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockForgeRequest).toHaveBeenCalledWith(
+          expect.stringContaining('/attachment-123'), 'PUT', expect.anything(), { throwOnHttpError: true },
+        );
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'created', 'attachment_upload_succeeded', 'export',
+          expect.objectContaining({ via_app_fallback: false }),
+        );
+        expect(mockCallRemote).not.toHaveBeenCalled();
+      });
+    });
+
     it('should recover a viewer-only 403 via the app fallback (issue #166)', async () => {
       // The headline scenario: the viewing user lacks attachment-write
       // permission so the direct upload 403s. The frontend hands the PNG to the

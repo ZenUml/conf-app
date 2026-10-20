@@ -1075,8 +1075,9 @@ export type AnalyticsProperties = {
   // field, which is the ambiguity #398 was filed about and the reason #435
   // chose `macro_type: 'none'` over omission.
   confluence_error_class?: string;
-  // attachment_upload_failed, only when `forgeRequest` got a non-JSON body
-  // (ForgeRequestError — an HTML error/login page instead of JSON).
+  // attachment_upload_failed, only when `forgeRequest` threw ForgeRequestError:
+  // a non-JSON body (an HTML error/login page instead of JSON) or, for callers
+  // that opt in, a JSON body with a non-2xx status (e.g. the properties PUT).
   // `failed_request` is the templated call that got it, e.g.
   // `GET /wiki/api/v2/pages/{id}/attachments` vs the properties PUT;
   // `response_content_type` / `response_title` say what the page was ('none'

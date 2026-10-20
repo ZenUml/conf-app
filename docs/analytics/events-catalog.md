@@ -63,6 +63,8 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `surface` | `"editor"` |
 | `macro_type` | Diagram type of the new macro |
 | `entry_point` | `"page_editor"` (inserted via slash menu / macro browser) |
+| `creation_origin` | Surface that started the create: `page_editor` (default), `byline_view`, `byline_editor`, `dashboard`, `homepage` (reserved, no create path today), `unknown` (a carried value was not recognised). Separate from `entry_point`, which stays `page_editor` for every editor-hosted create |
+| `creation_flow_id` | UUID generated once per editor iframe and shared by this iframe's start, success and cancel events — the join key for one creation |
 
 ---
 
@@ -78,6 +80,7 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `operation_mode` | `"create"` |
 | `content_id` / `custom_content_id` | The newly-created custom content ID returned by the server |
 | `attachment_name` | `zenuml-{newId}.png` |
+| `creation_origin` / `creation_flow_id` | Same values as on `macro_create_started` for this iframe |
 
 ---
 
@@ -113,6 +116,7 @@ never fires it. At most one event per iframe.
 | `close_source` | `host_close` (modal X), `discard_dialog`, `exit_button` |
 | `had_changes` | Content differed from what was loaded; omitted when unknown |
 | `editor_open_duration_ms` | Mount → close |
+| `creation_origin` / `creation_flow_id` | `macro_create_cancelled` only: same values as on `macro_create_started` for this iframe |
 | mutation summary | On text-editor edits, the same `had_global_replace` / delta buckets as `macro_save_succeeded` |
 
 **History:** Until 2026-09-11 `macro_edit_cancelled` fired only when a user confirmed **Discard** in

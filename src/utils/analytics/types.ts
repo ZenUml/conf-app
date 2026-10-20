@@ -6,6 +6,7 @@ import type {
   MacroTypeValue,
   Surface,
   EntryPoint,
+  CreationOrigin,
   OperationMode,
   RenderMode,
   RenderGateMode,
@@ -128,6 +129,15 @@ export type AnalyticsProperties = {
   // the same one event and the two are directly comparable.
   viewport_input?: "toolbar" | "wheel";
   entry_point?: EntryPoint;
+  // Create funnel only (macro_create_started / macro_create_succeeded /
+  // macro_create_cancelled). `creation_origin` names the surface that started
+  // the create (see CreationOrigin). `creation_flow_id` is generated once per
+  // editor iframe, the first time a create event is emitted, and shared by that
+  // iframe's start, success and cancel events; it is the join key for one
+  // creation. It is not `macro_uuid` (absent for a byline create: there is no
+  // macro yet) and not `journey_id` (only on macro_authoring_ended).
+  creation_origin?: CreationOrigin;
+  creation_flow_id?: string;
   confluence_space?: string;
   macro_uuid?: string;
   // Lifecycle

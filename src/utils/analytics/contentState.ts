@@ -91,3 +91,16 @@ export function viewContentState(
   if (!diagram.diagramType || diagram.diagramType === DiagramType.Unknown) return undefined;
   return classifyContentState(diagram, diagramType);
 }
+
+// The empty-body branches of the viewers (Mermaid, PlantUML, Graph, Markdown)
+// return before they render, and so before trackRenderTime. They call this to
+// decide whether to still report the view with `content_state: 'empty'`: only
+// a document that genuinely loaded with an empty body of the viewer's own type
+// counts. viewContentState alone is not enough here because an empty viewer
+// field also reads `empty` when the store holds a different type's document.
+export function isLoadedEmptyBody(
+  diagram: Parameters<typeof viewContentState>[0],
+  diagramType: DiagramType,
+): boolean {
+  return diagram?.diagramType === diagramType && viewContentState(diagram, diagramType) === 'empty';
+}

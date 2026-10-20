@@ -36,7 +36,7 @@ import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
-import { viewContentState } from "@/utils/analytics/contentState";
+import { isLoadedEmptyBody, viewContentState } from "@/utils/analytics/contentState";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
@@ -74,6 +74,7 @@ export default {
       currentPage: 0,
       pageCount: 0,
       graphRendered: false,
+      emptyViewReported: false,
       wheelZoomHandler: null,
     };
   },
@@ -110,7 +111,14 @@ export default {
   watch: {
     effectiveGraphXml() {
       this.renderViewer();
-    }
+    },
+    // #113: the shell mounts with graphXml '' and the document arrives later.
+    // A wiped body is '' too, so effectiveGraphXml does not change and the
+    // watcher above stays silent. The type flipping from Unknown is the signal
+    // that a document landed; emptyViewReported keeps this to one report.
+    '$store.state.diagram.diagramType'() {
+      if (!this.effectiveGraphXml && !this.emptyViewReported) this.renderViewer();
+    },
   },
   methods: {
     failBoardLoad(errorCode, cause) {
@@ -154,7 +162,19 @@ export default {
           return;
         }
       }
-      if (!container || !this.effectiveGraphXml) return;
+      if (!container) return;
+      if (!this.effectiveGraphXml) {
+        // #113: an empty body is the wipe signal. Report the view, with the
+        // verdict, without constructing a GraphViewer. A shell that never
+        // loaded has no verdict (isLoadedEmptyBody) and stays silent; the
+        // `emptyViewReported` flag keeps a re-run of this method from
+        // reporting the same mount twice.
+        if (!this.emptyViewReported && isLoadedEmptyBody(diagram, DiagramType.Graph)) {
+          this.emptyViewReported = true;
+          trackRenderTime('graph', this.$store.getters.isDisplayMode, 'live_render', 'none', 'empty');
+        }
+        return;
+      }
       container.innerHTML = '';
       try {
         // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>

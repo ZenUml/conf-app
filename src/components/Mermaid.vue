@@ -27,7 +27,7 @@ import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
-import { viewContentState } from '@/utils/analytics/contentState';
+import { isLoadedEmptyBody, viewContentState } from '@/utils/analytics/contentState';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
@@ -72,7 +72,15 @@ export default {
   },
   async mounted() {
     const code = this.mermaidCode;
-    if (!code) return;
+    if (!code) {
+      // #113: an empty body is the wipe signal. Report the view, with the
+      // verdict, without attempting a render. A shell that never loaded has no
+      // verdict (isLoadedEmptyBody) and stays silent.
+      if (isLoadedEmptyBody(this.$store.state.diagram, DiagramType.Mermaid)) {
+        trackRenderTime('mermaid', this.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      return;
+    }
     const applied = await this.renderAndApply(code, true);
     if (applied) {
       trackRenderTime(

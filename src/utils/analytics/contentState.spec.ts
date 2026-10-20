@@ -4,7 +4,7 @@ import Example from '@/utils/sequence/Example';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { EMPTY_GRAPH } from '@/utils/graph/emptyGraph';
 import { compress } from '@/utils/compress';
-import { classifyContentState, viewContentState } from './contentState';
+import { classifyContentState, isLoadedEmptyBody, viewContentState } from './contentState';
 
 describe('classifyContentState', () => {
   const cases: Array<[DiagramType, string, string]> = [
@@ -95,5 +95,32 @@ describe('viewContentState', () => {
   it('returns no verdict for the NULL_DIAGRAM loading shell (diagramType Unknown)', () => {
     expect(viewContentState(NULL_DIAGRAM, DiagramType.OpenApi)).toBeUndefined();
     expect(viewContentState({ code: '' }, DiagramType.OpenApi)).toBeUndefined();
+  });
+});
+
+describe('isLoadedEmptyBody (#113: the empty-body branches of the viewers)', () => {
+  it('is true only for a document that loaded with an empty body of the viewer\'s own type', () => {
+    expect(isLoadedEmptyBody({ diagramType: DiagramType.Mermaid, mermaidCode: '' }, DiagramType.Mermaid)).toBe(true);
+    expect(isLoadedEmptyBody({ diagramType: DiagramType.Mermaid, mermaidCode: ' \n' }, DiagramType.Mermaid)).toBe(true);
+    expect(isLoadedEmptyBody({ diagramType: DiagramType.Graph, graphXml: undefined }, DiagramType.Graph)).toBe(true);
+  });
+
+  it('is false for a non-empty body', () => {
+    expect(isLoadedEmptyBody({ diagramType: DiagramType.Mermaid, mermaidCode: 'graph TD' }, DiagramType.Mermaid)).toBe(false);
+  });
+
+  it('is false when nothing loaded (shell, load error, blocked legacy load, missing doc)', () => {
+    expect(isLoadedEmptyBody(NULL_DIAGRAM, DiagramType.Mermaid)).toBe(false);
+    expect(isLoadedEmptyBody(
+      { diagramType: DiagramType.Mermaid, mermaidCode: '', loadError: { httpStatus: 500 } }, DiagramType.Mermaid,
+    )).toBe(false);
+    expect(isLoadedEmptyBody(
+      { diagramType: DiagramType.Mermaid, mermaidCode: '', legacyLoadBlocked: true }, DiagramType.Mermaid,
+    )).toBe(false);
+    expect(isLoadedEmptyBody(undefined, DiagramType.Mermaid)).toBe(false);
+  });
+
+  it('is false when the store holds another type\'s document (its field is empty only because it is not that type)', () => {
+    expect(isLoadedEmptyBody({ diagramType: DiagramType.Sequence, mermaidCode: '' }, DiagramType.Mermaid)).toBe(false);
   });
 });

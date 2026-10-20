@@ -35,7 +35,7 @@ import globals from '@/model/globals';
 import EventBus from '@/EventBus';
 import { debounce } from 'lodash';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
-import { viewContentState } from '@/utils/analytics/contentState';
+import { isLoadedEmptyBody, viewContentState } from '@/utils/analytics/contentState';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 
@@ -75,7 +75,18 @@ export default {
   },
   async mounted() {
     this.debouncedRender = debounce(this.fetchSvg, 500);
-    if (!this.plantUmlCode) return;
+    if (!this.plantUmlCode) {
+      // #113: forgeIndex backfills an empty body with the example, but the
+      // embed viewer mounts the referenced document as stored, so a wiped body
+      // can arrive here. Report the view with the verdict, without rendering;
+      // initialRenderTracked keeps a body that arrives later from being a
+      // second view of this mount.
+      if (!this.initialRenderTracked && isLoadedEmptyBody(this.$store.state.diagram, DiagramType.PlantUml)) {
+        this.initialRenderTracked = true;
+        trackRenderTime('plantuml', this.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      return;
+    }
     await this.validateAndRender(this.plantUmlCode);
     // Type may have switched during the async render — the gated computed
     // would then be `false` and the store diagramType stale. Skip; the new

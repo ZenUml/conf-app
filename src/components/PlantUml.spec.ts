@@ -118,6 +118,41 @@ describe('PlantUml pan/zoom viewport', () => {
     expect(props).toMatchObject({ macro_type: 'plantuml', content_state: expected });
   });
 
+  // #113: forgeIndex backfills an empty body with the example on the main load
+  // path, but the embed viewer mounts the referenced document as stored, so a
+  // wiped PlantUML body can reach this component. It reports the view with the
+  // verdict and does not hit the render server.
+  it('emits one macro_viewed with content_state=empty for a loaded empty body and does not fetch (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: '' };
+
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const viewed = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
+    expect(viewed).toHaveLength(1);
+    expect(viewed[0][1]).toMatchObject({ macro_type: 'plantuml', content_state: 'empty' });
+    expect(window.fetch).not.toHaveBeenCalled();
+
+    // The body arriving later in the same mount must not be a second view.
+    store.state.diagram = { ...store.state.diagram, plantUmlCode: '@startuml\nA -> B\n@enduml' };
+    await vi.waitFor(() => expect(window.fetch).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed')).toHaveLength(1);
+  });
+
+  it('emits no macro_viewed for an empty PlantUML body that never loaded (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM };
+
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(false);
+  });
+
   it('reports viewport actions as plantuml', async () => {
     (window as { forgeGlobal?: unknown }).forgeGlobal = { forgeContext: { extension: {} } };
 

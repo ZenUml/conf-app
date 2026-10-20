@@ -119,12 +119,36 @@ describe('Mermaid render-failure telemetry', () => {
     expect(props).toMatchObject({ macro_type: 'mermaid', content_state: expected });
   });
 
-  // Documents the limit of #113's wipe signal: Mermaid bails out of mounted()
-  // before trackRenderTime when the body is empty, so an empty mermaid body
-  // emits no macro_viewed (and therefore no content_state=empty).
-  it('emits no macro_viewed for an empty body, so content_state=empty is unobservable for mermaid', async () => {
+  // #113: an empty body is the wipe signal, so the empty branch of mounted()
+  // still reports the view, with the verdict and without attempting a render.
+  it.each([
+    ['empty string', ''],
+    ['whitespace only', '  \n\t '],
+  ])('emits one macro_viewed with content_state=empty for a loaded %s body and does not render (#113)', async (_label, code) => {
+    const render = vi.fn(() => Promise.resolve({ svg: '<svg>ok</svg>' }));
+    loadMermaidMock.mockResolvedValue({ render });
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: code };
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const viewed = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
+    expect(viewed).toHaveLength(1);
+    expect(viewed[0][1]).toMatchObject({ macro_type: 'mermaid', content_state: 'empty' });
+    expect(render).not.toHaveBeenCalled();
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'viewer_load_failed')).toBe(false);
+  });
+
+  // A shell that never loaded has an empty body because nothing was read, not
+  // because anyone wiped it: no event, never `empty`.
+  it.each([
+    ['NULL_DIAGRAM shell', { ...NULL_DIAGRAM }],
+    ['load error', { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: '', loadError: { errorClass: 'http', errorCode: 'x', terminal: true } }],
+    ['legacy load blocked', { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: '', legacyLoadBlocked: true }],
+  ])('emits no macro_viewed for an empty body when the doc never loaded: %s (#113)', async (_label, diagram) => {
     loadMermaidMock.mockResolvedValue({ render: vi.fn(() => Promise.resolve({ svg: '<svg>ok</svg>' })) });
-    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: '' };
+    store.state.diagram = diagram as typeof store.state.diagram;
 
     const wrapper = mount(Mermaid, { global: { plugins: [store] } });
     await wrapper.vm.$nextTick();

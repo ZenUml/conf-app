@@ -1416,6 +1416,84 @@ describe('ApWrapper2', () => {
     });
   });
 
+  // conf-app#523: Confluence reports an unpublished (draft) page's id as the
+  // sentinel "0". It is truthy, so it used to be sent as the custom-content
+  // `pageId` parent and Confluence answered 404 "parent page 0 not found".
+  describe('createCustomContentV2 parent selection (#523)', () => {
+    const created = { id: 'new-cc-1', version: { number: 1 } };
+
+    function stubParents(pageId: unknown, space: unknown) {
+      (wrapper as any)._getCurrentPageId = vi.fn().mockResolvedValue(pageId);
+      (wrapper as any).getCurrentSpace = vi.fn().mockResolvedValue(space);
+    }
+
+    function postedBody() {
+      const call = vi.mocked(forgeRequest).mock.calls.find(
+        (c) => c[0] === '/wiki/api/v2/custom-content' && c[1] === 'POST',
+      );
+      expect(call).toBeDefined();
+      return call![2] as Record<string, unknown>;
+    }
+
+    it('keeps using pageId for a valid persisted page id', async () => {
+      stubParents('456', { id: '789', key: 'S' });
+      vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+      await wrapper.createCustomContentV2(buildDiagram());
+
+      const body = postedBody();
+      expect(body.pageId).toBe('456');
+      expect(body).not.toHaveProperty('spaceId');
+    });
+
+    it.each([
+      ['"0"', '0'],
+      ['0', 0],
+      ['""', ''],
+      ['null', null],
+      ['undefined', undefined],
+    ])('sends exactly spaceId and no pageId when the page id is %s', async (_label, invalid) => {
+      stubParents(invalid, { id: '789', key: 'S' });
+      vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+      const result = await wrapper.createCustomContentV2(buildDiagram());
+
+      const body = postedBody();
+      expect(body.spaceId).toBe('789');
+      expect(body).not.toHaveProperty('pageId');
+      expect(result.id).toBe('new-cc-1');
+    });
+
+    it('falls back to the space when forgeContext reports the draft sentinel "0"', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = {
+        extension: { content: { id: '0' }, space: { id: '789', key: 'S' } },
+      };
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+        await wrapper.createCustomContentV2(buildDiagram());
+
+        const body = postedBody();
+        expect(body.spaceId).toBe('789');
+        expect(body).not.toHaveProperty('pageId');
+      } finally {
+        (forgeGlobalMod.default as any).forgeContext = null;
+      }
+    });
+
+    it.each([
+      ['"0"', '0'],
+      ['undefined', undefined],
+    ])('throws without calling Confluence when the page id is %s and no space id is available', async (_label, invalid) => {
+      stubParents(invalid, { key: 'S' });
+
+      await expect(wrapper.createCustomContentV2(buildDiagram()))
+        .rejects.toThrow(/no page or space context available/);
+      expect(forgeRequest).not.toHaveBeenCalled();
+    });
+  });
+
   // Create-time 404 diagnosis (2026-08-29 incident: 47 bare-404 create failures
   // at one Lite tenant, cause only recoverable by hand). The thrown error must
   // carry the envelope classification, and the wrapper must be able to ask

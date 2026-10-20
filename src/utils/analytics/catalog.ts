@@ -1136,6 +1136,24 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // Hidden-Mermaid wait (#706). Since PR #695 the viewer waits, with no deadline,
+  // for an SVG text layout when mermaid.render() throws `svg element not in
+  // render tree` (collapsed expand, background tab, display:none ancestor), and
+  // a hidden macro and a silently broken one looked the same in Mixpanel (a
+  // boot with neither macro_viewed nor viewer_load_failed). Three outcomes of
+  // that wait, none of which retries or blanks the diagram:
+  // - viewer_render_deferred: ONE heartbeat per wait, emitted when the wait
+  //   passes 10 s. Props: macro_type=mermaid, surface, reason='no_layout',
+  //   waited_ms (time actually waited at emit), plus render_gate /
+  //   visible_at_boot when the viewport gate recorded them.
+  // - viewer_render_abandoned: the wait was cancelled before it resolved
+  //   (unmount, diagram cleared or replaced). Same props; waited_ms is the
+  //   total wait. Sent with sendBeacon (trackAnalyticsEventBeforeUnload)
+  //   because the cancel usually coincides with iframe teardown.
+  // - success: macro_viewed carries layout_wait_ms (types.ts), the same shape as
+  //   render_deferred_ms; a retry that fails still goes out as viewer_load_failed.
+  | "viewer_render_deferred"
+  | "viewer_render_abandoned"
   // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
   // `retry()` is a bare location.reload(), so the click and its result sit in
   // two different page lifetimes: the click event is emitted before the reload,

@@ -35,6 +35,7 @@ import globals from '@/model/globals';
 import EventBus from '@/EventBus';
 import { debounce } from 'lodash';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { viewContentState } from '@/utils/analytics/contentState';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 
@@ -161,7 +162,10 @@ export default {
         });
         if (!this.initialRenderTracked) {
           this.initialRenderTracked = true;
-          trackRenderTime('plantuml', this.isDisplayMode);
+          trackRenderTime(
+            'plantuml', this.isDisplayMode, 'live_render', 'none',
+            viewContentState(this.$store.state.diagram, DiagramType.PlantUml),
+          );
         }
       } catch (err) {
         console.error('PlantUML render error', err);

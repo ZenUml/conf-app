@@ -27,6 +27,7 @@ import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { viewContentState } from '@/utils/analytics/contentState';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
@@ -74,7 +75,10 @@ export default {
     if (!code) return;
     const applied = await this.renderAndApply(code, true);
     if (applied) {
-      trackRenderTime('mermaid', this.isDisplayMode);
+      trackRenderTime(
+        'mermaid', this.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.$store.state.diagram, DiagramType.Mermaid),
+      );
       EventBus.$emit('diagramLoaded', code, DiagramType.Mermaid);
     }
     await globals.apWrapper.initializeContext();

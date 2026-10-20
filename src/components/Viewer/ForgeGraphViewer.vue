@@ -36,6 +36,8 @@ import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { viewContentState } from "@/utils/analytics/contentState";
+import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import {
@@ -183,7 +185,12 @@ export default {
         this.graphRendered = true;
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
-        trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        // Classify the XML that was rendered (effectiveGraphXml honours the
+        // `graphXml` prop and the Board document), not just store.graphXml.
+        trackRenderTime(
+          'graph', this.$store.getters.isDisplayMode, 'live_render', 'none',
+          viewContentState({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph),
+        );
         // Graph emits no 'diagramLoaded' (that event belongs to the text-DSL
         // renderers). An export-entry Fullscreen open waits for this before it
         // opens the export dialog, so the dialog's first capture is of a

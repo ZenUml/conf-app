@@ -101,6 +101,38 @@ describe('Mermaid render-failure telemetry', () => {
     expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(false);
   });
 
+  it.each([
+    ['authored', 'graph TD\nA-->B', 'authored'],
+    ['bundled example', 'sequenceDiagram\n    Alice->>John: Hello John, how are you?\n    John-->>Alice: Great!\n    Alice-)John: See you later!\n', 'default'],
+  ])('macro_viewed carries content_state for a %s body (#113)', async (_label, code, expected) => {
+    loadMermaidMock.mockResolvedValue({
+      render: vi.fn(() => Promise.resolve({ svg: '<svg>ok</svg>' })),
+    });
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: code };
+
+    mount(Mermaid, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ macro_type: 'mermaid', content_state: expected });
+  });
+
+  // Documents the limit of #113's wipe signal: Mermaid bails out of mounted()
+  // before trackRenderTime when the body is empty, so an empty mermaid body
+  // emits no macro_viewed (and therefore no content_state=empty).
+  it('emits no macro_viewed for an empty body, so content_state=empty is unobservable for mermaid', async () => {
+    loadMermaidMock.mockResolvedValue({ render: vi.fn(() => Promise.resolve({ svg: '<svg>ok</svg>' })) });
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Mermaid, mermaidCode: '' };
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(false);
+  });
+
   it('does not fire viewer_load_failed on a clean render', async () => {
     loadMermaidMock.mockResolvedValue({
       render: vi.fn(() => Promise.resolve({ svg: '<svg>ok</svg>' })),

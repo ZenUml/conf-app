@@ -5,6 +5,7 @@ import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
+import Example from '@/utils/sequence/Example';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -98,6 +99,23 @@ describe('PlantUml pan/zoom viewport', () => {
     expect(wrapper.get('[role="toolbar"]').attributes('aria-label')).toBe('PlantUML zoom controls');
     // captureCrop.ts and the export-entry framing rules both select this class.
     expect(wrapper.get('.diagram-viewport-content').classes()).toContain('plantuml-render');
+  });
+
+  it.each([
+    ['authored', '@startuml\nAlice -> Bob: Hello\n@enduml', 'authored'],
+    ['bundled example', Example.PlantUml, 'default'],
+  ])('macro_viewed carries content_state for a %s body (#113)', async (_label, code, expected) => {
+    (window as { forgeGlobal?: unknown }).forgeGlobal = { forgeContext: { extension: {} } };
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: code };
+
+    mount(PlantUml, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ macro_type: 'plantuml', content_state: expected });
   });
 
   it('reports viewport actions as plantuml', async () => {

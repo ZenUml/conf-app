@@ -12,6 +12,8 @@ import { useStore } from 'vuex';
 import { renderMarkdown } from '@/utils/markdown/renderMarkdown';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { viewContentState } from '@/utils/analytics/contentState';
+import { DiagramType } from '@/model/Diagram/Diagram';
 import { hasLayout, awaitLayout } from '@/utils/renderGate/documentLayout';
 import EventBus from '@/EventBus';
 import md5 from 'md5';
@@ -59,7 +61,10 @@ watch(source, (code: string) => {
         markdown_failed_blocks: result.failedBlocks,
       });
       await nextTick();
-      trackRenderTime('markdown', store.getters.isDisplayMode);
+      trackRenderTime(
+        'markdown', store.getters.isDisplayMode, 'live_render', 'none',
+        viewContentState(store.state.diagram, DiagramType.Markdown),
+      );
       EventBus.$emit('diagramLoaded', code, 'markdown');
     } catch {
       if (current !== revision) return;

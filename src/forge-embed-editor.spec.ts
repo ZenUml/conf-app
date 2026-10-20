@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// conf-app#519: 46 Embed macro_create_started in 30 days, zero
+// conf-app#519: Embed macro_create_started far outnumbers
 // macro_create_succeeded / macro_save_succeeded. These tests drive the real
 // editor entry (forge-embed-editor.ts): it is imported, mounted through a
 // mocked mountRoot, and the saveEmbedAndExit prop it hands the Vue shell is
@@ -17,6 +17,8 @@ const h = vi.hoisted(() => ({
   markCsatPending: vi.fn(),
   getMacroData: vi.fn(),
   isFetchable: vi.fn(),
+  endEditJourney: vi.fn(),
+  getEditJourneyId: vi.fn(),
   view: { close: vi.fn(), submit: vi.fn() },
   context: {} as any,
   order: [] as string[],
@@ -52,9 +54,9 @@ vi.mock('@/utils/restoreDraftBanner', () => ({ installRestoreDraftBanner: vi.fn(
 vi.mock('@/components/DrawIoExtension/ForgeEmbedEditor.vue', () => ({ default: {} }));
 vi.mock('@/utils/journeyTracking', () => ({
   startEditJourney: vi.fn(),
-  endEditJourney: vi.fn(),
+  endEditJourney: h.endEditJourney,
   getOrCreateSession: vi.fn(),
-  getEditJourneyId: vi.fn(() => undefined),
+  getEditJourneyId: h.getEditJourneyId,
   continueEditJourney: vi.fn(),
   setEditJourneyMeta: vi.fn(),
 }));
@@ -103,7 +105,10 @@ describe('forge-embed-editor analytics (#519)', () => {
       h.trackAnalyticsEvent, h.trackAnalyticsEventBeforeUnload, h.trackEvent, h.mountRoot,
       h.markEditorSaved, h.markEditorAuthoringStarted, h.registerEditorCloseTracking,
       h.markCsatPending, h.getMacroData, h.isFetchable, h.view.close, h.view.submit,
+      h.endEditJourney, h.getEditJourneyId,
     ]) m.mockReset();
+    // A journey is open for the whole session (startEditJourney is mocked).
+    h.getEditJourneyId.mockReturnValue('journey-1');
     h.trackAnalyticsEventBeforeUnload.mockResolvedValue(undefined);
     h.isFetchable.mockResolvedValue(true);
     h.view.submit.mockResolvedValue(undefined);
@@ -225,5 +230,48 @@ describe('forge-embed-editor analytics (#519)', () => {
     expect(h.markEditorSaved).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(600);
     expect(h.markEditorSaved).toHaveBeenCalledTimes(1);
+  });
+
+  describe('edit journey end (macro_authoring_ended)', () => {
+    const savedEnds = () => h.endEditJourney.mock.calls.filter(([r]) => r === 'saved');
+
+    it('a pick rejected by the invalid-id gate does not end the journey as saved', async () => {
+      const props = await openEditor(newInsertContext);
+      await save(props, 'undefined');
+
+      expect(savedEnds()).toHaveLength(0);
+      expect(h.endEditJourney).not.toHaveBeenCalled();
+    });
+
+    it('a pick rejected by the not-fetchable gate does not end the journey as saved', async () => {
+      h.isFetchable.mockResolvedValue(false);
+      const props = await openEditor(newInsertContext);
+      await save(props);
+
+      expect(savedEnds()).toHaveLength(0);
+      expect(h.endEditJourney).not.toHaveBeenCalled();
+    });
+
+    it('a rejected pick followed by a cancel emits no saved end', async () => {
+      h.isFetchable.mockResolvedValue(false);
+      const props = await openEditor(newInsertContext);
+      await save(props);
+      await props.exit();
+
+      expect(savedEnds()).toHaveLength(0);
+    });
+
+    it('a successful pick ends the journey as saved exactly once, after the gates and before the success event', async () => {
+      h.isFetchable.mockImplementation(async () => { h.order.push('fetchable'); return true; });
+      h.endEditJourney.mockImplementation((r: string) => { h.order.push(`end:${r}`); });
+      h.trackAnalyticsEventBeforeUnload.mockImplementation(async (n: string) => { h.order.push(`event:${n}`); });
+      h.view.submit.mockImplementation(async () => { h.order.push('submit'); });
+      const props = await openEditor(newInsertContext);
+      await save(props);
+
+      expect(savedEnds()).toHaveLength(1);
+      expect(allEvents('macro_create_succeeded')).toHaveLength(1);
+      expect(h.order).toEqual(['fetchable', 'end:saved', 'event:macro_create_succeeded', 'submit']);
+    });
   });
 });

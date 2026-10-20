@@ -60,10 +60,6 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
     attachment_name: `zenuml-${selectedCustomContentId}.png`,
   };
 
-  if (getEditJourneyId()) {
-    endEditJourney('saved');
-  }
-
   setTimeout(async () => {
     try {
       if (!isValidCustomContentId(selectedCustomContentId)) {
@@ -100,11 +96,20 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
       }
       // The save is going to be submitted: only now is it a success. Reported
       // here, after the invalid-id and not-fetchable gates, so a pick that keeps
-      // the editor open is not counted. Awaited with the sendBeacon transport
-      // because view.submit tears this iframe down: the fire-and-forget XHR
-      // (Mixpanel batches for 5 s) never left, which is why production showed
-      // 0 success events against 46 starts (conf-app#519). Embed bypasses
-      // Persistence.ts, so the saved mark (see editorCloseOutcome) is here too.
+      // the editor open is not counted. The authoring journey ends here too, for
+      // the same reason: ending it before the gates emitted macro_authoring_ended
+      // 'saved' for a rejected pick, and a later close then emitted
+      // macro_create_cancelled, so the two events contradicted each other.
+      // The success event is awaited (sendBeacon transport) so it is ordered
+      // before view.submit tears this iframe down. Delivery stays best-effort:
+      // Mixpanel keeps batching unless send_immediately is set, so the await
+      // does not guarantee the event leaves the browser. The correctness fix for
+      // conf-app#519 is the single operation-mode discriminator above, not the
+      // await. Embed bypasses Persistence.ts, so the saved mark (see
+      // editorCloseOutcome) is here too.
+      if (getEditJourneyId()) {
+        endEditJourney('saved');
+      }
       markEditorSaved();
       await trackAnalyticsEventBeforeUnload(
         isNew ? "macro_create_succeeded" : "macro_save_succeeded",

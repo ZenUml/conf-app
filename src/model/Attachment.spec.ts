@@ -698,6 +698,116 @@ describe('Attachment', () => {
       expect(String(props.error_message)).not.toContain('"authorized"');
     });
 
+    // #75 — the existence gate reads v2 but the write is v1. When v2 misses an
+    // attachment v1 already holds (visibility lag, or a concurrent upload from
+    // another iframe on the same page), the create POST 400s with "same file
+    // name". That must recover by re-resolving via v1 and uploading a new version.
+    describe('same-file-name 400 recovery (#75)', () => {
+      const sameNameBody = JSON.stringify({
+        statusCode: 400,
+        data: { authorized: true, valid: true, errors: [], successful: true },
+        message:
+          'com.atlassian.confluence.api.service.exceptions.api.BadRequestException: Cannot add a new attachment with same file name as an existing attachment: zenuml-test-uuid.png',
+      });
+      const resp = (ok: boolean, status: number, body: string) => ({
+        ok,
+        status,
+        text: vi.fn().mockResolvedValue(body),
+      });
+      const sameName = () => resp(false, 400, sameNameBody);
+      const v1ReadUrl =
+        '/wiki/rest/api/content/page-123/child/attachment?filename=zenuml-test-uuid.png&expand=version';
+
+      // Attachment-endpoint POSTs answer from a queue (the last entry repeats);
+      // every other requestConfluence call (page-property reads) gets an empty 200.
+      let uploadResponses: ReturnType<typeof resp>[] = [];
+      const uploadUrls = () =>
+        mockRequestConfluence.mock.calls.map((c: unknown[]) => c[0] as string).filter((u) => u.includes('/child/attachment'));
+
+      beforeEach(() => {
+        uploadResponses = [];
+        mockRequestConfluence.mockReset();
+        mockRequestConfluence.mockImplementation(async (url: string) => {
+          if (!url.includes('/child/attachment')) return resp(true, 200, '{}');
+          return uploadResponses.length > 1 ? uploadResponses.shift() : uploadResponses[0];
+        });
+        mockForgeRequest.mockReset();
+        mockForgeRequest.mockResolvedValue({});
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]); // v2 miss
+      });
+
+      it('retries once as a new version and reports success with a recovery marker', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')]; // create 400s, new-version POST lands
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 1 } }, { id: 'att-old', version: { number: 4 } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual([
+          '/wiki/rest/api/content/page-123/child/attachment',
+          '/wiki/rest/api/content/page-123/child/attachment/att-old/data',
+        ]);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'updated',
+          'attachment_upload_succeeded',
+          'export',
+          expect.objectContaining({
+            version_number: 5,
+            attachment_id: 'att-old',
+            recovered_from: 'same_name_400',
+          }),
+        );
+        expect(
+          mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed'),
+        ).toHaveLength(0);
+      });
+
+      it('does not mark a normal create as recovered', async () => {
+        uploadResponses = [resp(true, 200, JSON.stringify({ results: [{ id: 'attachment-123' }] }))];
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual(['/wiki/rest/api/content/page-123/child/attachment']);
+        const succeeded = mockTrackEvent.mock.calls.find(
+          (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
+        );
+        expect(succeeded?.[0]).toBe('created');
+        expect(succeeded?.[3]).not.toHaveProperty('recovered_from');
+      });
+
+      it('still fails with the original error when v1 cannot find the attachment', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        uploadResponses = [sameName()];
+        mockForgeRequest.mockResolvedValue({ results: [] });
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(/same file name/);
+
+        expect(uploadUrls()).toHaveLength(1);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_400',
+          'attachment_upload_failed',
+          'export',
+          expect.anything(),
+        );
+      });
+
+      it('retries only once when the new-version upload also fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        uploadResponses = [sameName()]; // every attachment POST answers same-name
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl ? { results: [{ id: 'att-old', version: { number: 1 } }] } : {},
+        );
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow();
+
+        expect(uploadUrls()).toHaveLength(2);
+      });
+    });
+
     it('salvages the message from a truncated envelope (backend relays 500 chars)', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));

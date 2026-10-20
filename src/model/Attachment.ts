@@ -785,6 +785,31 @@ async function tryGetAttachment(identifierOverride?: string): Promise<Attachment
   return descending.length > 0 && descending[0];
 }
 
+/** v1 answer for "a new attachment with this name already exists" (#75). */
+const SAME_FILE_NAME_RE = /Cannot add a new attachment with same file name/i;
+
+function isSameFileNameError(e: unknown): boolean {
+  return e instanceof AttachmentUploadHttpError && e.status === 400 && SAME_FILE_NAME_RE.test(e.message);
+}
+
+/**
+ * Re-resolve the attachment by name through the v1 API — the API the write
+ * goes through — instead of v2, which is what `tryGetAttachment` gates on and
+ * which just missed it (#75: v2/v1 visibility lag, or another iframe on the
+ * page created the same name a moment ago). Returns the highest version, or
+ * undefined when v1 does not list it either.
+ */
+async function findAttachmentViaV1(
+  pageId: string,
+  attachmentName: string,
+): Promise<AttachmentWithLinks | undefined> {
+  const url = `${buildAttachmentBasePath(pageId)}?filename=${encodeURIComponent(attachmentName)}&expand=version`;
+  const response = await forgeRequest(`/wiki${url}`, 'GET');
+  const results: AttachmentWithLinks[] = Array.isArray(response?.results) ? [...response.results] : [];
+  results.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
+  return results[0];
+}
+
 /**
  * Turn the raw upload response into AttachmentMeta, surfacing the two
  * "HTTP 200 with an error wrapped in the body" shapes the v1 API produces:
@@ -1034,7 +1059,7 @@ async function createAttachmentIfContentChanged(
       const identifier = overrideId ?? await getIdentifier();
       const attachmentName = attachmentNameByIdentifier(identifier!);
       const base = buildAttachmentBasePath(pageId);
-      const target: UploadTarget = isUpdate
+      let target: UploadTarget = isUpdate
         ? {
             isUpdate: true,
             attachmentId: (attachment as AttachmentWithLinks).id,
@@ -1076,9 +1101,31 @@ async function createAttachmentIfContentChanged(
 
       let attachmentMeta: AttachmentMeta;
       let viaAppFallback = false;
+      // Set when the create POST hit v1's "same file name" 400 and we recovered
+      // by uploading a new version of the attachment v2 had missed (#75).
+      let recoveredFrom: 'same_name_400' | undefined;
+      const postAndParse = async (t: UploadTarget): Promise<AttachmentMeta> =>
+        parseUploadResult(await postAttachmentAsUser(attachmentName, t.uri, effectiveHash, blob), t, effectiveHash);
       try {
-        const response = await postAttachmentAsUser(attachmentName, target.uri, effectiveHash, blob);
-        attachmentMeta = parseUploadResult(response, target, effectiveHash);
+        try {
+          attachmentMeta = await postAndParse(target);
+        } catch (createError) {
+          // The existence gate read v2 but this write is v1. If v1 already
+          // holds the name, retry ONCE as a new version of it. Only the create
+          // path can produce this; anything v1 can't find re-throws the
+          // original error unchanged.
+          if (target.isUpdate || !isSameFileNameError(createError)) throw createError;
+          const existing = await findAttachmentViaV1(pageId, attachmentName).catch(() => undefined);
+          if (!existing) throw createError;
+          target = {
+            isUpdate: true,
+            attachmentId: existing.id,
+            versionNumber: (existing.version?.number ?? 0) + 1,
+            uri: base + '/' + existing.id + '/data',
+          };
+          recoveredFrom = 'same_name_400';
+          attachmentMeta = await postAndParse(target);
+        }
         await updateAttachmentProperties(attachmentMeta);
       } catch (e) {
         // Viewer-only users (issue #166) lack attachment-write permission on the
@@ -1110,11 +1157,12 @@ async function createAttachmentIfContentChanged(
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit only once the write (and its
       // properties PUT) really landed, whether via the user or the app path.
-      trackEvent(isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
+      trackEvent(target.isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
         ...ctx,
         version_number: attachmentMeta.versionNumber,
         attachment_id: attachmentMeta.attachmentId,
         via_app_fallback: viaAppFallback,
+        ...(recoveredFrom ? { recovered_from: recoveredFrom } : {}),
         ...(opts?.fromSave ? { from_save: true } : {}),
       });
       await recordPngState(pageId, macroCustomContentId, 'ready', pngAttemptId,

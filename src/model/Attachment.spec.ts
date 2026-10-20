@@ -74,6 +74,7 @@ vi.mock('@forge/bridge', () => ({
 }));
 
 import createAttachmentIfContentChanged, { capturePng } from './Attachment';
+import { ForgeRequestError } from '@/utils/forgeRequestError';
 
 import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
@@ -330,6 +331,67 @@ describe('Attachment', () => {
       );
 
       consoleErrorSpy.mockRestore();
+    });
+
+    it('records the status and failing call when the attachments GET gets an HTML page', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockApWrapper.getAttachmentsV2.mockRejectedValue(new ForgeRequestError({
+        status: 502,
+        method: 'GET',
+        url: '/wiki/api/v2/pages/123456/attachments?filename=zenuml-x.png',
+        contentType: 'text/html; charset=UTF-8',
+        body: '<!doctype html><html><head><title>Bad Gateway</title></head><body>…</body></html>',
+      }));
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'non_json_http_502',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({
+          error_name: 'ForgeRequestError',
+          http_status: 502,
+          failed_request: 'GET /wiki/api/v2/pages/{id}/attachments',
+          response_content_type: 'text/html; charset=UTF-8',
+          response_title: 'Bad Gateway',
+        }),
+      );
+    });
+
+    it('keeps a non-JSON 404 on the properties PUT a failure, not an unpublished-parent skip', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
+      });
+      mockForgeRequest.mockRejectedValue(new ForgeRequestError({
+        status: 404,
+        method: 'PUT',
+        url: '/wiki/rest/api/content/123456/child/attachment/att789/properties',
+        contentType: 'text/html',
+        body: '<!doctype html><html><body>not here</body></html>',
+      }));
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        expect.any(String), 'attachment_upload_skipped', expect.any(String), expect.anything(),
+      );
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'non_json_http_404',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({
+          http_status: 404,
+          failed_request: expect.stringMatching(/^PUT /),
+          response_content_type: 'text/html',
+          response_title: 'none',
+        }),
+      );
     });
 
     it('should recover a viewer-only 403 via the app fallback (issue #166)', async () => {

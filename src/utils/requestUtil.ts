@@ -1,3 +1,5 @@
+import { ForgeRequestError } from "@/utils/forgeRequestError";
+
 export async function loadAllPaginatedData(requestFunc: any, initialUrl: string, consumer: (data: any) => void): Promise<void> {
   return loadPaginatedDataUntil(requestFunc, initialUrl, consumer, () => false);
 }
@@ -53,13 +55,30 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
     return response ? JSON.parse(response.body) : undefined;
   }
   const { requestConfluence } = await import("@forge/bridge");
-  return (await requestConfluence(url, {
+  const response = await requestConfluence(url, {
     method,
     headers: {
       'Content-Type': 'application/json'
     },
     body: data && JSON.stringify(data)
-  })).json();
+  });
+  // Callers rely on getting the parsed body whatever the HTTP status — a 4xx
+  // `{ errors: [...] }` envelope is data to them (e.g. loadCustomContentV2's
+  // not_found). So a JSON body is returned as-is. Only a body that does not
+  // parse (an HTML error/login page, an empty body) throws, and it now throws
+  // ForgeRequestError carrying the status instead of a bare SyntaxError.
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ForgeRequestError({
+      status: response.status,
+      method,
+      url,
+      contentType: response.headers.get('content-type') ?? '',
+      body: text,
+    });
+  }
 }
 
 export async function forgeCallRemote(url: string, method: string = 'GET', data: any = undefined): Promise<any> {

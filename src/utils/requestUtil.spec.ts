@@ -1,5 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
-import { loadPaginatedDataUntil } from './requestUtil';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { forgeRequest, loadPaginatedDataUntil } from './requestUtil';
+import { ForgeRequestError, templateUrl } from './forgeRequestError';
+
+const mockRequestConfluence = vi.fn();
+vi.mock('@forge/bridge', () => ({
+  requestConfluence: (...args: any[]) => mockRequestConfluence(...args),
+}));
 
 describe('loadPaginatedDataUntil', () => {
   const pages: Record<string, any> = {
@@ -23,5 +29,66 @@ describe('loadPaginatedDataUntil', () => {
     await loadPaginatedDataUntil(requestFunc, '/start', (d: any) => { count += d.results.length; }, () => false);
     expect(requestFunc).toHaveBeenCalledTimes(3);
     expect(count).toBe(7);
+  });
+});
+
+describe('forgeRequest', () => {
+  beforeEach(() => {
+    mockRequestConfluence.mockReset();
+    // jsdom has window.self === window.top, which forgeRequest reads as the
+    // standalone (MockAp) environment. Pretend to be inside the Forge iframe.
+    vi.spyOn(window, 'top', 'get').mockReturnValue({} as Window);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('returns a JSON body on success', async () => {
+    mockRequestConfluence.mockResolvedValue(new Response('{"results":[1]}', {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }));
+    await expect(forgeRequest('/wiki/api/v2/pages/1')).resolves.toEqual({ results: [1] });
+  });
+
+  it('returns a JSON error envelope on a 4xx exactly as before', async () => {
+    const envelope = { errors: [{ status: 404, code: 'NOT_FOUND', title: 'Not Found' }] };
+    mockRequestConfluence.mockResolvedValue(new Response(JSON.stringify(envelope), {
+      status: 404, headers: { 'content-type': 'application/json' },
+    }));
+    await expect(forgeRequest('/wiki/api/v2/custom-content/9?body-format=raw')).resolves.toEqual(envelope);
+  });
+
+  it('throws ForgeRequestError carrying the status for an HTML page', async () => {
+    mockRequestConfluence.mockResolvedValue(new Response(
+      '<!doctype html>\n<html><head><title>  Service\n Unavailable </title></head><body>down</body></html>',
+      { status: 503, headers: { 'content-type': 'text/html;charset=UTF-8' } },
+    ));
+    const error = await forgeRequest('/wiki/api/v2/pages/123456/attachments?filename=a.png').catch(e => e);
+    expect(error).toBeInstanceOf(ForgeRequestError);
+    expect(error).toMatchObject({
+      name: 'ForgeRequestError',
+      status: 503,
+      method: 'GET',
+      endpoint: 'GET /wiki/api/v2/pages/{id}/attachments',
+      contentType: 'text/html;charset=UTF-8',
+      htmlTitle: 'Service Unavailable',
+    });
+    expect(error.bodyPrefix.startsWith('<!doctype html> <html>')).toBe(true);
+    expect(error.message).toContain('HTTP 503');
+  });
+
+  it('throws ForgeRequestError for an empty body, keeping the method', async () => {
+    mockRequestConfluence.mockResolvedValue(new Response(null, { status: 204 }));
+    const error = await forgeRequest('/wiki/rest/api/content/42/property/x', 'put', { a: 1 }).catch(e => e);
+    expect(error).toBeInstanceOf(ForgeRequestError);
+    expect(error).toMatchObject({ status: 204, endpoint: 'PUT /wiki/rest/api/content/{id}/property/x', contentType: '' });
+    expect(error.htmlTitle).toBeUndefined();
+  });
+});
+
+describe('templateUrl', () => {
+  it('replaces numeric and uuid segments and drops the query', () => {
+    expect(templateUrl('/wiki/api/v2/custom-content/123?body-format=raw')).toBe('/wiki/api/v2/custom-content/{id}');
+    expect(templateUrl('/x/3f2b8c1e-1a2b-4c3d-8e9f-0123456789ab/y')).toBe('/x/{id}/y');
+    expect(templateUrl('/wiki/api/v2/pages/12/attachments')).toBe('/wiki/api/v2/pages/{id}/attachments');
+    expect(templateUrl('/wiki/rest/api/content/12/child/attachment/att345')).toBe('/wiki/rest/api/content/{id}/child/attachment/{id}');
   });
 });

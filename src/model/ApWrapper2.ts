@@ -124,6 +124,29 @@ export interface LoadCustomContentOpts {
   copyCheckMode?: 'full' | 'cross-page-only';
 }
 
+/**
+ * Classify a v2 custom-content `{ errors: [...] }` envelope. Strict 404
+ * detection: every error in the array must be a true 404 (status === 404 AND
+ * code === 'NOT_FOUND'). A mixed array — or a single error with mismatched
+ * status/code — must be treated as 'other_error' so recovery does not trigger
+ * and the write path does not fall through to create on transient failures.
+ */
+function classifyCustomContentErrors(errors: any[]): {
+  status: 'not_found' | 'other_error';
+  httpStatus?: number;
+  errorCode?: string;
+} {
+  const allStrictNotFound = errors.every(
+    (err: any) => err?.status === 404 && err?.code === 'NOT_FOUND',
+  );
+  const firstError = errors[0] ?? {};
+  return {
+    status: allStrictNotFound ? 'not_found' : 'other_error',
+    httpStatus: typeof firstError.status === 'number' ? firstError.status : undefined,
+    errorCode: firstError.code != null ? String(firstError.code) : undefined,
+  };
+}
+
 export default class ApWrapper2 {
   versionType: VersionType;
   _page: AtlasPage;
@@ -567,30 +590,29 @@ export default class ApWrapper2 {
     }
     const errors = rawResponse?.errors;
     if (Array.isArray(errors) && errors.length > 0) {
-      // Strict 404 detection: every error in the array must be a true 404
-      // (status === 404 AND code === 'NOT_FOUND'). A mixed array — or a
-      // single error with mismatched status/code — must be treated as
-      // 'other_error' so recovery does not trigger and the write path
-      // does not fall through to create on transient failures.
-      const allStrictNotFound = errors.every(
-        (err: any) => err?.status === 404 && err?.code === 'NOT_FOUND',
-      );
-      const status: 'not_found' | 'other_error' = allStrictNotFound ? 'not_found' : 'other_error';
+      const { status, httpStatus, errorCode } = classifyCustomContentErrors(errors);
       // Telemetry for non-success shapes preserved from the legacy parsing path.
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
-      const firstError = errors[0] ?? {};
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: status,
+        error_class: 'structured',
+        http_status: httpStatus,
+        error_code: errorCode,
+      });
       return {
         customContent: undefined,
         status,
         errorDetail: JSON.stringify(errors),
-        httpStatus: typeof firstError.status === 'number' ? firstError.status : undefined,
-        errorCode: firstError.code != null ? String(firstError.code) : undefined,
+        httpStatus,
+        errorCode,
         errorClass: 'structured',
       };
     }
     if (!rawResponse?.body?.raw?.value) {
       // Truthy response but no parseable body — unexpected shape, not a 404.
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'malformed',
+      });
       return {
         customContent: undefined,
         status: 'other_error',
@@ -615,7 +637,16 @@ export default class ApWrapper2 {
     // NULL_DIAGRAM / fallback paths instead of vanishing.
     const rawValue = customContent?.body?.raw?.value;
     if (!rawValue || customContent?.errors) {
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      const errors = customContent?.errors;
+      const structured = Array.isArray(errors) && errors.length > 0;
+      const { status, httpStatus, errorCode } = structured
+        ? classifyCustomContentErrors(errors)
+        : { status: 'other_error' as const, httpStatus: undefined, errorCode: undefined };
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: status,
+        error_class: structured ? 'structured' : 'malformed',
+        ...(structured ? { http_status: httpStatus, error_code: errorCode } : {}),
+      });
       return undefined;
     }
     let diagram = JSON.parse(rawValue);

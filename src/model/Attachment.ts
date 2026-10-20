@@ -5,6 +5,7 @@ import { toast } from '@/utils/toast';
 import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
+import {ForgeRequestError} from '@/utils/forgeRequestError';
 import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
@@ -698,13 +699,14 @@ export function parseConfluenceErrorClass(detail: string): string | undefined {
 /**
  * Pull an HTTP status out of an arbitrary thrown value.  Covers three shapes
  * we see in production:
- *   1. `AttachmentUploadHttpError.status` (our typed error)
+ *   1. `AttachmentUploadHttpError.status` / `ForgeRequestError.status` (our
+ *      typed errors — the latter is a non-JSON body from `forgeRequest`)
  *   2. `e.status` (Forge bridge surface on some failures)
  *   3. `e.xhr.status` (legacy XHR-style error)
  * Returns undefined when no status is recoverable.
  */
 function extractHttpStatus(e: unknown): number | undefined {
-  if (e instanceof AttachmentUploadHttpError) return e.status;
+  if (e instanceof AttachmentUploadHttpError || e instanceof ForgeRequestError) return e.status;
   const obj = e as { status?: unknown; xhr?: { status?: unknown } } | null | undefined;
   const candidate = obj?.status ?? obj?.xhr?.status;
   return typeof candidate === 'number' ? candidate : undefined;
@@ -716,7 +718,11 @@ function extractHttpStatus(e: unknown): number | undefined {
  * not free-form strings.  Examples:
  *   - `http_403`        — Confluence rejected the upload (permissions, etc.)
  *   - `http_404`        — page or content gone
- *   - `SyntaxError`     — body wasn't JSON (Confluence returned HTML/error page)
+ *   - `non_json_http_502` — `forgeRequest` got a body that wasn't JSON (an
+ *                         HTML error/login page) with that status. Kept apart
+ *                         from `http_<status>` because the response is a page,
+ *                         not a Confluence error envelope.
+ *   - `SyntaxError`     — body wasn't JSON on a path that has no status
  *   - `non_error_thrown` — something other than an Error was thrown
  *   - `Error`           — fallback (anonymous Error with no useful name)
  *   - `app_no_access`   — the app-authenticated fallback 404'd, i.e. the APP
@@ -731,6 +737,7 @@ function buildFailureLabel(
   viaAppFallback = false,
 ): string {
   if (httpStatus === 404 && viaAppFallback) return 'app_no_access';
+  if (e instanceof ForgeRequestError) return `non_json_http_${e.status}`;
   if (typeof httpStatus === 'number') return `http_${httpStatus}`;
   if (e instanceof Error) return e.name || 'Error';
   return 'non_error_thrown';
@@ -1140,7 +1147,11 @@ async function createAttachmentIfContentChanged(
     // Skipping those buried the single most common way the fallback fails, so
     // a post-fallback 404 falls through to the genuine-failure path below and
     // is labelled `app_no_access` there (#392).
-    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback)) {
+    //
+    // A non-JSON 404 (ForgeRequestError) is not that situation either: it is an
+    // HTML page, not Confluence's NotFound envelope, so it stays a failure.
+    const isNonJsonResponse = e instanceof ForgeRequestError;
+    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback && !isNonJsonResponse)) {
       if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
         'waiting_for_publish', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       // Both branches are the 404-class skip; DraftPageError carries no numeric
@@ -1196,6 +1207,13 @@ async function createAttachmentIfContentChanged(
       via_app_fallback: viaAppFallback,
       ...(viaAppFallback ? { fallback_from_status: fallbackFromStatus } : {}),
       confluence_error_class: confluenceErrorClass,
+      // Non-JSON responses only: which call got the page (the attachments GET
+      // or the properties PUT) and what the page was.
+      ...(isNonJsonResponse ? {
+        failed_request: e.endpoint,
+        response_content_type: e.contentType || 'none',
+        response_title: e.htmlTitle ?? 'none',
+      } : {}),
     });
     throw e;
   } finally {

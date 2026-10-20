@@ -354,6 +354,49 @@ describe('ApWrapper2', () => {
 
       expect(result).toBeUndefined();
     });
+
+    // load_custom_content_v2_missing used to carry only the content id, so
+    // the stream could not be split into "really gone" vs "Confluence failed".
+    it('records not_found with the structured status and code on a strict 404', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 404, code: 'NOT_FOUND', title: 'Not Found' }],
+      });
+
+      await wrapper.getCustomContentByIdV2('77');
+
+      expect(trackEvent).toHaveBeenCalledWith('77', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'not_found',
+        error_class: 'structured',
+        http_status: 404,
+        error_code: 'NOT_FOUND',
+      });
+    });
+
+    it('records other_error for a structured non-404 error', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 403, code: 'PERMISSION_DENIED', title: 'Forbidden' }],
+      });
+
+      await wrapper.getCustomContentByIdV2('78');
+
+      expect(trackEvent).toHaveBeenCalledWith('78', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'structured',
+        http_status: 403,
+        error_code: 'PERMISSION_DENIED',
+      });
+    });
+
+    it('records other_error / malformed for a body without body.raw.value', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '79' });
+
+      await wrapper.getCustomContentByIdV2('79');
+
+      expect(trackEvent).toHaveBeenCalledWith('79', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'malformed',
+      });
+    });
   });
 
   // ZEN-1170 telemetry. When getCustomContentByIdV2 returns undefined the

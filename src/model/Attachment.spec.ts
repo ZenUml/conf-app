@@ -417,21 +417,26 @@ describe('Attachment', () => {
         });
       };
 
-      it('routes a JSON 403 on the properties PUT to the app fallback instead of reporting success', async () => {
+      it('fails a JSON 403 on the properties PUT without rerunning the write as the app', async () => {
+        // The user's POST already created (or versioned) the attachment, so an app
+        // fallback would POST the same name again (create: rejected by v1; update:
+        // an extra version whose PUT then conflicts). Only the PUT was denied.
+        vi.spyOn(console, 'error').mockImplementation(() => {});
         arrange();
         putFails(403);
-        mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'rescued-456', versionNumber: 1 });
 
-        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
 
-        expect(mockTrackEvent).toHaveBeenCalledWith(
-          'http_403', 'attachment_upload_app_fallback_started', 'export',
-          expect.objectContaining({ recovered_from_status: 403 }),
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_app_fallback_started', expect.any(String), expect.anything(),
         );
-        expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.anything());
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_succeeded', expect.any(String), expect.anything(),
+        );
         expect(mockTrackEvent).toHaveBeenCalledWith(
-          'created', 'attachment_upload_succeeded', 'export',
-          expect.objectContaining({ attachment_id: 'rescued-456', via_app_fallback: true }),
+          'http_403', 'attachment_upload_failed', 'export',
+          expect.objectContaining({ http_status: 403, via_app_fallback: false, failed_request: expect.stringMatching(/^PUT /) }),
         );
       });
 
@@ -450,18 +455,49 @@ describe('Attachment', () => {
           'http_500', 'attachment_upload_failed', 'export',
           expect.objectContaining({ http_status: 500, failed_request: expect.stringMatching(/^PUT /) }),
         );
+        // A JSON-status error is not a non-JSON response: a dashboard reading
+        // "response_content_type is set" as "non-JSON" must not pick it up.
+        const props = mockTrackEvent.mock.calls.find((c) => c[1] === 'attachment_upload_failed')![3] as Record<string, unknown>;
+        expect(props).not.toHaveProperty('response_content_type');
+        expect(props).not.toHaveProperty('response_title');
       });
 
-      it('treats a 200-wrapped {"statusCode":403} body on the properties PUT like a 403', async () => {
+      it('treats a 200-wrapped {"statusCode":403} body on the properties PUT as a failure, not a fallback', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
         arrange();
         mockForgeRequest.mockResolvedValue({ statusCode: 403, data: { authorized: true } });
-        mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'rescued-789', versionNumber: 1 });
 
-        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow();
 
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_app_fallback_started', expect.any(String), expect.anything(),
+        );
         expect(mockTrackEvent).toHaveBeenCalledWith(
-          'http_403', 'attachment_upload_app_fallback_started', 'export',
-          expect.objectContaining({ recovered_from_status: 403 }),
+          'http_403', 'attachment_upload_failed', 'export',
+          expect.objectContaining({ http_status: 403, via_app_fallback: false }),
+        );
+      });
+
+      it('keeps non_json_http_403 and the response_* properties for an HTML 403 on the properties PUT, without a fallback', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        arrange();
+        mockForgeRequest.mockRejectedValue(new ForgeRequestError({
+          status: 403, method: 'PUT', url: '/wiki/rest/api/content/page-123/child/attachment/attachment-123',
+          contentType: 'text/html', body: '<html><title>Forbidden</title></html>',
+        }));
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'non_json_http_403', 'attachment_upload_failed', 'export',
+          expect.objectContaining({
+            http_status: 403,
+            failed_request: expect.stringMatching(/^PUT /),
+            response_content_type: 'text/html',
+            response_title: 'Forbidden',
+          }),
         );
       });
 

@@ -184,7 +184,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'update_diagram',
     description:
-      'Replace a diagram’s source with new DSL. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change.',
+      'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change. To rename only, send the unchanged source with the new `title`.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -192,6 +192,10 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
         contentId: { type: 'string', description: 'From list_diagrams.' },
         dsl: { type: 'string', description: 'The complete new source. Not a patch.' },
         summary: { type: 'string', description: 'Optional. Note for the version history.' },
+        title: {
+          type: 'string',
+          description: 'Optional. Renames the diagram to this title. Omit or leave blank to keep the current title.',
+        },
       },
       required: ['cloudId', 'contentId', 'dsl'],
     },
@@ -385,6 +389,14 @@ function parseStoredDiagram(value: unknown): {
 function summaryFor(summary: unknown, title?: string): string {
   const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
   return title ? `Added ZenUML diagram "${title}" via Agent Link${note}` : `Updated by ZenUML Agent Link${note}`;
+}
+
+/** The update_diagram version message; names the new title when the call renamed the diagram. */
+function updateSummaryFor(summary: unknown, renamedTo?: string): string {
+  const base = summaryFor(summary);
+  if (!renamedTo) return base;
+  const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
+  return `${base.slice(0, base.length - note.length)}, renamed to "${renamedTo}"${note}`;
 }
 
 /**
@@ -770,7 +782,13 @@ export async function callHeadlessTool(
       }
 
       const versionNumber = Number(current.version?.number);
-      const nextBody = { ...stored.raw, [stored.field]: dsl };
+      // A rename sets the record title AND the body JSON title, as the viewer's
+      // rename does (renameDiagramTitle -> updateCustomContentV2). Blank or
+      // non-string = no rename, both stay as stored.
+      const requestedTitle = typeof args.title === 'string' ? args.title.trim() : '';
+      const currentTitle = typeof current.title === 'string' ? current.title : 'Untitled diagram';
+      const nextBody: Record<string, unknown> = { ...stored.raw, [stored.field]: dsl };
+      if (requestedTitle) nextBody.title = requestedTitle;
       const write = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}`, {
         method: 'PUT',
         body: {
@@ -778,12 +796,12 @@ export async function callHeadlessTool(
           type: current.type,
           status: typeof current.status === 'string' ? current.status : 'current',
           pageId: current.pageId,
-          title: typeof current.title === 'string' ? current.title : 'Untitled diagram',
+          title: requestedTitle || currentTitle,
           body: { value: JSON.stringify(nextBody), representation: 'raw' },
           version: {
             number: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
             // §9.3: page history must show which edits an agent made.
-            message: summaryFor(args.summary),
+            message: updateSummaryFor(args.summary, requestedTitle || undefined),
           },
         },
       });
@@ -806,6 +824,7 @@ export async function callHeadlessTool(
         version: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
         diff: verdict.diff,
         unvalidated: verdict.unvalidated,
+        titleChanged: !!requestedTitle && requestedTitle !== currentTitle,
       };
     }
 

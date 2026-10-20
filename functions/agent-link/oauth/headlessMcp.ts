@@ -133,7 +133,7 @@ async function trackWrite(
   value: unknown,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
-  const out = (value ?? {}) as { result?: unknown; gate?: unknown };
+  const out = (value ?? {}) as { result?: unknown; gate?: unknown; titleChanged?: unknown };
   const event = WRITE_EVENT_BY_TOOL[tool];
   if (!event) return;
   try {
@@ -146,6 +146,8 @@ async function trackWrite(
         cloud_id: cloudId,
         result: typeof out.result === 'string' ? out.result : undefined,
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
+        // update_diagram only: did the call rename the diagram (#789)?
+        title_changed: typeof out.titleChanged === 'boolean' ? out.titleChanged : undefined,
       },
       env.MIXPANEL_TOKEN,
       env,

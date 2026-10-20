@@ -1388,7 +1388,9 @@ export type AnalyticsEventName =
   // closed, or not, has to be made on. `_updated` has no gate (updating an
   // existing diagram consumes no limit, §9.1) and instead carries
   // `guardrail_rejected`, so the write guard's refusal rate is readable on the
-  // headless path the way it already is on the relay. Both carry the target
+  // headless path the way it already is on the relay. A successful `_updated`
+  // also carries `title_changed` (#789): true when the call renamed the
+  // diagram, false for a plain source edit. Both carry the target
   // site in `cloud_id` (from the tool's `cloudId` argument), so outcomes and
   // gate branches can be split per customer without joining on
   // agent_link_mcp_tool_called.

@@ -976,6 +976,9 @@ export type AnalyticsProperties = {
   // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // agent_link_diagram_updated only: true when the call renamed the diagram
+  // (a non-blank `title` that differs from the stored one, #789).
+  title_changed?: boolean;
   // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
   // dialog connects the agent (headless only, for now); `mcp_copy_target` says
   // which block a Copy click targeted. The copy outcome rides the shared

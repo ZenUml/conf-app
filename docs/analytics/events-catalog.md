@@ -718,4 +718,4 @@ Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08
 | `reason` | `"session_replay_config_timeout"` |
 | `timeout_ms` | The wait that elapsed (3000) |
 
-Replay for that iframe stays off even if the flag answer arrives later; there is no re-init.
+Replay for that iframe stays off even if the flag answer arrives later; there is no re-init. Every event from that iframe carries `session_replay_source = "timeout"` (distinct from `"off"`, which means the flag or policy said off).

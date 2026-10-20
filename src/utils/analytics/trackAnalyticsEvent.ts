@@ -48,9 +48,13 @@ const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
 export const SESSION_REPLAY_CONFIG_TIMEOUT_MS = 3000;
 const SESSION_REPLAY_CONFIG_TIMED_OUT = Symbol("session_replay_config_timed_out");
 const REPLAY_OFF = { percent: 0, source: "off" as const };
+// Distinct from REPLAY_OFF so session_replay_source separates "the flag said
+// off" from "the flag wait was cut short" (#707).
+const REPLAY_TIMEOUT = { percent: 0, source: "timeout" as const };
 
 // Resolve the replay config with a bounded wait. Never rejects and never
-// hangs: a throw and a timeout both fall back to replay off, and the timer is
+// hangs: a throw falls back to replay off (source 'off') and a timeout to replay off
+// with source 'timeout', and the timer is
 // cleared on every path. If the real answer arrives after the timeout it is
 // ignored (no re-init), so replay for that iframe stays off.
 async function _resolveSessionReplayConfig(): Promise<{
@@ -69,7 +73,7 @@ async function _resolveSessionReplayConfig(): Promise<{
       }),
     ]);
     if (config === SESSION_REPLAY_CONFIG_TIMED_OUT) {
-      return { config: REPLAY_OFF, timedOut: true };
+      return { config: REPLAY_TIMEOUT, timedOut: true };
     }
     return { config, timedOut: false };
   } catch (error) {
@@ -218,6 +222,9 @@ function _initMixpanel(): Promise<void> {
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
       let replayConfigTimedOut = false;
+      // NOTE (#707): this short-circuit runs before _resolveSessionReplayConfig,
+      // so the bounded flag wait below is inactive while the October budget
+      // branch is taken and becomes live on 2026-11-01 UTC.
       const { percent, source } = isOctoberReplayBudgetActive()
         ? { percent: 0, source: "off" as const }
         : isPageBanner

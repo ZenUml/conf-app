@@ -902,7 +902,7 @@ describe("trackAnalyticsEvent", () => {
       );
       expect(mixpanel.register).toHaveBeenCalledWith({
         session_replay_percent: 0,
-        session_replay_source: "off",
+        session_replay_source: "timeout",
       });
       expect(mixpanel.track).toHaveBeenCalledWith(
         "macro_viewed",

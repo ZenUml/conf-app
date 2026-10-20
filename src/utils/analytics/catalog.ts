@@ -262,6 +262,9 @@ export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
 // `feedback` records the explicit start requested by the Feedback trigger.
+// `timeout` means the Forge flag download did not settle within
+// SESSION_REPLAY_CONFIG_TIMEOUT_MS (#707) so replay was forced off; `off` is
+// reserved for "the flag/policy said off".
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
@@ -269,6 +272,7 @@ export type SessionReplayEventSource =
   | "plan_usage_page"
   | "fullscreen"
   | "feedback"
+  | "timeout"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues

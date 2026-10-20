@@ -7,6 +7,8 @@ import {
   _resetCreationFlowForTesting,
   bylineCreationOrigin,
   getCreationFlowProps,
+  newCreationFlowId,
+  resolveCreationFlowId,
   resolveCreationOrigin,
 } from './creationFlow'
 import { CREATION_ORIGINS } from './catalog'
@@ -62,9 +64,43 @@ describe('getCreationFlowProps', () => {
     expect(success).toEqual(start)
   })
 
+  // The opener (byline / dashboard) mints the id so its own click event can
+  // carry it; the editor must adopt it instead of minting a second one.
+  it('adopts the flow id carried in the modal context', () => {
+    const carried = newCreationFlowId();
+    forgeGlobalMock.forgeContext = modalCtx({ creationOrigin: 'dashboard', creationFlowId: carried });
+    const props = getCreationFlowProps();
+    expect(props.creation_flow_id).toBe(carried);
+    expect(getCreationFlowProps()).toEqual(props);
+  });
+
+  it.each([['empty', ''], ['a number', 42], ['null', null]])(
+    'mints its own flow id when the carried one is %s',
+    (_label, bad) => {
+      forgeGlobalMock.forgeContext = modalCtx({ creationOrigin: 'dashboard', creationFlowId: bad });
+      expect(getCreationFlowProps().creation_flow_id).toMatch(/^[0-9a-f-]{36}$/);
+    },
+  );
+
   it('starts a new flow after a reset', () => {
     const first = getCreationFlowProps()
     _resetCreationFlowForTesting()
     expect(getCreationFlowProps().creation_flow_id).not.toBe(first.creation_flow_id)
   })
 })
+
+describe('newCreationFlowId / resolveCreationFlowId', () => {
+  it('mints distinct UUIDs', () => {
+    const a = newCreationFlowId();
+    expect(a).toMatch(/^[0-9a-f-]{36}$/);
+    expect(newCreationFlowId()).not.toBe(a);
+  });
+
+  it('reads a non-empty string from modal.creationFlowId, otherwise undefined', () => {
+    expect(resolveCreationFlowId(modalCtx({ creationFlowId: 'abc' }))).toBe('abc');
+    expect(resolveCreationFlowId(modalCtx({ creationFlowId: '' }))).toBeUndefined();
+    expect(resolveCreationFlowId(modalCtx({ creationFlowId: 7 }))).toBeUndefined();
+    expect(resolveCreationFlowId(modalCtx({}))).toBeUndefined();
+    expect(resolveCreationFlowId(undefined)).toBeUndefined();
+  });
+});

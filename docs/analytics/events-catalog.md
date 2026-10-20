@@ -64,7 +64,7 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `macro_type` | Diagram type of the new macro |
 | `entry_point` | `"page_editor"` (inserted via slash menu / macro browser) |
 | `creation_origin` | Surface that started the create: `page_editor` (default), `byline_view`, `byline_editor`, `dashboard`, `homepage` (reserved, no create path today), `unknown` (a carried value was not recognised). Separate from `entry_point`, which stays `page_editor` for every editor-hosted create |
-| `creation_flow_id` | UUID generated once per editor iframe and shared by this iframe's start, success and cancel events — the join key for one creation |
+| `creation_flow_id` | UUID that is the join key for one creation. Byline and dashboard creates mint it in the opener and stamp it on `byline_create_clicked` / `dashboard_create_selected`, then pass it to the editor in the modal context; the editor adopts it. A page-editor create has no opener, so the editor mints it. Shared by the opener click and this iframe's start, success and cancel events |
 
 ---
 

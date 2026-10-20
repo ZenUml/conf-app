@@ -14,8 +14,12 @@
 //
 // Correlation key
 // ---------------
-// `creation_flow_id` is generated the first time a create event is emitted in
-// an editor iframe and reused by every later one. One editor per iframe (same
+// `creation_flow_id` is minted by the surface that opens the editor (byline,
+// dashboard) so its own click event can carry it, and rides the modal context
+// next to `creationOrigin`. The editor adopts a carried id; only the page-editor
+// path, which has no opener, mints one itself the first time a create event is
+// emitted in the iframe. Either way it is reused by every later event. One
+// editor per iframe (same
 // reasoning as editorCloseOutcome), so module state is enough: start, success
 // and cancel all happen in the iframe that mounted the editor, even though the
 // byline that opened it is a different iframe. Existing keys do not cover it:
@@ -56,7 +60,8 @@ export function resolveCreationOrigin(context: unknown): CreationOrigin {
   return "page_editor";
 }
 
-function newFlowId(): string {
+/** Mint a creation flow id. Openers call this once per click. */
+export function newCreationFlowId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
   }
@@ -64,6 +69,12 @@ function newFlowId(): string {
     const r = (Math.random() * 16) | 0;
     return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
   });
+}
+
+/** The flow id an opener put in the modal context, or undefined when absent/invalid. */
+export function resolveCreationFlowId(context: unknown): string | undefined {
+  const carried = (context as any)?.extension?.modal?.creationFlowId;
+  return typeof carried === "string" && carried.length > 0 ? carried : undefined;
 }
 
 let flow: CreationFlowProps | null = null;
@@ -79,7 +90,8 @@ export function getCreationFlowProps(): CreationFlowProps {
   if (!flow) {
     flow = {
       creation_origin: resolveCreationOrigin(forgeGlobal.forgeContext),
-      creation_flow_id: newFlowId(),
+      creation_flow_id:
+        resolveCreationFlowId(forgeGlobal.forgeContext) ?? newCreationFlowId(),
     };
   }
   return flow;

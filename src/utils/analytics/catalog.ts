@@ -477,7 +477,9 @@ export type AnalyticsEventName =
   | "dashboard_format_filtered"
   // Dual-format dashboard: user picked a format from the "Create New API"
   // split-button menu (AsyncAPI vs OpenAPI) — the funnel entry BEFORE the
-  // editor's own macro_create_started fires. `macro_type` carries the choice.
+  // editor's own macro_create_started fires. `macro_type` carries the choice;
+  // `creation_flow_id` (minted here, passed to the editor) joins it to the
+  // editor's macro_create_* events (#614).
   | "dashboard_create_selected"
   // conf-app#435: these three carry `macro_type` (reusing the property already
   // registered below, not a new one — see the field's doc comment in
@@ -935,7 +937,9 @@ export type AnalyticsEventName =
   // makes index engagement read higher than the behaviour it describes.
   | "byline_diagram_source_copied"
   // "Add a diagram" clicked. Splits from byline_editor_deeplinked so an
-  // intent-to-create that fails to route is still visible.
+  // intent-to-create that fails to route is still visible. Carries
+  // `creation_flow_id` (minted here, passed to the editor) so the click joins the
+  // editor's macro_create_* events exactly (#614).
   | "byline_create_clicked"
   // The modal routed the user to the page editor (router.navigate). Phase 1's
   // create path ends here: the macro itself is inserted with the editor's own

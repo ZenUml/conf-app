@@ -192,6 +192,7 @@ import yaml from 'js-yaml'
 import globals from '@/model/globals'
 import { openModal, openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { newCreationFlowId } from '@/utils/analytics/creationFlow'
 import { derivePageUrl } from '@/model/asyncapi/derivePageUrl'
 import { docMatchesSearch } from './docMatchesSearch'
 import type { ICustomContent } from '@/model/ICustomContent'
@@ -558,11 +559,15 @@ async function createNew(format: 'asyncapi' | 'openapi' = 'asyncapi') {
   createMenuOpen.value = false
   // Funnel entry: which format the user chose from the split-button menu. The
   // editor then emits its own macro_create_started/succeeded with this macro_type.
+  // Minted here so this click and the editor's macro_create_* events share one
+  // creation_flow_id (#614).
+  const creationFlowId = newCreationFlowId()
   trackAnalyticsEvent('dashboard_create_selected', {
     feature_area: 'confluence',
     surface: 'dashboard',
     macro_type: format,
     operation_mode: 'create',
+    creation_flow_id: creationFlowId,
   })
   try {
     await openModal({
@@ -578,6 +583,7 @@ async function createNew(format: 'asyncapi' | 'openapi' = 'asyncapi') {
         diagramType: format,
         // Read by the editor iframe for macro_create_* (#614).
         creationOrigin: 'dashboard',
+        creationFlowId,
       },
       onClose: async () => {
         showIndexingNotice()

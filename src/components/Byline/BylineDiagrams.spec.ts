@@ -787,6 +787,22 @@ describe('BylineDiagrams', () => {
       expect(opts.context.creationOrigin).toBe('byline_editor');
     });
 
+    // #614: the opener mints creation_flow_id so its own click event joins the
+    // editor's macro_create_* lifecycle. Click event and modal context must carry
+    // the same id.
+    it('stamps the click event and the modal context with the same creation_flow_id', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-type-graph"]').trigger('click');
+      await flushPromises();
+
+      const clickId = events('byline_create_clicked')[0][1].creation_flow_id;
+      expect(clickId).toMatch(/^[0-9a-f-]{36}$/);
+      const opts = vi.mocked(openModal).mock.calls.at(-1)?.[0] as any;
+      expect(opts.context.creationFlowId).toBe(clickId);
+    });
+
     // ADR-0005 Option A put the AsyncAPI macro in Lite, and the byline is the
     // Lite-only surface. Routing is what this pins: the tile must announce
     // `asyncapi` as the modal diagramType, because that field is the ONLY

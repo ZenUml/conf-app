@@ -1075,6 +1075,23 @@ export type AnalyticsProperties = {
   // field, which is the ambiguity #398 was filed about and the reason #435
   // chose `macro_type: 'none'` over omission.
   confluence_error_class?: string;
+  // attachment_upload_failed, only when `forgeRequest` got a non-JSON body
+  // (ForgeRequestError — an HTML error/login page instead of JSON).
+  // `failed_request` is the templated call that got it, e.g.
+  // `GET /wiki/api/v2/pages/{id}/attachments` vs the properties PUT;
+  // `response_content_type` / `response_title` say what the page was ('none'
+  // when absent). The status itself rides on `http_status`.
+  failed_request?: string;
+  response_content_type?: string;
+  response_title?: string;
+  // load_custom_content_v2_missing: why the custom content could not be
+  // loaded. `load_status` is 'not_found' only for an all-404 NOT_FOUND
+  // envelope (the case that triggers recovery), else 'other_error';
+  // `error_class` is 'structured' for a Confluence `{ errors: [...] }` body
+  // and 'malformed' for a body with no `body.raw.value`. `http_status` /
+  // `error_code` come from the first structured error.
+  load_status?: 'not_found' | 'other_error';
+  error_class?: 'structured' | 'malformed';
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

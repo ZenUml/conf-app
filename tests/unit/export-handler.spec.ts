@@ -646,16 +646,59 @@ describe('Forge export resolver (src/export.js)', () => {
       event?: string;
       properties?: {
         failure_reason?: string;
+        http_status?: number;
         used_asuser_fallback?: boolean;
         fallback_http_status?: number;
         fallback_error_name?: string;
       };
     }>;
     const failed = rows.find((r) => r.event === 'macro_export_failed');
-    expect(failed?.properties?.failure_reason).toBe('attachments_api_404');
+    // #654: no user credential is the guest/anonymous case, not a missing page.
+    expect(failed?.properties?.failure_reason).toBe('no_user_credential');
+    expect(failed?.properties?.http_status).toBe(404);
     expect(failed?.properties?.used_asuser_fallback).toBe(true);
     expect(failed?.properties?.fallback_http_status).toBeUndefined();
     expect(failed?.properties?.fallback_error_name).toBe('NEEDS_AUTHENTICATION_ERR');
+  });
+
+  it('keeps attachments_api_404 when asUser() throws a non-auth error (#654)', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => 'not found',
+    });
+    asUserRequest.mockRejectedValue(new TypeError('network down'));
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-fb4',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-fb4',
+        extension: { content: { id: '777' } },
+      },
+      extensionPayload: {
+        config: { customContentId: 'cc-fb-typeerror' },
+      },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: {
+        failure_reason?: string;
+        http_status?: number;
+        used_asuser_fallback?: boolean;
+        fallback_error_name?: string;
+      };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('attachments_api_404');
+    expect(failed?.properties?.http_status).toBe(404);
+    expect(failed?.properties?.used_asuser_fallback).toBe(true);
+    expect(failed?.properties?.fallback_error_name).toBe('TypeError');
   });
 
   it('uses subdomain prefix as client_domain in analytics events', async () => {

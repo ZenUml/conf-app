@@ -55,9 +55,10 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
       reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
-      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       loadError = mapCustomContentLoadError(loaded);
     }
   }

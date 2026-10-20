@@ -781,6 +781,22 @@ describe('ApWrapper2', () => {
       expect(result.directFetchErrorClass).toBe('structured');
     });
 
+    it('keeps the strict-404 diagnostics on a successful sibling recovery (#148)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ results: [childWith(recoveredId, orphanId)] })
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce(happyCustomContent(recoveredId));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoveredFromOrphanId).toBe(orphanId);
+      expect(result.directFetchStatus).toBe('not_found');
+      expect(result.directFetchHttpStatus).toBe(404);
+      expect(result.directFetchErrorCode).toBe('NOT_FOUND');
+      expect(result.directFetchErrorClass).toBe('structured');
+    });
+
     it('surfaces httpStatus/errorCode/errorClass for a 403 FORBIDDEN', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 403, code: 'FORBIDDEN' }] });
 

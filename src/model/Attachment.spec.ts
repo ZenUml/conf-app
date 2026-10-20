@@ -716,7 +716,7 @@ describe('Attachment', () => {
       });
       const sameName = () => resp(false, 400, sameNameBody);
       const v1ReadUrl =
-        '/wiki/rest/api/content/page-123/child/attachment?filename=zenuml-test-uuid.png&expand=version';
+        '/wiki/rest/api/content/page-123/child/attachment?filename=zenuml-test-uuid.png&expand=version,metadata';
 
       // Attachment-endpoint POSTs answer from a queue (the last entry repeats);
       // every other requestConfluence call (page-property reads) gets an empty 200.
@@ -764,6 +764,45 @@ describe('Attachment', () => {
         expect(
           mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed'),
         ).toHaveLength(0);
+      });
+
+      it('skips the retry when the other writer already stored this metaKey (race between iframes)', async () => {
+        uploadResponses = [sameName()]; // only the create POST; a retry would be a 2nd POST
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 3 }, metadata: { comment: 'hash-test content' } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual(['/wiki/rest/api/content/page-123/child/attachment']);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'updated',
+          'attachment_upload_succeeded',
+          'export',
+          expect.objectContaining({
+            attachment_id: 'att-old',
+            recovered_from: 'same_name_400',
+            skipped_duplicate: true,
+          }),
+        );
+        expect(
+          mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed'),
+        ).toHaveLength(0);
+      });
+
+      it('still retries when the existing attachment carries a different comment', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')];
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 3 }, metadata: { comment: 'hash-other' } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toHaveLength(2);
       });
 
       it('does not mark a normal create as recovered', async () => {

@@ -1065,6 +1065,10 @@ export type AnalyticsProperties = {
   // another iframe, #75) and the upload then landed as a new version. Absent on
   // every ordinary create/update.
   recovered_from?: 'same_name_400';
+  // `attachment_upload_succeeded` with `recovered_from: 'same_name_400'` only:
+  // the v1 re-read showed another writer had already stored this upload's
+  // metaKey (racing iframes), so no new version was POSTed.
+  skipped_duplicate?: boolean;
   // Low-cardinality Confluence exception class parsed out of the error
   // envelope — PermissionException / NotFoundException / BadRequestException.
   // The raw `error_message` is capped at 200 chars and the envelope prefix

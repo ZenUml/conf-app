@@ -85,6 +85,8 @@ interface AttachmentWithLinks extends Attachment {
     base: string;
     download: string;
   };
+  /** v1 read only (`expand=metadata`): `metadata.comment` is what v2 surfaces as `comment`. */
+  metadata?: { comment?: string };
 }
 
 /** Response structure from API requests */
@@ -803,7 +805,7 @@ async function findAttachmentViaV1(
   pageId: string,
   attachmentName: string,
 ): Promise<AttachmentWithLinks | undefined> {
-  const url = `${buildAttachmentBasePath(pageId)}?filename=${encodeURIComponent(attachmentName)}&expand=version`;
+  const url = `${buildAttachmentBasePath(pageId)}?filename=${encodeURIComponent(attachmentName)}&expand=version,metadata`;
   const response = await forgeRequest(`/wiki${url}`, 'GET');
   const results: AttachmentWithLinks[] = Array.isArray(response?.results) ? [...response.results] : [];
   results.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
@@ -1104,6 +1106,9 @@ async function createAttachmentIfContentChanged(
       // Set when the create POST hit v1's "same file name" 400 and we recovered
       // by uploading a new version of the attachment v2 had missed (#75).
       let recoveredFrom: 'same_name_400' | undefined;
+      // Set when the v1 re-read shows another writer already stored this exact
+      // metaKey: the upload is already done, so no second version is written.
+      let skippedDuplicate = false;
       const postAndParse = async (t: UploadTarget): Promise<AttachmentMeta> =>
         parseUploadResult(await postAttachmentAsUser(attachmentName, t.uri, effectiveHash, blob), t, effectiveHash);
       try {
@@ -1117,16 +1122,30 @@ async function createAttachmentIfContentChanged(
           if (target.isUpdate || !isSameFileNameError(createError)) throw createError;
           const existing = await findAttachmentViaV1(pageId, attachmentName).catch(() => undefined);
           if (!existing) throw createError;
-          target = {
-            isUpdate: true,
-            attachmentId: existing.id,
-            versionNumber: (existing.version?.number ?? 0) + 1,
-            uri: base + '/' + existing.id + '/data',
-          };
           recoveredFrom = 'same_name_400';
-          attachmentMeta = await postAndParse(target);
+          if (existing.metadata?.comment === metaKey) {
+            // Racing iframe (#75) wrote this exact content first; uploading
+            // again would add a byte-identical version. Same gate as the
+            // normal path above (`metaKey !== attachment.comment`).
+            skippedDuplicate = true;
+            target = {
+              isUpdate: true,
+              attachmentId: existing.id,
+              versionNumber: existing.version?.number ?? 0,
+              uri: base + '/' + existing.id + '/data',
+            };
+            attachmentMeta = { attachmentId: existing.id, versionNumber: target.versionNumber, hash: effectiveHash };
+          } else {
+            target = {
+              isUpdate: true,
+              attachmentId: existing.id,
+              versionNumber: (existing.version?.number ?? 0) + 1,
+              uri: base + '/' + existing.id + '/data',
+            };
+            attachmentMeta = await postAndParse(target);
+          }
         }
-        await updateAttachmentProperties(attachmentMeta);
+        if (!skippedDuplicate) await updateAttachmentProperties(attachmentMeta);
       } catch (e) {
         // Viewer-only users (issue #166) lack attachment-write permission on the
         // page even though the app does. On 401/403 — whether a real HTTP status
@@ -1163,6 +1182,7 @@ async function createAttachmentIfContentChanged(
         attachment_id: attachmentMeta.attachmentId,
         via_app_fallback: viaAppFallback,
         ...(recoveredFrom ? { recovered_from: recoveredFrom } : {}),
+        ...(skippedDuplicate ? { skipped_duplicate: true } : {}),
         ...(opts?.fromSave ? { from_save: true } : {}),
       });
       await recordPngState(pageId, macroCustomContentId, 'ready', pngAttemptId,

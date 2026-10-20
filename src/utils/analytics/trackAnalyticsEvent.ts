@@ -36,6 +36,50 @@ type ExplicitReplayProperties = Pick<
 const DEMO_PAGE_TELEMETRY_TIMEOUT_MS = 750;
 const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
 
+// Upper bound on how long the FIRST event of an iframe waits for the Forge
+// feature-flag download (getSessionReplayConfig -> FeatureFlags.initialize, a
+// bare bridge postMessage round trip that @forge/bridge never times out). That
+// flag only chooses the replay sampling rate, so a late answer must never cost
+// the iframe its events (#707: a hung call left the memoised init promise
+// pending forever, so mixpanel.init never ran and every event was dropped
+// silently). 3s sits well above the normal bridge round trip (tens to a few
+// hundred ms) so ordinary iframes keep their flag-driven replay, and well below
+// the point where an iframe is likely to be torn down.
+export const SESSION_REPLAY_CONFIG_TIMEOUT_MS = 3000;
+const SESSION_REPLAY_CONFIG_TIMED_OUT = Symbol("session_replay_config_timed_out");
+const REPLAY_OFF = { percent: 0, source: "off" as const };
+
+// Resolve the replay config with a bounded wait. Never rejects and never
+// hangs: a throw and a timeout both fall back to replay off, and the timer is
+// cleared on every path. If the real answer arrives after the timeout it is
+// ignored (no re-init), so replay for that iframe stays off.
+async function _resolveSessionReplayConfig(): Promise<{
+  config: Awaited<ReturnType<typeof getSessionReplayConfig>>;
+  timedOut: boolean;
+}> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const config = await Promise.race([
+      getSessionReplayConfig(),
+      new Promise<typeof SESSION_REPLAY_CONFIG_TIMED_OUT>((resolve) => {
+        timeout = setTimeout(
+          () => resolve(SESSION_REPLAY_CONFIG_TIMED_OUT),
+          SESSION_REPLAY_CONFIG_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (config === SESSION_REPLAY_CONFIG_TIMED_OUT) {
+      return { config: REPLAY_OFF, timedOut: true };
+    }
+    return { config, timedOut: false };
+  } catch (error) {
+    console.debug("[session-replay] off: config lookup threw", error);
+    return { config: REPLAY_OFF, timedOut: false };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 // Share of authoring sessions that record. Authoring replay used to be forced
 // on every create/edit; measured over the 30 days to 2026-09-07 that was 13,905
 // of 17,743 distinct replays — 78% of a 20,000/month quota consumed by one
@@ -173,6 +217,7 @@ function _initMixpanel(): Promise<void> {
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
+      let replayConfigTimedOut = false;
       const { percent, source } = isOctoberReplayBudgetActive()
         ? { percent: 0, source: "off" as const }
         : isPageBanner
@@ -181,7 +226,10 @@ function _initMixpanel(): Promise<void> {
         ? { percent: 100, source: "plan_usage_page" as const }
         : isFullscreen
         ? { percent: 100, source: "fullscreen" as const }
-        : await getSessionReplayConfig();
+        : await _resolveSessionReplayConfig().then((resolved) => {
+            replayConfigTimedOut = resolved.timedOut;
+            return resolved.config;
+          });
 
       mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
         debug: true,
@@ -206,6 +254,17 @@ function _initMixpanel(): Promise<void> {
         session_replay_percent: percent,
         session_replay_source: source,
       });
+      if (replayConfigTimedOut) {
+        // Fired after init so it actually leaves; not awaited because it
+        // awaits this very promise.
+        void _awaitableTrackAnalyticsEvent("analytics_init_degraded", {
+          feature_area: "system",
+          surface: "iframe_bootstrap",
+          module_key: moduleKey,
+          reason: "session_replay_config_timeout",
+          timeout_ms: SESSION_REPLAY_CONFIG_TIMEOUT_MS,
+        });
+      }
     })();
   }
   return _initPromise;

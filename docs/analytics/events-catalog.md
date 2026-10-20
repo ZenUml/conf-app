@@ -703,3 +703,19 @@ Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08
 |---|---|
 | `feature_area` | `"system"` |
 | `surface` | `"editor"` |
+
+---
+
+### `analytics_init_degraded`
+
+**Trigger:** The iframe's Mixpanel bootstrap (`_initMixpanel` in `trackAnalyticsEvent.ts`) stopped waiting for the Forge feature-flag download after `SESSION_REPLAY_CONFIG_TIMEOUT_MS` (3000 ms) and initialised Mixpanel with replay off. Fired once per iframe, after `mixpanel.init`, so it actually leaves. Before #707 a hung bridge call kept the init promise pending forever and every event for that iframe was dropped without a log line.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"system"` |
+| `surface` | `"iframe_bootstrap"` |
+| `module_key` | Forge `moduleKey` of the degraded iframe |
+| `reason` | `"session_replay_config_timeout"` |
+| `timeout_ms` | The wait that elapsed (3000) |
+
+Replay for that iframe stays off even if the flag answer arrives later; there is no re-init.

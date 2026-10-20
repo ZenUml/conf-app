@@ -116,7 +116,11 @@ export type Surface =
   // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
   // the variants that ship it), so every event carrying this surface is a
   // deliberate user action — there are no byline impressions to filter out.
-  | "byline";
+  | "byline"
+  // Not a UI surface: the iframe's own analytics bootstrap (_initMixpanel).
+  // Used by analytics_init_degraded, which fires before any surface is known.
+  // Segment by the `module_key` property to see which iframe degraded.
+  | "iframe_bootstrap";
 
 export type EntryPoint =
   | "page_view"
@@ -1136,6 +1140,16 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // #707: Mixpanel init had to proceed without an input it normally waits for,
+  // so the iframe's events leave with a degraded configuration instead of not at
+  // all. Fired once per iframe, AFTER mixpanel.init, from the bootstrap in
+  // trackAnalyticsEvent.ts. Properties: feature_area=system,
+  // surface=iframe_bootstrap, module_key, reason, timeout_ms.
+  // reason='session_replay_config_timeout': the Forge feature-flag download
+  // (FeatureFlags.initialize, a bare bridge postMessage with no timeout of its
+  // own) did not settle within SESSION_REPLAY_CONFIG_TIMEOUT_MS; Mixpanel
+  // initialised with replay off and that iframe's replay stays off.
+  | "analytics_init_degraded"
   // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
   // `retry()` is a bare location.reload(), so the click and its result sit in
   // two different page lifetimes: the click event is emitted before the reload,

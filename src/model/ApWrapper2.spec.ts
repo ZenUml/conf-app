@@ -87,6 +87,33 @@ describe('ApWrapper2', () => {
         (forgeGlobalMod.default as any).isDiagramly = false;
       }
     });
+
+    // Regression (#403): the AsyncAPI variant registers only `async-api-doc`.
+    // getMacroContentTypes() fell through to the lite/full pair, so MacroMetrics
+    // asked the V2 space endpoint for ac:my-api:zenuml-content-sequence/-graph
+    // and Confluence answered 400 "Unsupported value for type".
+    it('returns only the registered async-api-doc type on the AsyncAPI variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isAsyncApi = true;
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual(['ac:my-api:async-api-doc']);
+      } finally {
+        (forgeGlobalMod.default as any).isAsyncApi = false;
+      }
+    });
+
+    it('keeps the lite prefix with the sequence + graph pair on Lite', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isLite = true;
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual([
+          'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
+          'ac:com.zenuml.confluence-addon-lite:zenuml-content-graph',
+        ]);
+      } finally {
+        (forgeGlobalMod.default as any).isLite = false;
+      }
+    });
   });
 
   describe('updateCustomContentV2', () => {
@@ -987,6 +1014,42 @@ describe('ApWrapper2', () => {
     // title= filter is silently ignored — verified on whimet4 2026-05-27
     // (1000+ CCs, matching record buried beyond limit=250). CQL with exact
     // `title = "<uuid>"` matching is reliable and permission-scoped.
+    // Regression (#403): the AsyncAPI variant registers only `async-api-doc`;
+    // naming sequence/graph in the CQL type clause is an unsupported type there.
+    it('limits the CQL type clause to async-api-doc on the AsyncAPI variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isAsyncApi = true;
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+        await wrapper.findLegacyCustomContentByUuid(uuid);
+
+        const expectedCql = `(type = "ac:my-api:async-api-doc") AND title = "${uuid}"`;
+        expect(forgeRequest).toHaveBeenCalledWith(
+          `/wiki/rest/api/search?cql=${encodeURIComponent(expectedCql)}&limit=250`,
+        );
+      } finally {
+        (forgeGlobalMod.default as any).isAsyncApi = false;
+      }
+    });
+
+    it('uses the single Diagramly storage type on the Diagramly variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isDiagramly = true;
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+        await wrapper.findLegacyCustomContentByUuid(uuid);
+
+        const expectedCql = `(type = "ac:gptdock-confluence:gpt-custom-content-key") AND title = "${uuid}"`;
+        expect(forgeRequest).toHaveBeenCalledWith(
+          `/wiki/rest/api/search?cql=${encodeURIComponent(expectedCql)}&limit=250`,
+        );
+      } finally {
+        (forgeGlobalMod.default as any).isDiagramly = false;
+      }
+    });
+
     it('runs a CQL exact-title search across both legacy CC types', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
 

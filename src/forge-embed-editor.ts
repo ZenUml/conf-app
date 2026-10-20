@@ -1,7 +1,7 @@
 import globals from "@/model/globals";
 import forgeGlobal, { getView, getContext as initForgeContext } from './model/globals/forgeGlobal';
 import { trackEvent } from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
 import { markCsatPending } from "@/utils/csat";
 import { mountRoot } from "@/mount-root";
@@ -25,6 +25,15 @@ import { toast } from '@/utils/toast';
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
 let originalConfigUuid: string | undefined;
 
+// The operation mode, decided ONCE when the editor opens and used for the start
+// event, the close-without-save outcome and the success event (conf-app#519).
+// The success path used to re-derive it from `getMacroData().uuid`, a different
+// discriminator from the start event's `resolveEffectiveCustomContentId`, so a
+// session could open as a create and be reported as an edit (or vice versa).
+// initializeMacro assigns it before the editor mounts, so the Publish handler
+// can never run first.
+let embedOperationMode: 'create' | 'edit' = 'create';
+
 async function saveEmbedAndExit(selectedCustomContentId: string) {
   // Start the publish-latency clock at the save-handler entry (≈ the Publish
   // click in DocumentList.vue). Stopped at the redirect below.
@@ -43,36 +52,13 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
   // intentional in source. Result was every embed save POSTed an empty
   // {diagramType:"embed",source:"custom-content"} placeholder, and the
   // viewer rendered "Unknown diagram type: embed".
-  const macroData = await globals.apWrapper.getMacroData();
-  const isNew = !macroData?.uuid;
+  const isNew = embedOperationMode === 'create';
 
   const savedIdProps = {
     content_id: selectedCustomContentId,
     custom_content_id: selectedCustomContentId,
     attachment_name: `zenuml-${selectedCustomContentId}.png`,
   };
-
-  // Embed bypasses Persistence.ts, so mark the save here (see editorCloseOutcome).
-  markEditorSaved();
-
-  if (isNew) {
-    trackAnalyticsEvent("macro_create_succeeded", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: "embed",
-      operation_mode: "create",
-      ...savedIdProps,
-    });
-  } else {
-    trackAnalyticsEvent("macro_save_succeeded", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: "embed",
-      operation_mode: "edit",
-      ...savedIdProps,
-    });
-    markCsatPending();
-  }
 
   if (getEditJourneyId()) {
     endEditJourney('saved');
@@ -112,6 +98,25 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
         EventBus.$emit('save-error', new Error('embed target not fetchable'));
         return;
       }
+      // The save is going to be submitted: only now is it a success. Reported
+      // here, after the invalid-id and not-fetchable gates, so a pick that keeps
+      // the editor open is not counted. Awaited with the sendBeacon transport
+      // because view.submit tears this iframe down: the fire-and-forget XHR
+      // (Mixpanel batches for 5 s) never left, which is why production showed
+      // 0 success events against 46 starts (conf-app#519). Embed bypasses
+      // Persistence.ts, so the saved mark (see editorCloseOutcome) is here too.
+      markEditorSaved();
+      await trackAnalyticsEventBeforeUnload(
+        isNew ? "macro_create_succeeded" : "macro_save_succeeded",
+        {
+          feature_area: "macro",
+          surface: "editor",
+          macro_type: "embed",
+          operation_mode: isNew ? "create" : "edit",
+          ...savedIdProps,
+        },
+      );
+      if (!isNew) markCsatPending();
       // Redirect starts now (view.submit below). Stop the clock. Placed after
       // the invalid-id / not-fetchable early-returns so it only fires on a real
       // redirect, not when the editor stays open for a re-pick.
@@ -180,9 +185,10 @@ async function initializeMacro() {
   // covers extension.modal and the autoconvert link, so it answers "is this a
   // new macro" correctly for a macro opened from the modal surface.
   const resolvedCustomContentId = resolveEffectiveCustomContentId(context);
+  embedOperationMode = resolvedCustomContentId ? 'edit' : 'create';
   setEditJourneyMeta({
     macroType: 'embed',
-    operationMode: resolvedCustomContentId ? 'edit' : 'create',
+    operationMode: embedOperationMode,
   });
 
   let doc: Diagram | undefined;
@@ -237,13 +243,18 @@ async function initializeMacro() {
 
   // Was MacroUtil.isCreateNew(), which reads only extension.config — see the
   // matching note in forge-graph-editor.ts.
-  const isNew = !resolvedCustomContentId;
+  const isNew = embedOperationMode === 'create';
   markEditorAuthoringStarted();
   trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'embed',
+    operation_mode: embedOperationMode,
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(resolvedCustomContentId && {
+      content_id: resolvedCustomContentId,
+      custom_content_id: resolvedCustomContentId,
+    }),
   });
   // The picker cannot tell whether the selection changed, so had_changes is
   // left off; the close-without-save itself is what the funnel needs.

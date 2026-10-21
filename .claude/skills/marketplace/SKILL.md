@@ -1,30 +1,23 @@
 ---
 name: marketplace
 description: >-
-  Authoritative source for Atlassian Marketplace PRICING, licenses, and vendor revenue for the
-  ZenUML apps. Two things it answers that nothing else does: (1) what a tenant pays — the Full
-  plan's cumulative per-user band table, the $299/space/year Enterprise Bundle, monthly vs annual
-  (annual = 10x monthly), and how much we actually NET after Atlassian's cut, which moved 15% ->
-  20% -> 0% inside 19 months and must always be derived from transactions rather than quoted from
-  memory; (2) portfolio / cohort reporting — lifetime vendor revenue, renewals due in a date
-  window, overdue / lapsing payers, top payers, churned payers. Use whenever the user asks "how
-  much will <tenant> pay", "what's our price for N users", "what do we net", "how much does
-  Atlassian take", about revenue, renewals, "who's overdue", "which annual customers renew this
-  month", biggest paying customers, or any rollup across the customer base — even if they don't
-  say "Marketplace". Never state a price or a take rate without running `scripts/mp_pricing.py`.
-  For a SINGLE tenant's paid status / size / profile ("is <domain> a paying customer", "look up
-  <domain>", trial expiry), use the `tenant` skill instead. Discriminator: a cohort / time-window /
-  ranking -> this skill; one domain's paid STATUS -> `tenant` (but one domain's PRICE -> here).
-  Prefer this over ad-hoc curl: it uses the fast bulk export endpoint and joins licenses to
-  transactions correctly on cloudId (naive approaches truncate at a 50-row page cap and undercount
-  revenue). Also hosts the shared engine (`scripts/mp_report.py`) + `sync` snapshot that the
-  `tenant` skill's per-tenant lookups run on.
+  Query live Atlassian Marketplace pricing, licenses, transactions and revenue cohorts for
+  the ZenUML apps. Use for seat-based prices, monthly/annual quotes, vendor share, renewal
+  windows, overdue candidates, top customers and portfolio rollups. Separates recorded
+  purchases from source-reported payment and vendor payout; Open orders are not absent
+  purchases. Use mp_pricing.py for prices and take rates, and mp_report.py for bulk exports,
+  scoped license/transaction joins and local snapshots. For one tenant's status, profile or
+  trial expiry use tenant, which reuses this engine; one tenant's price still belongs here.
 ---
 
 # Marketplace
 
 Answers revenue / renewal / overdue / tier / **pricing** questions for the ZenUML Marketplace apps
 by pulling the vendor's **licenses** and **sales transactions** and joining them locally.
+
+For customer status, follow [shared transaction evidence rules](../customer-data/evidence.md). Keep purchase evidence, source-reported settlement and vendor payout separate. A valid non-zero purchase/renewal transaction plus effective commercial license is a recorded commercial purchase even when `paymentStatus=Open`; it is not an absent order. Positive `vendorAmount` alone is not settled payment. `Paid` and `Fully paid` are source-reported invoice payment states, not evidence of a bank payout to the vendor.
+
+**Current helper limitation:** `mp_report.py` still derives `PAID`, `paying`, `lifetime_vendor` and `paid_thru` from transaction amounts without checking payment status. `client` also omits the raw payment-status field. For payment, paid-only cohort or renewal conclusions, inspect the underlying bulk export / SQLite raw JSON and apply the shared evidence rules; do not treat those summary labels as proof. This skill update does not change the script or historical report values.
 
 Two scripts: `scripts/mp_report.py` for licenses and revenue, `scripts/mp_pricing.py` for what a
 tenant pays and what we net. Both encode things that are easy to get wrong (see "Why the script
@@ -108,7 +101,7 @@ Unit check (no network, no credentials): `python3 .claude/skills/marketplace/scr
 | `client <name>` | Full license + transaction history for one tenant (text search on company/slug). Use for "did they ever pay / how much / what plan". |
 | `revenue [--period] [--top N]` | Top paying clients by lifetime vendor $, with billing period and paid-through. `--period annual\|monthly`. |
 | `tier <domain>` | Quick tier + license-type + status for a tenant (the number that drives Full-plan pricing). |
-| `whois <domain>` | One card for a domain across **all** apps: cloudId(s), users, and a **state** per app — `FREE` / `TRIAL (expires D, ⚠ Nd left)` / `PAID $X` / `LAPSED` (never just "paying? $0", which hides an active trial or a churned payer). Joins tx on **cloudId** (not text — see the trap below). For Lite tenants it **auto-checks the Layer-B (Stripe/KV) space-license layer** (`wrangler kv … --remote` baked in — the woolworths/coles footgun) and prints `[Layer B: none / N space-licenses]`, giving a complete Lite paid verdict in one command. On a slug miss it **suggests near-match hosts**. cloudId falls back to `_edge/tenant_info`. `--no-kv` skips the ~2s Lite KV call; `--local` skips it too (determinism) and says so. The "is X a paying customer and how big are they" primitive. |
+| `whois <domain>` | One card across installed apps: identity, users, license state and transaction-based summaries. Joins cloudId + product; verify entitlement, raw status and source IDs from exports before payment conclusions (see helper limitation above). Lite automatically checks remote Stripe/KV; `--no-kv` / `--local` explicitly leave that layer unchecked. On a slug miss, suggests near-match hosts; cloudId can fall back to `_edge/tenant_info`. |
 | `sync` | Snapshot **all** apps' licenses + transactions into a local SQLite DB (`scripts/marketplace.db`, ~1.7k licenses + ~5k tx, ~14s). Then add `--local` to ANY command to run against the snapshot (sub-100ms, offline, no creds). |
 
 ### Local snapshot (`sync` + `--local`) — for batch & cross-source joins
@@ -121,14 +114,11 @@ A refresh writes a separate database and replaces the current snapshot only afte
 
 ## Reading the output — what the fields mean
 
-- **`lifetime_vendor`** — total `vendorAmount` the vendor actually received across all this
-  client's transactions. **This is the truth of "are they a paying customer."** A `COMMERCIAL`
-  license with `$0` here has *not* paid us (evaluation-converted, comped, or `LEGACY_FREE`).
+- **`lifetime_vendor`** — the current helper's raw signed transaction-amount sum, not status-filtered settlement or bank receipts. Inspect payment statuses and overlapping invoices before reporting received revenue. An Open commercial order can exist with unconfirmed settlement; neither that uncertainty nor a commercial license alone establishes non-purchase.
 - **`billing`** — `Annual` / `Monthly`, derived from the transaction `purchaseDetails.billingPeriod`
   (authoritative). Never infer billing period from license maintenance-date spans; the license
   `maintenanceStartDate` reflects the latest cycle, not the anniversary, so the span lies.
-- **`paid_thru`** — the latest `maintenanceEndDate` among *paid* transactions. More reliable than a
-  license's `maintenanceEndDate`, which can lag. `paid_thru < today` ⇒ their paid coverage lapsed.
+- **`paid_thru`** — the current helper's latest positive-amount transaction end; despite its name, this may include Open orders. Rebuild confirmed coverage from raw statuses and matched subscription/periods before calling it paid coverage. Future-only intervals do not cover today. A newer Open renewal already records a purchase; do not label it a missing order or lost sale.
 - **`dunning` / `no-payment-method`** — `invoiceDunningReason = "PAYMENT METHOD IS NOT SET"`. On an
   active client near renewal it means **the next auto-renewal will fail** unless they fix their
   card. But it is *noisy*: it also appears on never-paid installs, so always read it next to
@@ -138,9 +128,7 @@ A refresh writes a separate database and replaces the current snapshot only afte
 - **`status`** — `active` / `inactive`. Access is **soft-enforced**, so a lapsed annual payer can
   stay `active` and keep using the app long after `paid_thru` — don't read `active` as "paid".
 
-Because ZenUML access is soft-enforced everywhere, the honest definition of an **overdue paying
-client** is: `lifetime_vendor > 0` **and** (`grace` or `paid_thru < today` or a real renewal about
-to fail on `no-payment-method`). The script's `overdue --paid-only` encodes exactly that.
+An overdue-payment candidate needs historical reported settlement plus a dated coverage/payment-risk signal. A newer order may already complete the buying process while settlement remains unconfirmed. Keep that case separate from an absent renewal, and never infer missing purchase or failed payment from Open alone.
 
 ### cloudId ≠ customer — the site-migration false-churn trap
 

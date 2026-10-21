@@ -1,7 +1,7 @@
 ---
 name: land-branch
 description: Create a branch, run local validation, create a PR and **merge** on main 
-  with staging deployed and draft releases created. Use when the user says "land", "land it", "land this branch", "ship", "ship it", "ship this branch",
+  with staging deployed and draft releases created. Use when the user says "land", "land it", "land this branch",
   "merge this", or wants to go from local branch to merged in one command. Fixes actionable local validation
   failures in a bounded loop, then stops at the first unrecoverable failure.
   Does NOT deploy to production — use /release-app after shipping.
@@ -98,7 +98,7 @@ If babysit-pr exhausts all 3 retry attempts, stop and report "CI blocked" with t
 
 ### Step 4: Land and verify
 
-**Confirm with the user before merging** unless they explicitly said "ship it".
+**Confirm with the user before merging** unless they explicitly said "land it".
 
 For non-Markdown changes, invoke `/land-pr` with the PR number. If merge is blocked, stop and report.
 
@@ -131,7 +131,7 @@ On success, report the draft releases created and suggest `/release-app` if the 
 
 - **Each step is a hard boundary.** Only Step 1's bounded local-fix loop and Step 3's CI-fix loop may retry within their own step.
 - **No auto-rollback.** Stop and report on any failure. The developer decides next steps.
-- **Confirm before merge.** Pause and confirm with the user before the land-pr step unless they explicitly said "ship it".
+- **Confirm before merge.** Pause and confirm with the user before the land-pr step unless they explicitly said "land it".
 
 ## Output
 

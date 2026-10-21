@@ -1,13 +1,13 @@
 ---
-name: ship-branch
+name: land-branch
 description: Create a branch, run local validation, create a PR and **merge** on main 
-  with staging deployed and draft releases created. Use when the user says "ship", "ship it", "ship this branch",
+  with staging deployed and draft releases created. Use when the user says "land", "land it", "land this branch", "ship", "ship it", "ship this branch",
   "merge this", or wants to go from local branch to merged in one command. Fixes actionable local validation
   failures in a bounded loop, then stops at the first unrecoverable failure.
   Does NOT deploy to production — use /release-app after shipping.
 ---
 
-# Ship Branch
+# Land Branch
 
 Orchestrate the full path from local branch to merged on main. This skill composes sub-skills in sequence, stopping at the first failure.
 

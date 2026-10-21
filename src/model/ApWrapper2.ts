@@ -947,6 +947,7 @@ export default class ApWrapper2 {
       recoveredFromOrphanId: customContentId,
       probeResult,
       directFetchStatus: 'not_found',
+      ...directDiagnostics,
     };
   }
 

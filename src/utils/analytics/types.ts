@@ -1103,6 +1103,18 @@ export type AnalyticsProperties = {
   // `error_code` come from the first structured error.
   load_status?: 'not_found' | 'other_error';
   error_class?: 'structured' | 'malformed';
+  // customcontent_orphan_observed: the by-id GET (the "direct fetch") that ran
+  // before any probe. Without these, `recoverable: 'probe_skipped_no_probe_result'`
+  // could not say whether the fetch hit a 403, a 5xx, a thrown request or a
+  // malformed body — they all collapsed to "no probe result" (#148).
+  // `direct_fetch_status` mirrors fetchCustomContentByIdV2WithStatus;
+  // `direct_fetch_http_status` / `direct_fetch_error_code` come from the first
+  // structured Confluence error (absent for thrown/malformed);
+  // `direct_fetch_error_class` is 'thrown' | 'structured' | 'malformed'.
+  direct_fetch_status?: 'ok' | 'not_found' | 'other_error';
+  direct_fetch_http_status?: number;
+  direct_fetch_error_code?: string;
+  direct_fetch_error_class?: 'thrown' | 'structured' | 'malformed';
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

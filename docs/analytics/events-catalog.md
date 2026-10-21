@@ -607,6 +607,24 @@ The release-notes strip in the shared `confluence:pageBanner` host (`src/compone
 
 ---
 
+### `customcontent_orphan_observed`
+
+**Trigger:** A viewer/editor loaded a macro whose `customContentId` did not yield a document. Fired once per macro load by the owning entry (`forgeIndex.ts`, `forge-graph-*`, `forge-embed-viewer.ts`, `openDocument.ts`) via `reportOrphanObserved`.
+
+| Property | Notes |
+|---|---|
+| `diagram_kind` | `sequence \| graph \| openapi \| embed` |
+| `recoverable` | Probe verdict, or `probe_skipped_no_page_id` / `probe_skipped_no_probe_result` when no probe ran |
+| `recovery_used` | Whether a recovered sibling was used |
+| `direct_fetch_status` | Outcome of the by-id fetch that preceded any probe: `ok \| not_found \| other_error` |
+| `direct_fetch_http_status` | HTTP status from the first structured Confluence error (absent for thrown / malformed) |
+| `direct_fetch_error_code` | API error code, e.g. `NOT_FOUND`, `FORBIDDEN` (absent for thrown / malformed) |
+| `direct_fetch_error_class` | `thrown \| structured \| malformed`; absent when the fetch succeeded or not_found came from an invalid id |
+
+With `recoverable = probe_skipped_no_probe_result` the direct fetch failed for a reason other than a strict 404, so these fields say which one (403 vs 5xx vs thrown vs malformed). Added for #148.
+
+---
+
 ### `viewer_render_deferred`
 
 **Trigger:** A Mermaid macro has been waiting more than 10 s for a measurable SVG text layout (`mermaid.render()` threw `svg element not in render tree`: collapsed expand, background tab, `display:none` ancestor). Fired once per wait, by `Mermaid.vue`. The wait itself is unchanged (no forced retry, no blank diagram); this event only makes a hidden macro distinguishable from a silently broken one (#706).

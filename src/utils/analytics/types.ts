@@ -865,6 +865,14 @@ export type AnalyticsProperties = {
   // duration_ms includes exactly this much gate-induced delay — subtracting
   // it (or splitting by render_gate) is legitimate.
   render_deferred_ms?: number;
+  // Hidden-Mermaid wait (#706). `layout_wait_ms` (on macro_viewed): wall time the
+  // viewer waited for a measurable SVG text layout after mermaid.render() threw
+  // `svg element not in render tree`; absent when no wait happened. Unlike
+  // render_deferred_ms it is not gate-induced, but duration_ms includes it, so
+  // subtract it (or exclude present values) in percentile work. `waited_ms` (on
+  // viewer_render_deferred / viewer_render_abandoned): the wait so far / in total.
+  layout_wait_ms?: number;
+  waited_ms?: number;
   // Strict (no-margin) top-level-viewport intersection at first observation.
   // The direct client-side measure of "was this macro on screen at boot".
   visible_at_boot?: boolean;

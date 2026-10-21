@@ -1697,12 +1697,12 @@ export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit
 // does not apply; 'under_limit' = counted and below the limit;
-// 'limit_reached' = counted and refused; 'count_unknown' = the space's macro
-// count could not be read, and the create was ALLOWED anyway. The last one is
-// the fail-open path (the #302 shape, matching the frontend's own behaviour on
-// an unknown count) and the reason this property exists: its share of creates
-// is what says whether failing open is a rounding error or the normal case.
-export type AgentLinkPaywallGate = "paid" | "under_limit" | "limit_reached" | "count_unknown";
+// 'over_limit' = counted at or past the limit and ALLOWED, because the limit no
+// longer blocks (the UI block was retired in 2026-09 and headless create
+// matches it); 'count_unknown' = the space's macro count could not be read,
+// and the create was allowed. 'limit_reached' = counted and refused; no longer
+// emitted, kept so historical events still type-check in queries.
+export type AgentLinkPaywallGate = "paid" | "under_limit" | "over_limit" | "limit_reached" | "count_unknown";
 
 export type AgentLinkIdentityFailure =
   | "no_macro_on_site"

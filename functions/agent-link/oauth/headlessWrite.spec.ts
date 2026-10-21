@@ -323,14 +323,17 @@ describe('the three blockers found in review', () => {
 
   it('reads the space key off the page, not from an endpoint we lack the scope for', async () => {
     const site = emptyPage();
-    const { ctx, writes } = await contextFor(site, {
+    const { ctx } = await contextFor(site, {
       // Keyed by the space the page's _links.webui names.
       confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) },
     });
-    await expect(
-      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'sequence', dsl: 'A.b()' }, ctx),
-    ).rejects.toMatchObject({ code: 'limit_reached' });
-    expect(writes).toHaveLength(0);
+    const out = (await callHeadlessTool(
+      'create_diagram',
+      { cloudId: CLOUD, pageId: 'page-1', type: 'sequence', dsl: 'A.b()' },
+      ctx,
+    )) as { gate: string };
+    // 'over_limit' is only reachable if the count was read under DESIGN.
+    expect(out.gate).toBe('over_limit');
     // and it never calls the endpoint that 401s on our scopes
     expect(spaceKeyFromLinks({ webui: '/spaces/DESIGN/pages/480411697/Test+page' })).toBe('DESIGN');
     expect(spaceKeyFromLinks(undefined)).toBe('');
@@ -497,17 +500,21 @@ describe('create_diagram', () => {
     expect(countExtensions(site.pageAdf)).toBe(2); // unchanged: the seeded macro and the retry's own
   });
 
-  it('refuses when an unpaid space is at the limit, before creating anything', async () => {
+  it('creates in an unpaid space at the limit, as the UI does', async () => {
     const site = emptyPage();
-    const { ctx, writes } = await contextFor(site, {
+    const { ctx } = await contextFor(site, {
       confluence_plugin_features: {
         get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }),
       },
     });
-    await expect(
-      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' }, ctx),
-    ).rejects.toMatchObject({ code: 'limit_reached' });
-    expect(writes).toHaveLength(0);
+    const out = (await callHeadlessTool(
+      'create_diagram',
+      { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' },
+      ctx,
+    )) as { result: string; gate: string };
+    expect(out.result).toBe('added');
+    expect(out.gate).toBe('over_limit');
+    expect(site.content.has('new-1')).toBe(true);
   });
 
   it('allows creation in a licensed space that is over the limit', async () => {
@@ -621,13 +628,14 @@ describe('write analytics', () => {
     expect(events[0].properties.paywall_gate).toBe('count_unknown');
   });
 
-  it('records a refusal when the gate actually bites', async () => {
+  it('records a create past the limit as over_limit, not a refusal', async () => {
     const { res, events } = await rpcCreate(emptyPage(), {
       confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) },
     });
-    expect(res.status).toBe(200); // a tool-level refusal, not a transport error
-    expect(events[0].properties.paywall_gate).toBe('limit_reached');
-    expect(events[0].properties.reason).toBe('limit_reached');
+    expect(res.status).toBe(200);
+    expect(events[0].event).toBe('agent_link_diagram_created');
+    expect(events[0].properties.result).toBe('added');
+    expect(events[0].properties.paywall_gate).toBe('over_limit');
     expect(events[0].properties.cloud_id).toBe(CLOUD);
   });
 });
@@ -650,7 +658,7 @@ describe('the paywall gate itself', () => {
     expect(touched).toBe(false);
   });
 
-  it('blocks exactly at the limit', async () => {
+  it('never refuses, and classifies exactly at the limit as over_limit', async () => {
     const at = await checkCreateAllowed(
       { confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) } },
       base,
@@ -659,8 +667,8 @@ describe('the paywall gate itself', () => {
       { confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT - 1 } } }) } },
       base,
     );
-    expect(at.allowed).toBe(false);
-    expect(under.allowed).toBe(true);
+    expect(at).toEqual({ allowed: true, reason: 'over_limit', macroCount: MACROS_LIMIT });
+    expect(under).toEqual({ allowed: true, reason: 'under_limit', macroCount: MACROS_LIMIT - 1 });
   });
 
   it('honours a user-scoped license as well as a space one', async () => {
@@ -689,6 +697,6 @@ describe('the paywall gate itself', () => {
       },
       base,
     );
-    expect(decision.allowed).toBe(false);
+    expect(decision).toEqual({ allowed: true, reason: 'over_limit', macroCount: 999 });
   });
 });

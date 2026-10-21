@@ -16,9 +16,9 @@
 //     refusal, exactly as addToPage.ts does (design §7). An agent that retries
 //     must not duplicate a diagram, and an agent racing a human editor must
 //     lose.
-//   - `create_diagram` consults the server-side paywall gate first (§9.1,
-//     headlessGate.ts). The frontend's gate never runs for a headless call, so
-//     without this, creation here would be a revenue bypass.
+//   - `create_diagram` classifies the space against the Lite limit first
+//     (§9.1, headlessGate.ts) for analytics. It never refuses, matching the
+//     UI, whose paywall block was retired in 2026-09.
 
 import { listAccessibleSites, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
 import { confluenceReaderFor } from './confluenceReader';
@@ -229,8 +229,7 @@ export class HeadlessToolError extends Error {
       | 'bad_params'
       | 'forbidden'
       | 'conflict'
-      | 'guardrail_rejected'
-      | 'limit_reached',
+      | 'guardrail_rejected',
     readonly detail?: unknown,
   ) {
     super(message);
@@ -883,7 +882,7 @@ export async function callHeadlessTool(
       }
       if (!Array.isArray(adf.content)) throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
 
-      // §9.1, blocking: the frontend paywall never runs for a headless call.
+      // §9.1: classify for analytics only; the limit no longer blocks, as in the UI.
       const spaceKey = spaceKeyFromLinks(page._links);
       const gate = await checkCreateAllowed(ctx.gateEnv ?? {}, {
         variant: identity.identity.variant,
@@ -892,13 +891,6 @@ export async function callHeadlessTool(
         spaceKey,
         accountId: ctx.userId,
       });
-      if (!gate.allowed) {
-        throw new HeadlessToolError(
-          `This space is on the free plan and already has ${gate.macroCount} of ${gate.limit} diagrams. Upgrade the space to add more.`,
-          'limit_reached',
-          gate,
-        );
-      }
 
       const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'Untitled diagram';
       const created = await request('/wiki/api/v2/custom-content', {

@@ -95,11 +95,11 @@ export interface HeadlessEnv extends OAuthEnv, GateEnv {
 /**
  * Emit the write events (design §10).
  *
- * The one that matters is `paywall_gate` on a create: the §9.1 gate fails OPEN
- * when a space's macro count cannot be read, so the share of creates reporting
- * 'count_unknown' is the only measure of how often the Lite limit is skipped
- * rather than applied. Nothing else answers that — the frontend's gate never
- * runs on this path, so its own paywall_gate_evaluated is silent here.
+ * The one that matters is `paywall_gate` on a create: it says whether the
+ * space was paid, under the Lite limit, over it ('over_limit' — allowed, since
+ * the limit no longer blocks), or uncounted ('count_unknown'). Nothing else
+ * answers that — the frontend's gate never runs on this path, so its own
+ * paywall_gate_evaluated is silent here.
  *
  * Analytics never fails a write and never delays one: the tool has already
  * succeeded by the time this runs, so a slow or unreachable Mixpanel must not
@@ -307,9 +307,8 @@ async function trackGrantEvent(env: HeadlessEnv, userId: string, event: GrantEve
 }
 
 /**
- * A refusal is as informative as a success here: 'limit_reached' is the gate
- * actually biting, and `guardrail_rejected` is the write guard refusing a
- * truncation. Both are invisible if only successes are counted.
+ * A refusal is as informative as a success here: `guardrail_rejected` is the
+ * write guard refusing a truncation, invisible if only successes are counted.
  */
 async function trackWriteRefusal(
   env: HeadlessEnv,
@@ -333,7 +332,6 @@ async function trackWriteRefusal(
         // can quote a Confluence error.
         reason: failure.code,
         guardrail_rejected: failure.code === 'guardrail_rejected' || undefined,
-        paywall_gate: failure.code === 'limit_reached' ? 'limit_reached' : undefined,
       },
       env.MIXPANEL_TOKEN,
       env,

@@ -103,4 +103,60 @@ Operator -> Orch.magic(source) {
 Operator -> Orch.accept(runDir, sha)
 ```
 
+## Contract object after the refactor
+
+Who owns what once the contract is its own object: the orchestrator serialises, guards a finished run, resets its own round state and writes the manifest; `LayoutContract` validates, freezes, revises and records events behind private fields. Rendered: [layout-contract-sequence.svg](layout-contract-sequence.svg).
+
+```mermaid
+zenuml
+title LayoutContract after the refactor: who owns what
+Author as "Author session"
+Ext as "pi-extension.ts"
+Orch as "Orchestrator (createV2Run)"
+Contract as "LayoutContract (src/layout-contract.mjs, #private state)"
+
+// tool diagram_layout_intent {jobId, intent, predecessorHash?, reason?}
+Author -> Ext.layoutIntent(params) {
+  // serial(): one orchestrator operation at a time
+  Ext -> Orch.submitLayoutIntent(opts) {
+    // finalResult -> throw
+    // LAYOUT_INTENT_RUN_FINISHED
+    Orch -> Orch.guard()
+    Orch -> Contract.submit(opts) {
+      // predecessorHash == hash
+      // and a reason, else throw
+      Contract -> Contract.checkRevision()
+      // validateLayoutIntent()
+      // coverage, groups, edges
+      Contract -> Contract.validate()
+      // record + sha256 hash
+      // #current / #history
+      Contract -> Contract.freeze()
+      // created | revised event
+      // throw: failed event
+      Contract -> Contract.recordEvent()
+      return record
+    }
+    // throw: persist(), rethrow
+    // reset findings, cache, best,
+    // base, lastReview, exceptions
+    Orch -> Orch.resetForNewContract()
+    // manifestFields() -> run.json
+    Orch -> Orch.persist()
+    return "ACCEPTED + hash"
+  }
+}
+// later: every diagram_build_check, diagram_inspect, diagram_submit
+Author -> Ext.buildCheck(jobId) {
+  Ext -> Orch.buildCheck() {
+    // required && !frozen -> throw
+    // LAYOUT_INTENT_REQUIRED
+    Orch -> Contract.require()
+    // entry stamped contract.hash
+    Orch -> Orch.scriptCheck()
+    return findings
+  }
+}
+```
+
 Diagnostics: `magic_layout_intent_created`, `magic_layout_intent_revised` and `magic_layout_contract_failed` are recorded in `run.json` only; the CLI sends no analytics.

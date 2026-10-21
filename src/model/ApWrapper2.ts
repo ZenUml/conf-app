@@ -22,6 +22,7 @@ import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { isUsablePageId } from '@/utils/pageId';
 import { classifyCreateNotFound, parseContentOperations, SaveFailureDiagnosis } from '@/model/saveFailureDiagnosis';
 
 export enum VersionType {
@@ -322,8 +323,12 @@ export default class ApWrapper2 {
     // extension.content, so pageId is undefined and the POST fails 400.
     // Fall back to spaceId from forgeContext.extension.space when no page
     // is in scope.
+    //
+    // conf-app#523: an unpublished (draft) page reports its id as the sentinel
+    // "0", which is truthy but is not a parent Confluence can resolve (404
+    // "parent page 0 not found"). Treat it like "no page" and use the space.
     const pageId = await this._getCurrentPageId();
-    if (pageId) {
+    if (isUsablePageId(pageId)) {
       data.pageId = pageId;
     } else {
       const space = await this.getCurrentSpace();

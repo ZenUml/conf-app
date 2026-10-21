@@ -6,6 +6,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   callHeadlessTool,
   canonicalDiagramType,
+  HEADLESS_TOOLS,
   HeadlessToolError,
   sourceFieldFor,
   spaceKeyFromLinks,
@@ -255,6 +256,59 @@ describe('update_diagram', () => {
     expect(stored.version.message).toContain('add a step');
     expect(writes.filter((w) => w.method === 'PUT')).toHaveLength(1);
   }, GUARD_TIMEOUT_MS);
+
+  describe('title (#789)', () => {
+    // Same shape the viewer rename leaves: the body JSON title AND the record
+    // title move together (renameDiagramTitle -> updateCustomContentV2).
+    const putBody = (writes: Array<{ method: string; body: unknown }>) =>
+      writes.find((w) => w.method === 'PUT')!.body as { title: string; body: { value: string } };
+
+    it('renames the record and the body JSON when title is given, keeping the sent dsl', async () => {
+      const site = emptyPage();
+      const { ctx, writes } = await contextFor(site);
+      const out = (await callHeadlessTool(
+        'update_diagram',
+        { cloudId: CLOUD, contentId: 'cc-1', dsl: CURRENT_DSL, title: '  New name  ', summary: 'rename' },
+        ctx,
+      )) as { result: string; titleChanged?: boolean };
+
+      const put = putBody(writes);
+      expect(put.title).toBe('New name');
+      const written = JSON.parse(put.body.value) as Record<string, unknown>;
+      expect(written.title).toBe('New name');
+      expect(written.code).toBe(CURRENT_DSL);
+      expect(out.titleChanged).toBe(true);
+      const message = (site.content.get('cc-1') as { version: { message: string } }).version.message;
+      expect(message).toContain('Agent Link');
+      expect(message).toContain('New name');
+      expect(message).toContain('rename');
+    }, GUARD_TIMEOUT_MS);
+
+    it.each([undefined, '', '   ', 42])('leaves both titles untouched when title is %j', async (title) => {
+      const site = emptyPage();
+      const { ctx, writes } = await contextFor(site);
+      const out = (await callHeadlessTool(
+        'update_diagram',
+        { cloudId: CLOUD, contentId: 'cc-1', dsl: `${CURRENT_DSL}\nB.extra()`, ...(title === undefined ? {} : { title }) },
+        ctx,
+      )) as { titleChanged?: boolean };
+
+      const put = putBody(writes);
+      expect(put.title).toBe('Checkout');
+      expect((JSON.parse(put.body.value) as Record<string, unknown>).title).toBe('Checkout');
+      expect(out.titleChanged).toBe(false);
+      const message = (site.content.get('cc-1') as { version: { message: string } }).version.message;
+      expect(message).toBe('Updated by ZenUML Agent Link');
+    }, GUARD_TIMEOUT_MS);
+
+    it('advertises an optional title and says it renames the diagram', () => {
+      const tool = HEADLESS_TOOLS.find((t) => t.name === 'update_diagram')!;
+      const schema = tool.inputSchema as { properties: Record<string, unknown>; required: string[] };
+      expect(schema.properties.title).toBeDefined();
+      expect(schema.required).not.toContain('title');
+      expect(tool.description).toMatch(/rename/i);
+    });
+  });
 
   it('refuses a change that would truncate the diagram, writing nothing', async () => {
     const site = emptyPage();
@@ -568,7 +622,14 @@ describe('write analytics', () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  async function rpcCreate(site: FakeSite, gateEnv: GateEnv) {
+  async function rpcCreate(
+    site: FakeSite,
+    gateEnv: GateEnv,
+    call: { name: string; arguments: Record<string, unknown> } = {
+      name: 'create_diagram',
+      arguments: { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' },
+    },
+  ) {
     const { ctx } = await contextFor(site, gateEnv);
     const events = captureEvents();
     const fetchImpl = ctx.fetchImpl;
@@ -599,10 +660,7 @@ describe('write analytics', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: {
-          name: 'create_diagram',
-          arguments: { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' },
-        },
+        params: call,
       }),
     });
     const res = await handleHeadlessRpc(request, env, await request.clone().json(), { fetchImpl });
@@ -620,6 +678,18 @@ describe('write analytics', () => {
     expect(events[0].properties.paywall_gate).toBe('under_limit');
     expect(events[0].properties.cloud_id).toBe(CLOUD);
   });
+
+  it('records on update_diagram whether the call renamed the diagram (#789)', async () => {
+    const update = (title?: string) => ({
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: 'cc-1', dsl: CURRENT_DSL, ...(title ? { title } : {}) },
+    });
+    const renamed = await rpcCreate(emptyPage(), {}, update('New name'));
+    expect(renamed.events[0].event).toBe('agent_link_diagram_updated');
+    expect(renamed.events[0].properties.title_changed).toBe(true);
+    const plain = await rpcCreate(emptyPage(), {}, update());
+    expect(plain.events[0].properties.title_changed).toBe(false);
+  }, GUARD_TIMEOUT_MS);
 
   it('records the fail-open path distinctly, so its volume is measurable', async () => {
     const { events } = await rpcCreate(emptyPage(), {

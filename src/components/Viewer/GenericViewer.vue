@@ -491,6 +491,7 @@
                 :ready="viewerLoadState === 'ready'"
                 :enabled="architectureTokensEnabled"
                 :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+                :macro-type="diagramType === 'sequence' ? 'sequence' : 'mermaid'"
                 :svg-host="getCaptureNode"
                 :page-id="currentPageId"
               />

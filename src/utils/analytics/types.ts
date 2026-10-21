@@ -865,6 +865,14 @@ export type AnalyticsProperties = {
   // duration_ms includes exactly this much gate-induced delay — subtracting
   // it (or splitting by render_gate) is legitimate.
   render_deferred_ms?: number;
+  // Hidden-Mermaid wait (#706). `layout_wait_ms` (on macro_viewed): wall time the
+  // viewer waited for a measurable SVG text layout after mermaid.render() threw
+  // `svg element not in render tree`; absent when no wait happened. Unlike
+  // render_deferred_ms it is not gate-induced, but duration_ms includes it, so
+  // subtract it (or exclude present values) in percentile work. `waited_ms` (on
+  // viewer_render_deferred / viewer_render_abandoned): the wait so far / in total.
+  layout_wait_ms?: number;
+  waited_ms?: number;
   // Strict (no-margin) top-level-viewport intersection at first observation.
   // The direct client-side measure of "was this macro on screen at boot".
   visible_at_boot?: boolean;
@@ -976,6 +984,9 @@ export type AnalyticsProperties = {
   // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // agent_link_diagram_updated only: true when the call renamed the diagram
+  // (a non-blank `title` that differs from the stored one, #789).
+  title_changed?: boolean;
   // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
   // dialog connects the agent (headless only, for now); `mcp_copy_target` says
   // which block a Copy click targeted. The copy outcome rides the shared

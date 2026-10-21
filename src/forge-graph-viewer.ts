@@ -196,8 +196,10 @@ async function initializeMacro() {
     contentProps: { graphEditorMode },
     loadDiagram,
     afterLoad,
-    // Same id `loadDiagram` reads off `context.extension.config` above.
-    resolveContentId: (context) => context.extension?.config?.customContentId,
+    // Same id `loadDiagram` loads above, pasted-deeplink fallback included. It
+    // is also the SWR cache key, so a raw config read here left a pasted graph
+    // macro uncached (#561).
+    resolveContentId: resolveEffectiveCustomContentId,
     onError: (error) => {
       console.error('Error loading graph viewer', error);
     },
@@ -214,7 +216,10 @@ EventBus.$on('edit', async () => {
   // and consults it too, but the page GET is paid once.
   const ctx = await initForgeContext();
   if (!(await guardEditClick({
-    customContentId: ctx.extension?.config?.customContentId,
+    // Resolved, not a raw config read (as forge-swagger-ui.ts does): a pasted
+    // macro has no config id, and an undefined id makes the gate skip, so a
+    // same-page duplicate of it was never caught.
+    customContentId: resolveEffectiveCustomContentId(ctx),
     macroType: 'graph',
   }))) return;
 

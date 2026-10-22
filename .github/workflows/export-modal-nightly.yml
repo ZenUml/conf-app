@@ -1,16 +1,20 @@
-name: Export modal nightly
+name: Export modal validation
 
 # Runs the Export PNG Playwright suite (tests/export-modal, `pnpm test:export-modal`)
 # against the standalone Vite dev server. It needs no Confluence site, no Forge app,
 # no secrets and no OTP, so it costs one runner.
 #
-# NOT part of PR validation: this workflow deliberately has no push or pull_request
-# trigger. Whether the suite should also gate PRs is a separate decision.
+# Every code PR gets this independent check, including drafts. Keeping the suite
+# in its own job avoids holding the build/unit gate or staging deployment behind
+# a browser test timeout (the original #649 failure mode).
 #
 # Scheduled workflows only run from the default branch, so the nightly starts firing
 # once this file is on main. The suite is only green with the #649 fix in place
 # (PR #840); do not merge this ahead of it.
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**']
   schedule:
     # 04:17 UTC. smoke-test.yml runs at 02:00 and daily-regression.yml at 03:00 (both
     # use the shared robot account / staging), e2e-flake-ranking.yml at 03:00 on
@@ -22,7 +26,7 @@ on:
 # A manual dispatch replaces a stale run of the same workflow instead of queueing
 # behind it. Not the `conf-app-staging` group: this suite never touches staging.
 concurrency:
-  group: export-modal-nightly
+  group: export-modal-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

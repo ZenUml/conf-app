@@ -109,10 +109,6 @@ const ALLOWED_CONTENT_TYPES: Record<string, string> = {
   'application/json': 'json',
 };
 
-function fail(status: number, body: string) {
-  return OkResponse({ ok: false, status, body });
-}
-
 // Which leg of the write died. Async mode reports this as `failure_stage` —
 // without it a server-side failure is a single opaque bucket, and the async
 // path carries ~34% of all upload attempts (#392).
@@ -416,12 +412,12 @@ export const onRequest = async ({
     // own tenant.
     const apiBaseUrl = data.forgeContext?.apiBaseUrl;
     if (!apiBaseUrl) {
-      return fail(401, 'missing forge context (apiBaseUrl)');
+      return OkResponse({ ok: false, status: 401, body: 'missing forge context (apiBaseUrl)' });
     }
 
     const systemToken = request.headers.get('x-forge-oauth-system');
     if (!systemToken) {
-      return fail(401, 'missing x-forge-oauth-system header — not a valid app-token Forge request');
+      return OkResponse({ ok: false, status: 401, body: 'missing x-forge-oauth-system header — not a valid app-token Forge request' });
     }
     // We rely on the user token to confirm the caller can see the page before
     // writing as the app.
@@ -436,24 +432,24 @@ export const onRequest = async ({
 
     // ---- input validation (confused-deputy mitigation) --------------------
     if (!pageId || !/^[0-9]+$/.test(String(pageId))) {
-      return fail(400, 'invalid pageId');
+      return OkResponse({ ok: false, status: 400, body: 'invalid pageId' });
     }
     if (!attachmentName || !ATTACHMENT_NAME_RE.test(String(attachmentName))) {
-      return fail(400, 'invalid attachmentName (must be zenuml-<id>.png or zenuml-<id>.json)');
+      return OkResponse({ ok: false, status: 400, body: 'invalid attachmentName (must be zenuml-<id>.png or zenuml-<id>.json)' });
     }
 
     // contentType defaults to image/png for backward compatibility with
     // legacy callers that only ever sent a PNG and never set this field.
     const contentType = String(rawContentType ?? 'image/png');
     if (!(contentType in ALLOWED_CONTENT_TYPES)) {
-      return fail(400, `invalid contentType (must be one of: ${Object.keys(ALLOWED_CONTENT_TYPES).join(', ')})`);
+      return OkResponse({ ok: false, status: 400, body: `invalid contentType (must be one of: ${Object.keys(ALLOWED_CONTENT_TYPES).join(', ')})` });
     }
     // The attachmentName's extension and the declared contentType must agree —
     // this is what stops "upload a PNG under a .json name" (or vice versa)
     // from smuggling the wrong bytes into the wrong-looking artifact.
     const nameExt = String(attachmentName).slice(String(attachmentName).lastIndexOf('.') + 1).toLowerCase();
     if (ALLOWED_CONTENT_TYPES[contentType] !== nameExt) {
-      return fail(400, `attachmentName extension (.${nameExt}) does not match contentType (${contentType})`);
+      return OkResponse({ ok: false, status: 400, body: `attachmentName extension (.${nameExt}) does not match contentType (${contentType})` });
     }
 
     // Exactly one of the legacy `pngBase64` field and the generic `dataBase64`
@@ -461,11 +457,11 @@ export const onRequest = async ({
     // in-flight Forge rollouts while giving new callers (e.g. the JSON
     // snapshot) a type-agnostic field name.
     if (dataBase64 !== undefined && pngBase64 !== undefined) {
-      return fail(400, 'provide only one of dataBase64 or pngBase64');
+      return OkResponse({ ok: false, status: 400, body: 'provide only one of dataBase64 or pngBase64' });
     }
     const payloadBase64 = dataBase64 ?? pngBase64;
     if (!hash || !payloadBase64) {
-      return fail(400, 'missing hash or data (pngBase64/dataBase64)');
+      return OkResponse({ ok: false, status: 400, body: 'missing hash or data (pngBase64/dataBase64)' });
     }
 
     let bytes: Uint8Array;
@@ -474,16 +470,16 @@ export const onRequest = async ({
       bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     } catch {
-      return fail(400, 'payload is not valid base64');
+      return OkResponse({ ok: false, status: 400, body: 'payload is not valid base64' });
     }
     if (bytes.length > MAX_PAYLOAD_BYTES) {
-      return fail(413, `payload too large (${bytes.length} bytes)`);
+      return OkResponse({ ok: false, status: 413, body: `payload too large (${bytes.length} bytes)` });
     }
     // Magic-byte check applies only to the PNG payload — an application/json
     // payload is arbitrary text bytes; the namespace + extension/contentType
     // consistency check above is its guard.
     if (contentType === 'image/png' && (bytes.length < 8 || !PNG_MAGIC.every((b, i) => bytes[i] === b))) {
-      return fail(400, 'payload is not a PNG');
+      return OkResponse({ ok: false, status: 400, body: 'payload is not a PNG' });
     }
 
     const params = {
@@ -586,9 +582,9 @@ export const onRequest = async ({
     const r = await doUpload(apiBaseUrl, systemToken, userToken, params);
     return r.ok
       ? OkResponse({ ok: true, attachmentId: r.attachmentId, versionNumber: r.versionNumber })
-      : fail(r.status, r.body);
+      : OkResponse({ ok: false, status: r.status, body: r.body });
   } catch (e: any) {
     console.error('forge-upload-attachment: handler error', e);
-    return fail(0, `resolver error: ${e?.name ?? 'Error'}: ${String(e?.message ?? e).slice(0, 200)}`);
+    return OkResponse({ ok: false, status: 0, body: `resolver error: ${e?.name ?? 'Error'}: ${String(e?.message ?? e).slice(0, 200)}` });
   }
 };

@@ -306,7 +306,7 @@ export async function maybeBackfillSnapshot(opts: {
 }): Promise<void> {
   const surface = opts.isDisplayMode ? 'viewer' : 'editor';
   const snapshotTrigger = opts.isDisplayMode ? 'viewer_backfill' : 'editor_backfill';
-  const macroType = toMacroType(opts.diagram.diagramType) as MacroTypeValue;
+  const macroType = toMacroType(opts.diagram?.diagramType ?? '') as MacroTypeValue;
   try {
     if (!opts.isDisplayMode) {
       // Editor surface: cross-page aliases only (see doc comment above).

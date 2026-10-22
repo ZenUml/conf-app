@@ -1,3 +1,4 @@
+import { json } from '../OkResponse';
 /// <reference types="@cloudflare/workers-types" />
 
 // Site-level usage summary for the "Plan and usage" globalPage (Lite paywall
@@ -57,7 +58,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const domain = url.searchParams.get('client') || '';
 
   if (!domain) {
-    return new Response(JSON.stringify({ error: 'missing client domain' }), {
+    return json({ error: 'missing client domain' }, {
       status: 400,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     });

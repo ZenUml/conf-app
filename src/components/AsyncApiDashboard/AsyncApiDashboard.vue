@@ -576,6 +576,8 @@ async function createNew(format: 'asyncapi' | 'openapi' = 'asyncapi') {
       context: {
         macroMode: 'editor',
         diagramType: format,
+        // Read by the editor iframe for macro_create_* (#614).
+        creationOrigin: 'dashboard',
       },
       onClose: async () => {
         showIndexingNotice()

@@ -361,6 +361,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
+import { bylineCreationOrigin } from '@/utils/analytics/creationFlow'
 import { bylineTileMacroTypes } from '@/utils/byline/pickerTypes'
 import { bylineNounFor, capitalize } from '@/utils/byline/bylineNoun'
 import {
@@ -1078,6 +1079,10 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
         // instead of `page_editor_create`, so a byline create dying at the limit
         // is countable against byline_create_clicked.
         origin: BYLINE_MODAL_ORIGIN,
+        // The editor runs in the modal's own iframe, so the host page mode
+        // (view or edit) has to ride along for macro_create_started /
+        // _succeeded / _cancelled to say which byline they came from (#614).
+        creationOrigin: bylineCreationOrigin(hostInEditor),
       },
       onClose: () => {
         void afterEditorClosed(before, macroType)

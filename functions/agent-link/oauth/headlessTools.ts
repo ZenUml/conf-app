@@ -16,9 +16,9 @@
 //     refusal, exactly as addToPage.ts does (design §7). An agent that retries
 //     must not duplicate a diagram, and an agent racing a human editor must
 //     lose.
-//   - `create_diagram` consults the server-side paywall gate first (§9.1,
-//     headlessGate.ts). The frontend's gate never runs for a headless call, so
-//     without this, creation here would be a revenue bypass.
+//   - `create_diagram` classifies the space against the Lite limit first
+//     (§9.1, headlessGate.ts) for analytics. It never refuses, matching the
+//     UI, whose paywall block was retired in 2026-09.
 
 import { listAccessibleSites, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
 import { confluenceReaderFor } from './confluenceReader';
@@ -184,7 +184,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'update_diagram',
     description:
-      'Replace a diagram’s source with new DSL. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change.',
+      'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change. To rename only, send the unchanged source with the new `title`.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -192,6 +192,10 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
         contentId: { type: 'string', description: 'From list_diagrams.' },
         dsl: { type: 'string', description: 'The complete new source. Not a patch.' },
         summary: { type: 'string', description: 'Optional. Note for the version history.' },
+        title: {
+          type: 'string',
+          description: 'Optional. Renames the diagram to this title. Omit or leave blank to keep the current title.',
+        },
       },
       required: ['cloudId', 'contentId', 'dsl'],
     },
@@ -229,8 +233,7 @@ export class HeadlessToolError extends Error {
       | 'bad_params'
       | 'forbidden'
       | 'conflict'
-      | 'guardrail_rejected'
-      | 'limit_reached',
+      | 'guardrail_rejected',
     readonly detail?: unknown,
   ) {
     super(message);
@@ -385,6 +388,14 @@ function parseStoredDiagram(value: unknown): {
 function summaryFor(summary: unknown, title?: string): string {
   const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
   return title ? `Added ZenUML diagram "${title}" via Agent Link${note}` : `Updated by ZenUML Agent Link${note}`;
+}
+
+/** The update_diagram version message; names the new title when the call renamed the diagram. */
+function updateSummaryFor(summary: unknown, renamedTo?: string): string {
+  const base = summaryFor(summary);
+  if (!renamedTo) return base;
+  const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
+  return `${base.slice(0, base.length - note.length)}, renamed to "${renamedTo}"${note}`;
 }
 
 /**
@@ -770,7 +781,13 @@ export async function callHeadlessTool(
       }
 
       const versionNumber = Number(current.version?.number);
-      const nextBody = { ...stored.raw, [stored.field]: dsl };
+      // A rename sets the record title AND the body JSON title, as the viewer's
+      // rename does (renameDiagramTitle -> updateCustomContentV2). Blank or
+      // non-string = no rename, both stay as stored.
+      const requestedTitle = typeof args.title === 'string' ? args.title.trim() : '';
+      const currentTitle = typeof current.title === 'string' ? current.title : 'Untitled diagram';
+      const nextBody: Record<string, unknown> = { ...stored.raw, [stored.field]: dsl };
+      if (requestedTitle) nextBody.title = requestedTitle;
       const write = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}`, {
         method: 'PUT',
         body: {
@@ -778,12 +795,12 @@ export async function callHeadlessTool(
           type: current.type,
           status: typeof current.status === 'string' ? current.status : 'current',
           pageId: current.pageId,
-          title: typeof current.title === 'string' ? current.title : 'Untitled diagram',
+          title: requestedTitle || currentTitle,
           body: { value: JSON.stringify(nextBody), representation: 'raw' },
           version: {
             number: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
             // §9.3: page history must show which edits an agent made.
-            message: summaryFor(args.summary),
+            message: updateSummaryFor(args.summary, requestedTitle || undefined),
           },
         },
       });
@@ -806,6 +823,7 @@ export async function callHeadlessTool(
         version: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
         diff: verdict.diff,
         unvalidated: verdict.unvalidated,
+        titleChanged: !!requestedTitle && requestedTitle !== currentTitle,
       };
     }
 
@@ -883,7 +901,7 @@ export async function callHeadlessTool(
       }
       if (!Array.isArray(adf.content)) throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
 
-      // §9.1, blocking: the frontend paywall never runs for a headless call.
+      // §9.1: classify for analytics only; the limit no longer blocks, as in the UI.
       const spaceKey = spaceKeyFromLinks(page._links);
       const gate = await checkCreateAllowed(ctx.gateEnv ?? {}, {
         variant: identity.identity.variant,
@@ -892,13 +910,6 @@ export async function callHeadlessTool(
         spaceKey,
         accountId: ctx.userId,
       });
-      if (!gate.allowed) {
-        throw new HeadlessToolError(
-          `This space is on the free plan and already has ${gate.macroCount} of ${gate.limit} diagrams. Upgrade the space to add more.`,
-          'limit_reached',
-          gate,
-        );
-      }
 
       const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'Untitled diagram';
       const created = await request('/wiki/api/v2/custom-content', {

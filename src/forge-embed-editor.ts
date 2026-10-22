@@ -20,6 +20,7 @@ import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { markEditorAuthoringStarted, markEditorSaved, registerEditorCloseTracking } from '@/utils/analytics/editorCloseOutcome';
 import { toast } from '@/utils/toast';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
@@ -118,6 +119,7 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
           surface: "editor",
           macro_type: "embed",
           operation_mode: isNew ? "create" : "edit",
+          ...(isNew && getCreationFlowProps()),
           ...savedIdProps,
         },
       );
@@ -256,6 +258,7 @@ async function initializeMacro() {
     macro_type: 'embed',
     operation_mode: embedOperationMode,
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(isNew && getCreationFlowProps()),
     ...(resolvedCustomContentId && {
       content_id: resolvedCustomContentId,
       custom_content_id: resolvedCustomContentId,

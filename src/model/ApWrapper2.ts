@@ -22,6 +22,7 @@ import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { isUsablePageId } from '@/utils/pageId';
 import { classifyCreateNotFound, parseContentOperations, SaveFailureDiagnosis } from '@/model/saveFailureDiagnosis';
 
 export enum VersionType {
@@ -42,8 +43,13 @@ const ASYNCAPI_CUSTOM_CONTENT_TYPES = ['async-api-doc'];
 // for two types the variant never writes, so every diagram-discovery caller came
 // back empty on Diagramly: the homepage feed card rendered only example rows and
 // Agent Link's search_diagrams / list_diagrams listed nothing (#524, observed on
-// production 2026-08-21). getMacroContentTypes() carries the same branch — the
-// two must stay in lockstep.
+// production 2026-08-21).
+//
+// customContentTypesForVariant() is the ONLY place that decides which types a
+// variant queries. Every type list sent to Confluence — the search CQL clause,
+// getMacroContentTypes(), findLegacyCustomContentByUuid() — must derive from it;
+// a call site that names CUSTOM_CONTENT_TYPES directly asks AsyncAPI for types it
+// never registered and gets 400 "Unsupported value for type" (#403).
 const DIAGRAMLY_CUSTOM_CONTENT_TYPES = ['gpt-custom-content-key'];
 function customContentTypesForVariant(): string[] {
   if (forgeGlobal.isAsyncApi) return ASYNCAPI_CUSTOM_CONTENT_TYPES;
@@ -289,10 +295,7 @@ export default class ApWrapper2 {
   // Fully-qualified custom-content types for the diagram macros, used to
   // enumerate/count a space's macros via the V2 space custom-content endpoint.
   getMacroContentTypes(): string[] {
-    if (forgeGlobal.isDiagramly) {
-      return [this.customContentType('gpt-custom-content-key')];
-    }
-    return CUSTOM_CONTENT_TYPES.map((type) => this.customContentType(type));
+    return customContentTypesForVariant().map((type) => this.customContentType(type));
   }
 
   async createCustomContentV2(content: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -322,8 +325,12 @@ export default class ApWrapper2 {
     // extension.content, so pageId is undefined and the POST fails 400.
     // Fall back to spaceId from forgeContext.extension.space when no page
     // is in scope.
+    //
+    // conf-app#523: an unpublished (draft) page reports its id as the sentinel
+    // "0", which is truthy but is not a parent Confluence can resolve (404
+    // "parent page 0 not found"). Treat it like "no page" and use the space.
     const pageId = await this._getCurrentPageId();
-    if (pageId) {
+    if (isUsablePageId(pageId)) {
       data.pageId = pageId;
     } else {
       const space = await this.getCurrentSpace();
@@ -940,6 +947,7 @@ export default class ApWrapper2 {
       recoveredFromOrphanId: customContentId,
       probeResult,
       directFetchStatus: 'not_found',
+      ...directDiagnostics,
     };
   }
 
@@ -967,9 +975,7 @@ export default class ApWrapper2 {
   // in-memory sort by version.createdAt picks the most recent.
   async findLegacyCustomContentByUuid(uuid: string): Promise<ICustomContentV2 | undefined> {
     if (!uuid) return undefined;
-    const types = forgeGlobal.isDiagramly
-      ? ['gpt-custom-content-key']
-      : CUSTOM_CONTENT_TYPES;
+    const types = customContentTypesForVariant();
     try {
       // Use CQL exact-title search. The V2 `/api/v2/custom-content?title=...`
       // query param is silently IGNORED by the platform — verified 2026-05-27

@@ -138,6 +138,7 @@ function mountFooter(props: Partial<any> = {}, suppliedHost = host()) {
       ready: true,
       enabled: true,
       surface: 'viewer',
+      macroType: 'mermaid',
       svgHost: () => suppliedHost,
       ...props,
     },
@@ -226,6 +227,39 @@ describe('RelatedDiagramsFooter', () => {
         ([eventName]) => eventName === 'related_token_indicators_shown',
       ),
     ).toHaveLength(1)
+  })
+
+  // #582: every related_diagrams_* event used to hardcode macro_type 'mermaid', so ZenUML
+  // sequence lookups were invisible in Mixpanel. The footer reports the macro it is mounted on.
+  it.each([
+    ['sequence', 'related_diagrams_lookup_succeeded'],
+    ['sequence', 'related_token_indicators_shown'],
+    ['sequence', 'related_diagram_popover_opened'],
+    ['sequence', 'related_diagram_link_clicked'],
+    ['mermaid', 'related_diagrams_lookup_succeeded'],
+    ['mermaid', 'related_token_indicators_shown'],
+    ['mermaid', 'related_diagram_popover_opened'],
+    ['mermaid', 'related_diagram_link_clicked'],
+  ] as const)('reports macro_type %s on %s', async (macroType, eventName) => {
+    related.value = twoParticipants
+    const { h } = mountFooter({ macroType })
+    await flushPromises()
+    enterDiagram(h)
+    await flushPromises()
+    pill(h, 'PA')!.click()
+    await flushPromises()
+    links()[0].click()
+    await flushPromises()
+
+    expect(propertiesOf(eventName)).toMatchObject({ macro_type: macroType })
+  })
+
+  it('reports macro_type sequence when the lookup fails on a ZenUML sequence', async () => {
+    getRelatedDiagrams.mockRejectedValueOnce(new (RelatedLookupError as any)('network'))
+    mountFooter({ macroType: 'sequence' })
+    await flushPromises()
+
+    expect(propertiesOf('related_diagrams_lookup_failed')).toMatchObject({ macro_type: 'sequence' })
   })
 
   // The footer text and the circles come from two different reads of the SVG:

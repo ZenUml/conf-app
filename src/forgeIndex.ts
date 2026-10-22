@@ -35,6 +35,7 @@ import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { handleHomepageFeedRoute } from './routes/homepageFeed';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution, setSequenceViewerLoadState } from '@/utils/viewerLoadOutcome';
 import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
@@ -505,9 +506,10 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
         reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, {
           recoveryUsed: true,
           recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+          directFetch: loaded,
         });
       } else if (!loaded.customContent?.value) {
-        reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+        reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       }
       const fresh = loaded.customContent?.value;
       if (!fresh) return; // content unreadable now — keep the last-known-good cached render
@@ -613,13 +615,14 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
       // ZEN-1170: the referenced customContent failed to load AND no page
       // child was a confident match. Don't assign doc here — let the legacy
       // content-property fallback below try storageUuid before we mount an
       // empty/example doc and risk a destructive save.
-      reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       ccLoadError = mapCustomContentLoadError(loaded);
     }
 
@@ -1016,6 +1019,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
           surface: "editor",
           macro_type: macroType,
           entry_point: "page_editor",
+          ...getCreationFlowProps(),
         });
       } else {
         trackAnalyticsEvent("macro_edit_started", {

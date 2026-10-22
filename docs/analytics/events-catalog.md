@@ -50,6 +50,7 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `measured_sum_ms` | Sum of the above four phases; `duration_ms − measured_sum_ms` is the unattributed remainder |
 | `tab_hidden` | `true` when the browser tab was backgrounded during load; exclude from percentile calculations |
 | `space_admin_count` | Count of space admins resolved for the current space (only on `macro_viewed`) |
+| `layout_wait_ms` | Mermaid only. Wall time the viewer waited for a measurable SVG text layout after `mermaid.render()` threw `svg element not in render tree` (collapsed or hidden macro). Absent when no wait happened. Included in `duration_ms`; exclude present values from render-time percentiles (#706) |
 
 ---
 
@@ -63,6 +64,8 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `surface` | `"editor"` |
 | `macro_type` | Diagram type of the new macro |
 | `entry_point` | `"page_editor"` (inserted via slash menu / macro browser) |
+| `creation_origin` | Surface that started the create: `page_editor` (default), `byline_view`, `byline_editor`, `dashboard`, `homepage` (reserved, no create path today), `unknown` (a carried value was not recognised). Separate from `entry_point`, which stays `page_editor` for every editor-hosted create |
+| `creation_flow_id` | UUID generated once per editor iframe and shared by this iframe's start, success and cancel events — the join key for one creation |
 
 ---
 
@@ -78,6 +81,7 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `operation_mode` | `"create"` |
 | `content_id` / `custom_content_id` | The newly-created custom content ID returned by the server |
 | `attachment_name` | `zenuml-{newId}.png` |
+| `creation_origin` / `creation_flow_id` | Same values as on `macro_create_started` for this iframe |
 
 ---
 
@@ -113,6 +117,7 @@ never fires it. At most one event per iframe.
 | `close_source` | `host_close` (modal X), `discard_dialog`, `exit_button` |
 | `had_changes` | Content differed from what was loaded; omitted when unknown |
 | `editor_open_duration_ms` | Mount → close |
+| `creation_origin` / `creation_flow_id` | `macro_create_cancelled` only: same values as on `macro_create_started` for this iframe |
 | mutation summary | On text-editor edits, the same `had_global_replace` / delta buckets as `macro_save_succeeded` |
 
 **History:** Until 2026-09-11 `macro_edit_cancelled` fired only when a user confirmed **Discard** in
@@ -603,6 +608,56 @@ The release-notes strip in the shared `confluence:pageBanner` host (`src/compone
 | `surface` | `"viewer"` |
 | `macro_type` | Diagram type that failed to render |
 | `failure_reason` | Error message string |
+
+---
+
+### `customcontent_orphan_observed`
+
+**Trigger:** A viewer/editor loaded a macro whose `customContentId` did not yield a document. Fired once per macro load by the owning entry (`forgeIndex.ts`, `forge-graph-*`, `forge-embed-viewer.ts`, `openDocument.ts`) via `reportOrphanObserved`.
+
+| Property | Notes |
+|---|---|
+| `diagram_kind` | `sequence \| graph \| openapi \| embed` |
+| `recoverable` | Probe verdict, or `probe_skipped_no_page_id` / `probe_skipped_no_probe_result` when no probe ran |
+| `recovery_used` | Whether a recovered sibling was used |
+| `direct_fetch_status` | Outcome of the by-id fetch that preceded any probe: `ok \| not_found \| other_error` |
+| `direct_fetch_http_status` | HTTP status from the first structured Confluence error (absent for thrown / malformed) |
+| `direct_fetch_error_code` | API error code, e.g. `NOT_FOUND`, `FORBIDDEN` (absent for thrown / malformed) |
+| `direct_fetch_error_class` | `thrown \| structured \| malformed`; absent when the fetch succeeded or not_found came from an invalid id |
+
+With `recoverable = probe_skipped_no_probe_result` the direct fetch failed for a reason other than a strict 404, so these fields say which one (403 vs 5xx vs thrown vs malformed). Added for #148.
+
+---
+
+### `viewer_render_deferred`
+
+**Trigger:** A Mermaid macro has been waiting more than 10 s for a measurable SVG text layout (`mermaid.render()` threw `svg element not in render tree`: collapsed expand, background tab, `display:none` ancestor). Fired once per wait, by `Mermaid.vue`. The wait itself is unchanged (no forced retry, no blank diagram); this event only makes a hidden macro distinguishable from a silently broken one (#706).
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"macro"` |
+| `surface` | `"viewer"` or `"editor"` |
+| `macro_type` | `"mermaid"` |
+| `reason` | `"no_layout"` |
+| `waited_ms` | Time waited when the event was emitted (about 10 000) |
+| `render_gate`, `visible_at_boot` | Viewport-gate outcome and "on screen at boot" flag, when the gate recorded them; absent otherwise |
+
+The terminal outcome is one of: `macro_viewed` with `layout_wait_ms` (the layout appeared and the render succeeded), `viewer_render_abandoned`, or `viewer_load_failed` with `failure_stage = render_crash` (the post-wait retry failed).
+
+---
+
+### `viewer_render_abandoned`
+
+**Trigger:** The layout wait described above was cancelled before it resolved: the component unmounted, or the diagram was cleared or replaced (#706). Sent with `sendBeacon` (`trackAnalyticsEventBeforeUnload`), since the cancel usually coincides with iframe teardown. Emitted for any cancelled wait, so it can occur without a preceding `viewer_render_deferred` (wait shorter than 10 s).
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"macro"` |
+| `surface` | `"viewer"` or `"editor"` |
+| `macro_type` | `"mermaid"` |
+| `reason` | `"no_layout"` |
+| `waited_ms` | Total time waited before the cancel |
+| `render_gate`, `visible_at_boot` | As on `viewer_render_deferred` |
 
 ---
 

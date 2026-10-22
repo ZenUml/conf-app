@@ -1,32 +1,22 @@
-// The server-side paywall check that design §9.1 makes BLOCKING for headless
-// creation.
+// The server-side paywall classification for headless creation (design §9.1).
 //
-// Why it exists: the Lite limit is enforced in the frontend
-// (src/utils/paywall/), and a headless `create_diagram` never loads that code.
-// Without a check here, an agent could create unlimited macros on an
-// over-limit unpaid Lite space — a second, cleaner bypass on top of the
-// fail-open leak already tracked in #302. §9.1 is explicit that this is
-// blocking for create, "not follow-up", because shipping creation without it
-// ships a revenue leak.
+// §9.1 originally made this BLOCKING: an unpaid Lite space at or past the
+// limit was refused. The frontend block it mirrored was retired in 2026-09
+// (useCustomerSuccessService.ts: `shouldBlockActions` is always false; only
+// the warning banner remains), so refusing here left agents stricter than the
+// UI. The gate now never refuses; it only says which branch a create fell in,
+// so analytics can still show creates on over-limit spaces ('over_limit').
 //
-// What it is NOT: a re-implementation of the frontend's policy. It reads the
-// same two facts from the same two stores the product already uses — whether
-// the space is licensed (SPACE_LICENSE_KV, the store functions/api/
-// space-status.ts reads) and how many macros the space holds (the metrics KV
-// that functions/metrics-cache/query.ts serves) — and refuses creation only in
-// the one case both agree on: an unpaid space already at or past the limit.
-//
-// FAIL-OPEN, deliberately and narrowly. A missing metrics record means we do
-// not know the count, not that it is zero; refusing on a KV miss would block
-// legitimate creation on every space the snapshot has not covered yet. This
-// matches the frontend's own behaviour on an unknown count (#302, the
-// `macro_count_source: 'undefined'` path) rather than inventing a stricter
-// rule that only agents would ever hit.
+// It reads the same two facts from the same two stores the product already
+// uses — whether the space is licensed (SPACE_LICENSE_KV, the store
+// functions/api/space-status.ts reads) and how many macros the space holds
+// (the metrics KV that functions/metrics-cache/query.ts serves). A missing
+// metrics record means the count is unknown, not zero ('count_unknown').
 //
 // `update_diagram` is NOT gated: §9.1 — updating an existing diagram is not a
 // create and consumes no limit.
 
-/** Mirrors MACROS_LIMIT in src/composables/useCustomerSuccessService.ts. */
+/** Mirrors MACROS_LIMIT in src/composables/useCustomerSuccessService.ts. Classifies only; never refuses. */
 export const MACROS_LIMIT = 100;
 
 export interface SpaceLicenseRecordLike {
@@ -43,9 +33,11 @@ export interface GateEnv {
   };
 }
 
-export type GateDecision =
-  | { allowed: true; reason: 'paid' | 'under_limit' | 'count_unknown'; macroCount?: number }
-  | { allowed: false; reason: 'limit_reached'; macroCount: number; limit: number };
+export interface GateDecision {
+  allowed: true;
+  reason: 'paid' | 'under_limit' | 'over_limit' | 'count_unknown';
+  macroCount?: number;
+}
 
 function isLive(record: SpaceLicenseRecordLike | null): boolean {
   if (!record) return false;
@@ -136,8 +128,6 @@ export async function checkCreateAllowed(
 
   const count = await macroCountFor(env, opts.clientDomain, opts.variant, opts.spaceKey);
   if (count === null) return { allowed: true, reason: 'count_unknown' };
-  if (count >= MACROS_LIMIT) {
-    return { allowed: false, reason: 'limit_reached', macroCount: count, limit: MACROS_LIMIT };
-  }
+  if (count >= MACROS_LIMIT) return { allowed: true, reason: 'over_limit', macroCount: count };
   return { allowed: true, reason: 'under_limit', macroCount: count };
 }

@@ -1,11 +1,11 @@
 ---
 name: validate-branch
-description: Run ordered local and staging validation on the current branch before shipping. Use when the user says "validate", "check branch", "am I good", "run tests", "preflight", "is this ready", or wants to verify their branch before pushing or creating a PR. Also use as a precondition check before invoking submit-branch or ship-branch.
+description: Run ordered local and staging validation on the current branch before shipping. Use when the user says "validate", "check branch", "am I good", "run tests", "preflight", "is this ready", or wants to verify their branch before pushing or creating a PR. Also use as a precondition check before invoking submit-branch or land-branch.
 ---
 
 # Validate Branch
 
-Run local checks before shipping. For Confluence app UI changes, complete the visual stages in order: **Storybook → Forge Tunnel → CI-deployed Staging**. A successful earlier stage is required before starting the next. See the root `CLAUDE.md` hard rule for evidence and applicability requirements. This skill does not push branches or create PRs. When called as a precondition by `submit-branch` or `ship-branch`, report local readiness after Storybook and Tunnel; the caller owns submission. Full validation can be reported only after CI deploys that candidate and its Staging UI checks pass. Do not invoke either caller skill from here.
+Run local checks before shipping. For Confluence app UI changes, complete the visual stages in order: **Storybook → Forge Tunnel → CI-deployed Staging**. A successful earlier stage is required before starting the next. See the root `CLAUDE.md` hard rule for evidence and applicability requirements. This skill does not push branches or create PRs. When called as a precondition by `submit-branch` or `land-branch`, report local readiness after Storybook and Tunnel; the caller owns submission. Full validation can be reported only after CI deploys that candidate and its Staging UI checks pass. Do not invoke either caller skill from here.
 
 Run from the repository root. Stop at the first failure. Do not report complete validation when only local checks have passed.
 

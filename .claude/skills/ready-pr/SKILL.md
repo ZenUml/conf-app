@@ -15,7 +15,7 @@ Flip a Draft PR to Ready for Review on `ZenUml/conf-app`. This kicks off a fresh
 
 ## When NOT to use
 
-- You're ready to merge — use `/ship-branch` or `/land-pr` instead. Both auto-flip Draft → Ready as part of their flow.
+- You're ready to merge — use `/land-branch` or `/land-pr` instead. Both auto-flip Draft → Ready as part of their flow.
 - You want to rebuild without changing PR state — push an empty commit or re-run the workflow manually.
 
 ## Steps
@@ -70,7 +70,7 @@ Tell the user:
 ## Does NOT
 
 - Push commits (use `/submit-branch`)
-- Merge (use `/land-pr` or `/ship-branch`)
+- Merge (use `/land-pr` or `/land-branch`)
 - Convert back to Draft — that's a separate action; use `gh pr ready --undo <PR>` directly if needed
 
 CI watching and fixing is delegated to `babysit-pr` in Step 4, not done by this skill directly.

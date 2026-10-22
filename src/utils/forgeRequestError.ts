@@ -1,7 +1,9 @@
 /**
  * Thrown by `forgeRequest` when Confluence answers with a body that is not
  * JSON — typically an HTML page (`<!doctype html>…`) for a gateway error, a
- * login/interstitial page or a maintenance page.
+ * login/interstitial page or a maintenance page. Also thrown for a JSON body
+ * with a non-2xx status, but only when the caller opts in with
+ * `{ throwOnHttpError: true }`; `nonJson` tells the two apart.
  *
  * Before this existed the caller got the bare `SyntaxError` from
  * `Response.json()` ("Unexpected token '<', \"<!doctype \"…"), which dropped the
@@ -23,12 +25,16 @@ export class ForgeRequestError extends Error {
   readonly bodyPrefix: string;
   /** `<title>` of an HTML body, when there is one. Usually names the error page. */
   readonly htmlTitle: string | undefined;
+  /** False when the body parsed as JSON and the error comes from the HTTP status alone (opt-in). */
+  readonly nonJson: boolean;
 
-  constructor(opts: { status: number; method: string; url: string; contentType: string; body: string }) {
+  constructor(opts: { status: number; method: string; url: string; contentType: string; body: string; nonJson?: boolean }) {
     const bodyPrefix = opts.body.replace(/\s+/g, ' ').trim().slice(0, BODY_PREFIX_LENGTH);
     const method = opts.method.toUpperCase();
     const endpoint = `${method} ${templateUrl(opts.url)}`;
-    super(`HTTP ${opts.status} non-JSON response (${opts.contentType || 'no content-type'}) from ${endpoint}: ${bodyPrefix}`);
+    const nonJson = opts.nonJson ?? true;
+    super(`HTTP ${opts.status} ${nonJson ? 'non-JSON' : 'error'} response (${opts.contentType || 'no content-type'}) from ${endpoint}: ${bodyPrefix}`);
+    this.nonJson = nonJson;
     this.name = 'ForgeRequestError';
     this.status = opts.status;
     this.method = method;

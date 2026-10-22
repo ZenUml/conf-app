@@ -942,6 +942,36 @@ describe('Attachment', () => {
         expect(succeeded?.[3]).not.toHaveProperty('recovered_from');
       });
 
+      it('keeps a properties denial after the recovery POST from rerunning the upload as the app', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')];
+        mockForgeRequest.mockImplementation(async (url: string, method: string) => {
+          if (url === v1ReadUrl) return { results: [{ id: 'att-old', version: { number: 4 } }] };
+          if (method === 'PUT') return { statusCode: 403, message: 'denied' };
+          return {};
+        });
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toMatchObject({ status: 403 });
+        expect(uploadUrls()).toHaveLength(2);
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_failed', 'export', expect.objectContaining({ http_status: 403, via_app_fallback: false }),
+        );
+      });
+
+      it('passes the resolved update target to the app when the recovery POST is denied', async () => {
+        uploadResponses = [sameName(), resp(false, 403, 'denied')];
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl ? { results: [{ id: 'att-old', version: { number: 4 } }] } : {},
+        );
+        mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-old', versionNumber: 5 });
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.objectContaining({
+          attachmentId: 'att-old', versionNumber: 5,
+        }));
+      });
+
       it('still fails with the original error when v1 cannot find the attachment', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         uploadResponses = [sameName()];

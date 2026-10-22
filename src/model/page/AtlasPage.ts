@@ -27,12 +27,7 @@ export class AtlasPage {
   }
 
   async getLocationTarget(): Promise<LocationTarget> {
-    // CAUTION (#361): these camelCase literals do NOT match the LocationTarget
-    // enum's lowercase values ('contentedit'/'contentview'), so ApWrapper2's
-    // `target === LocationTarget.ContentEdit` comparison is always false on
-    // the Forge path. The cast deliberately preserves that long-standing
-    // behavior — changing the strings is a behavior change, tracked in #361.
-    return (forgeGlobal.forgeContext?.extension?.isEditing ? 'contentEdit' : 'contentView') as unknown as LocationTarget;
+    return forgeGlobal.forgeContext?.extension?.isEditing ? LocationTarget.ContentEdit : LocationTarget.ContentView;
   }
 
   /**

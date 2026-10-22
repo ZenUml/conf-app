@@ -7,6 +7,7 @@ import { markCsatPending } from "@/utils/csat";
 import { syncCustomContent } from "@/services/CustomContent";
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
@@ -114,6 +115,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         macro_type: macroType,
         operation_mode: "create",
         save_duration_ms,
+        ...getCreationFlowProps(),
         ...savedIdProps,
       });
     } else {

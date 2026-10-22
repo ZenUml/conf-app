@@ -82,6 +82,58 @@ describe('forgeRequest', () => {
     expect(error).toMatchObject({ status: 204, endpoint: 'PUT /wiki/rest/api/content/{id}/property/x', contentType: '' });
     expect(error.htmlTitle).toBeUndefined();
   });
+
+  describe('throwOnHttpError opt-in (#801)', () => {
+    it('throws ForgeRequestError with the status for a JSON 403 body', async () => {
+      const body = JSON.stringify({ statusCode: 403, message: 'com.atlassian.confluence.api.service.exceptions.PermissionException: nope' });
+      mockRequestConfluence.mockResolvedValue(new Response(body, {
+        status: 403, headers: { 'content-type': 'application/json' },
+      }));
+      const error = await forgeRequest('/wiki/rest/api/content/123456/child/attachment/att789', 'PUT', { a: 1 }, { throwOnHttpError: true }).catch(e => e);
+      expect(error).toBeInstanceOf(ForgeRequestError);
+      expect(error).toMatchObject({
+        status: 403,
+        method: 'PUT',
+        endpoint: 'PUT /wiki/rest/api/content/{id}/child/attachment/{id}',
+        contentType: 'application/json',
+        nonJson: false,
+      });
+      expect(error.bodyPrefix).toContain('PermissionException');
+      // A JSON body must not be described as non-JSON.
+      expect(error.message).toContain('HTTP 403');
+      expect(error.message).not.toContain('non-JSON');
+    });
+
+    it('throws for a JSON 500 body', async () => {
+      mockRequestConfluence.mockResolvedValue(new Response('{"message":"boom"}', {
+        status: 500, headers: { 'content-type': 'application/json' },
+      }));
+      await expect(forgeRequest('/wiki/x', 'PUT', {}, { throwOnHttpError: true }))
+        .rejects.toMatchObject({ name: 'ForgeRequestError', status: 500, nonJson: false });
+    });
+
+    it('still returns the parsed body on a 200', async () => {
+      mockRequestConfluence.mockResolvedValue(new Response('{"id":"att789"}', {
+        status: 200, headers: { 'content-type': 'application/json' },
+      }));
+      await expect(forgeRequest('/wiki/x', 'PUT', {}, { throwOnHttpError: true })).resolves.toEqual({ id: 'att789' });
+    });
+
+    it('marks a non-JSON body as nonJson', async () => {
+      mockRequestConfluence.mockResolvedValue(new Response('<html></html>', { status: 502, headers: { 'content-type': 'text/html' } }));
+      await expect(forgeRequest('/wiki/x', 'GET'))
+        .rejects.toMatchObject({ status: 502, nonJson: true });
+    });
+
+    it('is off by default: a JSON 403 body is still returned', async () => {
+      const envelope = { statusCode: 403 };
+      mockRequestConfluence.mockImplementation(async () => new Response(JSON.stringify(envelope), {
+        status: 403, headers: { 'content-type': 'application/json' },
+      }));
+      await expect(forgeRequest('/wiki/x', 'PUT', {})).resolves.toEqual(envelope);
+      await expect(forgeRequest('/wiki/x', 'PUT', {}, {})).resolves.toEqual(envelope);
+    });
+  });
 });
 
 describe('templateUrl', () => {

@@ -138,6 +138,33 @@ export type EntryPoint =
 
 export type OperationMode = "create" | "edit" | "unknown";
 
+// Which surface started a create. Carried on macro_create_started,
+// macro_create_succeeded and macro_create_cancelled (never on edit events) so
+// the onboarding funnel can be split by where the author came from, which
+// `entry_point` cannot do: every editor-hosted create records
+// `entry_point: page_editor`, whether the user inserted a macro or clicked
+// "Add a diagram" in the byline.
+//
+// - page_editor  the ordinary insert-macro / slash-menu / macro-toolbar path
+//                (also the default when nothing else is carried)
+// - byline_view  Lite/Full byline opened while the host page is being viewed
+// - byline_editor byline opened while the host page is in the editor
+// - dashboard    the My API Documents dashboard's "Create" menu
+// - homepage     reserved: the homepage feed card has no create action today
+// - unknown      an origin value was carried but is not one of these
+//
+// Separate from EntryPoint on purpose: entry_point semantics (and every
+// existing breakdown that uses them) stay untouched.
+export const CREATION_ORIGINS = [
+  "page_editor",
+  "byline_view",
+  "byline_editor",
+  "homepage",
+  "dashboard",
+  "unknown",
+] as const;
+export type CreationOrigin = (typeof CREATION_ORIGINS)[number];
+
 // How an authoring session ended. Emitted by journeyTracking.endEditJourney on
 // macro_authoring_ended — the terminal event that makes the create funnel add
 // up. `saved` is the explicit save path, `cancelled` an explicit close/discard,
@@ -1144,6 +1171,24 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // Hidden-Mermaid wait (#706). Since PR #695 the viewer waits, with no deadline,
+  // for an SVG text layout when mermaid.render() throws `svg element not in
+  // render tree` (collapsed expand, background tab, display:none ancestor), and
+  // a hidden macro and a silently broken one looked the same in Mixpanel (a
+  // boot with neither macro_viewed nor viewer_load_failed). Three outcomes of
+  // that wait, none of which retries or blanks the diagram:
+  // - viewer_render_deferred: ONE heartbeat per wait, emitted when the wait
+  //   passes 10 s. Props: macro_type=mermaid, surface, reason='no_layout',
+  //   waited_ms (time actually waited at emit), plus render_gate /
+  //   visible_at_boot when the viewport gate recorded them.
+  // - viewer_render_abandoned: the wait was cancelled before it resolved
+  //   (unmount, diagram cleared or replaced). Same props; waited_ms is the
+  //   total wait. Sent with sendBeacon (trackAnalyticsEventBeforeUnload)
+  //   because the cancel usually coincides with iframe teardown.
+  // - success: macro_viewed carries layout_wait_ms (types.ts), the same shape as
+  //   render_deferred_ms; a retry that fails still goes out as viewer_load_failed.
+  | "viewer_render_deferred"
+  | "viewer_render_abandoned"
   // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
   // `retry()` is a bare location.reload(), so the click and its result sit in
   // two different page lifetimes: the click event is emitted before the reload,
@@ -1396,7 +1441,9 @@ export type AnalyticsEventName =
   // closed, or not, has to be made on. `_updated` has no gate (updating an
   // existing diagram consumes no limit, §9.1) and instead carries
   // `guardrail_rejected`, so the write guard's refusal rate is readable on the
-  // headless path the way it already is on the relay. Both carry the target
+  // headless path the way it already is on the relay. A successful `_updated`
+  // also carries `title_changed` (#789): true when the call renamed the
+  // diagram, false for a plain source edit. Both carry the target
   // site in `cloud_id` (from the tool's `cloudId` argument), so outcomes and
   // gate branches can be split per customer without joining on
   // agent_link_mcp_tool_called.
@@ -1705,12 +1752,12 @@ export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit
 // does not apply; 'under_limit' = counted and below the limit;
-// 'limit_reached' = counted and refused; 'count_unknown' = the space's macro
-// count could not be read, and the create was ALLOWED anyway. The last one is
-// the fail-open path (the #302 shape, matching the frontend's own behaviour on
-// an unknown count) and the reason this property exists: its share of creates
-// is what says whether failing open is a rounding error or the normal case.
-export type AgentLinkPaywallGate = "paid" | "under_limit" | "limit_reached" | "count_unknown";
+// 'over_limit' = counted at or past the limit and ALLOWED, because the limit no
+// longer blocks (the UI block was retired in 2026-09 and headless create
+// matches it); 'count_unknown' = the space's macro count could not be read,
+// and the create was allowed. 'limit_reached' = counted and refused; no longer
+// emitted, kept so historical events still type-check in queries.
+export type AgentLinkPaywallGate = "paid" | "under_limit" | "over_limit" | "limit_reached" | "count_unknown";
 
 export type AgentLinkIdentityFailure =
   | "no_macro_on_site"

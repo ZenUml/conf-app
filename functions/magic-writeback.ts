@@ -1,14 +1,12 @@
 import { OkResponse, response } from './OkResponse';
 import type { ForgeRequestData } from './utils/authenticate';
 import { requireForgeUserToken } from './utils/forgeUserToken';
+import { customContentTypeOf, variantByAppId, type Variant } from './utils/variants';
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
-const TYPES: Record<string, string[]> = {
-  '8ad26115-211f-4216-971b-0540f606303d': ['ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence'],
-  'd9e4002b-120b-426b-834b-402a4a5adce7': ['ac:com.zenuml.confluence-addon:zenuml-content-sequence'],
-  '01ede8b1-4e88-451a-b9ef-89eeef93afaf': ['ac:gptdock-confluence:gpt-custom-content-key'],
-};
+// AsyncAPI is excluded on purpose: magic writeback covers lite/full/diagramly only.
+const WRITEBACK_VARIANTS: readonly Variant[] = ['lite', 'full', 'diagramly'];
 type Artifact = { sourceHash: string; svg: string; rulesVersion: 'magic-v1'; outcome: 'validated'; generatedAt?: string };
 type Delivery = { id: string; sourceHash: string };
 type Claimed = Delivery & { artifact: string };
@@ -39,12 +37,14 @@ export async function onRequest({ request, data, env }: {
 }): Promise<Response> {
   if (request.method !== 'POST') return response(405, 'Method not allowed');
   const c = data.forgeContext;
+  const found = c?.forgeAppId ? variantByAppId(c.forgeAppId) : undefined;
+  const profile = found && WRITEBACK_VARIANTS.includes(found.variant) ? found : undefined;
   const app = request.headers.get('x-forge-oauth-system');
   if (!c?.cloudId || !c.forgeAppId || !c.environmentId || !c.installationId
-    || !c.apiBaseUrl || !app || !TYPES[c.forgeAppId]) return response(401, 'Missing authenticated context');
+    || !c.apiBaseUrl || !app || !profile) return response(401, 'Missing authenticated context');
   // All identities used below are verified FIT claims. Client hints are ignored.
   const scope = [c.cloudId, c.forgeAppId, c.environmentId, c.installationId];
-  const moduleKey = c.forgeAppId === '01ede8b1-4e88-451a-b9ef-89eeef93afaf' ? 'gpt-custom-content-key' : 'zenuml-content-sequence';
+  const moduleKey = profile.contentKeys[0];
   // FIT carries a full environment ARI; native Confluence types carry its UUID.
   // Check the app prefix before extracting it, while retaining the full ARI in scope.
   const environmentPrefix = `ari:cloud:ecosystem::environment/${c.forgeAppId}/`;
@@ -56,7 +56,7 @@ export async function onRequest({ request, data, env }: {
   // target, so there is no fallback to the app token for that viewer.
   const user = requireForgeUserToken(request);
   if (!c.accountId || user instanceof Response) return response(403, 'no_user_credential');
-  const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`];
+  const allowedTypes = [customContentTypeOf(profile), `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`];
   const result = (outcome: string, artifact?: Artifact) => OkResponse({ outcome, ...(artifact ? { artifact } : {}) });
   // Reason codes are fixed strings or HTTP statuses only: no bodies, hashes, tokens or error text.
   const unavailable = (reason: string) => OkResponse({ outcome: 'unavailable', reason });

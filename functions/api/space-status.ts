@@ -3,6 +3,7 @@ import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import type { SpaceLicenseRecord } from './space-license';
 import { json } from '../OkResponse';
+import { appIdOf } from '../utils/variants';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
@@ -21,8 +22,8 @@ export interface SpaceStatusResponse {
 
 // Full and Diagramly Forge app identifiers (our own app IDs, not tenant
 // data — see .claude/skills/forge-installs/SKILL.md).
-const FULL_APP_ID = 'd9e4002b-120b-426b-834b-402a4a5adce7';
-const DIAGRAMLY_APP_ID = '01ede8b1-4e88-451a-b9ef-89eeef93afaf';
+const FULL_APP_ID = appIdOf('full');
+const DIAGRAMLY_APP_ID = appIdOf('diagramly');
 
 // Atlassian's Forge trial is 30 days; +15 days buffer for install-to-decision
 // lag. Long-term paid Full/Diagramly tenants are handled by explicit

@@ -2,6 +2,7 @@ import { expect, vi } from 'vitest';
 import { handleChunk } from './chunk';
 import { sha256Hex, type SnapshotEnv } from './common';
 import type { ForgeRequestData } from '../../utils/authenticate';
+import { appIdOf } from '../../utils/variants';
 
 export class MemoryR2 {
   objects = new Map<string, { text: string; etag: string }>();
@@ -44,8 +45,8 @@ export class MemoryKV {
 export const data: ForgeRequestData = {
   forgeContext: {
     cloudId: 'cloud-1',
-    forgeAppId: '8ad26115-211f-4216-971b-0540f606303d',
-    forgeAppAri: 'ari:cloud:ecosystem::app/8ad26115-211f-4216-971b-0540f606303d',
+    forgeAppId: appIdOf('lite'),
+    forgeAppAri: `ari:cloud:ecosystem::app/${appIdOf('lite')}`,
     installationId: 'installation-1',
     environmentType: 'STAGING',
     invocationSource: 'backend',

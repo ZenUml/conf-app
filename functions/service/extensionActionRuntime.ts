@@ -7,6 +7,7 @@ import {
   type ExtensionActionStore,
   type LicenseGrant,
 } from './extensionActionService';
+import { appIdOf } from '../utils/variants';
 
 export interface ExtensionActionEnv {
   DB: D1Database;
@@ -146,11 +147,10 @@ async function hasRecentPaidRail(db: D1Database, cloudId: string, now: Date): Pr
     const row = await db.prepare(
       `SELECT 1 FROM ForgeInstallation
         WHERE cloudId = ?1
-          AND appId IN ('d9e4002b-120b-426b-834b-402a4a5adce7',
-                        '01ede8b1-4e88-451a-b9ef-89eeef93afaf')
-          AND createdAt >= ?2
+          AND appId IN (?2, ?3)
+          AND createdAt >= ?4
         LIMIT 1`,
-    ).bind(cloudId, cutoff).first();
+    ).bind(cloudId, appIdOf('full'), appIdOf('diagramly'), cutoff).first();
     return Boolean(row);
   } catch {
     throw new ExtensionActionError(503, 'paid_status_unavailable', 'paid_status', true);

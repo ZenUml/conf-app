@@ -16,6 +16,7 @@ import store from '@/model/store2'
 import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
+import { classifyViewerLoadOutcome, setViewerLoadState } from '@/utils/viewerLoadOutcome'
 import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
@@ -1386,6 +1387,42 @@ export const LoadFailedWithoutSource: Story = {
     await expect(await canvas.findByText('The diagram data is no longer available')).toBeVisible()
     await expect(canvas.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
     await expect(canvas.getByRole('button', { name: 'Contact support' })).toBeVisible()
+  },
+}
+
+/**
+ * A macro placed by pasting a typed deeplink (byline paste-to-place) has no
+ * `extension.config.customContentId`; its id lives only in the autoConvert
+ * link. The state here is NOT forced — it comes from the real
+ * classifyViewerLoadOutcome, so this story shows "Try again" only when the
+ * classifier resolves the pasted link's id. Before the fix it classified as
+ * `failed_without_source` and the retry button was hidden.
+ */
+const PASTED_CLOUD_ID = '0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b'
+export const LoadFailedPastedDeeplink: Story = {
+  name: 'Load failed — pasted deeplink macro (no config id) is retryable',
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Mermaid, title: 'Login flow' })
+      const ctx = forgeGlobal.forgeContext as any
+      ctx.cloudId = PASTED_CLOUD_ID
+      ctx.extension.config = {}
+      ctx.extension.autoConvertLink = `https://confluence.zenuml.com/d/mermaid/${PASTED_CLOUD_ID}/425987`
+      const outcome = classifyViewerLoadOutcome({
+        doc: undefined,
+        loadError: { httpStatus: 404, directFetchStatus: 'not_found' },
+        macroKind: 'mermaid',
+      })
+      setViewerLoadState(outcome.state, outcome.loadError)
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(store.state.viewerLoadState).toBe('failed_with_source')
+    await expect(await canvas.findByText("This diagram isn't available")).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Try again' })).toBeVisible()
   },
 }
 

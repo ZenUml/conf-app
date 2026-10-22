@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createApi, dispatchBody, findChild, closeChild, verifyParent, verifyChildRun } from './wait-for-e2e.mjs';
+import { createApi, dispatchBody, findChild, closeChild, verifyParent, verifyParentWithRetry, verifyChildRun } from './wait-for-e2e.mjs';
 import { largeRunListing, withFakeGh } from './fake-gh.mjs';
 
 test('dispatch serializes regex without changing its escapes', () => {
@@ -149,4 +149,39 @@ test('cleanup finds the dispatched child in a run listing larger than 1 MiB', as
     const pause = () => new Promise(resolve => setTimeout(resolve, 200));
     await closeChild(createApi('repos/example/repo'), title, 'main-staging-validation.yml', pause, Date.now() + 2000, true);
   });
+});
+
+const retryState = (status, jobStatus, extra = {}) => ({
+  parent: { status, run_attempt: 2, path: '.github/workflows/pr-validation.yml', ...extra },
+  attempt: '2', jobs: [{ name: 'E2E validation', status: jobStatus }], expectedJobs: ['E2E validation'], provenance: {},
+});
+
+test('parent verification retries stale GitHub state and succeeds once it is fresh', async () => {
+  const states = [retryState('queued', 'queued'), retryState('queued', 'in_progress')];
+  let fetches = 0, pauses = 0;
+  const logs = [];
+  await verifyParentWithRetry(() => states[fetches++], 6, async () => { pauses++; }, line => logs.push(line));
+  assert.equal(fetches, 2);
+  assert.equal(pauses, 1);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /queued/);
+});
+
+test('parent verification throws the original error after the last attempt', async () => {
+  let fetches = 0;
+  await assert.rejects(
+    verifyParentWithRetry(() => { fetches++; return retryState('completed', 'completed'); }, 3, async () => {}),
+    /requires an active staging parent/);
+  assert.equal(fetches, 3);
+});
+
+test('parent verification does not retry real provenance errors', async () => {
+  let fetches = 0, pauses = 0;
+  const state = () => {
+    fetches++;
+    return { ...retryState('in_progress', 'in_progress', { path: '.github/workflows/build-test-deploy.yml', head_sha: 'abc' }), provenance: { sourceSha: 'other' } };
+  };
+  await assert.rejects(verifyParentWithRetry(state, 6, async () => { pauses++; }), /source does not match/);
+  assert.equal(fetches, 1);
+  assert.equal(pauses, 0);
 });

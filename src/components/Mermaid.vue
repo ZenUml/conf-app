@@ -27,11 +27,17 @@ import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent';
+import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 import { attachMermaidHighlights } from '../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
+
+// A wait for a measurable layout that outlasts this reports one
+// viewer_render_deferred, so a hidden macro is told apart from a broken one (#706).
+const LAYOUT_WAIT_HEARTBEAT_MS = 10_000;
 
 export default {
   name: "Mermaid",
@@ -236,6 +242,43 @@ export default {
       return message.includes('svg element not in render tree')
         || /matrix (?:is )?(?:not |non[- ]?)invertible/i.test(message);
     },
+    // The wait itself is awaitSvgTextLayout, unchanged. Around it: one
+    // viewer_render_deferred past 10 s, viewer_render_abandoned if it is
+    // cancelled, and the elapsed time recorded for macro_viewed's
+    // layout_wait_ms when it succeeds (#706).
+    async awaitLayoutWithTelemetry(signal) {
+      const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const startedAt = now();
+      // render_gate / visible_at_boot exist only when the viewport gate ran.
+      const { render_gate, visible_at_boot } = getGateTelemetry();
+      const base = {
+        feature_area: 'macro',
+        surface: this.isDisplayMode ? 'viewer' : 'editor',
+        macro_type: 'mermaid',
+        reason: 'no_layout',
+        ...(render_gate !== undefined ? { render_gate } : {}),
+        ...(visible_at_boot !== undefined ? { visible_at_boot } : {}),
+      };
+      const waited = () => Math.round(now() - startedAt);
+      const heartbeat = setTimeout(
+        () => trackAnalyticsEvent('viewer_render_deferred', { ...base, waited_ms: waited() }),
+        LAYOUT_WAIT_HEARTBEAT_MS,
+      );
+      let measurable;
+      try {
+        measurable = await awaitSvgTextLayout({ signal });
+      } finally {
+        clearTimeout(heartbeat);
+      }
+      if (measurable && !signal?.aborted) {
+        renderPerf.markLayoutWait(waited());
+      } else {
+        // sendBeacon: the cancel usually coincides with the iframe going away,
+        // which aborts the default XHR transport.
+        void trackAnalyticsEventBeforeUnload('viewer_render_abandoned', { ...base, waited_ms: waited() });
+      }
+      return measurable;
+    },
     async render(code, measureInitialAttempt = false, signal) {
       const firstAttempt = () => measureInitialAttempt
         ? renderPerf.time('render', () => this.runMermaid(code))
@@ -255,7 +298,7 @@ export default {
         // There is deliberately no ten-second deadline: a collapsed or
         // virtualised Confluence macro can stay hidden longer, and PR #691's
         // timed retry produced the same guaranteed failure a second time.
-        const measurable = await awaitSvgTextLayout({ signal });
+        const measurable = await this.awaitLayoutWithTelemetry(signal);
         if (!measurable || signal?.aborted) return;
         try {
           return await this.runMermaid(code);

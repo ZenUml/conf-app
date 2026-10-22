@@ -1,5 +1,6 @@
 import { OkResponse } from "./OkResponse";
 import type { ForgeRequestData } from "./utils/authenticate";
+import { requireForgeUserToken } from "./utils/forgeUserToken";
 import { mixpanelTrack } from "./service/mixpanelService";
 import { getAtlassianInstanceClientDomain } from "./utils/dbUtils";
 import type { D1Database } from "@cloudflare/workers-types";
@@ -419,15 +420,13 @@ export const onRequest = async ({
     }
 
     const systemToken = request.headers.get('x-forge-oauth-system');
-    const userToken = request.headers.get('x-forge-oauth-user');
     if (!systemToken) {
       return fail(401, 'missing x-forge-oauth-system header — not a valid app-token Forge request');
     }
-    if (!userToken) {
-      // We rely on the user token to confirm the caller can see the page before
-      // writing as the app. forge-custom-content.ts requires this header too.
-      return fail(401, 'missing x-forge-oauth-user header');
-    }
+    // We rely on the user token to confirm the caller can see the page before
+    // writing as the app.
+    const userToken = requireForgeUserToken(request);
+    if (userToken instanceof Response) return userToken;
 
     const body: any = await request.json();
     const {

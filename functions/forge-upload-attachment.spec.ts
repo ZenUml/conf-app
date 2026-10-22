@@ -180,6 +180,13 @@ describe('forge-upload-attachment', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('answers 403 no_user_credential when the system token is present but the user token is missing', async () => {
+    const res = await onRequest({ request: makeRequest(basePayload, { 'x-forge-oauth-user': '' }), data: FORGE_DATA } as any);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'no_user_credential' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects when there is no verified forge context (apiBaseUrl)', async () => {
     const res = await onRequest({ request: makeRequest(basePayload), data: {} } as any);
     expect((await readJson(res)).status).toBe(401);

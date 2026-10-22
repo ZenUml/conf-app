@@ -5,6 +5,7 @@ import {
   type VerifiedForgeFit,
 } from '../../utils/authenticate';
 import { getAuthorizationHeader } from '../../utils/requestUtils';
+import { hasForgeUserToken } from '../../utils/forgeUserToken';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 export const SNAPSHOT_PREFIX = 'macro-count/v1';
@@ -245,7 +246,7 @@ export async function authenticateMetricsRequest(
 
   if (options.backendOnly) {
     const hasSystemToken = Boolean(request.headers.get('x-forge-oauth-system'));
-    const hasUserToken = Boolean(request.headers.get('x-forge-oauth-user'));
+    const hasUserToken = hasForgeUserToken(request);
     // @forge/api.invokeRemote from a scheduled backend function has no user or
     // frontend context. Requiring this shape prevents a Custom UI caller with
     // a valid FIT from invoking the snapshot write protocol directly.

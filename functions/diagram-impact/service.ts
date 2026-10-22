@@ -90,7 +90,7 @@ async function fetchReadableContent(
 async function resolveImpactRequest(input: {
   env: DiagramImpactEnv;
   data: ForgeRequestData;
-  forgeOAuthUser: string | null | undefined;
+  forgeOAuthUser: string;
   customContentId: unknown;
 }): Promise<ResolvedImpactRequest> {
   const { forgeContext } = input.data;
@@ -98,7 +98,7 @@ async function resolveImpactRequest(input: {
   const forgeAppId = requiredString(forgeContext?.forgeAppId, 401, 'missing_principal');
   const accountId = requiredString(forgeContext?.accountId, 401, 'missing_principal');
   const apiBaseUrl = requiredString(forgeContext?.apiBaseUrl, 401, 'missing_principal');
-  const forgeOAuthUser = requiredString(input.forgeOAuthUser, 400, 'missing_user_token');
+  const { forgeOAuthUser } = input;
   const customContentId = validateContentId(input.customContentId);
   if (!input.env.DB) throw new DiagramImpactRequestError(503, 'impact_unavailable');
 
@@ -135,7 +135,7 @@ export interface DiagramImpactSummary {
 export async function getDiagramImpactSummary(input: {
   env: DiagramImpactEnv;
   data: ForgeRequestData;
-  forgeOAuthUser: string | null | undefined;
+  forgeOAuthUser: string;
   customContentId: unknown;
 }): Promise<DiagramImpactSummary> {
   const resolved = await resolveImpactRequest(input);
@@ -154,7 +154,7 @@ export interface DiagramImpactRegistration {
 export async function registerDiagramImpactView(input: {
   env: DiagramImpactEnv;
   data: ForgeRequestData;
-  forgeOAuthUser: string | null | undefined;
+  forgeOAuthUser: string;
   customContentId: unknown;
   now?: Date;
 }): Promise<DiagramImpactRegistration> {

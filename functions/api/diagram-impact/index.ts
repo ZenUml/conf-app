@@ -1,5 +1,6 @@
 import { OkResponse, response } from '../../OkResponse';
 import type { ForgeRequestData } from '../../utils/authenticate';
+import { requireForgeUserToken } from '../../utils/forgeUserToken';
 import {
   DiagramImpactRequestError,
   getDiagramImpactSummary,
@@ -29,11 +30,13 @@ export const onRequest = async ({
   if ([...url.searchParams.keys()].some((key) => FORBIDDEN_IDENTITY_FIELDS.has(key))) {
     return response(400, 'invalid_request');
   }
+  const forgeOAuthUser = requireForgeUserToken(request);
+  if (forgeOAuthUser instanceof Response) return forgeOAuthUser;
   try {
     return OkResponse(await getDiagramImpactSummary({
       env,
       data,
-      forgeOAuthUser: request.headers.get('x-forge-oauth-user'),
+      forgeOAuthUser,
       customContentId: url.searchParams.get('customContentId'),
     }));
   } catch (error) {

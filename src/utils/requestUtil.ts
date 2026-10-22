@@ -47,7 +47,19 @@ async function getMockAp() {
   return _mockAp;
 }
 
-export async function forgeRequest(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
+export interface ForgeRequestOptions {
+  /**
+   * Throw `ForgeRequestError` (with `status`) when the response is not 2xx,
+   * even if the body parses as JSON. Off by default: most callers read a 4xx
+   * `{ errors: [...] }` envelope as data (404 orphan recovery, version
+   * conflicts, paginated counts). Opt in only where a failed status must not
+   * be mistaken for success. Not applied in the standalone (MockAp) branch,
+   * which has no HTTP status.
+   */
+  throwOnHttpError?: boolean;
+}
+
+export async function forgeRequest(url: string, method: string = 'GET', data: any = undefined, options: ForgeRequestOptions = {}): Promise<any> {
   if (isStandaloneEnv()) {
     const mockAp = await getMockAp();
     const apiUrl = url.startsWith('/wiki') ? url.substring(5) : url;
@@ -68,17 +80,17 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
   // parse (an HTML error/login page, an empty body) throws, and it now throws
   // ForgeRequestError carrying the status instead of a bare SyntaxError.
   const text = await response.text();
+  const contentType = response.headers.get('content-type') ?? '';
+  let parsed: any;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch {
-    throw new ForgeRequestError({
-      status: response.status,
-      method,
-      url,
-      contentType: response.headers.get('content-type') ?? '',
-      body: text,
-    });
+    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text });
   }
+  if (options.throwOnHttpError && !response.ok) {
+    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text, nonJson: false });
+  }
+  return parsed;
 }
 
 export async function forgeCallRemote(url: string, method: string = 'GET', data: any = undefined): Promise<any> {

@@ -57,6 +57,19 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
     window.mxUtils = { parseXml: vi.fn(() => ({ documentElement: {} })) };
   });
 
+  it('reports a whitespace body once when DrawIO rejects it, preserving render-failure telemetry (#113)', async () => {
+    store.state.diagram.graphXml = ' \n\t ';
+    // @ts-ignore — DrawIO globals
+    window.mxUtils.parseXml = vi.fn(() => { throw new Error('bad xml'); });
+    // @ts-ignore — DrawIO globals
+    window.GraphViewer = vi.fn();
+    mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(viewerLoadFailedCalls()).toHaveLength(1));
+    expect(window.mxUtils.parseXml).toHaveBeenCalledWith(' \n\t ');
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+  });
+
   it('fits Graph axes from the current scaled bounds and centres the same graph', () => {
     const scaleAndTranslate = vi.fn();
     // @ts-ignore — GraphViewer global
@@ -131,6 +144,69 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       expect(macroViewedCalls()).toHaveLength(1);
     });
     expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  // #113: an empty body is the wipe signal, so the empty branch still reports
+  // the view with the verdict and does not construct a GraphViewer.
+  it('emits one macro_viewed with content_state=empty for a loaded empty body and does not render (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '' };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+    // @ts-ignore
+    expect(window.GraphViewer).not.toHaveBeenCalled();
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it('emits no macro_viewed for an empty body that never loaded (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  // bootstrapForgeViewer mounts the NULL_DIAGRAM shell (graphXml '') and the
+  // document arrives later. A wiped body is '' too, so effectiveGraphXml never
+  // changes ('' -> '') and its watcher alone would never re-enter renderViewer.
+  it('reports content_state=empty once when a wiped document arrives after the shell mounted (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    expect(macroViewedCalls()).toHaveLength(0);
+
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '' };
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+    // @ts-ignore
+    expect(window.GraphViewer).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('classifies a non-empty body as before (one event, authored) (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+
+    mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(macroViewedCalls()).toHaveLength(1));
+    expect(macroViewedCalls()[0][1]).toMatchObject({ content_state: 'authored' });
   });
 
   it('publishes the rendered graph box for export framing', async () => {

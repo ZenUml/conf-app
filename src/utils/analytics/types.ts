@@ -12,6 +12,7 @@ import type {
   RenderGateMode,
   RenderGateOutcome,
   CacheState,
+  ContentState,
   CacheSource,
   ContentSource,
   MacroCountSource,
@@ -789,6 +790,8 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
+  // #113: body classification at render time (default starter / authored / empty). Wipe detection.
+  content_state?: ContentState;
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.

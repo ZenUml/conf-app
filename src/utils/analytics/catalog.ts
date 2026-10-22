@@ -225,6 +225,14 @@ export type RenderGateMode = "render" | "load";
 // inferring cache state from duration magnitude. See trackRenderTime.ts.
 export type CacheState = "cold" | "warm" | "unknown";
 
+// What the macro body looked like when `macro_viewed` fired (#113 wipe detection):
+//   empty    — the type-specific body field is null / undefined / whitespace-only
+//   default  — the body equals the bundled starter content for that type
+//   authored — anything else (also: types with no known body field)
+// A custom_content_id that was once `authored` and is now `empty` is a
+// high-confidence wipe. See utils/analytics/contentState.ts.
+export type ContentState = "default" | "authored" | "empty";
+
 // Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
 // `cc_body` = SVG co-stored in the custom-content body (Phase 2);
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.

@@ -57,6 +57,11 @@ interface RequestConfig {
   type: 'GET' | 'POST' | 'PUT' | 'DELETE';
   contentType?: 'multipart/form-data' | 'application/json';
   data?: Record<string, unknown>;
+  /**
+   * JSON requests only: make a non-2xx response throw `ForgeRequestError`
+   * (see `forgeRequest`) instead of returning its error body as if it were data.
+   */
+  throwOnHttpError?: boolean;
 }
 
 /** Metadata returned after attachment upload */
@@ -197,7 +202,9 @@ async function makeRequest(requestConfig: RequestConfig): Promise<ApiResponse> {
     }
     return { body };
   } else {
-    return await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
+    return requestConfig.throwOnHttpError
+      ? await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data, { throwOnHttpError: true })
+      : await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
   }
 }
 
@@ -586,6 +593,9 @@ function buildPutRequestToUpdateAttachmentProperties(
     url: buildAttachmentBasePath(pageId) + '/' + attachmentId,
     type: 'PUT',
     contentType: 'application/json',
+    // A rejected PUT must not read as success (#801): a JSON 4xx/5xx body is
+    // otherwise returned as data and the upload is reported as succeeded.
+    throwOnHttpError: true,
     data: {
       minorEdit: true,
       id: attachmentId,
@@ -739,7 +749,7 @@ function buildFailureLabel(
   viaAppFallback = false,
 ): string {
   if (httpStatus === 404 && viaAppFallback) return 'app_no_access';
-  if (e instanceof ForgeRequestError) return `non_json_http_${e.status}`;
+  if (e instanceof ForgeRequestError && e.nonJson) return `non_json_http_${e.status}`;
   if (typeof httpStatus === 'number') return `http_${httpStatus}`;
   if (e instanceof Error) return e.name || 'Error';
   return 'non_error_thrown';
@@ -925,12 +935,19 @@ async function uploadAttachmentViaApp(
  */
 async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promise<void> {
   const pageId = await global.apWrapper._getCurrentPageId();
-  await makeRequest(buildPutRequestToUpdateAttachmentProperties(
+  const result: any = await makeRequest(buildPutRequestToUpdateAttachmentProperties(
     pageId,
     attachmentMeta.attachmentId,
     attachmentMeta.versionNumber,
     attachmentMeta.hash
   ));
+  // The v1 POST can answer HTTP 200 with the failure wrapped in the body
+  // ({"statusCode":403,…}, see parseUploadResult); apply the same check to the
+  // PUT's parsed body in case the v1 properties endpoint does the same. A
+  // successful PUT returns the attachment object, which has no `statusCode`.
+  if (typeof result?.statusCode === 'number' && result.statusCode >= 400) {
+    throw new AttachmentUploadHttpError(result.statusCode, JSON.stringify(result));
+  }
 }
 
 // ============================================================================
@@ -1109,6 +1126,8 @@ async function createAttachmentIfContentChanged(
       // Set when the v1 re-read shows another writer already stored this exact
       // metaKey: the upload is already done, so no second version is written.
       let skippedDuplicate = false;
+      // Only a denied data POST can rerun the whole write as the app.
+      let stage: 'post' | 'put' = 'post';
       const postAndParse = async (t: UploadTarget): Promise<AttachmentMeta> =>
         parseUploadResult(await postAttachmentAsUser(attachmentName, t.uri, effectiveHash, blob), t, effectiveHash);
       try {
@@ -1145,6 +1164,7 @@ async function createAttachmentIfContentChanged(
             attachmentMeta = await postAndParse(target);
           }
         }
+        stage = 'put';
         if (!skippedDuplicate) await updateAttachmentProperties(attachmentMeta);
       } catch (e) {
         // Viewer-only users (issue #166) lack attachment-write permission on the
@@ -1153,7 +1173,14 @@ async function createAttachmentIfContentChanged(
         // properties PUT) server-side as the app. Every other failure (network,
         // 5xx, parse) re-throws so we don't burn the Forge remote on cases the
         // app can't fix anyway.
-        if (e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
+        // Only a denied POST qualifies. Once the POST succeeded the attachment
+        // (new) or its next version (update) already exists, so rerunning the
+        // write as the app would be rejected as a duplicate name (create) or add
+        // an extra version whose PUT conflicts (update). A 401/403 on the
+        // properties PUT — a real HTTP status (ForgeRequestError) or a
+        // 200-wrapped statusCode (AttachmentUploadHttpError) — therefore
+        // re-throws and is recorded as a labelled failure instead (#801).
+        if (stage === 'post' && e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
           fallbackFromStatus = e.status;
           // Emit BEFORE the fallback call so attempts are counted even when the
           // backend itself throws. `recovered_from_status` is the headline join.
@@ -1218,8 +1245,13 @@ async function createAttachmentIfContentChanged(
     //
     // A non-JSON 404 (ForgeRequestError) is not that situation either: it is an
     // HTML page, not Confluence's NotFound envelope, so it stays a failure.
-    const isNonJsonResponse = e instanceof ForgeRequestError;
-    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback && !isNonJsonResponse)) {
+    //
+    // A JSON-status 404 (ForgeRequestError with nonJson false) can only come from
+    // the properties PUT after the user's POST succeeded, so the parent exists:
+    // it is not the unpublished-parent case either.
+    const isForgeRequestError = e instanceof ForgeRequestError;
+    const isNonJsonResponse = e instanceof ForgeRequestError && e.nonJson;
+    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback && !isForgeRequestError)) {
       if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
         'waiting_for_publish', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       // Both branches are the 404-class skip; DraftPageError carries no numeric
@@ -1275,10 +1307,11 @@ async function createAttachmentIfContentChanged(
       via_app_fallback: viaAppFallback,
       ...(viaAppFallback ? { fallback_from_status: fallbackFromStatus } : {}),
       confluence_error_class: confluenceErrorClass,
-      // Non-JSON responses only: which call got the page (the attachments GET
-      // or the properties PUT) and what the page was.
+      // ForgeRequestError only: which call got the response (the attachments GET
+      // or the properties PUT). The response_* properties describe a non-JSON
+      // body, so a JSON-status error (opt-in throwOnHttpError) does not carry them.
+      ...(isForgeRequestError ? { failed_request: e.endpoint } : {}),
       ...(isNonJsonResponse ? {
-        failed_request: e.endpoint,
         response_content_type: e.contentType || 'none',
         response_title: e.htmlTitle ?? 'none',
       } : {}),

@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const h = vi.hoisted(() => ({
   bootstrapForgeViewer: vi.fn(async () => undefined),
   ensureDrawioViewerLoaded: vi.fn(async () => undefined),
-  getContext: vi.fn(async () => ({
+  guardEditClick: vi.fn(async () => true),
+  eventBusOn: vi.fn(),
+  getContext: vi.fn(async (): Promise<any> => ({
     extension: {
       config: {
         customContentId: 'cc-board-1',
@@ -41,7 +43,10 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
   openModal: vi.fn(),
 }))
 vi.mock('./EventBus', () => ({
-  default: { $on: vi.fn() },
+  default: { $on: h.eventBusOn },
+}))
+vi.mock('@/utils/guardEditClick', () => ({
+  guardEditClick: h.guardEditClick,
 }))
 
 describe('Forge graph viewer mode bootstrap', () => {
@@ -133,6 +138,62 @@ describe('Forge graph viewer mode bootstrap', () => {
     expect(result.loadError).toBeNull()
     expect(result.doc).toMatchObject({
       graphXml: '<mxfile><diagram name="Diagram" /></mxfile>',
+    })
+  })
+  // #561: a graph macro placed by pasting a typed deeplink has no config id.
+  // loadDiagram resolves it through resolveEffectiveCustomContentId; the SWR
+  // cache key (resolveContentId) and the Edit duplicate gate must see the same
+  // id, or a pasted macro is never cached and never guarded.
+  describe('a macro placed by pasting a graph deeplink (no config id)', () => {
+    const CLOUD = 'bc8bb5b3-09d2-4932-b68c-9b56fab8e34a'
+    const pastedContext = () => ({
+      cloudId: CLOUD,
+      extension: {
+        content: { id: 'page-1' },
+        config: {},
+        parameters: {
+          autoConvertLink: `https://confluence.zenuml.com/d/graph/${CLOUD}/425987`,
+        },
+      },
+    })
+
+    it('keys the SWR cache and macro_viewed enrichment on the id loadDiagram loads', async () => {
+      h.getContext.mockResolvedValue(pastedContext())
+      await import('./forge-graph-viewer')
+
+      await vi.waitFor(() => expect(h.bootstrapForgeViewer).toHaveBeenCalled())
+      const [options] = h.bootstrapForgeViewer.mock.calls.at(-1) as any[]
+
+      await options.loadDiagram()
+      expect(mockGlobals.apWrapper.loadCustomContentWithOrphanRecovery).toHaveBeenCalledWith(
+        'page-1', '425987', expect.anything(),
+      )
+      expect(options.resolveContentId(pastedContext())).toBe('425987')
+    })
+
+    it('keeps the saved config id for an ordinary macro', async () => {
+      await import('./forge-graph-viewer')
+
+      await vi.waitFor(() => expect(h.bootstrapForgeViewer).toHaveBeenCalled())
+      const [options] = h.bootstrapForgeViewer.mock.calls.at(-1) as any[]
+
+      expect(options.resolveContentId({
+        extension: { config: { customContentId: 'cc-board-1' } },
+      })).toBe('cc-board-1')
+    })
+
+    it('hands the resolved id to the Edit duplicate gate', async () => {
+      h.getContext.mockResolvedValue(pastedContext())
+      await import('./forge-graph-viewer')
+
+      await vi.waitFor(() => expect(h.eventBusOn).toHaveBeenCalledWith('edit', expect.any(Function)))
+      const handler = h.eventBusOn.mock.calls.find(([name]) => name === 'edit')![1]
+      await handler()
+
+      expect(h.guardEditClick).toHaveBeenCalledWith({
+        customContentId: '425987',
+        macroType: 'graph',
+      })
     })
   })
 })

@@ -46,7 +46,7 @@ After finding the PR, check `isDraft`. This affects which jobs are expected to r
 | **Draft** | `Build and Unit Test`, `Deploy: Lite` | `E2E: Lite` (and Full/Diagramly variants — those skip on any feature branch) |
 | **Ready for Review** | `Build`, `Deploy: Lite`, `E2E: Lite` | Full/Diagramly variants only |
 
-When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, which is the designed behaviour, not a failure. If the user expected E2E to run, suggest marking the PR Ready for Review (`gh pr ready <PR>`) or running `/ship-branch`.
+When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, which is the designed behaviour, not a failure. If the user expected E2E to run, suggest marking the PR Ready for Review (`gh pr ready <PR>`) or running `/land-branch`.
 
 ## Step 2: Check CI Status
 

@@ -6,6 +6,7 @@ import type {
   MacroTypeValue,
   Surface,
   EntryPoint,
+  CreationOrigin,
   OperationMode,
   RenderMode,
   RenderGateMode,
@@ -128,6 +129,15 @@ export type AnalyticsProperties = {
   // the same one event and the two are directly comparable.
   viewport_input?: "toolbar" | "wheel";
   entry_point?: EntryPoint;
+  // Create funnel only (macro_create_started / macro_create_succeeded /
+  // macro_create_cancelled). `creation_origin` names the surface that started
+  // the create (see CreationOrigin). `creation_flow_id` is generated once per
+  // editor iframe, the first time a create event is emitted, and shared by that
+  // iframe's start, success and cancel events; it is the join key for one
+  // creation. It is not `macro_uuid` (absent for a byline create: there is no
+  // macro yet) and not `journey_id` (only on macro_authoring_ended).
+  creation_origin?: CreationOrigin;
+  creation_flow_id?: string;
   confluence_space?: string;
   macro_uuid?: string;
   // Lifecycle
@@ -865,6 +875,14 @@ export type AnalyticsProperties = {
   // duration_ms includes exactly this much gate-induced delay — subtracting
   // it (or splitting by render_gate) is legitimate.
   render_deferred_ms?: number;
+  // Hidden-Mermaid wait (#706). `layout_wait_ms` (on macro_viewed): wall time the
+  // viewer waited for a measurable SVG text layout after mermaid.render() threw
+  // `svg element not in render tree`; absent when no wait happened. Unlike
+  // render_deferred_ms it is not gate-induced, but duration_ms includes it, so
+  // subtract it (or exclude present values) in percentile work. `waited_ms` (on
+  // viewer_render_deferred / viewer_render_abandoned): the wait so far / in total.
+  layout_wait_ms?: number;
+  waited_ms?: number;
   // Strict (no-margin) top-level-viewport intersection at first observation.
   // The direct client-side measure of "was this macro on screen at boot".
   visible_at_boot?: boolean;
@@ -976,6 +994,9 @@ export type AnalyticsProperties = {
   // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // agent_link_diagram_updated only: true when the call renamed the diagram
+  // (a non-blank `title` that differs from the stored one, #789).
+  title_changed?: boolean;
   // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
   // dialog connects the agent (headless only, for now); `mcp_copy_target` says
   // which block a Copy click targeted. The copy outcome rides the shared
@@ -1085,8 +1106,9 @@ export type AnalyticsProperties = {
   // field, which is the ambiguity #398 was filed about and the reason #435
   // chose `macro_type: 'none'` over omission.
   confluence_error_class?: string;
-  // attachment_upload_failed, only when `forgeRequest` got a non-JSON body
-  // (ForgeRequestError — an HTML error/login page instead of JSON).
+  // attachment_upload_failed, only when `forgeRequest` threw ForgeRequestError:
+  // a non-JSON body (an HTML error/login page instead of JSON) or, for callers
+  // that opt in, a JSON body with a non-2xx status (e.g. the properties PUT).
   // `failed_request` is the templated call that got it, e.g.
   // `GET /wiki/api/v2/pages/{id}/attachments` vs the properties PUT;
   // `response_content_type` / `response_title` say what the page was ('none'
@@ -1102,6 +1124,18 @@ export type AnalyticsProperties = {
   // `error_code` come from the first structured error.
   load_status?: 'not_found' | 'other_error';
   error_class?: 'structured' | 'malformed';
+  // customcontent_orphan_observed: the by-id GET (the "direct fetch") that ran
+  // before any probe. Without these, `recoverable: 'probe_skipped_no_probe_result'`
+  // could not say whether the fetch hit a 403, a 5xx, a thrown request or a
+  // malformed body — they all collapsed to "no probe result" (#148).
+  // `direct_fetch_status` mirrors fetchCustomContentByIdV2WithStatus;
+  // `direct_fetch_http_status` / `direct_fetch_error_code` come from the first
+  // structured Confluence error (absent for thrown/malformed);
+  // `direct_fetch_error_class` is 'thrown' | 'structured' | 'malformed'.
+  direct_fetch_status?: 'ok' | 'not_found' | 'other_error';
+  direct_fetch_http_status?: number;
+  direct_fetch_error_code?: string;
+  direct_fetch_error_class?: 'thrown' | 'structured' | 'malformed';
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

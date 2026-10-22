@@ -111,6 +111,9 @@ describe('shared Forge entrypoint orphan routing', () => {
     h.loadCustomContentWithOrphanRecovery.mockResolvedValue({
       customContent: undefined,
       directFetchStatus: 'not_found',
+      directFetchHttpStatus: 404,
+      directFetchErrorCode: 'NOT_FOUND',
+      directFetchErrorClass: 'structured',
       probeResult,
     });
 
@@ -123,7 +126,16 @@ describe('shared Forge entrypoint orphan routing', () => {
     );
     expect(h.reportOrphanObserved).toHaveBeenCalledTimes(1);
     expect(h.reportOrphanObserved).toHaveBeenCalledWith(
-      'page-1', 'orphan-1', 'sequence', probeResult, { recoveryUsed: false },
+      'page-1', 'orphan-1', 'sequence', probeResult,
+      {
+        recoveryUsed: false,
+        directFetch: expect.objectContaining({
+          directFetchStatus: 'not_found',
+          directFetchHttpStatus: 404,
+          directFetchErrorCode: 'NOT_FOUND',
+          directFetchErrorClass: 'structured',
+        }),
+      },
     );
     expect(h.graphViewerImported).not.toHaveBeenCalled();
     expect(h.mountRoot).toHaveBeenCalledTimes(1);

@@ -292,7 +292,7 @@ export default {
       }
       
       // Load all custom content for the list
-      this.customContentList = await globals.apWrapper.searchCustomContentForge();
+      this.customContentList = await globals.apWrapper.searchCustomContent();
     },
 
     setFilter(docType) {

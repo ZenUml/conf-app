@@ -169,6 +169,9 @@ export type AnalyticsProperties = {
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
+  // Milliseconds from the first retained track call to Mixpanel init completion.
+  // Registered once per iframe as a super-property (#707).
+  analytics_init_ms?: number;
   // analytics_init_degraded (#707): the Forge moduleKey of the iframe whose
   // Mixpanel init degraded, the closed-vocabulary `reason` (shared `reason`
   // field below; today only 'session_replay_config_timeout') and the timeout

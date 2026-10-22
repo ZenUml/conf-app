@@ -761,6 +761,8 @@ Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08
 
 ---
 
+Every frontend event carries the `analytics_init_ms` super-property (#707): milliseconds from the iframe’s first retained track call to Mixpanel init completion, including the replay-config wait. It is measured once per iframe with a monotonic clock and reused by later events. It excludes event enrichment and network delivery.
+
 ### `analytics_init_degraded`
 
 **Trigger:** The iframe's Mixpanel bootstrap (`_initMixpanel` in `trackAnalyticsEvent.ts`) stopped waiting for the Forge feature-flag download after `SESSION_REPLAY_CONFIG_TIMEOUT_MS` (3000 ms) and initialised Mixpanel with replay off. Fired once per iframe, after `mixpanel.init`, so it actually leaves. Before #707 a hung bridge call kept the init promise pending forever and every event for that iframe was dropped without a log line.

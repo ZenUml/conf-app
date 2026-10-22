@@ -1,13 +1,14 @@
 import type { ForgeRequestContext, ForgeRequestData } from '../utils/authenticate';
 import { json } from '../OkResponse';
+import { appIdOf } from '../utils/variants';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
   DB: D1Database;
 }
 
-const FULL_APP_ID = 'd9e4002b-120b-426b-834b-402a4a5adce7';
-const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
+const FULL_APP_ID = appIdOf('full');
+const LITE_APP_ID = appIdOf('lite');
 const ACTIVE_KEY = 'targeted-survey:active';
 const LEASE_MS = 15_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

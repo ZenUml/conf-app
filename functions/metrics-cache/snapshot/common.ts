@@ -8,21 +8,15 @@ import { getAuthorizationHeader } from '../../utils/requestUtils';
 import { hasForgeUserToken } from '../../utils/forgeUserToken';
 import { json } from '../../OkResponse';
 import { mixpanelImportServiceEvents } from '../../service/mixpanelService';
+import { appIdOf, variantByAppId, type Variant } from '../../utils/variants';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 export const SNAPSHOT_PREFIX = 'macro-count/v1';
-export const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
+export const LITE_APP_ID = appIdOf('lite');
 export const CLAIM_STALE_MS = 30 * 60 * 1000;
 export const KV_EXPIRATION_TTL_SECONDS = 365 * 24 * 60 * 60;
 
-const APP_PRODUCTS: Record<string, ProductType> = {
-  [LITE_APP_ID]: 'lite',
-  'd9e4002b-120b-426b-834b-402a4a5adce7': 'full',
-  '01ede8b1-4e88-451a-b9ef-89eeef93afaf': 'diagramly',
-  '49017727-af19-4ab6-8d5a-7d28108936b6': 'asyncapi',
-};
-
-export type ProductType = 'lite' | 'full' | 'diagramly' | 'asyncapi';
+export type ProductType = Variant;
 export type CountField = 'sequence' | 'graph' | 'openapi' | 'mermaid' | 'plantuml' | 'asyncapi' | 'unknown';
 export const COUNT_FIELDS: readonly CountField[] = [
   'sequence', 'graph', 'openapi', 'mermaid', 'plantuml', 'asyncapi', 'unknown',
@@ -134,7 +128,7 @@ export function normalizeClientDomain(value: string): string {
 }
 
 export function productTypeForAppId(appId: string): ProductType | undefined {
-  return APP_PRODUCTS[appId.split('/').pop() || appId];
+  return variantByAppId(appId.split('/').pop() || appId)?.variant;
 }
 
 function productTypeFromAddonKey(addonKey: string): ProductType | undefined {

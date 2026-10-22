@@ -20,6 +20,7 @@ import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { markEditorAuthoringStarted, markEditorSaved, registerEditorCloseTracking } from '@/utils/analytics/editorCloseOutcome';
 import { toast } from '@/utils/toast';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
@@ -61,6 +62,7 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
       surface: "editor",
       macro_type: "embed",
       operation_mode: "create",
+      ...getCreationFlowProps(),
       ...savedIdProps,
     });
   } else {
@@ -244,6 +246,7 @@ async function initializeMacro() {
     surface: 'editor',
     macro_type: 'embed',
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(isNew && getCreationFlowProps()),
   });
   // The picker cannot tell whether the selection changed, so had_changes is
   // left off; the close-without-save itself is what the funnel needs.

@@ -138,6 +138,33 @@ export type EntryPoint =
 
 export type OperationMode = "create" | "edit" | "unknown";
 
+// Which surface started a create. Carried on macro_create_started,
+// macro_create_succeeded and macro_create_cancelled (never on edit events) so
+// the onboarding funnel can be split by where the author came from, which
+// `entry_point` cannot do: every editor-hosted create records
+// `entry_point: page_editor`, whether the user inserted a macro or clicked
+// "Add a diagram" in the byline.
+//
+// - page_editor  the ordinary insert-macro / slash-menu / macro-toolbar path
+//                (also the default when nothing else is carried)
+// - byline_view  Lite/Full byline opened while the host page is being viewed
+// - byline_editor byline opened while the host page is in the editor
+// - dashboard    the My API Documents dashboard's "Create" menu
+// - homepage     reserved: the homepage feed card has no create action today
+// - unknown      an origin value was carried but is not one of these
+//
+// Separate from EntryPoint on purpose: entry_point semantics (and every
+// existing breakdown that uses them) stay untouched.
+export const CREATION_ORIGINS = [
+  "page_editor",
+  "byline_view",
+  "byline_editor",
+  "homepage",
+  "dashboard",
+  "unknown",
+] as const;
+export type CreationOrigin = (typeof CREATION_ORIGINS)[number];
+
 // How an authoring session ended. Emitted by journeyTracking.endEditJourney on
 // macro_authoring_ended — the terminal event that makes the create funnel add
 // up. `saved` is the explicit save path, `cancelled` an explicit close/discard,

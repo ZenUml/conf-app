@@ -8,6 +8,7 @@ import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
 import { markEditorAuthoringStarted } from "@/utils/analytics/editorCloseOutcome";
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
@@ -443,6 +444,7 @@ async function initializeMacro() {
     surface: 'editor',
     macro_type: 'graph',
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(isNew && getCreationFlowProps()),
   });
 }
 

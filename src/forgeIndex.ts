@@ -35,6 +35,7 @@ import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { handleHomepageFeedRoute } from './routes/homepageFeed';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution, setSequenceViewerLoadState } from '@/utils/viewerLoadOutcome';
 import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
@@ -1018,6 +1019,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
           surface: "editor",
           macro_type: macroType,
           entry_point: "page_editor",
+          ...getCreationFlowProps(),
         });
       } else {
         trackAnalyticsEvent("macro_edit_started", {

@@ -72,6 +72,26 @@ export function verifyParent(parent, attempt, jobs, expectedJobs, provenance = {
   }
 }
 
+const STALE_PARENT_ERROR = 'Child E2E requires an active staging parent for this attempt';
+
+// GitHub's run/jobs API can return stale state for a few seconds after a dispatcher job
+// starts (run status "queued" while jobs are in_progress). Retry only the "inactive parent"
+// error; provenance, source and actor errors are real and fail immediately.
+export async function verifyParentWithRetry(fetchState, attempts, pause, log = () => {}) {
+  for (let n = 1; ; n++) {
+    const { parent, attempt, jobs, expectedJobs, provenance } = fetchState();
+    try {
+      verifyParent(parent, attempt, jobs, expectedJobs, provenance);
+      return;
+    } catch (error) {
+      if (error.message !== STALE_PARENT_ERROR || n >= attempts) throw error;
+      const seen = jobs.filter(job => expectedJobs.includes(job.name)).map(job => `${job.name}=${job.status}`).join(', ') || 'none';
+      log(`Parent not yet active (attempt ${n}/${attempts}): run status=${parent.status}, run_attempt=${parent.run_attempt}, dispatcher jobs: ${seen}; retrying`);
+      await pause();
+    }
+  }
+}
+
 export function rootOptions(env) {
   const manual = env.GITHUB_EVENT_NAME === 'workflow_dispatch';
   const options = { root_run_id: env.GITHUB_RUN_ID, root_attempt: env.GITHUB_RUN_ATTEMPT,
@@ -157,17 +177,26 @@ async function main() {
   const dispatchMarker = `${env.RUNNER_TEMP || '/tmp'}/e2e-dispatched-${workflow}-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
   if (process.argv.includes('--verify-parent')) {
     verifyChildRun(env.GITHUB_ACTOR, env.GITHUB_RUN_ATTEMPT);
-    const parent = api(`actions/runs/${env.PARENT_RUN_ID}`);
-    const jobs = api(`actions/runs/${env.PARENT_RUN_ID}/attempts/${env.PARENT_ATTEMPT}/jobs?per_page=100`).jobs;
-    const provenance = { sourceSha: env.SOURCE_SHA };
-    if (env.ROOT_RUN_ID) {
-      Object.assign(provenance, {
-        rootId: env.ROOT_RUN_ID, rootAttempt: env.ROOT_ATTEMPT,
-        root: api(`actions/runs/${env.ROOT_RUN_ID}`),
-        rootJobs: api(`actions/runs/${env.ROOT_RUN_ID}/attempts/${env.ROOT_ATTEMPT}/jobs?per_page=100`).jobs,
-      });
-    }
-    verifyParent(parent, env.PARENT_ATTEMPT, jobs, JSON.parse(env.EXPECTED_PARENT_JOBS), provenance);
+    const fetchState = () => {
+      const provenance = { sourceSha: env.SOURCE_SHA };
+      if (env.ROOT_RUN_ID) {
+        Object.assign(provenance, {
+          rootId: env.ROOT_RUN_ID, rootAttempt: env.ROOT_ATTEMPT,
+          root: api(`actions/runs/${env.ROOT_RUN_ID}`),
+          rootJobs: api(`actions/runs/${env.ROOT_RUN_ID}/attempts/${env.ROOT_ATTEMPT}/jobs?per_page=100`).jobs,
+        });
+      }
+      return {
+        parent: api(`actions/runs/${env.PARENT_RUN_ID}`),
+        attempt: env.PARENT_ATTEMPT,
+        jobs: api(`actions/runs/${env.PARENT_RUN_ID}/attempts/${env.PARENT_ATTEMPT}/jobs?per_page=100`).jobs,
+        expectedJobs: JSON.parse(env.EXPECTED_PARENT_JOBS),
+        provenance,
+      };
+    };
+    let verified;
+    await verifyParentWithRetry(() => (verified = fetchState()), 6, pause, line => console.error(line));
+    const { parent } = verified;
     if (parent.path === '.github/workflows/build-test-deploy.yml') {
       const directory = mkdtempSync(join(tmpdir(), 'main-root-options-'));
       execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,

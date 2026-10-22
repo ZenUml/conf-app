@@ -32,6 +32,7 @@
 
 import { setupCloseGuard } from "@/utils/closeGuard";
 import type { MacroTypeValue } from "./catalog";
+import { getCreationFlowProps } from "./creationFlow";
 import { getEditorMutationSummary } from "./editorMutationTelemetry";
 import { trackAnalyticsEventBeforeUnload } from "./trackAnalyticsEvent";
 import type { AnalyticsProperties } from "./types";
@@ -127,6 +128,8 @@ export function trackEditorClosedWithoutSave(
     macro_type: config.getMacroType(),
     operation_mode: config.operationMode,
     close_source: closeSource,
+    // Create sessions only: the same origin and flow id as the start event.
+    ...(config.operationMode === "create" ? getCreationFlowProps() : {}),
     ...(hadChanges !== undefined ? { had_changes: hadChanges } : {}),
     ...(mountedAt !== null
       ? { editor_open_duration_ms: Math.max(0, Date.now() - mountedAt) }

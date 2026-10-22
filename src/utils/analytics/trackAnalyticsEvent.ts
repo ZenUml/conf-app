@@ -14,6 +14,7 @@ import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
 import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
+import { resolveEffectiveCustomContentId } from "@/utils/effectiveCustomContentId";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -337,10 +338,12 @@ function _getContentIdentifiers(): {
 } {
   const extension = forgeGlobal.forgeContext?.extension as any;
   const pageId = extension?.content?.id ?? null;
+  // The id the viewer actually loaded: config, then modal, then a pasted typed
+  // deeplink. A macro placed by autoConvert has no config, so reading config and
+  // modal alone left every event from it (macro_viewed included) with an empty
+  // custom_content_id although the diagram rendered (#561).
   const customContentId =
-    extension?.config?.customContentId ??
-    extension?.modal?.customContentId ??
-    null;
+    resolveEffectiveCustomContentId(forgeGlobal.forgeContext) ?? null;
   const attachmentName = customContentId ? `zenuml-${customContentId}.png` : null;
   return {
     page_id: pageId,

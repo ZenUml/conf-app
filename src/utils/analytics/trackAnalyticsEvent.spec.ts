@@ -623,6 +623,89 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  // #561: a macro placed by pasting a typed deeplink (byline paste-to-place) has
+  // no config at all; its id lives only in the autoConvert link. Reading config
+  // and modal only left every macro_viewed from such a macro with an empty
+  // custom_content_id, although the viewer rendered the diagram fine.
+  it("resolves custom_content_id from a pasted autoConvert deeplink when config has no id", async () => {
+    const cloudId = "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a";
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId,
+      extension: {
+        content: { id: "page-789" },
+        parameters: {
+          autoConvertLink: `https://confluence.zenuml.com/d/graph/${cloudId}/425987`,
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "graph",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        content_id: "425987",
+        custom_content_id: "425987",
+        attachment_name: "zenuml-425987.png",
+      })
+    );
+  });
+
+  it("does not take a custom_content_id from a pasted deeplink that belongs to another site", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId: "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a",
+      extension: {
+        parameters: {
+          autoConvertLink:
+            "https://confluence.zenuml.com/d/graph/11111111-2222-3333-4444-555555555555/425987",
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ custom_content_id: null })
+    );
+  });
+
+  it("keeps the saved config id ahead of a pasted deeplink", async () => {
+    const cloudId = "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a";
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId,
+      extension: {
+        config: { customContentId: "cc-456" },
+        parameters: {
+          autoConvertLink: `https://confluence.zenuml.com/d/graph/${cloudId}/425987`,
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ custom_content_id: "cc-456" })
+    );
+  });
+
   it("sets page_id, custom_content_id, attachment_name to null when forgeContext fields are missing", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: "macro-abc",

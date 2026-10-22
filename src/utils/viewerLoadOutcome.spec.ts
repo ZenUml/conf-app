@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import store from '@/model/store2';
 import globals from '@/model/globals';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import forgeGlobal from '@/model/globals/forgeGlobal';
 import {
   applyViewerLoadOutcome,
   classifyViewerLoadOutcome,
+  getForgeCustomContentId,
   isDisplayableDiagram,
   mapCustomContentLoadError,
   mapThrownViewerLoadError,
@@ -156,6 +158,46 @@ describe('viewerLoadOutcome', () => {
 
   it('returns null when a custom-content load carries no error metadata', () => {
     expect(mapCustomContentLoadError({})).toBeNull();
+  });
+
+  describe('getForgeCustomContentId — every place a macro\'s content id can live', () => {
+    const CLOUD = 'bc8bb5b3-09d2-4932-b68c-9b56fab8e34a';
+    const original = forgeGlobal.forgeContext;
+    const loadError = { directFetchStatus: 'not_found' as const, errorClass: 'structured' as const };
+    afterEach(() => {
+      forgeGlobal.forgeContext = original;
+    });
+
+    it('reads config, then modal, exactly as before', () => {
+      forgeGlobal.forgeContext = { extension: { config: { customContentId: 'config-id' }, modal: { customContentId: 'modal-id' } } };
+      expect(getForgeCustomContentId()).toBe('config-id');
+      forgeGlobal.forgeContext = { extension: { modal: { customContentId: 'modal-id' } } };
+      expect(getForgeCustomContentId()).toBe('modal-id');
+      forgeGlobal.forgeContext = { extension: {} };
+      expect(getForgeCustomContentId()).toBeUndefined();
+    });
+
+    it('resolves the id of a macro placed by pasting a typed deeplink (no config at all)', () => {
+      forgeGlobal.forgeContext = {
+        cloudId: CLOUD,
+        extension: { parameters: { autoConvertLink: `https://confluence.zenuml.com/d/graph/${CLOUD}/425987` } },
+      };
+      expect(getForgeCustomContentId()).toBe('425987');
+    });
+
+    it('classifies a failed pasted macro as failed_with_source so the retry affordance shows (#561)', () => {
+      forgeGlobal.forgeContext = {
+        cloudId: CLOUD,
+        extension: { parameters: { autoConvertLink: `https://confluence.zenuml.com/d/graph/${CLOUD}/425987` } },
+      };
+      const outcome = classifyViewerLoadOutcome({ doc: undefined, loadError, macroKind: 'graph' });
+      expect(outcome.state).toBe('failed_with_source');
+    });
+
+    it('still classifies a macro with no id anywhere as failed_without_source', () => {
+      forgeGlobal.forgeContext = { cloudId: CLOUD, extension: {} };
+      expect(classifyViewerLoadOutcome({ doc: undefined, loadError, macroKind: 'graph' }).state).toBe('failed_without_source');
+    });
   });
 
   it('skips viewer load state in editor mode', () => {

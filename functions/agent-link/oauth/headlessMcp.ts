@@ -30,6 +30,7 @@ import { loadClient, type McpTokenRecord } from './asStore';
 import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
 import { issuerFor } from './asMetadata';
+import { json } from '../../OkResponse';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -62,7 +63,7 @@ const RPC_TOOL_ERROR = -32003;
 type JsonRpcId = string | number | null;
 
 function result(id: JsonRpcId, value: unknown): Response {
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: value }), {
+  return json({ jsonrpc: '2.0', id, result: value }, {
     status: 200,
     headers: JSON_HEADERS,
   });
@@ -71,7 +72,7 @@ function result(id: JsonRpcId, value: unknown): Response {
 function error(status: number, id: JsonRpcId, code: number, message: string, extra?: { headers?: Record<string, string>; data?: unknown }): Response {
   const body: Record<string, unknown> = { code, message };
   if (extra?.data !== undefined) body.data = extra.data;
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: body }), {
+  return json({ jsonrpc: '2.0', id, error: body }, {
     status,
     headers: { ...JSON_HEADERS, ...(extra?.headers ?? {}) },
   });

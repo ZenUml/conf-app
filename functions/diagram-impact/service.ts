@@ -1,3 +1,4 @@
+import { response } from '../OkResponse';
 import type { ForgeRequestData } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import {
@@ -23,6 +24,12 @@ export class DiagramImpactRequestError extends Error {
   ) {
     super(code);
   }
+}
+
+/** The JSON error response both diagram-impact handlers answer with. */
+export function diagramImpactFailure(error: unknown): Response {
+  if (error instanceof DiagramImpactRequestError) return response(error.status, error.code);
+  return response(500, 'impact_unavailable');
 }
 
 interface ConfluenceCustomContent {

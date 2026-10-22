@@ -6,6 +6,7 @@ import {
 } from '../../utils/authenticate';
 import { getAuthorizationHeader } from '../../utils/requestUtils';
 import { hasForgeUserToken } from '../../utils/forgeUserToken';
+import { json } from '../../OkResponse';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 export const SNAPSHOT_PREFIX = 'macro-count/v1';
@@ -105,23 +106,16 @@ export class HttpError extends Error {
   }
 }
 
-export function jsonResponse(body: unknown, status = 200): Response {
-  return Response.json(body, {
-    status,
-    headers: {
-      'Cache-Control': 'no-store',
-    },
-  });
-}
+export const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' };
 
 export function errorResponse(error: unknown): Response {
   if (error instanceof HttpError) {
-    return jsonResponse({ error: error.message }, error.status);
+    return json({ error: error.message }, { status: error.status, headers: NO_STORE_HEADERS });
   }
   console.error('[macro-count:snapshot] unexpected error', {
     reason: error instanceof Error ? error.name : 'unknown_error',
   });
-  return jsonResponse({ error: 'Internal Server Error' }, 500);
+  return json({ error: 'Internal Server Error' }, { status: 500, headers: NO_STORE_HEADERS });
 }
 
 export function normalizeClientDomain(value: string): string {

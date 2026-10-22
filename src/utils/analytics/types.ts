@@ -1092,6 +1092,16 @@ export type AnalyticsProperties = {
   // (401/403) that triggered the fallback.
   via_app_fallback?: boolean;
   fallback_from_status?: number;
+  // `attachment_upload_succeeded` only: the create POST 400'd with v1's "Cannot
+  // add a new attachment with same file name" (the v2 existence gate missed an
+  // attachment v1 already holds — visibility lag or a concurrent upload from
+  // another iframe, #75) and the upload then landed as a new version. Absent on
+  // every ordinary create/update.
+  recovered_from?: 'same_name_400';
+  // `attachment_upload_succeeded` with `recovered_from: 'same_name_400'` only:
+  // the v1 re-read showed another writer had already stored this upload's
+  // metaKey (racing iframes), so no new version was POSTed.
+  skipped_duplicate?: boolean;
   // Low-cardinality Confluence exception class parsed out of the error
   // envelope — PermissionException / NotFoundException / BadRequestException.
   // The raw `error_message` is capped at 200 chars and the envelope prefix

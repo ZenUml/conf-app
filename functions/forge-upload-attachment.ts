@@ -338,11 +338,14 @@ async function doUpload(
   // v1 attachment API. apiBaseUrl is the api.atlassian.com/ex/confluence/{cloudId}
   // gateway, which proxies the /wiki context — paths are appended WITHOUT /wiki
   // (see functions/utils/confluenceUtils.ts which calls /api/v2/... the same way).
-  const uploadUrl = p.attachmentId
+  const attachmentBase = `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment`;
+  let attachmentId = p.attachmentId;
+  let finalVersion = typeof p.versionNumber === 'number' && p.versionNumber > 0 ? p.versionNumber : 1;
+  const uploadUrl = attachmentId
     ? `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment/${p.attachmentId}/data`
     : `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment`;
 
-  const uploadResp = await fetch(uploadUrl, {
+  const postData = (url: string) => fetch(url, {
     method: 'POST',
     // X-Atlassian-Token: no-check disables the XSRF check for the multipart
     // attachment endpoint. Do NOT set Content-Type — fetch derives the
@@ -350,15 +353,53 @@ async function doUpload(
     headers: { 'X-Atlassian-Token': 'no-check', Authorization: `Bearer ${systemToken}` },
     body: form,
   });
-  const uploadText = await uploadResp.text();
-  if (!uploadResp.ok) {
-    console.warn(`forge-upload-attachment: upload ${uploadResp.status} page=${p.pageId} name=${p.attachmentName}: ${uploadText.slice(0, 200)}`);
-    return { ok: false, status: uploadResp.status, body: uploadText.slice(0, 500), stage: 'upload', pageStatus };
+  let uploadResp = await postData(uploadUrl);
+  let uploadText = await uploadResp.text();
+  const statusOf = (response: Response, text: string): number => {
+    if (!response.ok) return response.status;
+    try {
+      const status = JSON.parse(text)?.statusCode;
+      if (typeof status === 'number' && status >= 400) return status;
+    } catch { /* v1 updates can return a plain-text success body. */ }
+    return response.status;
+  };
+  let uploadStatus = statusOf(uploadResp, uploadText);
+  if (!attachmentId && uploadStatus === 400 && /Cannot add a new attachment with same file name/i.test(uploadText)) {
+    // The v2 existence gate can miss a name already visible to v1, including a
+    // competing upload. Re-read as the app and retry at most one data POST.
+    // The caller's page read check above still applies to every write.
+    let existing: any;
+    try {
+      const lookup = await fetch(`${attachmentBase}?filename=${encodeURIComponent(p.attachmentName)}&expand=version,metadata`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${systemToken}` },
+      });
+      if (lookup.ok) {
+        const results = JSON.parse(await lookup.text())?.results;
+        if (Array.isArray(results)) existing = results
+          .filter((item: any) => item.title === p.attachmentName && item.id && Number.isInteger(item.version?.number) && item.version.number > 0)
+          .sort((a: any, b: any) => b.version.number - a.version.number)[0];
+      }
+    } catch { /* A failed re-read preserves the original create error. */ }
+    if (existing) {
+      attachmentId = String(existing.id);
+      finalVersion = existing.version.number;
+      if (existing.metadata?.comment === p.hash) {
+        return { ok: true, attachmentId, versionNumber: finalVersion };
+      }
+      finalVersion += 1;
+      uploadResp = await postData(`${attachmentBase}/${encodeURIComponent(attachmentId)}/data`);
+      uploadText = await uploadResp.text();
+      uploadStatus = statusOf(uploadResp, uploadText);
+    }
+  }
+  if (uploadStatus >= 400 || !uploadResp.ok) {
+    console.warn(`forge-upload-attachment: upload ${uploadStatus} page=${p.pageId} name=${p.attachmentName}: ${uploadText.slice(0, 200)}`);
+    return { ok: false, status: uploadStatus, body: uploadText.slice(0, 500), stage: 'upload', pageStatus };
   }
 
   // New-attachment path: pull the id out of the v1 results envelope. For a
   // new version the frontend already knows the id, so fall back to it.
-  let resolvedAttachmentId: string | null = p.attachmentId ?? null;
+  let resolvedAttachmentId: string | null = attachmentId ?? null;
   try {
     const parsed = JSON.parse(uploadText);
     resolvedAttachmentId = parsed?.results?.[0]?.id ?? parsed?.data?.results?.[0]?.id ?? resolvedAttachmentId;
@@ -373,7 +414,6 @@ async function doUpload(
   // Keeps end state identical to the successful user path so the frontend's
   // hash-based change detection (attachment.comment === metaKey) still skips
   // future re-uploads.
-  const finalVersion = typeof p.versionNumber === 'number' && p.versionNumber > 0 ? p.versionNumber : 1;
   const putResp = await fetch(`${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment/${resolvedAttachmentId}`, {
     method: 'PUT',
     headers: {

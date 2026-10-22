@@ -1,11 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { forgeRequest, loadPaginatedDataUntil } from './requestUtil';
+import { callRemote, forgeRequest, loadPaginatedDataUntil } from './requestUtil';
 import { ForgeRequestError, templateUrl } from './forgeRequestError';
 
 const mockRequestConfluence = vi.fn();
+const mockInvokeRemote = vi.fn();
 vi.mock('@forge/bridge', () => ({
   requestConfluence: (...args: any[]) => mockRequestConfluence(...args),
+  invokeRemote: (...args: any[]) => mockInvokeRemote(...args),
 }));
+
+describe('callRemote', () => {
+  it('preserves a real denial status for attachment failure classification', async () => {
+    mockInvokeRemote.mockResolvedValue({ status: 403, body: { error: 'no_user_credential' } });
+    await expect(callRemote('/forge-upload-attachment', 'POST', {})).rejects.toMatchObject({
+      status: 403,
+      message: 'HTTP 403: {"error":"no_user_credential"}',
+    });
+  });
+});
 
 describe('loadPaginatedDataUntil', () => {
   const pages: Record<string, any> = {

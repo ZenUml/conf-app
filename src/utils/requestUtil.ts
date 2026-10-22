@@ -126,7 +126,9 @@ export async function callRemote(
   const response = await forgeCallRemote(url, method, data);
   if (response.status !== 200 && response.status !== 201) {
     const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body);
-    throw new Error(`HTTP ${response.status}: ${body || 'No body'}`);
+    throw Object.assign(new Error(`HTTP ${response.status}: ${body || 'No body'}`), {
+      status: response.status,
+    });
   }
 
   return response.body;

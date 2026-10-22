@@ -185,6 +185,7 @@ function _startExplicitReplay(
 
 function _initMixpanel(): Promise<void> {
   if (!_initPromise) {
+    const startedAt = performance.now();
     _initPromise = (async () => {
       // The page-banner iframe is short-lived and has no macro context — session
       // replay there adds noise without value, so it never records and we skip
@@ -256,6 +257,7 @@ function _initMixpanel(): Promise<void> {
         record_console: true,
         record_network: true,
       });
+      mixpanel.register({ analytics_init_ms: performance.now() - startedAt });
       // Stamp every event with the resolved rate + why, so the throttle and
       // targeting can be confirmed live in Mixpanel.
       mixpanel.register({

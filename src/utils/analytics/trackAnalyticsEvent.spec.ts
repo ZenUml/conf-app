@@ -969,6 +969,32 @@ describe("trackAnalyticsEvent", () => {
       vi.useRealTimers();
     });
 
+    it("registers the first retained track-to-init duration once for concurrent and later events", async () => {
+      let elapsed = 100;
+      const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+      let resolveConfig!: (v: { percent: number; source: "off" }) => void;
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise((resolve) => (resolveConfig = resolve)),
+      );
+      vi.mocked(mixpanel.init).mockImplementationOnce(() => { elapsed += 5; });
+      try {
+        const first = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        elapsed = 250;
+        const concurrent = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        elapsed = 350;
+        resolveConfig({ percent: 0, source: "off" });
+        await Promise.all([first, concurrent]);
+        elapsed = 900;
+        await _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        expect(mixpanel.register).toHaveBeenCalledWith({ analytics_init_ms: 255 });
+        expect(vi.mocked(mixpanel.register).mock.calls.filter(
+          ([props]) => "analytics_init_ms" in props,
+        )).toHaveLength(1);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
     it("inits Mixpanel with replay off and still tracks when the config never settles", { timeout: 1000 }, async () => {
       vi.mocked(getSessionReplayConfig).mockImplementation(
         () => new Promise(() => {}),

@@ -26,7 +26,7 @@ vi.mock("@/composables/agentLink/connectInstructions", () => ({
 }));
 
 const writeClipboard = vi.fn();
-vi.mock("@/composables/agentLink/clipboard", () => ({
+vi.mock("@/utils/clipboard", () => ({
   writeClipboard: (text: string) => writeClipboard(text),
 }));
 

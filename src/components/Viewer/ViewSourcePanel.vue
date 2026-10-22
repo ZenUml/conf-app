@@ -45,6 +45,8 @@
 </template>
 
 <script>
+import { writeClipboard } from '@/utils/clipboard';
+
 export default {
   name: 'ViewSourcePanel',
   props: {
@@ -94,27 +96,7 @@ export default {
   methods: {
     async onCopy() {
       const text = this.source ?? '';
-      let ok = false;
-      if (navigator.clipboard && window.isSecureContext) {
-        try {
-          await navigator.clipboard.writeText(text);
-          ok = true;
-        } catch {
-          /* fall through to legacy */
-        }
-      }
-      if (!ok) {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.top = '-9999px';
-        textarea.setAttribute('readonly', '');
-        document.body.appendChild(textarea);
-        textarea.select();
-        textarea.setSelectionRange(0, text.length);
-        ok = document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
+      const ok = await writeClipboard(text);
       if (ok) {
         this.copied = true;
         if (this.copiedTimer) clearTimeout(this.copiedTimer);

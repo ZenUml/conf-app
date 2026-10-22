@@ -197,6 +197,7 @@
 
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, ref, watch } from 'vue'
+import { writeClipboard } from '@/utils/clipboard'
 import type { AgentLinkClientState, AgentLinkThinkingState } from '@/composables/agentLink/agentLinkState'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
 import AgentStatusHeader from './AgentStatusHeader.vue'
@@ -280,19 +281,15 @@ const copyButtonLabel = computed(() => {
 })
 
 async function onCopyPrompt() {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(promptText.value)
-      copyState.value = 'copied'
-      if (copyRevertTimer) clearTimeout(copyRevertTimer)
-      copyRevertTimer = setTimeout(() => {
-        copyState.value = 'default'
-      }, 2000)
-      return
-    }
-  } catch (e) {
-    console.warn('[agent-link] failed to copy connect prompt', e)
+  if (await writeClipboard(promptText.value)) {
+    copyState.value = 'copied'
+    if (copyRevertTimer) clearTimeout(copyRevertTimer)
+    copyRevertTimer = setTimeout(() => {
+      copyState.value = 'default'
+    }, 2000)
+    return
   }
+  console.warn('[agent-link] failed to copy connect prompt')
   copyState.value = 'failed'
 }
 

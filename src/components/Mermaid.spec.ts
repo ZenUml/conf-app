@@ -87,6 +87,17 @@ describe('Mermaid render-failure telemetry', () => {
     };
   });
 
+  it('reports a whitespace body once without asking Mermaid to parse it (#113)', async () => {
+    store.state.diagram.mermaidCode = ' \n\t ';
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    const viewed = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
+    expect(viewed).toHaveLength(1);
+    expect(viewed[0][1]).toMatchObject({ macro_type: 'mermaid', content_state: 'empty' });
+    expect(loadMermaidMock).not.toHaveBeenCalled();
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
   it('fires viewer_load_failed with failure_stage render_crash when mermaid.render() throws', async () => {
     loadMermaidMock.mockResolvedValue({
       render: vi.fn(() => Promise.reject(new Error('mermaid boom'))),

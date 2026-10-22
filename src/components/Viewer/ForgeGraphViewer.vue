@@ -163,18 +163,15 @@ export default {
         }
       }
       if (!container) return;
-      if (!this.effectiveGraphXml) {
-        // #113: an empty body is the wipe signal. Report the view, with the
-        // verdict, without constructing a GraphViewer. A shell that never
-        // loaded has no verdict (isLoadedEmptyBody) and stays silent; the
-        // `emptyViewReported` flag keeps a re-run of this method from
-        // reporting the same mount twice.
-        if (!this.emptyViewReported && isLoadedEmptyBody(diagram, DiagramType.Graph)) {
-          this.emptyViewReported = true;
-          trackRenderTime('graph', this.$store.getters.isDisplayMode, 'live_render', 'none', 'empty');
-        }
-        return;
+      // Classify the effective document (including Board/prop overrides) before
+      // parsing: whitespace is empty even if DrawIO rejects it. Rendering and
+      // its failure telemetry retain their existing path.
+      const emptyBody = isLoadedEmptyBody({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph);
+      if (!this.emptyViewReported && emptyBody) {
+        this.emptyViewReported = true;
+        trackRenderTime('graph', this.$store.getters.isDisplayMode, 'live_render', 'none', 'empty');
       }
+      if (!this.effectiveGraphXml) return;
       container.innerHTML = '';
       try {
         // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>
@@ -207,10 +204,12 @@ export default {
         this.currentPage = this.graphViewer.currentPage || 0;
         // Classify the XML that was rendered (effectiveGraphXml honours the
         // `graphXml` prop and the Board document), not just store.graphXml.
-        trackRenderTime(
-          'graph', this.$store.getters.isDisplayMode, 'live_render', 'none',
-          viewContentState({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph),
-        );
+        if (!emptyBody) {
+          trackRenderTime(
+            'graph', this.$store.getters.isDisplayMode, 'live_render', 'none',
+            viewContentState({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph),
+          );
+        }
         // Graph emits no 'diagramLoaded' (that event belongs to the text-DSL
         // renderers). An export-entry Fullscreen open waits for this before it
         // opens the export dialog, so the dialog's first capture is of a

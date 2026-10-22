@@ -75,6 +75,12 @@ export default {
   },
   async mounted() {
     this.debouncedRender = debounce(this.fetchSvg, 500);
+    // A whitespace-only loaded body is empty even if syntax validation below
+    // rejects it. Preserve that validation/render path and report the view once.
+    if (this.plantUmlCode && isLoadedEmptyBody(this.$store.state.diagram, DiagramType.PlantUml)) {
+      this.initialRenderTracked = true;
+      trackRenderTime('plantuml', this.isDisplayMode, 'live_render', 'none', 'empty');
+    }
     if (!this.plantUmlCode) {
       // #113: the embed viewer mounts the referenced document as stored,
       // without the main loader’s example fallback, so a wiped body

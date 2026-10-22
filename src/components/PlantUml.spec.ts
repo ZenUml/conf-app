@@ -119,6 +119,21 @@ describe('PlantUml pan/zoom viewport', () => {
     expect(props).toMatchObject({ macro_type: 'plantuml', content_state: expected });
   });
 
+  it('reports a whitespace body even when validation rejects it, preserving the validation path (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = withPlantUmlViewerFallback({
+      ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: ' \n\t ',
+    });
+    vi.mocked(validatePlantUmlSyntax).mockResolvedValueOnce({ valid: false, error: 'Missing @startuml', location: null });
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(validatePlantUmlSyntax).toHaveBeenCalledWith(' \n\t '));
+    const viewed = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
+    expect(viewed).toHaveLength(1);
+    expect(viewed[0][1]).toMatchObject({ macro_type: 'plantuml', content_state: 'empty' });
+    expect(window.fetch).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Missing @startuml'));
+  });
+
   it('reports the loaded empty body when the main loader displays the example fallback (#113)', async () => {
     window.__macroLoadStart = 0;
     store.state.diagram = withPlantUmlViewerFallback({

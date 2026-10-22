@@ -57,6 +57,19 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
     window.mxUtils = { parseXml: vi.fn(() => ({ documentElement: {} })) };
   });
 
+  it('reports a whitespace body once when DrawIO rejects it, preserving render-failure telemetry (#113)', async () => {
+    store.state.diagram.graphXml = ' \n\t ';
+    // @ts-ignore — DrawIO globals
+    window.mxUtils.parseXml = vi.fn(() => { throw new Error('bad xml'); });
+    // @ts-ignore — DrawIO globals
+    window.GraphViewer = vi.fn();
+    mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(viewerLoadFailedCalls()).toHaveLength(1));
+    expect(window.mxUtils.parseXml).toHaveBeenCalledWith(' \n\t ');
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+  });
+
   it('fits Graph axes from the current scaled bounds and centres the same graph', () => {
     const scaleAndTranslate = vi.fn();
     // @ts-ignore — GraphViewer global

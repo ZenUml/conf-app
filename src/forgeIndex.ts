@@ -1,3 +1,4 @@
+import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
@@ -531,7 +532,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       if (hashContent(serialized) !== cachedHash) {
         renderPerf.markContentSource('fetch');
         // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
-        const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
+        const freshDoc: Diagram = withPlantUmlViewerFallback(fresh);
         await mountSequenceViewer(freshDoc, freshAttribution);
       }
     } catch (e) {
@@ -545,7 +546,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       try {
         const cachedDoc = JSON.parse(cached.doc) as Diagram;
         // @ts-ignore - cachedDoc may be a partial spread type; matches the happy-path mount below
-        const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
+        const viewerDoc: Diagram = withPlantUmlViewerFallback(cachedDoc);
         renderPerf.markContentSource('swr_cache');
         // Revalidate BEFORE the (possibly gated) mount: an offscreen macro
         // must not delay its freshness check / orphan reporting / snapshot
@@ -881,7 +882,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
   // support. `doc` is only populated for the sequence family above; non-sequence
   // types leave it undefined (the dedicated entry loads their doc), so guard.
   if (doc && !doc.plantUmlCode) {
-    doc = { ...doc, plantUmlCode: Example.PlantUml };
+    doc = withPlantUmlViewerFallback(doc);
   }
 
   // Start journey tracking for editor mode

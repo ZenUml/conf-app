@@ -76,8 +76,8 @@ export default {
   async mounted() {
     this.debouncedRender = debounce(this.fetchSvg, 500);
     if (!this.plantUmlCode) {
-      // #113: forgeIndex backfills an empty body with the example, but the
-      // embed viewer mounts the referenced document as stored, so a wiped body
+      // #113: the embed viewer mounts the referenced document as stored,
+      // without the main loader’s example fallback, so a wiped body
       // can arrive here. Report the view with the verdict, without rendering;
       // initialRenderTracked keeps a body that arrives later from being a
       // second view of this mount.

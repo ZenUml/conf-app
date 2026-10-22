@@ -1,10 +1,11 @@
+import { reactive } from 'vue';
 import { describe, it, expect } from 'vitest';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import Example from '@/utils/sequence/Example';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { EMPTY_GRAPH } from '@/utils/graph/emptyGraph';
 import { compress } from '@/utils/compress';
-import { classifyContentState, isLoadedEmptyBody, viewContentState } from './contentState';
+import { classifyContentState, isLoadedEmptyBody, viewContentState, withPlantUmlViewerFallback } from './contentState';
 
 describe('classifyContentState', () => {
   const cases: Array<[DiagramType, string, string]> = [
@@ -122,5 +123,50 @@ describe('isLoadedEmptyBody (#113: the empty-body branches of the viewers)', () 
 
   it('is false when the store holds another type\'s document (its field is empty only because it is not that type)', () => {
     expect(isLoadedEmptyBody({ diagramType: DiagramType.Sequence, mermaidCode: '' }, DiagramType.Mermaid)).toBe(false);
+  });
+});
+
+
+describe('PlantUML viewer fallback preserves loaded-body analytics (#113)', () => {
+  it.each([undefined, null, ''])('reports empty for loaded %s while displaying the example', (plantUmlCode) => {
+    const loaded = { diagramType: DiagramType.PlantUml, plantUmlCode } as any;
+    const displayed = withPlantUmlViewerFallback(loaded);
+    expect(displayed.plantUmlCode).toBe(Example.PlantUml);
+    expect(loaded.plantUmlCode).toBe(plantUmlCode);
+    // The mount/store path can wrap and spread the document; metadata must survive.
+    expect(viewContentState(reactive({ ...displayed }), DiagramType.PlantUml)).toBe('empty');
+    // Analytics metadata is not part of custom-content JSON.
+    expect(JSON.parse(JSON.stringify(displayed))).toEqual({
+      diagramType: DiagramType.PlantUml, plantUmlCode: Example.PlantUml,
+    });
+  });
+
+  it.each([
+    [Example.PlantUml, 'default'],
+    ['@startuml\nAlice -> Bob: authored\n@enduml', 'authored'],
+    [' \n ', 'empty'],
+  ])('keeps non-empty render content and its classification', (plantUmlCode, expected) => {
+    const loaded = { diagramType: DiagramType.PlantUml, plantUmlCode };
+    expect(withPlantUmlViewerFallback(loaded)).toBe(loaded);
+    expect(viewContentState(loaded, DiagramType.PlantUml)).toBe(expected);
+  });
+
+  it('classifies a later authored body after editing or replacing a fallback document', () => {
+    const displayed = withPlantUmlViewerFallback({ diagramType: DiagramType.PlantUml, plantUmlCode: '' });
+    const edited = reactive({ ...displayed });
+    edited.plantUmlCode = '@startuml\nAlice -> Bob: edited\n@enduml';
+    expect(viewContentState(edited, DiagramType.PlantUml)).toBe('authored');
+    expect(viewContentState({ ...edited }, DiagramType.PlantUml)).toBe('authored');
+    expect(viewContentState({ diagramType: DiagramType.PlantUml, plantUmlCode: Example.PlantUml }, DiagramType.PlantUml)).toBe('default');
+  });
+
+  it('keeps failed loads without a verdict and other types classified by their own body', () => {
+    const failed = withPlantUmlViewerFallback({
+      diagramType: DiagramType.PlantUml, plantUmlCode: '', loadError: { httpStatus: 404 },
+    });
+    expect(viewContentState(failed, DiagramType.PlantUml)).toBeUndefined();
+    const sequence = withPlantUmlViewerFallback({ diagramType: DiagramType.Sequence, code: 'A.b()' });
+    expect(sequence.plantUmlCode).toBe(Example.PlantUml);
+    expect(viewContentState(sequence, DiagramType.Sequence)).toBe('authored');
   });
 });

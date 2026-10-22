@@ -6,6 +6,7 @@ import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
 import Example from '@/utils/sequence/Example';
+import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -116,6 +117,21 @@ describe('PlantUml pan/zoom viewport', () => {
     });
     const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
     expect(props).toMatchObject({ macro_type: 'plantuml', content_state: expected });
+  });
+
+  it('reports the loaded empty body when the main loader displays the example fallback (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = withPlantUmlViewerFallback({
+      ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: '',
+    });
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ macro_type: 'plantuml', content_state: 'empty' });
+    expect(window.fetch).toHaveBeenCalled();
+    expect(wrapper.find('svg').exists()).toBe(true);
   });
 
   // #113: forgeIndex backfills an empty body with the example on the main load

@@ -73,6 +73,25 @@ export function classifyContentState(
   return normalise(body) === normalise(seed) ? 'default' : 'authored';
 }
 
+// The loader still displays the legacy PlantUML example for a missing/falsy
+// body. Keep the loaded verdict separately so that fallback cannot hide a wipe.
+// Symbols survive object spreads and Vue proxies but are omitted by JSON, so
+// this runtime-only analytics metadata cannot enter stored diagram content.
+const LOADED_PLANTUML_CONTENT_STATE = Symbol('loadedPlantUmlContentState');
+
+export function withPlantUmlViewerFallback<T extends Partial<Diagram>>(
+  diagram: T,
+): T & { plantUmlCode?: string } {
+  if (diagram.plantUmlCode) return diagram;
+  return {
+    ...diagram,
+    plantUmlCode: Example.PlantUml,
+    ...(diagram.diagramType === DiagramType.PlantUml
+      ? { [LOADED_PLANTUML_CONTENT_STATE]: classifyContentState(diagram, DiagramType.PlantUml) }
+      : {}),
+  };
+}
+
 // What call sites pass to trackRenderTime. A diagram that never loaded has an
 // empty body because nothing was read, not because anyone wiped it, so it
 // carries no verdict at all: reporting `empty` there would plant false wipe
@@ -89,6 +108,10 @@ export function viewContentState(
 ): ContentState | undefined {
   if (!diagram || diagram.loadError || diagram.legacyLoadBlocked) return undefined;
   if (!diagram.diagramType || diagram.diagramType === DiagramType.Unknown) return undefined;
+  if (diagramType === DiagramType.PlantUml && diagram.plantUmlCode === Example.PlantUml) {
+    const loadedState = (diagram as { [LOADED_PLANTUML_CONTENT_STATE]?: ContentState })[LOADED_PLANTUML_CONTENT_STATE];
+    if (loadedState !== undefined) return loadedState;
+  }
   return classifyContentState(diagram, diagramType);
 }
 

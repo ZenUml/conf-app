@@ -884,7 +884,7 @@ async function uploadAttachmentViaApp(
   } catch (e) {
     // callRemote throws on a non-2xx transport response (e.g. the function
     // itself 500'd); normalise so the failure is labelled consistently.
-    throw new AttachmentUploadHttpError(0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
+    throw new AttachmentUploadHttpError(extractHttpStatus(e) ?? 0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
   }
   const result: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
   if (!result?.ok) {

@@ -1153,6 +1153,30 @@ describe('Attachment', () => {
         expect(succeeded).toBeUndefined();
       });
 
+      it('records a real guest denial from the async backend as upload_denied and http_403', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockCallRemote.mockRejectedValue(Object.assign(new Error('HTTP 403: no_user_credential'), { status: 403 }));
+        let property: any;
+        mockRequestConfluence.mockImplementation(async (_url: string, opts: any) => {
+          if (opts.method === 'GET') return {
+            ok: true, json: async () => ({ results: property ? [{ id: 'property-1', version: { number: 1 }, value: property }] : [] }),
+          };
+          property = JSON.parse(opts.body).value;
+          return { ok: true };
+        });
+
+        await expect(createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1000', fromSave: true,
+        })).rejects.toMatchObject({ status: 403 });
+
+        expect(property).toMatchObject({ state: 'upload_denied', customContentId: 'saved-id-1000' });
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_failed', 'export', expect.objectContaining({ http_status: 403 }),
+        );
+        expect(mockTrackEvent.mock.calls.some((call: any[]) => call[1] === 'attachment_upload_queued')).toBe(false);
+      });
+
       it('reports how long the save-time PNG capture took as attachment_capture_ms', async () => {
         vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);

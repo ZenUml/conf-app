@@ -134,12 +134,17 @@ describe('PlantUml pan/zoom viewport', () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain('Missing @startuml'));
   });
 
-  it('reports the loaded empty body when the main loader displays the example fallback (#113)', async () => {
+  it('reports the loaded empty body after the fallback example SVG finishes rendering (#113)', async () => {
     window.__macroLoadStart = 0;
+    let finishFetch!: (response: Response) => void;
+    vi.mocked(window.fetch).mockImplementationOnce(() => new Promise((resolve) => { finishFetch = resolve; }));
     store.state.diagram = withPlantUmlViewerFallback({
       ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: '',
     });
     const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(window.fetch).toHaveBeenCalled());
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed')).toHaveLength(0);
+    finishFetch(new Response(SERVER_SVG, { status: 200 }));
     await vi.waitFor(() => {
       expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
     });

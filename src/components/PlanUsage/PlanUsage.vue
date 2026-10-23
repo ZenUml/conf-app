@@ -167,7 +167,12 @@ async function loadUsage() {
     totalMacros.value = data.totalMacros ?? 0
     macrosLimit.value = data.macrosLimit ?? 100
     overLimitSpaces.value = data.overLimitSpaces ?? []
-    spaces.value = Array.isArray(data.spaces) ? data.spaces : []
+    // A backend deployed before `spaces` existed (the Pages and Forge bundles
+    // ship in one pipeline but not in one instant) still names the over-limit
+    // spaces, so offer those rather than a false "nothing to browse".
+    spaces.value = Array.isArray(data.spaces)
+      ? data.spaces
+      : overLimitSpaces.value.map((s) => ({ spaceKey: s.spaceKey, macroCount: s.macroCount, lastUpdated: data.lastUpdated ?? null }))
     isStale.value = data.isStale ?? null
   } catch (e) {
     console.error('plan-usage: failed to load', e)

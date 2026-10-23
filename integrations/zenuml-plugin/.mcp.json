@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "zenuml": {
-      "type": "http",
-      "url": "https://conf-lite.zenuml.com/agent-link/mcp"
-    }
-  }
-}

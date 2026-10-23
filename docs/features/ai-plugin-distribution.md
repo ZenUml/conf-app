@@ -3,8 +3,9 @@
 The headless MCP endpoint (`https://conf-lite.zenuml.com/agent-link/mcp`, see
 [MCP Apps diagram view](mcp-app-view.md) and
 `docs/superpowers/specs/2026-09-19-headless-diagram-mcp-design.md`) is what both
-directories list. The package that wraps it is `integrations/zenuml-plugin/`.
-One folder serves both:
+directories list. The package that wraps it lives in its own repository,
+[ZenUml/zenuml-plugin](https://github.com/ZenUml/zenuml-plugin); edit it there.
+One package serves both:
 
 | File | Read by |
 |---|---|
@@ -12,7 +13,7 @@ One folder serves both:
 | `plugin.json` (Agent Plugins 1.0.0, `extensions.com.openai`), `mcp.json` | ChatGPT / Codex plugin directory |
 | `skills/confluence-diagrams/SKILL.md`, `README.md`, `LICENSE`, `assets/logo.png` | both |
 
-Checked 2026-10-17: `claude plugin validate ./zenuml-plugin` passes, and both
+Checked 2026-10-23: `claude plugin validate .` in that repository passes, and both
 `plugin.json` and `mcp.json` validate against the
 `https://agent-plugins.org/schemas/1.0.0/` schemas.
 
@@ -30,9 +31,9 @@ Checked 2026-10-17: `claude plugin validate ./zenuml-plugin` passes, and both
 The Claude directory reads plugins from a public GitHub repository and stops
 validation for a repository over 50 MiB as GitHub archives it. conf-app's
 `git archive --format=tar.gz HEAD` is 50.4 MiB (measured 2026-10-17), so the
-plugin cannot be submitted from here. Publish `integrations/zenuml-plugin/` as
-the root of a separate public repository (the manifests assume
-`ZenUml/zenuml-plugin`). Placing the plugin at the repository root also avoids
+plugin cannot be submitted from here. It lives at the root of
+`ZenUml/zenuml-plugin` instead, which must be public before the listing goes
+live. Placing the plugin at the repository root also avoids
 the subfolder-only reviewer holds in the
 [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist).
 

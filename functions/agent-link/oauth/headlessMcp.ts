@@ -31,6 +31,7 @@ import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
 import { issuerFor } from './asMetadata';
 import { json } from '../../OkResponse';
+import { timedFetch, DEFAULT_TIMEOUT_MS } from '../../utils/http';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -444,7 +445,7 @@ export async function handleHeadlessRpc(
   deps: HeadlessMcpDeps = {},
 ): Promise<Response> {
   const id = body.id ?? null;
-  const fetchImpl = deps.fetchImpl ?? ((url: string, init?: RequestInit) => fetch(url, init));
+  const fetchImpl = deps.fetchImpl ?? timedFetch('agent-link-upstream', DEFAULT_TIMEOUT_MS);
   const now = deps.nowMs ?? Date.now;
   const defer = async (work: Promise<void>): Promise<void> => {
     const bounded = work.catch(() => undefined); // analytics never fails a response

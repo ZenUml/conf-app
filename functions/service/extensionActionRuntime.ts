@@ -1,3 +1,4 @@
+import { tenantInfo } from '../utils/tenantInfo';
 import type { SpaceLicenseRecord } from '../api/space-license';
 import {
   ExtensionActionError,
@@ -96,27 +97,20 @@ export function createD1ExtensionActionStore(db: D1Database): ExtensionActionSto
 }
 
 async function resolveTenant(clientDomain: string): Promise<string> {
-  let response: Response;
-  try {
-    response = await fetch(`https://${clientDomain}/_edge/tenant_info`, {
-      headers: { Accept: 'application/json', 'User-Agent': 'ZenUML-Support-Automation/1.0' },
-    });
-  } catch {
+  const info = await tenantInfo(clientDomain);
+  if (info.status === 'unavailable') {
     throw new ExtensionActionError(503, 'tenant_resolution_unavailable', 'tenant_resolution', true);
   }
-  if (!response.ok) {
+  if (info.status === 'not_found') {
     throw new ExtensionActionError(409, 'tenant_not_found', 'tenant_resolution');
   }
-  let body: { cloudId?: unknown };
-  try {
-    body = await response.json() as { cloudId?: unknown };
-  } catch {
+  if (info.status === 'invalid') {
     throw new ExtensionActionError(503, 'tenant_response_invalid', 'tenant_resolution', true);
   }
-  if (typeof body.cloudId !== 'string' || !body.cloudId) {
+  if (typeof info.cloudId !== 'string' || !info.cloudId) {
     throw new ExtensionActionError(409, 'tenant_cloud_id_missing', 'tenant_resolution');
   }
-  return body.cloudId;
+  return info.cloudId;
 }
 
 async function findSpace(

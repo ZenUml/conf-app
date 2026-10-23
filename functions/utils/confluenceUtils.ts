@@ -1,3 +1,4 @@
+import { fetchOut, CONFLUENCE_TIMEOUT_MS } from './http';
 export async function getCustomContentFromConfluenceForForge(apiBaseUrl, contentId, forgeOAuthUserHeader) {
   const path = `/api/v2/custom-content/${contentId}`;
   const queryParams = { 'body-format': 'raw' };
@@ -15,7 +16,8 @@ async function makeAuthenticatedRequestWithOAuth(url, method, forgeOAuthUserHead
     'Authorization': `Bearer ${forgeOAuthUserHeader}`
   };
 
-  const response = await fetch(url, {
+  const response = await fetchOut(url, {
+    name: 'confluence.as-user', timeoutMs: CONFLUENCE_TIMEOUT_MS,
     method: method,
     headers: headers
   });

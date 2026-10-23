@@ -30,6 +30,7 @@ import {
 import { mixpanelTrack } from '../../service/mixpanelService';
 import type { FetchLike } from './atlassianClient';
 import type { PendingAuthorization } from './asStore';
+import { timedFetch, OAUTH_TIMEOUT_MS } from '../../utils/http';
 
 interface Env extends OAuthEnv {
   MIXPANEL_TOKEN?: string;
@@ -117,7 +118,7 @@ export async function routeReturningUser(
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const url = new URL(request.url);
-  const fetchImpl: FetchLike = (u, init) => fetch(u, init);
+  const fetchImpl: FetchLike = timedFetch('atlassian-oauth', OAUTH_TIMEOUT_MS);
 
   // No client_id means nobody is delegating to an agent; this is the bare
   // Atlassian connect flow.

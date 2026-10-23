@@ -201,7 +201,10 @@ describe('onRequest — client_reference_id activation fallback (flow)', () => {
     const body = await response.json() as Record<string, unknown>
     expect(body.cloudId).toBe('cloud-resolved')
     expect(body.spaceKey).toBe('ENG')
-    expect(global.fetch).toHaveBeenCalledWith('https://example-tenant.atlassian.net/_edge/tenant_info')
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://example-tenant.atlassian.net/_edge/tenant_info',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
     expect(JSON.parse(kv.store['license:cloud-resolved:ENG'])).toMatchObject({ status: 'active' })
   })
 

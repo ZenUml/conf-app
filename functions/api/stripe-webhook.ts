@@ -1,5 +1,6 @@
 import { json } from '../OkResponse';
 import type { SpaceLicenseRecord } from './space-license'
+import { tenantInfo } from '../utils/tenantInfo'
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace
@@ -126,10 +127,9 @@ export function parseClientReference(
 }
 
 async function resolveCloudId(domain: string): Promise<string | null> {
-  const res = await fetch(`https://${domain}.atlassian.net/_edge/tenant_info`)
-  if (!res.ok) return null
-  const body = (await res.json()) as { cloudId?: string }
-  return body.cloudId ?? null
+  const info = await tenantInfo(`${domain}.atlassian.net`)
+  if (info.status !== 'ok') return null
+  return typeof info.cloudId === 'string' ? info.cloudId : null
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {

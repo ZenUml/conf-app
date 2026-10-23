@@ -22,13 +22,14 @@ import { loadPending } from './asStore';
 import { returningUserCookie } from './returningUser';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
 import { mixpanelTrack } from '../../service/mixpanelService';
+import { timedFetch, OAUTH_TIMEOUT_MS } from '../../utils/http';
 
 interface Env extends OAuthEnv {
   MIXPANEL_TOKEN?: string;
 }
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
-  const { response, outcome } = await handleCallback(request, { env, fetchImpl: (url, init) => fetch(url, init) });
+  const { response, outcome } = await handleCallback(request, { env, fetchImpl: timedFetch('atlassian-oauth', OAUTH_TIMEOUT_MS) });
   // Outcomes carry no tokens, so they are safe to log; without this a 502
   // from the callback is indistinguishable from any other.
   if (!outcome.ok) console.warn('agent-link oauth callback failed', outcome.reason, outcome.detail ?? '');

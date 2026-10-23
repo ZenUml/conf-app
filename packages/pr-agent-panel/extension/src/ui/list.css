@@ -1,0 +1,141 @@
+/*
+ * Left review list. Measurements from Figma frame 184:5402 (1920 × 900):
+ * pane 320 px wide (x 0–319), white, 1 px right border #D8DEE4; search field
+ * 292 × 34 at (14, 114), border #C9D4E0; filter chips 140 × 31 and 144 × 31 at
+ * y 156 (#536579, 11 px / 500); 30 px caption strip at y 197, bg #F6F8FA,
+ * 10 px / 500 #6E7E90; rows 100–105 px: meta 10 px bold #3B6488 (#6551A9 for
+ * Draft), title 13 px / 600 #1F2937, reason 11 px #617084 (2 lines), tags
+ * 10 px / 500 #73849A; selected row bg #EEF5FF with a 4 px #0969DA left bar.
+ * Font stack matches github.com.
+ */
+:host(zenuml-pr-list) {
+  all: initial;
+  display: block;
+  flex: 0 0 320px;
+  width: 320px;
+  min-width: 320px;
+  align-self: stretch;
+}
+:host(zenuml-pr-list[data-fallback]) {
+  position: fixed;
+  left: 0;
+  top: 100px;
+  bottom: 0;
+  z-index: 30;
+}
+
+.prl {
+  box-sizing: border-box;
+  width: 320px;
+  height: 100%;
+  min-height: 100%;
+  background: #ffffff;
+  border-right: 1px solid #d8dee4;
+  color: #1f2937;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 11px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+.prl *, .prl *::before, .prl *::after { box-sizing: border-box; }
+.prl-sticky { position: sticky; top: 0; background: #ffffff; z-index: 1; }
+
+.prl-controls { padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 8px; }
+.prl-search {
+  display: block;
+  width: 292px;
+  height: 34px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid #c9d4e0;
+  border-radius: 0;
+  background: #ffffff;
+  color: #1f2937;
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+.prl-search::placeholder { color: #8796a8; }
+.prl-search:focus { border-color: #0969da; box-shadow: 0 0 0 1px #0969da; }
+
+.prl-filters { display: flex; gap: 8px; }
+.prl-chip { position: relative; display: block; height: 31px; }
+.prl-chip-priority { width: 140px; }
+.prl-chip-state { width: 144px; }
+.prl-chip select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid #c9d4e0;
+  border-radius: 0;
+  background: #ffffff;
+  color: #536579;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+}
+.prl-chip select:focus-visible { border-color: #0969da; }
+
+.prl-caption {
+  height: 30px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  background: #f6f8fa;
+  color: #6e7e90;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.prl-rows { list-style: none; margin: 0; padding: 0; }
+.prl-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 100px;
+  padding: 12px 16px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid #eef1f4;
+}
+.prl-row:hover { background: #f6f8fa; }
+.prl-row:focus-visible { outline: 2px solid #0969da; outline-offset: -2px; }
+.prl-row-selected, .prl-row-selected:hover { background: #eef5ff; }
+.prl-row-selected::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #0969da; }
+
+.prl-meta { display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 700; color: #3b6488; letter-spacing: .01em; }
+.prl-meta-draft { color: #6551a9; }
+.prl-meta-left { display: flex; gap: 8px; min-width: 0; }
+.prl-status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.prl-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 3px; vertical-align: 1px; }
+.prl-stale {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid #d4a72c;
+  border-radius: 8px;
+  color: #7d4e00;
+  background: #fff8c5;
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.prl-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 18px; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prl-reason {
+  margin: 0;
+  font-size: 11px;
+  line-height: 13px;
+  color: #617084;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prl-tags { display: flex; gap: 0 14px; flex-wrap: wrap; font-size: 10px; font-weight: 500; color: #73849a; }
+
+.prl-empty { padding: 16px; color: #617084; font-size: 11px; }

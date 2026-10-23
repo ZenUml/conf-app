@@ -2,18 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the Confluence + DB utility imports so onRequest can be exercised
 // without network or D1.
-vi.mock('./utils/confluenceUtils', () => ({
-  getCustomContentFromConfluenceForForge: vi.fn(async () => ({
-    id: 'cc-1',
-    type: 'zenuml-content-sequence',
-    spaceId: 'space-1',
-    pageId: 'page-1',
-    title: 'Test',
-    body: { raw: { value: '{}' } },
-    version: { number: 2, message: '', minorEdit: false },
-    authorId: 'user-1',
-    createdAt: '2026-05-23T00:00:00.000Z',
-    status: 'current',
+vi.mock('./utils/confluenceAsUser', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./utils/confluenceAsUser')>()),
+  readCustomContentAsUser: vi.fn(async () => ({
+    ok: true,
+    content: {
+      id: '1001',
+      type: 'zenuml-content-sequence',
+      spaceId: 'space-1',
+      pageId: 'page-1',
+      title: 'Test',
+      body: { raw: { value: '{}' } },
+      version: { number: 2, message: '', minorEdit: false },
+      authorId: 'user-1',
+      createdAt: '2026-05-23T00:00:00.000Z',
+      status: 'current',
+    },
   })),
 }));
 vi.mock('./utils/dbUtils', () => ({
@@ -24,7 +28,7 @@ vi.mock('./utils/sentry', () => ({
 }));
 
 import { onRequest } from './forge-custom-content';
-import { getCustomContentFromConfluenceForForge } from './utils/confluenceUtils';
+import { readCustomContentAsUser } from './utils/confluenceAsUser';
 
 type PreparedCall = { sql: string; binds: unknown[] };
 
@@ -41,7 +45,7 @@ function makeDB(opts: { rowExists: boolean; versionExists?: boolean }) {
               : null,
           all: async () => ({
             results: sql.startsWith('SELECT contentId FROM CustomContent') && opts.rowExists
-              ? [{ contentId: 'cc-1' }]
+              ? [{ contentId: '1001' }]
               : [],
           }),
           run: async () => ({ success: true }),
@@ -94,7 +98,7 @@ describe('forge-custom-content createOrUpdateContent', () => {
     const db = makeDB({ rowExists: true });
     const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({
-      contentId: 'cc-1',
+      contentId: '1001',
       macroUuid: 'local-id-abc',
       diagramType: 'sequence',
     });
@@ -116,7 +120,7 @@ describe('forge-custom-content createOrUpdateContent', () => {
   it('passes empty strings on UPDATE when no identity supplied — DB COALESCE preserves existing values', async () => {
     const db = makeDB({ rowExists: true });
     const env = { DB: { prepare: db.prepare } };
-    const req = makeRequest({ contentId: 'cc-1' });
+    const req = makeRequest({ contentId: '1001' });
 
     await onRequest({ request: req, env, data: FORGE_DATA } as any);
 
@@ -131,7 +135,7 @@ describe('forge-custom-content createOrUpdateContent', () => {
     const db = makeDB({ rowExists: true, versionExists: true });
     const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({
-      contentId: 'cc-1',
+      contentId: '1001',
       macroUuid: 'local-id-retry',
       diagramType: 'sequence',
     });
@@ -156,7 +160,7 @@ describe('forge-custom-content createOrUpdateContent', () => {
     const db = makeDB({ rowExists: true, versionExists: false });
     const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({
-      contentId: 'cc-1',
+      contentId: '1001',
       macroUuid: 'local-id-concurrent',
       diagramType: 'sequence',
     });
@@ -181,7 +185,7 @@ describe('forge-custom-content createOrUpdateContent', () => {
     const db = makeDB({ rowExists: false });
     const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({
-      contentId: 'cc-1',
+      contentId: '1001',
       macroUuid: 'local-id-abc',
       diagramType: 'mermaid',
     });
@@ -205,7 +209,7 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
   it('returns a JSON 403 no_user_credential (not a text/plain 500) when the OAuth user header is missing', async () => {
     const db = makeDB({ rowExists: true });
     const env = { DB: { prepare: db.prepare } };
-    const req = makeRequest({ contentId: 'cc-1' }, /* withAuth */ false);
+    const req = makeRequest({ contentId: '1001' }, /* withAuth */ false);
 
     const res = await onRequest({ request: req, env, data: FORGE_DATA } as any);
 
@@ -213,21 +217,19 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
     expect(res.headers.get('content-type')).toContain('application/json');
     expect(await res.json()).toEqual({ error: 'no_user_credential' });
     // No re-fetch, no DB writes when input is rejected up front.
-    expect(getCustomContentFromConfluenceForForge).not.toHaveBeenCalled();
+    expect(readCustomContentAsUser).not.toHaveBeenCalled();
     expect(db.calls.length).toBe(0);
   });
 
   it('treats a Confluence re-fetch failure as a benign 2xx skip — no error, no D1 writes', async () => {
     // The most likely historical trigger: the user-OAuth re-fetch returns
-    // non-2xx (permission / content gone / transient) and confluenceUtils throws.
-    (getCustomContentFromConfluenceForForge as any).mockRejectedValueOnce(
-      new Error('HTTP error! Status: 404, Text: Not Found'),
-    );
+    // non-2xx (permission / content gone / transient).
+    vi.mocked(readCustomContentAsUser).mockResolvedValueOnce({ ok: false, reason: 'http_404' });
     const db = makeDB({ rowExists: true });
     const env = { DB: { prepare: db.prepare } };
 
     const res = await onRequest({
-      request: makeRequest({ contentId: 'cc-1' }),
+      request: makeRequest({ contentId: '1001' }),
       env,
       data: FORGE_DATA,
     } as any);
@@ -241,11 +243,33 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
     expect(db.calls.length).toBe(0);
   });
 
+  it('accepts an integer contentId and reads it in decimal form', async () => {
+    const db = makeDB({ rowExists: true });
+    const env = { DB: { prepare: db.prepare } };
+
+    const res = await onRequest({ request: makeRequest({ contentId: 1001 }), env, data: FORGE_DATA } as any);
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(readCustomContentAsUser).mock.calls[0][1]).toBe('1001');
+  });
+
+  it('does not mirror a record whose id differs from the one requested, and reports only a fixed code (#921)', async () => {
+    vi.mocked(readCustomContentAsUser).mockResolvedValueOnce({ ok: false, reason: 'id_mismatch' });
+    const db = makeDB({ rowExists: true });
+    const env = { DB: { prepare: db.prepare } };
+
+    const res = await onRequest({ request: makeRequest({ contentId: '1001' }), env, data: FORGE_DATA } as any);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ synced: false, reason: 'content_fetch_failed', detail: 'id_mismatch' });
+    expect(db.calls.length).toBe(0);
+  });
+
   it('returns a JSON 500 carrying the real message when a D1 write fails (unmasked)', async () => {
     const env = { DB: makeFailingDB() };
 
     const res = await onRequest({
-      request: makeRequest({ contentId: 'cc-1' }),
+      request: makeRequest({ contentId: '1001' }),
       env,
       data: FORGE_DATA,
     } as any);
@@ -256,6 +280,23 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
     // The real cause is surfaced — not a generic 'Internal server error' /
     // content-type complaint that the Forge bridge would have masked.
     expect(json.error).toContain('D1_ERROR');
+  });
+
+  it.each([
+    ['a path segment', '1001/../2002'],
+    ['letters', 'abc'],
+    ['an empty string', ''],
+    ['a missing id', undefined],
+  ])('rejects %s as contentId with a 400 before any Confluence read or D1 write (#921)', async (_label, contentId) => {
+    const db = makeDB({ rowExists: true });
+    const env = { DB: { prepare: db.prepare } };
+
+    const res = await onRequest({ request: makeRequest({ contentId }), env, data: FORGE_DATA } as any);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid contentId' });
+    expect(readCustomContentAsUser).not.toHaveBeenCalled();
+    expect(db.calls.length).toBe(0);
   });
 
   it('returns a JSON 400 when the request body is not valid JSON', async () => {
@@ -285,7 +326,7 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
       },
     };
 
-    await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env, data } as any);
+    await onRequest({ request: makeRequest({ contentId: '1001' }), env, data } as any);
 
     const insertCall = db.calls.find((c) => c.sql.startsWith('insert into CustomContent'));
     // 13th bind: cloudId, read out of the Forge apiBaseUrl
@@ -297,7 +338,7 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
     const env = { DB: { prepare: db.prepare } };
     const data = { forgeContext: { ...FORGE_CONTEXT, apiBaseUrl: 'https://example.invalid/x' } };
 
-    await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env, data } as any);
+    await onRequest({ request: makeRequest({ contentId: '1001' }), env, data } as any);
 
     const updateCall = db.calls.find((c) => c.sql.startsWith('UPDATE CustomContent'));
     expect(updateCall!.sql).toContain('cloudId = COALESCE(?11, cloudId)');
@@ -310,7 +351,7 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
 // never failed by the index write, and a healthy DB receives the replace.
 describe('architecture-token index on save', () => {
   const sequenceContent = {
-    id: 'cc-1',
+    id: '1001',
     type: 'zenuml-content-sequence',
     spaceId: 'space-1',
     pageId: 'page-1',
@@ -330,7 +371,7 @@ describe('architecture-token index on save', () => {
   };
 
   beforeEach(() => {
-    vi.mocked(getCustomContentFromConfluenceForForge).mockResolvedValue(sequenceContent as any);
+    vi.mocked(readCustomContentAsUser).mockResolvedValue({ ok: true, content: sequenceContent as any });
   });
 
   it('replaces the diagram rows at the saved version', async () => {
@@ -339,7 +380,7 @@ describe('architecture-token index on save', () => {
     (db as any).batch = vi.fn(async (stmts: any[]) => { batched.push(...stmts); return []; });
 
     const res = await onRequest({
-      request: makeRequest({ contentId: 'cc-1' }),
+      request: makeRequest({ contentId: '1001' }),
       env: { DB: db },
       data: { forgeContext: { apiBaseUrl: 'https://api.atlassian.com/ex/confluence/cloud-1', forgeAppId: 'app-1' } },
     } as any);
@@ -360,7 +401,7 @@ describe('architecture-token index on save', () => {
     (db as any).batch = vi.fn(async () => { throw new Error('D1 down'); });
 
     const res = await onRequest({
-      request: makeRequest({ contentId: 'cc-1' }),
+      request: makeRequest({ contentId: '1001' }),
       env: { DB: db },
       data: { forgeContext: { apiBaseUrl: 'https://api.atlassian.com/ex/confluence/cloud-1', forgeAppId: 'app-1' } },
     } as any);
@@ -373,7 +414,7 @@ describe('architecture-token index on save', () => {
     (db as any).batch = vi.fn(async () => []);
 
     const res = await onRequest({
-      request: makeRequest({ contentId: 'cc-1' }),
+      request: makeRequest({ contentId: '1001' }),
       env: { DB: db },
       data: { forgeContext: { apiBaseUrl: 'https://example.invalid/x', forgeAppId: 'app-1' } },
     } as any);
@@ -390,11 +431,11 @@ describe('forge-custom-content viewer without a user credential', () => {
 
   it('answers 403 no_user_credential when a valid FIT arrives with a system token but no user token', async () => {
     const db = makeDB({ rowExists: false });
-    const req = makeRequest({ contentId: 'cc-1' }, false);
+    const req = makeRequest({ contentId: '1001' }, false);
     req.headers.set('x-forge-oauth-system', 'sys-token');
     const res = await onRequest({ request: req, env: { DB: { prepare: db.prepare } }, data: FORGE_DATA } as any);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'no_user_credential' });
-    expect(getCustomContentFromConfluenceForForge).not.toHaveBeenCalled();
+    expect(readCustomContentAsUser).not.toHaveBeenCalled();
   });
 });

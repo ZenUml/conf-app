@@ -1,5 +1,5 @@
 import { response, OkResponse } from "./OkResponse";
-import { getCustomContentFromConfluenceForForge } from "./utils/confluenceUtils";
+import { isContentId, readCustomContentAsUser } from "./utils/confluenceAsUser";
 import { upsertAtlassianInstance } from "./utils/dbUtils";
 import { captureError } from "./utils/sentry";
 import { indexDiagramOnSave } from "./architecture-tokens/indexOnSave";
@@ -33,6 +33,12 @@ export const onRequest = async ({
   } catch (e) {
     return response(400, 'Invalid JSON body');
   }
+  // The id goes into a Confluence URL path and the record it names is mirrored
+  // into D1, so it must be a content id before anything is fetched (#921).
+  // syncCustomContent posts `customContent.id` from an untyped record, so an
+  // integer id is accepted in its decimal form.
+  const contentId = Number.isSafeInteger(body?.contentId) ? String(body.contentId) : body?.contentId;
+  if (!isContentId(contentId)) return response(400, 'Invalid contentId');
 
   const apiBaseUrl = data.forgeContext?.apiBaseUrl;
   const forgeAppId = data.forgeContext?.forgeAppId;
@@ -45,13 +51,15 @@ export const onRequest = async ({
   // parseable 2xx so the client's best-effort sync does not log a (previously
   // masked) error event. This is the expected, non-actionable case and was the
   // most likely trigger of the historical text/plain 500s (conf-app#267).
-  let customContent: any;
-  try {
-    customContent = await getCustomContentFromConfluenceForForge(apiBaseUrl, body.contentId, forgeOAuthUser);
-  } catch (e) {
-    console.warn('Skipping custom-content sync; Confluence re-fetch failed:', e);
-    return OkResponse({ synced: false, reason: 'content_fetch_failed', detail: errMessage(e) });
+  // `detail` is a fixed code (http_404, timeout, id_mismatch, ...), never the
+  // upstream response text. A record whose id is not the one requested is
+  // refused here, so it can never be mirrored under the saved diagram's row.
+  const read = await readCustomContentAsUser(apiBaseUrl, contentId, forgeOAuthUser);
+  if (read.ok === false) {
+    console.warn('Skipping custom-content sync; Confluence re-fetch failed:', read.reason);
+    return OkResponse({ synced: false, reason: 'content_fetch_failed', detail: read.reason });
   }
+  const customContent = read.content;
 
   try {
     // Version insert is idempotent (skips when the version row is already

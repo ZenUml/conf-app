@@ -27,7 +27,7 @@ Bob --&gt; Alice: Hi there!
 </template>
 
 <script>
-import { plantumlEncode } from '@/utils/plantuml/encode';
+import { fetchPlantUmlSvg } from '@/utils/plantuml/server';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
 import { normalizePlantUmlSvg, readPlantUmlSvgSize } from '@/utils/plantuml/normalizeSvg';
 import { DiagramType } from '@/model/Diagram/Diagram';
@@ -39,7 +39,6 @@ import { isLoadedEmptyBody, viewContentState } from '@/utils/analytics/contentSt
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 
-const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml/svg/';
 
 export default {
   name: 'PlantUml',
@@ -164,18 +163,18 @@ export default {
       this.loading = true;
       this.error = null;
       try {
-        // Phase 0b: render_ms = PlantUML server round trip (recorded once).
-        // Note this excludes the 500ms mount debounce, which lands in the
-        // unattributed remainder — itself a finding for Phase 1.
+        // Phase 0b: render_ms = time to get the server SVG (recorded once).
+        // Usually that is the response validation just fetched (#929), so it is
+        // near zero; the round trip itself now lands before the 500ms mount
+        // debounce, in the unattributed remainder.
         this.svg = await renderPerf.time('render', async () => {
-          const encoded = plantumlEncode(code);
-          const response = await fetch(`${PLANTUML_SERVER}${encoded}`);
+          const response = await fetchPlantUmlSvg(code);
           if (!response.ok) {
             throw new Error(`PlantUML server returned ${response.status}`);
           }
           // The server's root pins a pixel width and preserveAspectRatio="none";
           // injected into a flex parent that squashes one axis (conf-app#626).
-          return normalizePlantUmlSvg(await response.text());
+          return normalizePlantUmlSvg(response.svgText);
         });
         if (!this.initialRenderTracked) {
           this.initialRenderTracked = true;

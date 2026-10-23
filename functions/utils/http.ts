@@ -77,10 +77,12 @@ export const DIAGRAMLY_TIMEOUT_MS = 60_000;
  * `fetchImpl` injection points (OAuth, MCP, Confluence readers).
  */
 export function timedFetch(name: string, timeoutMs: number = DEFAULT_TIMEOUT_MS): typeof fetch {
-  return ((input: string | URL | Request, init?: RequestInit) =>
-    fetchOut(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, {
-      ...init,
-      name,
-      timeoutMs,
-    })) as typeof fetch;
+  return ((input: string | URL | Request, init?: RequestInit) => {
+    // A Request carries its own method, headers and body; passing only its URL
+    // would drop them. Every injected caller passes a string URL today.
+    if (typeof input !== 'string' && !(input instanceof URL)) {
+      throw new TypeError('timedFetch accepts a URL string or URL, not a Request');
+    }
+    return fetchOut(typeof input === 'string' ? input : input.href, { ...init, name, timeoutMs });
+  }) as typeof fetch;
 }

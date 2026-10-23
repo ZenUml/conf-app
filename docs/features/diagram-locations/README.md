@@ -46,3 +46,11 @@ Forge tunnel on the `lite-dev` development site (branch `feat/plan-usage-diagram
 | Plan and usage | Diagram locations (live) | Search | Opened owning page |
 |---|---|---|---|
 | ![](tunnel-plan-and-usage.jpg) | ![](tunnel-diagram-locations.jpg) | ![](tunnel-search.jpg) | ![](tunnel-opened-page.jpg) |
+
+CI-deployed staging on `lite-stg` (PR validation run 39890952633: Lite staging deploy + E2E green), robot test account, iframe served from the Forge CDN:
+
+| Plan and usage | Diagram locations (live, paused after 500) | Search (no match) | Opened owning page |
+|---|---|---|---|
+| ![](staging-plan-and-usage.jpg) | ![](staging-locations.jpg) | ![](staging-search.jpg) | ![](staging-opened-page.jpg) |
+
+Observed: of 15 reported spaces the robot can see 2, and only those are offered; the largest space held 981 live records against a reported 250, loaded in two 500-record runs; search, type filter (Graph → 248), Next and focus behave; "Open page" opened the owning page in a new tab.

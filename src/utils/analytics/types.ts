@@ -18,6 +18,8 @@ import type {
   MacroCountSource,
   PaywallPolicySource,
   DashboardFormatFilter,
+  DiagramLocationsLoadOutcome,
+  DiagramLocationsFilter,
   AgentLinkDisconnectReason,
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
@@ -582,6 +584,15 @@ export type AnalyticsProperties = {
   // ('page_read_failed', 'page_write_failed'). Absent for the others, which
   // never made a request that returned one.
   http_status?: number;
+  // Diagram locations (Plan and usage, plan_usage_locations_*). Counts and
+  // outcomes only: no page ids, page titles, search text or space keys, which
+  // are customer content. `page_index` counts fetched batches from 0.
+  load_outcome?: DiagramLocationsLoadOutcome;
+  locations_filter?: DiagramLocationsFilter;
+  listed_count?: number;
+  hidden_count?: number;
+  has_more?: boolean;
+  page_index?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser

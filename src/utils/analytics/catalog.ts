@@ -1660,6 +1660,30 @@ export type AnalyticsEventName =
   | "request_full_guide_shown"
   | "request_full_reason_copied"
   | "request_full_atlassian_clicked"
+  // "Diagram locations" (conf-app#848): the screen behind "View diagram
+  // locations" on the Plan and usage page. It lists the site's stored
+  // diagrams with the page each one was created on (its owning page), read
+  // as the viewer so Confluence applies their permissions. Macro placements
+  // that embed a diagram stored on another page are not enumerated, so every
+  // count on these events is a count of stored diagrams, never of placements.
+  // `plan_usage_locations_shown` fires when the screen opens (`space_count` =
+  // spaces with a reported count, `macro_count` = the reported site total).
+  // `plan_usage_locations_loaded` fires per fetched batch (`page_index` 0 =
+  // the first), with `load_outcome`, `listed_count`, `hidden_count` (records
+  // whose page the viewer cannot read — omitted from the UI, counted here),
+  // `has_more` and `duration_ms`. `plan_usage_locations_load_failed` fires
+  // instead when a batch threw or Confluence answered a non-2xx the viewer
+  // cannot act on (`http_status`).
+  // `plan_usage_locations_filtered` fires on each search, space / type filter,
+  // clear, page or page-size change (`locations_filter`), with `listed_count`
+  // = matching rows after the change.
+  // `plan_usage_locations_page_clicked` fires when "Open page" opens a row's
+  // owning page (`macro_type` = the diagram on that row).
+  | "plan_usage_locations_shown"
+  | "plan_usage_locations_loaded"
+  | "plan_usage_locations_load_failed"
+  | "plan_usage_locations_filtered"
+  | "plan_usage_locations_page_clicked"
   // GitHub PR Agent Panel (feature_area=pr_agent_panel, surface=github_pr),
   // emitted by the local Hub. Funnel: list shown -> row clicked; hub connected
   // -> task started -> message queued -> message delivered -> task completed.
@@ -1675,6 +1699,18 @@ export type AnalyticsEventName =
   | "pr_panel_message_queued"
   | "pr_panel_message_delivered"
   | "pr_panel_preferences_changed";
+
+/**
+ * How one Diagram-locations batch resolved. `ok` listed at least one row;
+ * `empty` found no stored diagram the viewer can list in that space;
+ * `forbidden` means Confluence refused the space or its custom content for
+ * this viewer (403 / 404), which is an answer, not a failure. Failures carry
+ * `failed` on plan_usage_locations_load_failed.
+ */
+export type DiagramLocationsLoadOutcome = "ok" | "empty" | "forbidden" | "failed";
+
+/** Which control changed the Diagram-locations result set. */
+export type DiagramLocationsFilter = "search" | "space" | "type" | "clear" | "page" | "page_size";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

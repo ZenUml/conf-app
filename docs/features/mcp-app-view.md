@@ -81,6 +81,7 @@ Each of these passed every unit test and a hand-built test host, and failed in c
 2. **`ui/initialize` must match the ext-apps schema.** The request needs `appInfo` and `appCapabilities` (not `clientInfo` / `capabilities` from the spec's prose example). claude.ai validates against `McpUiInitializeRequestSchema` and otherwise rejects the request with an error, and the view shows "The host refused this view."
 3. **CSP lives on the resource, not the tool.** `_meta.ui.csp` goes on the `resources/list` entry and the `resources/read` contents. `resourceDomains` lists our origin and `https://www.plantuml.com`. `connectDomains` lists only our origin, because the DrawIO viewer fetches stencil XML by XHR.
 4. **Nothing may load from a third-party origin.** GraphViewer loads MathJax on every render, by default from `viewer.diagrams.net`, which the host's CSP refuses. When `ensureDrawioViewerLoaded` is given an asset base, it points `DRAW_MATH_URL` at the deploy's own `drawio/math4/es5`.
+5. **Tools carry the view under both keys.** `uiMeta` sets `_meta.ui.resourceUri` and the flat legacy `_meta["ui/resourceUri"]`, as the ext-apps SDK's `registerAppTool` does. With only the nested key, Cursor 3.25 declared the extension, listed the `ui://` resource, and still never fetched the view.
 
 ## Testing
 

@@ -25,6 +25,7 @@
   position: absolute; /* fill the fixed host top to bottom, so the right border runs full height */
   inset: 0;
   overflow-y: auto;
+  overscroll-behavior: contain; /* wheel and trackpad momentum stay in the list; page-column.ts containWheel covers a list too short to scroll */
   background: #ffffff;
   border-right: 1px solid #d8dee4;
   color: #1f2937;

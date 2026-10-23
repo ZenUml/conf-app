@@ -9,7 +9,7 @@ import type { ContentScriptContext } from 'wxt/utils/content-script-context'
 import { createShadowRootUi, type ShadowRootContentScriptUi } from 'wxt/utils/content-script-ui/shadow-root'
 import { buildTelemetryFrame, messageLengthBucket, type TelemetryEvent, type TelemetryProps } from '../analytics/telemetry'
 import { PanelPort, documentId, envelope } from '../bridge/port'
-import { installContentShift, listColumnTop } from '../pr/page-column'
+import { containWheel, installContentShift, listColumnTop } from '../pr/page-column'
 import { parsePrRef, parseRepoRef, readPrState } from '../pr/identity'
 import { getPrefs, onPrefsChanged, setPref } from '../state/prefs'
 import AgentPanel from '../ui/AgentPanel.vue'
@@ -23,6 +23,7 @@ export function createPageController(ctx: ContentScriptContext) {
   let panelUi: ShadowRootContentScriptUi<App> | null = null
   let listUi: ShadowRootContentScriptUi<App> | null = null
   let undoContentShift: (() => void) | null = null
+  let undoContainWheel: (() => void) | null = null
   let placeQueued = false
   let listShownSent = false
   let observer: MutationObserver | null = null
@@ -168,6 +169,7 @@ export function createPageController(ctx: ContentScriptContext) {
     listUi = ui
     ui.mount()
     undoContentShift = installContentShift(document)
+    undoContainWheel = containWheel(ui.shadowHost, () => ui.shadow.querySelector<HTMLElement>('.prl'))
     window.addEventListener('scroll', queuePlaceList, { passive: true })
     window.addEventListener('resize', queuePlaceList, { passive: true })
     listShownSent = false
@@ -179,6 +181,8 @@ export function createPageController(ctx: ContentScriptContext) {
     listUi = null
     undoContentShift?.()
     undoContentShift = null
+    undoContainWheel?.()
+    undoContainWheel = null
     window.removeEventListener('scroll', queuePlaceList)
     window.removeEventListener('resize', queuePlaceList)
   }

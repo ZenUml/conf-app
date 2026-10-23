@@ -41,3 +41,20 @@ export function installContentShift(doc: Document): () => void {
     doc.getElementById(CONTENT_SHIFT_STYLE_ID)?.remove()
   }
 }
+
+/**
+ * Keeps wheel scrolling over the list inside the list. The browser hands a wheel to the page
+ * whenever the list cannot move that way (too short to scroll, or already at the top or bottom);
+ * this cancels exactly those wheels, so the page under the list never moves. Returns the undo.
+ */
+export function containWheel(target: HTMLElement, scroller: () => HTMLElement | null | undefined): () => void {
+  const onWheel = (event: WheelEvent) => {
+    const el = scroller()
+    if (!el || event.deltaY === 0) return
+    const atTop = el.scrollTop <= 0
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
+    if ((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom)) event.preventDefault()
+  }
+  target.addEventListener('wheel', onWheel, { passive: false })
+  return () => target.removeEventListener('wheel', onWheel)
+}

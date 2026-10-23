@@ -8,10 +8,11 @@ export interface PlantUmlSvgResponse {
   svgText: string;
 }
 
-// The viewer validates (fetch #1) and then, after a 500 ms debounce, renders
-// (fetch #2) the same code: two identical round trips to plantuml.com (#929).
-// Share one: in-flight requests are joined, and a completed response is reused
-// for longer than debounce + validation take. A network failure is not cached.
+// The viewer validates (fetch #1) and then renders (fetch #2) the same code —
+// at once on first mount, after a 500 ms debounce on edits: two identical
+// round trips to plantuml.com (#929). Share one: in-flight requests are
+// joined, and a completed response is reused for longer than debounce +
+// validation take. A network failure is not cached.
 const RESULT_TTL_MS = 5000;
 const inFlight = new Map<string, Promise<PlantUmlSvgResponse>>();
 const results = new Map<string, { response: PlantUmlSvgResponse; at: number }>();

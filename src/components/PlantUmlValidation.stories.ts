@@ -55,3 +55,40 @@ export const SwitchingToMermaidIgnoresPendingError: Story = {
     await expect(canvas.queryByText('Syntax error')).toBeNull()
   },
 }
+
+// A page view mounts the viewer with its source already loaded. The server SVG
+// must be on screen as soon as validation returns, not 500 ms later: that
+// debounce is for keystrokes in the editor, and a viewer has none.
+export const FirstMountPaintsWithoutEditDebounce: Story = {
+  render: () => ({
+    components: { PlantUml },
+    setup() {
+      const code = '@startuml\nAlice -> Bob: First paint probe 20261024\n@enduml'
+      store.commit('updatePlantUmlCode', code)
+      store.commit('updateDiagramType', DiagramType.PlantUml)
+      store.commit('updateError', null)
+
+      const originalFetch = window.fetch
+      window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith('https://www.plantuml.com/plantuml/svg/')) {
+          return Promise.resolve(new Response(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="322px" height="60px" viewBox="0 0 322 60">' +
+            '<text x="10" y="30">First paint probe 20261024</text></svg>',
+            { status: 200, headers: { 'Content-Type': 'image/svg+xml' } },
+          ))
+        }
+        return originalFetch(input, init)
+      }) as typeof fetch
+      onBeforeUnmount(() => { window.fetch = originalFetch })
+      return {}
+    },
+    template: '<div class="p-6"><PlantUml /></div>',
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // Well under the 500 ms edit debounce: validation + render share one
+    // already-resolved fetch, so only microtasks and a Vue tick remain.
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await expect(canvas.getByText('First paint probe 20261024')).toBeVisible()
+  },
+}

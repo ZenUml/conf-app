@@ -1,3 +1,4 @@
+import { toClientDomain } from '@/lib/clientDomain.js'
 import type { Diagram } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import type { FeedbackContext, FeedbackSurface } from './feedbackSession'
@@ -35,12 +36,7 @@ export function feedbackSurfaceForContext(context: ForgeLikeContext): FeedbackSu
 function clientDomain(context: ForgeLikeContext): string {
   const raw = context?.siteUrl ?? context?.extension?.location
   if (typeof raw !== 'string') return UNAVAILABLE
-  try {
-    const host = new URL(raw).hostname
-    return host.endsWith('.atlassian.net') ? host.slice(0, -'.atlassian.net'.length) : host
-  } catch {
-    return UNAVAILABLE
-  }
+  return toClientDomain(raw) ?? UNAVAILABLE
 }
 
 function diagramTitleFor(title: unknown): string {

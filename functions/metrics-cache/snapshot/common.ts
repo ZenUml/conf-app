@@ -7,6 +7,7 @@ import {
 import { getAuthorizationHeader } from '../../utils/requestUtils';
 import { hasForgeUserToken } from '../../utils/forgeUserToken';
 import { json } from '../../OkResponse';
+import { toClientDomain } from '../../../src/lib/clientDomain.js';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 export const SNAPSHOT_PREFIX = 'macro-count/v1';
@@ -121,15 +122,10 @@ export function errorResponse(error: unknown): Response {
 export function normalizeClientDomain(value: string): string {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return '';
-  let hostname = trimmed;
-  try {
-    hostname = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`).hostname;
-  } catch {
-    // Keep the original compatibility key when it is not URL-shaped.
-  }
-  return hostname.endsWith('.atlassian.net')
-    ? hostname.slice(0, -'.atlassian.net'.length)
-    : hostname;
+  // The result is a KV key (`metricsKvKey`) and a flag lookup. toClientDomain is
+  // byte-identical to the former inline logic; a non-URL-shaped value keeps the
+  // original compatibility key.
+  return toClientDomain(trimmed) ?? trimmed;
 }
 
 export function productTypeForAppId(appId: string): ProductType | undefined {

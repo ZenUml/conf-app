@@ -6,10 +6,10 @@
 // singleton recovery card into document.body when EventBus fires 'draft-available',
 // and removes it when the user clicks Restore/Discard/Dismiss.
 //
-// The banner emits 'draft-restore' or 'draft-discard' on the same EventBus —
-// each editor's mount logic listens for the matching scope and either
-// dispatches the right state update (Restore) or clears localStorage
-// (Discard).
+// Restore emits 'draft-restore' on the same EventBus; each editor's mount logic
+// listens for the matching scope and dispatches the state update. Discard
+// clears the stored draft here and emits nothing: no editor needs to react
+// (#936).
 
 import EventBus from '@/EventBus';
 import { clearDraft } from '@/utils/draftStore';
@@ -98,7 +98,6 @@ function show(payload: DraftPayload) {
     // clearDraft self-guards (getCloudId + localStorage.removeItem both catch
     // internally) — it never rejects.
     await clearDraft(payload.scope);
-    EventBus.$emit('draft-discard', payload);
     dismiss();
   });
   root.appendChild(discardBtn);

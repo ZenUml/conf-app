@@ -66,7 +66,7 @@ function configureStory(items: unknown[]) {
 }
 
 const meta: Meta<typeof AsyncApiDashboard> = {
-  title: 'AsyncApi/AsyncApiDashboard',
+  title: 'Shared/AsyncApiDashboard',
   component: AsyncApiDashboard,
   parameters: { layout: 'fullscreen' },
 }

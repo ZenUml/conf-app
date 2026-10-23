@@ -36,20 +36,9 @@ import {
   expectModalVisible,
   expectModalClosed,
 } from '../../helpers/FullscreenModalHelper.js';
+import { dismissPaywallGate } from '../../helpers/paywallGate.js';
 
 const REPRO_PAGE_ID = process.env.REPRO_PAGE_ID?.trim();
-
-// Lite editor-mount paywall overlay intercepts clicks; clear it before touching
-// the editor. No-op on spaces under the macro limit.
-async function dismissPaywall(page: Page, waitMs = 4000): Promise<void> {
-  const btn = modalContentFrame(page, 'edit').locator('[data-testid="continue-editing-btn"]');
-  const shown = await btn.first().waitFor({ state: 'visible', timeout: waitMs }).then(() => true).catch(() => false);
-  if (shown) {
-    await btn.first().click();
-    await btn.first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(400);
-  }
-}
 
 // Dirty the diagram code, then Publish — the save that forks on buggy code.
 async function dirtyAndPublish(page: Page): Promise<void> {
@@ -106,7 +95,7 @@ test.describe('SAME-PAGE #169 — one page: broken on buggy deploy → fixed on 
     await macroPage.editMacro(macroFrame);
     await expectModalVisible(page, 'edit');
     await page.waitForTimeout(1500);
-    await dismissPaywall(page);
+    await dismissPaywallGate(page, modalContentFrame(page, 'edit'));
 
     await dirtyAndPublish(page);
 

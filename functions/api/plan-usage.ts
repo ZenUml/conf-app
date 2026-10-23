@@ -73,6 +73,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const spaces = domainData ? Object.values(domainData.spaces) : [];
   const totalMacros = spaces.reduce((sum, s) => sum + (s.total || 0), 0);
+  // Every space with at least one stored diagram, for the "Where diagrams are
+  // used" section. The page lists each space's pages lazily through the
+  // viewer's own Confluence session; this is only the index of spaces to
+  // offer, read from the same aggregate as the totals above. `total` counts
+  // custom-content records (stored diagrams), not macro placements.
+  const spaceSummaries = spaces
+    .filter((s) => (s.total || 0) > 0 && typeof s.space === 'string' && s.space)
+    .map((s) => ({ spaceKey: s.space, macroCount: s.total, lastUpdated: s.lastUpdated ?? null }))
+    .sort((a, b) => b.macroCount - a.macroCount || a.spaceKey.localeCompare(b.spaceKey));
   const overLimitSpaces = spaces
     .filter((s) => s.total >= MACROS_LIMIT)
     .map((s) => ({ spaceKey: s.space, macroCount: s.total }))
@@ -94,6 +103,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       spaceCount: spaces.length,
       macrosLimit: MACROS_LIMIT,
       overLimitSpaces,
+      spaces: spaceSummaries,
       lastUpdated,
       isStale: ageHours === null ? null : ageHours > STALE_THRESHOLD_HOURS,
     }),

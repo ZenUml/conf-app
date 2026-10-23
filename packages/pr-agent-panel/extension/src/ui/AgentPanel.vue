@@ -9,6 +9,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { PrRef, PrState, ReviewSummary, Task } from '@zenuml/pr-panel-shared'
+import { MAX_MESSAGE_LENGTH } from '@zenuml/pr-panel-shared'
 import { LOGO_KEYFRAMES_CSS, MINUS, PLUS, PREFERENCES, TICK, pathAt } from './icons'
 import { PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, type PanelPosition } from '../state/prefs'
 import type { PanelConnection, PanelMessageView, PanelPrefsView } from './types'
@@ -127,10 +128,11 @@ const PRIORITY_TONE = { P1: 'danger', P2: 'warning', P3: 'neutral' } as const
 
 // ---- Messages section
 const draft = ref('')
-const canSend = computed(() => connected.value && draft.value.trim().length > 0)
+// The Hub rejects a longer message, and the broker would drop it without a reply, leaving the row on "sending".
+const canSend = computed(() => connected.value && draft.value.trim().length > 0 && draft.value.trim().length <= MAX_MESSAGE_LENGTH)
 function send() {
   const text = draft.value.trim()
-  if (!text || !connected.value) return
+  if (!text || !connected.value || text.length > MAX_MESSAGE_LENGTH) return
   emit('send', text)
   draft.value = ''
 }
@@ -460,6 +462,7 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
                     v-model="draft"
                     class="tp-message-input"
                     rows="1"
+                    :maxlength="MAX_MESSAGE_LENGTH"
                     :placeholder="connected ? 'Message the agent' : 'Agent not connected'"
                     :disabled="!connected"
                     aria-label="Message the agent"

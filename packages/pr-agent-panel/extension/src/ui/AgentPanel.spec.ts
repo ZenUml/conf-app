@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_MESSAGE_LENGTH } from '@zenuml/pr-panel-shared'
 import { mount } from '@vue/test-utils'
 import AgentPanel from './AgentPanel.vue'
 import { MESSAGES, PR_888, PREFS, REVIEWS, TASK_DONE, TASK_WORKING } from '../preview/fixtures'
@@ -202,6 +203,21 @@ describe('AgentPanel sections', () => {
     await w.get('.tp-panel-resize-handle-left').trigger('dblclick')
     expect((w.get('.tp-panel').element as HTMLElement).style.width).toBe('240px')
     expect(w.emitted('resize')).toEqual([[240]])
+    w.unmount()
+  })
+})
+
+describe('AgentPanel message length', () => {
+  it('caps the compose box at the Hub limit and never sends a longer message', async () => {
+    const w = mountPanel()
+    const input = w.get('[data-testid="message-input"]')
+    expect(input.attributes('maxlength')).toBe(String(MAX_MESSAGE_LENGTH))
+    await input.setValue('x'.repeat(MAX_MESSAGE_LENGTH + 1))
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('send')).toBeUndefined()
+    await input.setValue('x'.repeat(MAX_MESSAGE_LENGTH))
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('send')).toEqual([['x'.repeat(MAX_MESSAGE_LENGTH)]])
     w.unmount()
   })
 })

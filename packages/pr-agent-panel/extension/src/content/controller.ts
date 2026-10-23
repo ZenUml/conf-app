@@ -283,6 +283,8 @@ export function createPageController(ctx: ContentScriptContext) {
       port?.send(envelope({ type: 'unregister' as const, documentId }))
       port?.disconnect()
       observer?.disconnect()
+      // WXT removes the shadow-root UIs itself, but not the page-level content shift or the wheel guard.
+      removeList()
     })
 
     await mountPanel()

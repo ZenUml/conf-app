@@ -1,4 +1,5 @@
 import { ForgeRequestError } from "@/utils/forgeRequestError";
+import { RemoteCallError } from './remoteCallError';
 
 export async function loadAllPaginatedData(requestFunc: any, initialUrl: string, consumer: (data: any) => void): Promise<void> {
   return loadPaginatedDataUntil(requestFunc, initialUrl, consumer, () => false);
@@ -125,10 +126,7 @@ export async function callRemote(
 
   const response = await forgeCallRemote(url, method, data);
   if (response.status !== 200 && response.status !== 201) {
-    const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body);
-    throw Object.assign(new Error(`HTTP ${response.status}: ${body || 'No body'}`), {
-      status: response.status,
-    });
+    throw new RemoteCallError({ status: response.status, method, endpoint, body: response.body });
   }
 
   return response.body;

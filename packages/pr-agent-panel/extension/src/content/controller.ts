@@ -9,7 +9,7 @@ import type { ContentScriptContext } from 'wxt/utils/content-script-context'
 import { createShadowRootUi, type ShadowRootContentScriptUi } from 'wxt/utils/content-script-ui/shadow-root'
 import { buildTelemetryFrame, messageLengthBucket, type TelemetryEvent, type TelemetryProps } from '../analytics/telemetry'
 import { PanelPort, documentId, envelope } from '../bridge/port'
-import { findLayout } from '../pr/anchors'
+import { installContentShift, listColumnTop } from '../pr/page-column'
 import { parsePrRef, parseRepoRef, readPrState } from '../pr/identity'
 import { getPrefs, onPrefsChanged, setPref } from '../state/prefs'
 import AgentPanel from '../ui/AgentPanel.vue'
@@ -22,7 +22,8 @@ export function createPageController(ctx: ContentScriptContext) {
   let port: PanelPort | null = null
   let panelUi: ShadowRootContentScriptUi<App> | null = null
   let listUi: ShadowRootContentScriptUi<App> | null = null
-  let listAnchor: Element | null = null
+  let undoContentShift: (() => void) | null = null
+  let placeQueued = false
   let listShownSent = false
   let observer: MutationObserver | null = null
   let observedFrame: Element | null = null
@@ -128,18 +129,16 @@ export function createPageController(ctx: ContentScriptContext) {
   async function mountList() {
     removeList()
     if (!state.pr) return
-    const layout = findLayout(document)
-    listAnchor = layout?.insertBeforeNode ?? null
     const ui = await createShadowRootUi<App>(ctx, {
       name: 'zenuml-pr-list',
       position: 'inline',
-      anchor: listAnchor ?? 'body',
-      append: listAnchor ? 'before' : 'first',
+      anchor: 'body',
+      append: 'last',
       inheritStyles: true, // list.css carries its own `:host(zenuml-pr-list)` reset and sizing
       isolateEvents: true,
       onMount(container, _shadow, host) {
-        // Last resort when GitHub's layout is not recognised: fixed at the left edge.
-        if (!listAnchor) host.setAttribute('data-fallback', '')
+        // Page-level column under the repository tabs (Figma 184:5402); see page-column.ts.
+        host.style.top = `${listColumnTop(document)}px`
         const app = createApp({
           render: () =>
             h(ReviewList, {
@@ -168,6 +167,9 @@ export function createPageController(ctx: ContentScriptContext) {
     removeList()
     listUi = ui
     ui.mount()
+    undoContentShift = installContentShift(document)
+    window.addEventListener('scroll', queuePlaceList, { passive: true })
+    window.addEventListener('resize', queuePlaceList, { passive: true })
     listShownSent = false
     maybeSendListShown()
   }
@@ -175,6 +177,21 @@ export function createPageController(ctx: ContentScriptContext) {
   function removeList() {
     listUi?.remove()
     listUi = null
+    undoContentShift?.()
+    undoContentShift = null
+    window.removeEventListener('scroll', queuePlaceList)
+    window.removeEventListener('resize', queuePlaceList)
+  }
+
+  /** Keeps the column's top edge on the bottom of the repository tabs as the page scrolls. */
+  function queuePlaceList() {
+    if (placeQueued) return
+    placeQueued = true
+    requestAnimationFrame(() => {
+      placeQueued = false
+      const host = listUi?.shadowHost
+      if (host) host.style.top = `${listColumnTop(document)}px`
+    })
   }
 
   function maybeSendListShown() {
@@ -200,7 +217,7 @@ export function createPageController(ctx: ContentScriptContext) {
     }
   }
 
-  /** GitHub re-renders the PR body on soft navigation; put the list back if it was dropped or moved. */
+  /** GitHub re-renders the page on soft navigation; put the list back if it was dropped. */
   function ensureList() {
     ensureQueued = false
     watchTurboFrame()
@@ -210,10 +227,8 @@ export function createPageController(ctx: ContentScriptContext) {
       return
     }
     const host = listUi?.shadowHost
-    const layout = findLayout(document)
-    const expected = layout?.insertBeforeNode ?? null
-    const inPlace = host?.isConnected && (expected ? host.nextElementSibling === expected : !listAnchor)
-    if (!inPlace) void mountList()
+    if (!host?.isConnected) void mountList()
+    else queuePlaceList()
   }
 
   function queueEnsure() {

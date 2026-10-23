@@ -6,29 +6,25 @@
  * 10 px / 500 #6E7E90; rows 100–105 px: meta 10 px bold #3B6488 (#6551A9 for
  * Draft), title 13 px / 600 #1F2937, reason 11 px #617084 (2 lines), tags
  * 10 px / 500 #73849A; selected row bg #EEF5FF with a 4 px #0969DA left bar.
- * Font stack matches github.com.
+ * Font stack matches github.com. Placement: src/pr/page-column.ts.
  */
 :host(zenuml-pr-list) {
   all: initial;
   display: block;
-  flex: 0 0 320px;
-  width: 320px;
-  min-width: 320px;
-  align-self: stretch;
-}
-:host(zenuml-pr-list[data-fallback]) {
   position: fixed;
   left: 0;
-  top: 100px;
+  top: 0; /* set from the repository tabs by the controller (page-column.ts) */
   bottom: 0;
-  z-index: 30;
+  width: 320px;
+  z-index: 29;
 }
 
 .prl {
   box-sizing: border-box;
   width: 320px;
-  height: 100%;
-  min-height: 100%;
+  position: absolute; /* fill the fixed host top to bottom, so the right border runs full height */
+  inset: 0;
+  overflow-y: auto;
   background: #ffffff;
   border-right: 1px solid #d8dee4;
   color: #1f2937;

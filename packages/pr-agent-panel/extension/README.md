@@ -5,9 +5,10 @@ WXT + Vue 3, Manifest V3, Chrome ≥ 116. Package overview, protocol and securit
 
 ## What it does on github.com
 
-- **Left review list** (`src/ui/ReviewList.vue`) on `/<owner>/<repo>/pull/<n>` pages, inserted
-  before GitHub's `SplitPageLayout.Content` node so it sits left of the conversation
-  (`src/pr/anchors.ts`). Only PRs with a completed AI review, in the Hub's order, no count.
+- **Left review list** (`src/ui/ReviewList.vue`) on `/<owner>/<repo>/pull/<n>` pages, a 320 px
+  column at the far left of the page, from the bottom of the repository tabs to the bottom of
+  the window, as in Figma 184:5402. Below 1920 px wide the repository content is padded right
+  by 320 px so the list never covers GitHub UI (`src/pr/page-column.ts`). Only PRs with a completed AI review, in the Hub's order, no count.
   Click a row to open that PR.
 - **Agent Panel** (`src/ui/AgentPanel.vue`), bottom right, also on `/<owner>/<repo>/pulls`
   (there it shows only "No pull request"). TemPad Dev's panel, transcribed from the reference

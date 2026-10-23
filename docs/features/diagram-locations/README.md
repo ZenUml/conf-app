@@ -49,8 +49,10 @@ Forge tunnel on the `lite-dev` development site (branch `feat/plan-usage-diagram
 
 CI-deployed staging on `lite-stg` (PR validation run 39890952633: Lite staging deploy + E2E green), robot test account, iframe served from the Forge CDN:
 
-| Plan and usage | Diagram locations (live, paused after 500) | Search (no match) | Opened owning page |
+| Plan and usage | Diagram locations (live, paused after 500; widened view 32fd7d58) | Search (no match) | Opened owning page |
 |---|---|---|---|
 | ![](staging-plan-and-usage.jpg) | ![](staging-locations.jpg) | ![](staging-search.jpg) | ![](staging-opened-page.jpg) |
 
 Observed: of 15 reported spaces the robot can see 2, and only those are offered; the largest space held 981 live records against a reported 250, loaded in two 500-record runs; search, type filter (Graph → 248), Next and focus behave; "Open page" opened the owning page in a new tab.
+
+A first staging capture showed the six-column table clipped inside the 720px usage column; commit 32fd7d58 gives the locations view the Figma frame's 1072px width and lets the table scroll. Re-measured on the redeployed staging build: page width 1072, table scroll width equal to its client width, all six headers visible.

@@ -16,6 +16,16 @@ PlantUML diagrams are also shown rendered inline in the conversation.
   app installed.
 - An Atlassian account that can view and edit the pages you want to work on.
 
+## Install
+
+In Claude Code:
+
+```
+/plugin install zenuml --marketplace ZenUml/zenuml-plugin
+```
+
+In Claude and ChatGPT, add it from the plugin directory once it is listed.
+
 ## What is in this plugin
 
 | Component | What it does |

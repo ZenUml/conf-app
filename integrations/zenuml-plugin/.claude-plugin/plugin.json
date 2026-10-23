@@ -9,7 +9,16 @@
     "url": "https://zenuml.com"
   },
   "homepage": "https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/",
+  "privacyPolicyUrl": "https://zenuml.com/privacy/",
   "repository": "https://github.com/ZenUml/zenuml-plugin",
   "license": "MIT",
-  "keywords": ["confluence", "diagrams", "sequence-diagram", "mermaid", "plantuml", "uml", "documentation"]
+  "keywords": [
+    "confluence",
+    "diagrams",
+    "sequence-diagram",
+    "mermaid",
+    "plantuml",
+    "uml",
+    "documentation"
+  ]
 }

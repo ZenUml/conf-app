@@ -1,0 +1,15 @@
+{
+  "name": "zenuml",
+  "description": "ZenUML diagrams for Confluence, for Claude.",
+  "owner": {
+    "name": "ZenUML",
+    "email": "support@zenuml.com"
+  },
+  "plugins": [
+    {
+      "name": "zenuml",
+      "source": "./",
+      "description": "Read, create and update ZenUML, Mermaid, PlantUML and diagrams.net diagrams on your Confluence Cloud pages, acting as you through Atlassian OAuth."
+    }
+  ]
+}

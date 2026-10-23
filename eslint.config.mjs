@@ -69,7 +69,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/export.js", "src/page-capture.js"],
+    files: ["src/forge-functions/export.js", "src/forge-functions/page-capture.js"],
     languageOptions: {
       globals: {
         process: "readonly",
@@ -79,7 +79,7 @@ export default tseslint.config(
   {
     // Pure Node.js modules used only from the Forge functions bundle
     // (never imported by the frontend Vue/browser build).
-    files: ["src/lib/pngDimensions.js", "src/export.js"],
+    files: ["src/forge-functions/pngDimensions.js", "src/forge-functions/export.js"],
     languageOptions: {
       globals: {
         Buffer: "readonly",

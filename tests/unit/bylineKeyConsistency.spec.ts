@@ -3,7 +3,7 @@
  * zenuml-byline-diagrams) to the one writer it depends on.
  *
  * The condition is a single `not entityPropertyExists zenuml-full-active` leg,
- * and src/full-presence.ts writes that key from the Full app. A rename on
+ * and src/forge-functions/full-presence.ts writes that key from the Full app. A rename on
  * either side errors nowhere — the Lite byline would just stop hiding beside
  * Full — hence the pin.
  *
@@ -28,7 +28,7 @@ vi.mock('@forge/api', () => ({
     ),
 }));
 
-import { FULL_PRESENCE_KEY } from '../../src/full-presence';
+import { FULL_PRESENCE_KEY } from '../../src/forge-functions/full-presence';
 
 const manifest = load(readFileSync(resolve(__dirname, '../../manifest.yml'), 'utf8')) as {
   modules: Record<string, Array<{ key: string; displayConditions?: unknown }>>;

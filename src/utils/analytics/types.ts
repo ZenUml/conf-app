@@ -89,7 +89,7 @@ export type AnalyticsProperties = {
   environment_type?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent
-  // from src/export.js / src/asyncapi-export.js (Forge backend, outside this
+  // from src/forge-functions/export.js / src/forge-functions/asyncapi-export.js (Forge backend, outside this
   // frontend catalog's enforcement — see the event names' doc comment above).
   // 'none' there means the type genuinely could not be resolved (no
   // customContentId, or the custom-content GET failed), recorded explicitly
@@ -425,12 +425,12 @@ export type AnalyticsProperties = {
   same_page?: boolean;                 // the opened participant also appears in another diagram on this page
   error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
   // Join key on every `attachment_upload_*` event (model/Attachment.ts
-  // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
+  // UploadContext), mirroring the backend joinKeyProps() in src/forge-functions/export.js so
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,
   // page_id).
   cloud_id?: string;
   // Restored 2026-09-03 after the `app_first_seen` Mixpanel emit was deleted:
-  // the property is NOT dead. src/export.js `joinKeyProps()` (:203) stamps
+  // the property is NOT dead. src/forge-functions/export.js `joinKeyProps()` (:203) stamps
   // `account_id` on every export event, and mixpanelService's /import call
   // reads it back as the event's `distinct_id` (:239). The declaration keeps
   // the typed frontend path able to carry the same key without a cast.

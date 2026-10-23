@@ -499,7 +499,7 @@ export type AnalyticsEventName =
   // registered below, not a new one — see the field's doc comment in
   // src/utils/analytics/types.ts) so per-diagram-type export failure rates are
   // a direct query, not a join against `custom_content_id` history. Emitted
-  // from the Forge backend (src/export.js, src/asyncapi-export.js), which
+  // from the Forge backend (src/forge-functions/export.js, src/forge-functions/asyncapi-export.js), which
   // posts to Mixpanel /import directly rather than through
   // trackAnalyticsEvent/AnalyticsProperties — this union documents the shape,
   // it doesn't enforce it there.

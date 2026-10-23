@@ -20,7 +20,7 @@ import { requestConfluenceJson as request } from '@/utils/byline/confluenceReque
  *       parameters: { guestParams: { customContentId, updatedAt }, ... } } }
  *
  * The `extensionKey` is the fragile part and the one with scar tissue:
- * src/lite-full-conversion.ts records that a malformed key rendered as an
+ * src/forge-functions/lite-full-conversion.ts records that a malformed key rendered as an
  * unknown extension on the first live conversion (2026-08-11, job c5a6d954).
  * Both ids come from the running Forge context — `environmentId` is given to us
  * directly, and `localId` carries appId and environmentId as fixed-length UUIDs

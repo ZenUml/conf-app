@@ -77,7 +77,7 @@ export const IMPACT = [
   { glob: 'src/components/react/**', tags: ['@openapi', '@ai', '@editor'] },
   { glob: 'src/utils/openapi/**', tags: ['@openapi', '@viewer', '@editor'] },
   { glob: 'src/forge-asyncapi-*.ts', tags: ['@asyncapi', '@viewer', '@editor'] },
-  { glob: 'src/asyncapi-export.js', tags: ['@asyncapi', '@export'] },
+  { glob: 'src/forge-functions/asyncapi-export.js', tags: ['@asyncapi', '@export'] },
   { glob: 'src/components/Editor/AsyncApi*/**', tags: ['@asyncapi', '@editor'] },
   { glob: 'src/components/Viewer/AsyncApiViewer/**', tags: ['@asyncapi', '@viewer'] },
   // the submodule pointer: a diff shows it as this single path
@@ -110,7 +110,7 @@ export const IMPACT = [
   { glob: 'src/utils/{closeGuard,guardEditClick,draftStore,restoreDraftBanner}.ts', tags: ['@editor'] },
   { glob: 'src/utils/modalService.ts', tags: ['@fullscreen', '@modal'] },
   { glob: 'src/components/ExportModal/**', tags: ['@export', '@modal'] },
-  { glob: 'src/export.js', tags: ['@export', '@modal'] },
+  { glob: 'src/forge-functions/export.js', tags: ['@export', '@modal'] },
   { glob: 'src/lib/**', tags: ['@export'] },
   { glob: 'src/utils/pngMetadata.ts', tags: ['@export'] },
   { glob: 'src/utils/shareCardImage.ts', tags: ['@export'] },
@@ -127,8 +127,8 @@ export const IMPACT = [
   { glob: 'src/utils/paywall/**', tags: ['@paywall'] },
   { glob: 'src/components/PlanUsage/**', tags: ['@paywall', '@route'] },
   { glob: 'src/routes/planUsage.ts', tags: ['@paywall', '@route'] },
-  { glob: 'src/space-properties.ts', tags: ['@paywall'] },
-  { glob: 'src/macro-count-snapshot.ts', tags: ['@paywall'] },
+  { glob: 'src/forge-functions/space-properties.ts', tags: ['@paywall'] },
+  { glob: 'src/forge-functions/macro-count-snapshot.ts', tags: ['@paywall'] },
   { glob: 'functions/api/{space-license,space-status,plan-usage,stripe-webhook}.ts', tags: ['@paywall'] },
   { glob: 'functions/api/support/**', tags: ['@paywall'] },
   { glob: 'src/components/CSAT/**', tags: ['@csat'] },
@@ -150,8 +150,8 @@ export const IMPACT = [
   { glob: 'functions/diagramly/**', tags: ['@ai'] },
   { glob: 'functions/ai-generate-title.ts', tags: ['@ai'] },
   { glob: 'workers/agent-link/**', tags: ['@ai'] },
-  { glob: 'src/lite-full-conversion.ts', tags: ['@conversion'] },
-  { glob: 'src/full-presence.ts', tags: ['@conversion'] },
+  { glob: 'src/forge-functions/lite-full-conversion.ts', tags: ['@conversion'] },
+  { glob: 'src/forge-functions/full-presence.ts', tags: ['@conversion'] },
   { glob: 'functions/conversion/**', tags: ['@conversion'] },
   { glob: 'src/utils/newDiagramLink.ts', tags: ['@deeplink'] },
   { glob: 'src/utils/macroEntryRouting.ts', tags: ['@deeplink', '@editor'] },
@@ -162,7 +162,7 @@ export const IMPACT = [
   { glob: 'workers/confluence-deeplink/**', tags: ['@deeplink'] },
   { glob: 'src/routes/{getStarted,homepageFeed,createDemoPage}.ts', tags: ['@route'] },
   { glob: 'src/components/{GetStarted,HomepageFeed,Admin}/**', tags: ['@route'] },
-  { glob: 'src/{createDemoPage,demoPageContent}.js', tags: ['@route'] },
+  { glob: 'src/forge-functions/{createDemoPage,demoPageContent}.js', tags: ['@route'] },
   // catalog.ts / types.ts change with nearly every feature (CLAUDE.md: every
   // feature registers its events there); 17 of 40 recent PRs touched them. A
   // new event name changes nothing another surface can observe, so they map
@@ -181,7 +181,7 @@ export const IMPACT = [
   { glob: 'functions/metrics-cache/**', tags: ['@analytics'] },
   { glob: 'functions/admin/**', tags: ['@analytics'] },
   { glob: 'functions/forge-user-behavior.ts', tags: ['@analytics'] },
-  { glob: 'src/page-capture.js', tags: ['@analytics'] },
+  { glob: 'src/forge-functions/page-capture.js', tags: ['@analytics'] },
   { glob: 'functions/forge-page-capture.ts', tags: ['@analytics'] },
 ];
 

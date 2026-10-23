@@ -107,7 +107,7 @@ interface ExportResultMessageData {
 
 /**
  * Join keys + diagnostic context shared by every `attachment_upload_*` event.
- * Mirrors the backend `joinKeyProps()` in src/export.js so analysts can
+ * Mirrors the backend `joinKeyProps()` in src/forge-functions/export.js so analysts can
  * left-join uploads → exports on (cloud_id, custom_content_id, page_id).
  */
 interface UploadContext {
@@ -968,7 +968,7 @@ async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promi
  *   - `attachment_upload_succeeded` (event_label: 'created' | 'updated', plus version_number)
  *   - `attachment_upload_failed`    (event_label: failure reason, plus error fields)
  * Each carries the same join keys (page_id, custom_content_id, cloud_id, ...)
- * used by the backend `macro_export_*` events in src/export.js.
+ * used by the backend `macro_export_*` events in src/forge-functions/export.js.
  *
  * `_succeeded` gives us a denominator for computing the true upload failure rate.
  */

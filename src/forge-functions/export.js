@@ -1,8 +1,8 @@
 
 import api, { route, routeFromAbsolute } from '@forge/api';
-import { readPngDimensions } from './lib/pngDimensions.js';
-import { decideExportSample } from './lib/exportSampling.js';
-import { readPngState, writePngState } from './lib/pngExportState.js';
+import { readPngDimensions } from './pngDimensions.js';
+import { decideExportSample } from './exportSampling.js';
+import { readPngState, writePngState } from '../lib/pngExportState.js';
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -230,7 +230,7 @@ export async function trackExportEvent(eventName, properties) {
     console.debug('Export: MIXPANEL_TOKEN not set — skipping analytics');
     return;
   }
-  // Quota sampling (src/lib/exportSampling.js). Null means "drop this one";
+  // Quota sampling (src/forge-functions/exportSampling.js). Null means "drop this one";
   // otherwise the returned props carry the `sample_rate` stamp that lets a
   // count be extrapolated as `count / sample_rate`.
   const sampleProps = decideExportSample(eventName);
@@ -324,7 +324,7 @@ async function ensureCustomContentParsed(ctx) {
 /**
  * Reads the export PNG's own pixel width/height without downloading the
  * whole file: a byte-Range request for the first 32 bytes is enough to cover
- * the PNG signature + IHDR chunk (see src/lib/pngDimensions.js). If the
+ * the PNG signature + IHDR chunk (see src/forge-functions/pngDimensions.js). If the
  * Confluence attachment endpoint ignores the Range header it just returns the
  * full file — readPngDimensions only reads the leading bytes it needs either
  * way, so correctness doesn't depend on Range support, only bandwidth does.

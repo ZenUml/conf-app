@@ -38,12 +38,12 @@ export function createPageStore(documentId: string) {
     return state.hub?.activeDocumentId === documentId ? 'active' : 'inactive'
   })
 
+  /** Tasks for the PR this tab shows now. A soft navigation keeps documentId, so documentId alone does not qualify a task. */
   const prTasks = computed<Task[]>(() => {
     const pr = state.pr
-    const tasks = state.hub?.tasks ?? []
-    return tasks.filter(
-      (t) => t.documentId === documentId || (!!pr && t.repoKey === repoKeyOf(pr) && t.prNumber === pr.number),
-    )
+    if (!pr) return []
+    const repoKey = repoKeyOf(pr)
+    return (state.hub?.tasks ?? []).filter((t) => t.repoKey === repoKey && t.prNumber === pr.number)
   })
 
   /** The task the panel shows: a working one first, else the latest that the user has not dismissed. */
@@ -66,8 +66,11 @@ export function createPageStore(documentId: string) {
   }
 
   function isOurTask(taskId: string, frameDocumentId?: string): boolean {
-    if (frameDocumentId) return frameDocumentId === documentId
-    return prTasks.value.some((t) => t.taskId === taskId)
+    if (frameDocumentId && frameDocumentId !== documentId) return false
+    if (prTasks.value.some((t) => t.taskId === taskId)) return true
+    // An event for this tab can arrive before the state frame that lists its task; a task the
+    // Hub already lists under another PR is not ours.
+    return !!frameDocumentId && !(state.hub?.tasks ?? []).some((t) => t.taskId === taskId)
   }
 
   function applyFrame(frame: HubFrame): void {

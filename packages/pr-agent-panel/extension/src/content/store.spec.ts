@@ -83,4 +83,19 @@ describe('page store', () => {
     s.applyFrame({ ...base, id: 'd', type: 'messageDelivered', messageId: 'm-1', channel: 'hook_context' })
     expect(s.state.messages[0]!.status).toBe('delivered')
   })
+
+  it('drops the previous PR\'s task and its events after a soft navigation to another PR or /pulls', () => {
+    const s = setup()
+    const ours: Task = { ...TASK_WORKING, documentId: 'doc-1' }
+    s.applyFrame(state('doc-1', [ours]))
+    expect(s.task.value?.taskId).toBe(ours.taskId)
+
+    s.state.pr = { ...PR_888, number: 1, url: 'https://github.com/example-org/example-repo/pull/1' }
+    expect(s.task.value).toBeNull()
+    s.applyFrame({ ...base, id: 'e', type: 'taskEvent', taskId: ours.taskId, seq: 1, documentId: 'doc-1', event: { kind: 'message', text: 'about PR 888' } })
+    expect(s.state.messages).toEqual([])
+
+    s.state.pr = null
+    expect(s.task.value).toBeNull()
+  })
 })

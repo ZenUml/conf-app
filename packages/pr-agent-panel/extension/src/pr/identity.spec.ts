@@ -22,10 +22,15 @@ describe('parsePrRef', () => {
     expect(ref?.headSha).toBeUndefined()
   })
 
-  it('takes headSha from a /commits/<sha> URL', () => {
-    expect(parsePrRef('https://github.com/o/r/pull/5/commits/ABC1234')?.headSha).toBe('abc1234')
+  it('never takes the PR head from a /commits/<sha> URL: that commit may be an older one', () => {
+    expect(parsePrRef('https://github.com/o/r/pull/5/commits/ABC1234')?.headSha).toBeUndefined()
     expect(parsePrRef('https://github.com/o/r/pull/5/commits')?.headSha).toBeUndefined()
-    expect(parsePrRef('https://github.com/o/r/pull/5/commits/not-a-sha')?.headSha).toBeUndefined()
+    const head = 'b'.repeat(40)
+    const doc = new DOMParser().parseFromString(
+      `<react-app initial-path="/o/r/pull/5/commits/abc1234"><script type="application/json" data-target="react-app.embeddedData">{"headSha":"${head}"}</script></react-app>`,
+      'text/html',
+    )
+    expect(parsePrRef('https://github.com/o/r/pull/5/commits/abc1234', doc)?.headSha).toBe(head)
   })
 
   it('returns null for the PR list and for non-PR pages', () => {

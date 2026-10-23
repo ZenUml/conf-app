@@ -54,7 +54,7 @@ export function parseRepoRef(url: string): RepoRef | null {
 export function parsePrRef(url: string, doc?: Document): PrRef | null {
   const parts = splitUrl(url)
   if (!parts) return null
-  const [kind, num, sub, subId] = parts.rest
+  const [kind, num] = parts.rest
   if (kind !== 'pull' || !num || !/^\d+$/.test(num)) return null
   const number = Number(num)
   if (!Number.isSafeInteger(number) || number <= 0) return null
@@ -66,7 +66,9 @@ export function parsePrRef(url: string, doc?: Document): PrRef | null {
     number,
     url: `https://${parts.host}/${parts.owner}/${parts.repo}/pull/${number}`,
   }
-  const headSha = sub === 'commits' && subId && ShaSchema.safeParse(subId).success ? subId.toLowerCase() : doc ? readHeadSha(doc, number) : undefined
+  // Never from a /commits/<sha> URL: that commit can be older than the PR head, and stale marking
+  // and begin_task both need the head.
+  const headSha = doc ? readHeadSha(doc, number) : undefined
   if (headSha) ref.headSha = headSha
   const title = doc ? readTitle(doc) : undefined
   if (title) ref.title = title

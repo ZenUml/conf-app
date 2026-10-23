@@ -1,7 +1,7 @@
 # What a returning user sees — fewer consent screens, and more than one site
 
 Date: 2026-09-26
-Status: proposed
+Status: partly shipped. §1 (the signed returning-user cookie, the `/authorize` branch, `prompt=login` and `select_account` as escape hatches) landed in `d4638db5` on 2026-10-03; the multi-site question in §2 is still open.
 Related: [ADR 0008](../../adr/0008-agent-link-runs-its-own-authorization-server.md), [headless diagram MCP design](2026-09-19-headless-diagram-mcp-design.md), `functions/agent-link/oauth/`
 
 ## Why this exists
@@ -164,8 +164,10 @@ cookie is stale but the grant looks fine".
 1. **Verify (a) first.** Install ZenUML on a second dev site, authorize once,
    and see whether `list_sites` returns both. One afternoon, and it decides
    whether §2(b) is work at all.
-2. The returning-user cookie and the `/authorize` branch (§1), with
-   `prompt=login` as the escape hatch.
+2. **Done, `d4638db5` (2026-10-03).** The returning-user cookie and the `/authorize`
+   branch (§1), with `prompt=login` (and `select_account`) as the escape hatch.
+   The grant key is still per user, so a second authorization still overwrites
+   the first; that is step 3.
 3. Whichever multi-site shape step 1 proves necessary.
 
 ## What this does not change

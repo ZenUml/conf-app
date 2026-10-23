@@ -68,12 +68,48 @@ the subfolder-only reviewer holds in the
   (checked 2026-10-17). OpenAI requires the policy to cover what the app
   accesses through ChatGPT. The README's *Data and privacy* section lists what
   the policy has to cover.
-- **Reviewer account.** Both directories need credentials for a populated
-  Confluence site with ZenUML installed. The robot account behind
-  `ATLASSIAN_USERNAME` uses a one-time code, which ChatGPT review does not
-  accept.
+- **Reviewer account: blocked by Atlassian's new-device check.** See
+  [Reviewer test account](#reviewer-test-account). Signing in from a new
+  browser asks for a code Atlassian emails to the account, and ChatGPT review
+  does not accept an email code.
+- **Atlassian consent screen says "Agent Link".** The 3LO app the MCP server
+  signs users in with is registered in the Atlassian developer console as
+  *Agent Link*, so Atlassian's consent page reads "Agent Link is requesting
+  access to your Atlassian account" before ours names the client. Rename the
+  console app to ZenUML before review, so the two screens agree with the
+  listing.
 - **ChatGPT host test.** The diagram view has only been tested in claude.ai.
   Add the endpoint as a ChatGPT developer-mode connector and call
   `read_diagram` before submitting.
-- **Sample data.** The ChatGPT test cases name an *Order checkout* diagram and a
-  *Release process* page; create both on the reviewer site.
+
+## Reviewer test account
+
+Set up 2026-10-23. The credentials are not in this repository; they are kept
+with the team's other shared credentials and go only into each portal's
+private reviewer-credentials field.
+
+| | |
+|---|---|
+| Account | A dedicated Atlassian account named *ZenUML Reviewer*, no two-step verification |
+| Site | `https://zenuml-review.atlassian.net`, Confluence Free, owned by that account, used for nothing else |
+| App | ZenUML Diagrams and Open API Lite, production (Marketplace listing 1219422) |
+| Space | *ZenUML Demo* (`DEMO`) |
+| Pages | *Order checkout* (ZenUML sequence diagram, without an inventory step, which positive test case 4 adds); *Architecture overview* (Mermaid flowchart); *Release process* (text only; test case 5 adds a diagram) |
+
+Checked 2026-10-23, signed in as the reviewer from a fresh browser:
+
+- Both diagrams render in Confluence.
+- The connector flow against `https://conf-lite.zenuml.com/agent-link/mcp`
+  (dynamic registration, PKCE, Atlassian consent, then ours) issued a token
+  with `diagram.read diagram.write`.
+- `list_sites` returned only `zenuml-review` (variant `lite`, identity
+  resolved); `list_diagrams` returned both diagrams; `read_diagram` returned
+  the *Order checkout* source; `get_status` succeeded.
+
+**Blocker:** every sign-in from a new browser stopped at Atlassian's "We
+require additional verification to protect your account" page, which waits
+for a code emailed to the account, before the site or the connector consent
+was reached. ChatGPT's submission guide requires an account that works
+without email or SMS codes, and a reviewer cannot read the account's
+mailbox. Whether Atlassian can be told to skip this check for one account is
+not yet known.

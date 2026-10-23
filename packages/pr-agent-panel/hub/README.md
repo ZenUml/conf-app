@@ -50,8 +50,17 @@ alive. A foreground Hub (`--hub`) never idles out unless
 | `hub.lock.lock/` | proper-lockfile lock held by the running Hub |
 | `start.lock.lock/` | short-lived lock held by the shim that spawns the Hub |
 | `hub.json` | `{pid, port, hubVersion, socket, startedAt}` of the running Hub, 0600 |
-| `store/reviews/<encoded repoKey>.json` | review runs, written atomically, 0600 |
 | `analytics-id` | random Mixpanel `distinct_id`, only when analytics is on |
+
+## Review store
+
+Review runs are kept data, so they live outside the OS temp directory, which the system may clear:
+`~/.zenuml-pr-panel/store/reviews/<encoded repoKey>.json`, written atomically, 0600. With
+`PR_PANEL_RUNTIME_DIR` set the store is `<runtime dir>/store` instead, so a test Hub never touches
+real reviews; `PR_PANEL_STORE_DIR` overrides both.
+
+Before 2026-10-24 the store was `<os temp>/zenuml-pr-panel/store`. On start, a Hub whose store has no
+reviews copies them from there once; it never deletes the old copy.
 
 The Hub refuses a runtime directory or socket that is a symlink or owned by
 another user.

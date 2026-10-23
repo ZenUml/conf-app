@@ -14,7 +14,7 @@ import { listenConsumerSocket } from './consumer-transport'
 import { createLogger } from './log'
 import { ReviewStore } from './review-store'
 import { HUB_VERSION, HubRuntime } from './runtime'
-import { assertSafeSocketPath, ensurePrivateDir, PRIVATE_FILE_MODE, resolveRuntimePaths } from './runtime-paths'
+import { assertSafeSocketPath, ensurePrivateDir, migrateLegacyStore, PRIVATE_FILE_MODE, resolveRuntimePaths } from './runtime-paths'
 import { createExtensionOriginPolicy } from './security'
 import { startWebSocketServer, type StartedWebSocketServer } from './websocket-server'
 
@@ -87,6 +87,10 @@ async function main(): Promise<void> {
     process.exit(EXIT_EXISTING_HUB)
   }
 
+  if (paths.legacyStoreDir) {
+    const moved = migrateLegacyStore(paths.legacyStoreDir, paths.storeDir)
+    if (moved > 0) log.info(`Copied ${moved} review file(s) from ${paths.legacyStoreDir} to ${paths.storeDir}`)
+  }
   const store = new ReviewStore(paths.storeDir)
   const analytics = new Analytics({ token: process.env.PR_PANEL_MIXPANEL_TOKEN, idPath: paths.analyticsId })
   const runtime = new HubRuntime({ store, analytics, hubVersion: HUB_VERSION })

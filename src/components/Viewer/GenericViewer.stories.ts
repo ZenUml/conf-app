@@ -13,8 +13,8 @@ import Sequence from '@/components/Sequence.vue'
 import Mermaid from '@/components/Mermaid.vue'
 import PlantUml from '@/components/PlantUml.vue'
 import store from '@/model/store2'
-import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnvScope, stageForgeEnv } from '../../../.storybook/forgeEnv'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
 import { classifyViewerLoadOutcome, setViewerLoadState } from '@/utils/viewerLoadOutcome'
 import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
@@ -153,21 +153,25 @@ const ARCHITECTURE_TOKENS_RESPONSE = {
 
 /** No real Forge bridge — same shape Header.stories.ts / GetStarted.stories.ts use. */
 function stubForge(moduleKey?: string, architectureTokensEnabled = false, customContentId?: string, accountId = 'storybook-user') {
-  forgeGlobal.isForge = architectureTokensEnabled
-  forgeGlobal.isLite = true
-  forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.invalid'
-  forgeGlobal.forgeContext = {
-    accountId,
-    cloudId: 'storybook-cloud',
-    // isEmbedded (GenericViewer.vue) reads forgeContext.moduleKey directly —
-    // set only by the Embedded story below.
-    moduleKey,
-    extension: {
-      content: { id: 'storybook-page' },
-      space: { key: 'DOCS' },
-      config: { customContentId },
+  stageForgeEnv({
+    forge: {
+      isForge: architectureTokensEnabled,
+      isLite: true,
+      zenumlRemoteBaseUrl: 'https://storybook.invalid',
+      forgeContext: {
+        accountId,
+        cloudId: 'storybook-cloud',
+        // isEmbedded (GenericViewer.vue) reads forgeContext.moduleKey directly —
+        // set only by the Embedded story below.
+        moduleKey,
+        extension: {
+          content: { id: 'storybook-page' },
+          space: { key: 'DOCS' },
+          config: { customContentId },
+        },
+      },
     },
-  }
+  })
 }
 
 function stubFeatureFlags(architectureTokensEnabled: boolean) {
@@ -187,13 +191,17 @@ function stubFeatureFlags(architectureTokensEnabled: boolean) {
  * that same assertion.
  */
 function stubApWrapper({ delayMs = 0, displayMode = true }: { delayMs?: number; displayMode?: boolean } = {}) {
-  globals.apWrapper.isDisplayMode = () => displayMode
-  globals.apWrapper.canUserEdit = async () => true
-  globals.apWrapper.initializeContext = async () => undefined
-  globals.apWrapper.getCurrentPage = async () => {
-    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
-    return SAMPLE_PAGE
-  }
+  stageForgeEnv({
+    apWrapper: {
+      isDisplayMode: () => displayMode,
+      canUserEdit: async () => true,
+      initializeContext: async () => undefined,
+      getCurrentPage: async () => {
+        if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
+        return SAMPLE_PAGE
+      },
+    },
+  })
 }
 
 /**
@@ -574,6 +582,9 @@ const meta: Meta<typeof GenericViewer> = {
       },
     },
   },
+  // Restores the Forge singletons that configureStory() stages (see forgeEnv.ts). It takes
+  // them when the story mounts, so it does not depend on the decorator order described above.
+  decorators: [forgeEnvScope],
 }
 
 export default meta
@@ -624,22 +635,26 @@ function stubRenamePersistence({ failWith }: { failWith?: Error } = {}) {
   // The post-write D1 mirror sync (services/CustomContent.ts) POSTs to the
   // backend; answer it so the story's console stays clean.
   stubResponses.remote = [{ match: '/forge-custom-content', body: { ok: true } }]
-  ;(globals.apWrapper as any).countMacrosReferencing = async () => 1
-  ;(globals.apWrapper as any).getCustomContentByIdV2 = async (id: string) => ({
-    id,
-    type: 'zenuml-content-sequence',
-    status: 'current',
-    pageId: 'storybook-page',
-    title: (store.state as any).diagram.title,
-    version: { number: 1 },
-    body: { raw: { value: '' } },
-    value: { ...(store.state as any).diagram },
+  stageForgeEnv({
+    apWrapper: {
+      countMacrosReferencing: async () => 1,
+      getCustomContentByIdV2: async (id: string) => ({
+        id,
+        type: 'zenuml-content-sequence',
+        status: 'current',
+        pageId: 'storybook-page',
+        title: (store.state as any).diagram.title,
+        version: { number: 1 },
+        body: { raw: { value: '' } },
+        value: { ...(store.state as any).diagram },
+      }),
+      updateCustomContentV2: async (existing: any) => {
+        await new Promise((resolve) => setTimeout(resolve, 700))
+        if (failWith) throw failWith
+        return { ...existing, version: { number: 2 } }
+      },
+    },
   })
-  ;(globals.apWrapper as any).updateCustomContentV2 = async (existing: any) => {
-    await new Promise((resolve) => setTimeout(resolve, 700))
-    if (failWith) throw failWith
-    return { ...existing, version: { number: 2 } }
-  }
 }
 
 /**

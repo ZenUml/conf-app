@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, within } from 'storybook/test'
 import PaywallWarningBanner from './PaywallWarningBanner.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { targetingMarkerKey, macroActivityMarkerKey, impressionMarkerKey } from '@/utils/paywall/warningBanner'
 import { spaceAdminProbeKey } from '@/utils/paywall/spaceAdminProbe'
 
@@ -72,30 +72,6 @@ function installSpaceAdminMarkers() {
   )
 }
 
-/**
- * Stub getView() by pre-seeding forgeGlobal.view with a no-op close.
- * getView() returns early when global.view is already set, so this prevents
- * any attempt to import @forge/bridge or call window.location.reload().
- */
-function installForgeMocks() {
-  forgeGlobal.isForge = false
-  forgeGlobal.isLite = true
-  forgeGlobal.forgeContext = {
-    accountId: 'storybook-user',
-    siteUrl: `https://${DOMAIN}.atlassian.net`,
-    extension: {
-      content: { id: 'storybook-page' },
-      space: { key: SPACE },
-    },
-  }
-  // Pre-seed the view cache so getView() never tries to import @forge/bridge
-  forgeGlobal.view = {
-    close: async () => {
-      console.info('[storybook] view.close() – no-op')
-    },
-  }
-}
-
 function installClipboardMock() {
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -131,9 +107,28 @@ const meta: Meta<typeof PaywallWarningBanner> = {
     },
   },
   decorators: [
+    forgeEnv({
+      forge: {
+        isForge: false,
+        isLite: true,
+        forgeContext: {
+          accountId: 'storybook-user',
+          siteUrl: `https://${DOMAIN}.atlassian.net`,
+          extension: {
+            content: { id: 'storybook-page' },
+            space: { key: SPACE },
+          },
+        },
+        // Pre-seed the view cache so getView() never tries to import @forge/bridge
+        view: {
+          close: async () => {
+            console.info('[storybook] view.close() – no-op')
+          },
+        },
+      },
+    }),
     () => {
       installMarkers()
-      installForgeMocks()
       installClipboardMock()
       installNavigationMock()
       return { template: '<story />' }

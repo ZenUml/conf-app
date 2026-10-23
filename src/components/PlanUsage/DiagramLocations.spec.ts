@@ -94,13 +94,18 @@ describe('DiagramLocations', () => {
       { space: ENG, types: ['ac:lite:zenuml-content-sequence'], cursor: null, limit: 100 },
       { space: OPS, types: ['ac:lite:zenuml-content-sequence'], cursor: null, limit: 100 },
     ])
-    expect(w.get('[data-testid="diagram-locations-summary"]').text()).toBe('4 available diagrams · 3 owning pages · 2 spaces')
+    expect(w.get('[data-testid="diagram-locations-summary"]').text()).toBe('4 diagrams on 3 pages in 2 spaces')
     expect(w.findAll('[data-testid="diagram-locations-row"]')).toHaveLength(4)
-    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('1–4 of 4 available diagrams')
+    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('1–4 of 4')
     expect(w.get('[data-testid="diagram-locations-status"]').text()).toMatch(/Fetched at/)
     // A space the viewer cannot see is neither listed nor offered as a filter.
     expect(w.get('[data-testid="diagram-locations-space-filter"]').text()).not.toContain('HR')
-    expect(w.get('[data-testid="diagram-locations-coverage"]').text()).toContain('reported site count of 25')
+    expect(w.get('[data-testid="diagram-locations-coverage"]').text()).toContain('site count of 25')
+    expect(w.get('[data-testid="diagram-locations-coverage"]').text()).toBe(
+      'This list can miss diagrams and may not match the site count of 25. It shows the page that owns each diagram, not pages that embed it.')
+    expect(w.text()).not.toContain('Last updated')
+    expect(w.text()).not.toContain('Rows per page')
+    expect(w.text()).not.toMatch(/Page \d+ of/)
     const loaded = events().filter((e) => e.name === 'plan_usage_locations_loaded')
     expect(loaded.map((e) => e.props.page_index)).toEqual([0, 1])
     expect(loaded[0].props).toMatchObject({ load_outcome: 'ok', listed_count: 3, hidden_count: 0, has_more: false })
@@ -162,8 +167,8 @@ describe('DiagramLocations', () => {
     vi.advanceTimersByTime(300)
     await flushPromises()
     expect(w.findAll('[data-testid="diagram-locations-row"]').map((r) => r.text())).toEqual([expect.stringContaining('Payment retry')])
-    expect(w.get('[data-testid="diagram-locations-summary"]').text()).toBe('1 matching diagram · 1 owning page · 1 space')
-    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('1–1 of 1 matching diagrams')
+    expect(w.get('[data-testid="diagram-locations-summary"]').text()).toBe('1 diagram on 1 page in 1 space')
+    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('1–1 of 1')
 
     await search.setValue('delivery')
     await search.trigger('keydown', { key: 'Enter' })
@@ -200,32 +205,32 @@ describe('DiagramLocations', () => {
     expect(events().filter((e) => e.name === 'plan_usage_locations_filtered').map((e) => e.props.locations_filter)).toEqual(['space', 'space', 'type'])
   })
 
-  it('pages the sorted list ten at a time, with Previous / Next bounds and page size resetting to page 1', async () => {
+  it('pages the sorted list ten at a time, with Previous / Next bounds', async () => {
     const many = Array.from({ length: 25 }, (_, i) => row({ contentId: `d${i}`, diagramTitle: `Diagram ${String(i).padStart(2, '0')}` }))
     loadDiagramLocations.mockImplementation(async (_get: unknown, opts: { space: { key: string } }) =>
       batch({ rows: opts.space.key === 'ENG' ? many : [] }))
     const w = mountScreen(SUMMARIES, 25, true)
     await flushPromises()
 
-    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('1–10 of 25 available diagrams')
-    expect(w.get('[data-testid="diagram-locations-page-pos"]').text()).toBe('Page 1 of 3')
+    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('1–10 of 25')
+    expect(w.find('[data-testid="diagram-locations-page-pos"]').exists()).toBe(false)
+    expect(w.text()).not.toMatch(/Page \d+ of/)
+    expect(w.text()).not.toContain('Rows per page')
+    expect(w.find('[data-testid="diagram-locations-page-size"]').exists()).toBe(false)
     expect(w.get('[data-testid="diagram-locations-prev"]').attributes('disabled')).toBeDefined()
     expect(w.findAll('[data-testid="diagram-locations-row"]')[0].text()).toContain('Diagram 00')
 
     await w.get('[data-testid="diagram-locations-next"]').trigger('click')
     await flushPromises()
-    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('11–20 of 25 available diagrams')
+    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('11–20 of 25')
     expect(w.findAll('[data-testid="diagram-locations-row"]')[0].text()).toContain('Diagram 10')
     expect(document.activeElement).toBe(w.get('[data-testid="diagram-locations-summary"]').element)
 
     await w.get('[data-testid="diagram-locations-next"]').trigger('click')
-    expect(w.get('[data-testid="diagram-locations-page-pos"]').text()).toBe('Page 3 of 3')
+    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('21–25 of 25')
     expect(w.get('[data-testid="diagram-locations-next"]').attributes('disabled')).toBeDefined()
 
-    await w.get('[data-testid="diagram-locations-page-size"]').setValue('25')
-    expect(w.get('[data-testid="diagram-locations-page-pos"]').text()).toBe('Page 1 of 1')
-    expect(w.findAll('[data-testid="diagram-locations-row"]')).toHaveLength(25)
-    expect(events().filter((e) => e.name === 'plan_usage_locations_filtered').map((e) => e.props.locations_filter)).toEqual(['page', 'page', 'page_size'])
+    expect(events().filter((e) => e.name === 'plan_usage_locations_filtered').map((e) => e.props.locations_filter)).toEqual(['page', 'page'])
     w.unmount()
   })
 
@@ -246,7 +251,7 @@ describe('DiagramLocations', () => {
     await flushPromises()
     expect(loadDiagramLocations.mock.calls[1][1]).toMatchObject({ space: ENG, cursor: next })
     expect(loadDiagramLocations.mock.calls[2][1]).toMatchObject({ space: OPS, cursor: null })
-    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('1–10 of 502 available diagrams')
+    expect(w.get('[data-testid="diagram-locations-range"]').text()).toBe('1–10 of 502')
     expect(w.get('[data-testid="diagram-locations-status"]').text()).toMatch(/Fetched at/)
   })
 

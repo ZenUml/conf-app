@@ -1,0 +1,48 @@
+name: 'AsyncAPI Studio submodule and build cache'
+description: 'Init the vendor/asyncapi-studio submodule, resolve its SHA and restore/save the Studio build cache. Requires actions/checkout (without submodules) to have run first.'
+
+outputs:
+  studio-sha:
+    description: 'HEAD SHA of vendor/asyncapi-studio'
+    value: ${{ steps.studio-sha.outputs.sha }}
+  cache-hit:
+    description: 'Whether the Studio cache matched the primary key exactly'
+    value: ${{ steps.studio-cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Init asyncapi-studio submodule
+      shell: bash
+      run: git submodule update --init --depth 1 vendor/asyncapi-studio
+    # Capture the submodule SHA so the cache key changes only when the
+    # studio pin moves — every PR that doesn't bump vendor/asyncapi-studio
+    # reuses the previous build artifacts.
+    - name: Resolve asyncapi-studio submodule SHA
+      id: studio-sha
+      shell: bash
+      run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+    # Cache Studio build output + its node_modules. On a cache hit:
+    #   - static/asyncapi-studio/.studio-commit already matches the pin,
+    #     so scripts/build-studio.sh fast-paths out (no pnpm install,
+    #     no Next.js build) — saves ~60–90s per CI run.
+    #   - vendor/asyncapi-studio/node_modules being restored means a
+    #     forced rebuild (FORCE_REBUILD=1) is also cheap because pnpm
+    #     install in the submodule short-circuits.
+    # Cache key includes scripts/build-studio.sh hash so changes to the
+    # build logic invalidate the cache. The fallback restore-keys lets
+    # us still pull node_modules even if the submodule SHA moved (saves
+    # most of the pnpm install on pin bumps).
+    - name: Cache asyncapi Studio build
+      id: studio-cache
+      uses: actions/cache@v5
+      with:
+        path: |
+          static/asyncapi-studio
+          vendor/asyncapi-studio/node_modules
+          vendor/asyncapi-studio/apps/*/node_modules
+          vendor/asyncapi-studio/packages/*/node_modules
+        key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+        restore-keys: |
+          studio-${{ steps.studio-sha.outputs.sha }}-
+          studio-

@@ -1,0 +1,23 @@
+name: 'Setup Node and pnpm'
+description: 'Install pnpm and Node. Requires actions/checkout to have run first (pnpm version comes from package.json).'
+
+inputs:
+  node-version:
+    description: 'The node version'
+    required: false
+    default: '24'
+  cache:
+    description: 'Package manager cache for actions/setup-node ("pnpm", or empty for none)'
+    required: false
+    default: 'pnpm'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v5
+    - name: Setup Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ${{ inputs.cache }}

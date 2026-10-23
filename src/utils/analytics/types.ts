@@ -65,6 +65,13 @@ import type {
   HighlightFeedbackVariant,
   HighlightDismissStage,
   HighlightDismissCause,
+  PrPanelHubDisconnectReason,
+  PrPanelTaskKind,
+  PrPanelAgentKind,
+  PrPanelTaskOutcome,
+  PrPanelDeliveryChannel,
+  PrPanelPanelState,
+  PrPanelPreferenceKey,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -1151,4 +1158,21 @@ export type AnalyticsProperties = {
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;
+  // GitHub PR Agent Panel — see catalog.ts pr_panel_* events; counts/outcomes
+  // only, no repository or PR identifiers.
+  review_count?: number; // rows rendered in the left list
+  row_index?: number; // 0-based position of the clicked row
+  is_stale?: boolean; // reviewed head SHA differs from the PR's current head
+  panel_state?: PrPanelPanelState;
+  connect_ms?: number; // time from first probe to registered
+  hub_disconnect_reason?: PrPanelHubDisconnectReason;
+  task_kind?: PrPanelTaskKind;
+  agent_kind?: PrPanelAgentKind;
+  resumed?: boolean; // task continued an earlier review run
+  task_outcome?: PrPanelTaskOutcome;
+  finding_count?: number;
+  turn_count?: number;
+  message_length_bucket?: 'short' | 'medium' | 'long';
+  delivery_channel?: PrPanelDeliveryChannel;
+  preference_key?: PrPanelPreferenceKey;
 };

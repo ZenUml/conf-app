@@ -26,7 +26,11 @@ export type FeatureArea =
   // The "What's new" release-notes strip in the shared page-banner host. Its
   // own area because, like "byline", it renders on any page — including pages
   // with no diagram — and measures announcement reach, not a macro lifecycle.
-  | "whats_new";
+  | "whats_new"
+  // The GitHub PR Agent Panel browser extension and its local Hub. Events are
+  // emitted by the Hub (Node) via Mixpanel HTTP, never by Confluence code.
+  // Properties never carry repo names, PR titles, diffs or review text.
+  | "pr_agent_panel";
 
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
@@ -39,6 +43,39 @@ export type MagicFailureReason =
   | "unsafe_svg"
   | "render_failed"
   | "source_changed";
+
+/** Why the PR Agent Panel lost or failed to reach its local Hub. */
+export type PrPanelHubDisconnectReason =
+  | "not_running"
+  | "closed"
+  | "protocol_mismatch"
+  | "origin_rejected"
+  | "another_connection";
+
+/** What the agent was asked to do: a review run or a free-form chat turn. */
+export type PrPanelTaskKind = "review" | "chat";
+
+/** Which local agent session the Hub is talking to. */
+export type PrPanelAgentKind = "claude_code" | "codex" | "other";
+
+/** Terminal state of a PR Agent Panel task. */
+export type PrPanelTaskOutcome = "completed" | "failed" | "cancelled";
+
+/** How a queued user message reached the agent session. */
+export type PrPanelDeliveryChannel =
+  | "hook_context"
+  | "stop_block"
+  | "prompt_context"
+  | "tool_poll";
+
+/** State of the floating agent panel after a toggle. */
+export type PrPanelPanelState = "expanded" | "collapsed";
+
+/** Which PR Agent Panel preference the user changed. */
+export type PrPanelPreferenceKey =
+  | "panel_collapsed"
+  | "preferences_hidden"
+  | "mcp_access";
 
 export type MacroTypeValue =
   | "sequence"
@@ -120,7 +157,11 @@ export type Surface =
   // Not a UI surface: the iframe's own analytics bootstrap (_initMixpanel).
   // Used by analytics_init_degraded, which fires before any surface is known.
   // Segment by the `module_key` property to see which iframe degraded.
-  | "iframe_bootstrap";
+  | "iframe_bootstrap"
+  // The PR Agent Panel extension's UI on a github.com pull-request page (left
+  // review list + floating agent panel). Not a Confluence surface, so it has
+  // no Storybook group.
+  | "github_pr";
 
 export type EntryPoint =
   | "page_view"
@@ -1618,7 +1659,22 @@ export type AnalyticsEventName =
   // action already covered by `advocacy_message_copied`).
   | "request_full_guide_shown"
   | "request_full_reason_copied"
-  | "request_full_atlassian_clicked";
+  | "request_full_atlassian_clicked"
+  // GitHub PR Agent Panel (feature_area=pr_agent_panel, surface=github_pr),
+  // emitted by the local Hub. Funnel: list shown -> row clicked; hub connected
+  // -> task started -> message queued -> message delivered -> task completed.
+  // Counts and outcomes only; never repo names, PR titles, diffs or review text.
+  | "pr_panel_review_list_shown"
+  | "pr_panel_review_row_clicked"
+  | "pr_panel_panel_toggled"
+  | "pr_panel_hub_connected"
+  | "pr_panel_hub_disconnected"
+  | "pr_panel_task_started"
+  | "pr_panel_task_completed"
+  | "pr_panel_message_sent"
+  | "pr_panel_message_queued"
+  | "pr_panel_message_delivered"
+  | "pr_panel_preferences_changed";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

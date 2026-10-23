@@ -1,0 +1,13 @@
+{
+  "name": "pr-panel",
+  "version": "0.1.0",
+  "description": "Connect your Claude Code session to the ZenUML PR Agent Panel on GitHub pull-request pages: review the PR you are looking at, and receive the messages you type in the panel.",
+  "author": {
+    "name": "ZenUML"
+  },
+  "license": "MIT",
+  "keywords": ["github", "pull-request", "code-review", "mcp", "zenuml"],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

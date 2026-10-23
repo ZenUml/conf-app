@@ -21,7 +21,20 @@ claude --plugin-dir "$PWD/packages/pr-agent-panel/agent-plugin"
 Then open a PR on github.com with the extension loaded, turn on MCP access in
 the panel's Preferences, and ask Claude to "review the PR in the panel".
 
+Claude Code names the tools `mcp__plugin_pr-panel_pr-panel__<tool>`. To skip the
+permission prompt per call, allow the whole server, for example
+`--allowedTools mcp__plugin_pr-panel_pr-panel` (a `mcp__*` wildcard does not match).
+
 ## Notes
+
+- Verified live on 2026-10-23 (Claude Code `-p`, sonnet, real github.com PR page):
+  the MCP tools update the panel and the left list, and a message typed in the
+  panel mid-turn reaches the session through `PreToolUse` `additionalContext`.
+  Claude Code passes an MCP tool's result to `PostToolUse` as a JSON string;
+  `lifecycle.mjs` parses it to bind the session to the task.
+- `.mcp.json` points at `../hub/dist`, so the plugin works from this repo
+  (`--plugin-dir`). A marketplace install would copy the plugin without the Hub
+  and needs a published `pr-panel-mcp` package instead.
 
 - The hook script has no dependencies and always exits 0 within 1.5 s. With
   no Hub running it prints nothing.

@@ -13,7 +13,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { connect, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
-import { CLIENT_EVENT_METHOD, type AgentKind } from '@zenuml/pr-panel-shared'
+import { CLIENT_EVENT_METHOD } from '@zenuml/pr-panel-shared'
+import { detectAgent } from './agent-detect'
 import { createLogger } from './log'
 import { assertSafeSocketPath, ensurePrivateDir, resolveRuntimePaths } from './runtime-paths'
 
@@ -25,16 +26,6 @@ const EXIT_EXISTING_HUB = 75
 const HUB_ENTRY = fileURLToPath(new URL('./hub.mjs', import.meta.url))
 
 const paths = resolveRuntimePaths()
-
-export function detectAgent(env: NodeJS.ProcessEnv): { kind: AgentKind; sessionId?: string } {
-  if (env.CLAUDE_CODE) {
-    const sessionId = env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID
-    return { kind: 'claude_code', ...(sessionId ? { sessionId } : {}) }
-  }
-  const codex = env.CODEX_THREAD_ID || env.CODEX_SESSION_ID
-  if (codex) return { kind: 'codex', sessionId: codex }
-  return { kind: 'other' }
-}
 
 let activeSocket: Socket | null = null
 

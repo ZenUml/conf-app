@@ -133,6 +133,29 @@ describe('consumer socket', () => {
     expect(runtime.queue.pending()).toHaveLength(1)
   })
 
+  it('lifecycle.mjs binds the task when tool_response is the JSON string Claude Code sends for MCP tools', async () => {
+    // Shape captured from a live Claude Code 2.1 PostToolUse hook on 2026-10-23: the MCP
+    // tool's structured result, serialised to a JSON string — not a content array.
+    const { runtime, dir } = await startSocket()
+    const conn = connectExtension(runtime)
+    runtime.handleExtensionFrame(conn.id, frame('register', { documentId: 'd1', pr: PR }))
+    const agent = runtime.connectAgent({ kind: 'claude_code', connectedAt: 1 })
+    const { taskId } = runtime.beginTask(agent, { repo: REPO, prNumber: 7, kind: 'review' })
+
+    const post = await runLifecycle(dir, {
+      session_id: 'sess-str',
+      hook_event_name: 'PostToolUse',
+      tool_name: 'mcp__plugin_pr-panel_pr-panel__begin_task',
+      tool_response: JSON.stringify({ taskId, documentId: 'd1', pendingMessages: [] }),
+    })
+    expect(post).toEqual({ code: 0, stdout: '' })
+    expect(runtime.hooks.session('claude', 'sess-str')?.boundTaskIds.has(taskId)).toBe(true)
+
+    runtime.handleExtensionFrame(conn.id, frame('userMessage', { documentId: 'd1', text: 'Typed mid-turn' }))
+    const pre = await runLifecycle(dir, { session_id: 'sess-str', hook_event_name: 'PreToolUse', tool_name: 'mcp__plugin_pr-panel_pr-panel__report_progress' })
+    expect(JSON.parse(pre.stdout).hookSpecificOutput.additionalContext).toContain('Typed mid-turn')
+  })
+
   it('lifecycle.mjs exits 0 silently when no Hub is running', async () => {
     const { dir } = makeRuntime()
     const result = await runLifecycle(dir, { session_id: 's', hook_event_name: 'Stop' })

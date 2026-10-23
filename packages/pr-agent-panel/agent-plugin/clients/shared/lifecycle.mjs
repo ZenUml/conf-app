@@ -22,6 +22,15 @@ function socketPath() {
 }
 
 function taskIdFrom(response) {
+  // Claude Code passes an MCP tool's structured result as a JSON string (verified live,
+  // 2026-10-23); other hosts may pass the raw MCP result object or its content array.
+  if (typeof response === 'string') {
+    try {
+      response = JSON.parse(response)
+    } catch {
+      return undefined
+    }
+  }
   if (!response || typeof response !== 'object' || response.isError) return undefined
   let result = response.structuredContent || response.result?.structuredContent || response
   if (typeof result?.taskId !== 'string') {

@@ -26,6 +26,7 @@ import { readUiResource, uiCapability, uiResourceList, withUiMeta, UI_EXTENSION_
 import type { GateEnv } from './headlessGate';
 import type { GrantEvent } from './tokenStore';
 import { mixpanelTrack } from '../../service/mixpanelService';
+import { withDeadline } from '../../../src/lib/withTimeout.js';
 import { loadClient, type McpTokenRecord } from './asStore';
 import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
@@ -119,11 +120,9 @@ const WRITE_EVENT_BY_TOOL: Record<string, string | undefined> = {
 };
 
 /** Bound a fire-and-forget analytics call so it cannot outlive the request it describes. */
-function withTimeout(work: Promise<unknown>): Promise<void> {
-  return Promise.race([
-    work.then(() => undefined),
-    new Promise<void>((resolve) => setTimeout(resolve, ANALYTICS_TIMEOUT_MS)),
-  ]).catch(() => undefined);
+function boundAnalytics(work: Promise<unknown>): Promise<void> {
+  return withDeadline<void, void>(work.then(() => undefined), ANALYTICS_TIMEOUT_MS, undefined)
+    .catch(() => undefined);
 }
 
 async function trackWrite(
@@ -138,7 +137,7 @@ async function trackWrite(
   const event = WRITE_EVENT_BY_TOOL[tool];
   if (!event) return;
   try {
-    await withTimeout(mixpanelTrack(
+    await boundAnalytics(mixpanelTrack(
       {
         event,
         user_account_id: userId,
@@ -210,7 +209,7 @@ async function trackInitialize(
   if (!env.MIXPANEL_TOKEN) return;
   const info = (params as { clientInfo?: { name?: unknown; version?: unknown } } | undefined)?.clientInfo;
   try {
-    await withTimeout(mixpanelTrack(
+    await boundAnalytics(mixpanelTrack(
       {
         event: 'agent_link_mcp_initialized',
         user_account_id: userId,
@@ -261,7 +260,7 @@ async function trackViewRead(
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   try {
-    await withTimeout(mixpanelTrack(
+    await boundAnalytics(mixpanelTrack(
       {
         event: outcome.ok ? 'agent_link_app_view_requested' : 'agent_link_app_view_failed',
         user_account_id: token.userId,
@@ -295,7 +294,7 @@ async function trackViewRead(
  */
 async function trackGrantEvent(env: HeadlessEnv, userId: string, event: GrantEvent): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
-  await withTimeout(mixpanelTrack(
+  await boundAnalytics(mixpanelTrack(
     {
       event: event.type === 'revoked' ? 'agent_link_oauth_revoked' : 'agent_link_oauth_refresh_failed',
       user_account_id: userId,
@@ -324,7 +323,7 @@ async function trackWriteRefusal(
   const event = WRITE_EVENT_BY_TOOL[tool];
   if (!event) return;
   try {
-    await withTimeout(mixpanelTrack(
+    await boundAnalytics(mixpanelTrack(
       {
         event,
         user_account_id: userId,
@@ -374,7 +373,7 @@ async function trackToolCall(
   call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string; macroType?: string },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
-  await withTimeout(mixpanelTrack(
+  await boundAnalytics(mixpanelTrack(
     {
       event: 'agent_link_mcp_tool_called',
       user_account_id: userId,

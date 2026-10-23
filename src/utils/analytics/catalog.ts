@@ -1618,7 +1618,38 @@ export type AnalyticsEventName =
   // action already covered by `advocacy_message_copied`).
   | "request_full_guide_shown"
   | "request_full_reason_copied"
-  | "request_full_atlassian_clicked";
+  | "request_full_atlassian_clicked"
+  // "Where diagrams are used" on the Plan and usage page: per space, the pages
+  // that hold the site's stored diagrams. The list names each diagram's
+  // ORIGINAL page (the custom-content parent). Macro placements that embed a
+  // diagram stored on another page are not enumerated, so every count on these
+  // events is a count of stored diagrams, never of placements.
+  // `plan_usage_locations_shown` fires once per mount when the section renders
+  // (`space_count` = spaces holding at least one reported diagram).
+  // `plan_usage_locations_space_expanded` fires the first time a space row is
+  // opened (`macro_count` = the KV-reported stored-diagram count for it).
+  // `plan_usage_locations_loaded` fires per fetched batch, including "Load
+  // more" (`page_index` 0 = the first batch), with `load_outcome`,
+  // `listed_count`, `hidden_count` (diagrams whose page the viewer cannot
+  // read), `has_more` and `duration_ms`.
+  // `plan_usage_locations_load_failed` fires instead when the batch threw or
+  // Confluence answered a non-2xx the viewer cannot act on (`http_status`).
+  // `plan_usage_locations_page_clicked` fires when a row's page link opens
+  // (`macro_type` = the diagram on that row).
+  | "plan_usage_locations_shown"
+  | "plan_usage_locations_space_expanded"
+  | "plan_usage_locations_loaded"
+  | "plan_usage_locations_load_failed"
+  | "plan_usage_locations_page_clicked";
+
+/**
+ * How one "Where diagrams are used" batch resolved. `ok` listed at least one
+ * row; `empty` found no stored diagram the viewer can list in that space;
+ * `forbidden` means Confluence refused the space or its custom content for
+ * this viewer (403 / 404), which is an answer, not a failure. Failures carry
+ * `failed` on plan_usage_locations_load_failed.
+ */
+export type DiagramLocationsLoadOutcome = "ok" | "empty" | "forbidden" | "failed";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

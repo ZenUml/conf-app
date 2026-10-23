@@ -1,0 +1,23 @@
+{
+  "name": "@zenuml/pr-panel-shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Protocol contract shared by the GitHub PR Agent Panel extension, Hub and agent plugin: zod schemas, constants, pure helpers. Browser-safe (no Node APIs).",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.9"
+  }
+}

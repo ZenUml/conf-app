@@ -63,6 +63,12 @@ export async function readPngState(request, pageId, customContentId, onFailure =
  * Start accepts only an attempt at least as new as the stored attempt.
  * Terminal updates require the same attempt ID. Conflicts cause one fresh read
  * and decision, never a blind overwrite of a newer result.
+ *
+ * `onFailure` is called as `onFailure(operation, error)` (see `readPngState`).
+ * @param {any} request
+ * @param {any} input
+ * @param {(operation: string, error: unknown) => void} [onFailure]
+ * @param {number} [now]
  */
 export async function writePngState(request, input, onFailure = () => {}, now = Date.now()) {
   const { pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, expectedVersion } = input;

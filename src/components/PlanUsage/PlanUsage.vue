@@ -1,5 +1,5 @@
 <template>
-  <div class="plan-usage">
+  <div class="plan-usage" :class="{ 'plan-usage--wide': view === 'locations' }">
     <template v-if="view === 'usage'">
       <h1>Plan and usage</h1>
       <p class="domain">{{ domain }}</p>
@@ -269,6 +269,9 @@ function trackAnalyticsPlanUsage(eventName: AnalyticsEventName) {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: #172B4D; /* --neutral-text */
 }
+/* The Diagram-locations table has six columns; the Figma frame (#848) lays it
+   out at 1072px of content, where the 720px usage column would clip it. */
+.plan-usage--wide { max-width: 1072px; }
 h1 { font-size: 20px; font-weight: 600; line-height: 1.3; margin: 0 0 4px; }
 .domain { font-size: 13px; color: #6B778C; margin: 0 0 24px; } /* --neutral-subtle */
 .muted { color: #6B778C; }

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, within } from 'storybook/test'
 import GetStarted from './GetStarted.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import FeedbackHost from '@/features/feedback/FeedbackHost.vue'
 import { storyFeedbackContext } from '@/features/feedback/feedbackStoryFixtures'
 
@@ -13,16 +13,6 @@ type Story = StoryObj<typeof GetStarted>
  *  - mockClientDomain lets getLocalStorageKey() produce stable keys for analytics
  */
 function installMocks() {
-  forgeGlobal.isForge = false
-  forgeGlobal.isLite = true
-  forgeGlobal.forgeContext = {
-    accountId: 'storybook-user',
-    siteUrl: 'https://example-tenant.atlassian.net',
-    extension: {
-      content: { id: 'storybook-page' },
-      space: { key: 'STORY' },
-    },
-  }
   localStorage.setItem('mockClientDomain', 'example-tenant')
 }
 
@@ -42,6 +32,20 @@ const meta: Meta<typeof GetStarted> = {
     },
   },
   decorators: [
+    forgeEnv({
+      forge: {
+        isForge: false,
+        isLite: true,
+        forgeContext: {
+          accountId: 'storybook-user',
+          siteUrl: 'https://example-tenant.atlassian.net',
+          extension: {
+            content: { id: 'storybook-page' },
+            space: { key: 'STORY' },
+          },
+        },
+      },
+    }),
     () => {
       installMocks()
       return {

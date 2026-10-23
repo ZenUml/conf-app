@@ -4,8 +4,7 @@ import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import { expect, waitFor, within } from 'storybook/test'
 import ForgeGraphViewer from './ForgeGraphViewer.vue'
 import store from '@/model/store2'
-import globals from '@/model/globals'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
 import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer'
 
@@ -52,37 +51,38 @@ const meta: Meta<typeof ForgeGraphViewer> = {
 
 export default meta
 
-function useRealGraphFixture({
-  graphXml,
-  title,
-  accountId,
-  contentId,
-}: {
+interface RealGraphFixture {
   graphXml: string
   title: string
   accountId: string
   contentId: string
-}) {
+}
+
+/** The Forge environment of a fullscreen Lite graph viewer; restored when the story unmounts. */
+function realGraphEnv({ accountId, contentId }: RealGraphFixture) {
+  return forgeEnv({
+    forge: {
+      isForge: false,
+      isLite: true,
+      forgeContext: { accountId, extension: { content: { id: contentId }, config: {}, modal: { macroMode: 'fullscreen' } } },
+    },
+    apWrapper: {
+      isDisplayMode: () => true,
+      canUserEdit: async () => true,
+      initializeContext: async () => undefined,
+    },
+  })
+}
+
+const REAL_TWO_PAGE: RealGraphFixture = { graphXml: TWO_PAGE_GRAPH, title: 'Two-page Graph export', accountId: 'storybook-graph-user', contentId: 'storybook-graph-content' }
+const REAL_WIDE: RealGraphFixture = { graphXml: WIDE_GRAPH, title: 'Wide Graph export', accountId: 'storybook-wide-graph-user', contentId: 'storybook-wide-graph-content' }
+const REAL_ZOOM: RealGraphFixture = { graphXml: WIDE_GRAPH, title: 'Wide Graph zoom', accountId: 'storybook-zoom-graph-user', contentId: 'storybook-zoom-graph-content' }
+
+function useRealGraphFixture({ graphXml, title, contentId }: RealGraphFixture) {
   const ready = ref(false)
-  const previousForge = {
-    isForge: forgeGlobal.isForge,
-    isLite: forgeGlobal.isLite,
-    forgeContext: forgeGlobal.forgeContext,
-  }
-  const previousWrapper = {
-    isDisplayMode: globals.apWrapper.isDisplayMode,
-    canUserEdit: globals.apWrapper.canUserEdit,
-    initializeContext: globals.apWrapper.initializeContext,
-  }
   const previousDiagram = { ...(store.state as any).diagram }
 
   onMounted(async () => {
-    forgeGlobal.isForge = false
-    forgeGlobal.isLite = true
-    forgeGlobal.forgeContext = { accountId, extension: { content: { id: contentId }, config: {}, modal: { macroMode: 'fullscreen' } } } as any
-    globals.apWrapper.isDisplayMode = () => true
-    globals.apWrapper.canUserEdit = async () => true
-    globals.apWrapper.initializeContext = async () => undefined
     store.commit('updateDiagramType', DiagramType.Graph)
     store.commit('updateTitle', title)
     Object.assign((store.state as any).diagram, { graphXml, source: DataSource.CustomContent, id: contentId, isNew: false })
@@ -91,12 +91,6 @@ function useRealGraphFixture({
   })
 
   onUnmounted(() => {
-    forgeGlobal.isForge = previousForge.isForge
-    forgeGlobal.isLite = previousForge.isLite
-    forgeGlobal.forgeContext = previousForge.forgeContext
-    globals.apWrapper.isDisplayMode = previousWrapper.isDisplayMode
-    globals.apWrapper.canUserEdit = previousWrapper.canUserEdit
-    globals.apWrapper.initializeContext = previousWrapper.initializeContext
     Object.assign((store.state as any).diagram, previousDiagram)
   })
 
@@ -105,10 +99,11 @@ function useRealGraphFixture({
 
 export const RealTwoPageExport: Story = {
   name: 'Real GraphViewer — two-page export bounds',
+  decorators: [realGraphEnv(REAL_TWO_PAGE)],
   render: () => ({
     components: { ForgeGraphViewer },
     setup() {
-      return useRealGraphFixture({ graphXml: TWO_PAGE_GRAPH, title: 'Two-page Graph export', accountId: 'storybook-graph-user', contentId: 'storybook-graph-content' })
+      return useRealGraphFixture(REAL_TWO_PAGE)
     },
     template: '<div style="width:1200px;height:760px;margin:0 auto;background:#fff"><ForgeGraphViewer v-if="ready" :graph-xml="graphXml" /></div>',
   }),
@@ -155,10 +150,11 @@ export const RealTwoPageExport: Story = {
 
 export const RealWideGraphExport: Story = {
   name: 'Real GraphViewer — wide non-unit-scale export',
+  decorators: [realGraphEnv(REAL_WIDE)],
   render: () => ({
     components: { ForgeGraphViewer },
     setup() {
-      return useRealGraphFixture({ graphXml: WIDE_GRAPH, title: 'Wide Graph export', accountId: 'storybook-wide-graph-user', contentId: 'storybook-wide-graph-content' })
+      return useRealGraphFixture(REAL_WIDE)
     },
     template: '<div style="width:900px;height:620px;margin:0 auto;background:#fff"><ForgeGraphViewer v-if="ready" :graph-xml="graphXml" /></div>',
   }),
@@ -184,10 +180,11 @@ export const RealWideGraphExport: Story = {
 
 export const RealGraphPanZoom: Story = {
   name: 'Real GraphViewer — pan and zoom',
+  decorators: [realGraphEnv(REAL_ZOOM)],
   render: () => ({
     components: { ForgeGraphViewer },
     setup() {
-      return useRealGraphFixture({ graphXml: WIDE_GRAPH, title: 'Wide Graph zoom', accountId: 'storybook-zoom-graph-user', contentId: 'storybook-zoom-graph-content' })
+      return useRealGraphFixture(REAL_ZOOM)
     },
     template: '<div style="width:900px;height:620px;margin:0 auto;background:#fff"><ForgeGraphViewer v-if="ready" :graph-xml="graphXml" /></div>',
   }),

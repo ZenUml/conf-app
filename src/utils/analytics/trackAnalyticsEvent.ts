@@ -14,6 +14,7 @@ import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
 import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
+import { withDeadline } from "@/lib/withTimeout.js";
 import { resolveEffectiveCustomContentId } from "@/utils/effectiveCustomContentId";
 
 // Singleton init promise: the first tracked event per iframe resolves the
@@ -62,17 +63,12 @@ async function _resolveSessionReplayConfig(): Promise<{
   config: Awaited<ReturnType<typeof getSessionReplayConfig>>;
   timedOut: boolean;
 }> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const config = await Promise.race([
+    const config = await withDeadline(
       getSessionReplayConfig(),
-      new Promise<typeof SESSION_REPLAY_CONFIG_TIMED_OUT>((resolve) => {
-        timeout = setTimeout(
-          () => resolve(SESSION_REPLAY_CONFIG_TIMED_OUT),
-          SESSION_REPLAY_CONFIG_TIMEOUT_MS,
-        );
-      }),
-    ]);
+      SESSION_REPLAY_CONFIG_TIMEOUT_MS,
+      SESSION_REPLAY_CONFIG_TIMED_OUT,
+    );
     if (config === SESSION_REPLAY_CONFIG_TIMED_OUT) {
       return { config: REPLAY_TIMEOUT, timedOut: true };
     }
@@ -80,8 +76,6 @@ async function _resolveSessionReplayConfig(): Promise<{
   } catch (error) {
     console.debug("[session-replay] off: config lookup threw", error);
     return { config: REPLAY_OFF, timedOut: false };
-  } finally {
-    if (timeout) clearTimeout(timeout);
   }
 }
 
@@ -431,25 +425,18 @@ async function _getDemoPageTelemetry(
     return {};
   }
 
-  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const isDemo = await Promise.race([
+    const isDemo = await withDeadline(
       isCurrentPageDemoPage(),
-      new Promise<typeof DEMO_PAGE_TELEMETRY_TIMED_OUT>((resolve) => {
-        timeout = setTimeout(
-          () => resolve(DEMO_PAGE_TELEMETRY_TIMED_OUT),
-          DEMO_PAGE_TELEMETRY_TIMEOUT_MS,
-        );
-      }),
-    ]);
+      DEMO_PAGE_TELEMETRY_TIMEOUT_MS,
+      DEMO_PAGE_TELEMETRY_TIMED_OUT,
+    );
     if (isDemo === DEMO_PAGE_TELEMETRY_TIMED_OUT) {
       return {};
     }
     return isDemo ? { is_demo_page: true } : {};
   } catch {
     return {};
-  } finally {
-    if (timeout) clearTimeout(timeout);
   }
 }
 

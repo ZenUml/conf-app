@@ -174,8 +174,9 @@ describe('forgeIndex Publish handler — per-step publish timing', () => {
     await publishOver(save, 300);
 
     expect(publishEvent()).toMatchObject({ attachment_ack_ms: 300, attachment_timed_out: false });
-    // The cap timer is not cleared (existing behaviour), so it fires later —
-    // after the event is already out — and must not change what was reported.
+    // The cap timer is cleared once the race settles (#952), so nothing fires
+    // later; even if it did, it must not change what was reported.
+    expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(ATTACHMENT_CAP_MS);
     expect(h.trackAnalyticsEvent.mock.calls.filter(([n]) => n === 'macro_publish_completed')).toHaveLength(1);
   });

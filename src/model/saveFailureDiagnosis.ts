@@ -22,6 +22,7 @@
 
 import type { CreateNotFoundShape, MacroTypeValue, SaveFailureProbeStatus, Surface } from '@/utils/analytics/catalog';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { withDeadline } from '@/lib/withTimeout.js';
 
 export interface SaveFailureDiagnosis {
   probe_status: SaveFailureProbeStatus;
@@ -141,17 +142,15 @@ export async function diagnoseSaveFailure(
   if (!shape) return GENERIC_SAVE_FAILED_MESSAGE;
 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<SaveFailureDiagnosis>((resolve) => {
-    timer = setTimeout(() => resolve({ probe_status: 'failed' }), timeoutMs);
-  });
   let diagnosis: SaveFailureDiagnosis;
   try {
-    diagnosis = await Promise.race([prober.diagnoseCreateNotFound(), timeout]);
+    diagnosis = await withDeadline<SaveFailureDiagnosis, SaveFailureDiagnosis>(
+      prober.diagnoseCreateNotFound(),
+      timeoutMs,
+      { probe_status: 'failed' },
+    );
   } catch {
     diagnosis = { probe_status: 'failed' };
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 
   trackAnalyticsEvent('save_failed_diagnosed', {

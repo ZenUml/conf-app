@@ -382,6 +382,7 @@ import { placeDiagram } from '@/utils/byline/placeDiagram'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
+import { withDeadline } from '@/lib/withTimeout.js'
 
 /** Drives nothing in the template any more — the picker renders immediately
  *  rather than behind a skeleton (see the empty-state comment) — but the list
@@ -675,12 +676,6 @@ let openedTracked = false
  */
 const PLACEMENT_WAIT_MS = 2500
 
-/** Resolve `undefined` rather than hang past `ms`, while letting the original
- *  promise keep running — a late answer is still worth applying. */
-function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
-  return Promise.race([p, new Promise<undefined>(r => setTimeout(() => r(undefined), ms))])
-}
-
 async function loadDiagrams() {
   let health: ListingHealth = LISTING_TOTAL_FAILURE
   try {
@@ -689,7 +684,9 @@ async function loadDiagrams() {
     // so the wall-clock cost is the slower of them rather than their sum.
     const placement = scanPlacement()
     const responses = await globals.apWrapper.listPageDiagramContents(pageId)
-    await withDeadline(placement, PLACEMENT_WAIT_MS)
+    // Resolves undefined past the bound; the original promise keeps running,
+    // so a late answer is still applied.
+    await withDeadline(placement, PLACEMENT_WAIT_MS, undefined)
     health = summarizeListing(responses)
     diagrams.value = parsePageDiagrams(responses)
     // An unreadable page is NOT an empty page. The create path still works, so

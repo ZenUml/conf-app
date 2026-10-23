@@ -1,5 +1,8 @@
-import { Env } from '../../utils/KVEnv';
 import { json } from '../../OkResponse';
+
+interface Env {
+  confluence_plugin_features: KVNamespace;
+}
 
 interface SpaceMetrics {
   space: string;

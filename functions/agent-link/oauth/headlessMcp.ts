@@ -30,6 +30,7 @@ import { loadClient, type McpTokenRecord } from './asStore';
 import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
 import { issuerFor } from './asMetadata';
+import { json } from '../../OkResponse';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -65,7 +66,7 @@ const RPC_TOOL_ERROR = -32003;
 type JsonRpcId = string | number | null;
 
 function result(id: JsonRpcId, value: unknown): Response {
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: value }), {
+  return json({ jsonrpc: '2.0', id, result: value }, {
     status: 200,
     headers: JSON_HEADERS,
   });
@@ -74,7 +75,7 @@ function result(id: JsonRpcId, value: unknown): Response {
 function error(status: number, id: JsonRpcId, code: number, message: string, extra?: { headers?: Record<string, string>; data?: unknown }): Response {
   const body: Record<string, unknown> = { code, message };
   if (extra?.data !== undefined) body.data = extra.data;
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: body }), {
+  return json({ jsonrpc: '2.0', id, error: body }, {
     status,
     headers: { ...JSON_HEADERS, ...(extra?.headers ?? {}) },
   });
@@ -98,11 +99,11 @@ export interface HeadlessEnv extends OAuthEnv, GateEnv {
 /**
  * Emit the write events (design §10).
  *
- * The one that matters is `paywall_gate` on a create: the §9.1 gate fails OPEN
- * when a space's macro count cannot be read, so the share of creates reporting
- * 'count_unknown' is the only measure of how often the Lite limit is skipped
- * rather than applied. Nothing else answers that — the frontend's gate never
- * runs on this path, so its own paywall_gate_evaluated is silent here.
+ * The one that matters is `paywall_gate` on a create: it says whether the
+ * space was paid, under the Lite limit, over it ('over_limit' — allowed, since
+ * the limit no longer blocks), or uncounted ('count_unknown'). Nothing else
+ * answers that — the frontend's gate never runs on this path, so its own
+ * paywall_gate_evaluated is silent here.
  *
  * Analytics never fails a write and never delays one: the tool has already
  * succeeded by the time this runs, so a slow or unreachable Mixpanel must not
@@ -136,7 +137,7 @@ async function trackWrite(
   value: unknown,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
-  const out = (value ?? {}) as { result?: unknown; gate?: unknown };
+  const out = (value ?? {}) as { result?: unknown; gate?: unknown; titleChanged?: unknown };
   const event = WRITE_EVENT_BY_TOOL[tool];
   if (!event) return;
   try {
@@ -149,6 +150,8 @@ async function trackWrite(
         cloud_id: cloudId,
         result: typeof out.result === 'string' ? out.result : undefined,
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
+        // update_diagram only: did the call rename the diagram (#789)?
+        title_changed: typeof out.titleChanged === 'boolean' ? out.titleChanged : undefined,
       },
       env.MIXPANEL_TOKEN,
       env,
@@ -310,9 +313,8 @@ async function trackGrantEvent(env: HeadlessEnv, userId: string, event: GrantEve
 }
 
 /**
- * A refusal is as informative as a success here: 'limit_reached' is the gate
- * actually biting, and `guardrail_rejected` is the write guard refusing a
- * truncation. Both are invisible if only successes are counted.
+ * A refusal is as informative as a success here: `guardrail_rejected` is the
+ * write guard refusing a truncation, invisible if only successes are counted.
  */
 async function trackWriteRefusal(
   env: HeadlessEnv,
@@ -336,7 +338,6 @@ async function trackWriteRefusal(
         // can quote a Confluence error.
         reason: failure.code,
         guardrail_rejected: failure.code === 'guardrail_rejected' || undefined,
-        paywall_gate: failure.code === 'limit_reached' ? 'limit_reached' : undefined,
       },
       env.MIXPANEL_TOKEN,
       env,
@@ -373,7 +374,7 @@ function clip(value: unknown): string | undefined {
 async function trackToolCall(
   env: HeadlessEnv,
   userId: string,
-  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string },
+  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string; macroType?: string },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   await withTimeout(mixpanelTrack(
@@ -388,9 +389,37 @@ async function trackToolCall(
       mcp_tool_outcome: call.outcome,
       reason: call.reason,
       duration_ms: call.durationMs,
+      macro_type: call.macroType,
     },
     env.MIXPANEL_TOKEN,
   ));
+}
+
+/** The analytics macro_type vocabulary, keyed by the stored diagramType folded to lower case. */
+const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
+  sequence: 'sequence',
+  mermaid: 'mermaid',
+  plantuml: 'plantuml',
+  graph: 'graph',
+  openapi: 'openapi',
+  asyncapi: 'asyncapi',
+  markdown: 'markdown',
+};
+
+/**
+ * Which diagram type a successful diagram tool call touched: read_diagram
+ * reports it, create_diagram was told it. update_diagram knows neither, so it
+ * goes untyped rather than guessed. Anything outside the closed vocabulary is
+ * dropped — the stored field is free text.
+ */
+export function macroTypeOf(tool: string, args: unknown, value: unknown): string | undefined {
+  const from =
+    tool === 'read_diagram'
+      ? (value as { diagramType?: unknown } | null)?.diagramType
+      : tool === 'create_diagram'
+        ? (args as { diagramType?: unknown } | null)?.diagramType
+        : undefined;
+  return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
 }
 
 export interface HeadlessMcpDeps {
@@ -543,12 +572,13 @@ export async function handleHeadlessRpc(
       const tool = params.name;
       const cloudId = cloudIdOf(params.arguments);
       const startedMs = now();
-      const trackCall = (outcome: ToolOutcome, reason?: string) =>
+      const trackCall = (outcome: ToolOutcome, reason?: string, macroType?: string) =>
         defer(trackToolCall(env, auth.token.userId, {
           tool,
           outcome,
           reason,
           cloudId,
+          macroType,
           durationMs: Math.max(0, now() - startedMs),
         }));
       if (!HEADLESS_TOOLS.some((t) => t.name === tool)) {
@@ -573,7 +603,7 @@ export async function handleHeadlessRpc(
           ctx,
         );
         await trackWrite(env, params.name, auth.token.userId, cloudId, value);
-        await trackCall('success');
+        await trackCall('success', undefined, macroTypeOf(params.name, params.arguments, value));
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {

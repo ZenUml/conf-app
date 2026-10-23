@@ -1,6 +1,6 @@
 import { getDiagramFontState } from '@/utils/fonts/diagramFontState';
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
-import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
+import type { CacheState, MacroTypeValue, RenderMode, CacheSource, ContentState } from './catalog';
 import { getTimings } from './renderPerf';
 import { getRenderIdentity } from './renderIdentity';
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
@@ -54,11 +54,16 @@ export function measureCacheState(): {
 // `cacheSource` records where a `cached_svg` render got its SVG so we can tell
 // the cache-hit path apart from live render in Mixpanel. Defaults to 'none',
 // which is the correct value for `live_render` (the existing 2-arg callers).
+//
+// `contentState` (#113) is the caller's classification of the body it just
+// rendered — see utils/analytics/contentState.ts. Omitted when the caller has
+// no verdict (e.g. the load failed), in which case the property is absent.
 export function trackRenderTime(
   macroType: MacroTypeValue,
   isDisplayMode: boolean,
   renderMode: RenderMode = 'live_render',
   cacheSource: CacheSource = 'none',
+  contentState?: ContentState,
 ): void {
   const t0 = window.__macroLoadStart;
   if (typeof t0 !== 'number') return;
@@ -77,6 +82,7 @@ export function trackRenderTime(
     macro_type: macroType,
     render_mode: renderMode,
     cache_source: cacheSource,
+    ...(contentState !== undefined ? { content_state: contentState } : {}),
     duration_ms,
     cache_state: cacheState,
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),

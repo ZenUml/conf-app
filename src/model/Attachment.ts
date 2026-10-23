@@ -5,9 +5,46 @@ import { toast } from '@/utils/toast';
 import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
+import {ForgeRequestError} from '@/utils/forgeRequestError';
 import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { writePngState } from '@/lib/pngExportState.js';
+
+type PngState = 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready';
+
+async function recordPngState(
+  pageId: string, customContentId: string, state: PngState,
+  attemptId: string, startedAt: number, contentHash: string, attachmentId?: string,
+  surface: 'editor' | 'viewer' = 'viewer',
+  startAttempt = false,
+): Promise<void> {
+  try {
+  const { requestConfluence } = await import('@forge/bridge');
+  const reportFailure = (operation: 'read' | 'create' | 'update', error: unknown) => {
+    trackAnalyticsEvent('png_export_state_persistence_failed', {
+      feature_area: 'macro', surface, page_id: pageId,
+      custom_content_id: customContentId, png_export_property_operation: operation,
+      failure_reason: error instanceof Error ? error.message.split('_')[0] : 'unknown',
+    });
+  };
+  const ok = await writePngState(
+    (url: string, method: string, body?: unknown) => requestConfluence(url, {
+      method: method as 'GET' | 'POST' | 'PUT',
+      ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
+    }),
+    { pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt },
+    reportFailure,
+  );
+  if (ok) trackAnalyticsEvent('png_export_state_changed', {
+    feature_area: 'macro', surface, page_id: pageId,
+    custom_content_id: customContentId, png_export_state: state,
+  });
+  } catch (error) {
+    console.warn('PNG export state write failed:', error);
+  }
+}
 
 // ============================================================================
 // Type Definitions
@@ -20,6 +57,11 @@ interface RequestConfig {
   type: 'GET' | 'POST' | 'PUT' | 'DELETE';
   contentType?: 'multipart/form-data' | 'application/json';
   data?: Record<string, unknown>;
+  /**
+   * JSON requests only: make a non-2xx response throw `ForgeRequestError`
+   * (see `forgeRequest`) instead of returning its error body as if it were data.
+   */
+  throwOnHttpError?: boolean;
 }
 
 /** Metadata returned after attachment upload */
@@ -48,6 +90,8 @@ interface AttachmentWithLinks extends Attachment {
     base: string;
     download: string;
   };
+  /** v1 read only (`expand=metadata`): `metadata.comment` is what v2 surfaces as `comment`. */
+  metadata?: { comment?: string };
 }
 
 /** Response structure from API requests */
@@ -158,7 +202,9 @@ async function makeRequest(requestConfig: RequestConfig): Promise<ApiResponse> {
     }
     return { body };
   } else {
-    return await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
+    return requestConfig.throwOnHttpError
+      ? await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data, { throwOnHttpError: true })
+      : await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
   }
 }
 
@@ -547,6 +593,9 @@ function buildPutRequestToUpdateAttachmentProperties(
     url: buildAttachmentBasePath(pageId) + '/' + attachmentId,
     type: 'PUT',
     contentType: 'application/json',
+    // A rejected PUT must not read as success (#801): a JSON 4xx/5xx body is
+    // otherwise returned as data and the upload is reported as succeeded.
+    throwOnHttpError: true,
     data: {
       minorEdit: true,
       id: attachmentId,
@@ -662,13 +711,14 @@ export function parseConfluenceErrorClass(detail: string): string | undefined {
 /**
  * Pull an HTTP status out of an arbitrary thrown value.  Covers three shapes
  * we see in production:
- *   1. `AttachmentUploadHttpError.status` (our typed error)
+ *   1. `AttachmentUploadHttpError.status` / `ForgeRequestError.status` (our
+ *      typed errors — the latter is a non-JSON body from `forgeRequest`)
  *   2. `e.status` (Forge bridge surface on some failures)
  *   3. `e.xhr.status` (legacy XHR-style error)
  * Returns undefined when no status is recoverable.
  */
 function extractHttpStatus(e: unknown): number | undefined {
-  if (e instanceof AttachmentUploadHttpError) return e.status;
+  if (e instanceof AttachmentUploadHttpError || e instanceof ForgeRequestError) return e.status;
   const obj = e as { status?: unknown; xhr?: { status?: unknown } } | null | undefined;
   const candidate = obj?.status ?? obj?.xhr?.status;
   return typeof candidate === 'number' ? candidate : undefined;
@@ -680,7 +730,11 @@ function extractHttpStatus(e: unknown): number | undefined {
  * not free-form strings.  Examples:
  *   - `http_403`        — Confluence rejected the upload (permissions, etc.)
  *   - `http_404`        — page or content gone
- *   - `SyntaxError`     — body wasn't JSON (Confluence returned HTML/error page)
+ *   - `non_json_http_502` — `forgeRequest` got a body that wasn't JSON (an
+ *                         HTML error/login page) with that status. Kept apart
+ *                         from `http_<status>` because the response is a page,
+ *                         not a Confluence error envelope.
+ *   - `SyntaxError`     — body wasn't JSON on a path that has no status
  *   - `non_error_thrown` — something other than an Error was thrown
  *   - `Error`           — fallback (anonymous Error with no useful name)
  *   - `app_no_access`   — the app-authenticated fallback 404'd, i.e. the APP
@@ -695,6 +749,7 @@ function buildFailureLabel(
   viaAppFallback = false,
 ): string {
   if (httpStatus === 404 && viaAppFallback) return 'app_no_access';
+  if (e instanceof ForgeRequestError && e.nonJson) return `non_json_http_${e.status}`;
   if (typeof httpStatus === 'number') return `http_${httpStatus}`;
   if (e instanceof Error) return e.name || 'Error';
   return 'non_error_thrown';
@@ -740,6 +795,31 @@ async function tryGetAttachment(identifierOverride?: string): Promise<Attachment
   const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   const descending = attachments.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
   return descending.length > 0 && descending[0];
+}
+
+/** v1 answer for "a new attachment with this name already exists" (#75). */
+const SAME_FILE_NAME_RE = /Cannot add a new attachment with same file name/i;
+
+function isSameFileNameError(e: unknown): boolean {
+  return e instanceof AttachmentUploadHttpError && e.status === 400 && SAME_FILE_NAME_RE.test(e.message);
+}
+
+/**
+ * Re-resolve the attachment by name through the v1 API — the API the write
+ * goes through — instead of v2, which is what `tryGetAttachment` gates on and
+ * which just missed it (#75: v2/v1 visibility lag, or another iframe on the
+ * page created the same name a moment ago). Returns the highest version, or
+ * undefined when v1 does not list it either.
+ */
+async function findAttachmentViaV1(
+  pageId: string,
+  attachmentName: string,
+): Promise<AttachmentWithLinks | undefined> {
+  const url = `${buildAttachmentBasePath(pageId)}?filename=${encodeURIComponent(attachmentName)}&expand=version,metadata`;
+  const response = await forgeRequest(`/wiki${url}`, 'GET');
+  const results: AttachmentWithLinks[] = Array.isArray(response?.results) ? [...response.results] : [];
+  results.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
+  return results[0];
 }
 
 /**
@@ -811,6 +891,7 @@ async function uploadAttachmentViaApp(
   effectiveHash: string,
   blob: Blob,
   opts?: { async?: boolean },
+  attemptId?: string,
 ): Promise<AttachmentMeta> {
   const pngBase64 = await blobToBase64(blob);
   let raw: unknown;
@@ -821,6 +902,7 @@ async function uploadAttachmentViaApp(
       attachmentName,
       hash: effectiveHash,
       versionNumber: target.versionNumber,
+      ...(attemptId ? { pngAttemptId: attemptId } : {}),
       pngBase64,
       // Async mode: the backend acks after validation and completes the write
       // in waitUntil (survives editor teardown). See createAttachmentIfContentChanged.
@@ -829,7 +911,7 @@ async function uploadAttachmentViaApp(
   } catch (e) {
     // callRemote throws on a non-2xx transport response (e.g. the function
     // itself 500'd); normalise so the failure is labelled consistently.
-    throw new AttachmentUploadHttpError(0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
+    throw new AttachmentUploadHttpError(extractHttpStatus(e) ?? 0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
   }
   const result: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
   if (!result?.ok) {
@@ -853,12 +935,19 @@ async function uploadAttachmentViaApp(
  */
 async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promise<void> {
   const pageId = await global.apWrapper._getCurrentPageId();
-  await makeRequest(buildPutRequestToUpdateAttachmentProperties(
+  const result: any = await makeRequest(buildPutRequestToUpdateAttachmentProperties(
     pageId,
     attachmentMeta.attachmentId,
     attachmentMeta.versionNumber,
     attachmentMeta.hash
   ));
+  // The v1 POST can answer HTTP 200 with the failure wrapped in the body
+  // ({"statusCode":403,…}, see parseUploadResult); apply the same check to the
+  // PUT's parsed body in case the v1 properties endpoint does the same. A
+  // successful PUT returns the attachment object, which has no `statusCode`.
+  if (typeof result?.statusCode === 'number' && result.statusCode >= 400) {
+    throw new AttachmentUploadHttpError(result.statusCode, JSON.stringify(result));
+  }
 }
 
 // ============================================================================
@@ -947,6 +1036,11 @@ async function createAttachmentIfContentChanged(
   // The v1 attachment API only accepts status=current pages — a draft page returns a
   // wrapped 404 body, causing a misleading "no results" error downstream.
   if (forgeGlobal.forgeContext?.extension?.content?.status === 'draft') {
+    if (opts?.fromSave) {
+      const startedAt = Date.now();
+      await recordPngState(attachmentPageId, macroCustomContentId, 'waiting_for_publish',
+        crypto.randomUUID(), startedAt, hash, undefined, 'editor', true);
+    }
     return;
   }
 
@@ -960,6 +1054,10 @@ async function createAttachmentIfContentChanged(
   // Mixpanel instead of only recoverable by count-matching against
   // `attachment_upload_app_fallback_started` at 10% sampling (#392).
   let fallbackFromStatus: number | undefined;
+  const pngAttemptId = crypto.randomUUID();
+  const pngStartedAt = Date.now();
+  let pngAttemptStarted = false;
+  let pngCaptureCompleted = false;
 
   try {
     const attachment = await tryGetAttachment(overrideId);
@@ -972,12 +1070,15 @@ async function createAttachmentIfContentChanged(
     // When diagramType is absent injection is skipped, so no version token.
     const metaKey = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
     if (!attachment || metaKey !== attachment.comment) {
+      await recordPngState(attachmentPageId, macroCustomContentId, 'generating',
+        pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer', true);
+      pngAttemptStarted = true;
       const isUpdate = Boolean(attachment);
       const pageId = await global.apWrapper._getCurrentPageId();
       const identifier = overrideId ?? await getIdentifier();
       const attachmentName = attachmentNameByIdentifier(identifier!);
       const base = buildAttachmentBasePath(pageId);
-      const target: UploadTarget = isUpdate
+      let target: UploadTarget = isUpdate
         ? {
             isUpdate: true,
             attachmentId: (attachment as AttachmentWithLinks).id,
@@ -991,6 +1092,7 @@ async function createAttachmentIfContentChanged(
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
       const captureStartedAt = performance.now();
       const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+      pngCaptureCompleted = true;
       // Publish timing: only the save-time capture is on the publish path (a
       // view-time backfill is not), and only a produced PNG is timed — a failed
       // capture throws above and records nothing.
@@ -1004,7 +1106,7 @@ async function createAttachmentIfContentChanged(
       // (~1.5–3.5s) instead of capture + the full upload (~3–8s). The user is
       // the page editor here, so the app-token read-check always passes.
       if (opts?.fromSave) {
-        await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, { async: true });
+        await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, { async: true }, pngAttemptId);
         // Not "succeeded": the write completes server-side after we return, so
         // this is a queued signal. The view-time backfill + downstream
         // macro_export_* events measure the ultimate outcome.
@@ -1018,10 +1120,52 @@ async function createAttachmentIfContentChanged(
 
       let attachmentMeta: AttachmentMeta;
       let viaAppFallback = false;
+      // Set when the create POST hit v1's "same file name" 400 and we recovered
+      // by uploading a new version of the attachment v2 had missed (#75).
+      let recoveredFrom: 'same_name_400' | undefined;
+      // Set when the v1 re-read shows another writer already stored this exact
+      // metaKey: the upload is already done, so no second version is written.
+      let skippedDuplicate = false;
+      // Only a denied data POST can rerun the whole write as the app.
+      let stage: 'post' | 'put' = 'post';
+      const postAndParse = async (t: UploadTarget): Promise<AttachmentMeta> =>
+        parseUploadResult(await postAttachmentAsUser(attachmentName, t.uri, effectiveHash, blob), t, effectiveHash);
       try {
-        const response = await postAttachmentAsUser(attachmentName, target.uri, effectiveHash, blob);
-        attachmentMeta = parseUploadResult(response, target, effectiveHash);
-        await updateAttachmentProperties(attachmentMeta);
+        try {
+          attachmentMeta = await postAndParse(target);
+        } catch (createError) {
+          // The existence gate read v2 but this write is v1. If v1 already
+          // holds the name, retry ONCE as a new version of it. Only the create
+          // path can produce this; anything v1 can't find re-throws the
+          // original error unchanged.
+          if (target.isUpdate || !isSameFileNameError(createError)) throw createError;
+          const existing = await findAttachmentViaV1(pageId, attachmentName).catch(() => undefined);
+          if (!existing) throw createError;
+          recoveredFrom = 'same_name_400';
+          if (existing.metadata?.comment === metaKey) {
+            // Racing iframe (#75) wrote this exact content first; uploading
+            // again would add a byte-identical version. Same gate as the
+            // normal path above (`metaKey !== attachment.comment`).
+            skippedDuplicate = true;
+            target = {
+              isUpdate: true,
+              attachmentId: existing.id,
+              versionNumber: existing.version?.number ?? 0,
+              uri: base + '/' + existing.id + '/data',
+            };
+            attachmentMeta = { attachmentId: existing.id, versionNumber: target.versionNumber, hash: effectiveHash };
+          } else {
+            target = {
+              isUpdate: true,
+              attachmentId: existing.id,
+              versionNumber: (existing.version?.number ?? 0) + 1,
+              uri: base + '/' + existing.id + '/data',
+            };
+            attachmentMeta = await postAndParse(target);
+          }
+        }
+        stage = 'put';
+        if (!skippedDuplicate) await updateAttachmentProperties(attachmentMeta);
       } catch (e) {
         // Viewer-only users (issue #166) lack attachment-write permission on the
         // page even though the app does. On 401/403 — whether a real HTTP status
@@ -1029,7 +1173,14 @@ async function createAttachmentIfContentChanged(
         // properties PUT) server-side as the app. Every other failure (network,
         // 5xx, parse) re-throws so we don't burn the Forge remote on cases the
         // app can't fix anyway.
-        if (e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
+        // Only a denied POST qualifies. Once the POST succeeded the attachment
+        // (new) or its next version (update) already exists, so rerunning the
+        // write as the app would be rejected as a duplicate name (create) or add
+        // an extra version whose PUT conflicts (update). A 401/403 on the
+        // properties PUT — a real HTTP status (ForgeRequestError) or a
+        // 200-wrapped statusCode (AttachmentUploadHttpError) — therefore
+        // re-throws and is recorded as a labelled failure instead (#801).
+        if (stage === 'post' && e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
           fallbackFromStatus = e.status;
           // Emit BEFORE the fallback call so attempts are counted even when the
           // backend itself throws. `recovered_from_status` is the headline join.
@@ -1037,7 +1188,7 @@ async function createAttachmentIfContentChanged(
             ...ctx,
             recovered_from_status: e.status,
           });
-          attachmentMeta = await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob);
+          attachmentMeta = await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, undefined, pngAttemptId);
           viaAppFallback = true;
           trackEvent(`http_${e.status}`, 'attachment_upload_app_fallback_succeeded', 'export', {
             ...ctx,
@@ -1052,13 +1203,17 @@ async function createAttachmentIfContentChanged(
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit only once the write (and its
       // properties PUT) really landed, whether via the user or the app path.
-      trackEvent(isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
+      trackEvent(target.isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
         ...ctx,
         version_number: attachmentMeta.versionNumber,
         attachment_id: attachmentMeta.attachmentId,
         via_app_fallback: viaAppFallback,
+        ...(recoveredFrom ? { recovered_from: recoveredFrom } : {}),
+        ...(skippedDuplicate ? { skipped_duplicate: true } : {}),
         ...(opts?.fromSave ? { from_save: true } : {}),
       });
+      await recordPngState(pageId, macroCustomContentId, 'ready', pngAttemptId,
+        pngStartedAt, hash, attachmentMeta.attachmentId, opts?.fromSave ? 'editor' : 'viewer');
     }
   } catch (e: any) {
     const httpStatus = extractHttpStatus(e);
@@ -1087,7 +1242,18 @@ async function createAttachmentIfContentChanged(
     // Skipping those buried the single most common way the fallback fails, so
     // a post-fallback 404 falls through to the genuine-failure path below and
     // is labelled `app_no_access` there (#392).
-    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback)) {
+    //
+    // A non-JSON 404 (ForgeRequestError) is not that situation either: it is an
+    // HTML page, not Confluence's NotFound envelope, so it stays a failure.
+    //
+    // A JSON-status 404 (ForgeRequestError with nonJson false) can only come from
+    // the properties PUT after the user's POST succeeded, so the parent exists:
+    // it is not the unpublished-parent case either.
+    const isForgeRequestError = e instanceof ForgeRequestError;
+    const isNonJsonResponse = e instanceof ForgeRequestError && e.nonJson;
+    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback && !isForgeRequestError)) {
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'waiting_for_publish', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       // Both branches are the 404-class skip; DraftPageError carries no numeric
       // status of its own, so normalise to 404 for a consistent denominator.
       // `content_status` is resolved from the API rather than taken from the
@@ -1109,8 +1275,13 @@ async function createAttachmentIfContentChanged(
     // an empty state for blank diagrams; for non-empty diagrams a toast was shown
     // in uploadAttachment. Either way, skip the upload — don't count as a failure.
     if (e instanceof ToPngError) {
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'generation_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       return;
     }
+    if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+      !pngCaptureCompleted ? 'generation_failed' : httpStatus === 401 || httpStatus === 403 ? 'upload_denied' : 'upload_failed',
+      pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
     // The function still throws (callers wrap this in try/catch already), but we
     // now record the failure with full join-key context so it can be correlated
     // with the backend `macro_export_failed` event.
@@ -1136,6 +1307,14 @@ async function createAttachmentIfContentChanged(
       via_app_fallback: viaAppFallback,
       ...(viaAppFallback ? { fallback_from_status: fallbackFromStatus } : {}),
       confluence_error_class: confluenceErrorClass,
+      // ForgeRequestError only: which call got the response (the attachments GET
+      // or the properties PUT). The response_* properties describe a non-JSON
+      // body, so a JSON-status error (opt-in throwOnHttpError) does not carry them.
+      ...(isForgeRequestError ? { failed_request: e.endpoint } : {}),
+      ...(isNonJsonResponse ? {
+        response_content_type: e.contentType || 'none',
+        response_title: e.htmlTitle ?? 'none',
+      } : {}),
     });
     throw e;
   } finally {

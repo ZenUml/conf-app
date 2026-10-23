@@ -1,5 +1,5 @@
 <template>
-  <div class="plan-usage">
+  <div class="plan-usage" :class="{ 'plan-usage--wide': view === 'locations' }">
     <template v-if="view === 'usage'">
       <h1>Plan and usage</h1>
       <p class="domain">{{ domain }}</p>
@@ -10,19 +10,26 @@
         <section class="stat-grid">
           <div class="stat-card">
             <div class="stat-value">{{ totalMacros.toLocaleString() }}</div>
-            <div class="stat-label">Diagrams across the site</div>
+            <div class="stat-label">Diagrams reported across the site</div>
+            <button class="btn btn-primary stat-action" data-testid="plan-usage-view-locations" @click="openLocations">
+              View diagram locations →
+            </button>
           </div>
           <div class="stat-card">
             <div class="stat-value">{{ overLimitSpaces.length }}</div>
             <div class="stat-label">Spaces over the Lite limit ({{ macrosLimit }})</div>
+            <p class="stat-hint">You can browse locations even when no space is over the limit.</p>
           </div>
         </section>
 
-        <p v-if="isStale" class="stale-note">
+        <div class="stale-note" data-testid="plan-usage-count-note">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
-          This count may be a few hours old and can shift between reads — treat it as an estimate,
-          not an exact live total.
-        </p>
+          <span>
+            <template v-if="isStale">This count is more than a day old and can shift between reads — treat it as an estimate, not a live inventory.</template>
+            <template v-else>Reported counts may be a few hours old. This is an estimate, not a live inventory.</template>
+            <br>The locations list may be incomplete and may not match this total.
+          </span>
+        </div>
 
         <template v-if="overLimitSpaces.length">
           <p class="section-title">Spaces over the limit</p>
@@ -58,6 +65,13 @@
         </section>
       </template>
     </template>
+
+    <DiagramLocations
+      v-else-if="view === 'locations'"
+      :spaces="spaces"
+      :total-macros="totalMacros"
+      @back="view = 'usage'"
+    />
 
     <template v-else>
       <div class="step-row">
@@ -107,10 +121,12 @@ import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextP
 import forgeGlobal, { openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { AnalyticsEventName } from '@/utils/analytics/catalog'
+import DiagramLocations from '@/components/PlanUsage/DiagramLocations.vue'
+import type { SpaceSummary } from '@/utils/planUsage/diagramLocations'
 
 const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
 
-type View = 'usage' | 'request_full'
+type View = 'usage' | 'locations' | 'request_full'
 const view = ref<View>('usage')
 
 const domain = ref('')
@@ -119,6 +135,9 @@ const loadError = ref(false)
 const totalMacros = ref(0)
 const macrosLimit = ref(100)
 const overLimitSpaces = ref<Array<{ spaceKey: string; macroCount: number }>>([])
+// Every space with a reported stored-diagram count, for the Diagram-locations
+// screen (#848). The list itself is fetched there, per space, as the viewer.
+const spaces = ref<SpaceSummary[]>([])
 const isStale = ref<boolean | null>(null)
 const copyState = ref<'default' | 'copied'>('default')
 
@@ -148,6 +167,12 @@ async function loadUsage() {
     totalMacros.value = data.totalMacros ?? 0
     macrosLimit.value = data.macrosLimit ?? 100
     overLimitSpaces.value = data.overLimitSpaces ?? []
+    // A backend deployed before `spaces` existed (the Pages and Forge bundles
+    // ship in one pipeline but not in one instant) still names the over-limit
+    // spaces, so offer those rather than a false "nothing to browse".
+    spaces.value = Array.isArray(data.spaces)
+      ? data.spaces
+      : overLimitSpaces.value.map((s) => ({ spaceKey: s.spaceKey, macroCount: s.macroCount, lastUpdated: data.lastUpdated ?? null }))
     isStale.value = data.isStale ?? null
   } catch (e) {
     console.error('plan-usage: failed to load', e)
@@ -162,6 +187,12 @@ onMounted(async () => {
   await loadUsage()
   trackAnalyticsPlanUsage('plan_usage_viewed')
 })
+
+// "View diagram locations" on the count card. The screen tracks its own
+// plan_usage_locations_* events, so nothing fires here beyond the view swap.
+function openLocations() {
+  view.value = 'locations'
+}
 
 function openRequestFullGuide() {
   trackAnalyticsPlanUsage('plan_usage_request_full_clicked')
@@ -238,6 +269,9 @@ function trackAnalyticsPlanUsage(eventName: AnalyticsEventName) {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: #172B4D; /* --neutral-text */
 }
+/* The Diagram-locations table has six columns; the Figma frame (#848) lays it
+   out at 1072px of content, where the 720px usage column would clip it. */
+.plan-usage--wide { max-width: 1072px; }
 h1 { font-size: 20px; font-weight: 600; line-height: 1.3; margin: 0 0 4px; }
 .domain { font-size: 13px; color: #6B778C; margin: 0 0 24px; } /* --neutral-subtle */
 .muted { color: #6B778C; }
@@ -267,6 +301,8 @@ h1 { font-size: 20px; font-weight: 600; line-height: 1.3; margin: 0 0 4px; }
 }
 .stat-value { font-size: 36px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .stat-label { font-size: 12px; color: #6B778C; margin-top: 4px; }
+.stat-action { margin-top: 16px; }
+.stat-hint { font-size: 12px; color: #6B778C; line-height: 1.5; margin: 20px 0 0; }
 
 .stale-note {
   display: flex;

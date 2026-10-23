@@ -758,6 +758,35 @@ describe('BylineDiagrams', () => {
       expect(opts.context.diagramType).toBe('graph');
     });
 
+    // #614: the editor opens in a separate modal iframe, so the origin has to
+    // ride the modal context. The host page mode (viewing or editing) is what
+    // separates the two byline origins.
+    it('hands creationOrigin byline_view to the editor when the host page is being viewed', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-type-graph"]').trigger('click');
+      await flushPromises();
+
+      const opts = vi.mocked(openModal).mock.calls.at(-1)?.[0] as any;
+      expect(opts.context.creationOrigin).toBe('byline_view');
+    });
+
+    it('hands creationOrigin byline_editor to the editor when the host page is in the editor', async () => {
+      forgeGlobalMock.forgeContext = {
+        cloudId: 'cloud-1',
+        extension: { content: { id: 'page-1' }, isEditing: true },
+      };
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-type-graph"]').trigger('click');
+      await flushPromises();
+
+      const opts = vi.mocked(openModal).mock.calls.at(-1)?.[0] as any;
+      expect(opts.context.creationOrigin).toBe('byline_editor');
+    });
+
     // ADR-0005 Option A put the AsyncAPI macro in Lite, and the byline is the
     // Lite-only surface. Routing is what this pins: the tile must announce
     // `asyncapi` as the modal diagramType, because that field is the ONLY

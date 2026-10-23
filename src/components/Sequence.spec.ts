@@ -5,6 +5,7 @@ import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { getDiagramFontState, _resetDiagramFontStateForTesting } from '@/utils/fonts/diagramFontState';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import Example from '@/utils/sequence/Example';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -54,6 +55,36 @@ describe('Sequence render-failure telemetry', () => {
       diagramType: DiagramType.Sequence,
       code: 'A.method()',
     };
+  });
+
+  it.each([
+    ['authored', 'A.method()', 'authored'],
+    ['empty (blank)', '  \n', 'empty'],
+    ['empty (wiped to "")', '', 'empty'],
+  ])('macro_viewed carries content_state for a %s body (#113)', async (_label, code, expected) => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code };
+
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ macro_type: 'sequence', content_state: expected });
+  });
+
+  it('macro_viewed reports content_state=default for the bundled sequence example (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: Example.Sequence };
+
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ content_state: 'default' });
   });
 
   it('fires viewer_load_failed when zenuml.render() throws on initial mount', async () => {

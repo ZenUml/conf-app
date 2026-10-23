@@ -885,7 +885,7 @@ describe('GenericViewer (chrome-less)', () => {
         expect(headerToolbar.exists()).toBe(true)
         expect(headerToolbar.attributes('aria-label')).toBe('Mermaid zoom controls')
         expect(headerToolbar.findAll('button').map(button => button.attributes('aria-label'))).toEqual([
-          'Zoom out', 'Zoom in', 'Fit height', 'Fit width',
+          'Zoom out', 'Zoom in',
         ])
       } finally {
         inline.unmount()
@@ -927,12 +927,14 @@ describe('GenericViewer (chrome-less)', () => {
         ready: true,
         enabled: true,
         surface: 'viewer',
+        macroType: 'mermaid',
       })
 
       store.commit('updateDiagramType', DiagramType.Sequence)
       store.commit('updateCode2', '@Actor Customer\nCustomer->Service: request')
       await sequence.vm.$nextTick()
-      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(true)
+      // #582: the footer's analytics must say which macro it is on, not assume mermaid
+      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).props('macroType')).toBe('sequence')
 
       store.commit('updateMermaidCode', 'flowchart TD\n  A-->B')
       store.commit('updateDiagramType', DiagramType.Mermaid)

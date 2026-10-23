@@ -9,7 +9,7 @@
 
 ## Count first
 
-After the user specifies a start/end time and timezone, convert it to a UTC half-open interval. If no range is provided, ask only for the time range. If the production read-only connection fails, report BLOCKED and the reason; do not guess current DSL counts from old snapshots or Mixpanel. First run an aggregate-only query that returns numbers, **then ask for processing limits and authorization**. Confirm the connection really targets production and the transaction is read-only; do not export input/output.
+After the user specifies a start/end time and timezone, convert it to a UTC half-open interval. If no range is provided, ask only for the time range. If the production read-only connection fails, report BLOCKED and the reason; do not guess current DSL counts from old snapshots or Mixpanel. First run an aggregate-only query that returns numbers, **then ask how many cases to process and obtain model-data authorization**. Confirm the connection really targets production and the transaction is read-only; do not export input/output.
 
 ~~~sql
 BEGIN TRANSACTION READ ONLY;

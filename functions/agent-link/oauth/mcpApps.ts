@@ -51,7 +51,7 @@ export const DIAGRAM_VIEW_URI = 'ui://zenuml/diagram';
  * whole directory as ONE Forge resource, capped at 5000 files. As a root entry
  * of the app build, the view broke `Deploy: Lite` with `Each resource can only
  * have up to 5000 files` — not by its own weight, but because any root entry
- * makes Rollup re-split the whole app. Built separately it adds seven files
+ * makes Rollup re-split the whole app. Built separately it adds a dozen files
  * under dist/mcp-app/ and leaves the app's chunks alone.
  */
 export const DIAGRAM_VIEW_ASSET_PATH = '/mcp-app/view.html';
@@ -79,13 +79,14 @@ export const VIEW_TOOLS: readonly string[] = ['read_diagram', 'update_diagram', 
 /**
  * Diagram types this view can draw.
  *
- * The text-DSL family that shares one macro and one custom-content type.
- * PlantUML is drawn by the public PlantUML server, as the Confluence app
- * already does (see PLANTUML_ORIGIN). Graph is DrawIO XML, and
- * OpenAPI/AsyncAPI would pull in swagger-ui or @asyncapi/react-component —
- * each is its own decision, not a line in a list.
+ * The text-DSL family that shares one macro and one custom-content type,
+ * plus Graph and OpenAPI. PlantUML is drawn by the public PlantUML server, as
+ * the Confluence app already does (see PLANTUML_ORIGIN). Graph is drawn by the
+ * static DrawIO viewer the Pages deploy already serves under `drawio/`, and
+ * OpenAPI by swagger-ui, bundled into the view build. AsyncAPI would pull in
+ * @asyncapi/react-component, which is its own decision, not a line in a list.
  */
-export const RENDERABLE_TYPES: readonly string[] = ['sequence', 'mermaid', 'plantuml'];
+export const RENDERABLE_TYPES: readonly string[] = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi'];
 
 /**
  * Where a PlantUML diagram's SVG comes from: the view draws it as an <img>.
@@ -128,7 +129,10 @@ export function uiCsp(origin: string): Record<string, unknown> {
     // PLANTUML_ORIGIN is img-src only in practice: the view loads no script
     // from it, but the spec has one list for every resource type.
     resourceDomains: [origin, PLANTUML_ORIGIN],
-    connectDomains: [],
+    // Our own origin only: the DrawIO viewer fetches its stencil XML (shapes
+    // such as AWS or BPMN) by XHR from `drawio/stencils/`. Nothing else in the
+    // view makes a request, and swagger-ui's validator is switched off.
+    connectDomains: [origin],
     frameDomains: [],
   };
 }
@@ -161,7 +165,7 @@ export function uiResourceList(origin: string): Array<Record<string, unknown>> {
     {
       uri: DIAGRAM_VIEW_URI,
       name: 'ZenUML diagram view',
-      description: 'Renders a ZenUML sequence, Mermaid or PlantUML diagram from a tool result.',
+      description: 'Renders a ZenUML sequence, Mermaid, PlantUML, Graph (draw.io) or OpenAPI diagram from a tool result.',
       mimeType: UI_MIME_TYPE,
       _meta: uiResourceMeta(origin),
     },

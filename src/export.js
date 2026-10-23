@@ -2,6 +2,7 @@
 import api, { route, routeFromAbsolute } from '@forge/api';
 import { readPngDimensions } from './lib/pngDimensions.js';
 import { decideExportSample } from './lib/exportSampling.js';
+import { readPngState, writePngState } from './lib/pngExportState.js';
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -435,9 +436,17 @@ export const handler = async (payload) => {
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`Export: attachments API ${response.status} for ${attachmentName} on page ${pageId}`, errorBody);
-      const failureReason = response.status === 401 || response.status === 403
-        ? 'needs_authentication'
-        : `attachments_api_${response.status}`;
+      // #654: when the asUser() retry threw NEEDS_AUTHENTICATION_ERR there was no user
+      // credential (guest, anonymous, or server-side export). That says nothing about the
+      // page, so it must not be recorded as a missing/unreadable page (`attachments_api_404`).
+      let failureReason;
+      if (response.status === 401 || response.status === 403) {
+        failureReason = 'needs_authentication';
+      } else if (fallbackInfo?.error_name === 'NEEDS_AUTHENTICATION_ERR') {
+        failureReason = 'no_user_credential';
+      } else {
+        failureReason = `attachments_api_${response.status}`;
+      }
       // Failure path — resolve the type here so this event is sizeable by
       // diagram type. The success path never reaches this and never reads.
       await ensureCustomContentParsed(ctx);
@@ -455,6 +464,39 @@ export const handler = async (payload) => {
     if (!attachmentsData?.results?.length) {
       console.debug(`Export: ${attachmentName} not found on page ${pageId}`);
 
+      // The attachment lookup succeeded and returned no file. Only now may a
+      // remembered lifecycle state explain the missing image. Use the same
+      // Confluence identity that successfully read the attachment list.
+      const requester = usedAsUser ? api.asUser() : api.asApp();
+      const propertyRequest = (url, method, body) => requester.requestConfluence(
+        routeFromAbsolute(new URL(url, payload.context?.siteUrl ?? 'https://example.atlassian.net').href),
+        { method, ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}) },
+      );
+      const propertyFailures = [];
+      const propertyFailure = (operation, error) => {
+        console.warn(`Export: PNG state ${operation} failed: ${error?.message}`);
+        propertyFailures.push({ operation, reason: /^\w+_http_\d+$/.test(error?.message ?? '') ? error.message : 'request_error' });
+      };
+      const reportPropertyFailures = async () => {
+        for (const failure of propertyFailures.splice(0)) {
+          await trackExportEvent('png_export_state_persistence_failed', {
+            ...joinKeyProps(ctx), png_export_property_operation: failure.operation,
+            failure_reason: failure.reason, surface: 'backend',
+          });
+        }
+      };
+      const stored = await readPngState(propertyRequest, pageId, customContentId, propertyFailure);
+      await reportPropertyFailures();
+      const known = stored.kind === 'ok' && stored.value.state !== 'ready';
+      if (known) {
+        await trackExportEvent('macro_export_placeholder_shown', {
+          ...joinKeyProps(ctx),
+          png_export_placeholder_reason: stored.value.state,
+          ...fallbackProps(fallbackInfo),
+        });
+        return createErrorDocument(pngPlaceholderMessage(stored.value.state));
+      }
+
       // Failure telemetry still needs the real diagram type. The removed
       // PlantUML server-render fallback used to trigger this lazy read as a
       // side effect; keep the diagnostic behavior without the external fetch.
@@ -464,6 +506,18 @@ export const handler = async (payload) => {
         failure_reason: 'attachment_not_found',
         ...fallbackProps(fallbackInfo),
       });
+      if (stored.kind !== 'error') {
+        const now = Date.now();
+        const wrote = await writePngState(propertyRequest, {
+          pageId, customContentId, state: 'missing', attemptId: `export-${crypto.randomUUID()}`,
+          startedAt: now, startAttempt: true,
+          expectedVersion: stored.kind === 'absent' ? null : stored.version,
+        }, propertyFailure, now);
+        await reportPropertyFailures();
+        if (wrote) await trackExportEvent('png_export_state_changed', {
+          ...joinKeyProps(ctx), png_export_state: 'missing', surface: 'backend',
+        });
+      }
       return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");
     }
 
@@ -526,6 +580,17 @@ export const handler = async (payload) => {
     return createErrorDocument("Error generating export content");
   }
 };
+
+export function pngPlaceholderMessage(state) {
+  switch (state) {
+    case 'generating': return 'Diagram image is being generated. Please export again shortly.';
+    case 'waiting_for_publish': return 'Diagram image is waiting for the Confluence page to be published. Publish the page, then export again.';
+    case 'generation_failed': return 'Diagram image generation failed. Open the diagram page to retry, then export again.';
+    case 'upload_denied': return 'Diagram image could not be attached because permission was denied. Ask a page editor to open the diagram, then export again.';
+    case 'upload_failed': return 'Diagram image upload failed. Open the diagram page to retry, then export again.';
+    default: return 'Diagram image is missing. Open the diagram page to generate it, then export again.';
+  }
+}
 
 // ---------------------------------------------------------------------------
 // ADF helpers

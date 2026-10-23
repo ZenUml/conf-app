@@ -3,6 +3,7 @@ import {
   occurrencesForKeys,
   type OccurrenceRow,
 } from './repository';
+import { timedFetch, CONFLUENCE_TIMEOUT_MS } from '../utils/http';
 
 export interface RelatedPage {
   contentId: string;
@@ -57,7 +58,7 @@ const CONTENT_BATCH = 100;
 export function confluencePageResolver(
   apiBaseUrl: string,
   forgeOAuthUser: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = timedFetch('confluence.architecture-tokens', CONFLUENCE_TIMEOUT_MS),
 ): PageResolver {
   return async (pageIds) => {
     const out: ConfluencePageInfo[] = [];
@@ -278,7 +279,7 @@ function budgetedPageIds(candidates: OccurrenceRow[]): string[] {
 export function confluenceContentResolver(
   apiBaseUrl: string,
   forgeOAuthUser: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = timedFetch('confluence.architecture-tokens', CONFLUENCE_TIMEOUT_MS),
 ): ContentResolver {
   return async (contentIds) => {
     const out = new Map<string, LiveContent>();

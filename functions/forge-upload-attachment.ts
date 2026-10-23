@@ -5,6 +5,7 @@ import { mixpanelTrack } from "./service/mixpanelService";
 import { getAtlassianInstanceClientDomain } from "./utils/dbUtils";
 import type { D1Database } from "@cloudflare/workers-types";
 import { writePngState } from "../src/lib/pngExportState.js";
+import { fetchOut, CONFLUENCE_TIMEOUT_MS, ATTACHMENT_UPLOAD_TIMEOUT_MS } from "./utils/http";
 
 // ---------------------------------------------------------------------------
 // Attachment-upload fallback (issue #166)
@@ -302,7 +303,8 @@ async function doUpload(
   // working user-token path in this repo (export.js asUser, forge-custom-content)
   // uses v2 for exactly this reason.
   const pageReadUrl = `${apiBaseUrl}/api/v2/pages/${p.pageId}`;
-  const readResp = await fetch(pageReadUrl, {
+  const readResp = await fetchOut(pageReadUrl, {
+    name: 'confluence.page-read-check', timeoutMs: CONFLUENCE_TIMEOUT_MS,
     method: 'GET',
     headers: { Accept: 'application/json', Authorization: `Bearer ${userToken}` },
   });
@@ -342,7 +344,8 @@ async function doUpload(
     ? `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment/${p.attachmentId}/data`
     : `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment`;
 
-  const postData = (url: string) => fetch(url, {
+  const postData = (url: string) => fetchOut(url, {
+    name: 'confluence.attachment-upload', timeoutMs: ATTACHMENT_UPLOAD_TIMEOUT_MS,
     method: 'POST',
     // X-Atlassian-Token: no-check disables the XSRF check for the multipart
     // attachment endpoint. Do NOT set Content-Type — fetch derives the
@@ -367,7 +370,8 @@ async function doUpload(
     // The caller's page read check above still applies to every write.
     let existing: any;
     try {
-      const lookup = await fetch(`${attachmentBase}?filename=${encodeURIComponent(p.attachmentName)}&expand=version,metadata`, {
+      const lookup = await fetchOut(`${attachmentBase}?filename=${encodeURIComponent(p.attachmentName)}&expand=version,metadata`, {
+        name: 'confluence.attachment-lookup', timeoutMs: CONFLUENCE_TIMEOUT_MS,
         headers: { Accept: 'application/json', Authorization: `Bearer ${systemToken}` },
       });
       if (lookup.ok) {
@@ -411,7 +415,8 @@ async function doUpload(
   // Keeps end state identical to the successful user path so the frontend's
   // hash-based change detection (attachment.comment === metaKey) still skips
   // future re-uploads.
-  const putResp = await fetch(`${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment/${resolvedAttachmentId}`, {
+  const putResp = await fetchOut(`${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment/${resolvedAttachmentId}`, {
+    name: 'confluence.attachment-update', timeoutMs: CONFLUENCE_TIMEOUT_MS,
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -548,7 +553,8 @@ export const onRequest = async ({
         const state = r.ok ? 'ready'
           : r.stage === 'upload' && r.status === 404 && r.pageStatus && r.pageStatus !== 'current' ? 'waiting_for_publish'
           : r.status === 401 || r.status === 403 ? 'upload_denied' : 'upload_failed';
-        const requestProperty = (url: string, method: string, value?: unknown) => fetch(`${apiBaseUrl}${url.replace(/^\/wiki/, '')}`, {
+        const requestProperty = (url: string, method: string, value?: unknown) => fetchOut(`${apiBaseUrl}${url.replace(/^\/wiki/, '')}`, {
+          name: 'confluence.content-property', timeoutMs: CONFLUENCE_TIMEOUT_MS,
           method,
           headers: { Authorization: `Bearer ${systemToken}`, Accept: 'application/json',
             ...(value ? { 'Content-Type': 'application/json' } : {}) },

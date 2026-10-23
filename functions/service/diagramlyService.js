@@ -1,3 +1,4 @@
+import { fetchOut, DIAGRAMLY_TIMEOUT_MS } from '../utils/http';
 const typeMap = {
   'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML', subTypeKey: 'GENERAL'},
   'mermaid': {diagramType: 'flow', languageKey: 'LANG_MERMAID', subTypeKey: "FLOWCHART"},
@@ -177,7 +178,8 @@ export async function callDiagramly(context, uri, payload) {
     throw new Error('Diagramly API key is not configured');
   }
 
-  const diagramResponse = await fetch(url, {
+  const diagramResponse = await fetchOut(url, {
+    name: 'diagramly', timeoutMs: DIAGRAMLY_TIMEOUT_MS,
     method: payload ? 'POST' : 'GET',
     headers: {
       'Content-Type': payload ? 'application/json' : undefined,

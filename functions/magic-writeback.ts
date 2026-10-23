@@ -1,6 +1,9 @@
 import { OkResponse, response } from './OkResponse';
 import type { ForgeRequestData } from './utils/authenticate';
 import { requireForgeUserToken } from './utils/forgeUserToken';
+import { fetchOut } from './utils/http';
+
+const MAGIC_WRITEBACK_TIMEOUT_MS = 5000; // unchanged from the pre-#941 AbortSignal.timeout(5000)
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -30,7 +33,7 @@ async function jsonLimited(res: Response): Promise<any> {
   return JSON.parse(text);
 }
 async function confluence(url: string, token: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(url, { ...init, headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
+  return fetchOut(url, { ...init, name: 'confluence.magic-writeback', timeoutMs: MAGIC_WRITEBACK_TIMEOUT_MS, headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
 }
 
 /** FIT-bound, reviewed enrichment only. Confluence stays the system of record. */

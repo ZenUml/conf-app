@@ -1,3 +1,4 @@
+import { fetchOut, CONFLUENCE_TIMEOUT_MS } from '../utils/http';
 import { response } from '../OkResponse';
 import type { ForgeRequestData } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
@@ -66,9 +67,10 @@ async function fetchReadableContent(
   contentId: string,
   forgeOAuthUser: string,
 ): Promise<ConfluenceCustomContent> {
-  const response = await fetch(
+  const response = await fetchOut(
     `${apiBaseUrl}/api/v2/custom-content/${encodeURIComponent(contentId)}?body-format=raw`,
     {
+      name: 'confluence.diagram-impact', timeoutMs: CONFLUENCE_TIMEOUT_MS,
       method: 'GET',
       headers: {
         Accept: 'application/json',

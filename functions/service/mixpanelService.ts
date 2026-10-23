@@ -1,5 +1,6 @@
 import uuidv4 from "../utils/uuid";
 import type { AnalyticsEventName } from "./analyticsTypes";
+import { fetchOut, MIXPANEL_TIMEOUT_MS } from "../utils/http";
 
 
 export interface MixpanelTrackPayload {
@@ -71,7 +72,8 @@ async function identify(distinctId: string, token: string) {
     }
   ]
 
-  const response = await fetch(url, {
+  const response = await fetchOut(url, {
+    name: 'mixpanel', timeoutMs: MIXPANEL_TIMEOUT_MS,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -109,7 +111,8 @@ export async function mixpanelTrack(event: MixpanelTrackPayload, token: string, 
     }
   }];
 
-  const response = await fetch(`https://api.mixpanel.com/import`, {
+  const response = await fetchOut(`https://api.mixpanel.com/import`, {
+    name: 'mixpanel.import', timeoutMs: MIXPANEL_TIMEOUT_MS,
     method: 'POST',
     headers: {
       'Authorization': `Basic ${btoa(`${token}:`)}`,
@@ -188,7 +191,8 @@ export async function mixpanelImportServiceEvents(
   for (let offset = 0; offset < importEvents.length; offset += batchSize) {
     const batch = importEvents.slice(offset, offset + batchSize);
 
-    const response = await fetch("https://api.mixpanel.com/import", {
+    const response = await fetchOut("https://api.mixpanel.com/import", {
+      name: "mixpanel.import-batch", timeoutMs: MIXPANEL_TIMEOUT_MS,
       method: "POST",
       headers: {
         "Authorization": `Basic ${btoa(`${token}:`)}`,

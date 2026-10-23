@@ -1,6 +1,7 @@
 
+import { fetchOut, ZARAZ_TIMEOUT_MS } from './http';
+
 const HTTP_API_ENDPOINT = 'https://zenuml.com/zaraz/api';
-const TIMEOUT_MS = 5000;
 
 async function postData(eventType: string, appKey: string, clientKey: string, clientSite: string) {
   // JSON.stringify, not a template: a `"` in any value made the body invalid (#939).
@@ -17,11 +18,11 @@ async function postData(eventType: string, appKey: string, clientKey: string, cl
       },
     ],
   });
-  const response = await fetch(HTTP_API_ENDPOINT, {
+  const response = await fetchOut(HTTP_API_ENDPOINT, {
+    name: 'zaraz', timeoutMs: ZARAZ_TIMEOUT_MS,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body,
-    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 
   const data = await response.text();

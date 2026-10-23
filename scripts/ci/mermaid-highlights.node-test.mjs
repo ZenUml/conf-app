@@ -5,7 +5,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import yaml from 'js-yaml';
+import { expandedSteps } from './workflow-steps.mjs';
 
 // The Mermaid highlight runtime tests are the only tests that drive the real
 // Mermaid renderer in a browser. Their file skips every browser test when the
@@ -16,7 +16,6 @@ import yaml from 'js-yaml';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = file => readFileSync(path.join(root, file), 'utf8');
-const workflow = name => yaml.load(read(`.github/workflows/${name}.yml`));
 const HIGHLIGHT_TESTS = path.join(root, 'tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs');
 const RUNNER = path.join(root, 'scripts/ci/mermaid-highlights.mjs');
 const runner = () => import('./mermaid-highlights.mjs');
@@ -31,7 +30,7 @@ function childEnv(extra = {}) {
 
 for (const name of ['pr-validation', 'main-build-preparation']) {
   test(`${name} runs the Mermaid highlight runtime tests in the Viewer preview job, after Chromium is installed`, () => {
-    const steps = workflow(name).jobs['preview-e2e'].steps;
+    const steps = expandedSteps(name, 'preview-e2e');
     const index = stepName => steps.findIndex(step => step.name === stepName);
     const gate = steps.findIndex(step => step.run === 'pnpm test:mermaid-highlights');
     assert.ok(gate >= 0, 'a step runs `pnpm test:mermaid-highlights`');

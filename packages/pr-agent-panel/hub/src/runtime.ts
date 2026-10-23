@@ -275,10 +275,14 @@ export class HubRuntime {
     const pr = record.session.pr
     const repoKey = repoKeyOf(pr)
     let taskId = frame.taskId
-    if (taskId && !this.tasks.has(taskId)) {
+    const named = taskId ? this.tasks.get(taskId) : undefined
+    if (taskId && !named) {
       this.sendTo(conn, { type: 'error', code: 'unknown_task', message: 'No such task.', inReplyTo: frame.id })
       return
     }
+    // The panel keeps showing the last task after it ends and still names it. A message for an
+    // ended task is a new request: route it like an unbound one, so the next session gets it.
+    if (named && named.task.status !== 'working') taskId = undefined
     taskId ??= this.workingTaskFor(repoKey, pr.number)?.task.taskId
     const message: PanelMessage = {
       messageId: this.createId(),

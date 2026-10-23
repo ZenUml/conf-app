@@ -273,6 +273,19 @@ describe('HubRuntime: hook delivery', () => {
     expect(res.output?.hookSpecificOutput?.additionalContext).toContain('Review this please')
   })
 
+  it('a message aimed at a finished task reaches the next session at turn start', () => {
+    // Live 2026-10-23: the panel keeps showing the last task (Done) and sends its taskId with
+    // every message. Bound to an ended task, the message never reached a later session by hook.
+    const { runtime, conn, taskId } = setup()
+    runtime.completeTask({ taskId, outcome: 'completed' })
+    runtime.handleExtensionFrame(conn.id, frame('userMessage', { documentId: 'd1', taskId, text: 'Next request' }))
+    expect(runtime.queue.pending()[0]?.taskId).toBeUndefined()
+
+    const res = runtime.handleHook(hook('UserPromptSubmit', { sessionId: 'next-session' }))
+    expect(res.channel).toBe('prompt_context')
+    expect(res.output?.hookSpecificOutput?.additionalContext).toContain('Next request')
+  })
+
   it('does not hand a task-bound message to a session not bound to that task', () => {
     const { runtime, conn } = setup()
     runtime.handleExtensionFrame(conn.id, frame('userMessage', { documentId: 'd1', text: 'For the task' }))

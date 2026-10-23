@@ -356,6 +356,13 @@ export type CreateGuideVariant = "zenuml" | "graph" | "api";
  */
 export type CreateGuideCloseMethod = "button" | "escape" | "host";
 
+// NOTE (#880, cut-over 2026-10-23): the attachment-refresh error report is a
+// legacy trackEvent (not a typed AnalyticsEventName). Event `create_attachment`
+// (category `error`) now carries a `diagram_type` property from every entry via
+// scheduleAttachmentRefresh. Before the cut-over forgeIndex reported
+// `create_attachment<diagramType>` (no separator, e.g. `create_attachmentsequence`)
+// and embed/graph/swagger reported plain `create_attachment` without the type.
+// Mixpanel reports spanning the date must union both shapes.
 export type AnalyticsEventName =
   // Markdown: debounced document render starts/completes in editor or viewer.
   // Properties: feature_area=content, macro_type=markdown, source_length,

@@ -4,7 +4,8 @@ import globals from '@/model/globals';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
-import {trackEvent, serializeError} from "@/utils/window";
+import {trackEvent} from "@/utils/window";
+import { scheduleAttachmentRefresh } from "@/model/attachment/scheduleAttachmentRefresh";
 import { toast } from '@/utils/toast';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
@@ -1219,58 +1220,8 @@ const createAttachmentIfContentChangedPromise = import("@/model/Attachment").the
   module => module.default
 );
 
-async function createAttachment(code: string, diagramType: DiagramType) {
-  try {
-    // ZEN-1170 Defect 1: the missing-customContentId case is handled
-    // centrally inside createAttachmentIfContentChanged (Attachment.ts)
-    // — it emits the `missing_custom_content_id` skip telemetry and
-    // returns early. Per-callsite fast paths previously here suppressed
-    // that central event, hiding the highest-volume class of skips.
-    if (globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-      const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
-      await createAttachmentIfContentChanged(code, diagramType);
-    } else {
-      console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
-    }
-  } catch (e) {
-    // Do not re-throw the error
-    console.error("Error when creating attachment", e);
-
-    // Improved error tracking with more detailed information
-    let errorDetails: any = { message: e instanceof Error ? e.message : serializeError(e) };
-
-    // Extract XHR details if available
-    if (e.xhr) {
-      errorDetails.xhr = {
-        status: e.xhr.status,
-        statusText: e.xhr.statusText
-      };
-
-      // Try to extract the full response text
-      try {
-        // For HTML responses, extract text content to avoid HTML tags
-        if (e.xhr.responseText && e.xhr.responseText.includes('<!doctype html>')) {
-          const tempDiv = document.createElement('div');
-          tempDiv.innerHTML = e.xhr.responseText;
-          errorDetails.xhr.responseDetails = tempDiv.textContent?.substring(0, 500) || 'HTML response (extracted text)';
-        } else {
-          // For other responses, include the raw text
-          errorDetails.xhr.responseDetails = e.xhr.responseText?.substring(0, 500) || 'No response text';
-        }
-      } catch (parseError) {
-        errorDetails.xhr.responseDetails = 'Error parsing response: ' + parseError.message;
-      }
-    }
-
-    // Track the error with enhanced details
-    trackEvent(JSON.stringify(errorDetails), 'create_attachment' + diagramType, 'error');
-  }
-}
-
-EventBus.$on('diagramLoaded', async (code: string, diagramType: DiagramType) => {
-  setTimeout(async () => {
-    await createAttachment(code, diagramType);
-  }, 1500);
+EventBus.$on('diagramLoaded', (code: string, diagramType: DiagramType) => {
+  scheduleAttachmentRefresh(() => code, diagramType);
 });
 
 EventBus.$on('edit', async(params: any) => {

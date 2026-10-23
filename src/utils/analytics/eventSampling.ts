@@ -70,9 +70,11 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   copy_for_ai_impression: 0.1,
 };
 
-// Prefix rules apply when no exact match is found. `create_attachment` is
-// emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
-// at forgeIndex.ts, so an exact key cannot cover every variant.
+// Prefix rules apply when no exact match is found. Before 2026-10-23
+// forgeIndex.ts emitted `create_attachment<diagramType>` (e.g.
+// create_attachmentmermaid), so an exact key could not cover every variant.
+// The prefix rule stays for that history; all entries now emit plain
+// `create_attachment` with a `diagram_type` property (scheduleAttachmentRefresh).
 const PREFIX_RULES: ReadonlyArray<readonly [string, number]> = [
   ["create_attachment", 0.1],
 ];

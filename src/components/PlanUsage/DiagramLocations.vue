@@ -578,6 +578,7 @@ function formatTime(iso: string | null): string {
 table.locations-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .locations-table th {
   text-align: left;
+  white-space: nowrap;
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;

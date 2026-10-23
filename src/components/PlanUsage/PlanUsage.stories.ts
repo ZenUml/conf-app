@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
-import { expect, userEvent, within } from 'storybook/test'
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 import PlanUsage from './PlanUsage.vue'
 import globals from '@/model/globals'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
@@ -133,9 +133,12 @@ const meta: Meta<typeof PlanUsage> = {
 
 export default meta
 
+// Spaces load one after another, so wait for the run to finish ("Fetched at")
+// before asserting totals: the summary is live from the first batch.
 async function openLocations(canvas: ReturnType<typeof within>) {
   await userEvent.click(await canvas.findByTestId('plan-usage-view-locations'))
   await expect(await canvas.findByTestId('diagram-locations-summary', {}, { timeout: 5000 })).toBeVisible()
+  await waitFor(() => expect(canvas.getByTestId('diagram-locations-status')).toHaveTextContent('Fetched at'), { timeout: 5000 })
 }
 
 /** The usage view: the count card carries the way to its locations; nothing is fetched yet. */

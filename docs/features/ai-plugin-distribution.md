@@ -25,6 +25,7 @@ Checked 2026-10-23: `claude plugin validate .` in that repository passes, and bo
 | OAuth 2.0 with DCR | both | Already served: `functions/agent-link/oauth/`. DCR accepts any `https` redirect URI, so `claude.ai` and `chatgpt.com` callbacks register without config. |
 | MCP Apps UI (`ui://`, `text/html;profile=mcp-app`, `_meta.ui.resourceUri`, csp on the resource) | [ChatGPT MCP Apps compatibility](https://developers.openai.com/apps-sdk/mcp-apps-in-chatgpt) | Already served: `functions/agent-link/oauth/mcpApps.ts`. Not yet exercised in ChatGPT. |
 | Domain verification: the token as plain text at `/.well-known/openai-apps-challenge` | [ChatGPT submission](https://developers.openai.com/apps-sdk/deploy/submission) | `functions/agent-link/openaiAppsChallenge.ts`, served from `_middleware.ts` and listed in `public/_routes.json`. Set the token with `wrangler pages secret put OPENAI_APPS_CHALLENGE --project-name conf-lite`. Unset answers 404. |
+| A privacy policy that covers what the app accesses through ChatGPT | [ChatGPT submission](https://developers.openai.com/apps-sdk/deploy/submission) | <https://zenuml.com/privacy/>, section *Data Handled by the ZenUML MCP Server*: the stored Atlassian authorization and its scopes, connection records, pass-through content, PlantUML previews, usage analytics, retention, and the processors. Source: `src/pages/privacy.md` in ZenUml/docs (ZenUml/docs#174); live since 2026-10-24. |
 
 ## Why the plugin needs its own repository
 
@@ -63,11 +64,6 @@ the subfolder-only reviewer holds in the
 
 ## Open gaps before submitting
 
-- **Privacy policy.** <https://zenuml.com/privacy/> does not mention the MCP
-  server, Claude, ChatGPT, the stored Atlassian grant or tool-call analytics
-  (checked 2026-10-17). OpenAI requires the policy to cover what the app
-  accesses through ChatGPT. The README's *Data and privacy* section lists what
-  the policy has to cover.
 - **Reviewer account: blocked by Atlassian's new-device check.** See
   [Reviewer test account](#reviewer-test-account). Signing in from a new
   browser asks for a code Atlassian emails to the account, and ChatGPT review

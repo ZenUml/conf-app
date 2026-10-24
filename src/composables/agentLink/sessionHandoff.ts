@@ -149,6 +149,9 @@ export interface AgentLinkHandoffSession extends AgentLinkBoundContext {
   // works" once further bumps no longer move the deadline (SessionTtl.vue).
   // Absent ⇒ not (yet) capped.
   hitCap?: boolean
+  // The relay exhausted its automatic reconnect attempts. Display-only;
+  // never changes the session token, lock or state machine.
+  noticeReason?: 'connection_lost'
 }
 
 interface PersistedHandoff extends AgentLinkHandoffSession {
@@ -238,6 +241,7 @@ function toHandoffSession(parsed: PersistedHandoff): AgentLinkHandoffSession {
     lockExpiresAt: typeof parsed.lockExpiresAt === 'number' ? parsed.lockExpiresAt : undefined,
     // Amendment F: only present once the DO reported the deadline is cap-bound.
     hitCap: typeof parsed.hitCap === 'boolean' ? parsed.hitCap : undefined,
+    noticeReason: parsed.noticeReason === 'connection_lost' ? 'connection_lost' : undefined,
   }
 }
 

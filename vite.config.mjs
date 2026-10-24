@@ -18,6 +18,12 @@ process.env.VITE_APP_GIT_BRANCH = execSync('git branch --show-current').toString
 // Scope --match to the current variant so that a lite build gets v*-lite, not v*-full,
 // even when all three variant tags point to the same commit.
 const _productType = process.env.PRODUCT_TYPE || 'full'
+// Variants whose bundle carries the AsyncAPI runtime (@asyncapi/react-component
+// viewer + the Studio editor iframe assets): the asyncapi variant, and lite
+// since ADR-0005 Option A shipped the AsyncAPI macro there. Gates every
+// asyncapi-specific build treatment below (CJS interop, fs/stream stubs,
+// node polyfills, Studio asset copy) — full/diagramly stay untouched.
+const _hasAsyncApiRuntime = _productType === 'asyncapi' || _productType === 'lite'
 // Fallback for local/staging builds. Production release builds pass VITE_APP_VERSION
 // explicitly from github.event.release.tag_name because git describe --abbrev=0
 // returns the nearest reachable matching tag, not necessarily the release event tag.
@@ -89,9 +95,24 @@ export default defineConfig(({ command }) => ({
   base: './',
   define: {
     'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'full'),
+    // The diagram macro's key for this variant, the same env var the manifest
+    // templates as ${SEQUENCE_MACRO_KEY} (see the forge:deploy:* scripts).
+    // src/utils/byline/addToPage.ts builds a macro node's extensionKey from it:
+    // hardcoding one variant's key there would emit an extensionKey no other
+    // variant can render, which is how a malformed key once rendered as an
+    // unknown extension on a customer's page.
+    'import.meta.env.SEQUENCE_MACRO_KEY': JSON.stringify(process.env.SEQUENCE_MACRO_KEY || 'zenuml-sequence-macro'),
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
+    // Onboarding funnel — "second diagram" viewer prompt (33.6% of tenants
+    // create exactly one diagram and never a second). Build-time constant,
+    // deliberately NOT a Forge feature flag: Lite is already at the
+    // Developer Console's 10-flags-per-app cap, and adding one requires
+    // deleting a live flag first — a product-owner decision, not this
+    // task's. Defaults OFF; flip this literal to JSON.stringify(true) and
+    // redeploy to enable. See src/components/Viewer/SecondDiagramPrompt.vue.
+    'import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED': JSON.stringify(false),
   },
   // Pre-bundle the hot CJS / Vue / CodeMirror cluster on dev-server cold start.
   // Without this, Vite discovers each lazily on first request and rebuilds the
@@ -113,7 +134,7 @@ export default defineConfig(({ command }) => ({
       // pre-bundling — otherwise `import { Readable } from 'readable-stream'`
       // resolves to undefined and `class FooStream extends Readable` throws
       // "Class extends value undefined". Mirrors AsyncAPI-Conf-V2's vite config.
-      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+      ...(_hasAsyncApiRuntime
         ? [
             'readable-stream',
             'qs',
@@ -122,7 +143,7 @@ export default defineConfig(({ command }) => ({
           ]
         : []),
     ],
-    ...(process.env.PRODUCT_TYPE === 'asyncapi'
+    ...(_hasAsyncApiRuntime
       ? {
           needsInterop: [
             'readable-stream',
@@ -142,7 +163,7 @@ export default defineConfig(({ command }) => ({
     // @asyncapi/parser's transitive deps (qs, avsc, readable-stream, …)
     // ship as mixed CJS/ESM. Enable transformMixedEsModules so Rollup
     // can handle the named-imports-from-CJS the parser depends on.
-    commonjsOptions: process.env.PRODUCT_TYPE === 'asyncapi'
+    commonjsOptions: _hasAsyncApiRuntime
       ? { transformMixedEsModules: true }
       : undefined,
 
@@ -179,7 +200,7 @@ export default defineConfig(({ command }) => ({
       // Use a hand-written stub instead: exports the names Rollup needs to
       // satisfy strict named-import resolution; bodies throw at call time,
       // which never happens because we don't invoke fromURL/fromFile.
-      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+      ...(_hasAsyncApiRuntime
         ? {
             'fs': resolve(__dirname, './src/stubs/empty-fs.ts'),
             'fs/promises': resolve(__dirname, './src/stubs/empty-fs.ts'),
@@ -210,9 +231,10 @@ export default defineConfig(({ command }) => ({
   // dep of @asyncapi/react-component used by forge-asyncapi-viewer). Mirror
   // the working config from AsyncAPI-Conf-V2: include buffer/process/util/
   // path/url/crypto/stream; exclude fs/os because they're aliased to memfs
-  // / left unresolved below. Only the asyncapi variant gets this runtime —
-  // the other variants don't import the AsyncAPI viewer.
-  ...(process.env.PRODUCT_TYPE === 'asyncapi'
+  // / left unresolved below. Only variants that bundle the AsyncAPI viewer
+  // (asyncapi, lite per ADR-0005) get this runtime — full/diagramly don't
+  // import it.
+  ...(_hasAsyncApiRuntime
     ? [nodePolyfills({
         protocolImports: true,
         globals: { Buffer: true, global: true, process: true },
@@ -220,8 +242,8 @@ export default defineConfig(({ command }) => ({
         exclude: ['fs', 'os'],
       })]
     : []),
-  // Dev-only: serve sandbox.html at "/" so engineers landing on
-  // http://127.0.0.1:8080/ get the test-case index instead of the Forge
+  // Dev-only: serve sandbox.html at "/" so engineers opening the URL printed
+  // by `pnpm dev:url` get the test-case index instead of the Forge
   // app entry (which only renders meaningfully inside a Confluence iframe).
   // index.html itself is unchanged — production build still uses it.
   {
@@ -244,15 +266,22 @@ export default defineConfig(({ command }) => ({
       { src: 'node_modules/@zenuml/core/dist/fonts', dest: 'dist' },
       // Mermaid is loaded at runtime from /vendor/mermaid/ via dynamic URL
       // import (see src/utils/mermaid/loadMermaid.ts) so it's excluded from
-      // the Rollup module graph. Copy the entire dist/ tree (entry +
-      // chunks/) so the relative imports inside the entry resolve.
-      { src: 'node_modules/mermaid/dist/*', dest: 'dist/vendor/mermaid' },
-      // AsyncAPI Studio assets ship only with the asyncapi variant. Studio is
-      // loaded as a nested iframe from the AsyncAPI editor and uses
-      // localStorage to sync the document with the host; that requires
-      // same-origin, so Studio must live under the same Forge resource as
-      // index.html (`*.cdn.prod.atlassian-dev.net/<app-id>/asyncapi-studio/`).
-      ...(process.env.PRODUCT_TYPE === 'asyncapi'
+      // the Rollup module graph. Copy only the production entry and its
+      // minified chunk family. The package also ships hundreds of declarations,
+      // tests and source maps; including those can exceed Forge's 5,000-file
+      // hosted-resource limit without providing anything used at runtime.
+      { src: 'node_modules/mermaid/dist/mermaid.esm.min.mjs', dest: 'dist/vendor/mermaid' },
+      {
+        src: 'node_modules/mermaid/dist/chunks/mermaid.esm.min/*.mjs',
+        dest: 'dist/vendor/mermaid/chunks/mermaid.esm.min',
+      },
+      // AsyncAPI Studio assets ship with the variants that carry the AsyncAPI
+      // macro (asyncapi, lite per ADR-0005). Studio is loaded as a nested
+      // iframe from the AsyncAPI editor and uses localStorage to sync the
+      // document with the host; that requires same-origin, so Studio must
+      // live under the same Forge resource as index.html
+      // (`*.cdn.prod.atlassian-dev.net/<app-id>/asyncapi-studio/`).
+      ...(_hasAsyncApiRuntime
         ? [{ src: 'static/asyncapi-studio', dest: 'dist' }]
         : []),
     ],
@@ -397,6 +426,11 @@ export default defineConfig(({ command }) => ({
       // checks. They are run with tests/e2e-tests' Playwright config, never
       // as root Vitest unit suites.
       '**/private/customer-investigation/**/*.spec.ts',
+      // local-crm is a separate workspace package with its own Vite config,
+      // where `@` resolves to local-crm/src. The root config points `@` at
+      // ./src, so collecting its suites here fails at import resolution.
+      // Run them with `pnpm --dir local-crm test`.
+      '**/local-crm/**',
       // Skip the asyncapi-studio submodule's own tests — they import
       // upstream `@/*` aliases that aren't resolvable in our root tsconfig
       // and aren't relevant to this repo's test suite.
@@ -404,46 +438,35 @@ export default defineConfig(({ command }) => ({
     ],
   },
   server: {
-    host: '0.0.0.0',
-    port: 8080,
+    host: process.env.HOST || '127.0.0.1',
+    port: Number.parseInt(process.env.PORT || '8080', 10),
+    strictPort: Boolean(process.env.PORT),
     proxy: {
-      '/authenticate': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
       '/api/metrics/evaluation': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
       '/api/features': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
       '/api/analytics': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
-      '/attachment': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
       '/track': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true,
       },
       '/diagramly': {
-        target: 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
-      '/diagram-likes': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       },
       '/uninstalled': {
-        target: 'http://127.0.0.1:8788/',
+        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true
       }
     },
-    allowedHosts: ['yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app', 'poc-fullscreen-app.zenuml.com'],
+    allowedHosts: ['.localhost', 'yanhui8080.zenuml.com', '8080.diagramly.net', 'precise-oriented-mink.ngrok-free.app', 'special-lemming-radically.ngrok-free.app', 'poc-fullscreen-app.zenuml.com'],
   }
 }));

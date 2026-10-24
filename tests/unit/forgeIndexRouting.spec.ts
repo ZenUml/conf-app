@@ -63,12 +63,9 @@ describe('forgeIndex.ts — phase 1 / phase 2 routing stay in sync', () => {
     for (const type of earlyReturnTypes) {
       expect(phase2Types.has(type)).toBe(true);
     }
-  });
-
-  it('confluence:homepageFeed is in both phases (regression guard, PR #509)', () => {
-    const homepageFeedOccurrences = source.match(/'confluence:homepageFeed'/g) || [];
-    // At least once in phase 1 (the dispatch `if`) and once in phase 2 (the
-    // skip-list array).
-    expect(homepageFeedOccurrences.length).toBeGreaterThanOrEqual(2);
+    // Guard the original homepageFeed regression explicitly against both
+    // parsed phases, not merely two occurrences anywhere in the source.
+    expect(earlyReturnTypes.has('confluence:homepageFeed')).toBe(true);
+    expect(phase2Types.has('confluence:homepageFeed')).toBe(true);
   });
 });

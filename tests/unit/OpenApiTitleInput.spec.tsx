@@ -1,6 +1,5 @@
-import React from 'react'
-import ReactDOM from 'react-dom'
-import { act } from 'react-dom/test-utils'
+import React, { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fakeStore = vi.hoisted(() => {
@@ -15,16 +14,12 @@ const fakeStore = vi.hoisted(() => {
 
 vi.mock('@/model/store2', () => ({ default: fakeStore }))
 vi.mock('@/apis/aiGenerateTitle', () => ({ default: vi.fn() }))
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({
-  isAiTitleEnabled: vi.fn().mockResolvedValue(true),
-  resetAiTitleFlagForTests: vi.fn(),
-}))
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({ resetFeatureFlagsForTests: vi.fn() }))
 vi.mock('@/utils/toast', () => ({ toast: vi.fn() }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
 import OpenApiTitleInput from '@/components/react/OpenApiTitleInput'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag'
 import { useAutoTitle, TYPEWRITER_MS_PER_CHAR, SPARK_FADEOUT_MS } from '@/composables/useAutoTitle'
 import { buildOpenApiAiTitleContent } from '@/model/OpenApi/OpenApiEditorState'
 
@@ -33,21 +28,22 @@ const okRes = (text: string) => ({ ok: true, text: async () => text }) as any
 
 describe('OpenApiTitleInput', () => {
   let container: HTMLDivElement
+  let root: Root
 
   beforeEach(() => {
     ;(useAutoTitle as any).__resetForTests()
     fakeStore.state.diagram.title = ''
     fakeStore.dispatch.mockClear()
     vi.mocked(aiGenerateTitle).mockReset()
-    vi.mocked(isAiTitleEnabled).mockResolvedValue(true)
     vi.useFakeTimers()
     container = document.createElement('div')
     document.body.appendChild(container)
+    root = createRoot(container)
   })
 
   afterEach(() => {
     act(() => {
-      ReactDOM.unmountComponentAtNode(container)
+      root.unmount()
     })
     container.remove()
     vi.useRealTimers()
@@ -55,14 +51,13 @@ describe('OpenApiTitleInput', () => {
 
   async function renderTitleInput(onTitleChange = vi.fn(), title = '') {
     await act(async () => {
-      ReactDOM.render(
+      root.render(
         <OpenApiTitleInput
           title={title}
           spec={SPEC}
           parseError={null}
           onTitleChange={onTitleChange}
         />,
-        container,
       )
       await Promise.resolve()
     })
@@ -95,13 +90,6 @@ describe('OpenApiTitleInput', () => {
     })
     expect(onTitleChange).toHaveBeenCalledWith('Inventory API')
     expect(container.querySelector('button[title="Dismiss suggested title"]')).not.toBeNull()
-  })
-
-  it('hides the AI button when the feature flag is disabled', async () => {
-    vi.mocked(isAiTitleEnabled).mockResolvedValue(false)
-    await renderTitleInput(vi.fn(), 'Existing API')
-
-    expect(container.querySelector('button[title="Generate title with AI"]')).toBeNull()
   })
 
   it('dismisses a generated title back to empty', async () => {

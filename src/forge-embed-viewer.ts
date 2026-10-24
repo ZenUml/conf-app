@@ -4,7 +4,8 @@ import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import { Diagram, getDiagramData } from "@/model/Diagram/Diagram";
+import { Diagram } from "@/model/Diagram/Diagram";
+import { getDiagramData } from "@/model/Diagram/DiagramTypeConfig";
 import { reportOrphanObserved } from '@/utils/orphanTelemetry';
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
@@ -92,6 +93,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
       reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     }
     if (doc && autoconvertProps) {
@@ -106,7 +108,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
           failure_reason: 'target_missing',
         });
       }
-      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       loadError = mapCustomContentLoadError(loaded);
     }
   }

@@ -1,12 +1,13 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2017, JGraph Holdings Ltd
+ * Copyright (c) 2006-2017, draw.io AG
  */
-OneDriveFile = function(ui, data, meta)
+OneDriveFile = function(ui, data, meta, isSP)
 {
 	DrawioFile.call(this, ui, data);
 	
 	this.meta = meta;
+	this.isSP = isSP;
 };
 
 //Extends mxEventSource
@@ -149,7 +150,7 @@ OneDriveFile.prototype.getIdOf = function(itemObj, parent)
  */
 OneDriveFile.prototype.getChannelId = function()
 {
-	return 'W-' + DrawioFile.prototype.getChannelId.apply(this, arguments);
+	return (this.isSP? 'M-' : 'W-') + DrawioFile.prototype.getChannelId.apply(this, arguments);
 };
 
 /**
@@ -160,7 +161,7 @@ OneDriveFile.prototype.getChannelId = function()
  */
 OneDriveFile.prototype.getHash = function()
 {
-	return 'W' + encodeURIComponent(this.getId());
+	return (this.isSP? 'M' : 'W') + encodeURIComponent(this.getId());
 };
 
 /**
@@ -171,7 +172,7 @@ OneDriveFile.prototype.getHash = function()
  */
 OneDriveFile.prototype.getMode = function()
 {
-	return App.MODE_ONEDRIVE;
+	return (this.isSP? App.MODE_M365 : App.MODE_ONEDRIVE);
 };
 
 /**
@@ -242,7 +243,8 @@ OneDriveFile.prototype.isConflict = function(req)
  */
 OneDriveFile.prototype.getCurrentUser = function()
 {
-	return (this.ui.oneDrive != null) ? this.ui.oneDrive.user : null;
+	return this.isSP? ((this.ui.m365 != null) ? this.ui.m365.user : null) :
+		((this.ui.oneDrive != null) ? this.ui.oneDrive.user : null);
 };
 
 /**
@@ -250,7 +252,8 @@ OneDriveFile.prototype.getCurrentUser = function()
  */
 OneDriveFile.prototype.loadDescriptor = function(success, error)
 {
-	this.ui.oneDrive.executeRequest(this.ui.oneDrive.getItemURL(this.getId()), mxUtils.bind(this, function(req)
+	var client = this.isSP? this.ui.m365 : this.ui.oneDrive;
+	client.executeRequest(client.getItemURL(this.getId()), mxUtils.bind(this, function(req)
 	{
 		if (req.getStatus() >= 200 && req.getStatus() <= 299)
 		{
@@ -268,7 +271,7 @@ OneDriveFile.prototype.loadDescriptor = function(success, error)
  */
 OneDriveFile.prototype.getLatestVersion = function(success, error)
 {
-	this.ui.oneDrive.getFile(this.getId(), success, error);
+	(this.isSP? this.ui.m365 : this.ui.oneDrive).getFile(this.getId(), success, error);
 };
 
 /**
@@ -308,9 +311,10 @@ OneDriveFile.prototype.setDescriptorEtag = function(desc, etag)
  */
 OneDriveFile.prototype.loadPatchDescriptor = function(success, error)
 {
-	var url = this.ui.oneDrive.getItemURL(this.getId());
+	var client = this.isSP? this.ui.m365 : this.ui.oneDrive;
+	var url = client.getItemURL(this.getId());
 
-	this.ui.oneDrive.executeRequest(url + '?select=etag,file' , mxUtils.bind(this, function(req)
+	client.executeRequest(url + '?select=etag,file' , mxUtils.bind(this, function(req)
 	{
 		if (req.getStatus() >= 200 && req.getStatus() <= 299)
 		{
@@ -318,7 +322,7 @@ OneDriveFile.prototype.loadPatchDescriptor = function(success, error)
 		}
 		else
 		{
-			error(this.ui.oneDrive.parseRequestText(req));
+			error(client.parseRequestText(req));
 		}
 	}), error)
 };
@@ -426,7 +430,7 @@ OneDriveFile.prototype.saveFile = function(title, revision, success, error, unlo
 						this.sync.fileSaving();
 					}
 
-					this.ui.oneDrive.saveFile(this, mxUtils.bind(this, function(meta, savedData)
+					(this.isSP? this.ui.m365 : this.ui.oneDrive).saveFile(this, mxUtils.bind(this, function(meta, savedData)
 					{
 						// Checks for changes during save
 						this.setModified(this.getShadowModified());
@@ -523,7 +527,7 @@ OneDriveFile.prototype.saveFile = function(title, revision, success, error, unlo
 			this.setShadowModified(false);
 			this.savingFile = true;
 		
-			this.ui.oneDrive.insertFile(title, this.getData(), mxUtils.bind(this, function(file)
+			(this.isSP? this.ui.m365 : this.ui.oneDrive).insertFile(title, this.getData(), mxUtils.bind(this, function(file)
 			{
 				// Checks for changes during save
 				this.setModified(this.getShadowModified());
@@ -558,7 +562,7 @@ OneDriveFile.prototype.rename = function(title, success, error)
 {
 	var rev = this.getCurrentRevisionId();
 	
-	this.ui.oneDrive.renameFile(this, title, mxUtils.bind(this, function(meta)
+	(this.isSP? this.ui.m365 : this.ui.oneDrive).renameFile(this, title, mxUtils.bind(this, function(meta)
 	{
 		if (!this.hasSameExtension(title, this.getTitle()))
 		{
@@ -597,7 +601,7 @@ OneDriveFile.prototype.rename = function(title, success, error)
  */
 OneDriveFile.prototype.move = function(folderId, success, error)
 {
-	this.ui.oneDrive.moveFile(this.getId(), folderId, mxUtils.bind(this, function(meta)
+	(this.isSP? this.ui.m365 : this.ui.oneDrive).moveFile(this.getId(), folderId, mxUtils.bind(this, function(meta)
 	{
 		this.meta = meta;
 		this.descriptorChanged();

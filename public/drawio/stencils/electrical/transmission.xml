@@ -43,10 +43,10 @@
         <constraint name="NE" perimeter="0" x="1" y="0"/>
         <constraint name="SE" perimeter="0" x="1" y="1"/>
         <constraint name="SW" perimeter="0" x="0" y="1"/>
-        <constraint name="W1" perimeter="0" x="0" y="0.33"/>
-        <constraint name="E1" perimeter="0" x="1" y="0.33"/>
-        <constraint name="W2" perimeter="0" x="0" y="0.67"/>
-        <constraint name="E2" perimeter="0" x="1" y="0.67"/>
+        <constraint name="W1" perimeter="0" x="0" y="0.3333"/>
+        <constraint name="E1" perimeter="0" x="1" y="0.3333"/>
+        <constraint name="W2" perimeter="0" x="0" y="0.6667"/>
+        <constraint name="E2" perimeter="0" x="1" y="0.6667"/>
     </connections>
     <foreground>
         <path>
@@ -68,18 +68,18 @@
         <constraint name="NE" perimeter="0" x="1" y="0"/>
         <constraint name="SE" perimeter="0" x="1" y="1"/>
         <constraint name="SW" perimeter="0" x="0" y="1"/>
-        <constraint name="W1" perimeter="0" x="0" y="0.145"/>
-        <constraint name="W2" perimeter="0" x="0" y="0.285"/>
-        <constraint name="W3" perimeter="0" x="0" y="0.43"/>
-        <constraint name="W4" perimeter="0" x="0" y="0.57"/>
-        <constraint name="W5" perimeter="0" x="0" y="0.715"/>
-        <constraint name="W6" perimeter="0" x="0" y="0.855"/>
-        <constraint name="E1" perimeter="0" x="1" y="0.145"/>
-        <constraint name="E2" perimeter="0" x="1" y="0.285"/>
-        <constraint name="E3" perimeter="0" x="1" y="0.43"/>
-        <constraint name="E4" perimeter="0" x="1" y="0.57"/>
-        <constraint name="E5" perimeter="0" x="1" y="0.715"/>
-        <constraint name="E6" perimeter="0" x="1" y="0.855"/>
+        <constraint name="W1" perimeter="0" x="0" y="0.14286"/>
+        <constraint name="W2" perimeter="0" x="0" y="0.2857"/>
+        <constraint name="W3" perimeter="0" x="0" y="0.42857"/>
+        <constraint name="W4" perimeter="0" x="0" y="0.57143"/>
+        <constraint name="W5" perimeter="0" x="0" y="0.7143"/>
+        <constraint name="W6" perimeter="0" x="0" y="0.85714"/>
+        <constraint name="E1" perimeter="0" x="1" y="0.14286"/>
+        <constraint name="E2" perimeter="0" x="1" y="0.2857"/>
+        <constraint name="E3" perimeter="0" x="1" y="0.42857"/>
+        <constraint name="E4" perimeter="0" x="1" y="0.57143"/>
+        <constraint name="E5" perimeter="0" x="1" y="0.7143"/>
+        <constraint name="E6" perimeter="0" x="1" y="0.85714"/>
     </connections>
     <foreground>
         <path>
@@ -134,16 +134,16 @@
     <connections>
         <constraint name="N" perimeter="0" x="0.5" y="0"/>
         <constraint name="S" perimeter="0" x="0.5" y="1"/>
-        <constraint name="W1" perimeter="0" x="0" y="0.16"/>
-        <constraint name="W2" perimeter="0" x="0" y="0.33"/>
+        <constraint name="W1" perimeter="0" x="0" y="0.16154"/>
+        <constraint name="W2" perimeter="0" x="0" y="0.3308"/>
         <constraint name="W3" perimeter="0" x="0" y="0.5"/>
-        <constraint name="W4" perimeter="0" x="0" y="0.67"/>
-        <constraint name="W5" perimeter="0" x="0" y="0.84"/>
-        <constraint name="E1" perimeter="0" x="1" y="0.16"/>
-        <constraint name="E2" perimeter="0" x="1" y="0.33"/>
+        <constraint name="W4" perimeter="0" x="0" y="0.6692"/>
+        <constraint name="W5" perimeter="0" x="0" y="0.83846"/>
+        <constraint name="E1" perimeter="0" x="1" y="0.16154"/>
+        <constraint name="E2" perimeter="0" x="1" y="0.3308"/>
         <constraint name="E3" perimeter="0" x="1" y="0.5"/>
-        <constraint name="E4" perimeter="0" x="1" y="0.67"/>
-        <constraint name="E5" perimeter="0" x="1" y="0.84"/>
+        <constraint name="E4" perimeter="0" x="1" y="0.6692"/>
+        <constraint name="E5" perimeter="0" x="1" y="0.83846"/>
     </connections>
     <foreground>
         <path>

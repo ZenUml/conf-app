@@ -86,4 +86,13 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // Local pilot tooling — plain Node.js scripts, never part of any bundle.
+    files: ["tools/architecture-tokens/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+      },
+    },
+  },
 );

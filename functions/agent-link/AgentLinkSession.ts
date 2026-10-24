@@ -72,6 +72,7 @@ import { PendingOps } from './pendingOps';
 import type { PendingOpResult } from './pendingOps';
 import { effectiveExpiryMs, isAtCap, isExpired, MAX_SESSION_MS, nextState } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
+import { json } from '../OkResponse';
 
 interface Env {
   // Self-referencing binding: the companion Worker (workers/agent-link/)
@@ -98,13 +99,6 @@ interface ContentLock {
 /** Sent back to a peer when the other side isn't connected yet, or on a malformed message. */
 function errorEnvelope(reason: string, id?: string): string {
   return JSON.stringify({ kind: 'error', id, payload: { message: reason } });
-}
-
-function jsonResponse(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
 }
 
 /** How long `POST /agent-op` waits for the macro's `result`/`error` reply before returning 504. */
@@ -209,11 +203,11 @@ export class AgentLinkSession {
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const { token, expiresAt } = body ?? {};
     if (typeof token !== 'string' || !token || typeof expiresAt !== 'number') {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
 
     await this.ensureContentLock();
@@ -221,15 +215,12 @@ export class AgentLinkSession {
     if (this.contentLock && this.contentLock.token !== token && this.contentLock.expiresAt > now) {
       // A4 (spec review): surface the held claim's expiry so the mint endpoint
       // can return an honest retry-after instead of a bare 409.
-      return jsonResponse(
-        { error: 'diagram_already_linked', lock_expires_at: this.contentLock.expiresAt },
-        409,
-      );
+      return json({ error: 'diagram_already_linked', lock_expires_at: this.contentLock.expiresAt }, { status: 409 });
     }
 
     this.contentLock = { token, expiresAt };
     await this.state.storage.put('contentLock', this.contentLock);
-    return jsonResponse({ ok: true }, 200);
+    return json({ ok: true }, { status: 200 });
   }
 
   /**
@@ -245,7 +236,7 @@ export class AgentLinkSession {
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const token = body?.token;
 
@@ -254,7 +245,7 @@ export class AgentLinkSession {
       this.contentLock = null;
       await this.state.storage.delete('contentLock');
     }
-    return jsonResponse({ ok: true }, 200);
+    return json({ ok: true }, { status: 200 });
   }
 
   /**
@@ -677,7 +668,7 @@ export class AgentLinkSession {
   private async handleSessionInfo(bump: boolean): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
-    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+    if (!auth.ok) return json({ error: auth.code }, { status: auth.status });
 
     // `?bump=1` marks this poll as bump-worthy agent activity (mcp.ts's
     // read-only ops route here): slide the idle window + push status before
@@ -685,8 +676,7 @@ export class AgentLinkSession {
     if (bump) await this.bumpActivity();
 
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
-    return jsonResponse(
-      {
+    return json({
         state: session.state,
         boundContext: session.boundContext,
         issuedAtMs: session.issuedAtMs,
@@ -698,9 +688,7 @@ export class AgentLinkSession {
         // Baseline for the relay-side update_diagram guardrail; omitted until
         // the agent has read the diagram at least once.
         lastDiagram: this.lastDiagram ?? undefined,
-      },
-      200,
-    );
+      }, { status: 200 });
   }
 
   /** `POST /activity` — the non-forwarded-activity ingress (spec §4.2): today
@@ -709,12 +697,12 @@ export class AgentLinkSession {
   private async handleActivity(request: Request): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
-    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+    if (!auth.ok) return json({ error: auth.code }, { status: auth.status });
     let body: { type?: unknown; detail?: unknown };
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const type = body?.type;
     if (
@@ -724,11 +712,11 @@ export class AgentLinkSession {
       type !== 'agent_request' &&
       type !== 'turn'
     ) {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const detail = typeof body?.detail === 'string' ? body.detail : undefined;
     await this.bumpActivity({ type, ...(detail ? { detail } : {}) });
-    return jsonResponse({ ok: true }, 200);
+    return json({ ok: true }, { status: 200 });
   }
 
   /**
@@ -742,17 +730,17 @@ export class AgentLinkSession {
   private async handleAgentOp(request: Request): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
-    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+    if (!auth.ok) return json({ error: auth.code }, { status: auth.status });
 
     let body: { id?: unknown; op?: unknown; args?: unknown };
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const { id, op, args } = body ?? {};
     if (typeof id !== 'string' || !id || typeof op !== 'string' || !op) {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
 
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
@@ -763,12 +751,12 @@ export class AgentLinkSession {
       // the agent's only way to observe "waiting for the macro to
       // reconnect" (design §7 decision #4) instead of erroring on every poll.
       if (op === 'get_status') {
-        return jsonResponse({ ok: true, payload: { state: 'suspended', resume_deadline } }, 200);
+        return json({ ok: true, payload: { state: 'suspended', resume_deadline } }, { status: 200 });
       }
       // Every other op is a structured, RETRIABLE error — never queued (a
       // queued write could apply a stale edit after the user moved on,
       // which is worse than a clean retry once the macro reattaches).
-      return jsonResponse({ error: 'macro_disconnected', resume_deadline }, 409);
+      return json({ error: 'macro_disconnected', resume_deadline }, { status: 409 });
     }
 
     // get_status is answered by the DO in every state — link status is
@@ -777,8 +765,7 @@ export class AgentLinkSession {
     // failed with "unsupported op: get_status" (found in the 2026-07-10
     // staging spot check; only the suspended branch above ever worked).
     if (op === 'get_status') {
-      return jsonResponse(
-        {
+      return json({
           ok: true,
           payload: {
             state: session.state,
@@ -793,13 +780,11 @@ export class AgentLinkSession {
               ),
             ),
           },
-        },
-        200,
-      );
+        }, { status: 200 });
     }
 
     if (!this.macroSocket) {
-      return jsonResponse({ error: 'macro_not_connected' }, 409);
+      return json({ error: 'macro_not_connected' }, { status: 409 });
     }
 
     const envelope = JSON.stringify({ kind: 'op', id, op, payload: args ?? {} });
@@ -812,19 +797,19 @@ export class AgentLinkSession {
       // closing) — don't make the caller wait out the full timeout for a
       // message that never went anywhere.
       this.pendingOps.cancel(id);
-      return jsonResponse({ error: 'macro_not_connected' }, 409);
+      return json({ error: 'macro_not_connected' }, { status: 409 });
     }
 
     const result = await outcome;
     if ('timedOut' in result) {
-      return jsonResponse({ error: 'macro_timeout' }, 504);
+      return json({ error: 'macro_timeout' }, { status: 504 });
     }
     // Keep the diagram snapshot fresh for the relay-side update_diagram
     // guardrail (only on a successful reply — a failed op didn't change state).
     if (result.ok) {
       await this.cacheDiagramFromOp(op, args, result.payload);
     }
-    return jsonResponse({ ok: result.ok, payload: result.payload }, 200);
+    return json({ ok: result.ok, payload: result.payload }, { status: 200 });
   }
 
   /**

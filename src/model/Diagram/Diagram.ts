@@ -10,6 +10,7 @@ export enum DataSource {
 export enum DiagramType {
   Sequence = 'sequence',
   Mermaid = 'mermaid',
+  Markdown = 'markdown',
   PlantUml = 'plantuml',
   Graph = 'graph',
   OpenApi = 'OpenAPI',
@@ -18,25 +19,14 @@ export enum DiagramType {
   Unknown = 'unknown'
 }
 
-export function getDiagramData(o: any): string{
-  let body;
-  switch (o.diagramType) {
-    case DiagramType.Sequence:
-    case DiagramType.OpenApi:
-    case DiagramType.AsyncApi:
-      body = o.code || '';
-      break;
-    case DiagramType.Mermaid:
-      body = o.mermaidCode || '';
-      break;
-    case DiagramType.PlantUml:
-      body = o.plantUmlCode || '';
-      break;
-    case DiagramType.Graph:
-      body = o.graphXml || '';
-      break;
-  }
-  return body || '';
+/** Optional, producer-prepared Magic rendering stored with the Mermaid body. */
+export interface MagicArtifact {
+  /** Lowercase SHA-256 hex of the exact UTF-8 mermaidCode, without normalization. */
+  sourceHash: string;
+  svg: string;
+  rulesVersion: 'magic-v1';
+  outcome: 'validated';
+  generatedAt?: string;
 }
 
 export class Diagram {
@@ -72,8 +62,23 @@ export class Diagram {
   title?: string = '';
   styles?: object = {};
   mermaidCode?: string = '';
+  magic?: MagicArtifact;
+  // Undefined means the Markdown tab has never been opened; empty is intentional.
+  markdownCode?: string;
   plantUmlCode?: string = '';
   graphXml?: string = '';
+  /**
+   * Optional independent DrawIO Board document. Legacy records only have
+   * graphXml, which remains the Diagram-mode document for compatibility.
+   */
+  boardGraphXml?: string = '';
+  /**
+   * Which of the two documents above this macro publishes. The macro config
+   * carries the same value and is the authority wherever a Forge context is
+   * reachable; this copy exists for the surfaces that never see one — the
+   * embed host, the export snapshot, and getDiagramData().
+   */
+  graphEditorMode?: 'diagram' | 'board';
   /**
    * No diagrams need to be compressed anymore. This is kept for backward compatibility.
    * @deprecated This will be removed soon.
@@ -115,10 +120,6 @@ export class Diagram {
     errorCode?: string;
     errorClass?: 'thrown' | 'structured' | 'malformed';
   } = undefined;
-
-  public getCoreData?(): string {
-    return getDiagramData(this);
-  }
 }
 
 const NULL_DIAGRAM = {
@@ -131,7 +132,6 @@ const NULL_DIAGRAM = {
   plantUmlCode: '',
   graphXml: '',
   source: DataSource.Unknown,
-  payload: undefined,
 } as Diagram;
 
 export {NULL_DIAGRAM};

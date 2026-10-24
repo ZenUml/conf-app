@@ -181,6 +181,7 @@
         data-testid="agent-link-help-disclosure"
       >
         <summary>Need help?</summary>
+        <pre class="agent-link-panel__command" data-testid="agent-link-setup-command">{{ mcpAddCommand() }}</pre>
         <div class="agent-link-panel__setup">
           <p>This is optional. Copy the help message, then paste it into the AI assistant you are using.</p>
           <button
@@ -220,6 +221,7 @@ import {
   AGENT_LINK_CLIENT_MEMORY_EVENT,
   readAgentLinkClientMemory,
 } from '@/composables/agentLink/clientMemory'
+import { buildConnectPrompt, mcpAddCommand } from '@/composables/agentLink/connectInstructions'
 
 const props = withDefaults(
   defineProps<{
@@ -263,14 +265,7 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-const promptText = computed(() => {
-  const sessionToken = props.token ?? ''
-  return [
-    'Connect this AI assistant to my ZenUML diagram through Agent Link.',
-    `session: ${sessionToken}`,
-    '# reads this page · edits this diagram · 10 min idle / 60 min max',
-  ].join('\n')
-})
+const promptText = computed(() => buildConnectPrompt(props.token))
 
 type CopyState = 'default' | 'copied' | 'failed'
 const copyState = ref<CopyState>('default')

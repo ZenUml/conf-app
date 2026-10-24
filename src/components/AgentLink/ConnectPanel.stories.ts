@@ -37,7 +37,7 @@ function renderRail(args: Args) {
 }
 
 const meta: Meta<typeof ConnectPanel> = {
-  title: 'Agent Link/Disconnected lifecycle',
+  title: 'Viewer/ConnectPanel',
   component: ConnectPanel,
   parameters: {
     layout: 'centered',

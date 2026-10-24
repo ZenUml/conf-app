@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConnectPanel from './ConnectPanel.vue'
+import forgeGlobal from '@/model/globals/forgeGlobal'
 import AgentStatusHeader from './AgentStatusHeader.vue'
 import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
@@ -52,8 +53,7 @@ describe('ConnectPanel', () => {
 
     expect(wrapper.find('[data-testid="agent-link-pairing"]').exists()).toBe(true)
     const prompt = wrapper.find('[data-testid="agent-link-prompt"]').text()
-    expect(wrapper.text()).toContain('Connect')
-    expect(prompt).toContain('Connect this AI assistant to my ZenUML diagram through Agent Link.')
+    expect(prompt).toContain('Connect to my ZenUML diagram via the zenuml MCP.')
     expect(prompt).toContain('session: tok-123')
     expect(prompt).toContain('reads this page · edits this diagram · 10 min idle / 60 min max')
     const help = wrapper.find('[data-testid="agent-link-help-disclosure"]')
@@ -171,13 +171,13 @@ describe('ConnectPanel', () => {
 
   it('timeout keeps the same pairing handoff instead of showing an installation wall', () => {
     const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
+    forgeGlobal.zenumlRemoteBaseUrl = undefined
 
     expect(wrapper.find('[data-testid="agent-link-pairing"]').exists()).toBe(true)
     const help = wrapper.find('[data-testid="agent-link-help-disclosure"]')
     expect(help.exists()).toBe(true)
     expect(help.attributes('open')).toBeUndefined()
-    expect(wrapper.text()).not.toContain('claude mcp add')
-    expect(wrapper.text()).not.toContain('http')
+    expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain('claude mcp add')
   })
 
   it('Copy prompt failure: shows "Copy failed — select the text above" on the button', async () => {
@@ -301,6 +301,7 @@ describe('ConnectPanel', () => {
   it('already_linked: renders the rejected notice with honest (no-fake-time) copy and actions', async () => {
     const wrapper = mountPanel({ state: 'already_linked' })
 
+    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--already_linked')
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
     expect(notice.exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(

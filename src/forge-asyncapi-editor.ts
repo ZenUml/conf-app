@@ -4,16 +4,20 @@
 // Forge resource so localStorage works as a sync channel.
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, isInserting, isConfiguring } from '@/model/globals/forgeGlobal'
 import AsyncApiStudioEditor from '@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'
-import { Diagram } from '@/model/Diagram/Diagram'
+import AsyncApiForgeEditorShell from '@/components/Editor/AsyncApiEditor/AsyncApiForgeEditorShell.vue'
+import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
+import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
 import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
+import { markEditorAuthoringStarted, registerEditorCloseTracking, trackEditorClosedWithoutSave } from '@/utils/analytics/editorCloseOutcome'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId'
 // info.title → custom-content title mirroring now lives in
 // buildAsyncApiSaveDiagram (it parses the spec when no explicit title is
 // passed), so every save path stays in sync without each entry re-parsing.
@@ -44,12 +48,19 @@ operations:
 
 async function initializeMacro() {
   const context = await initForgeContext()
-  // Read customContentId from config (macro context) AND modal context —
-  // the dashboard's Edit flow opens this editor via a modal with the
-  // contentId passed through extension.modal.customContentId.
+  // Read customContentId from config (macro context), modal context AND a
+  // pasted typed deeplink — the dashboard's Edit flow opens this editor via a
+  // modal with the contentId passed through extension.modal.customContentId,
+  // and a macro created by pasting `/d/asyncapi/<cloudId>/<contentId>` has no
+  // config at all, only the matched URL in the page ADF.
+  //
+  // configContentId / modalContentId stay RAW reads: isDashboardEdit below
+  // means "no config, came in through the modal", so it must not see the
+  // deeplink fallback — a pasted AsyncAPI macro is a page macro, not a
+  // dashboard edit. Same split as forge-swagger-editor.ts.
   const configContentId = context.extension?.config?.customContentId
   const modalContentId = context.extension?.modal?.customContentId
-  const customContentId = configContentId || modalContentId
+  const customContentId = resolveEffectiveCustomContentId(context)
 
   const entryPoint = context.extension?.type === 'confluence:spacePage'
     ? 'dashboard'
@@ -60,11 +71,25 @@ async function initializeMacro() {
         : 'page_editor'
   // Emit from this iframe, not the viewer that opened it: Session Replay is
   // scoped to an iframe, and the Studio interaction happens here.
-  trackAuthoringStarted({
-    macroType: 'asyncapi',
-    entryPoint,
-    customContentId,
-  })
+  //
+  // NOT fired here: on Lite the paywall can block this mount, and a user who
+  // closes the paywall never started authoring. Fired below on the ungated
+  // path, or from PaywallGate's explicit "Continue editing" — same rule
+  // forgeIndex applies to the sequence family.
+  //
+  // Deferring it past the `loadFailed` early return below also stops a failed
+  // document load counting as an authoring session. That is a deliberate
+  // change on EVERY variant, not just Lite: the asyncapi app used to emit
+  // macro_edit_started before it knew whether the document loaded, so its
+  // start-vs-save funnel counted opens that could never reach a save.
+  const trackAsyncApiAuthoringStarted = () => {
+    markEditorAuthoringStarted()
+    trackAuthoringStarted({
+      macroType: 'asyncapi',
+      entryPoint,
+      customContentId,
+    })
+  }
 
   // Dashboard edits open this editor as a standalone modal targeting a known
   // document id (modal.customContentId, with no macro on the current page).
@@ -103,7 +128,7 @@ async function initializeMacro() {
   // edit a blank template and the save would fork a brand-new document,
   // orphaning the one they meant to edit. Surface the failure instead.
   if (loadFailed) {
-    ReactDOM.render(
+    createRoot(root).render(
       React.createElement(
         'div',
         {
@@ -120,12 +145,14 @@ async function initializeMacro() {
           'Close this dialog and try again. Editing now would create a new, separate document.',
         ),
       ),
-      root,
     )
     return
   }
 
   const handleCancel = async () => {
+    // Studio's own cancel control; the modal X is covered by the registration
+    // in mountStudio. Idempotent, so both paths count once.
+    await trackEditorClosedWithoutSave('exit_button')
     try {
       const view = await getView()
       await view.close()
@@ -210,15 +237,49 @@ async function initializeMacro() {
   // the Studio's own dark header with a floating Publish button) and
   // wants the same at edit time. ownTitleBar:false reproduces that
   // layout in every entry path.
-  ReactDOM.render(
-    React.createElement(AsyncApiStudioEditor, {
-      initialSpec,
-      onSave: handleSave,
-      onCancel: handleCancel,
-      ownTitleBar: false,
-    }),
-    root,
-  )
+  const mountStudio = (target: HTMLElement | null) => {
+    if (!target) return
+    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled).
+    // Studio does not expose a dirty flag, so had_changes is left off.
+    registerEditorCloseTracking({
+      getMacroType: () => 'asyncapi',
+      operationMode: customContentId ? 'edit' : 'create',
+    })
+    createRoot(target).render(
+      React.createElement(AsyncApiStudioEditor, {
+        initialSpec,
+        onSave: handleSave,
+        onCancel: handleCancel,
+        ownTitleBar: false,
+      }),
+    )
+  }
+
+  // Editor paywall (Lite): mount the Studio under PaywallGate so the iframe
+  // is never blank — the block is the gate's modal on top of a real editor
+  // (metered: "Continue editing (N)" dismisses it), not a refusal in
+  // saveToPlatform. Same pattern as forge-swagger-editor.ts /
+  // forge-graph-editor.ts — the gate no-ops on non-Lite variants
+  // (shouldBlockActions is Lite-scoped).
+  const paywalled = await tryPageEditorPaywall({
+    doc: existing ?? NULL_DIAGRAM,
+    content: AsyncApiForgeEditorShell,
+    contentProps: {
+      onMountedBootstrap: () => {
+        mountStudio(document.getElementById('asyncapi-bootstrap-root'))
+      },
+    },
+    macroKind: 'asyncapi',
+    customContentId,
+    // The gated path returns before the ungated mount below, so defer the
+    // authoring event to the explicit continue action rather than counting a
+    // blocked mount as an authoring session.
+    onContinueEditing: trackAsyncApiAuthoringStarted,
+  })
+  if (!paywalled) {
+    mountStudio(root)
+    trackAsyncApiAuthoringStarted()
+  }
 }
 
 void initializeMacro()

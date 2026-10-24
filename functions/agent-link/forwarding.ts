@@ -146,9 +146,12 @@ export function reattachEvent(peer: Peer, wasSuspended: boolean): SessionEvent {
 /** Activity descriptor carried on a relay-originated status envelope
  * (spec 2026-07-13 §4): 'agent_request' = a bump-worthy MCP request;
  * 'guardrail_rejected' = mcp.ts's update_diagram guard refused a write the
- * macro never saw; 'turn' = a host-side hook bracket (PR3, reserved). */
+ * macro never saw; 'protocol_incompatible' = the MCP initialize handshake
+ * rejected the client revision before any tool could run;
+ * 'client_identified' = a compatible initialize handshake reduced to a safe
+ * display label; 'turn' = a host-side hook bracket (PR3, reserved). */
 export interface StatusActivity {
-  type: 'agent_request' | 'guardrail_rejected' | 'turn';
+  type: 'agent_request' | 'guardrail_rejected' | 'protocol_incompatible' | 'client_identified' | 'turn';
   detail?: string;
 }
 

@@ -1,7 +1,7 @@
 name: Error radar
 
 # Daily detector for new and unusual conf-app error signatures in Mixpanel
-# (.claude/skills/error-radar/SKILL.md). Posts to #zenuml2 by webhook; the
+# (.claude/skills/error-radar/SKILL.md). Posts to #github-notifications by webhook; the
 # Claude scheduled task "Error radar triage" replies in that thread.
 #
 # The radar output names real tenants and this repository's logs are public:

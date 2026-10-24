@@ -80,7 +80,7 @@ async function mockSaveGraphAndExit() {
 }
 
 const meta: Meta<typeof ForgeGraphEditor> = {
-  title: 'Editors/ForgeGraphEditor',
+  title: 'Editor/Graph/ForgeGraphEditor',
   component: ForgeGraphEditor,
   parameters: {
     layout: 'fullscreen',

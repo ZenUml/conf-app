@@ -134,7 +134,7 @@ L2 = Lane('2 · Editor mount — the only enforcement point (Publish and the per
          ['upgrade_modal_shown; the editor', 'underneath is unusable until', 'the modal is dismissed']),
     Node('E3', 4, 2, 'event', 'Mixpanel', ['paywall_triggered', 'action_type = entry point']),
     Node('S3', 2, 3, 'store', 'localStorage · continue attempts',
-         ['15 per user and space'],
+         ['3 per user and space', 'was 15 before 2026-08-16'],
          mono=['paywallContinueAttempts:', ' <domain>:<space>:<accountId>']),
     Node('D4', 3, 3, 'step', 'continue attempts', ['N > 0 ?'], shape='diamond'),
     Node('K2', 4, 3, 'ok', '"Continue editing (N)"',
@@ -157,13 +157,13 @@ L3 = Lane('3 · Known failure shapes (measured) and the numbers to remember', [
          ['KV error / collect throw → count 0', '0 ≥ 100 is false → gate silent',
           '2026-07-12 audit: ≈ 0 events on', 'revenue-relevant tenants']),
     Node('F2', 2, 1, 'step', 'Client-side counter',
-         ['clearing site data / incognito', 'resets N to 15',
+         ['clearing site data / incognito', 'resets N to 3 (default)',
           'seen on 2 of 42 locked-out users']),
     Node('F3', 3, 1, 'step', 'Banner reach gaps',
          ["'paywall' needs authorship in the", 'last 30 d → most admins never see it',
           "'paywall-admin' flag off in prod", 'space admin ≠ site admin (no SKU)']),
     Node('F4', 4, 1, 'step', 'Thresholds and scope',
-         ['warn 85 · block 100', '15 continue attempts · 7 d snooze',
+         ['warn 85 · block 100', '3 continue attempts · 7 d snooze',
           '30 d admin probe · Lite only', 'spot check: modal at editor mount,', 'never after Publish']),
 ])
 
@@ -196,7 +196,7 @@ for k, (stroke, _, _) in PALETTE.items():
 out.append('</defs>')
 out.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="#ffffff"/>')
 out.append(f'<text x="{LANE_X}" y="34" font-size="20" font-weight="700" fill="{TEXT}">ZenUML Lite paywall — runtime flow (production, default-on since 2026-08-09)</text>')
-out.append(f'<text x="{LANE_X}" y="54" font-size="11" fill="{SUBTEXT}">Sources: pageBanner.ts · warningBanner.ts · spaceAdminProbe.ts · mountPaywallGate.ts · continueAttempts.ts · useCustomerSuccessService.ts · MacroMetrics.ts · UpgradePrompt.vue · generated 2026-08-22</text>')
+out.append(f'<text x="{LANE_X}" y="54" font-size="11" fill="{SUBTEXT}">Sources: pageBanner.ts · warningBanner.ts · spaceAdminProbe.ts · mountPaywallGate.ts · continueAttempts.ts · useCustomerSuccessService.ts · MacroMetrics.ts · UpgradePrompt.vue · generated 2026-09-02</text>')
 # legend (box-free text + swatches, clear of every box: B5)
 lx = LANE_X
 for k, (stroke, fill, meaning) in PALETTE.items():

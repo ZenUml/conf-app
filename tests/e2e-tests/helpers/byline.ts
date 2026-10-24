@@ -1,4 +1,4 @@
-import { Frame, Page, expect } from '@playwright/test';
+import { Frame, Page } from '@playwright/test';
 import { dismissStarterGalleryIfPresent } from './starterGallery.js';
 
 /**
@@ -29,7 +29,8 @@ import { dismissStarterGalleryIfPresent } from './starterGallery.js';
  * e2e runs on lite-stg, which has only Lite — but tighten this to require the
  * suffix before pointing these tests at a site carrying both.
  */
-const BYLINE_TITLE = /^Diagrams\b/;
+// "Diagrams" on Lite and Full; the AsyncAPI app titles the same entry "API Docs".
+const BYLINE_TITLE = /^(Diagrams|API Docs)\b/;
 
 /**
  * Confluence's test id for a Forge contentBylineItem button. Distinct from its
@@ -247,22 +248,4 @@ export async function createAsyncApiDiagramFromByline(
   await dismissStarterGalleryIfPresent(page, editor);
   await page.waitForTimeout(3000);
   await editor.locator('button:has-text("Publish")').click();
-}
-
-/**
- * Assert the Lite paywall modal is up inside `frame`.
- *
- * `continue-editing-btn` is the load-bearing element: the Lite paywall is a
- * METERED soft gate, so its presence (label "Continue editing without upgrading
- * (N)") is what proves the gate fired. At N=0 it is replaced by
- * `continue-attempts-exhausted`, so accept either — both mean blocked.
- */
-export async function expectPaywallModal(frame: Frame): Promise<void> {
-  const gate = frame.locator(
-    '[data-testid="continue-editing-btn"], [data-testid="continue-attempts-exhausted"]',
-  );
-  await expect(
-    gate.first(),
-    'expected the Lite paywall modal over the byline-opened editor',
-  ).toBeVisible({ timeout: 30000 });
 }

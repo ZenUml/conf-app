@@ -81,8 +81,9 @@ export function indexThumbnails(
 }
 
 /** `downloadLink` from the v2 API is site-relative and excludes the `/wiki`
- *  context path (getAttachmentDownloadLink concatenates it onto a base that
- *  already ends in `/wiki`). `requestConfluence` wants the full path. */
+ *  context path (other download-link callers in model/Attachment.ts concatenate
+ *  it onto a base that already ends in `/wiki`). `requestConfluence` wants the
+ *  full path. */
 function toRequestPath(download: string): string {
   if (download.startsWith('/wiki/')) return download
   return `/wiki${download.startsWith('/') ? '' : '/'}${download}`

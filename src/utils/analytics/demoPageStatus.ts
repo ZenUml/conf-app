@@ -43,7 +43,8 @@ export function isCurrentPageDemoPage(): Promise<boolean> {
   }
   const p = fetchDemoPageFlag(pageId);
   cache.set(pageId, p);
-  p.then((b) => cache.set(pageId, b)).catch(() => cache.set(pageId, false));
+  // fetchDemoPageFlag catches internally and resolves false — p never rejects.
+  p.then((b) => cache.set(pageId, b));
   return p;
 }
 

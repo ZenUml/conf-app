@@ -53,16 +53,33 @@ export class AIChatSessionError extends Error {
   }
 }
 
-export type AIChatSessionResult = {
+type AIChatSessionResultBase = {
   diagramId: string
   diagramCreated: boolean
   updatedCode: string
-  versionId: string
-  versionNumber?: number
-  createdAt?: string
   jobId: string
   pollCount?: number
+  repairAttempts?: number
+  backendDurationMs?: number
+  backendLlmDurationMs?: number
 }
+
+export type AIChatSessionResult =
+  | (AIChatSessionResultBase & {
+      noChange: true
+      versionId?: never
+      versionNumber?: never
+      createdAt?: never
+    })
+  | (AIChatSessionResultBase & {
+      noChange?: false
+      versionId: string
+      versionNumber?: number
+      createdAt?: string
+    })
+
+export const AI_CHAT_NO_CHANGE_MESSAGE =
+  'No changes were needed for the current diagram.'
 
 export type RunAIChatSessionOptions = {
   diagramId?: string
@@ -80,7 +97,10 @@ export type RunAIChatSessionOptions = {
   onDiagramBound?: (diagramId: string) => void | Promise<void>
 }
 
-const DEFAULT_TIMEOUT_MS = 60_000
+// Diagramly's provider layer allows a single model request to run for up to
+// 120 seconds. Keep polling beyond that boundary so the worker has time to
+// persist the completed version and expose it through job status.
+export const AI_CHAT_SESSION_TIMEOUT_MS = 135_000
 const DEFAULT_POLL_INTERVAL_MS = 2_000
 
 function createAbortError(): Error {
@@ -157,7 +177,7 @@ function stageFromStatus(
 export async function runAIChatSession(
   options: RunAIChatSessionOptions,
 ): Promise<AIChatSessionResult> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = options.timeoutMs ?? AI_CHAT_SESSION_TIMEOUT_MS
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
   assertNotAborted(options.signal)
 
@@ -260,9 +280,7 @@ export async function runAIChatSession(
     if (stage) options.onStage?.(stage, status)
 
     if (status.status === 'COMPLETED') {
-      options.onStage?.('syncing', status)
       const updatedCode = status.output?.diagramCode
-      const versionId = status.output?.versionId
       if (!updatedCode) {
         throw new AIChatSessionError(
           'Diagramly job completed without diagram code',
@@ -271,6 +289,41 @@ export async function runAIChatSession(
           pollCount,
         )
       }
+
+      const resultTelemetry = {
+        ...(status.output?.repairAttempts !== undefined
+          ? { repairAttempts: status.output.repairAttempts }
+          : {}),
+        ...(status.output?.durationMs !== undefined
+          ? { backendDurationMs: status.output.durationMs }
+          : {}),
+        ...(status.output?.llmDurationMs !== undefined
+          ? { backendLlmDurationMs: status.output.llmDurationMs }
+          : {}),
+      }
+
+      if (status.output?.noChange === true) {
+        if (options.errorMessage?.trim()) {
+          throw new AIChatSessionError(
+            'Diagramly syntax repair completed without a persisted change',
+            'server',
+            'job_failed',
+            pollCount,
+          )
+        }
+        return {
+          diagramId,
+          diagramCreated,
+          updatedCode,
+          noChange: true,
+          jobId,
+          pollCount,
+          ...resultTelemetry,
+        }
+      }
+
+      options.onStage?.('syncing', status)
+      const versionId = status.output?.versionId
       if (!versionId) {
         throw new AIChatSessionError(
           'Diagramly job completed without a persisted version',
@@ -289,6 +342,7 @@ export async function runAIChatSession(
         createdAt: status.output?.createdAt,
         jobId,
         pollCount,
+        ...resultTelemetry,
       }
     }
 

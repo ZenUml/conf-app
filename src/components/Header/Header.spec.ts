@@ -1,5 +1,6 @@
-import {mount, flushPromises} from '@vue/test-utils'
-import {vi} from 'vitest'
+import EventBus from '@/EventBus';
+import {mount, flushPromises, enableAutoUnmount} from '@vue/test-utils'
+import {afterEach, vi} from 'vitest'
 import Header from '@/components/Header/Header.vue'
 import {DiagramType} from "@/model/Diagram/Diagram";
 import {getTemplatesForType} from "@/model/Diagram/EditorTemplates";
@@ -16,8 +17,11 @@ vi.mock('@/apis/aiTitleFeatureFlag', async (importOriginal) => {
 import {trackAnalyticsEvent} from '@/utils/analytics/trackAnalyticsEvent'
 import {isAiChatEnabled} from '@/apis/aiTitleFeatureFlag'
 
+enableAutoUnmount(afterEach)
+
 beforeEach(() => {
   vi.mocked(isAiChatEnabled).mockResolvedValue(true)
+  vi.mocked(trackAnalyticsEvent).mockClear()
 })
 
 describe('Header', () => {
@@ -31,7 +35,7 @@ describe('Header', () => {
 
     // Find tab buttons through TabSwitcher component
     const tabButtons = headerWrapper.findAll('.tab-switcher button');
-    expect(tabButtons).toHaveLength(3);
+    expect(tabButtons).toHaveLength(4);
 
     const sequenceButton = tabButtons[0];
     const mermaidButton = tabButtons[1];
@@ -62,9 +66,46 @@ describe('Header', () => {
 
     const toggle = wrapper.get('[data-testid="ai-chat-toggle"]')
     expect(toggle.classes()).toContain('bg-violet-100')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_chat_button_shown', {
+      feature_area: 'ai',
+      surface: 'editor',
+      macro_type: DiagramType.Sequence,
+    })
     await toggle.trigger('click')
 
     expect(wrapper.emitted('toggle-ai-chat')).toHaveLength(1)
+  })
+
+  it('carries no code-panel control at all — the panel owns its own', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await flushPromises()
+
+    // Hiding and showing the source pane both happen at the pane's own edge
+    // (Workspace.vue renders those controls). A toggle creeping back into the
+    // toolbar would put a third, distant control on the same state.
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Hide code')
+    expect(wrapper.text()).not.toContain('Show code')
+  })
+
+  it('tracks each AI Chat button visibility transition without counting re-renders', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await flushPromises()
+
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'ai_chat_button_shown')).toHaveLength(1)
+    await wrapper.vm.$forceUpdate()
+    await wrapper.vm.$nextTick()
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'ai_chat_button_shown')).toHaveLength(1)
+
+    store.commit('updateDiagramType', DiagramType.Graph)
+    await wrapper.vm.$nextTick()
+    store.commit('updateDiagramType', DiagramType.Mermaid)
+    await wrapper.vm.$nextTick()
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'ai_chat_button_shown')).toHaveLength(2)
   })
 
   it('hides AI Chat when its feature flag is disabled', async () => {
@@ -75,6 +116,7 @@ describe('Header', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_chat_button_shown', expect.anything())
   })
 
   it('hides AI Chat for Graph diagrams', async () => {
@@ -84,6 +126,7 @@ describe('Header', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_chat_button_shown', expect.anything())
   })
 
   describe('the remembered diagram type', () => {
@@ -100,6 +143,56 @@ describe('Header', () => {
       await w.vm.$nextTick();
 
       expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
+    it('applies before the AI Chat flag answers, not after its round trip', () => {
+      // The preference must land in mount's synchronous part. forgeIndex reads
+      // doc.diagramType (the same object as store.state.diagram) right after
+      // mountRoot to label macro_create_started, and the Sequence placeholder
+      // renders — firing macro_viewed(sequence) — while mounted() awaits. With
+      // the flag read ahead of this block, every new Lite diagram with a
+      // remembered Mermaid preference was counted as a sequence create and
+      // view from 2026-08-31 (v2026.08.302214-lite).
+      vi.mocked(isAiChatEnabled).mockReturnValue(new Promise(() => {}));
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
+      mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
+    it('still installs draft protection when reading the preference throws', async () => {
+      // Storage can throw (blocked site data, sandboxed iframe). mounted() must
+      // not reject before the draft saver / restore handler / close guard exist.
+      const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => {
+        if (key === 'zenuml-preferred-diagram-type') throw new DOMException('denied', 'SecurityError');
+        return null;
+      });
+      try {
+        const w = mountWith({ id: '', isNew: true, typeRequested: false, diagramType: DiagramType.Sequence, title: 'T' });
+        await flushPromises();
+
+        // The draft-restore handler is registered at the end of mounted().
+        EventBus.$emit('draft-restore', { scope: 'new:diagram', draft: { code: 'Restored->Me: hi', title: 'Restored', diagramType: 'sequence', buffers: {} } });
+        await w.vm.$nextTick();
+        expect(store.state.diagram.title).toBe('Restored');
+        expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('still switches the diagram type when saving the preference throws', async () => {
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      try {
+        const w = mountWith({ id: 'x1', isNew: false, typeRequested: false, diagramType: DiagramType.Sequence });
+        await flushPromises();
+        expect(() => { (w.vm as any).diagramType = DiagramType.Mermaid; }).not.toThrow();
+        expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+      } finally {
+        spy.mockRestore();
+      }
     });
 
     it('never overrules a type the user just picked', async () => {
@@ -476,3 +569,40 @@ describe('Header — starter-template gallery auto-open (onboarding funnel)', ()
     expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
   })
 })
+
+
+describe('Markdown tab discovery and draft restore', () => {
+  it('offers recovery for intentionally empty Markdown when the saved tab was untouched', async () => {
+    store.state.diagram = { id: 'empty-md', diagramType: DiagramType.Mermaid, mermaidCode: 'flowchart LR\nA-->B', title: 'Doc', isNew: false } as any;
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    await flushPromises();
+    const draft = (wrapper.vm as any).currentDraft();
+    draft.buffers.markdown = '';
+    expect((wrapper.vm as any).draftDiffers(draft)).toBe(true);
+    wrapper.unmount();
+  });
+  it('shows a labelled Markdown tab, seeds Mermaid once, and restores into the correct type', async () => {
+    store.state.diagram = { id: 'md-edit', diagramType: DiagramType.Mermaid, mermaidCode: 'flowchart TD\nA-->B', title: 'Doc', isNew: false } as any;
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    await flushPromises();
+    const tab = wrapper.get('[role="tab"][aria-label="Markdown"]');
+    await tab.trigger('click');
+    expect(store.state.diagram.markdownCode).toContain('```mermaid');
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('markdown_seeded_from_mermaid', expect.objectContaining({ macro_type: 'markdown' }));
+    store.commit('updateDiagramType', DiagramType.Mermaid);
+    await wrapper.vm.$nextTick();
+    EventBus.$emit('draft-restore', { scope: 'edit:md-edit', draft: { code: '# Recovered', title: 'Recovered', diagramType: 'markdown', buffers: { mermaid: 'flowchart TD\nA-->B', markdown: '# Recovered', sequence: 'Saved sequence buffer' } } });
+    await wrapper.vm.$nextTick();
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Markdown);
+    expect(store.state.diagram.markdownCode).toBe('# Recovered');
+    expect(store.state.diagram.code).toBe('Saved sequence buffer');
+    expect((wrapper.vm as any).currentDraft().buffers.markdown).toBe('# Recovered');
+    const draft = (wrapper.vm as any).currentDraft();
+    expect((wrapper.vm as any).draftDiffers(draft)).toBe(false);
+    draft.buffers.mermaid = 'Unpublished inactive buffer';
+    expect((wrapper.vm as any).draftDiffers(draft)).toBe(true);
+    expect(store.state.diagram.mermaidCode).toBe('flowchart TD\nA-->B');
+    expect(wrapper.find('[data-testid="ai-chat-toggle"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});

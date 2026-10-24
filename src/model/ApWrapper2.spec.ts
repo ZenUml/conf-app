@@ -87,6 +87,33 @@ describe('ApWrapper2', () => {
         (forgeGlobalMod.default as any).isDiagramly = false;
       }
     });
+
+    // Regression (#403): the AsyncAPI variant registers only `async-api-doc`.
+    // getMacroContentTypes() fell through to the lite/full pair, so MacroMetrics
+    // asked the V2 space endpoint for ac:my-api:zenuml-content-sequence/-graph
+    // and Confluence answered 400 "Unsupported value for type".
+    it('returns only the registered async-api-doc type on the AsyncAPI variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isAsyncApi = true;
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual(['ac:my-api:async-api-doc']);
+      } finally {
+        (forgeGlobalMod.default as any).isAsyncApi = false;
+      }
+    });
+
+    it('keeps the lite prefix with the sequence + graph pair on Lite', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isLite = true;
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual([
+          'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
+          'ac:com.zenuml.confluence-addon-lite:zenuml-content-graph',
+        ]);
+      } finally {
+        (forgeGlobalMod.default as any).isLite = false;
+      }
+    });
   });
 
   describe('updateCustomContentV2', () => {
@@ -107,6 +134,25 @@ describe('ApWrapper2', () => {
         expect.objectContaining({ version: { number: 6 } })
       );
       expect(trackEvent).toHaveBeenCalledWith('"123"', 'update_custom_content', 'info');
+    });
+
+    it('normalises pasted non-breaking spaces in mermaidCode before persisting', async () => {
+      // U+00A0 arrives via rich-text paste and makes mermaid's Langium
+      // grammars unparseable, so the stored body must not carry it forward.
+      const content = buildContent(5);
+      const diagram = {
+        id: '123',
+        title: 'Pets',
+        diagramType: 'mermaid',
+        mermaidCode: `pie title Pets\n\u00A0\u00A0"Dogs" : 386`,
+      } as any;
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '123', version: { number: 6 } });
+
+      await wrapper.updateCustomContentV2(content, diagram);
+
+      const payload = vi.mocked(forgeRequest).mock.calls[0][2] as any;
+      const serializedBody = JSON.parse(payload.body.value);
+      expect(serializedBody.mermaidCode).toBe('pie title Pets\n  "Dogs" : 386');
     });
 
     it('strips stale compressed flag when updating a graph body with plain XML', async () => {
@@ -334,6 +380,49 @@ describe('ApWrapper2', () => {
       const result = await wrapper.getCustomContentByIdV2('999');
 
       expect(result).toBeUndefined();
+    });
+
+    // load_custom_content_v2_missing used to carry only the content id, so
+    // the stream could not be split into "really gone" vs "Confluence failed".
+    it('records not_found with the structured status and code on a strict 404', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 404, code: 'NOT_FOUND', title: 'Not Found' }],
+      });
+
+      await wrapper.getCustomContentByIdV2('77');
+
+      expect(trackEvent).toHaveBeenCalledWith('77', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'not_found',
+        error_class: 'structured',
+        http_status: 404,
+        error_code: 'NOT_FOUND',
+      });
+    });
+
+    it('records other_error for a structured non-404 error', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 403, code: 'PERMISSION_DENIED', title: 'Forbidden' }],
+      });
+
+      await wrapper.getCustomContentByIdV2('78');
+
+      expect(trackEvent).toHaveBeenCalledWith('78', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'structured',
+        http_status: 403,
+        error_code: 'PERMISSION_DENIED',
+      });
+    });
+
+    it('records other_error / malformed for a body without body.raw.value', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '79' });
+
+      await wrapper.getCustomContentByIdV2('79');
+
+      expect(trackEvent).toHaveBeenCalledWith('79', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'malformed',
+      });
     });
   });
 
@@ -719,6 +808,22 @@ describe('ApWrapper2', () => {
       expect(result.directFetchErrorClass).toBe('structured');
     });
 
+    it('keeps the strict-404 diagnostics on a successful sibling recovery (#148)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ results: [childWith(recoveredId, orphanId)] })
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce(happyCustomContent(recoveredId));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoveredFromOrphanId).toBe(orphanId);
+      expect(result.directFetchStatus).toBe('not_found');
+      expect(result.directFetchHttpStatus).toBe(404);
+      expect(result.directFetchErrorCode).toBe('NOT_FOUND');
+      expect(result.directFetchErrorClass).toBe('structured');
+    });
+
     it('surfaces httpStatus/errorCode/errorClass for a 403 FORBIDDEN', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 403, code: 'FORBIDDEN' }] });
 
@@ -925,6 +1030,42 @@ describe('ApWrapper2', () => {
     // title= filter is silently ignored — verified on whimet4 2026-05-27
     // (1000+ CCs, matching record buried beyond limit=250). CQL with exact
     // `title = "<uuid>"` matching is reliable and permission-scoped.
+    // Regression (#403): the AsyncAPI variant registers only `async-api-doc`;
+    // naming sequence/graph in the CQL type clause is an unsupported type there.
+    it('limits the CQL type clause to async-api-doc on the AsyncAPI variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isAsyncApi = true;
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+        await wrapper.findLegacyCustomContentByUuid(uuid);
+
+        const expectedCql = `(type = "ac:my-api:async-api-doc") AND title = "${uuid}"`;
+        expect(forgeRequest).toHaveBeenCalledWith(
+          `/wiki/rest/api/search?cql=${encodeURIComponent(expectedCql)}&limit=250`,
+        );
+      } finally {
+        (forgeGlobalMod.default as any).isAsyncApi = false;
+      }
+    });
+
+    it('uses the single Diagramly storage type on the Diagramly variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isDiagramly = true;
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+        await wrapper.findLegacyCustomContentByUuid(uuid);
+
+        const expectedCql = `(type = "ac:gptdock-confluence:gpt-custom-content-key") AND title = "${uuid}"`;
+        expect(forgeRequest).toHaveBeenCalledWith(
+          `/wiki/rest/api/search?cql=${encodeURIComponent(expectedCql)}&limit=250`,
+        );
+      } finally {
+        (forgeGlobalMod.default as any).isDiagramly = false;
+      }
+    });
+
     it('runs a CQL exact-title search across both legacy CC types', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
 
@@ -1354,6 +1495,84 @@ describe('ApWrapper2', () => {
     });
   });
 
+  // conf-app#523: Confluence reports an unpublished (draft) page's id as the
+  // sentinel "0". It is truthy, so it used to be sent as the custom-content
+  // `pageId` parent and Confluence answered 404 "parent page 0 not found".
+  describe('createCustomContentV2 parent selection (#523)', () => {
+    const created = { id: 'new-cc-1', version: { number: 1 } };
+
+    function stubParents(pageId: unknown, space: unknown) {
+      (wrapper as any)._getCurrentPageId = vi.fn().mockResolvedValue(pageId);
+      (wrapper as any).getCurrentSpace = vi.fn().mockResolvedValue(space);
+    }
+
+    function postedBody() {
+      const call = vi.mocked(forgeRequest).mock.calls.find(
+        (c) => c[0] === '/wiki/api/v2/custom-content' && c[1] === 'POST',
+      );
+      expect(call).toBeDefined();
+      return call![2] as Record<string, unknown>;
+    }
+
+    it('keeps using pageId for a valid persisted page id', async () => {
+      stubParents('456', { id: '789', key: 'S' });
+      vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+      await wrapper.createCustomContentV2(buildDiagram());
+
+      const body = postedBody();
+      expect(body.pageId).toBe('456');
+      expect(body).not.toHaveProperty('spaceId');
+    });
+
+    it.each([
+      ['"0"', '0'],
+      ['0', 0],
+      ['""', ''],
+      ['null', null],
+      ['undefined', undefined],
+    ])('sends exactly spaceId and no pageId when the page id is %s', async (_label, invalid) => {
+      stubParents(invalid, { id: '789', key: 'S' });
+      vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+      const result = await wrapper.createCustomContentV2(buildDiagram());
+
+      const body = postedBody();
+      expect(body.spaceId).toBe('789');
+      expect(body).not.toHaveProperty('pageId');
+      expect(result.id).toBe('new-cc-1');
+    });
+
+    it('falls back to the space when forgeContext reports the draft sentinel "0"', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = {
+        extension: { content: { id: '0' }, space: { id: '789', key: 'S' } },
+      };
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+        await wrapper.createCustomContentV2(buildDiagram());
+
+        const body = postedBody();
+        expect(body.spaceId).toBe('789');
+        expect(body).not.toHaveProperty('pageId');
+      } finally {
+        (forgeGlobalMod.default as any).forgeContext = null;
+      }
+    });
+
+    it.each([
+      ['"0"', '0'],
+      ['undefined', undefined],
+    ])('throws without calling Confluence when the page id is %s and no space id is available', async (_label, invalid) => {
+      stubParents(invalid, { key: 'S' });
+
+      await expect(wrapper.createCustomContentV2(buildDiagram()))
+        .rejects.toThrow(/no page or space context available/);
+      expect(forgeRequest).not.toHaveBeenCalled();
+    });
+  });
+
   // Create-time 404 diagnosis (2026-08-29 incident: 47 bare-404 create failures
   // at one Lite tenant, cause only recoverable by hand). The thrown error must
   // carry the envelope classification, and the wrapper must be able to ask
@@ -1394,15 +1613,15 @@ describe('ApWrapper2', () => {
     it('probes the host page operations and reports what the caller may create', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({
         id: '456', status: 'current',
-        operations: [
+        operations: { results: [
           { operation: 'read', targetType: 'page' },
           { operation: 'create', targetType: 'page' },
-        ],
+        ] },
       });
 
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
-      expect(forgeRequest).toHaveBeenCalledWith('/wiki/rest/api/content/456?expand=operations', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
       expect(diagnosis).toEqual({
         probe_status: 'ok',
         page_reachable: true,
@@ -1869,6 +2088,91 @@ describe('ApWrapper2', () => {
           expect(wrapper.isDisplayMode()).toBe(true);
         },
       );
+    });
+  });
+
+  describe('diagnoseCreateNotFound', () => {
+    // Verbatim v2 shapes from lite-stg, 2026-09-11, read as robot1yanhui:
+    // - page 999999999999 (no such page): the v2 404 envelope
+    // - page 275349583 in an "Add pages"-only space: create/page listed,
+    //   create/attachment and our type absent — the population that gets the
+    //   bare 404 on POST /api/v2/custom-content
+    // - page 275415139, a never-published draft: 404 without get-draft=true,
+    //   200 with it, and the draft lists the same create operations
+    const notFound = {
+      errors: [{ status: 404, code: 'NOT_FOUND', title: 'Cannot find a page with id [456]', detail: null }],
+    };
+    const pageOnlyBody = {
+      id: '456', status: 'current', spaceId: '241762739',
+      operations: { results: [
+        { operation: 'read', targetType: 'page' },
+        { operation: 'update', targetType: 'page' },
+        { operation: 'create', targetType: 'page' },
+        { operation: 'create', targetType: 'whiteboard' },
+      ] },
+    };
+    const draftBody = {
+      id: '456', status: 'draft',
+      operations: { results: [
+        { operation: 'read', targetType: 'page' },
+        { operation: 'update', targetType: 'page' },
+        { operation: 'create', targetType: 'attachment' },
+        { operation: 'create', targetType: 'ac:test-addon:zenuml-content-sequence' },
+      ] },
+    };
+
+    it('probes the v2 page operations and reads the Add-pages-only verdict', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce(pageOnlyBody);
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(1);
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
+      expect(diagnosis).toMatchObject({
+        probe_status: 'ok',
+        page_reachable: true,
+        page_status: 'current',
+        can_create_cc_type: false,
+        can_create_attachment: false,
+        can_create_page: true,
+      });
+    });
+
+    it('retries with get-draft=true when the plain probe 404s, and reads the draft operations', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(notFound)
+        .mockResolvedValueOnce(draftBody);
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenNthCalledWith(1, '/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenNthCalledWith(2, '/wiki/api/v2/pages/456?include-operations=true&get-draft=true', 'GET', undefined);
+      expect(diagnosis).toMatchObject({
+        probe_status: 'ok',
+        page_reachable: true,
+        page_status: 'draft',
+        can_create_attachment: true,
+      });
+    });
+
+    it('reports page_unreachable with the HTTP status only when the draft probe 404s too', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(notFound)
+        .mockResolvedValueOnce(notFound);
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(2);
+      expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 404 });
+    });
+
+    it('does not retry on a non-404 error envelope and keeps its status (the v1 route answered 410 Gone)', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ statusCode: 410, message: 'Gone' });
+
+      const diagnosis = await wrapper.diagnoseCreateNotFound();
+
+      expect(forgeRequest).toHaveBeenCalledTimes(1);
+      expect(diagnosis).toEqual({ probe_status: 'page_unreachable', page_reachable: false, probe_http_status: 410 });
     });
   });
 });

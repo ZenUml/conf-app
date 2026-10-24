@@ -39,20 +39,21 @@ Confirmed end-to-end on a customer tenant where the API-token route 404'd.
 
 ### Prereqs
 
-In Playwright MCP or claude-in-chrome, navigate the active tab to **any page on the target tenant**. The list snippet pulls the page id from `location.pathname`; the fetch snippet needs a specific customContentId you've already chosen.
+In agent-browser (`A(){ agent-browser --session conf-app --restore=stg "$@"; }`; Playwright MCP is the fallback), `A open` **any page on the target tenant**. The list snippet pulls the page id from `location.pathname`; the fetch snippet needs a specific customContentId you've already chosen.
 
 ### A1 — list
 
-Read `.claude/skills/find-macros-on-page/scripts/snippet.js` and pass its body to `browser_evaluate` (Playwright MCP) or `javascript_tool` (claude-in-chrome). Returns `{ renderedCount, rendered, orphans, totalCC }`. `rendered` is in page document order; filter `moduleKey` matching `/^zenuml-.*-macro/` for just our macros.
+Read `.claude/skills/find-macros-on-page/scripts/snippet.js` and run it with `A eval -b "$(base64 < .claude/skills/find-macros-on-page/scripts/snippet.js)"` (or `A eval --stdin < …/snippet.js`); fallback `browser_evaluate` (Playwright MCP). Returns `{ renderedCount, rendered, orphans, totalCC }`. `rendered` is in page document order; filter `moduleKey` matching `/^zenuml-.*-macro/` for just our macros.
 
 ### A2 — fetch
 
-Read `.claude/skills/find-macros-on-page/scripts/fetch-source-snippet.js`. **Replace the `<CC_ID>` placeholder** with the customContentId you picked from A1, then pass to `browser_evaluate` / `javascript_tool`. Returns a summary; the full body is stashed on `window.__macroBody` (raw string) and `window.__macroBodyParsed` (parsed object).
+Read `.claude/skills/find-macros-on-page/scripts/fetch-source-snippet.js`. **Replace the `<CC_ID>` placeholder** with the customContentId you picked from A1, then run it the same way (`A eval -b …`; fallback `browser_evaluate`). Returns a summary; the full body is stashed on `window.__macroBody` (raw string) and `window.__macroBodyParsed` (parsed object).
 
 #### Getting the bytes out
 
-- **Via Playwright MCP**: no output filter. Just `browser_evaluate(() => window.__macroBody)` returns the full string. Done.
-- **Via claude-in-chrome**: the proxy may block long base64-shaped output (`[BLOCKED: ...]`). Workaround: focus the tab and run `navigator.clipboard.writeText(window.__macroBody)`, then `pbpaste > /path/to/output.xml` on the host.
+- **Via agent-browser** (primary): no output filter. `eval` prints strings JSON-quoted (`"a\nb"`), so decode before writing: `A eval "window.__macroBody" | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin))' > /path/to/output.xml`.
+- **Via Playwright MCP** (fallback): no output filter. `browser_evaluate(() => window.__macroBody)` returns the full string.
+- claude-in-chrome is not used here: its proxy blocks long base64-shaped output (`[BLOCKED: ...]`).
 
 ---
 
@@ -117,7 +118,7 @@ Writes the auto-detected body field (graphXml / code / spec) to `--out`. Metadat
 ## End-to-end: rebuild a customer macro on lite-dev
 
 ```bash
-# 1. From Playwright/claude-in-chrome (browser snippet A1) on the customer page:
+# 1. From agent-browser (browser snippet A1) on the customer page:
 #    → got customContentId 6445039617 for the diagram of interest.
 
 # 2. Fetch its body. For a customer tenant, use A2 (browser snippet) + clipboard;
@@ -178,7 +179,7 @@ The endpoint prints the new page URL on success — open it to verify.
 - **`rendered` includes third-party extensions.** Other Forge apps (`details`, `lref-box-file`, etc.) get counted so `pos` matches visual order. Filter `moduleKey` if you want only ours.
 - **`contentType` reflects the storage slot, not the rendered diagram type.** A diagram of `diagramType: graph` may be stored under `zenuml-content-sequence` for historical reasons. The body's `diagramType` field is authoritative.
 - **Pre-Forge legacy macros not listed.** Connect-era `<ac:structured-macro>` storage nodes don't appear as ADF `extension` nodes. All current installs are Forge — only matters on very old pages.
-- **claude-in-chrome proxy filter.** Base64-shaped output gets blocked. Either switch to Playwright MCP for the fetch step (no filter), or clipboard-hop via `navigator.clipboard.writeText(window.__macroBody)` + `pbpaste`.
+- **claude-in-chrome proxy filter.** Base64-shaped output gets blocked. Use agent-browser (no filter) and redirect `eval` output to a file.
 
 ## Related
 

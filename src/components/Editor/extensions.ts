@@ -7,6 +7,8 @@ import {
 } from '@zenuml/codemirror-extensions';
 import { mermaidLinter } from '@/utils/mermaid/linter';
 import { plantumlLinter } from '@/utils/plantuml/linter';
+import { toast } from '@/utils/toast';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import {
   bracketMatching,
   foldGutter,
@@ -211,6 +213,86 @@ const plantUmlReadonlyDecoration = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations }
 );
 
+
+// ── PlantUML paste normalisation (conf-app#632) ───────────────────────────────
+
+// PlantUML accepts an argument on either marker — `@startuml <Name>` names the
+// diagram. The original filter matched a BARE marker only, so a named one was
+// left in place as body text under the editor's pinned line 1. Measured on
+// production: the document then nested, and either failed to parse with an error
+// pointing at a line the author never wrote, or — when the merge happened to stay
+// parseable — rendered a single fused picture with no error at all.
+const PLANTUML_START = /^\s*@startuml(?:\s+\S.*?)?\s*$/;
+const PLANTUML_END = /^\s*@enduml(?:\s+\S.*?)?\s*$/;
+
+export interface NormalizedPlantUmlPaste {
+  text: string;
+  /** How many @startuml blocks the paste contained. */
+  diagrams: number;
+  /** True when several were present and everything after the first was dropped. */
+  truncated: boolean;
+}
+
+/**
+ * Reduce a pasted PlantUML document to the body the pinned scaffold can hold.
+ *
+ * A macro renders ONE diagram, so a paste carrying several cannot be represented
+ * here. Keeping only the first is the honest outcome: merging them produced a
+ * diagram the author never wrote, and the previous behaviour did that silently.
+ */
+export function normalizePastedPlantUml(insertText: string): NormalizedPlantUmlPaste {
+  const lines = insertText.split('\n');
+  const startIndexes = lines.reduce<number[]>(
+    (acc, line, i) => (PLANTUML_START.test(line) ? [...acc, i] : acc),
+    [],
+  );
+
+  if (startIndexes.length === 0) {
+    // No opener: keep the text as pasted, minus any stray closer that would
+    // otherwise duplicate the pinned last line.
+    return {
+      text: lines.filter(line => !PLANTUML_END.test(line)).join('\n'),
+      diagrams: 0,
+      truncated: false,
+    };
+  }
+
+  const first = startIndexes[0];
+  const closer = lines.findIndex((line, i) => i > first && PLANTUML_END.test(line));
+  const body = lines.slice(first + 1, closer === -1 ? lines.length : closer);
+
+  return {
+    text: body.join('\n'),
+    diagrams: startIndexes.length,
+    truncated: startIndexes.length > 1,
+  };
+}
+
+function reportPlantUmlPaste(normalized: NormalizedPlantUmlPaste): void {
+  // Never let telemetry or a toast break the paste itself.
+  try {
+    trackAnalyticsEvent('plantuml_paste_normalized', {
+      feature_area: 'macro',
+      surface: 'editor',
+      macro_type: 'plantuml',
+      diagrams_pasted: normalized.diagrams,
+      paste_truncated: normalized.truncated,
+    });
+  } catch (e) {
+    console.warn('[plantuml paste] tracking failed', e);
+  }
+
+  if (!normalized.truncated) return;
+  try {
+    toast({
+      message: `Pasted ${normalized.diagrams} diagrams — kept the first. A macro shows one diagram; add another macro for the rest.`,
+      duration: 6000,
+    });
+  } catch (e) {
+    console.warn('[plantuml paste] toast failed', e);
+  }
+}
+
 const plantUmlReadonlyFilter = EditorState.transactionFilter.of((tr) => {
   if (!tr.docChanged) return tr;
   // Allow programmatic changes (tab switching, store updates, AI generation)
@@ -249,25 +331,11 @@ const plantUmlReadonlyFilter = EditorState.transactionFilter.of((tr) => {
     insertText += inserted;
   });
   
-  // If user is pasting complete PlantUML code, extract only the middle content
-  // Only match @startuml/@enduml as complete lines (with optional whitespace)
-  const lines = insertText.split('\n');
-  const startIdx = lines.findIndex(line => /^\s*@startuml\s*$/.test(line));
-  const endIdx = lines.findIndex(line => /^\s*@enduml\s*$/.test(line));
-  
-  if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
-    // Extract content between @startuml and @enduml
-    const contentLines = lines.slice(startIdx + 1, endIdx);
-    insertText = contentLines.join('\n');
-  } else if (startIdx !== -1) {
-    // Only has @startuml as a complete line, remove it
-    const contentLines = lines.filter(line => !/^\s*@startuml\s*$/.test(line));
-    insertText = contentLines.join('\n');
-  } else if (endIdx !== -1) {
-    // Only has @enduml as a complete line, remove it
-    const contentLines = lines.filter(line => !/^\s*@enduml\s*$/.test(line));
-    insertText = contentLines.join('\n');
-  }
+  // The paste carries its own @startuml/@enduml; strip them so they don't nest
+  // inside the pinned scaffold (conf-app#632).
+  const normalized = normalizePastedPlantUml(insertText);
+  insertText = normalized.text;
+  if (normalized.diagrams > 0) reportPlantUmlPaste(normalized);
   
   // If there's no editable space (document is "@startuml\n@enduml")
   if (editableStart > editableEnd) {

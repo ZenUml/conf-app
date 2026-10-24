@@ -1,6 +1,6 @@
 # Paywall — Status & Roadmap (ZenUML Lite)
 
-**Last updated:** 2026-06-07 · **Variant scope:** Lite only (Full/Diagramly bypass via `isLite() === false`) · **Day-to-day monitoring:** `.claude/skills/paywall/SKILL.md`
+**Last updated:** 2026-09-02 · **Variant scope:** Lite only (Full/Diagramly bypass via `isLite() === false`) · **Day-to-day monitoring:** `.claude/skills/paywall/SKILL.md`
 
 This is the single source of truth for the Lite paywall. It replaces the former separate strategy / export-research / extension-flow / page-banner docs (folded in here 2026-06-03; full history in git).
 
@@ -14,14 +14,14 @@ Lite monetization runs on **two complementary upgrade funnels**, picked by *who*
 
 ## ✅ Shipped (brief)
 
-The **friction funnel is fully shipped and instrumented**: per-space 100-macro soft-block on edit + create (modal over a mounted editor, dismissable), an 85-macro inline warning, a viewer "Upgrade" badge, persistence-layer save block, an **advocacy-only** modal (`Copy upgrade request` → `advocacy_message_copied`), a 15-attempt continue gate, a **Forge page-banner** warning that reaches editors *while browsing* (85–99 band, 7-day snooze, defers CSAT), space-license + Stripe-webhook bypass, and CSS-flag enrollment.
+The **friction funnel is fully shipped and instrumented**: per-space 100-macro soft-block on edit + create (modal over a mounted editor, dismissable), an 85-macro inline warning, a viewer "Upgrade" badge, persistence-layer save block, an **advocacy-only** modal (`Copy upgrade request` → `advocacy_message_copied`), a 3-attempt continue gate (15 before 2026-08-16), a **Forge page-banner** warning that reaches editors *while browsing* (over-limit spaces only — strictly `> 100` macros, there is no 85–99 banner band; 7-day snooze on dismiss plus a 1 / 24h / 24h / 7d impression taper since 2026-09-07; defers CSAT), space-license + Stripe-webhook bypass, and CSS-flag enrollment.
 
 | Shipped surface | Event | Ref |
 |---|---|---|
 | Edit / create soft-block modal | `paywall_blocked_edit` / `paywall_blocked_create` + `paywall_triggered` | PR #89 (create path) |
 | Advocacy CTA (marketplace/sales CTAs removed — were 0% click) | `advocacy_message_copied` | — |
-| 15 continue-attempts gate (localStorage, per `clientDomain:spaceKey:userAccountId`) | `paywall_continue_used`, `paywall_attempts_exhausted` | `src/utils/paywall/continueAttempts.ts` |
-| Page-banner warning (85–99 band, 7-day snooze, CSAT defer) | `paywall_banner_shown` / `_dismissed`, `surface: page_banner` | PRs #201–#210 |
+| 3 continue-attempts gate (localStorage, per `clientDomain:spaceKey:userAccountId`) | `paywall_continue_used`, `paywall_attempts_exhausted` | `src/utils/paywall/continueAttempts.ts` |
+| Page-banner warning (over-limit `> 100` only, 7-day snooze, impression taper, CSAT defer) | `paywall_banner_shown` / `_dismissed` (+ `show_count`, `hours_since_last_shown`), `surface: page_banner` | PRs #201–#210; taper 2026-09-07 |
 | Space-admin activity probe (Phase 5a; Lite, 30d throttle) | `space_admin_active` (`is_space_admin: true`, `surface: page_banner`) | `src/utils/paywall/spaceAdminProbe.ts` |
 | Export Phase-1 telemetry | `macro_export_requested` / `_succeeded` / `_failed` | `src/export.js` |
 
@@ -44,12 +44,12 @@ The **friction funnel is fully shipped and instrumented**: per-space 100-macro s
 
 | Item | Value / Location |
 |---|---|
-| `DEFAULT_CONTINUE_ATTEMPTS` | `15` — `src/utils/paywall/continueAttempts.ts` |
+| `DEFAULT_CONTINUE_ATTEMPTS` | `3` — `src/utils/paywall/continueAttempts.ts`. Lowered from 15 on 2026-08-16 (PR #479, the free continue-editing default cut from 15 to 3). A stored balance is never rewritten, so a user who first hit the gate before that date can still hold up to 15. |
 | localStorage key format | `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (each part URL-encoded) |
 | State fields | `remainingAttempts`, `firstTriggeredAt`, `lastUsedAt`, `exhaustedAt` |
 | Events | `paywall_continue_used` (each click), `paywall_attempts_exhausted` (N hits 0) |
 
-**Known client-side weak spot:** the counter is `localStorage`-keyed per `clientDomain:spaceKey:userAccountId`, so clearing storage or using an incognito window resets N to 15. This is a deliberate soft-paywall tradeoff — not a bug to patch without a product decision.
+**Known client-side weak spot:** the counter is `localStorage`-keyed per `clientDomain:spaceKey:userAccountId`, so clearing storage or using an incognito window resets N to the default (3 since 2026-08-16). This is a deliberate soft-paywall tradeoff — not a bug to patch without a product decision.
 
 **Testing on staging:** on `lite-stg`, the large over-threshold space is **`SD`** (~1230 macros). When the paywall modal appears, click **"Continue editing"** to proceed — do NOT hunt for `localStorage` overrides (`mockSpacePaid` etc.) to suppress it.
 
@@ -68,7 +68,7 @@ The gating decision below blocks all nudge-funnel code.
 
 ### B. Friction funnel — banner fatigue, personalization, rollout
 
-5. **[Phase 4] Banner fatigue & full priority order** — 100+ band gets a shorter **24h** suppression window; taper repeats via `showCount`/`lastShownAt`; finalize priority `restore/recovery > paywall warning > CSAT`. Keep windows data-tunable.
+5. **[Phase 4] Banner fatigue** ✅ *shipped 2026-09-07.* Before: the only suppression was the 7-day snooze after ×, so non-dismissers saw the banner on every page load (30d to 2026-09-07: 366 users, median 16 impressions, p90 121, 109 users ≥ 40). Now `isTaperGapMet` in `src/utils/paywall/warningBanner.ts` reads the `showCount` / `lastShownAt` the dismissal marker already recorded: 1st impression immediately, 2nd and 3rd ≥ 24h apart, 4th onwards ≥ 7 days apart (≈ 7/person/month max). Snooze still applies on top. Legacy markers with no `lastShownAt` fail open. Every banner event carries `show_count` (ordinal of this impression) and `hours_since_last_shown`. Priority order `paywall > CSAT > unplaced` is already implemented in `src/routes/pageBanner.ts` / `src/utils/banners/priority.ts`.
 6. **[Phase 5a] Space-admin activity measurement** ✅ *shipped; **read back 2026-07-28**.* `space_admin_active` probe on the page-banner load (`src/utils/paywall/spaceAdminProbe.ts`): Lite-only, throttled once/30d per `domain:space`, fires only when the current user is a space admin.
    **Go/no-go answer — decisive GO on reach.** 60d (2026-05-29 → 07-28), Mixpanel 3373228:
    - **24,388** unique space admins observed across **709** external Lite tenants; **5,021** within the 19 CSS-enrolled tenants — against **358** unique users the banner's author-only gate actually reached, and **642** who hit the paywall.
@@ -77,11 +77,11 @@ The gating decision below blocks all nudge-funnel code.
    - **Net: the reach gap is real and almost certainly larger than 5,021-vs-358, but the exact reachable population is unknown.** Getting it requires joining `space_admin_active` (domain×space×user) against per-space macro counts from `metrics-inspect`; the 10% sampling makes that join sparse. The 5b gate itself is correctly narrow — it fires only for an admin *of the current space* when *that* space is over-limit, unpaid and CSS-enrolled — so the sizing looseness is in the estimate, not the targeting.
    **But reach is only part of the problem:** 206 of the 642 paywall-hitters (**32%**) had fired `space_admin_active` somewhere and still converted zero times.
    **Do not read that overlap as "the buyer was present" — investigated 2026-07-28 and it does not hold.** On `airwallex`, 81 of 98 paywall-hitters looked like admins by that measure, but only **18 administered the space that actually blocked them**, and a Confluence *space* admin cannot buy the Marketplace SKU at all (that needs a site/org admin, which nothing in `src/` detects). The real blocker there is **(e): the upgrade modal has no purchase surface** — `UpgradePrompt.vue` offers only copy-a-message, ask-us-for-a-free-extension, and continue-anyway; the Marketplace URL and the $299 price exist only *inside the copied advocacy text*. `MarketplacePricingCard.vue` / `EnterpriseBundleCard.vue` were deleted in `05b5287f` (2026-05-12). Note `upgrade_cta_clicked: 0` is a **measurement artifact** of that same commit removing the emitter — buy-intent is currently unmeasurable, not measured-as-zero.
-7. **[Phase 5b] Space-Admin copy personalization** ✅ *built 2026-07-28, ships inert behind `paywall-admin-banner-enabled` (Lite Forge flag, fail-closed).*
+7. **[Phase 5b] Space-Admin copy personalization** ✅ *built 2026-07-28; eligible space admins are routed directly to the banner.*
    - **Audience gate** — `isWarningBannerVisible(..., isSpaceAdmin)` waives the 30-day recent-authorship requirement for a space admin of an over-limit space, and **only** that requirement (CSS, unpaid, over-limit and the 7-day snooze all still apply). The authorship gate was what structurally excluded admins.
    - **Verdict plumbing** — the probe now persists `isAdmin`/`adminCount` into its marker so the banner's *synchronous* setup-time gate can read it; a Phase-5a marker with no verdict counts as due for re-probe, so the rollout is not stalled 30 days. `forgeIndex` already awaits the probe before `decidePageBanner()`, so an admin is reached on the same load, not the next.
    - **Copy branch** — admin sees "You administer this space…" plus **"Unlock this space — $299/yr"** (Enterprise Bundle checkout) and keeps "Request extension"; the "Copy admin message" advocacy relay is removed for this audience, being circular for an admin and the exact hop that has produced 0 conversions in 15 months. Rationale for the Bundle over the Marketplace upgrade: a *space* admin is not a *site* admin, and only the Bundle is purchasable without one (we cannot detect site admin at all — no such check exists in `src/`).
-   - **Cost discipline** — `decidePageBanner()` stays fully synchronous; the flag is awaited in `handlePageBannerRoute` only for the new `paywall-admin` choice, i.e. on impressions that did not exist before 5b. A user who already qualified as an author is untouched and pays nothing.
+   - **Cost discipline** — `decidePageBanner()` and `handlePageBannerRoute()` use the synchronous localStorage verdict only; no Forge feature-flag lookup runs for either paywall audience.
    - **Measurement** — `banner_audience` (`editor` | `space_admin`) + `is_space_admin` on every banner event, and a new `paywall_bundle_cta_clicked` (with `bundle_price_usd`) that is distinct from `extension_request_clicked` (asks us for free time) and `advocacy_message_copied` (asks someone else to act). **Success = bundle CTA clicks and Stripe purchases from the `space_admin` audience**, not banner impressions.
 7b. **[Phase 5c] Restore the modal's purchase surface** ✅ *built 2026-07-28 (stacked on 5b).* Between `05b5287f` (2026-05-12, which deleted `MarketplacePricingCard.vue` / `EnterpriseBundleCard.vue` as "orphan pricing UI") and this change, `UpgradePrompt.vue` offered **no way to buy anything**: copy-a-message, ask-us-for-free-time, or continue-anyway. The Marketplace URL and the $299 price survived only *inside the copied advocacy text*. Now two rails, ordered by who can actually complete them and placed **above** the advocacy draft:
    - **Enterprise Bundle** (primary) — per-space, card payment, `no_admin_permission_required: true`; anyone in front of the modal can finish it. Emits `paywall_bundle_cta_clicked` with `ui_component: modal`.

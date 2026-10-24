@@ -41,9 +41,11 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 // (viewerLoadOutcome.ts) reads forgeContext off it; individual tests below
 // mutate mockForgeGlobal.forgeContext rather than window.forgeGlobal.
 const mockForgeGlobal = vi.hoisted(() => ({ forgeContext: undefined as any }));
+const mockIsExportEntry = vi.fn(() => Promise.resolve(false));
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: mockForgeGlobal,
   getContext: vi.fn(() => Promise.resolve({ extension: {} })),
+  isExportEntry: () => mockIsExportEntry(),
 }));
 
 // Spy-wrapped but functionally real (backed by an in-memory Map, reusing the
@@ -603,5 +605,38 @@ describe('viewerBootstrap content SWR', () => {
     expect(store.state.diagram).toStrictEqual(loaded);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+describe('viewerBootstrap — export entry skips the fullscreen paywall', () => {
+  // Export PNG on the inline macro is ungated, and it now always routes through
+  // the Fullscreen modal. Without this exemption a saturated Lite space would
+  // newly lose Graph and OpenAPI export: the gate would mount PaywallGate and
+  // the viewer that opens the export dialog would never mount at all.
+  it('mounts the viewer instead of the paywall when the modal is an export entry', async () => {
+    mockIsExportEntry.mockResolvedValueOnce(true);
+    vi.mocked(tryFullscreenViewerPaywall).mockClear();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => NULL_DIAGRAM),
+    });
+
+    expect(tryFullscreenViewerPaywall).not.toHaveBeenCalled();
+    expect(mountRoot).toHaveBeenCalled();
+  });
+
+  it('still gates an ordinary fullscreen open', async () => {
+    mockIsExportEntry.mockResolvedValueOnce(false);
+    vi.mocked(tryFullscreenViewerPaywall).mockClear();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => NULL_DIAGRAM),
+    });
+
+    expect(tryFullscreenViewerPaywall).toHaveBeenCalled();
   });
 });

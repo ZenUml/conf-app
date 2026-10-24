@@ -29,6 +29,53 @@ describe('PlantUML readonly transaction filter', () => {
       editable_chars_before: 'Alice -> Bob: hello'.length,
     });
   });
+
+  // conf-app#632. PlantUML allows `@startuml <Name>`; the filter used to match a
+  // BARE marker only, so a named one survived as body text under the pinned line 1
+  // and the document nested. Reproduced on production: the pasted markers stayed
+  // and the two diagrams were fused into one picture with no error.
+  const pasteInto = (doc: string, insert: string) => {
+    const state = EditorState.create({ doc, extensions: plantUmlExtensions });
+    return state.update({
+      changes: { from: 0, to: state.doc.length, insert },
+      annotations: Transaction.userEvent.of('input.paste'),
+    }).newDoc.toString();
+  };
+
+  const SCAFFOLD = '@startuml\n\n@enduml';
+
+  it('strips a pasted @startuml that carries a name', () => {
+    const result = pasteInto(
+      SCAFFOLD,
+      '@startuml Alpha_Flow\nAlice -> Bob: hi\n@enduml',
+    );
+
+    expect(result).toBe('@startuml\nAlice -> Bob: hi\n@enduml');
+    expect(result).not.toContain('Alpha_Flow');
+  });
+
+  it('strips a pasted @enduml that carries a name', () => {
+    const result = pasteInto(SCAFFOLD, '@startuml\nAlice -> Bob: hi\n@enduml Alpha_Flow');
+
+    expect(result).toBe('@startuml\nAlice -> Bob: hi\n@enduml');
+  });
+
+  it('keeps only the first diagram when a paste carries several', () => {
+    // The macro renders one diagram. Merging them produced a picture the author
+    // never wrote — silently, with no error, whenever the merge stayed parseable.
+    const result = pasteInto(
+      SCAFFOLD,
+      '@startuml Alpha_Flow\nAlice -> Bob: hi\n@enduml\n\n@startuml Beta_Index\nclass C\n@enduml',
+    );
+
+    expect(result).toBe('@startuml\nAlice -> Bob: hi\n@enduml');
+    expect(result).not.toContain('Beta_Index');
+    expect(result).not.toContain('class C');
+  });
+
+  it('leaves a paste without markers alone', () => {
+    expect(pasteInto(SCAFFOLD, 'Alice -> Bob: hi')).toBe('@startuml\nAlice -> Bob: hi\n@enduml');
+  });
 });
 
 describe('base editor extensions', () => {

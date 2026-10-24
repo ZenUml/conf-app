@@ -389,6 +389,7 @@ describe('relatedDiagrams', () => {
 
     // newest content first, since every candidate here sits outside the viewer's space
     expect(resolve).toHaveBeenCalledWith(['400', '300', '200']);
+    expect(out.lookup_outcome).toBe('indexed');
     expect(out.indexedAt).toBe('2026-08-27T05:00:00Z');
     expect(out.contentVersion).toBe(1);
     expect(out.participants).toEqual([
@@ -422,7 +423,12 @@ describe('relatedDiagrams', () => {
   it('unindexed diagram returns empty participants, null indexedAt, and makes no resolver call', async () => {
     const resolve = vi.fn();
     const out = await relatedDiagrams(dbWith([], []), 'cid', '9', resolve, liveAsIndexed());
-    expect(out).toEqual({ indexedAt: null, contentVersion: null, participants: [] });
+    expect(out).toEqual({
+      lookup_outcome: 'index_miss',
+      indexedAt: null,
+      contentVersion: null,
+      participants: [],
+    });
     expect(resolve).not.toHaveBeenCalled();
   });
 

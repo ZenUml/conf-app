@@ -18,7 +18,7 @@ A **spot check** is an ad hoc, AI-driven, ephemeral verification of a specific b
 
 - **Lightweight** — reuse what already exists. If a page with the relevant macro is already available, use it. Navigate directly to the macro when you know which one matters.
 - **AI-driven** — use `agent-browser --session conf-app --restore=stg` to improvise steps. It reaches inside Forge cross-origin iframes (including nested ones); ego lite and Playwright MCP also work, Kimi WebBridge / Claude in Chrome / cursor-ide-browser reach page chrome only. No script is checked in.
-- **Ephemeral** — test steps are not saved for future use.
+- **Ephemeral** — test steps are not saved. Screenshots go under `/tmp/spot-check/conf-app/` (`mkdir -p` first); a relative `screenshot foo.png` writes to cwd (the repo root).
 - **Targeted** — verify the specific behavior being checked, not a full regression.
 - **Real world** — verify the behaviour on a confluence site, not a local fixture or unit test.
 - **Forge tunnel** — use forge tunnel (separate skill) and `lite-dev.atlassian.net` by default.
@@ -121,7 +121,7 @@ Analytics reference: [docs/analytics-reference.md](../../../docs/analytics-refer
 3. **Choose the lifecycle fixture** — reuse an existing page only for edit/view checks. For editor
    initialization or first-save checks, create the macro through the real UI. Use the
    **create-test-page** skill only for API-only rendering checks that intentionally bypass creation.
-4. **Execute** — run each planned check. Screenshot or capture evidence after key steps. Report pass / fail / skipped per assertion.
+4. **Execute** — run each planned check. Capture evidence after key steps to `/tmp/spot-check/conf-app/` (never the repo). Report pass / fail / skipped per assertion.
 
 ## Forge iframe tooling
 
@@ -130,11 +130,14 @@ Forge Custom UI renders in sandboxed cross-origin iframes (OOPIFs). Three tools 
 **Default to `agent-browser`** — it is the only one without a global single-pairing failure mode (see `CLAUDE.md` § "Browser automation and Forge iframes" for the measured comparison):
 
 ```bash
-agent-browser --session conf-app --restore=stg open <url>
-agent-browser --session conf-app --restore=stg snapshot          # find the Iframe ref
-agent-browser --session conf-app --restore=stg frame "@e151"     # enter the OOPIF
-agent-browser --session conf-app --restore=stg eval "location.host"   # verify you are inside
-agent-browser --session conf-app --restore=stg console           # includes OOPIF logs
+mkdir -p /tmp/spot-check/conf-app
+A(){ agent-browser --session conf-app --restore=stg --screenshot-dir /tmp/spot-check/conf-app "$@"; }
+A open <url>
+A snapshot                    # find the Iframe ref
+A frame "@e151"               # enter the OOPIF
+A eval "location.host"        # verify you are inside
+A screenshot 01-page-loaded.png   # lands in /tmp/spot-check/conf-app/
+A console                     # includes OOPIF logs
 ```
 
 | Tool                    | Forge iframe access      |

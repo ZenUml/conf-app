@@ -2,9 +2,11 @@ import { FeatureFlags, type FeatureFlagUser, type ForgeFeatureFlagConfig } from 
 import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 
 const AI_CHAT_FLAG_ID = 'ai-chat-enabled'
+const AI_CHAT_REPAIR_FLAG_ID = 'ai-chat-repair-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
+const CREATE_GUIDE_FLAG_ID = 'create-guide-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -20,6 +22,14 @@ function standaloneAiRepairEnabled(): boolean {
 function standaloneAiChatEnabled(): boolean {
   try {
     return localStorage.getItem('mockAiChatEnabled') !== 'false'
+  } catch {
+    return false
+  }
+}
+
+function standaloneAiChatRepairEnabled(): boolean {
+  try {
+    return localStorage.getItem('mockAiChatRepairEnabled') === 'true'
   } catch {
     return false
   }
@@ -99,6 +109,22 @@ export async function isAiChatEnabled(): Promise<boolean> {
   }
 }
 
+/**
+ * Controls whether the syntax-error AI Repair entry point delegates to AI
+ * Chat. This does not gate the AI Chat button or syntax repair inside Chat.
+ */
+export async function isAiChatRepairEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneAiChatRepairEnabled()
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(AI_CHAT_REPAIR_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load AI Chat repair feature flag:', error)
+    return false
+  }
+}
+
 // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
 // master switch for mounting the Connect UI into the macro host — the flag
 // gates everything, so when it resolves false the macro renders exactly as
@@ -116,6 +142,22 @@ export async function isArchitectureTokensEnabled(): Promise<boolean> {
 
   const client = await getFeatureFlagsClient()
   return client.checkFlag(ARCHITECTURE_TOKENS_FLAG_ID, false)
+}
+
+/**
+ * Viewer "Create" button that opens the slash-command creation guide
+ * (src/features/createGuide). Fail-closed: a missing flag or a lookup error hides it.
+ */
+export async function isCreateGuideEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return false
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(CREATE_GUIDE_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load Create guide feature flag:', error)
+    return false
+  }
 }
 
 export function resetFeatureFlagsForTests(): void {

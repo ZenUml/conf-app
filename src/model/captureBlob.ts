@@ -1,4 +1,5 @@
 import * as htmlToImage from 'html-to-image';
+import { getDiagramFontState } from '../utils/fonts/diagramFontState';
 
 /**
  * DOM -> PNG Blob, without html-to-image's `toBlob()`.
@@ -39,8 +40,43 @@ import * as htmlToImage from 'html-to-image';
 export interface CaptureBlobOptions {
   backgroundColor?: string;
   skipFonts?: boolean;
+  /** Overrides html-to-image's font embedding; filled with the hosted Plex face when omitted. */
+  fontEmbedCSS?: string;
   /** Defaults to `window.devicePixelRatio`, matching html-to-image. */
   pixelRatio?: number;
+}
+
+/**
+ * Remove only the opaque canvas/frame surfaces emitted by @zenuml/core.
+ *
+ * The source DOM is deliberately not touched: html-to-image has already
+ * cloned and serialised it at this point. Participant fills, borders and
+ * shadows use different classes and remain unchanged.
+ */
+export function prepareSequenceCaptureSvg(svg: string, source: HTMLElement): string {
+  if (!source.matches('.zenuml') && !source.querySelector('.zenuml')) return svg;
+
+  const comma = svg.indexOf(',');
+  const isDataUrl = svg.startsWith('data:') && comma !== -1;
+  const sourceMarkup = isDataUrl
+    ? (svg.slice(0, comma).includes(';base64')
+      ? atob(svg.slice(comma + 1))
+      : decodeURIComponent(svg.slice(comma + 1)))
+    : svg;
+
+  const documentView = source.ownerDocument?.defaultView;
+  const parser = documentView ? new documentView.DOMParser() : new DOMParser();
+  const parsed = parser.parseFromString(sourceMarkup, 'image/svg+xml');
+  const surfaces = parsed.querySelectorAll('.bg-skin-canvas, .bg-skin-frame');
+  surfaces.forEach((surface) => {
+    const style = surface.getAttribute('style') ?? '';
+    const next = /(?:^|;)\s*background-color\s*:/i.test(style)
+      ? style.replace(/background-color\s*:[^;]*/i, 'background-color: transparent')
+      : `${style}${style && !style.trim().endsWith(';') ? ';' : ''}background-color: transparent;`;
+    surface.setAttribute('style', next);
+  });
+  const serialised = new XMLSerializer().serializeToString(parsed);
+  return isDataUrl ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialised)}` : serialised;
 }
 
 // @see https://developer.mozilla.org/en-US/docs/Web/HTML/Element/canvas#maximum_canvas_size
@@ -96,11 +132,26 @@ function clampCanvas(canvas: HTMLCanvasElement): void {
   }
 }
 
+/** Core's data-URI Plex face, only when the hosted face loaded; never rejects. The core chunk is already cached by then. */
+async function getDiagramFontEmbedCss(): Promise<string | undefined> {
+  if (getDiagramFontState() !== 'plex') return undefined;
+  try {
+    return await (await import('@zenuml/core')).getDiagramFontFaceCss();
+  } catch {
+    return undefined;
+  }
+}
+
 export async function captureBlob(
   node: HTMLElement,
   options: CaptureBlobOptions = {},
 ): Promise<Blob | null> {
-  const svgDataUrl = await htmlToImage.toSvg(node, options);
+  // Every export path funnels through here. `fontEmbedCSS` takes priority over
+  // `skipFonts` in html-to-image, so other web fonts stay un-embedded as before
+  // while the hosted diagram font (the one layout was measured with) is kept.
+  const fontEmbedCSS = options.fontEmbedCSS ?? (await getDiagramFontEmbedCss());
+  const svg = await htmlToImage.toSvg(node, fontEmbedCSS ? { ...options, fontEmbedCSS } : options);
+  const svgDataUrl = prepareSequenceCaptureSvg(svg, node);
   const img = await loadImage(svgDataUrl);
 
   const measured = measure(node);

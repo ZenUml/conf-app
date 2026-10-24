@@ -18,7 +18,7 @@
 </defs>
 <rect x="0" y="0" width="1240" height="1950" fill="#ffffff"/>
 <text x="20" y="34" font-size="20" font-weight="700" fill="#172b4d">ZenUML Lite paywall — runtime flow (production, default-on since 2026-08-09)</text>
-<text x="20" y="54" font-size="11" fill="#44546f">Sources: pageBanner.ts · warningBanner.ts · spaceAdminProbe.ts · mountPaywallGate.ts · continueAttempts.ts · useCustomerSuccessService.ts · MacroMetrics.ts · UpgradePrompt.vue · generated 2026-08-22</text>
+<text x="20" y="54" font-size="11" fill="#44546f">Sources: pageBanner.ts · warningBanner.ts · spaceAdminProbe.ts · mountPaywallGate.ts · continueAttempts.ts · useCustomerSuccessService.ts · MacroMetrics.ts · UpgradePrompt.vue · generated 2026-09-02</text>
 <rect x="20" y="66" width="14" height="14" rx="2" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
 <text x="40" y="77" font-size="11" fill="#172b4d">runtime step</text>
 <rect x="152" y="66" width="14" height="14" rx="2" fill="#fff7d6" stroke="#b38600" stroke-width="1.5"/>
@@ -124,11 +124,12 @@
 <text x="952" y="1156.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Mixpanel</text>
 <text x="952" y="1172.0" text-anchor="start" font-size="11" fill="#44546f">paywall_triggered</text>
 <text x="952" y="1188.0" text-anchor="start" font-size="11" fill="#44546f">action_type = entry point</text>
-<rect x="340" y="1260.0" width="260" height="88" rx="6" fill="#fff7d6" stroke="#b38600" stroke-width="1.5"/>
-<text x="352" y="1284.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">localStorage · continue attempts</text>
-<text x="352" y="1300.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve">paywallContinueAttempts:</text>
-<text x="352" y="1316.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve"> &lt;domain&gt;:&lt;space&gt;:&lt;accountId&gt;</text>
-<text x="352" y="1332.0" text-anchor="start" font-size="11" fill="#44546f">15 per user and space</text>
+<rect x="340" y="1252.0" width="260" height="104" rx="6" fill="#fff7d6" stroke="#b38600" stroke-width="1.5"/>
+<text x="352" y="1276.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">localStorage · continue attempts</text>
+<text x="352" y="1292.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve">paywallContinueAttempts:</text>
+<text x="352" y="1308.0" text-anchor="start" font-family="Menlo, Consolas, monospace" font-size="11" fill="#172b4d" xml:space="preserve"> &lt;domain&gt;:&lt;space&gt;:&lt;accountId&gt;</text>
+<text x="352" y="1324.0" text-anchor="start" font-size="11" fill="#44546f">3 per user and space</text>
+<text x="352" y="1340.0" text-anchor="start" font-size="11" fill="#44546f">was 15 before 2026-08-16</text>
 <polygon points="770.0,1252.0 890,1304.0 770.0,1356.0 650,1304.0" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
 <text x="770.0" y="1300.0" text-anchor="middle" font-size="13" fill="#172b4d">continue attempts</text>
 <text x="770.0" y="1316.0" text-anchor="middle" font-size="11" fill="#44546f">N &gt; 0 ?</text>
@@ -168,7 +169,7 @@
 <rect x="340" y="1766.0" width="260" height="88" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
 <text x="352" y="1790.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Client-side counter</text>
 <text x="352" y="1806.0" text-anchor="start" font-size="11" fill="#44546f">clearing site data / incognito</text>
-<text x="352" y="1822.0" text-anchor="start" font-size="11" fill="#44546f">resets N to 15</text>
+<text x="352" y="1822.0" text-anchor="start" font-size="11" fill="#44546f">resets N to 3 (default)</text>
 <text x="352" y="1838.0" text-anchor="start" font-size="11" fill="#44546f">seen on 2 of 42 locked-out users</text>
 <rect x="640" y="1758.0" width="260" height="104" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
 <text x="652" y="1782.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Banner reach gaps</text>
@@ -179,7 +180,7 @@
 <rect x="940" y="1750.0" width="260" height="120" rx="6" fill="#ffffff" stroke="#44546f" stroke-width="1.5"/>
 <text x="952" y="1774.0" text-anchor="start" font-size="13" font-weight="600" fill="#172b4d">Thresholds and scope</text>
 <text x="952" y="1790.0" text-anchor="start" font-size="11" fill="#44546f">warn 85 · block 100</text>
-<text x="952" y="1806.0" text-anchor="start" font-size="11" fill="#44546f">15 continue attempts · 7 d snooze</text>
+<text x="952" y="1806.0" text-anchor="start" font-size="11" fill="#44546f">3 continue attempts · 7 d snooze</text>
 <text x="952" y="1822.0" text-anchor="start" font-size="11" fill="#44546f">30 d admin probe · Lite only</text>
 <text x="952" y="1838.0" text-anchor="start" font-size="11" fill="#44546f">spot check: modal at editor mount,</text>
 <text x="952" y="1854.0" text-anchor="start" font-size="11" fill="#44546f">never after Publish</text>

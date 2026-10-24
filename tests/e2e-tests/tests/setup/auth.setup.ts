@@ -1,4 +1,4 @@
-import { test as setup } from '@playwright/test';
+import { installMixpanelIsolation, test as setup } from '../../fixtures/mixpanel-test.js';
 import type { Browser } from '@playwright/test';
 import { ConfluenceLogin } from '../../utils/login.js';
 import { testConfig } from '../../config/test-config.js';
@@ -17,6 +17,7 @@ import fs from 'fs';
  */
 async function isCachedSessionLive(browser: Browser): Promise<boolean> {
   const ctx = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  await installMixpanelIsolation(ctx);
   try {
     const page = await ctx.newPage();
     await page.goto(`${testConfig.baseUrl}/overview`, { waitUntil: 'domcontentloaded', timeout: 30_000 });

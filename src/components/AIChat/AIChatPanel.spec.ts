@@ -32,6 +32,7 @@ const initialVersion = {
 
 describe('AIChatPanel core flow', () => {
   beforeEach(() => {
+    localStorage.clear()
     vi.mocked(trackAnalyticsEvent).mockClear()
     vi.mocked(runAIChatSession).mockReset()
     vi.mocked(getDiagramlyVersions).mockReset()
@@ -66,6 +67,44 @@ describe('AIChatPanel core flow', () => {
       expect.objectContaining({ suggestion_id: 'add-error-path', macro_type: 'sequence' }),
     )
     wrapper.unmount()
+  })
+
+  it('scrolls the conversation to the latest turn after sending', async () => {
+    let finish!: () => void
+    vi.mocked(runAIChatSession).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finish = () => resolve({
+          diagramId: 'diagram-1',
+          diagramCreated: false,
+          updatedCode: 'A->B: original',
+          noChange: true,
+          jobId: 'job-1',
+          pollCount: 1,
+        })
+      }),
+    )
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        currentCode: 'A->B: original',
+        initialMessages: [{
+          id: 'assistant-long',
+          role: 'assistant',
+          text: 'A long response\n'.repeat(100),
+        }],
+      },
+    })
+    const content = wrapper.get('.ai-chat-content').element as HTMLElement
+    Object.defineProperty(content, 'scrollHeight', { configurable: true, value: 1200 })
+    content.scrollTop = 200
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Add one more participant')
+    await wrapper.get('form').trigger('submit')
+
+    expect(content.scrollTop).toBe(1200)
+
+    finish()
+    await flushPromises()
   })
 
   it('runs the versioned session, binds the diagram, applies code, and exposes line diff', async () => {
@@ -105,6 +144,7 @@ describe('AIChatPanel core flow', () => {
       diagramCode: 'A->B: original',
       diagramType: 'sequence',
       prompt: 'Update the message',
+      model: 'openai/gpt-5.6-luna',
       signal: expect.any(AbortSignal),
     }))
     expect(wrapper.emitted('send')).toEqual([['Update the message']])
@@ -126,6 +166,7 @@ describe('AIChatPanel core flow', () => {
         turn_index: 1,
         input_source: 'typed',
         retry_after_failure: false,
+        ai_model: 'openai/gpt-5.6-luna',
       }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
@@ -136,11 +177,42 @@ describe('AIChatPanel core flow', () => {
         poll_count: 2,
         lines_added: 1,
         lines_removed: 1,
+        ai_model: 'openai/gpt-5.6-luna',
       }),
     )
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_chat_diff_toggled',
       expect.objectContaining({ interaction_state: 'opened' }),
+    )
+  })
+
+  it('uses the ai_chat_model localStorage override for the request and analytics', async () => {
+    localStorage.setItem('ai_chat_model', ' anthropic/claude-sonnet-5 ')
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      diagramCreated: false,
+      updatedCode: 'A->B: original',
+      noChange: true,
+      jobId: 'job-model',
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramlyDiagramId: 'diagram-1',
+        currentCode: 'A->B: original',
+      },
+    })
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Keep it concise')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(runAIChatSession).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'anthropic/claude-sonnet-5',
+    }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_prompt_submitted',
+      expect.objectContaining({ ai_model: 'anthropic/claude-sonnet-5' }),
     )
   })
 
@@ -171,6 +243,55 @@ describe('AIChatPanel core flow', () => {
 
     finish()
     await flushPromises()
+  })
+
+  it('shows an ordinary reply and does not apply code for a no-change result', async () => {
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: 'diagram-1',
+      diagramCreated: false,
+      updatedCode: 'A->B: original',
+      noChange: true,
+      jobId: 'job-1',
+      pollCount: 3,
+      repairAttempts: 3,
+      backendDurationMs: 2400,
+      backendLlmDurationMs: 2100,
+    })
+    const wrapper = mount(AIChatPanel, {
+      props: {
+        open: true,
+        diagramlyDiagramId: 'diagram-1',
+        currentCode: 'A->B: original',
+      },
+    })
+
+    await wrapper.get('[data-testid="ai-chat-input"]').setValue('Optimize it')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No changes were needed for the current diagram.')
+    expect(wrapper.text()).not.toContain('could not apply the change')
+    const noChangeMessage = wrapper.findAll('[data-testid="ai-chat-message"]').at(-1)!
+    expect(noChangeMessage.classes()).toContain('is-assistant')
+    expect(noChangeMessage.classes()).not.toContain('is-error')
+    expect(wrapper.find('[data-testid="ai-change-preview"]').exists()).toBe(false)
+    expect(wrapper.emitted('apply-code')).toBeUndefined()
+    expect(wrapper.emitted('apply')).toBeUndefined()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_chat_no_change',
+      expect.objectContaining({
+        change_kind: 'request',
+        generation_source: 'chat_panel',
+        poll_count: 3,
+        repair_attempts: 3,
+        backend_duration_ms: 2400,
+        backend_llm_duration_ms: 2100,
+      }),
+    )
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+      'ai_chat_prompt_failed',
+      expect.anything(),
+    )
   })
 
   it('uses the same session with syntax context for parent and in-panel repair requests', async () => {
@@ -562,6 +683,8 @@ describe('AIChatPanel core flow', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('AI Chat could not apply the change: Diagramly unavailable')
+    expect(wrapper.findAll('[data-testid="ai-chat-message"]').at(-1)?.classes())
+      .toContain('is-error')
     expect((wrapper.get('[data-testid="ai-chat-send"]').element as HTMLButtonElement).disabled).toBe(true)
     await wrapper.get('[data-testid="ai-chat-input"]').setValue('Retry')
     expect((wrapper.get('[data-testid="ai-chat-send"]').element as HTMLButtonElement).disabled).toBe(false)

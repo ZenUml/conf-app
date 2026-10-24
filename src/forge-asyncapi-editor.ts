@@ -4,7 +4,7 @@
 // Forge resource so localStorage works as a sync channel.
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, isInserting, isConfiguring } from '@/model/globals/forgeGlobal'
@@ -15,6 +15,7 @@ import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate'
 import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
 import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
+import { markEditorAuthoringStarted, registerEditorCloseTracking, trackEditorClosedWithoutSave } from '@/utils/analytics/editorCloseOutcome'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId'
 // info.title → custom-content title mirroring now lives in
@@ -81,11 +82,14 @@ async function initializeMacro() {
   // change on EVERY variant, not just Lite: the asyncapi app used to emit
   // macro_edit_started before it knew whether the document loaded, so its
   // start-vs-save funnel counted opens that could never reach a save.
-  const trackAsyncApiAuthoringStarted = () => trackAuthoringStarted({
-    macroType: 'asyncapi',
-    entryPoint,
-    customContentId,
-  })
+  const trackAsyncApiAuthoringStarted = () => {
+    markEditorAuthoringStarted()
+    trackAuthoringStarted({
+      macroType: 'asyncapi',
+      entryPoint,
+      customContentId,
+    })
+  }
 
   // Dashboard edits open this editor as a standalone modal targeting a known
   // document id (modal.customContentId, with no macro on the current page).
@@ -124,7 +128,7 @@ async function initializeMacro() {
   // edit a blank template and the save would fork a brand-new document,
   // orphaning the one they meant to edit. Surface the failure instead.
   if (loadFailed) {
-    ReactDOM.render(
+    createRoot(root).render(
       React.createElement(
         'div',
         {
@@ -141,12 +145,14 @@ async function initializeMacro() {
           'Close this dialog and try again. Editing now would create a new, separate document.',
         ),
       ),
-      root,
     )
     return
   }
 
   const handleCancel = async () => {
+    // Studio's own cancel control; the modal X is covered by the registration
+    // in mountStudio. Idempotent, so both paths count once.
+    await trackEditorClosedWithoutSave('exit_button')
     try {
       const view = await getView()
       await view.close()
@@ -233,14 +239,19 @@ async function initializeMacro() {
   // layout in every entry path.
   const mountStudio = (target: HTMLElement | null) => {
     if (!target) return
-    ReactDOM.render(
+    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled).
+    // Studio does not expose a dirty flag, so had_changes is left off.
+    registerEditorCloseTracking({
+      getMacroType: () => 'asyncapi',
+      operationMode: customContentId ? 'edit' : 'create',
+    })
+    createRoot(target).render(
       React.createElement(AsyncApiStudioEditor, {
         initialSpec,
         onSave: handleSave,
         onCancel: handleCancel,
         ownTitleBar: false,
       }),
-      target,
     )
   }
 

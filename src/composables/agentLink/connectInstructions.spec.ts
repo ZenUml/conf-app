@@ -1,12 +1,38 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import forgeGlobal from '@/model/globals/forgeGlobal'
-import { buildConnectPrompt, buildHeadlessPrompt, buildHomepagePrompt, mcpAddCommand, mcpServerName, mcpServerUrl } from './connectInstructions'
+import { buildConnectPrompt, buildHeadlessPrompt, buildHomepagePrompt, mcpAddCommand, mcpBackendBaseUrl, mcpServerName, mcpServerUrl } from './connectInstructions'
 
 describe('connectInstructions', () => {
   afterEach(() => {
     forgeGlobal.zenumlRemoteBaseUrl = undefined
+    forgeGlobal.forgeContext = undefined
+    forgeGlobal.isLite = undefined
     forgeGlobal.isDiagramly = false
     forgeGlobal.isAsyncApi = false
+  })
+
+  // ADR 0011: Full's MCP URL is the Lite backend for the same environment,
+  // because Full's sign-in completes there; every other product keeps its own.
+  it.each([
+    ['Full', {}, 'PRODUCTION', 'https://conf-full.zenuml.com', 'https://conf-lite.zenuml.com'],
+    ['Full', {}, 'STAGING', 'https://conf-stg-full.zenuml.com', 'https://conf-stg-lite.zenuml.com'],
+    ['Full', {}, 'DEVELOPMENT', 'https://conf-stg-full.zenuml.com', 'https://conf-stg-lite.zenuml.com'],
+    ['Lite', { isLite: true }, 'PRODUCTION', 'https://conf-lite.zenuml.com', 'https://conf-lite.zenuml.com'],
+    ['Diagramly', { isDiagramly: true }, 'PRODUCTION', 'https://conf-lite.zenuml.com', 'https://conf-lite.zenuml.com'],
+    ['AsyncAPI', { isAsyncApi: true }, 'PRODUCTION', 'https://zenapi.zenuml.com', 'https://zenapi.zenuml.com'],
+  ])('%s %s: the MCP server lives on %s → %s', (_name, flags, environmentType, ownBackend, expected) => {
+    const product = { ...flags, zenumlRemoteBaseUrl: ownBackend, forgeContext: { environmentType } }
+    expect(mcpBackendBaseUrl(product)).toBe(expected)
+  })
+
+  it("keeps Full on its own backend until the Forge environment is known", () => {
+    expect(mcpBackendBaseUrl({ zenumlRemoteBaseUrl: 'https://conf-full.zenuml.com' })).toBe('https://conf-full.zenuml.com')
+  })
+
+  it("puts the Lite backend in Full's production setup command", () => {
+    forgeGlobal.zenumlRemoteBaseUrl = 'https://conf-full.zenuml.com'
+    forgeGlobal.forgeContext = { environmentType: 'PRODUCTION' }
+    expect(mcpAddCommand()).toBe('claude mcp add --transport http zenuml https://conf-lite.zenuml.com/agent-link/mcp')
   })
 
   it.each([

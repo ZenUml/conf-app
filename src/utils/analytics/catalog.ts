@@ -1690,6 +1690,10 @@ export type AnalyticsEventName =
   // Counts and outcomes only; never repo names, PR titles, diffs or review text.
   | "pr_panel_review_list_shown"
   | "pr_panel_review_row_clicked"
+  // delete_requested: valid MCP call before local mutation (no properties).
+  // delete_completed: local mutation result; delete_outcome and deleted_run_count only.
+  | "pr_panel_review_entry_delete_requested"
+  | "pr_panel_review_entry_delete_completed"
   | "pr_panel_panel_toggled"
   | "pr_panel_hub_connected"
   | "pr_panel_hub_disconnected"

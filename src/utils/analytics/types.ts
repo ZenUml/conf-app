@@ -1172,6 +1172,8 @@ export type AnalyticsProperties = {
   // GitHub PR Agent Panel — see catalog.ts pr_panel_* events; counts/outcomes
   // only, no repository or PR identifiers.
   review_count?: number; // rows rendered in the left list
+  deleted_run_count?: number; // local review runs removed for one PR
+  delete_outcome?: 'deleted' | 'not_found' | 'failed';
   row_index?: number; // 0-based position of the clicked row
   is_stale?: boolean; // reviewed head SHA differs from the PR's current head
   panel_state?: PrPanelPanelState;

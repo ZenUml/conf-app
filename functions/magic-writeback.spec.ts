@@ -18,10 +18,38 @@ const request = (body: any = { contentId: '123' }, headers: Record<string, strin
 const invoke = (req = request(), context: any = ctx) => onRequest({ request: req, data: { forgeContext: context }, env: { DB: db() as any } });
 const enqueue = (scope = ctx, expiresAt = Date.now() + 86400000, id = 'delivery-a') => sqlite.prepare('INSERT INTO MagicWriteback (id,cloudId,appId,environmentId,installationId,contentId,sourceHash,artifact,createdAt,expiresAt) VALUES (?,?,?,?,?,?,?,?,?,?)').run(id, scope.cloudId, scope.forgeAppId, scope.environmentId, scope.installationId, '123', hash, JSON.stringify(artifact), Date.now(), expiresAt);
 const row = () => sqlite.prepare('SELECT * FROM MagicWriteback').get();
+// Mirror rows are written by forge-custom-content.ts: appId is the Forge app UUID and body is the
+// JSON-stringified Confluence body object, i.e. {"raw":{"representation":"raw","value":"<json>"}}.
+const mirrorBody = (mermaidCode: string) => JSON.stringify({ raw: { representation: 'raw', value: JSON.stringify({ diagramType: 'mermaid', mermaidCode }) } });
+const mirrorSeed = (over: Record<string, unknown> = {}) => {
+  const r = { contentId: '123', type: doc().type, latestVersionNumber: 2, body: mirrorBody('old source'), createdAt: '2026-01-01T00:00:00.000Z', appId: ctx.forgeAppId, spaceId: '99', title: 'Old title', pageId: '456', macroUuid: 'macro-1', diagramType: 'mermaid', status: 'draft', cloudId: ctx.cloudId, ...over };
+  sqlite.prepare('INSERT INTO CustomContent (contentId,type,latestVersionNumber,body,createdAt,appId,spaceId,title,pageId,macroUuid,diagramType,status,cloudId) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(r.contentId, r.type, r.latestVersionNumber, r.body, r.createdAt, r.appId, r.spaceId, r.title, r.pageId, r.macroUuid, r.diagramType, r.status, r.cloudId);
+  return r;
+};
+const mirrorRows = () => sqlite.prepare('SELECT * FROM CustomContent ORDER BY appId, contentId').all();
+// Records every SQL statement prepared. `fail` makes matching statements throw, either when prepared or when run.
+const spiedDb = (fail?: { when: (sql: string) => boolean; at: 'prepare' | 'run' }) => {
+  const sqls: string[] = []; const inner = db();
+  const DB = { prepare: (sql: string) => {
+    sqls.push(sql);
+    if (fail?.when(sql) && fail.at === 'prepare') throw new Error('d1 boom token abc');
+    const statement = inner.prepare(sql);
+    if (fail?.when(sql) && fail.at === 'run') return { ...statement, bind: () => ({ run: async () => { throw new Error('d1 boom token abc'); } }) };
+    return statement;
+  } };
+  return { sqls, DB };
+};
+const invokeWith = (DB: unknown, req = request()) => onRequest({ request: req, data: { forgeContext: ctx }, env: { DB: DB as any } });
+const mirrorSql = (sqls: string[]) => sqls.filter(sql => /CustomContent\b/.test(sql));
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:');
   sqlite.exec(readFileSync('functions/migrations/0028_add_magic_writeback.sql', 'utf8'));
+  // The D1 mirror of Confluence custom content. cloudId comes from 0022, which is
+  // not loaded whole because it also indexes DiagramAudience (absent in this DB).
+  sqlite.exec(readFileSync('functions/migrations/0004_add-custom-content.sql', 'utf8'));
+  sqlite.exec('ALTER TABLE CustomContent ADD COLUMN cloudId TEXT');
   fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock); vi.stubGlobal('crypto', webcrypto);
 });
 describe('reviewed Magic writeback', () => {
@@ -205,5 +233,96 @@ describe('reviewed Magic writeback', () => {
   it('fails open to Original for a failed write and never returns queued SVG', async () => {
     enqueue(); fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({}, 403));
     expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable', reason: 'put_403' }); expect(row().claimToken).toBeNull();
+  });
+  // When the viewer-read source no longer matches the queued hash, the backend already holds the
+  // fresh Confluence record. The D1 mirror is refreshed from it, forward-only and update-only.
+  describe('mirror refresh on source_changed', () => {
+    const changedSource = `${source}\nB --> C`;
+    const changed = () => ({ ...doc({ diagramType: 'mermaid', mermaidCode: changedSource }, 9), title: 'Renamed' });
+    const unchangedColumns = (r: any) => { const { latestVersionNumber, body, title, status, ...rest } = r; return rest; };
+
+    it('copies version, body, title and status into an older mirror row and returns source_changed untouched', async () => {
+      enqueue(); const seeded = mirrorSeed(); const queued = row();
+      const fresh = changed(); fetchMock.mockResolvedValueOnce(reply(fresh));
+      const spy = spiedDb();
+      expect(await (await invokeWith(spy.DB)).json()).toEqual({ outcome: 'source_changed' });
+      const mirror = sqlite.prepare('SELECT * FROM CustomContent').get();
+      expect(mirror.latestVersionNumber).toBe(9);
+      expect(mirror.body).toBe(JSON.stringify(fresh.body));
+      expect(mirror.title).toBe('Renamed');
+      expect(mirror.status).toBe('current');
+      expect(unchangedColumns(mirror)).toEqual(unchangedColumns(seeded));
+      expect(mirrorSql(spy.sqls).filter(sql => sql.startsWith('UPDATE CustomContent'))).toHaveLength(1);
+      expect(row()).toEqual(queued);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+    });
+    it('refreshes after a 409 re-read finds the changed source', async () => {
+      enqueue(); mirrorSeed(); const fresh = changed();
+      fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({}, 409)).mockResolvedValueOnce(reply(fresh));
+      expect(await (await invoke()).json()).toEqual({ outcome: 'source_changed' });
+      expect(sqlite.prepare('SELECT latestVersionNumber, body FROM CustomContent').get()).toEqual({ latestVersionNumber: 9, body: JSON.stringify(fresh.body) });
+    });
+    it('also refreshes a legacy mirror row that has no cloudId yet', async () => {
+      enqueue(); mirrorSeed({ cloudId: null }); fetchMock.mockResolvedValueOnce(reply(changed()));
+      expect(await (await invoke()).json()).toEqual({ outcome: 'source_changed' });
+      expect(sqlite.prepare('SELECT latestVersionNumber, cloudId FROM CustomContent').get()).toEqual({ latestVersionNumber: 9, cloudId: null });
+    });
+    it('never moves the mirror backwards: a row at the same or a newer version stays byte-for-byte', async () => {
+      for (const latestVersionNumber of [9, 12]) {
+        sqlite.exec('DELETE FROM CustomContent; DELETE FROM MagicWriteback'); enqueue(); mirrorSeed({ latestVersionNumber, body: mirrorBody('newer mirror') });
+        const before = mirrorRows(); fetchMock.mockReset().mockResolvedValueOnce(reply(changed()));
+        const spy = spiedDb();
+        expect(await (await invokeWith(spy.DB)).json()).toEqual({ outcome: 'source_changed' });
+        expect(mirrorSql(spy.sqls).filter(sql => sql.startsWith('UPDATE CustomContent'))).toHaveLength(1);
+        expect(mirrorRows()).toEqual(before);
+      }
+    });
+    it('never inserts: with no mirror row nothing is created', async () => {
+      enqueue(); fetchMock.mockResolvedValueOnce(reply(changed()));
+      const spy = spiedDb();
+      expect(await (await invokeWith(spy.DB)).json()).toEqual({ outcome: 'source_changed' });
+      expect(mirrorSql(spy.sqls).filter(sql => sql.startsWith('UPDATE CustomContent'))).toHaveLength(1);
+      expect(mirrorSql(spy.sqls).some(sql => /insert/i.test(sql))).toBe(false);
+      expect(mirrorRows()).toEqual([]);
+    });
+    it('is scoped to the verified tenant and app: another cloudId or appId is never touched', async () => {
+      enqueue(); mirrorSeed({ cloudId: 'tenant-b' }); mirrorSeed({ appId: 'd9e4002b-120b-426b-834b-402a4a5adce7' });
+      const before = mirrorRows(); fetchMock.mockResolvedValueOnce(reply(changed()));
+      const spy = spiedDb();
+      expect(await (await invokeWith(spy.DB)).json()).toEqual({ outcome: 'source_changed' });
+      expect(mirrorSql(spy.sqls).filter(sql => sql.startsWith('UPDATE CustomContent'))).toHaveLength(1);
+      expect(mirrorRows()).toEqual(before);
+    });
+    it.each(['prepare', 'run'] as const)('keeps source_changed and logs nothing when the mirror UPDATE fails at %s', async (at) => {
+      enqueue(); mirrorSeed(); const before = mirrorRows(); const queued = row(); fetchMock.mockResolvedValueOnce(reply(changed()));
+      const spy = spiedDb({ when: sql => sql.startsWith('UPDATE CustomContent'), at });
+      const logs = (['log', 'info', 'warn', 'error', 'debug'] as const).map(level => vi.spyOn(console, level).mockImplementation(() => {}));
+      try {
+        expect(await (await invokeWith(spy.DB)).json()).toEqual({ outcome: 'source_changed' });
+        // The UPDATE was attempted (and failed); nothing it carried may reach a log.
+        expect(spy.sqls.filter(sql => sql.startsWith('UPDATE CustomContent'))).toHaveLength(1);
+        const logged = JSON.stringify(logs.flatMap(l => l.mock.calls));
+        for (const secret of [changedSource, 'B --> C', hash, 'Renamed', 'boom', 'abc']) expect(logged).not.toContain(secret);
+      } finally { logs.forEach(l => l.mockRestore()); }
+      expect(mirrorRows()).toEqual(before); expect(row()).toEqual(queued);
+    });
+    it('does not even address the mirror on existing, written, invalid_target, miss or unavailable', async () => {
+      mirrorSeed(); const before = mirrorRows();
+      const cases: Array<[string, boolean, () => void]> = [
+        ['existing', true, () => { fetchMock.mockResolvedValueOnce(reply(doc({ diagramType: 'mermaid', mermaidCode: source, magic: artifact }, 9))); }],
+        ['written', true, () => { fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply(saved())); }],
+        ['invalid_target', true, () => { fetchMock.mockResolvedValueOnce(reply({ ...doc(), status: 'trashed' })); }],
+        ['miss', false, () => {}],
+        ['unavailable', true, () => { fetchMock.mockResolvedValueOnce(reply({}, 403)); }],
+      ];
+      for (const [outcome, queued, arrange] of cases) {
+        sqlite.exec('DELETE FROM MagicWriteback'); fetchMock.mockReset(); if (queued) enqueue(); arrange();
+        const spy = spiedDb();
+        expect((await (await invokeWith(spy.DB)).json()).outcome).toBe(outcome);
+        expect(mirrorSql(spy.sqls)).toEqual([]);
+        expect(mirrorRows()).toEqual(before);
+      }
+    });
   });
 });

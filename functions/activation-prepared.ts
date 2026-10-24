@@ -3,8 +3,8 @@ import { captureError } from "./utils/sentry";
 import type { ForgeRequestData } from "./utils/authenticate";
 
 // Backend for the `zenuml-byline-newuser` activation nudge (byline-activation
-// spec). Backs the `zenuml-prepared-diagram` content property's 'prepared'
-// mode: the frontend dialog fetches the curated diagram body for the current
+// spec). Backs the `zenuml-prepared-diagram` content property: the frontend
+// dialog fetches the curated diagram body for the current
 // page from here instead of re-deriving it client-side.
 //
 //   GET  /activation-prepared?pageId=<numeric>  — cache read. 200 with the

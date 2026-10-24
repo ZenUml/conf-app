@@ -14,6 +14,8 @@ interface TestConfig {
   isLite: boolean;
   isForge: boolean;
   isProd: boolean;
+  /** Full app is co-installed on this tenant — hides the Lite Diagrams byline by design. */
+  fullCoinstalled: boolean;
   /** Pages host matched by this variant's embed macro autoConvert rule. */
   deeplinkHost: string;
   macros: MacroType[];
@@ -64,6 +66,7 @@ function resolveProfile(): AppProfile {
     productType:
       productTypeFromEnv() ?? siteProfile?.productType ?? (isLite ? 'lite' : 'full'),
     isForge,
+    fullCoinstalled: siteProfile?.fullCoinstalled,
     macros: ['sequence', 'graph', 'openapi', 'embed', 'mermaid'],
     addonKey: siteProfile?.addonKey ?? (isLite ? 'com.zenuml.confluence-addon-lite' : 'com.zenuml.confluence-addon'),
     sequenceMacroKey: siteProfile?.sequenceMacroKey ?? (isLite ? 'zenuml-sequence-macro-lite' : 'zenuml-sequence-macro'),
@@ -85,6 +88,7 @@ export const testConfig: TestConfig = {
   isLite: profile.isLite,
   isForge: profile.isForge,
   isProd: profile.id.endsWith('@prod'),
+  fullCoinstalled: profile.fullCoinstalled ?? false,
   deeplinkHost: profile.productType === 'full' ? 'conf-full.zenuml.com' : 'conf-lite.zenuml.com',
   macros: profile.macros,
   addonKey: profile.addonKey,

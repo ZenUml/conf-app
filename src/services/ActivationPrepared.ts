@@ -67,29 +67,3 @@ export function preparedAgeDays(payload: PreparedDiagramPayload): number | undef
   if (Number.isNaN(t)) return undefined;
   return Math.max(0, Math.round((Date.now() - t) / 86_400_000));
 }
-
-export interface PageDiagram {
-  id: string;
-  title: string;
-}
-
-// has-content mode: list our diagram custom-content already on this page. Uses
-// the v2 page custom-content endpoint via the Forge bridge (same requestConfluence
-// path ApWrapper2 uses for property reads). `types` is the set of fully-qualified
-// custom-content type strings (ApWrapper2.getMacroContentTypes()).
-export async function listPageDiagrams(
-  pageId: string,
-  types: string[],
-): Promise<PageDiagram[]> {
-  const { requestConfluence } = await import('@forge/bridge');
-  const typeSet = new Set(types);
-  const res = await requestConfluence(
-    `/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=100`,
-  );
-  if (!res.ok) return [];
-  const body: any = await res.json();
-  const results: any[] = Array.isArray(body?.results) ? body.results : [];
-  return results
-    .filter((r) => !r.type || typeSet.size === 0 || typeSet.has(r.type))
-    .map((r) => ({ id: String(r.id), title: r.title || 'Untitled diagram' }));
-}

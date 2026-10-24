@@ -62,14 +62,85 @@ export interface CalloutTipPoint {
 // Builds the callout's rounded-rect-with-tail path. `scale` is 1 in the
 // preview (its viewBox width is always VIEWBOX_REF_W) and w/VIEWBOX_REF_W in
 // the export builder, so the box/tail sizing matches on both surfaces.
+/**
+ * Measured content of a callout, in the same coordinate space as `scale`'s
+ * output. `textWidth` comes from the renderer that owns the text — the overlay
+ * SVG measures with `getComputedTextLength()`, the export canvas with
+ * `measureText()` — because neither the glyphs nor the font are knowable here.
+ */
+export interface CalloutContent {
+  textWidth: number;
+  fontSize: number;
+}
+
+/** Breathing room around the label, and the smallest box worth drawing. */
+const CALLOUT_PADDING_X = 14;
+const CALLOUT_PADDING_Y = 8;
+const CALLOUT_MIN_WIDTH = 60;
+const CALLOUT_MIN_HEIGHT = 28;
+const CALLOUT_LINE_HEIGHT = 1.35;
+/** Keep a measured callout from growing beyond the image it annotates. */
+export const CALLOUT_MAX_WIDTH = VIEWBOX_REF_W * 0.9;
+/** Maximum text width inside the capped callout, before horizontal fitting. */
+export const CALLOUT_MAX_TEXT_WIDTH = CALLOUT_MAX_WIDTH - 2 * CALLOUT_PADDING_X;
+
+/**
+ * The bubble's own width and height. Selection outlines and hit targets read
+ * this instead of re-deriving a box from the character count: a dashed
+ * rectangle that disagrees with the drawn bubble is what the user sees, and a
+ * click lands on the box rather than on the glyphs.
+ */
+export function computeCalloutBox(
+  scale: number,
+  content?: CalloutContent,
+): { width: number; height: number } {
+  // The box used to be a fixed 120x40 whatever it held, so a longer label or a
+  // larger font ran straight out of the chip and over the diagram — in the
+  // preview and in the exported PNG, which draws from this same path.
+  const width = content
+    ? Math.min(
+      CALLOUT_MAX_WIDTH * scale,
+      Math.max(CALLOUT_MIN_WIDTH * scale, content.textWidth + 2 * CALLOUT_PADDING_X * scale),
+    )
+    : 120 * scale;
+  const height = content
+    ? Math.max(
+      CALLOUT_MIN_HEIGHT * scale,
+      content.fontSize * CALLOUT_LINE_HEIGHT + 2 * CALLOUT_PADDING_Y * scale,
+    )
+    : 40 * scale;
+  return { width, height };
+}
+
+/** Breathing room around a plain text label, and the smallest clickable box. */
+export const TEXT_PADDING_X = 6;
+export const TEXT_PADDING_Y = 4;
+export const TEXT_LINE_HEIGHT = 1.35;
+export const TEXT_MIN_WIDTH = 24;
+
+/**
+ * Box around a text annotation. The drawn text is anchored middle/central on
+ * its point, so the box is centred on the same point; the padding is what
+ * keeps a one-character label clickable.
+ */
+export function computeTextBox(
+  scale: number,
+  content: CalloutContent,
+): { width: number; height: number } {
+  return {
+    width: Math.max(TEXT_MIN_WIDTH * scale, content.textWidth + 2 * TEXT_PADDING_X * scale),
+    height: content.fontSize * TEXT_LINE_HEIGHT + 2 * TEXT_PADDING_Y * scale,
+  };
+}
+
 export function computeCalloutPath(
   cx: number,
   cy: number,
   scale: number,
   tipPosition: CalloutTipPoint | null,
+  content?: CalloutContent,
 ): string {
-  const w = 120 * scale;
-  const h = 40 * scale;
+  const { width: w, height: h } = computeCalloutBox(scale, content);
   const r = 5 * scale;
   const left = cx - w / 2;
   const top = cy - h / 2;

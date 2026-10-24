@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.expanduser("~/workspaces/zenuml/conf-app/.claude/skil
 import mp_query  # noqa: E402
 
 LAUNCH = "2026-07-08"          # paywall_gate_evaluated went live (Lite prod)
-INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "diagramly", "danshuitaihejie"]
+INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "lite-prod", "dia-stg", "diagramly", "danshuitaihejie"]
 OVERLIMIT = 100               # per-space Lite macro limit
 BUNDLE_PRICE = 299            # Enterprise Bundle USD/space/yr (docs/pricing-model.yml)
 WINDOW_SEC = 600             # save must follow the failed gate eval within 10 min

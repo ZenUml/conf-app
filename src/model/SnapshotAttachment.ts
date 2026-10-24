@@ -23,11 +23,14 @@ import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import global from '@/model/globals';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { MacroTypeValue } from '@/utils/analytics/catalog';
+import { toMacroType } from '@/utils/byline/pageDiagrams';
 import { callRemote } from '@/utils/requestUtil';
 import { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/Attachment';
+import { isSnapshotWriteDenied, markSnapshotWriteDenied } from '@/utils/snapshot/denialMemo';
 
 const SNAPSHOT_TYPES: ReadonlyArray<DiagramType> = [
-  DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+  DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown,
 ];
 
 export interface DiagramSnapshotV1 {
@@ -197,16 +200,27 @@ export async function uploadSnapshot(pageId: string, snapshot: DiagramSnapshotV1
  * attachment paths; reuse their extractor here rather than duplicating it —
  * both live in `src/`, so unlike the `functions/` side this is a real import.
  */
+/**
+ * `confluence_error_class` is ALWAYS returned, using the explicit `'none'`
+ * sentinel when the envelope carries no parseable class — it is never omitted.
+ *
+ * An absent property and an unparseable class are indistinguishable in a
+ * Mixpanel query, which is the exact ambiguity #398 was filed about, and the
+ * reason #435 chose `macro_type: 'none'` over omission. Omission also cannot be
+ * told apart from "this event predates the change". Callers therefore spread
+ * the field unconditionally; do not reintroduce a `? {...} : {}` guard.
+ */
+export const NO_CONFLUENCE_ERROR_CLASS = 'none';
+
 export function snapshotFailureDetail(e: unknown): {
   failure_reason: string;
-  confluence_error_class?: string;
+  confluence_error_class: string;
 } {
   const raw = String(e instanceof Error ? e.message : e);
   const detail = extractConfluenceMessage(raw);
-  const confluence_error_class = parseConfluenceErrorClass(detail);
   return {
     failure_reason: detail.substring(0, 200),
-    ...(confluence_error_class ? { confluence_error_class } : {}),
+    confluence_error_class: parseConfluenceErrorClass(detail) || NO_CONFLUENCE_ERROR_CLASS,
   };
 }
 
@@ -275,6 +289,12 @@ export async function fetchSnapshot(pageId: string, ccId: string): Promise<Diagr
  *
  * Either branch skips entirely when a snapshot already exists at least as
  * fresh as the current CC version.
+ *
+ * Viewer surface only, additionally: skips entirely (no fetch, no upload, no
+ * event) when this host page's app-authenticated write is already
+ * known-denied (see `src/utils/snapshot/denialMemo.ts`, #387) — every OTHER
+ * view of a permanently-denied page would otherwise re-attempt and re-403
+ * forever, which is what made `viewer_backfill` 76%+ of `snapshot_create_failed`.
  */
 export async function maybeBackfillSnapshot(opts: {
   hostPageId: string;
@@ -286,10 +306,16 @@ export async function maybeBackfillSnapshot(opts: {
 }): Promise<void> {
   const surface = opts.isDisplayMode ? 'viewer' : 'editor';
   const snapshotTrigger = opts.isDisplayMode ? 'viewer_backfill' : 'editor_backfill';
+  const macroType = toMacroType(opts.diagram?.diagramType ?? '') as MacroTypeValue;
   try {
     if (!opts.isDisplayMode) {
       // Editor surface: cross-page aliases only (see doc comment above).
       if (!opts.ccPageId || String(opts.ccPageId) === String(opts.hostPageId)) return;
+    } else if (isSnapshotWriteDenied(opts.hostPageId)) {
+      // Viewer surface, known-denied page (#387): stop repeat-attempting a
+      // write we already confirmed 401/403s here. Not a permission predictor —
+      // only reached after a REAL denial was already recorded (see below).
+      return;
     }
     // Viewer surface falls through unconditionally — any macro qualifies.
     const existing = await fetchSnapshot(opts.hostPageId, opts.ccId);
@@ -301,6 +327,7 @@ export async function maybeBackfillSnapshot(opts: {
       feature_area: 'macro',
       surface,
       snapshot_trigger: snapshotTrigger,
+      macro_type: macroType,
       custom_content_id: opts.ccId,
       attachment_name: snapshotAttachmentName(opts.ccId),
     });
@@ -308,6 +335,14 @@ export async function maybeBackfillSnapshot(opts: {
     const { failure_reason, confluence_error_class } = snapshotFailureDetail(e);
     const skipReason = snapshotSkipReason(e);
     if (skipReason) {
+      if (surface === 'viewer' && skipReason === 'no_write_permission') {
+        // Memo the denial (#387) so every OTHER view of this page stops
+        // re-attempting a write we just confirmed 401/403s — see
+        // denialMemo.ts. Deliberately NOT done for page_not_published: that
+        // 404 is expected to self-heal on the very next view once the page
+        // publishes, and memoing it would defeat the new-page recovery case.
+        markSnapshotWriteDenied(opts.hostPageId);
+      }
       // Expected best-effort skip (read-only viewer / unpublished draft), not a
       // failure — record it as such so snapshot_create_failed stays a real
       // error signal while we keep visibility into the write-coverage gap.
@@ -315,10 +350,11 @@ export async function maybeBackfillSnapshot(opts: {
         feature_area: 'macro',
         surface,
         snapshot_trigger: snapshotTrigger,
+        macro_type: macroType,
         custom_content_id: opts.ccId,
         snapshot_skip_reason: skipReason,
         failure_reason,
-        ...(confluence_error_class ? { confluence_error_class } : {}),
+        confluence_error_class,
       });
       return;
     }
@@ -326,18 +362,20 @@ export async function maybeBackfillSnapshot(opts: {
       feature_area: 'macro',
       surface,
       snapshot_trigger: snapshotTrigger,
+      macro_type: macroType,
       custom_content_id: opts.ccId,
       failure_reason,
-      ...(confluence_error_class ? { confluence_error_class } : {}),
+      confluence_error_class,
     });
   }
 }
 
 // Verified against Diagram model / DiagramTypeConfig: field is plantUmlCode
 // (capital U), not plantumlCode.
-const DSL_FIELD: Record<string, 'code' | 'mermaidCode' | 'plantUmlCode'> = {
+const DSL_FIELD: Record<string, 'code' | 'mermaidCode' | 'plantUmlCode' | 'markdownCode'> = {
   [DiagramType.Sequence]: 'code',
   [DiagramType.Mermaid]: 'mermaidCode',
+  [DiagramType.Markdown]: 'markdownCode',
   [DiagramType.PlantUml]: 'plantUmlCode',
 };
 

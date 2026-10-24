@@ -1,11 +1,19 @@
 import { Diagram } from '@/model/Diagram/Diagram';
 import { PublishBlockReason } from '@/model/editDupGate';
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
 
 export interface DiagramLoadError {
   directFetchStatus?: 'ok' | 'not_found' | 'other_error';
   httpStatus?: number;
   errorCode?: string;
   errorClass?: 'thrown' | 'structured' | 'malformed';
+  /**
+   * The load produced a document that LOOKS renderable but is not the one the
+   * macro asked for (a Board macro holding only a legacy Diagram body).
+   * classifyViewerLoadOutcome lets a terminal error beat displayability;
+   * a non-terminal error never masks a document a recovery path restored.
+   */
+  terminal?: boolean;
 }
 
 export type ViewerLoadState =
@@ -23,6 +31,9 @@ export interface RootState {
   diagramLoadComplete?: boolean
   viewerLoadState: ViewerLoadState;
   loadError: DiagramLoadError | null;
+  // Ephemeral attribution from Confluence's custom-content envelope. Keep it
+  // outside Diagram so it can never round-trip into stored diagram bodies.
+  diagramAttribution: DiagramAttribution | null;
   // Editor-side backstop (model/editDupGate.ts): non-null when the mounted
   // doc is a copy in a surface that cannot write a forked id back into the
   // macro config — Header.vue disables Publish and the save handler refuses.

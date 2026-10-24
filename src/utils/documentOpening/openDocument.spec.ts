@@ -63,6 +63,7 @@ describe('openDocument (Slice 1 core pipeline)', () => {
       kind: 'opened',
       document: {
         doc,
+        attribution: { customContentId: 'cc-1' },
         origin: {
           contentId: 'cc-1',
           source: 'config',
@@ -106,6 +107,7 @@ describe('openDocument (Slice 1 core pipeline)', () => {
     expect(reportOrphanObserved).toHaveBeenCalledWith('page-1', 'cc-1', 'openapi', probeResult, {
       recoveryUsed: true,
       recoveredId: 'cc-2',
+      directFetch: expect.objectContaining({ recoveredFromOrphanId: 'cc-1' }),
     });
   });
 
@@ -114,6 +116,10 @@ describe('openDocument (Slice 1 core pipeline)', () => {
     vi.mocked(globals.apWrapper.loadCustomContentWithOrphanRecovery).mockResolvedValue({
       customContent: undefined,
       probeResult,
+      directFetchStatus: 'not_found',
+      directFetchHttpStatus: 404,
+      directFetchErrorCode: 'NOT_FOUND',
+      directFetchErrorClass: 'structured',
     });
     const firstFallback = vi.fn(async () => undefined);
     const recovered = { ...NULL_DIAGRAM, code: 'from uuid' } as Diagram;
@@ -129,6 +135,7 @@ describe('openDocument (Slice 1 core pipeline)', () => {
     expect(secondFallback).toHaveBeenCalledTimes(1);
     expect(reportOrphanObserved).toHaveBeenCalledWith('page-1', 'cc-1', 'openapi', probeResult, {
       recoveryUsed: false,
+      directFetch: expect.objectContaining({ directFetchStatus: 'not_found', directFetchErrorClass: 'structured' }),
     });
     expect(outcome).toEqual({
       kind: 'opened',

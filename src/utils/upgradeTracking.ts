@@ -1,5 +1,4 @@
 import { trackAnalyticsEvent } from './analytics/trackAnalyticsEvent';
-import type { AnalyticsEventName } from './analytics/catalog';
 import type { AnalyticsProperties } from './analytics/types';
 
 export enum UpgradeEventName {
@@ -24,10 +23,7 @@ export enum UpgradeEventName {
 }
 
 export enum UIComponent {
-  HEADER_BADGE = 'header_badge',
-  TOOLTIP = 'tooltip',
   VIEWER_NOTICE = 'viewer_notice',
-  BANNER = 'banner',
   MODAL = 'modal',
 }
 
@@ -51,7 +47,7 @@ export function trackUpgradeEvent(
   eventName: UpgradeEventName,
   params: UpgradeEventParams = {}
 ): void {
-  trackAnalyticsEvent(eventName as AnalyticsEventName, {
+  trackAnalyticsEvent(eventName, {
     feature_area: 'upgrade',
     surface: 'modal',
     ...params,

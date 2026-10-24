@@ -1,7 +1,16 @@
-// Orchestrator for the #382 viewport render gate: flag check → viewport
-// turn → telemetry recording. forgeIndex awaits this promise at the viewer
-// mount points via awaitGateBlocking; trackRenderTime merges
-// getGateTelemetry() into macro_viewed.
+// Orchestrator for the #382 viewport render gate: viewport turn → telemetry
+// recording. forgeIndex awaits this promise at the viewer mount points via
+// awaitGateBlocking; trackRenderTime merges getGateTelemetry() into
+// macro_viewed.
+//
+// The gate runs UNCONDITIONALLY. It used to sit behind the
+// `viewport-gated-render` Forge feature flag, which was only ever created on
+// the Lite app — `checkFlag` defaults to false, so Full, Diagramly and
+// AsyncAPI shipped the module inert and rendered every diagram eagerly
+// (measured on Full production 2026-08-21: all macro_viewed events from
+// v2026.08.210645-full carried no render_gate/gate_mode/visible_at_boot).
+// Lite ran it at 100% of production from 2026-08-16 with no rollback, so the
+// switch had stopped earning its slot on the one app that had it.
 //
 // Invariant: this function NEVER rejects and never blocks a render on an
 // error — every failure path resolves promptly (fail-open).
@@ -9,7 +18,6 @@
 import type { RenderGateMode, RenderGateOutcome } from "@/utils/analytics/catalog";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { awaitViewportTurn, type ViewportTurn } from "./viewportGate";
-import { getViewportGateFlagFast } from "./flags";
 
 export interface GateTelemetry {
   render_gate?: RenderGateOutcome;
@@ -91,28 +99,9 @@ function removePlaceholder(): void {
   }
 }
 
-// Flag-evaluation identity. The Custom UI iframe origin is shared across all
-// tenants of this app, so the cached verdict must be scoped (#384 review F1).
-function flagScope(): string {
-  const ctx = forgeGlobal.forgeContext as
-    | { cloudId?: string; accountId?: string; environmentType?: string }
-    | undefined;
-  return `${ctx?.cloudId ?? "?"}|${ctx?.accountId ?? "?"}|${ctx?.environmentType ?? "?"}`;
-}
-
 export async function maybeGateViewerRender(deps?: {
-  getFlag?: () => Promise<boolean>;
   awaitTurn?: () => Promise<ViewportTurn>;
 }): Promise<void> {
-  try {
-    // Default flag read is the SYNCHRONOUS cached verdict (flagCache) so a
-    // flag-off render never waits on the bridge FeatureFlags round-trip.
-    const enabled = await (deps?.getFlag ??
-      (async () => getViewportGateFlagFast({ scope: flagScope() })))();
-    if (!enabled) return;
-  } catch {
-    return; // flag layer is fail-closed; a throw here means gate off
-  }
   try {
     showPlaceholder();
     const turn = await (deps?.awaitTurn ??

@@ -1,6 +1,6 @@
 ---
 name: error-radar
-description: Daily detector for new and unusual conf-app error signatures in Mixpanel, posted to the #zenuml2 Slack channel, plus the triage procedure the daily Claude scheduled task follows. Use when asked to run the error radar, check for new or unusual errors, triage a radar alert, backtest or tune its thresholds, or explain why it alerted or stayed quiet.
+description: Daily detector for new and unusual conf-app error signatures in Mixpanel, posted to the #github-notifications Slack channel, plus the triage procedure the daily Claude scheduled task follows. Use when asked to run the error radar, check for new or unusual errors, triage a radar alert, backtest or tune its thresholds, or explain why it alerted or stayed quiet.
 ---
 
 # Error radar
@@ -13,7 +13,7 @@ Two jobs use it every day:
 
 | Job | When (Sydney) | Does |
 |---|---|---|
-| GitHub Actions `error-radar.yml` | ~08:47 | Runs the detector, posts the alert list to #zenuml2 by webhook. Logs only a tenant-free summary. |
+| GitHub Actions `error-radar.yml` | ~08:47 | Runs the detector, posts the alert list to #github-notifications by webhook. Logs only a tenant-free summary. |
 | Claude scheduled task "Error radar triage" | ~09:08 | Follows **Daily triage** below: replies in the thread of that post with a verdict per alert. Posts the radar message itself if the Action's post is missing. |
 
 ## Signature
@@ -75,7 +75,7 @@ queries per run, about 15 s.
 
 The GitHub Action needs three values: `MIXPANEL_SA_USER`,
 `MIXPANEL_SA_SECRET`, `SLACK_ERROR_RADAR_WEBHOOK` (an incoming webhook for
-#zenuml2). `MIXPANEL_SA_USER` may be a repository secret or variable.
+#github-notifications). `MIXPANEL_SA_USER` may be a repository secret or variable.
 `MIXPANEL_SA_SECRET` and `SLACK_ERROR_RADAR_WEBHOOK` must be **secrets**:
 GitHub prints variables verbatim in the step env block and this repo's logs
 are public, so a webhook saved as a variable is published (it was, once, on
@@ -85,8 +85,8 @@ variables; it only ever sees true/false for those two.
 
 ## Privacy
 
-The output names real tenants. It goes to #zenuml2 (private) and nowhere
-else: not into the repo, a GitHub issue or PR, a workflow log, or an Actions
+The output names real tenants. It goes to #github-notifications (a public
+channel inside the team's Slack workspace) and nowhere else: not into the repo, a GitHub issue or PR, a workflow log, or an Actions
 artifact. The repository is public, and so are its logs. `--quiet` is the only
 mode used in CI logs.
 
@@ -94,8 +94,8 @@ mode used in CI logs.
 
 1. Run `python3 .claude/skills/error-radar/scripts/radar.py --json` for
    yesterday (UTC). No alerts → stop; post nothing.
-2. Find today's "Error radar — <day>" message in #zenuml2 (channel id
-   `C0C8GE7KPN2`). If it is missing (the Action failed or has no webhook),
+2. Find today's "Error radar — <day>" message in #github-notifications
+   (channel id `C0687BD6Y9W`). If it is missing (the Action failed or has no webhook),
    post the text from `radar.py` (without `--json`) first, and say in its thread
    that the Action's post was missing.
 3. For each alert, up to 6, most severe first:

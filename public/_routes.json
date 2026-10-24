@@ -16,6 +16,7 @@
     "/api/architecture-tokens/*",
     "/api/space-status",
     "/api/feedback-report",
+    "/api/targeted-survey",
     "/api/plan-usage",
     "/api/space-license",
     "/api/support/extension-actions",
@@ -34,10 +35,12 @@
     "/agent-link/*",
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-authorization-server",
+    "/.well-known/openai-apps-challenge",
     "/d/*",
     "/i/*",
     "/deeplink-ticket",
     "/activation-prepared",
+    "/magic-writeback",
     "/conversion/*"
   ],
   "exclude": []

@@ -5,6 +5,7 @@ import {
   deleteGrant,
   getAccessToken,
   grantKey,
+  type GrantEvent,
   GRANT_TTL_SECONDS,
   type GrantStore,
 } from './tokenStore';
@@ -229,5 +230,92 @@ describe('getAccessToken', () => {
       reason: 'refresh_failed',
     });
     expect(await loadGrant(store, SECRET, 'user-1')).not.toBeNull();
+  });
+});
+
+describe('getAccessToken — concurrent refreshes and grant events', () => {
+  const EXPIRED = NOW + 3600_001;
+  const sentToken = (init?: RequestInit) => (JSON.parse(String(init?.body)) as { refresh_token: string }).refresh_token;
+  const rotated = (n: number) =>
+    jsonResponse(200, { access_token: `at-${n}`, refresh_token: `rt-${n}`, expires_in: 3600, scope: 's' });
+
+  it('sends one refresh for concurrent calls on the same isolate', async () => {
+    const store = memoryStore();
+    await saveGrant(store, SECRET, 'user-1', grant(), NOW);
+    const sent: string[] = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      sent.push(sentToken(init));
+      await new Promise((r) => setTimeout(r, 10));
+      return rotated(2);
+    };
+    const results = await Promise.all([1, 2, 3].map(() => getAccessToken(store, SECRET, APP, fetchImpl, 'user-1', EXPIRED)));
+    expect(sent).toEqual(['rt-1']);
+    expect(results.every((r) => r.ok && r.accessToken === 'at-2')).toBe(true);
+  });
+
+  it('uses the grant another request already rotated instead of deleting it', async () => {
+    const store = memoryStore();
+    await saveGrant(store, SECRET, 'user-1', grant(), NOW);
+    const events: GrantEvent[] = [];
+    // Atlassian refuses our stale rt-1 because another isolate rotated it to rt-2 meanwhile.
+    const fetchImpl: FetchLike = async () => {
+      await saveGrant(store, SECRET, 'user-1', grant({ accessToken: 'at-2', refreshToken: 'rt-2', accessTokenExpiresAtMs: EXPIRED + 3600_000 }), EXPIRED);
+      return jsonResponse(403, { error: 'invalid_grant' });
+    };
+    const result = await getAccessToken(store, SECRET, APP, fetchImpl, 'user-1', EXPIRED, (e) => { events.push(e); });
+    expect(result).toEqual({ ok: true, accessToken: 'at-2', refreshed: false });
+    expect((await loadGrant(store, SECRET, 'user-1'))?.refreshToken).toBe('rt-2');
+    expect(events).toEqual([]);
+  });
+
+  it('refreshes the newer grant once when it, too, needs refreshing', async () => {
+    const store = memoryStore();
+    await saveGrant(store, SECRET, 'user-1', grant(), NOW);
+    const sent: string[] = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const rt = sentToken(init);
+      sent.push(rt);
+      if (rt === 'rt-1') {
+        // Rotated elsewhere to rt-2, whose access token is already near expiry.
+        await saveGrant(store, SECRET, 'user-1', grant({ accessToken: 'at-2', refreshToken: 'rt-2', accessTokenExpiresAtMs: EXPIRED }), EXPIRED);
+        return jsonResponse(403, { error: 'invalid_grant' });
+      }
+      return rotated(3);
+    };
+    const result = await getAccessToken(store, SECRET, APP, fetchImpl, 'user-1', EXPIRED);
+    expect(sent).toEqual(['rt-1', 'rt-2']);
+    expect(result).toEqual({ ok: true, accessToken: 'at-3', refreshed: true });
+    expect((await loadGrant(store, SECRET, 'user-1'))?.refreshToken).toBe('rt-3');
+  });
+
+  it('drops a grant Atlassian refuses unchanged, and reports refresh_failed then revoked', async () => {
+    const store = memoryStore();
+    await saveGrant(store, SECRET, 'user-1', grant(), NOW);
+    const events: GrantEvent[] = [];
+    const fetchImpl: FetchLike = async () => jsonResponse(403, { error: 'invalid_grant' });
+    const result = await getAccessToken(store, SECRET, APP, fetchImpl, 'user-1', EXPIRED, (e) => { events.push(e); });
+    expect(result).toMatchObject({ ok: false, reason: 'reauthorize_required' });
+    expect(await loadGrant(store, SECRET, 'user-1')).toBeNull();
+    expect(events).toEqual([
+      { type: 'refresh_failed', failure: 'invalid_grant' },
+      { type: 'revoked', reason: 'refresh_rejected' },
+    ]);
+  });
+
+  it('reports nothing for a transient failure', async () => {
+    const store = memoryStore();
+    await saveGrant(store, SECRET, 'user-1', grant(), NOW);
+    const events: GrantEvent[] = [];
+    await getAccessToken(store, SECRET, APP, async () => jsonResponse(503, {}), 'user-1', EXPIRED, (e) => { events.push(e); });
+    expect(events).toEqual([]);
+  });
+
+  it('a throwing event sink does not change the outcome', async () => {
+    const store = memoryStore();
+    await saveGrant(store, SECRET, 'user-1', grant(), NOW);
+    const result = await getAccessToken(store, SECRET, APP, async () => jsonResponse(403, { error: 'invalid_grant' }), 'user-1', EXPIRED, () => {
+      throw new Error('mixpanel down');
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'reauthorize_required' });
   });
 });

@@ -37,7 +37,7 @@ it('every execution selector resolves to concrete E2E identities in each applica
     }
   }
 });
-it('retains the independent Mermaid behavior floor when Jev matches only sequence render', () => {
+it('uses Jev behavior categories without adding a Mermaid-specific execution floor', () => {
   const temp = mkdtempSync(join(tmpdir(), 'selection-floor-'));
   try {
     const renderSelection = { ...selection, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: c.id === 'sequence-render' ? 0.9 : 0, selected: c.id === 'sequence-render' }])) };
@@ -46,8 +46,28 @@ it('retains the independent Mermaid behavior floor when Jev matches only sequenc
     writeFileSync(join(temp, 'resolved.json'), JSON.stringify(renderResolved));
     execFileSync('node', ['../../scripts/test-selection/prepare-plan.mjs'], { cwd, env: { ...discoveryEnv, TEST_SUITE: 'render', LEGACY_GREP: renderResolved.grep, SELECTION_PATH: join(temp, 'selection.json'), RESOLVED_SELECTION_PATH: join(temp, 'resolved.json'), PLAN_PATH: join(temp, 'plan.json'), METRICS_PATH: join(temp, 'metrics.json') }, encoding: 'utf8' });
     const plan = JSON.parse(readFileSync(join(temp, 'plan.json'), 'utf8'));
-    expect(plan.tests).toHaveLength(6);
-    expect(plan.selection_metrics.legacy_count).toBe(4);
+    expect(plan.tests.every(test => test.tags.includes('@test:sequence-render'))).toBe(true);
+    expect(plan.selection_metrics.legacy_count).toBe(0);
     expect(plan.selection_metrics.missing_floor_ids).toEqual([]);
   } finally { rmSync(temp, { recursive: true, force: true }); }
 });
+
+it('main plans smoke from real complete regression inventories for all four variants', () => {
+  const temp = mkdtempSync(join(tmpdir(), 'main-selection-inventory-'));
+  try {
+    const mainSelection = { ...selection, selection_scope: 'main', no_selected_categories: true, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: 0.02, selected: false }])) };
+    const mainResolved = resolveSelection({ selection: mainSelection, files: ['functions/new-handler.ts'], head, tree, scope: 'main' });
+    writeFileSync(join(temp, 'selection.json'), JSON.stringify(mainSelection));
+    writeFileSync(join(temp, 'resolved.json'), JSON.stringify(mainResolved));
+    for (const [variant, app] of [['lite', 'zenuml-lite@stg'], ['full', 'zenuml-full@stg'], ['diagramly', 'diagramly@stg'], ['asyncapi', 'asyncapi@stg']]) {
+      for (const suite of ['regression', 'regression-render']) {
+        execFileSync('node', ['../../scripts/test-selection/prepare-plan.mjs'], { cwd, env: { ...discoveryEnv, APP: app, TEST_SUITE: suite, SELECTION_SCOPE: 'main', SELECTION_PATH: join(temp, 'selection.json'), RESOLVED_SELECTION_PATH: join(temp, 'resolved.json'), PLAN_PATH: join(temp, 'plan.json'), METRICS_PATH: join(temp, 'metrics.json') }, encoding: 'utf8' });
+        const plan = JSON.parse(readFileSync(join(temp, 'plan.json'), 'utf8'));
+        expect(plan.selection_metrics.mode, `${variant} ${suite}`).toBe('selected');
+        expect(plan.tests.every(test => test.tags.includes(`@variant:${variant}`) && test.tags.includes('@smoke'))).toBe(true);
+        if (suite === 'regression') expect(plan.tests.length).toBeGreaterThan(0);
+        else expect(plan.shards).toEqual([]);
+      }
+    }
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+}, 30000);

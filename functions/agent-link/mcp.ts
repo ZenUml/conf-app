@@ -35,6 +35,7 @@ import { sessionRegistry } from './registrySingleton';
 import { effectiveExpiryMs } from './sessionToken';
 import type { SessionRecord, SessionState } from './sessionToken';
 import { handleHeadlessRpc, looksLikeRelayToken, type HeadlessEnv } from './oauth/headlessMcp';
+import { json } from '../OkResponse';
 
 interface Env extends HeadlessEnv {
   AGENT_LINK?: DurableObjectNamespace;
@@ -71,7 +72,7 @@ const RPC_MACRO_ERROR = -32003;
 const RPC_GUARDRAIL_REJECTED = -32004;
 
 function jsonRpcResult(id: JsonRpcId, result: unknown): Response {
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, result }), {
+  return json({ jsonrpc: '2.0', id, result }, {
     status: 200,
     headers: JSON_HEADERS,
   });
@@ -93,7 +94,7 @@ function jsonRpcError(
 ): Response {
   const error: Record<string, unknown> = { code, message };
   if (data !== undefined) error.data = data;
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, error }), { status, headers: JSON_HEADERS });
+  return json({ jsonrpc: '2.0', id, error }, { status, headers: JSON_HEADERS });
 }
 
 function authErrorMessage(code: 'missing' | 'invalid' | 'expired'): string {
@@ -344,7 +345,7 @@ export async function onRequestOptions(): Promise<Response> {
  * Claude Desktop would see (2026-09-26).
  */
 const METHOD_NOT_ALLOWED = () =>
-  new Response(JSON.stringify({ error: 'method_not_allowed', message: 'This MCP endpoint accepts POST.' }), {
+  json({ error: 'method_not_allowed', message: 'This MCP endpoint accepts POST.' }, {
     status: 405,
     headers: { ...JSON_HEADERS, Allow: 'POST, OPTIONS' },
   });
@@ -352,7 +353,7 @@ const METHOD_NOT_ALLOWED = () =>
 export const onRequestGet: PagesFunction<Env> = async () => METHOD_NOT_ALLOWED();
 export const onRequestDelete: PagesFunction<Env> = async () => METHOD_NOT_ALLOWED();
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env, waitUntil }) => {
   const url = new URL(request.url);
   const token = extractToken(request, url);
 
@@ -395,7 +396,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   // neither shape is headless's to answer, because its 401 is the one that
   // carries the discovery challenge.
   if (env?.OAUTH_GRANT_KV && !looksLikeRelayToken(token)) {
-    return handleHeadlessRpc(request, env, body);
+    return handleHeadlessRpc(request, env, body, { waitUntil });
   }
 
   // Bump-worthiness (spec 2026-07-13 §3): real work slides the idle window;

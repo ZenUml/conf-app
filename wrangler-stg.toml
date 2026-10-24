@@ -6,6 +6,7 @@ name="conf-stg"
 pages_build_output_dir = "dist"
 
 [vars]
+MIXPANEL_DISABLED = "true"
 # Public OAuth client id of the "ZenUML Agent Link" 3LO app (developer console
 # app a7f2a21d-a28c-4155-af0f-df365b5b94ef). The secret pairs with it via
 # `wrangler pages secret put ATLASSIAN_OAUTH_CLIENT_SECRET`.
@@ -23,6 +24,7 @@ EXPECTED_FORGE_ENVIRONMENT_TYPE = "STAGING"
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_STG
 
 [env.production.vars]
+MIXPANEL_DISABLED = "true"
 # Public OAuth client id of the "ZenUML Agent Link" 3LO app (developer console
 # app a7f2a21d-a28c-4155-af0f-df365b5b94ef). The secret pairs with it via
 # `wrangler pages secret put ATLASSIAN_OAUTH_CLIENT_SECRET`.
@@ -108,4 +110,3 @@ binding = "AI"
 [[env.production.kv_namespaces]]
 binding = "OAUTH_GRANT_KV"
 id = "bd0839878af744eb8057c8d094456dcb"
-

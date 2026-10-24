@@ -1,14 +1,17 @@
 import { oauthDiscoveryResponse } from "./agent-link/oauth/discovery";
+import { openaiAppsChallengeResponse } from "./agent-link/openaiAppsChallenge";
+import type { OpenAiAppsChallengeEnv } from "./agent-link/openaiAppsChallenge";
 import authenticate from "./utils/authenticate";
 import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
+import { json } from './OkResponse';
 
 // JSON + explicit Content-Type so this remote-facing 500 is parseable by the
 // Forge bridge instead of being rejected as `text/plain` (see OkResponse.ts).
 // Inlined from functions/ServerErrorResponse.ts 2026-09-02 — this was its
 // only caller.
 function serverErrorResponse(): Response {
-  return new Response(JSON.stringify({ error: 'Something went wrong' }), {
+  return json({ error: 'Something went wrong' }, {
     status: 500,
     statusText: 'Internal Server Error',
     headers: {
@@ -17,7 +20,7 @@ function serverErrorResponse(): Response {
   });
 }
 
-interface Env {
+interface Env extends OpenAiAppsChallengeEnv {
   SENTRY_DSN?: string;
 }
 
@@ -28,9 +31,11 @@ export const AUTHENTICATED_PATHS = [
   '/forge-upload-attachment',
   '/deeplink-ticket',
   '/activation-prepared',
+  '/magic-writeback',
   '/api/diagram-impact',
   '/api/architecture-tokens',
   '/api/feedback-report',
+  '/api/targeted-survey',
   // Conversion queue endpoints re-verify the FIT themselves, but the claim
   // response's app identity (environmentId for the ADF extensionKey rewrite)
   // is read from the middleware-populated forgeContext — without this entry
@@ -65,7 +70,7 @@ function withDeeplinkTicketCors(response: Response): Response {
 // Customer deeplink paths (/d/<cloudId>/<contentId>, /i/<token>) identify a
 // tenant + diagram and must never be logged verbatim
 // (docs/policies/client-privacy.md). Redact to just the path prefix.
-const UNLOGGED_PATH_PREFIXES = ['/d', '/i'];
+const UNLOGGED_PATH_PREFIXES = ['/d', '/i', '/magic-writeback'];
 
 // Query parameters that are credentials in their own right, wherever they
 // appear. `code` is Atlassian's authorization code and ours; `auth` is the
@@ -112,6 +117,10 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     // to be able to read them to find out how to authenticate.
     const discovery = oauthDiscoveryResponse(request.url);
     if (discovery) return discovery;
+
+    // ChatGPT's directory domain check, public for the same reason.
+    const openaiChallenge = openaiAppsChallengeResponse(request, env);
+    if (openaiChallenge) return openaiChallenge;
 
     const isDeeplinkTicket = isDeeplinkTicketPath(pathname);
     if (isDeeplinkTicket && request.method === 'OPTIONS') {

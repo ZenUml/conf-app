@@ -84,7 +84,7 @@ Releases go low-risk first, by user count. Draft tags have variant-specific time
 
 1. **Diagramly** — first; **fewest users**, so it's the canary. Its publish + PVT + spot check prove the build is safe on real production before more users are exposed.
 2. **Lite** — second. Free users; a larger base than Diagramly.
-3. **Full** — last, and **never in the same session as lite**. **Paying users** — a regression here hits customers who pay. Full ships only after lite for the **same commit** has soaked in production for **≥ 1 week**.
+3. **Full** — last, and **never in the same session as lite**. **Paying users** — a regression here hits customers who pay. Full ships only after lite for the **same commit** has soaked in production for **≥ 24 hours**.
 
 **asyncapi is outside the canary** — separate app, no shared user base — so it has no prerequisite and no soak; release it any time.
 
@@ -96,10 +96,10 @@ Before publishing a tier, confirm its prerequisite:
 |---|---|
 | diagramly | none — it's the canary |
 | lite | A Diagramly release for the draft's commit SHA is **published** |
-| full | A Lite release for the draft's commit SHA was **published ≥ 7 days ago** (hard soak: ≥ 1 week = 604800s) |
+| full | A Lite release for the draft's commit SHA was **published ≥ 24 hours ago** (hard soak: 86400s) |
 | asyncapi | none — release any time, no soak |
 
-(`full`'s check on `lite` is transitive — `lite` can't have published without `diagramly`.) The 1-week full gate is a **hard soak**: full for a commit therefore **cannot** be released in the same run as lite — it is always a separate, later invocation.
+(`full`'s check on `lite` is transitive — `lite` can't have published without `diagramly`.) The 24-hour full gate is a **hard soak**: full for a commit therefore **cannot** be released in the same run as lite — it is always a separate, later invocation.
 
 There is **no "release all variants" run.** Diagramly and lite for one commit may be released in the same session (diagramly first, validated, then lite). Full always waits out the soak; asyncapi is released on its own whenever asked.
 
@@ -109,9 +109,9 @@ There is **no "release all variants" run.** Diagramly and lite for one commit ma
 .claude/skills/release-app/scripts/check-prerequisite.sh "<variant>" "<draft-tag>"
 ```
 
-The script first requires the draft's `targetCommitish` to be a full, resolvable commit SHA. This blocks legacy drafts that still target a moving branch such as `main`, including canary and independent releases. For Lite and Full it then searches published prerequisite releases by variant, resolves each published tag to the commit it actually shipped, and requires an exact SHA match. Full additionally enforces the 604800-second soak from that matching Lite release's `publishedAt`.
+The script first requires the draft's `targetCommitish` to be a full, resolvable commit SHA. This blocks legacy drafts that still target a moving branch such as `main`, including canary and independent releases. For Lite and Full it then searches published prerequisite releases by variant, resolves each published tag to the commit it actually shipped, and requires an exact SHA match. Full additionally enforces the 86400-second soak from that matching Lite release's `publishedAt`.
 
-**Proceed only when the script exits zero with an explicit `OK:` line.** Treat anything else — a nonzero exit, `BLOCK:` line, command error, or empty output — as a stop: report the unsafe draft or missing/young prerequisite and, for the full soak, how many days remain until the 1-week mark. Override only if the user explicitly says so (e.g. a Full-only hotfix).
+**Proceed only when the script exits zero with an explicit `OK:` line.** Treat anything else — a nonzero exit, `BLOCK:` line, command error, or empty output — as a stop: report the unsafe draft or missing/young prerequisite and, for the full soak, how many hours remain until the 24-hour mark. Override only if the user explicitly says so (e.g. a Full-only hotfix).
 
 ## Pipeline
 
@@ -136,7 +136,7 @@ It prints `SELECT: <tag> <sha>` (plus one `SKIP:` line per newer draft it passed
 - **lite / full** — the newest draft whose commit matches a **published** prerequisite release
   (Diagramly for Lite, Lite for Full). Merges after the canary keep producing newer drafts that no
   prerequisite validated; those are the `SKIP:` lines. No 24-hour freshness rule applies: a Full
-  draft that has passed the 7-day soak is necessarily a week old.
+  draft that has passed the 24-hour soak is necessarily at least a day old.
 - Drafts older than the variant's latest **published** release are never candidates — publishing
   one would roll production back.
 
@@ -187,7 +187,7 @@ The workflow runs: build + unit test → deploy variants to staging → E2E on s
 
 ### Step 2 — Release each variant (release mode)
 
-Run 2.1–2.6 **per variant**, in canary order, completing one variant's full cycle before starting the next. Release **only the variant(s) the user named** (see Arguments). diagramly and lite for the same commit may go in one session (diagramly fully validated, then lite); **full is never in the same session as lite** (≥ 1-week soak); asyncapi is always its own release. Each variant gets its **own** notes — the per-variant delta can differ.
+Run 2.1–2.6 **per variant**, in canary order, completing one variant's full cycle before starting the next. Release **only the variant(s) the user named** (see Arguments). diagramly and lite for the same commit may go in one session (diagramly fully validated, then lite); **full is never in the same session as lite** (≥ 24-hour soak); asyncapi is always its own release. Each variant gets its **own** notes — the per-variant delta can differ.
 
 #### 2.1 Gate check
 
@@ -452,4 +452,4 @@ Summarize each released variant:
 - Draft releases are only created on `main` (not on PRs or other branches).
 - lite/full/diagramly are Forge apps on the same production site (`zenuml.atlassian.net`); asyncapi is a separate app whose prod tenant is `async-prd.atlassian.net` (workflow prod-smoke still skipped, so the manual PVT in 2.5 is its only production check; the e2e account has had access since 2026-08-21).
 - A direct user command naming variant(s) authorizes the normal release workflow for exactly those variants, including a fresh-build dispatch when no usable draft exists; do not ask for a second confirmation. Before each publish, always show the exact app/variant, draft tag/version, pinned commit SHA, previous published tag, gate result, and complete delta-derived release content, then continue without waiting for a reply. Preflight, status, and unscoped requests do not authorize release mutations, and unknown variants require asking.
-- All order/timing rules live in **"Variants & gates"** — the canary order (diagramly → lite → full), the lite-needs-diagramly prerequisite, and the full ≥ 1-week soak. Don't restate them; reference that section.
+- All order/timing rules live in **"Variants & gates"** — the canary order (diagramly → lite → full), the lite-needs-diagramly prerequisite, and the full ≥ 24-hour soak. Don't restate them; reference that section.

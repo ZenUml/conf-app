@@ -14,8 +14,11 @@
       v-if="isInteractive"
       :macro-type="macroType"
       :label="label"
+      :ready="!!target"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
+      @fit-height="fitAxis('height')"
+      @fit-width="fitAxis('width')"
     />
     <ViewportZoomHint v-if="isInteractive" ref="zoomHint" :macro-type="macroType" />
   </div>
@@ -187,6 +190,17 @@ export default {
     },
     zoomOut() {
       this.zoomBy(1 / ZOOM_STEP);
+    },
+    fitAxis(axis) {
+      const viewport = this.$refs.viewport;
+      if (!viewport || !this.target || !this.naturalWidth || !this.naturalHeight) return;
+      const extent = axis === 'width' ? this.naturalWidth : this.naturalHeight;
+      const available = axis === 'width' ? viewport.clientWidth : viewport.clientHeight;
+      if (!(available > 0)) return;
+      this.userZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, available / extent / this.fitScale));
+      this.panX = (viewport.clientWidth - this.naturalWidth * this.scale) / 2;
+      this.panY = (viewport.clientHeight - this.naturalHeight * this.scale) / 2;
+      this.applyTransform();
     },
     bindGestures() {
       const viewport = this.$refs.viewport;

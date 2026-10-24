@@ -17,36 +17,15 @@
           label="Graph"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
+          @fit-height="fitAxis('height')"
+          @fit-width="fitAxis('width')"
         />
         <ViewportZoomHint v-if="showZoomControls" ref="zoomHint" macro-type="graph" />
       </div>
-      <template v-if="pageCount > 1" #pill-prefix>
-        <button
-          @click="goToPage(currentPage - 1)"
-          :disabled="currentPage <= 0"
-          title="Previous page"
-          aria-label="Previous page"
-          class="viewer-pill-btn"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-          </svg>
-        </button>
-        <span class="viewer-pill-page-indicator" aria-live="polite">
-          {{ currentPage + 1 }} / {{ pageCount }}
-        </span>
-        <button
-          @click="goToPage(currentPage + 1)"
-          :disabled="currentPage >= pageCount - 1"
-          title="Next page"
-          aria-label="Next page"
-          class="viewer-pill-btn"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-          </svg>
-        </button>
-        <span class="viewer-pill-divider" aria-hidden="true"></span>
+      <!-- Multi-page navigation, rendered in GenericViewer's header (beside
+           the title in Fullscreen) and visible without hover. -->
+      <template v-if="pageCount > 1" #header-nav>
+        <GraphPageNav :current-page="currentPage" :page-count="pageCount" @go="goToPage" />
       </template>
     </generic-viewer>
   </div>
@@ -54,8 +33,11 @@
 
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
+import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { isLoadedEmptyBody, viewContentState } from "@/utils/analytics/contentState";
+import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import {
@@ -74,6 +56,7 @@ export default {
   name: "ForgeGraphViewer",
   components: {
     GenericViewer,
+    GraphPageNav,
     DiagramViewportToolbar,
     ViewportZoomHint
   },
@@ -91,6 +74,7 @@ export default {
       currentPage: 0,
       pageCount: 0,
       graphRendered: false,
+      emptyViewReported: false,
       wheelZoomHandler: null,
     };
   },
@@ -127,7 +111,14 @@ export default {
   watch: {
     effectiveGraphXml() {
       this.renderViewer();
-    }
+    },
+    // #113: the shell mounts with graphXml '' and the document arrives later.
+    // A wiped body is '' too, so effectiveGraphXml does not change and the
+    // watcher above stays silent. The type flipping from Unknown is the signal
+    // that a document landed; emptyViewReported keeps this to one report.
+    '$store.state.diagram.diagramType'() {
+      if (!this.effectiveGraphXml && !this.emptyViewReported) this.renderViewer();
+    },
   },
   methods: {
     failBoardLoad(errorCode, cause) {
@@ -171,14 +162,23 @@ export default {
           return;
         }
       }
-      if (!container || !this.effectiveGraphXml) return;
+      if (!container) return;
+      // Classify the effective document (including Board/prop overrides) before
+      // parsing: whitespace is empty even if DrawIO rejects it. Rendering and
+      // its failure telemetry retain their existing path.
+      const emptyBody = isLoadedEmptyBody({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph);
+      if (!this.emptyViewReported && emptyBody) {
+        this.emptyViewReported = true;
+        trackRenderTime('graph', this.$store.getters.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      if (!this.effectiveGraphXml) return;
       container.innerHTML = '';
       try {
         // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>
         // (legacy single-page) via its Editor.extractGraphModel pipeline.
         // We omit the 'toolbar' config so GraphViewer doesn't render its own
         // page-nav strip — page nav is rendered into the GenericViewer
-        // bottom pill via the #pill-prefix slot above.
+        // header via the #header-nav slot above.
         // @ts-ignore
         const parsedXml = mxUtils.parseXml(this.effectiveGraphXml);
         const xmlNode = parsedXml?.documentElement;
@@ -202,7 +202,14 @@ export default {
         this.graphRendered = true;
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
-        trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        // Classify the XML that was rendered (effectiveGraphXml honours the
+        // `graphXml` prop and the Board document), not just store.graphXml.
+        if (!emptyBody) {
+          trackRenderTime(
+            'graph', this.$store.getters.isDisplayMode, 'live_render', 'none',
+            viewContentState({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph),
+          );
+        }
         // Graph emits no 'diagramLoaded' (that event belongs to the text-DSL
         // renderers). An export-entry Fullscreen open waits for this before it
         // opens the export dialog, so the dialog's first capture is of a
@@ -235,6 +242,25 @@ export default {
     },
     zoomOut() {
       this.graphViewer?.graph?.zoomOut();
+      this.updateCaptureBox();
+    },
+    fitAxis(axis) {
+      const graph = this.graphViewer?.graph;
+      const container = this.$refs.graphContainer;
+      const bounds = graph?.getGraphBounds?.();
+      const view = graph?.view;
+      if (!container || !view || !bounds || !(view.scale > 0)) return;
+      const width = bounds.width / view.scale;
+      const height = bounds.height / view.scale;
+      const available = axis === 'width' ? container.clientWidth : container.clientHeight;
+      const extent = axis === 'width' ? width : height;
+      if (!(extent > 0) || !(available > 0)) return;
+      const x = bounds.x / view.scale - view.translate.x;
+      const y = bounds.y / view.scale - view.translate.y;
+      const scale = available / extent;
+      view.scaleAndTranslate(scale,
+        (container.clientWidth / scale - width) / 2 - x,
+        (container.clientHeight / scale - height) / 2 - y);
       this.updateCaptureBox();
     },
     /**
@@ -355,23 +381,5 @@ export default {
 .graph-viewer-canvas {
   width: 100%;
   min-height: 0;
-}
-.viewer-pill-page-indicator {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: #44546f;
-  user-select: none;
-  white-space: nowrap;
-}
-.viewer-pill-divider {
-  display: inline-block;
-  width: 1px;
-  height: 16px;
-  margin: 0 4px;
-  background: rgba(9, 30, 66, 0.14);
-  align-self: center;
 }
 </style>

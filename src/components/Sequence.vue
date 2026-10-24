@@ -19,8 +19,11 @@ import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
 import DiagramTransformViewport from "./Viewer/DiagramTransformViewport.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { viewContentState } from "@/utils/analytics/contentState";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import * as renderPerf from "@/utils/analytics/renderPerf";
+import { configureDiagramFonts } from "@/utils/fonts/configureDiagramFonts";
+import { detectDiagramFontState, setDiagramFontState } from "@/utils/fonts/diagramFontState";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -70,7 +73,10 @@ export default {
   },
   async mounted() {
     try {
-      // Load ZenUml dynamically
+      // Load ZenUml dynamically. Core's own `data:` font load is refused by
+      // the Forge CSP, so point it at our hosted font files first. Core awaits
+      // the font inside render() and clears its width cache on arrival, so no
+      // explicit wait is needed here.
       const ZenUml = await loadZenUml();
       // 2026-09-01 replay (v2026.08.310610-lite): the user picked a Mermaid
       // starter template while this chunk was still loading, unmounting
@@ -82,10 +88,15 @@ export default {
       if (this._unmountedDuringLoad || !this.$refs["zenuml"]) {
         return;
       }
+      configureDiagramFonts(ZenUml);
       zenuml = new ZenUml(this.$refs["zenuml"]);
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
-      trackRenderTime('sequence', this.isDisplayMode);
+      setDiagramFontState(detectDiagramFontState());
+      trackRenderTime(
+        'sequence', this.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.$store.state.diagram, DiagramType.Sequence),
+      );
       // The awaits above can span seconds (cold ZenUML chunk + render). If the
       // user switched diagram type meanwhile, emitting the sequence `code`
       // with the NEW store diagramType would upload a mislabeled attachment

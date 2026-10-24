@@ -26,7 +26,7 @@
  *     load-failed panel is inside that iframe too, which is why the assertion
  *     below is on the spec's own `info.title`.
  */
-import { test, expect } from '@playwright/test';
+import { installMixpanelIsolation, test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { AUTH_STATE_PATH } from '../../config/auth-state.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
@@ -84,6 +84,7 @@ test.describe.serial(`Byline AsyncAPI create + place - ${testConfig.productType}
     // to seed the mocks into.
     const variantLabel = testConfig.isLite ? ' Lite' : '';
     const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+    await installMixpanelIsolation(context);
     const setupPage = await context.newPage();
     try {
       const editorPage = await createPageAndSetup(setupPage, variantLabel);

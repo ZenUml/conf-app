@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
 

@@ -12,6 +12,8 @@ import { useStore } from 'vuex';
 import { renderMarkdown } from '@/utils/markdown/renderMarkdown';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { isLoadedEmptyBody, viewContentState } from '@/utils/analytics/contentState';
+import { DiagramType } from '@/model/Diagram/Diagram';
 import { hasLayout, awaitLayout } from '@/utils/renderGate/documentLayout';
 import EventBus from '@/EventBus';
 import md5 from 'md5';
@@ -23,6 +25,7 @@ const renderedHash = ref('');
 const error = ref(false);
 const rendering = ref(false);
 let revision = 0;
+let firstRun = true;
 let timer: ReturnType<typeof setTimeout>;
 watch(source, (code: string) => {
   const current = ++revision;
@@ -30,11 +33,21 @@ watch(source, (code: string) => {
   error.value = false;
   renderedHash.value = '';
   rendering.value = !!code;
+  const initial = firstRun;
+  firstRun = false;
   if (!code) {
     html.value = '';
     renderedHash.value = md5('');
     nextTick(() => {
-      if (current === revision) EventBus.$emit('diagramLoaded', '', 'markdown');
+      if (current !== revision) return;
+      // #113: an empty body is the wipe signal. Report the view with the
+      // verdict, without rendering. Only the body this mount opened with: a
+      // user clearing the editor later is an edit, not a wipe. A document that
+      // never loaded has no verdict (isLoadedEmptyBody) and stays silent.
+      if (initial && isLoadedEmptyBody(store.state.diagram, DiagramType.Markdown)) {
+        trackRenderTime('markdown', store.getters.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      EventBus.$emit('diagramLoaded', '', 'markdown');
     });
     return;
   }
@@ -59,7 +72,10 @@ watch(source, (code: string) => {
         markdown_failed_blocks: result.failedBlocks,
       });
       await nextTick();
-      trackRenderTime('markdown', store.getters.isDisplayMode);
+      trackRenderTime(
+        'markdown', store.getters.isDisplayMode, 'live_render', 'none',
+        viewContentState(store.state.diagram, DiagramType.Markdown),
+      );
       EventBus.$emit('diagramLoaded', code, 'markdown');
     } catch {
       if (current !== revision) return;

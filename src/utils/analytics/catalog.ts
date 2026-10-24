@@ -1694,7 +1694,7 @@ export type AnalyticsEventName =
   // delete_completed: local mutation result; delete_outcome and deleted_run_count only.
   | "pr_panel_review_entry_delete_requested"
   | "pr_panel_review_entry_delete_completed"
-  // One Hub refresh of saved PR identities, with aggregate counts only.
+  // One Hub refresh of saved PR identities, with aggregate state/readiness counts only.
   | "pr_panel_pr_status_sync_completed"
   | "pr_panel_panel_toggled"
   | "pr_panel_hub_connected"

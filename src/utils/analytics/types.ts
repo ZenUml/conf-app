@@ -1178,6 +1178,10 @@ export type AnalyticsProperties = {
   checked_pr_count?: number;
   changed_pr_count?: number;
   failed_pr_count?: number;
+  ready_pr_count?: number;
+  blocked_pr_count?: number;
+  unknown_pr_count?: number;
+  p0_count?: number;
   row_index?: number; // 0-based position of the clicked row
   is_stale?: boolean; // reviewed head SHA differs from the PR's current head
   panel_state?: PrPanelPanelState;

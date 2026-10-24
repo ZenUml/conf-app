@@ -175,7 +175,7 @@
 .tp-badge-danger { color: #e03e1a; border-color: #e03e1a; }
 .tp-review { display: flex; flex-direction: column; gap: var(--spacer-1); padding-bottom: 4px; }
 .tp-review-headline { font-weight: 550; color: var(--color-text); line-height: 16px; user-select: text; }
-.tp-review-summary { color: var(--color-text-secondary); line-height: 16px; overflow-wrap: anywhere; user-select: text; }
+.tp-review-summary { color: var(--color-text-secondary); line-height: 16px; overflow-wrap: anywhere; white-space: pre-line; user-select: text; }
 .tp-review-meta { color: var(--color-text-secondary); gap: 6px; flex-wrap: wrap; }
 .tp-review-empty { color: var(--color-text-secondary); padding-bottom: 4px; }
 .tp-messages { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; }

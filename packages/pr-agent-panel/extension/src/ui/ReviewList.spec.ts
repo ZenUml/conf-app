@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ReviewList from './ReviewList.vue'
@@ -234,5 +236,22 @@ describe('ReviewList', () => {
     await flushPromises()
     expect(w.get('[data-testid="pinned-reviews"]').text()).toContain('#683')
     expect(w.get('[data-testid="list-empty"]').text()).toBe('No other completed AI reviews.')
+  })
+})
+
+describe('review summary readability (CSS)', () => {
+  const css = (file: string) => readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8')
+  const rule = (source: string, selector: string) => source.match(new RegExp(`${selector.replace('.', '\\.')}\\s*\\{([^}]*)\\}`))?.[1] ?? ''
+
+  it('clamps the list row summary to a 3-line preview so several rows fit per page', () => {
+    const body = rule(css('./list.css'), '.prl-reason')
+    expect(body).toMatch(/-webkit-line-clamp:\s*3/)
+    expect(body).toMatch(/display:\s*-webkit-box/)
+    expect(body).toMatch(/-webkit-box-orient:\s*vertical/)
+    expect(body).toMatch(/overflow:\s*hidden/)
+  })
+
+  it('keeps the line breaks of the full summary in the right panel', () => {
+    expect(rule(css('./panel.css'), '.tp-review-summary')).toMatch(/white-space:\s*pre-line/)
   })
 })

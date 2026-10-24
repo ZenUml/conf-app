@@ -136,6 +136,11 @@
   line-height: 16px;
   color: #57606a;
   overflow-wrap: anywhere;
+  /* Short preview: the full text is in the right panel. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 .prl-tags { display: flex; gap: 0 14px; flex-wrap: wrap; font-size: 12px; font-weight: 500; color: #57606a; }
 

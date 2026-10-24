@@ -146,6 +146,11 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 const STATUS_TEXT = { sending: 'sending', queued: 'queued', delivered: 'delivered' } as const
+// Delivery status sits on its own line under the clipped message text, so a long message never hides it.
+function statusText(m: PanelMessageView): string {
+  if (m.role !== 'user' || !m.status) return ''
+  return m.status === 'queued' && m.waitingForAgent ? "queued, delivered on the agent's next turn" : STATUS_TEXT[m.status]
+}
 
 // ---- Panel.vue: drag by header, double-click header toggles minimised,
 // resize from either edge (240–500), double-click an edge resets to 240.
@@ -458,12 +463,13 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
                   <div
                     v-for="m in visibleMessages"
                     :key="m.id"
-                    :title="m.text"
+                    :title="statusText(m) ? `${m.text} (${statusText(m)})` : m.text"
                     class="tp-message"
                     :class="`tp-message-${m.role}`"
                     data-testid="message"
                   >
-                    {{ m.text }}<span v-if="m.role === 'user' && m.status" class="tp-message-status" data-testid="message-status">{{ m.status === 'queued' && m.waitingForAgent ? "queued, delivered on the agent's next turn" : STATUS_TEXT[m.status] }}</span>
+                    <span class="tp-message-text" data-testid="message-text">{{ m.text }}</span>
+                    <span v-if="statusText(m)" class="tp-message-status" data-testid="message-status">{{ statusText(m) }}</span>
                   </div>
                 </div>
                 <div class="tp-message-compose">

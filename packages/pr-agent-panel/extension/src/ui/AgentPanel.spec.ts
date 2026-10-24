@@ -173,11 +173,22 @@ describe('AgentPanel sections', () => {
     expect(rows.map((r) => r.classes().find((c) => c.startsWith('tp-message-')))).toEqual(
       [...MESSAGES].reverse().map((m) => `tp-message-${m.role}`),
     )
-    expect(w.findAll('[data-testid="message-status"]').map((s) => s.text())).toEqual(['delivered', 'queued'])
+    expect(w.findAll('[data-testid="message-status"]').map((s) => s.text())).toEqual(['delivered', "queued, delivered on the agent's next turn"])
     w.unmount()
     const waiting = mountPanel({ messages: [{ id: 'u', role: 'user', text: 'hi', status: 'queued', waitingForAgent: true }] })
     expect(waiting.get('[data-testid="message-status"]').text()).toBe("queued, delivered on the agent's next turn")
     waiting.unmount()
+  })
+
+  it('keeps the delivery status off the clipped text line and in the tooltip', () => {
+    const w = mountPanel({ messages: [{ id: 'u', role: 'user', text: 'please also check the tests', status: 'queued', waitingForAgent: true }] })
+    const row = w.get('[data-testid="message"]')
+    const line = row.get('[data-testid="message-text"]')
+    expect(line.text()).toBe('please also check the tests')
+    expect(line.find('[data-testid="message-status"]').exists()).toBe(false)
+    expect(row.get('[data-testid="message-status"]').text()).toBe("queued, delivered on the agent's next turn")
+    expect(row.attributes('title')).toBe("please also check the tests (queued, delivered on the agent's next turn)")
+    w.unmount()
   })
 
   it('shows only the last 5 messages, newest first, one line each', () => {
@@ -191,7 +202,7 @@ describe('AgentPanel sections', () => {
 
   it('styles each message as one ellipsised line', () => {
     const css = readFileSync('src/ui/panel.css', 'utf8')
-    const body = css.match(/\.tp-message\s*\{([^}]*)\}/)?.[1] ?? ''
+    const body = css.match(/\.tp-message-text\s*\{([^}]*)\}/)?.[1] ?? ''
     expect(body).toMatch(/white-space:\s*nowrap/)
     expect(body).toMatch(/text-overflow:\s*ellipsis/)
     expect(body).toMatch(/overflow:\s*hidden/)

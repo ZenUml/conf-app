@@ -47,7 +47,7 @@ export const TASK_DONE: Task = { ...TASK_WORKING, status: 'finished', endedAt: 2
 export const MESSAGES: PanelMessageView[] = [
   { id: 'm1', role: 'progress', text: 'Reading the diff (28 files)' },
   { id: 'm2', role: 'agent', text: 'Two findings so far: the list query ignores space permissions, and paging resets on filter change.' },
-  { id: 'm3', role: 'user', text: 'Also check the empty state copy.', status: 'queued' },
+  { id: 'm3', role: 'user', text: 'Also check the empty state copy.', status: 'queued', waitingForAgent: true },
   { id: 'm4', role: 'user', text: 'Thanks — ship it after that.', status: 'delivered' },
 ]
 

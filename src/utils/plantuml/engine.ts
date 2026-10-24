@@ -31,7 +31,7 @@
  */
 import type { PlantUmlLocalFailureReason, PlantUmlUnresolvedInclude } from '@/utils/analytics/catalog';
 import { installPlantUmlStdlibLoader, rewriteHostedIncludes } from './stdlib';
-import { selectServerBlock } from './unwrap';
+import { joinContinuationLines, selectServerBlock } from './unwrap';
 
 export class PlantUmlLocalRenderError extends Error {
   constructor(
@@ -141,7 +141,7 @@ export function renderPlantUmlLocally(code: string): Promise<string> {
     if (selected.multipleBlocks) {
       throw new PlantUmlLocalRenderError('engine_error', 'Several diagrams in one source: the server draws them');
     }
-    const { source: engineSource, rewritten } = rewriteHostedIncludes(selected.source);
+    const { source: engineSource, rewritten } = rewriteHostedIncludes(joinContinuationLines(selected.source).source);
     const raw = await new Promise<string>((resolve, reject) => {
       renderToString(engineSource.split('\n'), resolve, (message) =>
         reject(new PlantUmlLocalRenderError('engine_error', `PlantUML engine error: ${message}`, undefined, rewritten)));

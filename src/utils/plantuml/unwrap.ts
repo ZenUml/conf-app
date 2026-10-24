@@ -50,3 +50,32 @@ export function selectServerBlock(code: string): { source: string; changed: bool
   const source = lines.map((line, i) => (i >= from && i <= to ? line : '')).join('\n');
   return { source, changed: source !== code, multipleBlocks: false };
 }
+
+/**
+ * Join lines continued with a trailing backslash (ADR-0010).
+ *
+ * PlantUML lets a line end in `\` to continue on the next one; plantuml.com
+ * joins them before parsing, the in-browser engine does not and reports a
+ * syntax error. The production run left 32 syntax errors after
+ * selectServerBlock, most of them at such a line. A line ending in a single
+ * backslash (not `\\`) loses it and takes the next line's text; the absorbed
+ * lines become blank, so error line numbers still match the author's source.
+ */
+const CONTINUED = /(^|[^\\])\\\r?$/;
+
+export function joinContinuationLines(code: string): { source: string; joined: boolean } {
+  if (!code.includes('\\')) return { source: code, joined: false };
+  const lines = code.split('\n');
+  let joined = false;
+  for (let i = 0; i < lines.length - 1; i++) {
+    let j = i;
+    while (j < lines.length - 1 && CONTINUED.test(lines[i])) {
+      j += 1;
+      lines[i] = lines[i].replace(/\\\r?$/, '') + lines[j].replace(/\r$/, '');
+      lines[j] = '';
+      joined = true;
+    }
+    i = j;
+  }
+  return { source: joined ? lines.join('\n') : code, joined };
+}

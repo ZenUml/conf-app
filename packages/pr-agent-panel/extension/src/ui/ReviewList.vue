@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
- * Left review list (Figma 184:5402). Rows arrive already sorted by the Hub
- * and only for PRs with a completed AI review; this component never re-sorts
- * and never shows a count. Search and the two filter chips narrow the rows
- * client-side; the ordinal keeps the Hub's rank. Merged PRs are hidden until
- * the state filter is set to Merged.
+ * Left review list (Figma 184:5402). P0 reviews remain above the paged list;
+ * ordinary reviews show agent-ready items first. The ordinal still preserves
+ * the Hub's business-priority rank. Search and filters narrow ordinary rows;
+ * P0 remains visible even when those controls exclude it.
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Priority, PrState, ReviewSummary } from '@zenuml/pr-panel-shared'
+import ReviewListRow from './ReviewListRow.vue'
+import { pageContaining, paginateRows, type PageRange } from './pagination'
 
 const props = withDefaults(
   defineProps<{
@@ -23,8 +24,19 @@ const emit = defineEmits<{ open: [item: ReviewSummary, index: number] }>()
 const query = ref('')
 const priority = ref<'' | Priority>('')
 const prState = ref<'' | PrState>('')
+const rootEl = ref<HTMLElement | null>(null)
+const viewportEl = ref<HTMLElement | null>(null)
+const measureEl = ref<HTMLElement | null>(null)
+const compact = ref(false)
+const shortRow = ref(false)
+const pages = ref<PageRange[]>([])
+const pageIndex = ref(0)
+let visibleAnchor: string | null = null
+let resizeObserver: ResizeObserver | undefined
+let observedRows = new Set<Element>()
+let measureQueued = false
 
-const PRIORITIES: Priority[] = ['P1', 'P2', 'P3']
+const PRIORITIES: Priority[] = ['P0', 'P1', 'P2', 'P3']
 const STATES: { value: PrState; label: string }[] = [
   { value: 'open', label: 'Open' },
   { value: 'draft', label: 'Draft' },
@@ -32,11 +44,12 @@ const STATES: { value: PrState; label: string }[] = [
   { value: 'closed', label: 'Closed' },
 ]
 
-const rows = computed(() => {
+const filteredRows = computed(() => {
   const q = query.value.trim().toLowerCase().replace(/^#/, '')
   return props.items
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => {
+      if (item.priority === 'P0') return false
       if (priority.value && item.priority !== priority.value) return false
       if (prState.value && item.prState !== prState.value) return false
       // A merged PR needs no more review: hidden unless the state filter asks for merged PRs,
@@ -51,25 +64,88 @@ const rows = computed(() => {
     })
 })
 
-function ordinal(index: number) {
-  return String(index + 1).padStart(2, '0')
-}
+const pinnedRows = computed(() => props.items.map((item, index) => ({ item, index })).filter(({ item }) => item.priority === 'P0'))
+const ordinaryRows = computed(() => filteredRows.value
+  .sort((a, b) => Number((b.item.readiness ?? 'unknown') === 'ready') - Number((a.item.readiness ?? 'unknown') === 'ready')))
 
-function statusOf(item: ReviewSummary): { text: string; dot: boolean } {
-  if (item.conflict) return { text: 'Conflict', dot: true }
-  switch (item.prState) {
-    case 'draft':
-      return { text: 'Draft', dot: false }
-    case 'open':
-      return { text: 'Open', dot: false }
-    case 'merged':
-      return { text: 'Merged', dot: false }
-    case 'closed':
-      return { text: 'Closed', dot: false }
-    default:
-      return { text: '', dot: false }
+const visibleRows = computed(() => {
+  const range = pages.value[pageIndex.value] ?? { start: 0, end: ordinaryRows.value.length }
+  return ordinaryRows.value.slice(range.start, range.end)
+})
+
+function measure() {
+  const root = rootEl.value
+  const viewport = viewportEl.value
+  const measuring = measureEl.value
+  if (!root || !viewport || !measuring) return
+  const shouldCompact = root.getBoundingClientRect().height > 0 && root.getBoundingClientRect().height < (pinnedRows.value.length ? 460 : 280)
+  if (compact.value !== shouldCompact) {
+    compact.value = shouldCompact
+    scheduleMeasure()
+    return
+  }
+  const heights = Array.from(measuring.querySelectorAll<HTMLElement>('.prl-row'), (row) => row.getBoundingClientRect().height)
+  const viewportHeight = viewport.getBoundingClientRect().height
+  const nextPages = paginateRows(heights, viewportHeight)
+  const anchorIndex = ordinaryRows.value.findIndex(({ item }) => item.runId === visibleAnchor)
+  const nextIndex = anchorIndex >= 0
+    ? pageContaining(nextPages, anchorIndex)
+    : Math.min(pageIndex.value, Math.max(0, nextPages.length - 1))
+  if (JSON.stringify(nextPages) !== JSON.stringify(pages.value)) pages.value = nextPages
+  pageIndex.value = nextIndex
+  visibleAnchor = ordinaryRows.value[nextPages[nextIndex]?.start ?? 0]?.item.runId ?? null
+  shortRow.value = heights.slice(nextPages[nextIndex]?.start, nextPages[nextIndex]?.end).some((height) => height > viewportHeight + 0.5)
+  if (resizeObserver) {
+    const currentRows = new Set(measuring.querySelectorAll('.prl-row'))
+    for (const row of observedRows) if (!currentRows.has(row)) resizeObserver.unobserve(row)
+    for (const row of currentRows) if (!observedRows.has(row)) resizeObserver.observe(row)
+    observedRows = currentRows
   }
 }
+
+function scheduleMeasure() {
+  if (measureQueued) return
+  measureQueued = true
+  void nextTick(() => {
+    measureQueued = false
+    measure()
+  })
+}
+
+function setPage(index: number) {
+  pageIndex.value = Math.max(0, Math.min(index, pages.value.length - 1))
+  visibleAnchor = ordinaryRows.value[pages.value[pageIndex.value]?.start ?? 0]?.item.runId ?? null
+  viewportEl.value?.scrollTo?.(0, 0)
+  scheduleMeasure()
+}
+
+watch(ordinaryRows, (nextRows, oldRows) => {
+  if (visibleAnchor && !nextRows.some(({ item }) => item.runId === visibleAnchor)) {
+    const previousIndex = oldRows.findIndex(({ item }) => item.runId === visibleAnchor)
+    visibleAnchor = nextRows[Math.min(Math.max(previousIndex, 0), nextRows.length - 1)]?.item.runId ?? null
+  }
+  scheduleMeasure()
+}, { flush: 'post' })
+watch(pinnedRows, scheduleMeasure, { flush: 'post' })
+watch([query, priority, prState], () => {
+  pageIndex.value = 0
+  visibleAnchor = ordinaryRows.value[0]?.item.runId ?? null
+  scheduleMeasure()
+}, { flush: 'post' })
+
+onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(scheduleMeasure)
+    if (viewportEl.value) resizeObserver.observe(viewportEl.value)
+  }
+  window.addEventListener('resize', scheduleMeasure)
+  void document.fonts?.ready.then(scheduleMeasure)
+  scheduleMeasure()
+})
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  window.removeEventListener('resize', scheduleMeasure)
+})
 
 function open(item: ReviewSummary, index: number) {
   emit('open', item, index)
@@ -77,7 +153,7 @@ function open(item: ReviewSummary, index: number) {
 </script>
 
 <template>
-  <nav class="prl" aria-label="AI reviews">
+  <nav ref="rootEl" class="prl" :class="{ 'prl-compact': compact }" aria-label="AI reviews">
     <div class="prl-sticky">
       <div class="prl-controls">
         <input
@@ -103,41 +179,51 @@ function open(item: ReviewSummary, index: number) {
           </label>
         </div>
       </div>
-      <div class="prl-caption" data-testid="list-caption">AI reviews · by priority</div>
+      <div class="prl-caption" data-testid="list-caption">AI reviews · ready first</div>
     </div>
 
-    <ol v-if="rows.length" class="prl-rows">
-      <li
-        v-for="{ item, index } in rows"
+    <section v-if="pinnedRows.length" class="prl-pinned" :class="{ 'prl-pinned-only': !ordinaryRows.length }" aria-label="P0 reviews" data-testid="pinned-reviews">
+      <div class="prl-pinned-caption">P0 · Highest priority</div>
+      <ol class="prl-rows">
+        <ReviewListRow
+          v-for="{ item, index } in pinnedRows"
+          :key="item.runId"
+          :item="item"
+          :index="index"
+          :selected="item.prNumber === currentPrNumber"
+          @open="open(item, index)"
+        />
+      </ol>
+    </section>
+    <div ref="viewportEl" class="prl-viewport" :tabindex="shortRow ? 0 : undefined" :aria-label="shortRow ? 'Review row; scroll to read the full review' : undefined">
+      <ol v-if="ordinaryRows.length" class="prl-rows">
+        <ReviewListRow
+          v-for="{ item, index } in visibleRows"
+          :key="item.runId"
+          :item="item"
+          :index="index"
+          :selected="item.prNumber === currentPrNumber"
+          @open="open(item, index)"
+        />
+      </ol>
+      <p v-else-if="pinnedRows.length" class="prl-empty" data-testid="list-empty">{{ items.some((item) => item.priority !== 'P0') ? 'No other reviews match these filters.' : 'No other completed AI reviews.' }}</p>
+      <p v-else-if="items.length" class="prl-empty" data-testid="list-empty">No reviews match these filters.</p>
+      <p v-else-if="!pinnedRows.length" class="prl-empty" data-testid="list-empty">{{ emptyText ?? 'No completed AI reviews in this repository yet.' }}</p>
+    </div>
+    <div v-if="ordinaryRows.length" class="prl-pagination" aria-label="Review pages" data-testid="list-pagination">
+      <button type="button" aria-label="Previous review page" data-testid="page-prev" :disabled="pageIndex === 0" @click="setPage(pageIndex - 1)">‹</button>
+      <span data-testid="page-label">{{ shortRow ? 'Scroll row · ' : '' }}Page {{ pageIndex + 1 }} of {{ Math.max(1, pages.length) }}</span>
+      <button type="button" aria-label="Next review page" data-testid="page-next" :disabled="pageIndex >= pages.length - 1" @click="setPage(pageIndex + 1)">›</button>
+    </div>
+    <ol v-if="ordinaryRows.length" ref="measureEl" class="prl-rows prl-measure" aria-hidden="true" inert>
+      <ReviewListRow
+        v-for="{ item, index } in ordinaryRows"
         :key="item.runId"
-        class="prl-row"
-        :class="{ 'prl-row-selected': item.prNumber === currentPrNumber }"
-        :aria-current="item.prNumber === currentPrNumber ? 'page' : undefined"
-        tabindex="0"
-        role="link"
-        data-testid="list-row"
-        @click="open(item, index)"
-        @keydown.enter.prevent="open(item, index)"
-      >
-        <div class="prl-meta" :class="{ 'prl-meta-draft': item.prState === 'draft' }">
-          <span class="prl-meta-left">
-            <span>{{ ordinal(index) }}</span>
-            <span v-if="item.priority">{{ item.priority }}</span>
-            <span>#{{ item.prNumber }}</span>
-          </span>
-          <span class="prl-status">
-            <span v-if="item.stale" class="prl-stale" title="The PR changed after this review" data-testid="stale-chip">PR updated</span>
-            <span v-if="statusOf(item).text"><span v-if="statusOf(item).dot" class="prl-dot"></span>{{ statusOf(item).text }}</span>
-          </span>
-        </div>
-        <p class="prl-title" :title="item.headline">{{ item.headline }}</p>
-        <p v-if="item.summary" class="prl-reason">{{ item.summary }}</p>
-        <div v-if="item.tags.length" class="prl-tags">
-          <span v-for="tag in item.tags" :key="tag">{{ tag }}</span>
-        </div>
-      </li>
+        :item="item"
+        :index="index"
+        :selected="false"
+        measure
+      />
     </ol>
-    <p v-else-if="items.length" class="prl-empty" data-testid="list-empty">No reviews match these filters.</p>
-    <p v-else class="prl-empty" data-testid="list-empty">{{ emptyText ?? 'No completed AI reviews in this repository yet.' }}</p>
   </nav>
 </template>

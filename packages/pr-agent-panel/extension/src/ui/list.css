@@ -24,8 +24,9 @@
   width: 320px;
   position: absolute; /* fill the fixed host top to bottom, so the right border runs full height */
   inset: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain; /* wheel and trackpad momentum stay in the list; page-column.ts containWheel covers a list too short to scroll */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: #ffffff;
   border-right: 1px solid #d8dee4;
   color: #1f2937;
@@ -35,7 +36,12 @@
   -webkit-font-smoothing: antialiased;
 }
 .prl *, .prl *::before, .prl *::after { box-sizing: border-box; }
-.prl-sticky { position: sticky; top: 0; background: #ffffff; z-index: 1; }
+.prl-sticky { flex: 0 0 auto; background: #ffffff; z-index: 1; }
+.prl-viewport { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.prl-measure { position: absolute; top: 0; left: 0; right: 0; visibility: hidden; pointer-events: none; }
+.prl-pinned { flex: 0 0 auto; min-height: 0; max-height: 48%; overflow-y: auto; overscroll-behavior: contain; border-bottom: 2px solid #d4a72c; }
+.prl-pinned-only { max-height: 100%; }
+.prl-pinned-caption { display: flex; align-items: center; height: 24px; padding: 0 16px; background: #fff8c5; color: #7d4e00; font-size: 10px; font-weight: 700; }
 
 .prl-controls { padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 8px; }
 .prl-search {
@@ -104,6 +110,9 @@
 .prl-row:focus-visible { outline: 2px solid #0969da; outline-offset: -2px; }
 .prl-row-selected, .prl-row-selected:hover { background: #eef5ff; }
 .prl-row-selected::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #0969da; }
+.prl-row-p0 { background: #fffcf0; }
+.prl-row-p0:hover { background: #fff8df; }
+.prl-row-p0.prl-row-selected { background: #eef5ff; }
 
 .prl-meta { display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 700; color: #3b6488; letter-spacing: .01em; }
 .prl-meta-draft { color: #6551a9; }
@@ -123,6 +132,12 @@
 }
 
 .prl-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 18px; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prl-readiness { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 10px; line-height: 14px; }
+.prl-readiness-label { flex: 0 0 auto; font-weight: 700; }
+.prl-readiness-reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #617084; }
+.prl-readiness-ready .prl-readiness-label { color: #1a7f37; }
+.prl-readiness-blocked .prl-readiness-label { color: #b42318; }
+.prl-readiness-unknown .prl-readiness-label { color: #6e7e90; }
 .prl-reason {
   margin: 0;
   font-size: 11px;
@@ -136,3 +151,45 @@
 .prl-tags { display: flex; gap: 0 14px; flex-wrap: wrap; font-size: 10px; font-weight: 500; color: #73849a; }
 
 .prl-empty { padding: 16px; color: #617084; font-size: 11px; }
+
+.prl-pagination {
+  flex: 0 0 42px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px;
+  border-top: 1px solid #d8dee4;
+  background: #fff;
+  color: #536579;
+  font-size: 11px;
+  font-weight: 500;
+}
+.prl-pagination button {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #c9d4e0;
+  border-radius: 3px;
+  background: #fff;
+  color: #3b6488;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.prl-pagination button:hover:not(:disabled) { background: #f6f8fa; }
+.prl-pagination button:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+.prl-pagination button:disabled { color: #aab6c3; cursor: default; }
+
+/* Keep a complete row visible when the GitHub tab strip leaves little vertical space. */
+.prl-compact .prl-controls { padding: 4px 14px; gap: 4px; }
+.prl-compact .prl-search { height: 28px; }
+.prl-compact .prl-chip { height: 26px; }
+.prl-compact .prl-caption { height: 22px; }
+.prl-compact .prl-pagination { flex-basis: 32px; min-height: 32px; }
+.prl-compact .prl-row { min-height: 88px; padding-top: 6px; padding-bottom: 6px; gap: 2px; }
+.prl-compact .prl-pinned-caption { height: 20px; }
+.prl-compact .prl-pinned .prl-row { min-height: 68px; }
+.prl-compact .prl-pinned .prl-reason, .prl-compact .prl-pinned .prl-tags { display: none; }

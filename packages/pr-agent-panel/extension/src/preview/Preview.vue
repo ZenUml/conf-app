@@ -2,11 +2,11 @@
 import { reactive } from 'vue'
 import AgentPanel from '../ui/AgentPanel.vue'
 import ReviewList from '../ui/ReviewList.vue'
-import { REVIEWS, STATES, type PreviewState } from './fixtures'
+import { PREVIEW_REVIEWS, STATES, type PreviewState } from './fixtures'
 
 // Each card keeps its own copy so clicks (collapse, preferences, send) work locally.
 const cards = reactive(STATES.map((s) => ({ ...s, prefs: { ...s.prefs }, messages: [...s.messages] })))
-const reviewOf = (s: PreviewState) => REVIEWS.find((r) => r.prNumber === s.reviewFor) ?? null
+const reviewOf = (s: PreviewState) => PREVIEW_REVIEWS.find((r) => r.prNumber === s.reviewFor) ?? null
 function send(card: (typeof cards)[number], text: string) {
   card.messages.push({ id: `local-${card.messages.length}`, role: 'user', text, status: 'queued' })
 }
@@ -23,7 +23,7 @@ function send(card: (typeof cards)[number], text: string) {
         <h2>{{ card.id }} · {{ card.title }}</h2>
         <p>{{ card.note }}</p>
         <div class="pv-stage">
-          <div v-if="card.list" class="pv-list"><ReviewList :items="REVIEWS" :current-pr-number="card.pr?.number ?? null" /></div>
+          <div v-if="card.list" class="pv-list"><ReviewList :items="PREVIEW_REVIEWS" :current-pr-number="card.pr?.number ?? null" /></div>
           <div v-else class="pv-page"><div class="pv-line" v-for="n in 6" :key="n"></div></div>
           <AgentPanel
             :connection="card.connection"

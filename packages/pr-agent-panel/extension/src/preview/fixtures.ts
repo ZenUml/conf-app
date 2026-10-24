@@ -27,6 +27,14 @@ export const REVIEWS: ReviewSummary[] = [
   },
 ]
 
+/** Visual fixture for the current pinned P0 and merge-readiness layout. */
+export const PREVIEW_REVIEWS: ReviewSummary[] = REVIEWS.map((item) => {
+  if (item.prNumber === 683) return { ...item, priority: 'P0', readiness: 'blocked', readinessReason: 'Checks failed' }
+  if (item.prNumber === 684) return { ...item, prState: 'open', readiness: 'ready' }
+  if (item.prNumber === 581) return { ...item, readiness: 'ready' }
+  return { ...item, readiness: 'unknown' }
+})
+
 export const PR_888: PrRef = { host: 'github.com', owner: 'example-org', repo: 'example-repo', number: 888, url: url(888),
   title: 'feat(plan-usage): Diagram locations screen lists where each diagram is used' }
 export const PR_683: PrRef = { host: 'github.com', owner: 'example-org', repo: 'example-repo', number: 683, url: url(683),

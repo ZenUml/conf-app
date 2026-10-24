@@ -124,7 +124,7 @@ function onMcpChange(value: 'enabled' | 'disabled', e: Event) {
 }
 
 // ---- Review section
-const PRIORITY_TONE = { P1: 'danger', P2: 'warning', P3: 'neutral' } as const
+const PRIORITY_TONE = { P0: 'danger', P1: 'danger', P2: 'warning', P3: 'neutral' } as const
 
 // ---- Messages section
 const draft = ref('')

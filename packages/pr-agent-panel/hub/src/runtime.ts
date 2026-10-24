@@ -10,6 +10,7 @@ import {
   PROTOCOL_VERSION,
   WAIT_FOR_MESSAGES_MAX_MS,
   repoKeyOf,
+  effectiveReadiness,
   type AgentClient,
   type ClientHookRequest,
   type ClientHookResponse,
@@ -618,10 +619,11 @@ export class HubRuntime {
       items: this.store.listLatestCompleted(key, heads, new Map([...observed].map(([number, value]) => [number, value.state])))
         .map((item) => ({
           ...item,
-          readiness: observed.get(item.prNumber)?.readiness ?? 'unknown',
-          ...(observed.get(item.prNumber)?.readinessReason
-            ? { readinessReason: observed.get(item.prNumber)?.readinessReason }
-            : {}),
+          ...effectiveReadiness({
+            prState: item.prState,
+            readiness: observed.get(item.prNumber)?.readiness ?? 'unknown',
+            readinessReason: observed.get(item.prNumber)?.readinessReason,
+          }),
         })),
       ...(inReplyTo ? { inReplyTo } : {}),
     }

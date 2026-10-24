@@ -180,7 +180,7 @@ describe('ReviewList', () => {
   it('pins P0 across pages and sorts ordinary reviews by readiness without changing business ordinals', async () => {
     const items = REVIEWS.map((item) => {
       if (item.prNumber === 683) return { ...item, priority: 'P0' as const, readiness: 'blocked' as const, readinessReason: 'Checks failed' }
-      if (item.prNumber === 684 || item.prNumber === 581) return { ...item, readiness: 'ready' as const }
+      if (item.prNumber === 684 || item.prNumber === 581) return { ...item, prState: 'open' as const, readiness: 'ready' as const }
       return { ...item, readiness: 'unknown' as const }
     })
     availableHeight = 105
@@ -197,8 +197,26 @@ describe('ReviewList', () => {
     expect(w.get('.prl-viewport [data-testid="list-row"]').text()).toContain('#581')
     expect(w.get('.prl-viewport [data-testid="list-row"] .prl-meta-left').text()).toContain('04')
     await w.get('[data-testid="page-next"]').trigger('click')
-    expect(w.get('.prl-viewport [data-testid="readiness-label"]').text()).toBe('Readiness unknown')
+    expect(w.get('.prl-viewport [data-testid="readiness-label"]').text()).toBe('Blocked')
     expect(w.get('[data-testid="pinned-reviews"]').text()).toContain('#683')
+  })
+
+  it('keeps an inconsistent draft out of the ready wave and updates when its current state opens', async () => {
+    availableHeight = 105
+    const draft = { ...REVIEWS[1]!, readiness: 'ready' as const }
+    const ready = { ...REVIEWS[3]!, readiness: 'ready' as const }
+    const w = mount(ReviewList, { props: { items: [draft, ready] } })
+    await flushPromises()
+    expect(w.get('.prl-viewport [data-testid="list-row"]').text()).toContain('#581')
+    await w.get('[data-testid="page-next"]').trigger('click')
+    expect(w.get('.prl-viewport [data-testid="list-row"]').text()).toContain('Draft')
+    expect(w.get('.prl-viewport [data-testid="readiness-label"]').text()).toBe('Blocked')
+    expect(w.get('.prl-viewport [data-testid="list-row"]').text()).toContain('Draft PR')
+
+    await w.setProps({ items: [{ ...draft, prState: 'open' }, ready] })
+    await flushPromises()
+    expect(w.text()).toContain('Ready to merge')
+    expect(w.text()).not.toContain('Draft PR')
   })
 
   it('keeps a P0 review visible regardless of ordinary search, priority, and state filters', async () => {

@@ -6,7 +6,7 @@
  * P0 remains visible even when those controls exclude it.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { Priority, PrState, ReviewSummary } from '@zenuml/pr-panel-shared'
+import { effectiveReadiness, type Priority, type PrState, type ReviewSummary } from '@zenuml/pr-panel-shared'
 import ReviewListRow from './ReviewListRow.vue'
 import { pageContaining, paginateRows, type PageRange } from './pagination'
 
@@ -66,7 +66,7 @@ const filteredRows = computed(() => {
 
 const pinnedRows = computed(() => props.items.map((item, index) => ({ item, index })).filter(({ item }) => item.priority === 'P0'))
 const ordinaryRows = computed(() => filteredRows.value
-  .sort((a, b) => Number((b.item.readiness ?? 'unknown') === 'ready') - Number((a.item.readiness ?? 'unknown') === 'ready')))
+  .sort((a, b) => Number(effectiveReadiness(b.item).readiness === 'ready') - Number(effectiveReadiness(a.item).readiness === 'ready')))
 
 const visibleRows = computed(() => {
   const range = pages.value[pageIndex.value] ?? { start: 0, end: ordinaryRows.value.length }

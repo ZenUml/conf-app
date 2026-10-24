@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import type { ClientHookRequest } from '@zenuml/pr-panel-shared'
 import { ToolError } from './runtime'
-import { PR, PR2, REPO, REPO_KEY, connectExtension, fakeConnection, frame, makeRuntime } from './test-helpers'
+import { PrStatusStore } from './pr-status-store'
+import { PR, PR2, REPO, REPO_KEY, connectExtension, fakeConnection, frame, makeRuntime, tempDir } from './test-helpers'
 
 function hook(event: ClientHookRequest['event'], extra: Partial<ClientHookRequest> = {}): ClientHookRequest {
   return { version: 1, kind: 'claude', sessionId: 's1', event, invocationId: randomUUID(), ...extra }
@@ -142,6 +143,23 @@ describe('HubRuntime: tasks and reviews', () => {
     expect(conn.last('reviews')?.items[0].stale).toBe(true)
     runtime.handleExtensionFrame(conn.id, frame('listReviews', { repoKey: REPO_KEY, currentHeadSha: 'aaaaaaa1' }))
     expect(conn.last('reviews')?.items[0].stale).toBe(false)
+  })
+
+  it('uses the current PR state and never sends ready for a draft even if cached readiness disagrees', () => {
+    const statuses = new PrStatusStore(tempDir())
+    const { runtime } = makeRuntime({ statuses })
+    const agent = runtime.connectAgent({ kind: 'codex', connectedAt: 1 })
+    const { taskId } = runtime.beginTask(agent, { repo: REPO, prNumber: 7, headSha: 'aaaaaaa1', kind: 'review' })
+    runtime.publishReview({ taskId, headline: 'h', summary: 's', findings: [], tags: [], prState: 'draft' })
+    const conn = connectExtension(runtime)
+
+    statuses.set(REPO_KEY, 7, { state: 'draft', headSha: 'aaaaaaa1', readiness: 'ready' })
+    runtime.handleExtensionFrame(conn.id, frame('listReviews', { repoKey: REPO_KEY }))
+    expect(conn.last('reviews')?.items[0]).toMatchObject({ prState: 'draft', readiness: 'blocked', readinessReason: 'Draft PR' })
+
+    statuses.set(REPO_KEY, 7, { state: 'open', headSha: 'bbbbbbb2', readiness: 'ready' })
+    runtime.handleExtensionFrame(conn.id, frame('listReviews', { repoKey: REPO_KEY }))
+    expect(conn.last('reviews')?.items[0]).toMatchObject({ prState: 'open', readiness: 'ready', stale: true })
   })
 
   it('cancelTask cancels a working task once and refuses the second time', () => {

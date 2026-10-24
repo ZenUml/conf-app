@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import type { ReviewSummary } from '@zenuml/pr-panel-shared'
+import { computed } from 'vue'
+import { effectiveReadiness, type ReviewSummary } from '@zenuml/pr-panel-shared'
 
-defineProps<{
+const props = defineProps<{
   item: ReviewSummary
   index: number
   selected: boolean
   measure?: boolean
 }>()
 const emit = defineEmits<{ open: [] }>()
+const readiness = computed(() => effectiveReadiness(props.item))
 
 function ordinal(index: number) {
   return String(index + 1).padStart(2, '0')
@@ -23,8 +25,8 @@ function statusOf(item: ReviewSummary): { text: string; dot: boolean } {
   }
 }
 
-function readinessOf(item: ReviewSummary) {
-  switch (item.readiness ?? 'unknown') {
+function readinessOf() {
+  switch (readiness.value.readiness) {
     case 'ready': return 'Ready to merge'
     case 'blocked': return 'Blocked'
     default: return 'Readiness unknown'
@@ -55,9 +57,9 @@ function readinessOf(item: ReviewSummary) {
         <span v-if="item.conflict" title="Conflict reported at review time"><span class="prl-dot"></span>Review conflict</span>
       </span>
     </div>
-    <div class="prl-readiness" :class="`prl-readiness-${item.readiness ?? 'unknown'}`">
-      <span class="prl-readiness-label" :data-testid="measure ? undefined : 'readiness-label'">{{ readinessOf(item) }}</span>
-      <span v-if="item.readinessReason" class="prl-readiness-reason" :title="item.readinessReason">{{ item.readinessReason }}</span>
+    <div class="prl-readiness" :class="`prl-readiness-${readiness.readiness}`">
+      <span class="prl-readiness-label" :data-testid="measure ? undefined : 'readiness-label'">{{ readinessOf() }}</span>
+      <span v-if="readiness.readinessReason" class="prl-readiness-reason" :title="readiness.readinessReason">{{ readiness.readinessReason }}</span>
     </div>
     <p class="prl-title" :title="item.headline">{{ item.headline }}</p>
     <p v-if="item.summary" class="prl-reason">{{ item.summary }}</p>

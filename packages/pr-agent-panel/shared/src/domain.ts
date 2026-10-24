@@ -113,6 +113,21 @@ export const ReviewSummarySchema = z.object({
 })
 export type ReviewSummary = z.infer<typeof ReviewSummarySchema>
 
+/** A stale or inconsistent readiness value must never make a non-open PR look merge-ready. */
+export function effectiveReadiness(item: Pick<ReviewSummary, 'prState' | 'readiness' | 'readinessReason'>):
+  { readiness: MergeReadiness; readinessReason?: string } {
+  switch (item.prState) {
+    case 'draft': return { readiness: 'blocked', readinessReason: 'Draft PR' }
+    case 'merged': return { readiness: 'blocked', readinessReason: 'Already merged' }
+    case 'closed': return { readiness: 'blocked', readinessReason: 'Closed' }
+    case 'unknown': return { readiness: 'unknown', readinessReason: 'PR state unconfirmed' }
+    case 'open': return {
+      readiness: item.readiness ?? 'unknown',
+      ...(item.readinessReason ? { readinessReason: item.readinessReason } : {}),
+    }
+  }
+}
+
 export function toReviewSummary(run: ReviewRun, currentHeadSha?: string): ReviewSummary {
   const url = run.pr.url ?? `https://${run.pr.host}/${run.pr.owner}/${run.pr.repo}/pull/${run.pr.number}`
   return {

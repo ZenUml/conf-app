@@ -36,19 +36,10 @@ import {
   expectModalClosed,
 } from '../../helpers/FullscreenModalHelper.js';
 import { dismissStarterGalleryIfPresent } from '../../helpers/starterGallery.js';
+import { dismissPaywallGate } from '../../helpers/paywallGate.js';
 
 const SEQUENCE_MACRO_BASE = 'Diagram (Mermaid, PlantUML & ZenUML)';
 const FORGE_IFRAME = '[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]';
-
-async function dismissPaywall(page: Page, waitMs = 4000): Promise<void> {
-  const btn = modalContentFrame(page, 'edit').locator('[data-testid="continue-editing-btn"]');
-  const shown = await btn.first().waitFor({ state: 'visible', timeout: waitMs }).then(() => true).catch(() => false);
-  if (shown) {
-    await btn.first().click();
-    await btn.first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(400);
-  }
-}
 
 // Insert a sequence macro into a fresh page and publish the page. Returns pageId.
 async function insertAndPublishMacroPage(page: Page): Promise<string> {
@@ -58,7 +49,7 @@ async function insertAndPublishMacroPage(page: Page): Promise<string> {
   await editorPage.searchAndSelectMacro('diagram', editorPage.getMacroName(SEQUENCE_MACRO_BASE));
   await expectModalVisible(page, 'edit');
   await page.waitForTimeout(1500);
-  await dismissPaywall(page);
+  await dismissPaywallGate(page, modalContentFrame(page, 'edit'));
   await dismissStarterGalleryIfPresent(page, modalContentFrame(page, 'edit'));
   await fillEditorTitle(page, `Gate170 ${Date.now()}`);
   await clickEditorPublish(page);

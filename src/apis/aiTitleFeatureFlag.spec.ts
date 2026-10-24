@@ -44,6 +44,7 @@ import {
   isAiRepairEnabled,
   isAgentLinkEnabled,
   isArchitectureTokensEnabled,
+  isPlantUmlLocalRendererEnabled,
   resetFeatureFlagsForTests,
 } from './aiTitleFeatureFlag'
 
@@ -272,5 +273,42 @@ describe('isArchitectureTokensEnabled', () => {
 
     const instance = featureFlagsState.instances[0]
     expect(instance.checkFlag).toHaveBeenCalledWith('architecture-tokens-enabled', false)
+  })
+})
+
+describe('isPlantUmlLocalRendererEnabled', () => {
+  beforeEach(() => {
+    resetFeatureFlagsForTests()
+    forgeState.isForge = true
+    forgeState.context = {
+      cloudId: 'cloud-1',
+      accountId: 'account-1',
+      environmentType: 'STAGING',
+    }
+    featureFlagsState.instances = []
+    featureFlagsState.nextValue = true
+    featureFlagsState.initializeError = undefined
+    featureFlagsState.checkError = undefined
+  })
+
+  it('checks the Forge plantuml-local-renderer-enabled flag with a false default', async () => {
+    await expect(isPlantUmlLocalRendererEnabled()).resolves.toBe(true)
+
+    const instance = featureFlagsState.instances[0]
+    expect(instance.checkFlag).toHaveBeenCalledWith('plantuml-local-renderer-enabled', false)
+  })
+
+  it('keeps the server renderer when the flag lookup fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    featureFlagsState.checkError = new Error('flag service unavailable')
+
+    await expect(isPlantUmlLocalRendererEnabled()).resolves.toBe(false)
+    consoleError.mockRestore()
+  })
+
+  it('is off in standalone local dev', async () => {
+    forgeState.isForge = false
+    await expect(isPlantUmlLocalRendererEnabled()).resolves.toBe(false)
+    expect(featureFlagsState.instances).toHaveLength(0)
   })
 })

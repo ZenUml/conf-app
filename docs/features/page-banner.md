@@ -254,7 +254,13 @@ optimistically — `canEdit` starts `true` and flips off only on `forbidden`,
 which is a durable answer about this user; a `failed` (a 500, a dropped
 connection) keeps the button, because the fix for a blip is to try again, which costs a refused click instead of a permissions
 request on every banner load; `diagram_added_to_page`'s `forbidden` share is the
-signal to revisit that. On success the host page is reloaded
+signal to revisit that. Both failing results carry `failure_reason` (and
+`http_status` where there was a response), because `result` alone is a bucket:
+'failed' covers a Confluence 5xx on the read, a 5xx on the write, an unparsable
+page body, a missing version, a macro key we refused to guess, and an exception
+— which need different fixes. `forbidden` splits the same way, into a refused
+READ (this user cannot see a page they are looking at) and a refused WRITE (the
+ordinary reader-is-not-an-author case). On success the host page is reloaded
 (`router.reload()`), because the write changes the STORED ADF and the rendered
 page does not follow — without it the success case looks like nothing happened.
 It runs on EVERY successful write, not just the last of several: the record is

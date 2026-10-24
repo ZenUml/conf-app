@@ -139,7 +139,7 @@ export function useAutoTitle() {
       generation_source: isRegenerate ? 'regenerate' : trigger,
       prompt_length: code.length,
     }
-    trackAnalyticsEvent('ai_generation_requested', trackProps)
+    trackAnalyticsEvent('ai_title_generation_requested', trackProps)
 
     try {
       const res: any = await aiGenerateTitle({ dsl: code, type: titleTypeParam(diagramType, code) })
@@ -147,7 +147,7 @@ export function useAutoTitle() {
       if (!res.ok) {
         const errText = await res.text()
         if (token !== genToken) return
-        trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: errText })
+        trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: errText })
         if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
         resetGenerating()
         return
@@ -159,13 +159,13 @@ export function useAutoTitle() {
         return
       }
       if (!looksLikeTitle(title)) {
-        trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: 'not_title_like' })
+        trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: 'not_title_like' })
         if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
         resetGenerating()
         return
       }
 
-      trackAnalyticsEvent('ai_generation_succeeded', trackProps)
+      trackAnalyticsEvent('ai_title_generation_succeeded', trackProps)
       lastGeneratedContentHash.value = contentHash
       isAnimating.value = true
       showDismiss.value = true
@@ -186,7 +186,7 @@ export function useAutoTitle() {
       sparkFadingOut.value = false
     } catch (e) {
       if (token !== genToken) return
-      trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: String(e) })
+      trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: String(e) })
       if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
       resetGenerating()
     }

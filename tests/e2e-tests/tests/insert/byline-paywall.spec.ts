@@ -21,7 +21,7 @@
  * writing them to the page does nothing, which is the classic false
  * negative here.
  */
-import { test, expect } from '@playwright/test';
+import { installMixpanelIsolation, test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { AUTH_STATE_PATH } from '../../config/auth-state.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
@@ -42,7 +42,7 @@ const OVER_LIMIT_MOCKS = {
   mockSpacePaid: 'false',
 };
 
-test.describe.serial(`Byline create is not paywalled - ${testConfig.productType}`, () => {
+test.describe.serial(`Byline create is not paywalled - ${testConfig.productType}`, { tag: ['@test:byline-paywall', '@variant:lite', '@variant:full', '@variant:diagramly', '@byline', '@paywall'] }, () => {
   // The byline entry ships on Lite only (manifest strip in staging-deploy.yml),
   // and the paywall is Lite-only, so both gates are the same gate here.
   test.skip(!testConfig.isForge, 'byline is Forge-only');
@@ -60,6 +60,7 @@ test.describe.serial(`Byline create is not paywalled - ${testConfig.productType}
     // into. Built once and reused — page creation dominates this suite's cost.
     const variantLabel = testConfig.isLite ? ' Lite' : '';
     const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+    await installMixpanelIsolation(context);
     const setupPage = await context.newPage();
     try {
       const editorPage = await createPageAndSetup(setupPage, variantLabel);

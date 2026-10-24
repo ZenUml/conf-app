@@ -15,11 +15,14 @@
            this page" is the part that stops a user reading this as a broken
            macro, and it is the reason the link below can place it. -->
       <span class="unplaced__text" data-testid="unplaced-banner-text">
-        <template v-if="rows.length === 1">
-          <strong>{{ rows[0].title || 'A diagram' }}</strong> is saved on this page but isn't placed on it.
+        <template v-if="single">
+          <strong>{{ rows[0].title || capitalize(noun.aOne) }}</strong> is saved on this page but isn't placed on it.
         </template>
         <template v-else>
-          {{ rows.length }} diagrams are saved on this page but aren't placed on it.
+          <!-- count is 1 here only when the one diagram is past the record's
+               cap, so it has no name to show. -->
+          <template v-if="count === 1">1 {{ noun.one }} is saved on this page but isn't placed on it.</template>
+          <template v-else>{{ count }} {{ noun.many }} are saved on this page but aren't placed on it.</template>
         </template>
       </span>
 
@@ -32,7 +35,7 @@
            that is why this diagram is unplaced. Copy link stays as the fallback
            for a reader who cannot edit the page (see `canEdit`). -->
       <button
-        v-if="rows.length === 1 && canEdit"
+        v-if="single && canEdit"
         type="button"
         class="unplaced__btn unplaced__btn--primary"
         :disabled="addingId === rows[0].id"
@@ -44,7 +47,7 @@
            diagram on a different page, are both real — and it is the fallback
            when the write is refused. -->
       <button
-        v-if="rows.length === 1"
+        v-if="single"
         type="button"
         class="unplaced__btn"
         :class="canEdit ? 'unplaced__btn--secondary' : 'unplaced__btn--primary'"
@@ -58,7 +61,7 @@
         data-testid="unplaced-banner-toggle"
         :aria-expanded="expanded"
         @click="expanded = !expanded"
-      >{{ expanded ? 'Hide' : 'Show diagrams' }}</button>
+      >{{ expanded ? 'Hide' : `Show ${noun.many}` }}</button>
 
       <button
         class="unplaced__dismiss"
@@ -83,9 +86,9 @@
       Edit this page and paste the link where you want the diagram — Confluence turns it into the diagram itself.
     </div>
 
-    <div v-if="expanded && rows.length > 1" class="unplaced__rows">
+    <div v-if="expanded && !single" class="unplaced__rows">
       <div v-for="d in rows" :key="d.id" class="unplaced__row" data-testid="unplaced-banner-row">
-        <span class="unplaced__row-title" :title="d.title">{{ d.title || 'Untitled diagram' }}</span>
+        <span class="unplaced__row-title" :title="d.title">{{ d.title || `Untitled ${noun.one}` }}</span>
         <span class="unplaced__row-type">{{ typeLabel(d.diagramType) }}</span>
         <button
           v-if="canEdit"
@@ -102,12 +105,17 @@
           @click="onCopy(d)"
         >{{ copiedId === d.id ? '✓ Link copied' : 'Copy link' }}</button>
       </div>
+      <!-- The record names at most MAX_PROPERTY_ENTRIES; the rest are counted
+           above but only the byline panel can list them. -->
+      <div v-if="unlisted > 0" class="unplaced__hint unplaced__hint--more" data-testid="unplaced-banner-more">
+        {{ unlisted }} more — open {{ noun.title }} under the page title to see them all.
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount, onMounted } from 'vue'
+import { computed, ref, onBeforeUnmount, onMounted } from 'vue'
 import globals from '@/model/globals'
 import forgeGlobal, { getView } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -128,8 +136,9 @@ import {
   type UnplacedDiagramEntry,
   type UnplacedIdentity,
 } from '@/utils/byline/unplacedMarker'
-import { clearUnplacedProperty, readUnplacedProperty } from '@/utils/byline/unplacedProperty'
+import { clearUnplacedProperty, readUnplacedProperty, unlistedCount } from '@/utils/byline/unplacedProperty'
 import { higherPriorityBannerPending } from '@/utils/banners/priority'
+import { bylineNounFor, capitalize } from '@/utils/byline/bylineNoun'
 import { placeDiagram } from '@/utils/byline/placeDiagram'
 
 /**
@@ -167,7 +176,18 @@ const props = withDefaults(defineProps<{ source?: 'property' | 'marker' }>(), {
 
 const visible = ref(false)
 const expanded = ref(false)
+/** "API doc" in the AsyncAPI app, whose byline is titled API Docs; "diagram" elsewhere. */
+const noun = bylineNounFor(import.meta.env.PRODUCT_TYPE)
 const rows = ref<UnplacedDiagramEntry[]>([])
+/**
+ * Unplaced diagrams the record counts but does not name. The property names at
+ * most MAX_PROPERTY_ENTRIES; the count includes the rest. Always 0 for the
+ * per-browser marker, which is not capped.
+ */
+const unlisted = ref(0)
+const count = computed(() => rows.value.length + unlisted.value)
+/** One diagram, named: the banner offers its actions inline. */
+const single = computed(() => rows.value.length === 1 && unlisted.value === 0)
 const copiedId = ref<string | null>(null)
 const addingId = ref<string | null>(null)
 /** Set only when a write could not land, so the copy fallback has a reason. */
@@ -213,7 +233,7 @@ async function closeBanner() {
 /** Set when readRecord() has already emitted the load's evaluated event. */
 let evaluationReported = false
 
-async function readRecord(): Promise<{ entries: UnplacedDiagramEntry[]; updatedAt: string } | null> {
+async function readRecord(): Promise<{ entries: UnplacedDiagramEntry[]; total?: number; updatedAt: string } | null> {
   if (!identity) return null
   if (props.source === 'property') {
     const read = await readUnplacedProperty(identity.pageId)
@@ -389,7 +409,11 @@ onMounted(async () => {
 
     const placed = new Set(referenced)
     const stillUnplaced = record.entries.filter(e => !placed.has(e.id))
-    if (stillUnplaced.length === 0) {
+    // Diagrams past the cap cannot be checked against the page from here; the
+    // next byline scan recounts them. Retiring the record while they remain
+    // would hide the notice with diagrams still unplaced.
+    unlisted.value = unlistedCount(record)
+    if (stillUnplaced.length === 0 && unlisted.value === 0) {
       // Stale record: the user has placed them since. Retire it so the next
       // load does not buy the same ADF read again — for the property that means
       // DELETING it, which takes the page off the display-condition gate
@@ -426,12 +450,12 @@ onMounted(async () => {
     trackAnalyticsEvent('unplaced_banner_evaluated', {
       ...baseProps(),
       result: 'unplaced',
-      unplaced_count: stillUnplaced.length,
+      unplaced_count: count.value,
       unplaced_marker_age_ms: recordAgeMs,
     })
     trackAnalyticsEvent('unplaced_banner_shown', {
       ...baseProps(),
-      unplaced_count: stillUnplaced.length,
+      unplaced_count: count.value,
     })
   } catch (e) {
     console.warn('[unplaced-banner] mount failed; closing', e)
@@ -463,7 +487,7 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
     // it to the next load's verification is the point — a banner that keeps
     // naming a diagram the user has visibly placed is the exact wrong answer.
     rows.value = rows.value.filter(r => r.id !== entry.id)
-    if (rows.value.length > 0) return
+    if (count.value > 0) return
     if (props.source === 'property') void clearUnplacedProperty(pageId)
     else recordUnplacedBannerResolved(identity!, recordUpdatedAt)
     visible.value = false
@@ -475,6 +499,10 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
     macro_type: toMacroType(entry.diagramType) as MacroTypeValue,
     result: outcome.result,
     ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
+    // Which step failed, and the code behind it. 'failed' alone is one bucket
+    // over six causes that need different fixes.
+    ...(outcome.reason === undefined ? {} : { failure_reason: outcome.reason }),
+    ...(outcome.status === undefined ? {} : { http_status: outcome.status }),
   })
 
   // Only a refusal is durable enough to withdraw the action; a transient
@@ -483,7 +511,7 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
   addFailure.value = outcome.message
   // Closed last, for the same reason every other exit path here awaits its work
   // first: closing the iframe aborts what is in flight, the reload included.
-  if (outcome.placed && rows.value.length === 0) void closeBanner()
+  if (outcome.placed && count.value === 0) void closeBanner()
 }
 
 /**
@@ -628,6 +656,11 @@ function onDismiss() {
 .unplaced__hint {
   margin: 4px 0 0 24px;
   color: #44546F;
+}
+
+/* Already inside the indented row list. */
+.unplaced__hint--more {
+  margin-left: 0;
 }
 
 .unplaced__rows {

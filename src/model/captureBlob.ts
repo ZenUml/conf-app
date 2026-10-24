@@ -1,4 +1,5 @@
 import * as htmlToImage from 'html-to-image';
+import { getDiagramFontState } from '../utils/fonts/diagramFontState';
 
 /**
  * DOM -> PNG Blob, without html-to-image's `toBlob()`.
@@ -39,6 +40,8 @@ import * as htmlToImage from 'html-to-image';
 export interface CaptureBlobOptions {
   backgroundColor?: string;
   skipFonts?: boolean;
+  /** Overrides html-to-image's font embedding; filled with the hosted Plex face when omitted. */
+  fontEmbedCSS?: string;
   /** Defaults to `window.devicePixelRatio`, matching html-to-image. */
   pixelRatio?: number;
 }
@@ -129,11 +132,25 @@ function clampCanvas(canvas: HTMLCanvasElement): void {
   }
 }
 
+/** Core's data-URI Plex face, only when the hosted face loaded; never rejects. The core chunk is already cached by then. */
+async function getDiagramFontEmbedCss(): Promise<string | undefined> {
+  if (getDiagramFontState() !== 'plex') return undefined;
+  try {
+    return await (await import('@zenuml/core')).getDiagramFontFaceCss();
+  } catch {
+    return undefined;
+  }
+}
+
 export async function captureBlob(
   node: HTMLElement,
   options: CaptureBlobOptions = {},
 ): Promise<Blob | null> {
-  const svg = await htmlToImage.toSvg(node, options);
+  // Every export path funnels through here. `fontEmbedCSS` takes priority over
+  // `skipFonts` in html-to-image, so other web fonts stay un-embedded as before
+  // while the hosted diagram font (the one layout was measured with) is kept.
+  const fontEmbedCSS = options.fontEmbedCSS ?? (await getDiagramFontEmbedCss());
+  const svg = await htmlToImage.toSvg(node, fontEmbedCSS ? { ...options, fontEmbedCSS } : options);
   const svgDataUrl = prepareSequenceCaptureSvg(svg, node);
   const img = await loadImage(svgDataUrl);
 

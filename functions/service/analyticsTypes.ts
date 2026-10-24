@@ -20,9 +20,9 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "macro_export_requested",
   "macro_export_succeeded",
   "macro_export_failed",
-  "ai_generation_requested",
-  "ai_generation_succeeded",
-  "ai_generation_failed",
+  "ai_title_generation_requested",
+  "ai_title_generation_succeeded",
+  "ai_title_generation_failed",
   "upgrade_modal_shown",
   "upgrade_action_blocked",
   "upgrade_modal_dismissed",
@@ -51,6 +51,36 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "extension_action_requested",
   "extension_action_succeeded",
   "extension_action_failed",
+  // Headless macro-identity resolution — backend-emitted, unlike every other
+  // agent_link_* event (those come from the macro, which a headless call has
+  // none of). See 2026-09-19-headless-diagram-mcp-design.md §6/§10.
+  "agent_link_identity_resolved",
+  "agent_link_identity_unresolved",
+  "agent_link_oauth_authorized",
+  "agent_link_oauth_refresh_failed",
+  "agent_link_oauth_token_refresh_completed",
+  "agent_link_oauth_revoked",
+  "agent_link_oauth_authorize_routed",
+  "agent_link_app_view_requested",
+  "agent_link_app_view_failed",
+  "agent_link_mcp_initialized",
+  // Our refresh-token chain revoked on reuse or a client mismatch
+  // (oauth/authServer.ts handleToken).
+  "agent_link_oauth_chain_revoked",
+  // Headless writes (design §10). `agent_link_diagram_created` carries the
+  // paywall gate's decision in `paywall_gate` — the only way to see how often
+  // the Lite limit is actually consulted rather than skipped on an unknown
+  // count, which is §9.1's fail-open path and the open question it leaves.
+  "agent_link_diagram_created",
+  "agent_link_diagram_updated",
+  // Headless PAGE writes. No paywall gate — a page is not a macro — so these
+  // carry the write guard's verdict instead.
+  "agent_link_page_created",
+  "agent_link_page_updated",
+  // Headless MCP usage: one event per authenticated tools/call (every tool,
+  // reads included) and one per initialize handshake (which client).
+  "agent_link_mcp_tool_called",
+  "agent_link_mcp_initialized",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

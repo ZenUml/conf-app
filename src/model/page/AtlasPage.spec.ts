@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AtlasPage } from '@/model/page/AtlasPage';
+import { LocationTarget } from '@/model/ILocationContext';
 
 const CLOUD_ID = '866c3a03-ec62-4717-91c4-1ad078bfcc60';
 
@@ -115,5 +116,19 @@ describe('AtlasPage.referencedCustomContentIds', () => {
     // An empty array would tell the byline every diagram is unplaced.
     forgeRequest.mockResolvedValue(undefined);
     await expect(new AtlasPage().referencedCustomContentIds()).resolves.toBeUndefined();
+  });
+});
+
+describe('AtlasPage.getLocationTarget', () => {
+  // #361: the enum held lowercase values while this method returned camelCase,
+  // so `target === LocationTarget.ContentEdit` could never be true.
+  it('returns LocationTarget.ContentEdit while the macro is being edited', async () => {
+    forgeGlobalMock.forgeContext = { cloudId: CLOUD_ID, extension: { isEditing: true } };
+    expect(await new AtlasPage().getLocationTarget()).toBe(LocationTarget.ContentEdit);
+  });
+
+  it('returns LocationTarget.ContentView otherwise', async () => {
+    forgeGlobalMock.forgeContext = { cloudId: CLOUD_ID, extension: {} };
+    expect(await new AtlasPage().getLocationTarget()).toBe(LocationTarget.ContentView);
   });
 });

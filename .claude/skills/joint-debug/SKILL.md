@@ -24,25 +24,14 @@ Run a local five-service stack:
 
 ## Enable configuration
 
-1. Inspect `git status`, staged and unstaged diffs, and existing `JOINT-DEBUG` markers.
+1. Inspect `git status`, staged and unstaged diffs. Joint-debug must not edit tracked application source to configure local endpoints.
 2. Obtain the full Diagramly checkout path. Discover likely sibling checkouts first; ask only when multiple plausible paths remain.
-3. Verify `wrangler.toml` contains `NGROK_AUTHTOKEN` and `NGROK_DOMAIN` without displaying their values.
-4. In `src/model/globals/forgeGlobal.ts`, replace only `DEVELOPMENT_LITE`, `DEVELOPMENT_FULL`, and `DEVELOPMENT_ASYNCAPI` with `https://<NGROK_DOMAIN>` using idempotent markers. AsyncAPI must be included because its bundled OpenAPI macro reaches AI Repair through `/diagramly/*`:
-
-   ```typescript
-   // [JOINT-DEBUG-START]
-   DEVELOPMENT_LITE: 'https://<NGROK_DOMAIN>',
-   DEVELOPMENT_FULL: 'https://<NGROK_DOMAIN>',
-   DEVELOPMENT_ASYNCAPI: 'https://<NGROK_DOMAIN>',
-   // [JOINT-DEBUG-END]
-   // DEVELOPMENT_LITE: '<original>', // [JOINT-DEBUG-ORIGINAL]
-   // DEVELOPMENT_FULL: '<original>', // [JOINT-DEBUG-ORIGINAL]
-   // DEVELOPMENT_ASYNCAPI: '<original>', // [JOINT-DEBUG-ORIGINAL]
-   ```
-
-5. In `wrangler.toml`, set `DIAGRAMLY_BACKEND_API_BASE_URL = "http://localhost:3000"` with TOML `JOINT-DEBUG` markers and preserve the original line as `JOINT-DEBUG-ORIGINAL`.
-6. Do not modify `functions/_middleware.ts` or `src/components/SyntaxErrorBox.vue`.
-7. Run `git diff --check` and inspect the final diff before launching services.
+3. Verify `wrangler.toml` contains `NGROK_AUTHTOKEN` and `NGROK_DOMAIN` without displaying the token. Validate the domain as a hostname; the frontend override must be an HTTPS origin with no path.
+4. Use `VITE_JOINT_DEBUG_REMOTE_BASE_URL=https://<NGROK_DOMAIN>` on the Vite process. `forgeGlobal.ts` uses it only for a `DEVELOPMENT` Forge context in Vite dev mode, including the AsyncAPI variant. Do not change `DEVELOPMENT_*` constants.
+5. Pass `--binding=DIAGRAMLY_BACKEND_API_BASE_URL=http://127.0.0.1:3000` to `pnpm wrangler:serve:raw`. This overrides the local Worker binding without changing the ignored `wrangler.toml`.
+6. Check the ignored `.env.forge`/`.env.forge.local` configuration: it must select the Diagramly development app. Put `BACKEND_API_BASE_URL=https://<NGROK_DOMAIN>` in `.env.forge.local` for the variant-aware deploy below. Set `JOINT_DEBUG_BACKEND_API_BASE_URL=https://<NGROK_DOMAIN>` on the Forge tunnel command; `scripts/forgex` applies it after loading those files. The frontend override and deployed `connect` remote must match exactly. These ignored settings are local configuration; do not edit tracked application source to switch URLs.
+7. Do not change middleware authentication or AI Repair feature flags to make the stack work. If runtime evidence identifies a product bug there, handle it as a separate source fix.
+8. Run `git diff --check` and inspect the final diff before launching services. A normal joint-debug setup has no tracked source diff.
 
 ## Prepare the Diagramly local database
 
@@ -76,13 +65,13 @@ The repository's `.env.test.example` local defaults are suitable for a dedicated
 
 ## Before launch
 
-Before starting any of the five services, ask the user whether to run the following command to update the app installed on the development site:
+Verify the selected Forge environment is a development environment. The installed app's deployed `connect` remote must already use `https://<NGROK_DOMAIN>`. A `forge tunnel` process variable changes manifest parsing locally, but does not update the deployed manifest; changing the remote hostname requires a development deployment. If the deployed remote differs, ask the user before running the variant-aware Diagramly build → deploy → upgrade flow (requires `yq`):
 
 ```bash
-pnpm forge:upgrade:diagramly:dev
+pnpm forge-wizard --app diagramly --env development --site '<test-site>.atlassian.net' --tunnel no
 ```
 
-Run it from the conf-app root only after the user explicitly agrees, and wait for it to complete successfully before launching services. If the user declines, skip it and continue with the launch.
+The wizard builds the Diagramly variant, removes its unused DrawIO asset tree, strips modules belonging to other variants from a temporary manifest, deploys, upgrades the installation, and restores the original manifest. The simpler `forge:upgrade:diagramly:dev` script does not strip the manifest and can hit macro-key conflicts on a shared site. If the user declines a required deployment, do not claim Forge remote requests can reach this local Worker. Backend-only checks can still continue if useful.
 
 ## Launch mode
 
@@ -134,7 +123,7 @@ the local Vite process.
 - If a Lite `moduleKey` executes a bundle compiled with
   `PRODUCT_TYPE=diagramly`, diagnose a tunnel/Vite variant mismatch. The macro
   has not been converted and its saved content has not changed.
-- Running `pnpm forge:upgrade:diagramly:dev` upgrades the Diagramly development
+- Running the variant-aware Diagramly deployment above upgrades the Diagramly development
   installation; it does not convert existing Lite macros. Verify that the
   active tunnel, the macro's `moduleKey`, and the Vite `PRODUCT_TYPE` match the
   variant being tested before investigating feature flags or UI visibility.
@@ -149,11 +138,12 @@ When the user asks Codex to start, own, monitor, or automatically diagnose the s
 # Diagramly checkout
 DATABASE_URL='<local-url>' pnpm dev
 
-# conf-app checkout
-npx wrangler pages dev --port 8789
+# conf-app checkout; keep `dist` as the Pages asset directory so Wrangler does
+# not scan the repository root and node_modules.
+PORT=8789 HOST=127.0.0.1 pnpm wrangler:serve:raw --binding=DIAGRAMLY_BACKEND_API_BASE_URL=http://127.0.0.1:3000
 ngrok http --authtoken '<token>' --url '<domain>' 8789
-FORGE_TUNNEL=1 VERSION=latest PRODUCT_TYPE=diagramly pnpm exec vite dev --port 8080 --host 127.0.0.1
-forge tunnel
+VITE_JOINT_DEBUG_REMOTE_BASE_URL='https://<domain>' FORGE_TUNNEL=1 VERSION=latest PRODUCT_TYPE=diagramly pnpm exec vite dev --port 8080 --host 127.0.0.1
+JOINT_DEBUG_BACKEND_API_BASE_URL='https://<domain>' pnpm forge:tunnel
 ```
 
 If a sandboxed launch fails with `EPERM`, file-log permission errors, or port-binding errors, rerun that service with the required elevated permission. Do not launch `pnpm start:sit`: it starts another Worker and collides with the separately managed Worker.
@@ -232,10 +222,7 @@ Known signatures:
 
 1. Send Ctrl+C to every managed service session and confirm exit.
 2. Stop `diagramly-postgres` only if this workflow created or started it. Never stop unrelated Docker/Supabase containers.
-3. Revert only marked joint-debug changes in `src/model/globals/forgeGlobal.ts` and `wrangler.toml`:
-   - remove `JOINT-DEBUG-START` through `JOINT-DEBUG-END` blocks;
-   - uncomment `JOINT-DEBUG-ORIGINAL` lines;
-   - remove marker suffixes.
+3. Vite, Worker, and Forge remote overrides disappear when their processes exit; no source or local config cleanup is needed.
 4. Do not change middleware authentication or AI Repair feature flags during cleanup.
 5. Inspect both `git diff` and `git diff --cached`; preserve all unrelated edits.
 6. Confirm expected ports are no longer listening and run `git diff --check`.

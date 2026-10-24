@@ -3,7 +3,7 @@ import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export function getClientDomain() {
   // Dev sandbox fallback — `xdm_e` and `initialContext.currentPageUrl` are
-  // never set when running on http://127.0.0.1:8080/, so the upgrade URL
+  // never set when running in the standalone local sandbox, so the upgrade URL
   // would otherwise read `?domain=` with an empty value. Allow tests / the
   // sandbox to inject a domain via localStorage.
   try {

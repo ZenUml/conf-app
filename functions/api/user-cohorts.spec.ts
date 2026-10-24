@@ -78,6 +78,7 @@ describe('user-cohorts onRequest', () => {
     const res = await onRequest({ request, env } as unknown as Parameters<typeof onRequest>[0]);
 
     expect(res.status).toBe(401);
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
     expect(res.headers.get('Content-Type')).toBe('application/json');
     const body = await res.json() as { cohorts: string[] };
     expect(body.cohorts).toEqual([]);

@@ -573,3 +573,161 @@ describe('useExportEngine', () => {
     });
   });
 });
+
+// ── PlantUML: the interactive Export PNG must NOT rasterize the DOM ──
+//
+// PlantUML renders by inlining an SVG fetched from the remote PlantUML server
+// (PlantUml.vue, v-html). html-to-image cannot reliably rasterize that inlined
+// remote SVG — the offscreen image can't decode it — so the generic DOM->PNG
+// path produced a blank, effectively zero-pixel download. Attachment.ts already
+// solves this for the silent backup PNG by fetching the server's ready raster
+// from /plantuml/png/<encoded>; the interactive Export PNG button must do the
+// same. See src/utils/plantuml/fetchPng.ts.
+describe('useExportEngine — PlantUML server PNG', () => {
+  const PLANTUML_SOURCE = '@startuml\nAlice -> Bob: Hello\n@enduml';
+
+  /**
+   * jsdom has no raster stack: no createImageBitmap, getContext('2d') is null,
+   * toBlob/createObjectURL are missing, and an <img> never fires load. Stub the
+   * whole compositing tail so the test can assert WHERE the base image came
+   * from, which is the actual defect.
+   */
+  function stubRasterPipeline() {
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 600, height: 400 }));
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:stub'),
+      revokeObjectURL: vi.fn(),
+    });
+    class StubImage {
+      onload: (() => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      set src(_v: string) {
+        setTimeout(() => this.onload?.(), 0);
+      }
+    }
+    vi.stubGlobal('Image', StubImage);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '',
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (cb: BlobCallback) {
+      cb(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+    } as HTMLCanvasElement['toBlob']);
+  }
+
+  function pngResponse() {
+    const blob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], { type: 'image/png' });
+    return { ok: true, blob: () => Promise.resolve(blob) };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+    stubRasterPipeline();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('downloads the server-rendered PNG instead of DOM-rasterizing the inlined SVG', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(pngResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const node = document.createElement('div');
+
+    const { exportDiagram } = useExportEngine();
+    const result = await exportDiagram(baseOptions(), 'Login flow', node, {
+      macroType: 'plantuml',
+      source: PLANTUML_SOURCE,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('plantuml.com/plantuml/png/');
+    expect(captureBlob).not.toHaveBeenCalled();
+    expect(saveAs).toHaveBeenCalled();
+  });
+
+  it('copies the server-rendered PNG to the clipboard, not a DOM capture', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(pngResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { write: clipboardWrite }, configurable: true });
+    (globalThis as any).ClipboardItem = class { constructor(public items: unknown) {} };
+
+    const { exportDiagramToClipboard } = useExportEngine();
+    const result = await exportDiagramToClipboard(baseOptions(), document.createElement('div'), {
+      macroType: 'plantuml',
+      source: PLANTUML_SOURCE,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('plantuml.com/plantuml/png/');
+    expect(captureBlob).not.toHaveBeenCalled();
+    expect(clipboardWrite).toHaveBeenCalled();
+  });
+
+  it('needs no capture node at all — the raster comes from the server', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(pngResponse()));
+
+    const { exportDiagram } = useExportEngine();
+    const result = await exportDiagram(baseOptions(), 'Login flow', null, {
+      macroType: 'plantuml',
+      source: PLANTUML_SOURCE,
+    });
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('reports plantuml_fetch_failed rather than silently downloading a blank DOM capture', async () => {
+    // A non-PNG 200 (proxy/CDN error page) is the server saying "no raster".
+    const notPng = new Blob(['<svg/>'], { type: 'image/svg+xml' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(notPng) }));
+    vi.mocked(captureBlob).mockResolvedValue(new Blob([new Uint8Array([1])], { type: 'image/png' }));
+
+    const { exportDiagram } = useExportEngine();
+    const result = await exportDiagram(baseOptions(), 'Login flow', document.createElement('div'), {
+      macroType: 'plantuml',
+      source: PLANTUML_SOURCE,
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'plantuml_fetch_failed' });
+    expect(captureBlob).not.toHaveBeenCalled();
+    expect(saveAs).not.toHaveBeenCalled();
+  });
+
+  it('still DOM-captures when the macro type is plantuml but the source is not PlantUML text', async () => {
+    // Mismatched type/content pairs are real (a stale `code` field on a doc
+    // whose type was switched); the server would answer 400, so don't ask it.
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(captureBlob).mockResolvedValue(null);
+
+    const { exportDiagram } = useExportEngine();
+    await exportDiagram(baseOptions(), 'Login flow', document.createElement('div'), {
+      macroType: 'plantuml',
+      source: 'A -> B: not plantuml',
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(captureBlob).toHaveBeenCalled();
+  });
+
+  it('does not touch the PlantUML server for a non-PlantUML macro type', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(captureBlob).mockResolvedValue(null);
+
+    const { exportDiagram } = useExportEngine();
+    await exportDiagram(baseOptions(), 'Login flow', document.createElement('div'), {
+      macroType: 'mermaid',
+      source: 'sequenceDiagram\n  A->>B: hi',
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(captureBlob).toHaveBeenCalled();
+  });
+});

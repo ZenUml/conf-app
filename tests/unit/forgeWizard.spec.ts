@@ -63,6 +63,8 @@ describe('forge-wizard manifest preview helpers', () => {
       'zenuml-openapi-macro${LITE_KEY_SUFFIX}',
       'zenuml-graph-macro${LITE_KEY_SUFFIX}',
       'zenuml-embed-macro${LITE_KEY_SUFFIX}',
+      'zenuml-asyncapi-macro${LITE_KEY_SUFFIX}',
+      'zenuml-asyncapi-embed-macro',
     ]
 
     const unlicensedMacros = macros.filter((macro) =>

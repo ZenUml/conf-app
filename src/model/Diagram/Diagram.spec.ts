@@ -1,10 +1,17 @@
-import {NULL_DIAGRAM} from "@/model/Diagram/Diagram";
+import { DataSource, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 
-describe('Diagram', function () {
-  it('has a NULL_DIAGRAM function', function () {
-    expect(NULL_DIAGRAM).toBeDefined();
-    const nullDiagram = NULL_DIAGRAM;
-    expect(nullDiagram).toStrictEqual(NULL_DIAGRAM);
-    expect(nullDiagram).toBe(NULL_DIAGRAM);
-  })
-})
+describe('Diagram sentinel', () => {
+  it('starts with empty content and unknown type/source', () => {
+    expect(NULL_DIAGRAM).toMatchObject({
+      id: '',
+      diagramType: DiagramType.Unknown,
+      source: DataSource.Unknown,
+      code: '',
+      title: '',
+      styles: {},
+      mermaidCode: '',
+      plantUmlCode: '',
+      graphXml: '',
+    });
+  });
+});

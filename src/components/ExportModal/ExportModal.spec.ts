@@ -2,6 +2,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { nextTick } from 'vue';
 import ExportModal from './ExportModal.vue';
+import { writeExportSession } from './exportSession';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -25,94 +26,33 @@ function mountModal(visible = true) {
 
 afterEach(() => {
   document.body.innerHTML = '';
+  writeExportSession(null);
 });
 
 describe('ExportModal — dialog semantics', () => {
-  it('marks the shell as a labelled modal dialog pointing at the settings heading', () => {
+  it('marks the shell as a labelled export dialog with its toolbar', () => {
     const wrapper = mountModal();
     const dialog = wrapper.find('.export-modal');
     expect(dialog.attributes('role')).toBe('dialog');
     expect(dialog.attributes('aria-modal')).toBe('true');
-    expect(dialog.attributes('aria-labelledby')).toBe('export-settings-title');
+    expect(dialog.attributes('aria-label')).toBe('Export image');
     expect(dialog.attributes('tabindex')).toBe('-1');
-    expect(wrapper.find('#export-settings-title').text()).toBe('Export Settings');
+    expect(wrapper.find('[role="toolbar"]').attributes('aria-label')).toBe('Export tools');
     wrapper.unmount();
   });
 });
 
-// Named for what these assertions actually cover: the flow/semantics contract.
-// That the Forge macro iframe then GROWS is a browser+Forge behaviour jsdom
-// cannot exercise — it is verified on staging with measured iframe heights and
-// screenshots (see the PR's spot check), per the repo's UI-evidence rule.
-describe('ExportModal — inline variant renders in flow, not as a modal overlay', () => {
-  // On the inline macro surface the dialog must live IN the document flow.
-  // A `position: fixed` overlay contributes no document height, so Forge's
-  // automatic iframe resize never sees it and clips the dialog to the macro's
-  // own height — 564x256 on production page 2774138946, which leaves the
-  // annotation controls in a 24px-tall scroller holding 312px of form.
-  it('renders in flow, without modal semantics, when variant is inline', () => {
-    const wrapper = mount(ExportModal, {
-      props: { visible: true, diagramTitle: 'Demo', variant: 'inline' },
-      attachTo: document.body,
-    });
-    const backdrop = wrapper.find('.export-modal-backdrop');
-    expect(backdrop.classes()).toContain('export-modal-backdrop--inline');
-    expect(backdrop.classes()).not.toContain('export-modal-backdrop--overlay');
-    // aria-modal claims the rest of the page is inert. In flow it is not.
-    expect(wrapper.find('.export-modal').attributes('aria-modal')).toBeUndefined();
-    wrapper.unmount();
-  });
-
-  it('keeps the overlay variant as the default, for fullscreen', () => {
-    const wrapper = mountModal();
-    const backdrop = wrapper.find('.export-modal-backdrop');
-    expect(backdrop.classes()).toContain('export-modal-backdrop--overlay');
-    expect(wrapper.find('.export-modal').attributes('aria-modal')).toBe('true');
-    wrapper.unmount();
-  });
-
-  it('does not close the inline panel on a backdrop click, since there is no backdrop', async () => {
-    const wrapper = mount(ExportModal, {
-      props: { visible: true, diagramTitle: 'Demo', variant: 'inline' },
-      attachTo: document.body,
-    });
-    await wrapper.find('.export-modal-backdrop').trigger('click');
-    expect(wrapper.emitted('close')).toBeUndefined();
-    wrapper.unmount();
-  });
-});
-
-describe('ExportModal — focus trap follows the variant', () => {
-  // A trap is what makes a dialog modal for a keyboard user. The inline panel
-  // sits in the page with the viewer's own buttons still live beside it, so
-  // trapping there would make the surface modal in behaviour while telling
-  // assistive technology it is not.
-  it('does not trap Tab in the inline variant', async () => {
-    const wrapper = mount(ExportModal, {
-      props: { visible: true, diagramTitle: 'Demo', variant: 'inline' },
-      attachTo: document.body,
-    });
-    const dialog = wrapper.find('.export-modal');
-    const focusable = dialog.element.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-    const last = focusable[focusable.length - 1];
-    last.focus();
-    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-    dialog.element.dispatchEvent(event);
-    // Not prevented => the browser moves focus onward, out of the panel.
-    expect(event.defaultPrevented).toBe(false);
-    wrapper.unmount();
-  });
-
-  it('still traps Tab in the overlay variant', async () => {
-    const wrapper = mountModal();
-    const dialog = wrapper.find('.export-modal');
-    const focusable = dialog.element.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-    const last = focusable[focusable.length - 1];
-    last.focus();
-    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-    dialog.element.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(true);
-    wrapper.unmount();
+describe('ExportModal — current visit session', () => {
+  it('restores completed annotations and one watermark after remounting', () => {
+    const first = mountModal();
+    const item = first.vm.state.annotations.add('note', { x: 0.3, y: 0.4 });
+    first.vm.state.annotations.update(item.id, { text: 'Keep this label' });
+    first.vm.state.watermarkVisible.value = true;
+    first.unmount();
+    const reopened = mountModal();
+    expect(reopened.vm.state.annotations.items.value.map(item => item.text)).toEqual(['Keep this label']);
+    expect(reopened.vm.state.watermarkVisible.value).toBe(true);
+    reopened.unmount();
   });
 });
 
@@ -148,6 +88,26 @@ describe('ExportModal — Escape layering', () => {
     await wrapper.find('.export-modal').trigger('keydown', { key: 'Escape' });
     expect(wrapper.vm.state.selectedAnnotation.value).toBe(null);
     expect(wrapper.emitted('close')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it('returns focus to the dialog when Escape removes a selected properties toolbar', async () => {
+    const wrapper = mountModal();
+    const item = wrapper.vm.state.annotations.add('callout', { x: 0.4, y: 0.4 });
+    wrapper.vm.state.annotations.update(item.id, { text: 'Retry happens here' });
+    wrapper.vm.state.annotations.select(item.id);
+    await nextTick();
+
+    const trigger = wrapper.find('button[aria-label="Download image"]');
+    (trigger.element as HTMLButtonElement).focus();
+    await trigger.trigger('keydown', { key: 'Escape' });
+
+    expect(wrapper.vm.state.annotations.selected.value).toBe(null);
+    expect(wrapper.vm.state.annotations.items.value).toHaveLength(1);
+    expect(document.activeElement).toBe(wrapper.find('.export-modal').element);
+
+    await wrapper.find('.export-modal').trigger('keydown', { key: 'Escape' });
+    expect(wrapper.emitted('close')).toHaveLength(1);
     wrapper.unmount();
   });
 });

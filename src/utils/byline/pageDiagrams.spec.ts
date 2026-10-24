@@ -42,6 +42,69 @@ describe('parsePageDiagrams', () => {
     ])
   })
 
+  // `async-api-doc` holds only API specs, so a body without `diagramType` is
+  // typed from its spec text there and nothing else.
+  it('types an untyped AsyncAPI-app body from its spec text', () => {
+    const responses = [
+      ok(
+        child('1', 'Events', { code: 'asyncapi: 3.0.0\ninfo:\n  title: x' }),
+        child('2', 'REST', { code: '{"openapi": "3.0.0"}' }),
+        child('3', 'Old', { code: 'swagger: "2.0"' }),
+        child('4', 'Odd', { code: 'title: nothing to go on' }),
+      ),
+    ]
+    expect(parsePageDiagrams(responses, 'asyncapi').map(d => d.diagramType)).toEqual([
+      DiagramType.AsyncApi,
+      DiagramType.OpenApi,
+      DiagramType.OpenApi,
+      DiagramType.Unknown,
+    ])
+    // Lite ships the AsyncAPI macro too; the last body is plain DSL text, so
+    // the legacy rule types it as the sequence it renders as.
+    expect(parsePageDiagrams(responses, 'lite').map(d => d.diagramType)).toEqual([
+      DiagramType.AsyncApi,
+      DiagramType.OpenApi,
+      DiagramType.OpenApi,
+      DiagramType.Sequence,
+    ])
+  })
+
+  // Bodies older than the `diagramType` field. Unknown made the row read
+  // "Diagram" and Add to page refuse with unresolved_macro_key, silently.
+  it('types a body that predates diagramType the way the editor restores it', () => {
+    const responses = [
+      ok(
+        // Verbatim shape from whimet4 custom content 376471593: `code` plus the
+        // placeholder mermaidCode every old sequence body carried.
+        child('1', 'Order Service', {
+          title: 'Order Service',
+          code: 'title Order Service\n@Lambda OrderController',
+          styles: '{}',
+          mermaidCode: 'graph TD; A-->B;',
+        }),
+        child('2', 'mmd', { mermaidCode: 'graph LR; A-->B' }),
+        child('3', 'puml', { plantUmlCode: '@startuml\nA->B\n@enduml' }),
+        child('4', 'drawio', { graphXml: '<mxGraphModel/>' }),
+        child('5', 'empty', {}),
+        child('6', 'spec', { code: 'openapi: 3.0.0' }),
+        child('7', 'events', { code: 'asyncapi: 3.0.0' }),
+      ),
+    ]
+    expect(parsePageDiagrams(responses, 'full').map(d => d.diagramType)).toEqual([
+      DiagramType.Sequence,
+      DiagramType.Mermaid,
+      DiagramType.PlantUml,
+      DiagramType.Graph,
+      DiagramType.Unknown,
+      DiagramType.OpenApi,
+      // Full has no AsyncAPI macro to place it with.
+      DiagramType.Unknown,
+    ])
+    const [legacy] = parsePageDiagrams(responses, 'full')
+    expect(legacy.copyable).toBe(true)
+    expect(legacy.source).toBe('title Order Service\n@Lambda OrderController')
+  })
+
   it('keeps a diagram whose stored body is malformed instead of dropping it', () => {
     // The diagram is visibly on the page; omitting it from the list would read
     // as data loss to the user.

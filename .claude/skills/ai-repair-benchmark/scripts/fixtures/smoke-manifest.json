@@ -1,0 +1,12 @@
+{
+  "dslPath": "smoke-invalid.mmd",
+  "diagramType": "MERMAID",
+  "languageKey": "LANG_MERMAID",
+  "subTypeKey": "GENERAL",
+  "errorMessage": "Parse error: missing closing brace in CHECK node",
+  "requiredAnchors": ["START", "CHECK", "DONE", "ERROR_BOX"],
+  "temperature": 0.2,
+  "maxTokens": 2000,
+  "reasoningDisabled": true,
+  "seed": 42
+}

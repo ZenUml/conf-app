@@ -1,28 +1,6 @@
 #!/usr/bin/env python3
-"""
-New-customer tracker for P&D VISION Marketplace apps.
-
-Method (validated 2026-07-12): a Marketplace license row is only a NEW customer
-if the tenant has no prior Connect-install history in D1. Atlassian's staged
-Connect->Forge migration backfilled FREE license rows for pre-existing tenants
-(lite: 876 April-2026 rows, 88.7% pre-existing; full: 26/27 April + 15/18 May),
-so raw license counts read as fake growth. This script classifies every row:
-
-  INTERNAL      known internal/test tenant                      -> excluded
-  PRE-EXISTING  D1 Connect first-seen predates license start by
-                > --grace days (default 30)                     -> migration/backfill
-  NEW           no D1 record (Forge-direct install) or D1
-                first-seen within the grace window              -> real acquisition
-
-Data sources:
-  - marketplace.db  (built by ../../marketplace/scripts/mp_report.py sync)
-  - D1 ClientInstallation via `npx wrangler d1 execute` (cached 24h locally)
-
-Caveats:
-  - Forge installs never write ClientInstallation (Connect-only table), so
-    "not in D1" is the EXPECTED signature of a genuinely new Forge install.
-  - my-api (AsyncAPI) has NO rows in this D1 (its Connect worker never persisted
-    installs) -> backfill filtering is blind there; volume is tiny, eyeball it.
+"""License-start candidates, with known Connect history for backfill filtering.
+Missing D1 history does not establish a new install or a new customer.
 """
 import argparse, json, sqlite3, subprocess, sys, time
 from datetime import datetime, timedelta
@@ -36,12 +14,8 @@ MP_REPORT = SKILLS_DIR / 'marketplace' / 'scripts' / 'mp_report.py'
 D1_CACHE = SKILL_SCRIPTS / 'd1_first_seen.json'
 REPO_ROOT = SKILLS_DIR.parent.parent  # conf-app root
 
-APPS = {
-    'full': 'com.zenuml.confluence-addon',
-    'lite': 'com.zenuml.confluence-addon-lite',
-    'diagramly': 'gptdock-confluence',
-    'asyncapi': 'my-api',
-}
+with (SKILLS_DIR / "customer-data" / "products.json").open() as f:
+    APPS = {p["key"]: p["marketplace_key"] for p in json.load(f)["products"] if p["conf_app"]}
 INTERNAL = ('whimet', 'zenuml', 'd4c-forge', 'async-prd', 'zicjin', 'danshuitaihejie',
             'lite-stg', 'full-stg', 'dia-stg', 'lite-dev', 'lite-prod', 'mtwtf', 'nextrelease-sbx',
             '2023-bug-bounty', 'diagramly-install-test')
@@ -85,12 +59,12 @@ def classify(lic: dict, addon: str, d1: dict, grace_days: int):
                  datetime.fromisoformat(first_seen[:10])).days
         if delta > grace_days:
             return 'PRE-EXISTING', host, start, first_seen[:10]
-        return 'NEW', host, start, f'connect {first_seen[:10]}'
-    return 'NEW', host, start, 'forge-direct'
+        return 'CANDIDATE', host, start, f'known history {first_seen[:10]}; first install unverified'
+    return 'CANDIDATE', host, start, 'no matching historical record; first install unknown'
 
 
 def main():
-    ap = argparse.ArgumentParser(description='Track genuinely new Marketplace customers')
+    ap = argparse.ArgumentParser(description='Track Marketplace license-start candidates')
     ap.add_argument('--from', dest='d_from', default=datetime.now().strftime('%Y-%m-01'))
     ap.add_argument('--to', dest='d_to', default=datetime.now().strftime('%Y-%m-%d'))
     ap.add_argument('--app', default='all', help='full|lite|diagramly|asyncapi|all|<addonKey>')
@@ -98,7 +72,7 @@ def main():
     ap.add_argument('--sync', action='store_true', help='refresh marketplace.db snapshot first (~15s)')
     ap.add_argument('--refresh-d1', action='store_true', help='bypass the 24h D1 cache')
     ap.add_argument('--contacts', action='store_true', help='show technical-contact name/email')
-    ap.add_argument('--trend', action='store_true', help='append 6-month NEW-per-month trend')
+    ap.add_argument('--trend', action='store_true', help='append 6-month candidate license starts per month')
     ap.add_argument('--json', dest='as_json', action='store_true')
     args = ap.parse_args()
 
@@ -127,7 +101,7 @@ def main():
                     tc = (lic.get('contactDetails') or {}).get('technicalContact') or {}
                     entry['contact'] = f"{tc.get('name', '?')} <{tc.get('email', '?')}>"
                 buckets[verdict].append(entry)
-            if verdict == 'NEW' and start >= (datetime.fromisoformat(args.d_to) -
+            if verdict == 'CANDIDATE' and start >= (datetime.fromisoformat(args.d_to) -
                                               timedelta(days=183)).strftime('%Y-%m-%d'):
                 trend[addon][start[:7]] += 1
         report[addon] = buckets
@@ -136,19 +110,19 @@ def main():
         print(json.dumps(report, indent=1))
         return
     for addon, buckets in report.items():
-        n_new, n_pre, n_int = (len(buckets[k]) for k in ('NEW', 'PRE-EXISTING', 'INTERNAL'))
+        n_new, n_pre, n_int = (len(buckets[k]) for k in ('CANDIDATE', 'PRE-EXISTING', 'INTERNAL'))
         print(f'\n=== {addon}  [{args.d_from} .. {args.d_to}]  '
-              f'NEW={n_new}  pre-existing={n_pre}  internal={n_int}')
+              f'CANDIDATE={n_new}  pre-existing={n_pre}  internal={n_int}')
         if addon == 'my-api' and (n_new or n_pre):
             print('    (caveat: my-api has no D1 install history - backfill filter is blind here)')
-        for e in sorted(buckets['NEW'], key=lambda x: x['start']):
-            line = f"  NEW  {e['start']}  {e['domain']:<28} {e['type']:<10} {e['tier'] or '?':<10} ({e['note']})"
+        for e in sorted(buckets['CANDIDATE'], key=lambda x: x['start']):
+            line = f"  CANDIDATE  {e['start']}  {e['domain']:<28} {e['type']:<10} {e['tier'] or '?':<10} ({e['note']})"
             if args.contacts:
                 line += f"  {e.get('contact', '')}"
             print(line)
         if args.trend and trend[addon]:
             months = ' '.join(f'{m}:{c}' for m, c in sorted(trend[addon].items()))
-            print(f'  trend(NEW/mo): {months}')
+            print(f'  trend(candidate license starts/mo): {months}')
 
 
 if __name__ == '__main__':

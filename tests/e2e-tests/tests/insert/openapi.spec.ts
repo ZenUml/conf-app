@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { createPageAndSetup, publishAndVerifyMacros, moveToPvt } from './insert-helpers.js';
 
@@ -6,7 +6,7 @@ const macroType = 'openapi' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Smoke Test - ${macroType}`, () => {
+test.describe(`Smoke Test - ${macroType}`, { tag: ['@test:openapi', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@editor', '@viewer', '@openapi', '@smoke'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {

@@ -16,6 +16,7 @@ export type RenderPhase = 'context' | 'fetch' | 'render' | 'cc_fetch' | 'adf_sca
 const durations: Partial<Record<RenderPhase, number>> = {};
 let bootstrapMs: number | undefined;
 let contentSource: ContentSource | undefined;
+let layoutWaitMs: number | undefined;
 
 // Sticky "was the tab ever hidden during this load" flag. Tab-backgrounding
 // throttles timers and inflates whichever phase was in flight — the cause of
@@ -60,6 +61,18 @@ export function markContentSource(src: ContentSource): void {
 }
 
 /**
+ * Record how long the viewer waited for a measurable SVG text layout after
+ * mermaid.render() threw `svg element not in render tree` (#706), so
+ * `trackRenderTime` can tag `macro_viewed` with `layout_wait_ms`. Last wins:
+ * a re-render that waits again replaces the earlier figure. Left unset
+ * (absent in the payload) when no wait happened. Not a phase of
+ * `measured_sum_ms`: that sum is bootstrap + context + fetch + render.
+ */
+export function markLayoutWait(ms: number): void {
+  layoutWaitMs = Math.max(0, Math.round(ms));
+}
+
+/**
  * Time an async phase, recording its duration once — the first resolution wins.
  * Memoized callees (`getContext`, the custom-content fetch) may invoke this
  * repeatedly; only the first call (the real, uncached work) is kept, so cache
@@ -91,6 +104,7 @@ export interface RenderTimings {
   measured_sum_ms?: number;
   tab_hidden?: boolean;
   content_source?: ContentSource;
+  layout_wait_ms?: number;
 }
 
 /**
@@ -114,6 +128,7 @@ export function getTimings(): RenderTimings {
     measured_sum_ms: measured.length ? measured.reduce((a, b) => a + b, 0) : undefined,
     tab_hidden: everHidden,
     content_source: contentSource,
+    layout_wait_ms: layoutWaitMs,
   };
 }
 
@@ -126,5 +141,6 @@ export function _resetForTesting(): void {
   delete durations.adf_scan;
   bootstrapMs = undefined;
   contentSource = undefined;
+  layoutWaitMs = undefined;
   everHidden = typeof document !== 'undefined' ? document.hidden : false;
 }

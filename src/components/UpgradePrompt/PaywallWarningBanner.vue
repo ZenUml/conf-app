@@ -35,16 +35,6 @@
         @click="onUnlockSpace"
       >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
     </div>
-    <button
-      class="paywall-banner__dismiss"
-      aria-label="Dismiss warning"
-      data-testid="paywall-banner-dismiss"
-      @click="onDismiss"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-        <path d="M18 6 6 18M6 6l12 12" />
-      </svg>
-    </button>
   </div>
 </template>
 
@@ -64,10 +54,9 @@ import {
   readTargetingMarker,
   readMacroActivityMarker,
   recordBannerShown,
-  recordBannerDismissed,
   isWarningBannerVisible,
   bannerAudience,
-  readDismissalMarker,
+  readImpressionMarker,
   type WarningBannerIdentity,
   type BannerAudience,
 } from '@/utils/paywall/warningBanner'
@@ -75,9 +64,8 @@ import { readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
 
 /**
  * `isSpaceAdmin` is supplied by the page-banner host (routes/pageBanner.ts)
- * rather than re-derived here, because the host is where the Phase 5b flag is
- * resolved. Deriving it locally would show admin copy to a flagged-off admin who
- * happens to also qualify as a recent author.
+ * rather than re-derived here, so the route that admitted this banner is its
+ * single source of truth.
  */
 const props = withDefaults(defineProps<{ isSpaceAdmin?: boolean }>(), { isSpaceAdmin: false })
 
@@ -102,7 +90,7 @@ let passesGate = false
 let macroCountValue = 0
 const isSpaceAdmin = props.isSpaceAdmin
 let spaceAdminCount: number | undefined
-// Taper position of THIS impression, read once BEFORE recordBannerShown bumps
+// Position of THIS impression, read once BEFORE recordBannerShown bumps
 // the marker: ordinal = prior showCount + 1; gap = whole hours since the
 // previous impression (absent on a first impression).
 let showCount = 1
@@ -112,17 +100,16 @@ try {
   const targeting = readTargetingMarker(identity)
   spaceAdminCount = readProbeMarker(identity)?.adminCount
   const now = Date.now()
-  const dismissal = readDismissalMarker(identity)
-  showCount = (dismissal?.showCount ?? 0) + 1
-  if (dismissal?.lastShownAt) {
-    const lastShownMs = Date.parse(dismissal.lastShownAt)
+  const impression = readImpressionMarker(identity)
+  showCount = (impression?.showCount ?? 0) + 1
+  if (impression?.lastShownAt) {
+    const lastShownMs = Date.parse(impression.lastShownAt)
     if (Number.isFinite(lastShownMs)) hoursSinceLastShown = Math.round((now - lastShownMs) / 3_600_000)
   }
   passesGate =
     !!targeting &&
     isWarningBannerVisible(
       targeting,
-      dismissal,
       readMacroActivityMarker(identity),
       now,
       isSpaceAdmin
@@ -181,23 +168,10 @@ function bannerContext() {
     is_space_admin: isSpaceAdmin,
     banner_audience: audience,
     ...(spaceAdminCount === undefined ? {} : { space_admin_count: spaceAdminCount }),
-    // Impression taper position — see utils/paywall/warningBanner.ts BANNER_TAPER_*.
+    // Impression history remains available for analytics; it never controls visibility.
     show_count: showCount,
     ...(hoursSinceLastShown === undefined ? {} : { hours_since_last_shown: hoursSinceLastShown }),
   }
-}
-
-function onDismiss() {
-  // Snooze, not kill: stamp dismissedAt to start the 7-day window. The banner
-  // returns afterwards because the underlying problem is unchanged.
-  recordBannerDismissed(identity)
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_BANNER_DISMISSED, {
-    surface: 'page_banner',
-    severity,
-    ...bannerContext(),
-  })
-  visible.value = false
-  void closeBannerView()
 }
 
 /**
@@ -307,22 +281,4 @@ async function onUnlockSpace() {
   color: #172B4D;
 }
 
-.paywall-banner__dismiss {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: #626F86;
-  cursor: pointer;
-  flex-shrink: 0;
-  padding: 0;
-}
-.paywall-banner__dismiss:hover {
-  background: #F1F2F4;
-  color: #172B4D;
-}
 </style>

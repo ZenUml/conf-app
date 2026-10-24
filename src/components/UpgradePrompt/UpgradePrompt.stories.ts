@@ -54,7 +54,14 @@ const meta: Meta<typeof UpgradePrompt> = {
     viewport: { defaultViewport: 'forgeModal' },
     docs: {
       description: {
-        component: 'Lite paywall modal states for support-assisted extension requests.',
+        component:
+          'Lite over-limit modal. RETIRED as a live surface on 2026-09-06: ' +
+          'useCustomerSuccessService.ts hard-codes `shouldBlockActions = computed(() => false)`, so ' +
+          'tryPageEditorPaywall / tryFullscreenViewerPaywall never mount PaywallGate and no user ' +
+          'reaches this modal today — the over-limit nudge is the non-blocking Page banner instead. ' +
+          'The component and these stories are kept because the paywall redesign may reintroduce a ' +
+          'gate (see the comment above shouldBlockActions). Every state below is driven by props; ' +
+          'nothing here talks to Forge.',
       },
     },
   },
@@ -83,13 +90,13 @@ const meta: Meta<typeof UpgradePrompt> = {
 export default meta
 
 export const DefaultUnlimitedContinue: Story = {
-  name: 'Default - Continue still unlimited',
+  name: 'Continue unlimited (no counter)',
 }
 
 // 15 is no longer the default (lowered to 3 on 2026-08-16) but remains reachable:
 // users who started under the old default keep their stored balance.
 export const AttemptsAvailable15: Story = {
-  name: 'Phase 2 - 15 attempts (legacy balance)',
+  name: '15 attempts left (legacy balance)',
   args: {
     remainingContinueAttempts: 15,
   },
@@ -106,7 +113,7 @@ export const AttemptsAvailable15: Story = {
 
 // This is the state a new user/space pair now starts in.
 export const AttemptsLow3: Story = {
-  name: 'Phase 2 - 3 attempts (current default)',
+  name: '3 attempts left (current default)',
   args: {
     remainingContinueAttempts: 3,
   },
@@ -119,7 +126,7 @@ export const AttemptsLow3: Story = {
 }
 
 export const LastAttempt: Story = {
-  name: 'Phase 2 - last attempt',
+  name: 'Last attempt',
   args: {
     remainingContinueAttempts: 1,
   },
@@ -135,7 +142,7 @@ export const LastAttempt: Story = {
 }
 
 export const AttemptsExhausted: Story = {
-  name: 'Phase 2 - attempts exhausted',
+  name: 'Attempts exhausted',
   args: {
     remainingContinueAttempts: 0,
   },
@@ -153,7 +160,9 @@ export const AttemptsExhausted: Story = {
   },
 }
 
+/** Clipboard write succeeds: the support form opens and the request details are also copied as a backup. */
 export const RequestExtensionCopied: Story = {
+  name: 'Request extension — clipboard available',
   args: {
     remainingContinueAttempts: 15,
   },
@@ -161,12 +170,14 @@ export const RequestExtensionCopied: Story = {
     const body = within(document.body)
     await userEvent.click(await body.findByTestId('request-extension-btn'))
     await expect(await body.findByTestId('request-extension-status')).toHaveTextContent(
-      /Request details copied/
+      /also copied to your clipboard as backup/
     )
   },
 }
 
+/** Clipboard write fails: the support form still opens; the status line drops the clipboard-backup clause. */
 export const RequestExtensionCopyFailed: Story = {
+  name: 'Request extension — clipboard unavailable',
   args: {
     remainingContinueAttempts: 15,
   },
@@ -177,12 +188,13 @@ export const RequestExtensionCopyFailed: Story = {
     const body = within(document.body)
     await userEvent.click(await body.findByTestId('request-extension-btn'))
     await expect(await body.findByTestId('request-extension-status')).toHaveTextContent(
-      /Support form opened/
+      /just confirm and submit/
     )
   },
 }
 
 export const DraftPreviewExpanded: Story = {
+  name: 'Draft preview expanded',
   args: {
     remainingContinueAttempts: 15,
   },

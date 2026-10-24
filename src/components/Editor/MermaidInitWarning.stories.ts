@@ -4,6 +4,7 @@ import { expect, waitFor } from 'storybook/test'
 import Editor from './Editor.vue'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
 
 type Story = StoryObj<typeof Editor>
 
@@ -28,6 +29,19 @@ function loadDiagram(mermaidCode: string) {
 const meta: Meta<typeof Editor> = {
   title: 'Editor/Diagram/MermaidInitWarning',
   component: Editor,
+  // Mermaid is fetched at runtime from `vendor/mermaid/` (loadMermaid.ts), which
+  // vite.config.mjs copies into `dist/` for the app build. Storybook serves
+  // `public/`, which has no such directory, so the unprimed default import 404s.
+  // Hand the loader the bundled copy instead — the same priming every other
+  // story that renders real Mermaid does (see GenericViewer.stories.ts).
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
   parameters: {
     layout: 'fullscreen',
     docs: {

@@ -10,7 +10,7 @@
 //   - Versions:   logs version metadata to console (Forge UX is intentionally
 //                 console-only — see ViewerActionsHelper)
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';
 import {
@@ -21,7 +21,7 @@ import {
 } from '../../helpers/ViewerActionsHelper.js';
 import { expectFullscreenLayout } from '../../helpers/FullscreenModalHelper.js';
 
-test.describe('Viewer toolbar actions', () => {
+test.describe('Viewer toolbar actions', { tag: ['@test:viewer-actions', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@fullscreen', '@sequence', '@export'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
 
   // Sequence (0..3)
@@ -71,7 +71,7 @@ test.describe('Viewer toolbar actions', () => {
     });
 
     // The V8 viewer redesign (6a68de0d, 2026-05-04) unified Export across all
-    // three macro types onto the shared ExportModal (Export PNG pill) — Graph
+    // three macro types onto the shared ExportModal (More → Export PNG) — Graph
     // no longer opens a separate DrawIO export sidebar. See openExport()'s
     // doc comment.
     test('viewer-actions:5 — Graph Export opens the shared Export PNG modal', async ({ page }) => {

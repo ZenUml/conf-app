@@ -198,6 +198,14 @@ export type DashboardFormatFilter = "all" | "asyncapi" | "openapi";
 
 export type RenderMode = "live_render" | "cached_svg";
 
+/**
+ * Confluence colour mode the inline viewer rendered under, read from the
+ * `data-color-mode` attribute Forge sets after `view.theme.enable()`. `auto`
+ * is resolved through `prefers-color-scheme`. Absent where theming is not
+ * enabled (editor, fullscreen, export).
+ */
+export type ColorMode = "light" | "dark";
+
 // Viewport render gate (#382): how a gated viewer render was released.
 // Property is ABSENT on ungated renders (flag off / editor / fullscreen /
 // non-sequence-family) — see utils/renderGate/viewportGate.ts.
@@ -368,6 +376,7 @@ export type AnalyticsEventName =
   // create/edit/publish lifecycle events track persistence outcomes.
   | "markdown_seeded_from_mermaid"
   // macro_viewed: sequence renders also carry diagram_font=plex|fallback (hosted IBM Plex Sans loaded before first render).
+  // Inline viewers that enabled Forge host theming also carry color_mode=light|dark.
   | "macro_viewed"
   // Both authoring-start events apply the same iframe-level replay sample before
   // the event is sent. Editor entries must emit the event from the iframe that owns the

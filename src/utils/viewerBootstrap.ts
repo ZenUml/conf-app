@@ -19,7 +19,8 @@ export { publishLoadedDiagram };
 import type { DiagramLoadError } from '@/model/store2/types';
 import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
-import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { getCachedContent, putCachedContent } from '@/utils/renderCache/contentCacheStore';
+import { revalidateViewerContent } from '@/utils/renderCache/revalidateViewerContent';
 import { getBoardDocumentLoadError } from '@/utils/graph/boardDocument';
 
 // Slice 1 of the content-opening unification: `loadDiagram` implementations
@@ -215,38 +216,39 @@ async function revalidateViewer(
   cachedHash: string,
   options: ViewerBootstrapOptions,
 ): Promise<void> {
-  try {
-    const loadResult = normalizeViewerLoadResult(
-      await renderPerf.time('fetch', () => options.loadDiagram()),
-    );
-    publishDiagramAttribution(loadResult.attribution);
-    // content unreadable now (undefined doc, or a structured loadError with no
-    // doc) — keep the last-known-good cached render rather than publish a miss.
-    if (!loadResult.doc) return;
-    // A TERMINAL error means the fetched doc is not the representation the
-    // macro asked for (an invalid Board document behind a renderable legacy
-    // graphXml). The cached render currently on screen is showing content the
-    // authoritative load says does not exist, so replace it rather than let
-    // the cache mask it — this is what makes the Board cache safe to keep.
-    // Do not cache a doc we just classified as unrenderable.
-    if (loadResult.loadError?.terminal) {
+  await revalidateViewerContent({
+    customContentId,
+    cachedHash,
+    loadFresh: async () => {
+      const loadResult = normalizeViewerLoadResult(
+        await renderPerf.time('fetch', () => options.loadDiagram()),
+      );
+      publishDiagramAttribution(loadResult.attribution);
+      // content unreadable now (undefined doc, or a structured loadError with no
+      // doc) — keep the last-known-good cached render rather than publish a miss.
+      if (!loadResult.doc) return;
+      // A TERMINAL error means the fetched doc is not the representation the
+      // macro asked for (an invalid Board document behind a renderable legacy
+      // graphXml). The cached render currently on screen is showing content the
+      // authoritative load says does not exist, so replace it rather than let
+      // the cache mask it — this is what makes the Board cache safe to keep.
+      // Do not cache a doc we just classified as unrenderable.
+      if (loadResult.loadError?.terminal) {
+        renderPerf.markContentSource('fetch');
+        applyViewerLoadOutcome({
+          doc: loadResult.doc,
+          customContentId,
+          loadError: loadResult.loadError,
+          macroKind: options.macroKind,
+        });
+        return;
+      }
+      return loadResult.doc;
+    },
+    onChanged: (fresh) => {
       renderPerf.markContentSource('fetch');
-      applyViewerLoadOutcome({
-        doc: loadResult.doc,
-        customContentId,
-        loadError: loadResult.loadError,
-        macroKind: options.macroKind,
-      });
-      return;
-    }
-    const serialized = JSON.stringify(loadResult.doc);
-    putCachedContent(customContentId, serialized);
-    if (hashContent(serialized) !== cachedHash) {
-      renderPerf.markContentSource('fetch');
-      publishLoadedDiagram(loadResult.doc);
-    }
-    await options.afterLoad?.(loadResult.doc);
-  } catch (e) {
-    console.warn('[content-swr] background revalidate failed; cached render stands', e);
-  }
+      publishLoadedDiagram(fresh);
+    },
+    afterFresh: (fresh) => options.afterLoad?.(fresh),
+  });
 }

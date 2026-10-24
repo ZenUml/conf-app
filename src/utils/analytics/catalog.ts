@@ -240,9 +240,11 @@ export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
 
 // Which engine drew a PlantUML diagram (ADR-0010). `server` = the public
 // www.plantuml.com server, which receives the diagram source; `local` = the
-// @plantuml/core engine in the viewer's own browser, which sends nothing.
+// @plantuml/core engine in the viewer's own browser, which sends nothing;
+// `server_fallback` = the local engine was chosen but could not draw this
+// diagram, so the server drew it and received the source after all.
 // Rides on macro_viewed for macro_type=plantuml only; absent elsewhere.
-export type PlantUmlRenderer = "server" | "local";
+export type PlantUmlRenderer = "server" | "local" | "server_fallback";
 
 // Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
 // is NOT a failure: the engine draws it like the server did, and the existing
@@ -457,10 +459,11 @@ export type AnalyticsEventName =
   // was present and only the first was kept, because the macro renders a single
   // diagram and merging them silently produced a picture the author never wrote.
   | "plantuml_paste_normalized"
-  // ADR-0010: the in-browser PlantUML engine produced no diagram for a body it
-  // was asked to draw. `plantuml_failure_reason` says why; `surface` says
-  // viewer or editor. Never carries the source. Read against macro_viewed with
-  // plantuml_renderer=local for a failure rate before widening the rollout.
+  // ADR-0010: the in-browser PlantUML engine could not draw a body it was
+  // asked to draw, and the viewer fell back to the plantuml.com server.
+  // `plantuml_failure_reason` says why; `surface` says viewer or editor.
+  // Never carries the source. Read against macro_viewed with
+  // plantuml_renderer=local vs server_fallback before widening the rollout.
   | "plantuml_local_render_failed"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries

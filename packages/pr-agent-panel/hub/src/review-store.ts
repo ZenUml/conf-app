@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import { ReviewRunSchema, toReviewSummary, type ReviewRun, type ReviewSummary } from '@zenuml/pr-panel-shared'
+import { ReviewRunSchema, toReviewSummary, type PrRef, type PrState, type ReviewRun, type ReviewSummary } from '@zenuml/pr-panel-shared'
 import { PRIVATE_FILE_MODE } from './runtime-paths'
 import { createLogger } from './log'
 
@@ -88,12 +88,35 @@ export class ReviewStore {
     return deleted
   }
 
+  /** Only identities with a completed saved review are eligible for background GitHub reads. */
+  listReviewedPrRefs(): PrRef[] {
+    const refs = new Map<string, PrRef>()
+    for (const name of readdirSync(this.dir)) {
+      if (!name.endsWith('.json')) continue
+      let key: string
+      try {
+        key = decodeURIComponent(name.slice(0, -5))
+      } catch {
+        continue
+      }
+      if (this.fileFor(key) !== join(this.dir, name)) continue
+      for (const run of this.load(key)) {
+        if (run.status === 'completed') refs.set(`${key}#${run.pr.number}`, run.pr)
+      }
+    }
+    return [...refs.values()]
+  }
+
   /**
    * Latest completed run per PR, newest first. `current` is the PR head the
    * page shows: a map `prNumber -> headSha` marks only those PRs, a bare SHA
    * is compared with every row. A PR with no known head is never stale.
    */
-  listLatestCompleted(repoKey: string, current?: string | ReadonlyMap<number, string>): ReviewSummary[] {
+  listLatestCompleted(
+    repoKey: string,
+    current?: string | ReadonlyMap<number, string>,
+    observedStates?: ReadonlyMap<number, PrState>,
+  ): ReviewSummary[] {
     const latest = new Map<number, ReviewRun>()
     for (const run of this.load(repoKey)) {
       if (run.status !== 'completed') continue
@@ -102,7 +125,10 @@ export class ReviewStore {
     }
     return [...latest.values()]
       .sort((a, b) => endTime(b) - endTime(a))
-      .map((run) => toReviewSummary(run, typeof current === 'string' ? current : current?.get(run.pr.number)))
+      .map((run) => ({
+        ...toReviewSummary(run, typeof current === 'string' ? current : current?.get(run.pr.number)),
+        prState: observedStates?.get(run.pr.number) ?? run.prState,
+      }))
   }
 
   /** Drop the in-memory cache (tests: prove a reload reads the file). */

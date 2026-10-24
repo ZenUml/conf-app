@@ -13,6 +13,8 @@ import { Analytics } from './analytics'
 import { listenConsumerSocket } from './consumer-transport'
 import { createLogger } from './log'
 import { ReviewStore } from './review-store'
+import { PrStatusStore } from './pr-status-store'
+import { PrStatusSync } from './pr-status-sync'
 import { HUB_VERSION, HubRuntime } from './runtime'
 import { assertSafeSocketPath, ensurePrivateDir, migrateLegacyStore, PRIVATE_FILE_MODE, resolveRuntimePaths } from './runtime-paths'
 import { createExtensionOriginPolicy } from './security'
@@ -92,8 +94,11 @@ async function main(): Promise<void> {
     if (moved > 0) log.info(`Copied ${moved} review file(s) from ${paths.legacyStoreDir} to ${paths.storeDir}`)
   }
   const store = new ReviewStore(paths.storeDir)
+  const statuses = new PrStatusStore(paths.storeDir)
   const analytics = new Analytics({ token: process.env.PR_PANEL_MIXPANEL_TOKEN, idPath: paths.analyticsId })
-  const runtime = new HubRuntime({ store, analytics, hubVersion: HUB_VERSION })
+  let statusSync: PrStatusSync | undefined
+  const runtime = new HubRuntime({ store, statuses, analytics, hubVersion: HUB_VERSION, requestStatusSync: () => statusSync?.request() })
+  statusSync = new PrStatusSync({ reviews: store, statuses, analytics, onChanged: (repoKey) => runtime.refreshReviews(repoKey) })
 
   let ws: StartedWebSocketServer | null = null
   let shuttingDown = false
@@ -109,6 +114,7 @@ async function main(): Promise<void> {
     log.info(`${reason} Shutting down.`)
     setTimeout(() => process.exit(1), SHUTDOWN_TIMEOUT_MS).unref()
     runtime.queue.cancelWaiters()
+    statusSync?.stop()
     consumer.close()
     await ws?.close()
     try {
@@ -142,6 +148,7 @@ async function main(): Promise<void> {
     { mode: PRIVATE_FILE_MODE },
   )
   log.info(`Hub ${HUB_VERSION} ready: socket ${paths.socket}, ws://127.0.0.1:${ws.port}/`)
+  statusSync.start()
 
   const idleMs = idleExitMs(foreground)
   if (idleMs > 0) {

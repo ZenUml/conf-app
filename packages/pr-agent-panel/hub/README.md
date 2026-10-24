@@ -68,6 +68,18 @@ that PR, returns `{deleted, deletedRuns}`, and broadcasts the replacement
 review list to connected extensions. Other PRs, tasks and panel messages are
 unchanged. An active task may later publish a new review for the same PR.
 
+The Hub uses the existing `gh` CLI login to read the current state and head SHA
+of every distinct GitHub PR with a saved completed review. It queries those
+identities in GraphQL batches of 20 on start, then every five minutes while the
+Hub is running. Reconnects, list requests and new reviews request a coalesced
+refresh (at most once per 30 seconds). It does not list all repository PRs or
+write to GitHub. Current observations are cached in `pr-status.json` (0600),
+separate from historical review runs, and changed repositories are broadcast
+through the existing `reviews` frame. A failed or inaccessible query keeps the
+last known state; it never marks the PR closed. The Hub's idle lifetime above
+still applies, so an extension with no connected agent refreshes again when a
+Hub starts. `gh` must be available to the Hub's process environment.
+
 The Hub refuses a runtime directory or socket that is a symlink or owned by
 another user.
 

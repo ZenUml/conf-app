@@ -36,6 +36,7 @@ import {
 import { ClientHooks } from './hooks'
 import { MessageQueue, type MessagePredicate } from './message-queue'
 import type { ReviewStore } from './review-store'
+import type { PrStatusStore } from './pr-status-store'
 import type { Analytics } from './analytics'
 
 export const HUB_VERSION = '0.1.0'
@@ -76,6 +77,8 @@ interface SessionRecord {
 
 export interface RuntimeOptions {
   store: ReviewStore
+  statuses?: PrStatusStore
+  requestStatusSync?: () => void
   analytics?: Analytics
   now?: () => number
   createId?: () => string
@@ -96,6 +99,8 @@ export class HubRuntime {
   readonly queue: MessageQueue
   readonly hubVersion: string
   private readonly analytics: Analytics | undefined
+  private readonly statuses: PrStatusStore | undefined
+  private readonly requestStatusSync: (() => void) | undefined
   private readonly now: () => number
   private readonly createId: () => string
 
@@ -111,6 +116,8 @@ export class HubRuntime {
 
   constructor(options: RuntimeOptions) {
     this.store = options.store
+    this.statuses = options.statuses
+    this.requestStatusSync = options.requestStatusSync
     this.analytics = options.analytics
     this.now = options.now ?? Date.now
     this.createId = options.createId ?? (() => nanoid())
@@ -202,6 +209,7 @@ export class HubRuntime {
           inReplyTo: frame.id,
         })
         this.sendTo(conn, this.stateBody())
+        this.requestStatusSync?.()
         return { close: false }
       }
       case 'register': {
@@ -237,6 +245,7 @@ export class HubRuntime {
       }
       case 'listReviews': {
         this.sendTo(conn, this.reviewsBody(frame.repoKey, frame.currentHeadSha, frame.id))
+        this.requestStatusSync?.()
         return { close: false }
       }
       case 'userMessage':
@@ -420,6 +429,7 @@ export class HubRuntime {
       ...(task.agent.sessionId ? { agentSessionId: task.agent.sessionId } : {}),
     }
     this.store.upsert(run)
+    this.requestStatusSync?.()
     record.task = { ...task, runId: run.runId }
     record.findingCount = run.findings.length
     this.emitTaskEvent(record, { kind: 'published', runId: run.runId })
@@ -446,6 +456,7 @@ export class HubRuntime {
     const repoKey = repoKeyOf(input.repo)
     try {
       const deletedRuns = this.store.deleteForPr(repoKey, input.prNumber)
+      if (deletedRuns > 0) this.statuses?.delete(repoKey, input.prNumber)
       if (deletedRuns > 0) this.broadcast(this.reviewsBody(repoKey))
       this.analytics?.track('pr_panel_review_entry_delete_completed', {
         delete_outcome: deletedRuns > 0 ? 'deleted' : 'not_found',
@@ -594,12 +605,23 @@ export class HubRuntime {
       const numbers = new Set(repoSessions.map((s) => s.pr.number))
       if (numbers.size === 1) heads.set([...numbers][0], currentHeadSha)
     }
+    const observedStates = new Map<number, NonNullable<ReturnType<PrStatusStore['get']>>['state']>()
+    for (const item of this.store.listLatestCompleted(key)) {
+      const observed = this.statuses?.get(key, item.prNumber)
+      if (observed?.headSha) heads.set(item.prNumber, observed.headSha)
+      if (observed?.state) observedStates.set(item.prNumber, observed.state)
+    }
     return {
       type: 'reviews',
       repoKey: key,
-      items: this.store.listLatestCompleted(key, heads),
+      items: this.store.listLatestCompleted(key, heads, observedStates),
       ...(inReplyTo ? { inReplyTo } : {}),
     }
+  }
+
+  /** Broadcast one changed repository through the existing reviews frame. */
+  refreshReviews(repoKey: string): void {
+    this.broadcast(this.reviewsBody(repoKey))
   }
 
   private stateBody(): Extract<HubFrameBody, { type: 'state' }> {

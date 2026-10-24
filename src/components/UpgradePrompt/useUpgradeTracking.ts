@@ -56,9 +56,22 @@ export function useUpgradeTracking(
     })
   }
 
+  const trackExtensionRequestClick = (copied: boolean, requestUrl: string) => {
+    const timeToDecision = Date.now() - modalShownTime.value
+    trackUpgradeEvent(UpgradeEventName.EXTENSION_REQUEST_CLICKED, {
+      action_type: actionType(),
+      ui_component: UIComponent.MODAL,
+      copied_request_details: copied,
+      request_url: requestUrl,
+      time_to_decision: Math.round(timeToDecision / 1000),
+      ...getUpgradeContext(),
+    })
+  }
+
   return {
     handleClose,
     trackAdvocacyCopy,
     trackAdvocacyDraftPreviewToggle,
+    trackExtensionRequestClick,
   }
 }

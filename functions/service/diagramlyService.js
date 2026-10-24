@@ -1,65 +1,139 @@
 const typeMap = {
-  'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML'},
+  'sequence': {diagramType: 'sequence', languageKey: 'LANG_ZENUML', subTypeKey: 'GENERAL'},
   'mermaid': {diagramType: 'flow', languageKey: 'LANG_MERMAID', subTypeKey: "FLOWCHART"},
-  'OpenAPI': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI'},
-  'plantuml': {diagramType: 'plantuml', languageKey: 'LANG_PLANTUML'},
+  'OpenAPI': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI', subTypeKey: 'GENERAL'},
+  'openapi': {diagramType: 'openapi', languageKey: 'LANG_OPENAPI', subTypeKey: 'GENERAL'},
+  'plantuml': {diagramType: 'plantuml', languageKey: 'LANG_PLANTUML', subTypeKey: 'GENERAL'},
 }
 
-export async function generateDsl(context, title, content, userPrompt, diagramId, diagramType = 'sequence') {
-  const diagramData = {
-    0: {
-      json: {
-        diagramType: typeMap[diagramType].diagramType,
-        languageKey: typeMap[diagramType].languageKey,
-        subTypeKey: typeMap[diagramType].subTypeKey,
-        diagramId,
-        command: getPrompt(diagramType, title, content, userPrompt),
-      },
-    },
-  };
-
-  const diagramResult = await callDiagramly(context, `/api/version.create?batch=1`, diagramData);
-
-  if (diagramResult &&
-      diagramResult[0]?.result?.data?.json?.gptResponse) {
-    const dsl = diagramResult[0].result.data.json.gptResponse;
-    const diagramId = diagramResult[0].result.data.json.diagramId;
-    const diagramTitle = diagramResult[0].result.data.json.diagramTitle;
-    return { dsl, diagramId, diagramTitle };
+function getTypeInfo(diagramType = 'sequence') {
+  const typeInfo = typeMap[diagramType];
+  if (!typeInfo) {
+    throw new Error(`Unsupported diagram type for AI Chat: ${diagramType}`);
   }
+  return typeInfo;
+}
+
+function extractJobId(result) {
+  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+  if (!jobId) {
+    console.error('[modifyDiagram] No jobId found in response:', result);
+    throw new Error('No jobId returned from Diagramly API');
+  }
+  return jobId;
 }
 
 // Asynchronous diagram modification - returns jobId for polling
-export async function modifyDiagram(context, diagramCode, errorMessage, diagramType = 'sequence') {
-  const typeInfo = typeMap[diagramType];
+export async function modifyDiagram(
+  context,
+  diagramCode,
+  errorMessage,
+  diagramType = 'sequence',
+  options = {},
+) {
+  const typeInfo = getTypeInfo(diagramType);
 
   const command = `Please resolve the issue with minimal code modifications. Preserve the original style and comments. Only address the errors; if the code lacks clarity, use the fewest words possible to improve it.`;
 
   const diagramData = {
     diagramCode,
     diagramType: typeInfo.diagramType,
+    languageKey: typeInfo.languageKey,
     command,
     errorMessage,
-    teamId: context.teamId,
     subTypeKey: typeInfo.subTypeKey,
+    ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.disableReasoning !== undefined
+      ? { disableReasoning: options.disableReasoning }
+      : {}),
   };
 
   const result = await callDiagramly(context, `/api/chat/modify-async`, diagramData);
 
-  const jobId = result?.jobId || result?.data?.jobId || result?.id;
+  return { jobId: extractJobId(result) };
+}
 
-  if (!jobId) {
-    console.error('[modifyDiagram] No jobId found in response:', result);
-    throw new Error('No jobId returned from Diagramly API');
+export async function modifyDiagramWithCommand(context, request) {
+  if (!request.diagramId?.trim()) {
+    throw new Error('Missing diagramId');
+  }
+  if (!request.command?.trim()) {
+    throw new Error('Missing diagram modification command');
   }
 
-  return { jobId };
+  const typeInfo = getTypeInfo(request.diagramType);
+  const result = await callDiagramly(
+    context,
+    '/api/chat/modify-version-async',
+    {
+      diagramId: request.diagramId,
+      diagramCode: request.diagramCode,
+      diagramType: typeInfo.diagramType,
+      languageKey: typeInfo.languageKey,
+      command: request.command,
+      subTypeKey: typeInfo.subTypeKey,
+      ...(request.errorMessage !== undefined
+        ? { errorMessage: request.errorMessage }
+        : {}),
+      ...(request.model !== undefined ? { model: request.model } : {}),
+      ...(request.disableReasoning !== undefined
+        ? { disableReasoning: request.disableReasoning }
+        : {}),
+    },
+  );
+
+  return { jobId: extractJobId(result) };
 }
 
 export async function chat(context, messages) {
   const response = await callDiagramly(context, `/api/chat/messages`, {messages});
 
   return { messages: response.messages };
+}
+
+export async function ensureDiagramlyDiagram(
+  context,
+  diagramCode,
+  diagramType = 'sequence',
+  title,
+  diagramId,
+) {
+  const typeInfo = getTypeInfo(diagramType);
+  const result = await callDiagramly(context, '/api/chat/ensure-diagram', {
+    ...(diagramId ? { diagramId } : {}),
+    ...(diagramCode ? { diagramCode } : {}),
+    ...(title ? { title } : {}),
+    languageKey: typeInfo.languageKey,
+    subTypeKey: typeInfo.subTypeKey,
+  });
+
+  if (!result?.diagramId) {
+    throw new Error('No diagramId returned from Diagramly API');
+  }
+
+  return result;
+}
+
+export async function getDiagramlyVersions(context, diagramId) {
+  if (typeof diagramId !== 'string' || !diagramId.trim()) {
+    throw new Error('Missing diagramId');
+  }
+
+  return callDiagramly(context, '/api/chat/versions', { diagramId });
+}
+
+export async function restoreDiagramlyVersion(context, diagramId, versionId) {
+  if (typeof diagramId !== 'string' || !diagramId.trim()) {
+    throw new Error('Missing diagramId');
+  }
+  if (typeof versionId !== 'string' || !versionId.trim()) {
+    throw new Error('Missing versionId');
+  }
+
+  return callDiagramly(context, '/api/chat/restore-version', {
+    diagramId,
+    versionId,
+  });
 }
 
 export async function getDiagram(context, diagramId) {
@@ -92,85 +166,43 @@ export async function callDiagramly(context, uri, payload) {
   const baseUrl = context.env.DIAGRAMLY_BACKEND_API_BASE_URL;
   const url = `${baseUrl}${uri}`;
 
-  try {
-    const userId = context.accountId;
-    const teamId = context.cloudId;
-
-    const diagramlyApiKey = context.env.DIAGRAMLY_API_KEY;
-    if(!diagramlyApiKey) {
-      throw new Error('Diagramly API key is not configured');
-    }
-
-    const diagramResponse = await fetch(url, {
-      method: payload ? 'POST' : 'GET',
-      headers: {
-        'Content-Type': payload ? 'application/json' : undefined,
-        'x-api-key': diagramlyApiKey,
-        'x-external-id': userId,
-        'x-team-id': teamId
-      },
-      body: payload ? JSON.stringify(payload) : undefined
-    });
-
-    if (!diagramResponse.ok) {
-      const errorBody = await diagramResponse.text();
-      console.error('[callDiagramly] API error:', diagramResponse.status, '-', errorBody);
-      throw new Error(`Diagramly API request failed with status ${diagramResponse.status}, body: ${errorBody}`);
-    }
-
-    const responseText = await diagramResponse.text();
-
-    let diagramResult;
-    try {
-      diagramResult = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('[callDiagramly] Failed to parse JSON:', parseError);
-      throw new Error(`Failed to parse Diagramly API response as JSON: ${responseText.substring(0, 200)}`);
-    }
-
-    return diagramResult;
-
-  } catch (error) {
-    console.error('[callDiagramly] Error:', error.message);
-    throw error;
+  const userId = context.accountId;
+  const cloudId = context.cloudId;
+  if (typeof cloudId !== 'string' || !cloudId.trim()) {
+    throw new Error('Missing cloudId in Diagramly request context');
   }
-}
 
-const getPrompt = (diagramType, title, content, userPrompt) => {
-  const para1 = content
-  const para2 = userPrompt || 'the full document';
+  const diagramlyApiKey = context.env.DIAGRAMLY_API_KEY;
+  if(!diagramlyApiKey) {
+    throw new Error('Diagramly API key is not configured');
+  }
 
-  const diagramCommandMap = {
-    'sequence': `
-      Please read the given Confluence page content, model the process and create the sequence diagram in ZenUML language. This diagram will be integrated into Confluence pages, so ensure it's clear and professional.
+  const diagramResponse = await fetch(url, {
+    method: payload ? 'POST' : 'GET',
+    headers: {
+      'Content-Type': payload ? 'application/json' : undefined,
+      'x-api-key': diagramlyApiKey,
+      'x-external-id': userId,
+      'x-team-id': cloudId
+    },
+    body: payload ? JSON.stringify(payload) : undefined
+  });
 
-      Confluence page:
+  if (!diagramResponse.ok) {
+    const errorBody = await diagramResponse.text();
+    console.error('[callDiagramly] API error:', diagramResponse.status, '-', errorBody);
+    throw new Error(`Diagramly API request failed with status ${diagramResponse.status}, body: ${errorBody}`);
+  }
 
-      Title: \`${title}\`
+  const responseText = await diagramResponse.text();
 
-      Content:
-      \`\`\`
-      [${para1}]
-      \`\`\`
+  let diagramResult;
+  try {
+    diagramResult = JSON.parse(responseText);
+  } catch (parseError) {
+    console.error('[callDiagramly] Failed to parse JSON:', parseError);
+    throw new Error(`Failed to parse Diagramly API response as JSON: ${responseText.substring(0, 200)}`);
+  }
 
-      Key section or topic for the sequence diagram is [${para2}], ignore irrelevant content.
-
-    `,
-    'mermaid': `
-      Please read the given Confluence page content, model the process and create the flow chart diagram in Mermaid language. This diagram will be integrated into Confluence pages, so ensure it's clear and professional. Mermaid language:
-
-        Confluence page:
-
-        Title: \`${title}\`
-
-        Content:
-        \`\`\`
-        [${para1}]
-        \`\`\`
-
-        Key section or topic for the flow chart is [${para2}], ignore irrelevant content.
-
-      `,
-  };
-  return diagramCommandMap[diagramType];
+  return diagramResult;
 }

@@ -1,3 +1,9 @@
+## [2026-06-04] - Release
+- Triggered release pipeline for diagramly (retrigger — PR #216 draft was skipped by cancelled E2E shard)
+
+## [2026-06-01] - Release
+- Triggered release pipeline for diagramly
+
 ## [2026-04-28] - Release
 - Triggered release pipeline to activate STRIPE_WEBHOOK_SECRET in production
 

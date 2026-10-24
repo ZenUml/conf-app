@@ -3,11 +3,19 @@ import {CustomContentStorageProvider} from "@/model/ContentProvider/CustomConten
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import ApWrapper2 from "@/model/ApWrapper2";
+import { markCsatPending } from "@/utils/csat";
 import { syncCustomContent } from "@/services/CustomContent";
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
-import macroMetrics from '@/services/MacroMetrics';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
+import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
+import { isValidCustomContentId } from '@/utils/customContentId';
+import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason, snapshotFailureDetail } from '@/model/SnapshotAttachment';
+import { getEditorMutationSummary } from '@/utils/analytics/editorMutationTelemetry';
+import { markEditorSaved } from '@/utils/analytics/editorCloseOutcome';
+import { recordPublishStep } from '@/utils/analytics/publishTiming';
+import { toMacroType } from '@/utils/byline/pageDiagrams';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -16,6 +24,16 @@ export class LegacyLoadBlockedSaveError extends Error {
   constructor(message = 'Save refused: legacy content failed to load.') {
     super(message);
     this.name = 'LegacyLoadBlockedSaveError';
+  }
+}
+
+// conf-app#320: thrown by saveToPlatform when the persistence layer returned no
+// usable customContentId. Editor save handlers catch it via their generic
+// catch (toast + keep the editor open for retry); the autosave path swallows it.
+export class InvalidSavedContentIdError extends Error {
+  constructor(message = 'Save failed: persistence returned no usable customContentId.') {
+    super(message);
+    this.name = 'InvalidSavedContentIdError';
   }
 }
 
@@ -30,9 +48,26 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     throw new LegacyLoadBlockedSaveError();
   }
 
+  // Publish/save latency: start the clock at the top of the real save work so
+  // save_duration_ms reflects the full user-perceived publish (custom-content
+  // save round-trip + getMacroData). Read once, just before emitting the
+  // success event, so the post-event syncCustomContent (D1 mirror) is excluded.
+  const saveStartedAt = performance.now();
+
   console.log('Saving diagram to platform content provider', diagram);
   const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
   const customContent = await customContentStorageProvider.save(diagram);
+
+  // conf-app#320 boundary invariant: never treat a save as successful without a
+  // usable id. createCustomContentV2/updateCustomContentV2 now throw on an
+  // id-less response, so this normally can't trip — but the success analytics
+  // and the caller's macro-config writeback below both depend on a real id, so
+  // fail closed here rather than emit an optimistic macro_create_succeeded and
+  // return String(undefined) === "undefined" for the config.
+  if (!isValidCustomContentId(customContent?.id)) {
+    throw new InvalidSavedContentIdError();
+  }
+
   const macroData = await apWrapper.getMacroData();
 
   // Identity for the D1 CustomContent mirror's macroUuid column. localId is
@@ -49,14 +84,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
 
   // Analytics: embed editor handles its own tracking
   if (diagram.diagramType !== DiagramType.Embed) {
-    const DIAGRAM_TYPE_TO_MACRO_TYPE: Record<string, MacroTypeValue> = {
-      [DiagramType.Sequence]: 'sequence',
-      [DiagramType.Mermaid]:  'mermaid',
-      [DiagramType.PlantUml]: 'plantuml',
-      [DiagramType.Graph]:    'graph',
-      [DiagramType.OpenApi]:  'openapi',
-    };
-    const macroType: MacroTypeValue = DIAGRAM_TYPE_TO_MACRO_TYPE[diagram.diagramType] ?? 'none';
+    const macroType = toMacroType(diagram.diagramType) as MacroTypeValue;
 
     // Always identify analytics by the actually-saved customContent.id, not by
     // whatever the Forge context currently advertises: for first save the context
@@ -72,12 +100,22 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
       attachment_name: `zenuml-${savedId}.png`,
     };
 
+    const save_duration_ms = Math.round(performance.now() - saveStartedAt);
+
+    // The save is durable: a host close from here on is not a cancellation.
+    // Marked here, not on the EventBus 'saved' signal, because every editor
+    // emits that only after view.submit() resolves — by then view.onClose
+    // may already have fired.
+    markEditorSaved();
+
     if (isNew) {
       trackAnalyticsEvent("macro_create_succeeded", {
         feature_area: "macro",
         surface: "editor",
         macro_type: macroType,
         operation_mode: "create",
+        save_duration_ms,
+        ...getCreationFlowProps(),
         ...savedIdProps,
       });
     } else {
@@ -86,15 +124,89 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         surface: "editor",
         macro_type: macroType,
         operation_mode: "edit",
+        save_duration_ms,
+        ...getEditorMutationSummary(),
         ...savedIdProps,
       });
     }
+    markRecentMacroActivity(isNew ? 'create' : 'edit');
+    markCsatPending();
+
+    // Diagram source snapshot attachment (docs/superpowers/plans/
+    // 2026-07-18-diagram-source-snapshot-attachments.md, Task 3): a per-page
+    // JSON snapshot, written at THIS save (write permission on the current
+    // page is guaranteed here) alongside the existing PNG backup. Snapshot
+    // failures must never fail the save — every step below is wrapped.
+    //
+    // Publish timing (snapshot_ms): the page-id lookup plus the upload. Set only
+    // once the upload is reached, so a save that took no snapshot reports none.
+    let snapshotStartedAt: number | undefined;
+    try {
+      const snapshot = buildSnapshot(diagram, savedId, customContent.version?.number);
+      if (snapshot) {
+        const startedAt = performance.now();
+        const pageId = await apWrapper._getCurrentPageId();
+        if (pageId) {
+          snapshotStartedAt = startedAt;
+          await uploadSnapshot(pageId, snapshot);
+          trackAnalyticsEvent('snapshot_created', {
+            feature_area: 'macro',
+            surface: 'editor',
+            macro_type: macroType,
+            snapshot_trigger: 'save',
+            custom_content_id: savedId,
+            attachment_name: snapshotAttachmentName(savedId),
+          });
+        }
+      }
+    } catch (e) {
+      // #398 (remaining site): extract the Confluence exception class BEFORE
+      // truncating to 200 chars — the raw v1 error envelope alone is ~180
+      // chars, so a plain substring here (the original defect) cut every
+      // reason off mid-sentence inside the wrapper. SnapshotAttachment.ts's
+      // maybeBackfillSnapshot path already fixed this; reuse its extractor
+      // rather than re-deriving the parse here.
+      const { failure_reason, confluence_error_class } = snapshotFailureDetail(e);
+      // On save the editor has write permission, so a 404 here is the expected
+      // "page not published yet" draft case (the save-path/backfill self-heals
+      // after publish) — record it as a skip, not a failure. Anything else,
+      // including a 401/403 (an app-auth write anomaly the editor's own
+      // permission would not explain), stays a genuine snapshot_create_failed.
+      if (snapshotSkipReason(e) === 'page_not_published') {
+        trackAnalyticsEvent('snapshot_backfill_skipped', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: macroType,
+          snapshot_trigger: 'save',
+          custom_content_id: savedId,
+          snapshot_skip_reason: 'page_not_published',
+          failure_reason,
+          confluence_error_class,
+        });
+      } else {
+        trackAnalyticsEvent('snapshot_create_failed', {
+          feature_area: 'macro',
+          surface: 'editor',
+          macro_type: macroType,
+          snapshot_trigger: 'save',
+          custom_content_id: savedId,
+          failure_reason,
+          confluence_error_class,
+        });
+      }
+    } finally {
+      // Failures count too: a slow failed upload is still time the user waited.
+      if (snapshotStartedAt !== undefined) recordPublishStep('snapshot_ms', snapshotStartedAt);
+    }
   }
 
-  // Report metrics on save (updates KV cache for all users)
-  macroMetrics.reportMacroMetrics().catch(e => console.debug('Metrics reporting failed (non-critical)', e));
-
+  // NOTE: macro-metrics reporting is NOT done here. Saving submits/closes the
+  // editor, tearing down the iframe and killing any in-flight enumeration
+  // (which for a large space takes ~10s). It runs at editor-open instead
+  // (forgeIndex), where the editing session gives it time to complete.
+  const mirrorSyncStartedAt = performance.now();
   await syncCustomContent(customContent, diagram.diagramType, macroUuid);
+  recordPublishStep('mirror_sync_ms', mirrorSyncStartedAt);
 
   return String(customContent.id);
 }

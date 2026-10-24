@@ -1,0 +1,284 @@
+<template>
+  <div
+    v-if="visible"
+    class="paywall-banner"
+    role="status"
+    aria-live="polite"
+    data-testid="paywall-warning-banner"
+  >
+    <svg class="paywall-banner__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 9v4M12 17h.01" />
+      <path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+    </svg>
+    <span v-if="audience === 'space_admin'" class="paywall-banner__text">
+      You administer this space, and it is over the ZenUML Lite diagram limit
+      ({{ macroCount }} of {{ macrosLimit }}). Upgrade to Full before it affects your team.
+    </span>
+    <span v-else class="paywall-banner__text">
+      This space is over the ZenUML Lite diagram limit ({{ macroCount }} of {{ macrosLimit }}).
+      Ask a site admin to upgrade to Full before it affects your team.
+    </span>
+    <!-- Space admins get a purchase path they can execute alone: the Enterprise
+         Bundle is per-space and paid by card, so unlike the Marketplace upgrade
+         it needs no Confluence SITE admin. Everyone else gets the advocacy copy,
+         because for them the next step really is to ask someone. -->
+    <div class="paywall-banner__actions">
+      <button
+        class="paywall-banner__btn paywall-banner__btn--primary"
+        data-testid="paywall-banner-plan-usage"
+        @click="onViewPlanUsage"
+      >View plan and usage</button>
+      <button
+        v-if="audience === 'space_admin'"
+        class="paywall-banner__btn paywall-banner__btn--secondary"
+        data-testid="paywall-banner-unlock-space"
+        @click="onUnlockSpace"
+      >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
+import {
+  trackUpgradeEvent,
+  UpgradeEventName,
+  bundleClientReferenceId,
+} from '@/utils/upgradeTracking'
+import { getView, openUrl, navigateToAppPage } from '@/model/globals/forgeGlobal'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
+import {
+  deriveWarningBannerIdentity,
+  readTargetingMarker,
+  readMacroActivityMarker,
+  recordBannerShown,
+  isWarningBannerVisible,
+  bannerAudience,
+  readImpressionMarker,
+  type WarningBannerIdentity,
+  type BannerAudience,
+} from '@/utils/paywall/warningBanner'
+import { readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
+
+/**
+ * `isSpaceAdmin` is supplied by the page-banner host (routes/pageBanner.ts)
+ * rather than re-derived here, so the route that admitted this banner is its
+ * single source of truth.
+ */
+const props = withDefaults(defineProps<{ isSpaceAdmin?: boolean }>(), { isSpaceAdmin: false })
+
+// The page-banner iframe has NO live macro context — `macrosCreated` in the
+// composable is 0 here. Everything that describes the space (count, severity,
+// spaceKey) comes from the targeting marker the macro iframe wrote earlier; we
+// only borrow the composable's PURE url builders (they depend on getClientDomain
+// only, not on initialize() having run).
+const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
+const customerSuccess = useCustomerSuccessService()
+
+const macrosLimit = MACROS_LIMIT
+
+// Evaluate the visibility gate SYNCHRONOUSLY in setup so the first render is
+// already correct — no false→true flash, and the gate result drives v-if from
+// frame one. Side effects (impression analytics, or view.close on a fail)
+// happen in onMounted. forgeIndex already gated cheaply before mounting us;
+// this re-check guards the standalone / raced case and fails closed.
+let identity: WarningBannerIdentity = { clientDomain: 'unknown', spaceKey: 'unknown' }
+let severity: 'none' | 'warning' | 'critical' = 'warning'
+let passesGate = false
+let macroCountValue = 0
+const isSpaceAdmin = props.isSpaceAdmin
+let spaceAdminCount: number | undefined
+// Position of THIS impression, read once BEFORE recordBannerShown bumps
+// the marker: ordinal = prior showCount + 1; gap = whole hours since the
+// previous impression (absent on a first impression).
+let showCount = 1
+let hoursSinceLastShown: number | undefined
+try {
+  identity = deriveWarningBannerIdentity()
+  const targeting = readTargetingMarker(identity)
+  spaceAdminCount = readProbeMarker(identity)?.adminCount
+  const now = Date.now()
+  const impression = readImpressionMarker(identity)
+  showCount = (impression?.showCount ?? 0) + 1
+  if (impression?.lastShownAt) {
+    const lastShownMs = Date.parse(impression.lastShownAt)
+    if (Number.isFinite(lastShownMs)) hoursSinceLastShown = Math.round((now - lastShownMs) / 3_600_000)
+  }
+  passesGate =
+    !!targeting &&
+    isWarningBannerVisible(
+      targeting,
+      readMacroActivityMarker(identity),
+      now,
+      isSpaceAdmin
+    )
+  if (passesGate && targeting) {
+    macroCountValue = targeting.macroCount
+    severity = targeting.severity
+  }
+} catch (e) {
+  console.warn('[paywall-banner] gate evaluation failed; closing', e)
+  passesGate = false
+}
+
+const audience: BannerAudience = bannerAudience(isSpaceAdmin)
+
+const visible = ref(passesGate)
+const macroCount = ref(macroCountValue)
+
+async function closeBannerView() {
+  const activeView = await getView()
+  await activeView.close()
+}
+
+onMounted(() => {
+  // Mirrors CsatBanner: any failure on the pageBanner path must end in
+  // view.close() — never a stranded empty banner frame.
+  try {
+    if (!passesGate) {
+      void closeBannerView()
+      return
+    }
+    // Impression: bump the show counter and emit the denominator event.
+    recordBannerShown(identity)
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_BANNER_SHOWN, {
+      surface: 'page_banner',
+      severity,
+      ...bannerContext(),
+    })
+  } catch (e) {
+    console.warn('[paywall-banner] mount failed; closing', e)
+    void closeBannerView()
+  }
+})
+
+/** Analytics context derived from the marker (NOT getUpgradeContext(), whose
+ * composable refs are 0 in this iframe). */
+function bannerContext() {
+  return {
+    macro_count: macroCount.value,
+    macro_limit: macrosLimit,
+    space_key: identity.spaceKey,
+    macro_usage_pct: Math.round((macroCount.value / macrosLimit) * 100),
+    // Phase 5b: every banner event carries the audience so the funnel splits by
+    // who was actually addressed. Without this the two populations are pooled
+    // and the whole experiment is unreadable.
+    is_space_admin: isSpaceAdmin,
+    banner_audience: audience,
+    ...(spaceAdminCount === undefined ? {} : { space_admin_count: spaceAdminCount }),
+    // Impression history remains available for analytics; it never controls visibility.
+    show_count: showCount,
+    ...(hoursSinceLastShown === undefined ? {} : { hours_since_last_shown: hoursSinceLastShown }),
+  }
+}
+
+/**
+ * Primary CTA (Lite paywall redesign phase 2): the banner's entry point into
+ * the site-level "Plan and usage" page, which is where the Request-Full
+ * guidance flow lives. Falls back to the Marketplace upgrade URL in the rare
+ * case navigateToAppPage can't resolve our own app/environment ids from the
+ * running iframe's location (see forgeGlobal.ts buildAppPageUrl).
+ */
+async function onViewPlanUsage() {
+  trackAnalyticsEvent('plan_usage_viewed', {
+    feature_area: 'upgrade',
+    surface: 'page_banner',
+    entry_point: 'route',
+    ...bannerContext(),
+  })
+  const navigated = await navigateToAppPage('zenuml-plan-usage')
+  if (!navigated) {
+    await openUrl(customerSuccess.upgradeUrl.value)
+  }
+}
+
+/**
+ * Space-admin-only CTA. Goes straight to the Enterprise Bundle checkout because
+ * that is the one purchase a space admin can complete without escalating: it is
+ * scoped to the space they already administer and paid by card. The Marketplace
+ * upgrade — the only other rail — requires a Confluence SITE admin, which a
+ * space admin is not, and which we cannot detect at all.
+ */
+async function onUnlockSpace() {
+  const bundleUrl = customerSuccess.enterpriseBundleUrl.value
+  const reference = bundleClientReferenceId(bundleUrl)
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
+    surface: 'page_banner',
+    severity,
+    bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
+    ...(reference !== undefined ? { client_reference_id: reference } : {}),
+    ...bannerContext(),
+  })
+  await openUrl(bundleUrl)
+}
+</script>
+
+<style scoped>
+.paywall-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  background: #FFFAE6;
+  border-bottom: 1px solid #F5CD47;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  color: #172B4D;
+  line-height: 1.4;
+  width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.paywall-banner__icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #974F0C;
+}
+
+.paywall-banner__text {
+  flex: 1;
+  color: #44546F;
+  min-width: 0;
+}
+
+.paywall-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.paywall-banner__btn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  white-space: nowrap;
+}
+
+.paywall-banner__btn--primary {
+  background: #974F0C;
+  color: #fff;
+}
+.paywall-banner__btn--primary:hover {
+  background: #7A3F0A;
+}
+
+.paywall-banner__btn--secondary {
+  background: transparent;
+  color: #44546F;
+  border: 1px solid #8590A2;
+}
+.paywall-banner__btn--secondary:hover {
+  background: #F1F2F4;
+  color: #172B4D;
+}
+
+</style>

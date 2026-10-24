@@ -1,6 +1,6 @@
 // openapi-edit:0..4 — Edit flow for an existing OpenAPI / Swagger macro.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,
@@ -13,9 +13,10 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('OpenAPI / Swagger — Edit flow', () => {
+test.describe('OpenAPI / Swagger — Edit flow', { tag: ['@test:openapi-edit', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@fullscreen', '@openapi'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('openapi'), 'openapi not in profile');
 
@@ -66,12 +67,17 @@ test.describe('OpenAPI / Swagger — Edit flow', () => {
     expect(result).toBe(false);
   });
 
-  // openapi-edit:4 — Close dirty.
-  test('openapi-edit:4 — re-open dirty: synthetic beforeunload is true', async ({ page }) => {
+  // openapi-edit:4 — Close dirty. Asserts the draft rather than beforeunload,
+  // for the reason spelled out in src/utils/closeGuard.ts (the listener was
+  // deliberately removed; the localStorage draft replaced it).
+  test('openapi-edit:4 — a dirty re-opened editor persists a recoverable draft', async ({ page }) => {
     await seed(page, `openapi-dirty-${Date.now()}`);
     await openEditModal(page, 'openapi');
     await dirtyEditor(page, 'openapi');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result).toBe(true);
+    // makeDebouncedDraftSaver runs 500ms after the last change.
+    await page.waitForTimeout(1500);
+    const draft = await readPersistedDraft(bridgeModalFrame(page));
+    expect(draft, 'an unsaved OpenAPI edit should leave a recoverable draft').not.toBeNull();
+    expect(draft!.code).toContain('Dirty Edit');
   });
 });

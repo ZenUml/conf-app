@@ -1,169 +1,105 @@
 #!/usr/bin/env python3
-"""Forge install count + delta vs prior snapshots.
-
-Usage:
-    python3 check.py [lite|full|diagramly|all]
-
-Stores per-variant snapshots in ~/.claude/cache/forge-installs/<variant>-<iso-ts>.tsv
-and compares the latest one against snapshots from at least 1 day and 7 days ago
-to compute add/remove deltas. First run for a variant has no baseline — it just
-saves the snapshot and tells you to rerun later.
-"""
-from __future__ import annotations
-
-import os
-import re
-import subprocess
-import sys
-from datetime import datetime, timedelta
+"""Read-only Forge snapshots; failed reads never become removals."""
+import argparse, collections, datetime as dt, json, os, shlex, subprocess, sys
 from pathlib import Path
-
-VARIANTS = {
-    "lite":      ("8ad26115-211f-4216-971b-0540f606303d", "ZenUML Diagrams and Open API Lite"),
-    "full":      ("d9e4002b-120b-426b-834b-402a4a5adce7", "ZenUML Diagrams for Confluence"),
-    "diagramly": ("01ede8b1-4e88-451a-b9ef-89eeef93afaf", "Diagramly For Confluence"),
-}
-
-ANSI = re.compile(r"\x1b\[[0-9;]*m")
-CACHE_DIR = Path.home() / ".claude" / "cache" / "forge-installs"
+ROOT = Path(__file__).resolve().parents[4]
+REGISTRY = Path(__file__).resolve().parents[2] / 'customer-data/products.json'
 
 
-def fetch(variant: str) -> list[dict]:
-    """Run `forge install list` for the given variant and parse rows."""
-    app_id, _ = VARIANTS[variant]
-    env = os.environ.copy()
-    env["APP_ID"] = app_id
-    proc = subprocess.run(
-        ["npx", "forge", "install", "list"],
-        env=env, capture_output=True, text=True, timeout=300,
-    )
-    if proc.returncode != 0:
-        sys.stderr.write(proc.stderr or proc.stdout)
-        sys.exit(f"forge install list failed for {variant} (exit {proc.returncode})")
-    cleaned = ANSI.sub("", proc.stdout)
-    rows = []
-    for line in cleaned.splitlines():
-        # Forge's table separator is the box-drawing char │
-        cols = [c.strip() for c in line.split("│")]
-        # A data row has the env col (index 2) populated with a known value
-        if len(cols) >= 7 and cols[2] in ("production", "staging", "development"):
-            rows.append({
-                "id": cols[1],
-                "env": cols[2],
-                "site": cols[3],
-                "version": cols[5],
-            })
+def parse_installations(raw):
+    # Forge's register-installation-commands + CommandLineUI.table(json) emit this array.
+    rows = json.loads(raw)
+    if not isinstance(rows, list):
+        raise ValueError('Expected Forge install-list JSON array')
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict) or any(not isinstance(row.get(k), str) or not row[k]
+                                            for k in ('id', 'environment', 'site')):
+            raise ValueError('Incomplete record; snapshot rejected')
+        if row['id'] in seen:
+            raise ValueError('Duplicate installation ID')
+        seen.add(row['id'])
     return rows
 
 
-def save_snapshot(variant: str, rows: list[dict]) -> Path:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    path = CACHE_DIR / f"{variant}-{ts}.tsv"
-    with path.open("w") as f:
-        for r in rows:
-            f.write(f"{r['id']}\t{r['env']}\t{r['site']}\t{r['version']}\n")
-    return path
+def sites(rows):
+    return {(r['environment'], r['site']) for r in rows}
 
 
-def load_snapshot(path: Path) -> list[dict]:
-    rows = []
-    for line in path.read_text().splitlines():
-        parts = line.split("\t")
-        if len(parts) >= 4:
-            rows.append({"id": parts[0], "env": parts[1], "site": parts[2], "version": parts[3]})
-    return rows
+def compare(current, baseline):
+    now, before = sites(current), sites(baseline)
+    return {'added': [dict(environment=e, site=s) for e, s in sorted(now - before)],
+            'removed': [dict(environment=e, site=s) for e, s in sorted(before - now)]}
 
 
-def find_prior_snapshot(variant: str, min_age_days: int, exclude: Path | None) -> Path | None:
-    """Return the newest snapshot for `variant` at least `min_age_days` old.
-
-    `exclude` lets us avoid picking the snapshot we just wrote.
-    """
-    cutoff = datetime.now() - timedelta(days=min_age_days)
-    best = None
-    for p in CACHE_DIR.glob(f"{variant}-*.tsv"):
-        if exclude and p.resolve() == exclude.resolve():
-            continue
-        m = re.search(r"(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})", p.name)
-        if not m:
-            continue
-        ts = datetime.strptime(m.group(1), "%Y-%m-%dT%H-%M-%S")
-        if ts <= cutoff and (best is None or ts > best[0]):
-            best = (ts, p)
-    return best[1] if best else None
-
-
-def diff(current: list[dict], prior: list[dict]) -> tuple[list[dict], list[dict]]:
-    cur_by_id = {r["id"]: r for r in current}
-    prior_by_id = {r["id"]: r for r in prior}
-    added = [cur_by_id[i] for i in cur_by_id if i not in prior_by_id]
-    removed = [prior_by_id[i] for i in prior_by_id if i not in cur_by_id]
-    return added, removed
-
-
-def report_variant(variant: str) -> None:
-    app_id, app_name = VARIANTS[variant]
-    print(f"\n=== {variant}  ({app_name}, appId={app_id}) ===")
-    rows = fetch(variant)
-    snap = save_snapshot(variant, rows)
-
-    counts: dict[str, int] = {}
-    for r in rows:
-        counts[r["env"]] = counts.get(r["env"], 0) + 1
-    total = sum(counts.values())
-    print("  Current installs:")
-    for e in ("production", "staging", "development"):
-        print(f"    {e:<12}{counts.get(e, 0):>5}")
-    print(f"    {'Total':<12}{total:>5}")
-
-    for label, days in (("past 1 day", 1), ("past 7 days", 7)):
-        prior_path = find_prior_snapshot(variant, days, exclude=snap)
-        if prior_path is None:
-            print(f"  Δ {label}: no baseline yet — snapshot saved, rerun in {days}d for a delta")
-            continue
-        prior_rows = load_snapshot(prior_path)
-        added, removed = diff(rows, prior_rows)
-        # Make the comparison time human-friendly
-        m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2}-\d{2}-\d{2})", prior_path.name)
-        when = f"{m.group(1)} {m.group(2).replace('-', ':')}" if m else prior_path.name
-        sign_added = f"+{len(added)}" if added else "0"
-        sign_removed = f"-{len(removed)}" if removed else "0"
-        net = len(added) - len(removed)
-        net_sign = f"{net:+d}" if net != 0 else "0"
-        print(f"  Δ {label}  (vs snapshot from {when}, net {net_sign}):")
-        if added:
-            print(f"    Added ({sign_added}):")
-            for a in added:
-                print(f"      + {a['env']:<12} {a['site']}")
-        else:
-            print(f"    Added: 0")
-        if removed:
-            print(f"    Removed ({sign_removed}):")
-            for r in removed:
-                print(f"      − {r['env']:<12} {r['site']}")
-        else:
-            print(f"    Removed: 0")
-
-
-def main() -> None:
-    args = sys.argv[1:] or ["all"]
-    if "all" in args:
-        variants = ["lite", "full", "diagramly"]
-    else:
-        variants = []
-        for v in args:
-            if v not in VARIANTS:
-                sys.exit(f"Unknown variant: {v}; valid: lite | full | diagramly | all")
-            variants.append(v)
-
-    print(f"Snapshot dir: {CACHE_DIR}")
-    for v in variants:
+def snapshot_report(product, rows, directory, now):
+    directory.mkdir(parents=True, exist_ok=True)
+    current = {'schema_version': 1, 'app_id': product['forge_app_id'], 'product': product['key'],
+               'queried_at': now.isoformat(), 'scope': 'all environments', 'read_status': 'ok', 'rows': rows}
+    prior = []
+    for path in directory.glob(product['key'] + '-*.json'):
         try:
-            report_variant(v)
-        except subprocess.TimeoutExpired:
-            print(f"\n=== {v} === timeout — large variant, rerun with longer timeout")
+            candidate = json.loads(path.read_text())
+            if any(candidate.get(k) != current[k] for k in ('schema_version', 'app_id', 'scope', 'read_status')):
+                continue
+            observed = dt.datetime.fromisoformat(candidate['queried_at'])
+            parse_installations(json.dumps(candidate['rows']))
+            if observed < now:
+                prior.append((observed, candidate))
+        except (ValueError, KeyError, TypeError):
+            continue
+    deltas = {}
+    for days in (1, 7):
+        eligible = [p for p in prior if p[0] <= now - dt.timedelta(days=days)]
+        if not eligible:
+            deltas[str(days)] = {'read_status': 'unavailable', 'reason': 'no compatible baseline'}
+            continue
+        observed, before = max(eligible, key=lambda p: p[0])
+        deltas[str(days)] = {'read_status': 'ok', 'observed_interval': [observed.isoformat(), now.isoformat()],
+                            **compare(rows, before['rows'])}
+    path = directory / (product['key'] + '-' + now.strftime('%Y%m%dT%H%M%S%fZ') + '.json')
+    temp = path.with_suffix('.tmp'); temp.write_text(json.dumps(current, ensure_ascii=False, indent=2)); temp.replace(path)
+    return {'product': product['key'], 'source': 'forge install list --json', 'source_ref': str(path),
+            'read_status': 'ok' if rows else 'empty', 'queried_at': now.isoformat(),
+            'counts': dict(collections.Counter(r['environment'] for r in rows)),
+            'unique_sites_by_environment': len(sites(rows)), 'installations': len(rows), 'deltas': deltas, 'rows': rows}
 
 
-if __name__ == "__main__":
-    main()
+def main():
+    products = json.loads(REGISTRY.read_text())['products']
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('product', nargs='?', default='all', choices=['all'] + [p['key'] for p in products])
+    parser.add_argument('--snapshot-dir', type=Path, default=Path.home() / '.claude/cache/forge-installs')
+    parser.add_argument('--input', type=Path, help='Validate one product offline; no snapshot writes')
+    args = parser.parse_args()
+    chosen = products if args.product == 'all' else [p for p in products if p['key'] == args.product]
+    if args.input:
+        if len(chosen) != 1:
+            parser.error('--input requires one product')
+        print(json.dumps({'mode': 'offline validation', 'product': args.product,
+                          'rows': parse_installations(args.input.read_text())}, indent=2))
+        return 0
+    results = []
+    for product in chosen:
+        if not product['forge_app_id']:
+            results.append({'product': product['key'], 'read_status': 'unavailable',
+                            'reason': 'Forge identity not configured; query the product separately'})
+            continue
+        try:
+            env = dict(os.environ, APP_ID=product['forge_app_id'])
+            command = shlex.split(os.environ.get('FORGE_CMD', 'npx --no-install forge'))
+            result = subprocess.run(command + ['install', 'list', '--json'], cwd=ROOT, env=env,
+                                    capture_output=True, text=True, timeout=300)
+            if result.returncode:
+                raise RuntimeError('Forge CLI failed')
+            rows = parse_installations(result.stdout)
+            results.append(snapshot_report(product, rows, args.snapshot_dir, dt.datetime.now(dt.timezone.utc)))
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+            results.append({'product': product['key'], 'read_status': 'failed',
+                            'reason': 'Query or snapshot validation failed; no absence/delta inferred'})
+    print(json.dumps({'scope': [p['key'] for p in chosen], 'results': results}, ensure_ascii=False, indent=2))
+    return 1 if any(r['read_status'] == 'failed' for r in results) else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

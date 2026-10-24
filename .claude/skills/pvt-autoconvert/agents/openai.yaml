@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Deeplink AutoConvert"
+  short_description: "Verify and diagnose Embed deeplink autoConvert"
+  default_prompt: "Use $pvt-autoconvert to verify Embed deeplink autoConvert on staging."

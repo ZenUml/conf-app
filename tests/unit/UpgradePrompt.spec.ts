@@ -8,8 +8,11 @@ vi.mock('@/utils/upgradeTracking', () => ({
     MODAL_SHOWN: 'upgrade_modal_shown',
     MODAL_DISMISSED: 'upgrade_modal_dismissed',
     PAYWALL_CONTINUED_EDITING: 'paywall_continued_editing',
+    PAYWALL_CONTINUE_USED: 'paywall_continue_used',
+    PAYWALL_ATTEMPTS_EXHAUSTED: 'paywall_attempts_exhausted',
     ADVOCACY_MESSAGE_COPIED: 'advocacy_message_copied',
     ADVOCACY_DRAFT_PREVIEW_CLICKED: 'advocacy_draft_preview_clicked',
+    EXTENSION_REQUEST_CLICKED: 'extension_request_clicked',
   },
   UIComponent: {
     MODAL: 'modal',
@@ -29,11 +32,21 @@ vi.mock('@/composables/useCustomerSuccessService', () => ({
 }))
 
 vi.mock('@/model/globals/forgeGlobal', () => ({
-  openUrl: vi.fn(),
+  default: {
+    isForge: false,
+    forgeContext: {
+      accountId: 'account-123',
+      extension: {
+        content: { id: 'page-456' },
+      },
+    },
+  },
+  openUrl: vi.fn().mockResolvedValue(undefined),
 }))
 
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import { trackUpgradeEvent } from '@/utils/upgradeTracking'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 const baseProps = {
   visible: true,
@@ -261,6 +274,140 @@ describe('UpgradePrompt', () => {
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith('paywall_continued_editing')
     expect(wrapper.emitted('continueEditing')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('shows the remaining continue attempts when attempts are enforced', () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: {
+        ...baseProps,
+        remainingContinueAttempts: 15,
+      },
+      attachTo: document.body,
+    })
+
+    const continueButton = document.querySelector(
+      '[data-testid="continue-editing-btn"]'
+    ) as HTMLButtonElement
+    expect(continueButton).toBeTruthy()
+    expect(continueButton.textContent).toContain('Continue editing without upgrading (15)')
+    expect(continueButton.getAttribute('title')).toContain(
+      'You have 15 temporary continue attempts left before editing is blocked for you in this space.'
+    )
+
+    wrapper.unmount()
+  })
+
+  it('removes continue editing when continue attempts are exhausted', () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: {
+        ...baseProps,
+        remainingContinueAttempts: 0,
+      },
+      attachTo: document.body,
+    })
+
+    const exhaustedCopy = document.querySelector(
+      '[data-testid="continue-attempts-exhausted"]'
+    ) as HTMLElement
+    expect(exhaustedCopy.textContent).toContain('Request extension to continue editing')
+    expect(exhaustedCopy.textContent).not.toContain('(0)')
+    expect(exhaustedCopy.getAttribute('title')).toContain(
+      'No continue attempts remain. Request an extension or upgrade to keep editing.'
+    )
+    expect(document.querySelector('[data-testid="continue-editing-btn"]')).toBeNull()
+    expect(document.querySelector('[data-testid="request-extension-btn"]')).toBeTruthy()
+    expect(document.querySelector('[data-testid="advocacy-copy-btn"]')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('tracks continue attempt usage and exhaustion when the last attempt is used', async () => {
+    const wrapper = mount(UpgradePrompt, {
+      props: {
+        ...baseProps,
+        remainingContinueAttempts: 1,
+        actionType: 'page_editor',
+      },
+      attachTo: document.body,
+    })
+
+    const continueButton = document.querySelector(
+      '[data-testid="continue-editing-btn"]'
+    ) as HTMLButtonElement
+    continueButton.click()
+    await Promise.resolve()
+
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_continue_used',
+      expect.objectContaining({
+        action_type: 'page_editor',
+        remaining_attempts_before: 1,
+        remaining_attempts_after: 0,
+        storage_source: 'local_storage',
+      })
+    )
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'paywall_attempts_exhausted',
+      expect.objectContaining({
+        action_type: 'page_editor',
+        remaining_attempts_before: 1,
+        remaining_attempts_after: 0,
+        storage_source: 'local_storage',
+      })
+    )
+    expect(wrapper.emitted('continueEditing')).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('opens support request link, copies extension details, and tracks the request click', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+
+    const wrapper = mount(UpgradePrompt, {
+      props: baseProps,
+      attachTo: document.body,
+    })
+
+    const button = document.querySelector('[data-testid="request-extension-btn"]') as HTMLButtonElement
+    button.click()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const copiedMessage = writeText.mock.calls[0][0]
+    expect(copiedMessage).toContain('Request: Temporary Lite editing extension')
+    expect(copiedMessage).toContain('Space key: engineering-architecture')
+    expect(copiedMessage).toContain('Macro count: 105')
+    expect(copiedMessage).toContain('Limit: 100')
+    expect(copiedMessage).toContain('User account ID: account-123')
+    expect(copiedMessage).toContain('Page ID: page-456')
+
+    expect(trackUpgradeEvent).toHaveBeenCalledWith(
+      'extension_request_clicked',
+      expect.objectContaining({
+        ui_component: 'modal',
+        copied_request_details: true,
+        request_url: expect.stringContaining(
+          'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9?'
+        ),
+        macro_count: 100,
+        space_key: 'engineering-architecture',
+      })
+    )
+    const openedUrl = new URL(vi.mocked(openUrl).mock.calls[0][0] as string)
+    expect(`${openedUrl.origin}${openedUrl.pathname}`).toBe(
+      'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9'
+    )
+    expect(openedUrl.searchParams.get('description')).toBe(copiedMessage)
+    expect(openedUrl.searchParams.get('customfield_10070')).toBe('10037')
+
+    const status = document.querySelector('[data-testid="request-extension-status"]') as HTMLElement
+    expect(status.textContent).toContain('pre-filled')
 
     wrapper.unmount()
   })

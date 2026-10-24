@@ -25,6 +25,7 @@
     :enterprise-bundle-url="enterpriseBundleUrl"
     :macro-kind="macroKind"
     :action-type="actionType"
+    :remaining-continue-attempts="remainingContinueAttempts"
     @close="onClose"
     @continue-editing="onContinueEditing"
   />
@@ -35,8 +36,13 @@ import { ref, type Component } from 'vue'
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
+import {
+  getOrCreateContinueAttempts,
+  useContinueAttempt,
+  type ContinueAttemptsIdentity,
+} from '@/utils/paywall/continueAttempts'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     macrosCreated: number
     macrosLimit: number
@@ -49,6 +55,8 @@ withDefaults(
     // modifying scoring-adjacent tests. Production path (mountUnderPaywallGate)
     // requires actionType, so real events are always tagged.
     actionType?: PaywallActionType
+    remainingContinueAttempts?: number
+    continueAttemptsIdentity?: ContinueAttemptsIdentity
   }>(),
   { macroKind: 'unknown', contentProps: () => ({}) }
 )
@@ -59,6 +67,12 @@ const emit = defineEmits<{
 }>()
 
 const modalVisible = ref(true)
+const remainingContinueAttempts = ref(
+  props.remainingContinueAttempts ??
+  (props.continueAttemptsIdentity
+    ? getOrCreateContinueAttempts(props.continueAttemptsIdentity).remainingAttempts
+    : undefined)
+)
 
 function onClose() {
   modalVisible.value = false
@@ -66,6 +80,11 @@ function onClose() {
 }
 
 function onContinueEditing() {
+  if (props.continueAttemptsIdentity) {
+    remainingContinueAttempts.value = useContinueAttempt(
+      props.continueAttemptsIdentity
+    ).remainingAttempts
+  }
   modalVisible.value = false
   emit('continue-editing')
 }

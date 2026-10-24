@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
 
@@ -11,7 +11,7 @@ import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
  * - Validates error detection and error clearing for PlantUML diagrams
  */
 
-test.describe('PlantUML Syntax Error Detection', () => {
+test.describe('PlantUML Syntax Error Detection', { tag: ['@test:plantuml-syntax', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@plantuml'] }, () => {
   // Disable retries for this test suite
   //test.describe.configure({ retries: 0 });
 

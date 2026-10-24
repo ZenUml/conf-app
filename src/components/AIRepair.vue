@@ -25,7 +25,27 @@
       </div>
 
       <div class="flex-1 overflow-hidden p-4 bg-gray-50 flex flex-col">
-        <div v-if="!originalCode || !repairResult" class="flex-1 flex flex-col items-center justify-center text-gray-500">
+        <div
+          v-if="repairError"
+          class="flex-1 flex flex-col items-center justify-center text-center text-gray-600"
+          data-testid="ai-repair-error"
+        >
+          <div class="w-10 h-10 mb-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xl font-semibold">
+            !
+          </div>
+          <p class="font-medium text-gray-800">AI Repair couldn't finish</p>
+          <p class="mt-2 max-w-lg text-sm">{{ repairError }}</p>
+          <button
+            v-if="!hasRetried"
+            class="mt-5 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition-colors"
+            data-testid="ai-repair-retry"
+            @click="triggerAiRepair"
+          >
+            Try a stronger fix
+          </button>
+        </div>
+
+        <div v-else-if="!originalCode || !repairResult" class="flex-1 flex flex-col items-center justify-center text-gray-500">
           <div class="inline-block h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600 mb-4"></div>
           <p>{{ repairStatus || 'Analyzing changes...' }}</p>
           <div v-if="repairProgress > 0" class="mt-2 w-64 bg-gray-200 rounded-full h-2">
@@ -156,7 +176,7 @@
 
       <div class="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
         <button @click="closeDialog" class="px-5 py-2 rounded-md text-gray-600 hover:bg-gray-100 hover:text-gray-800 transition-all font-medium text-sm">
-          Discard
+          {{ repairError && hasRetried ? 'Continue editing' : 'Discard' }}
         </button>
         <button
           @click="applyRepair"
@@ -174,12 +194,28 @@
 import { ref, watch, computed, nextTick, onUnmounted, onBeforeUnmount, Directive } from 'vue';
 import * as Diff from 'diff';
 import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService";
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { MacroTypeValue } from '@/utils/analytics/catalog';
+import {
+  AI_REPAIR_MODEL_STORAGE_KEY,
+  AI_REPAIR_RETRY_MODEL,
+  DEFAULT_AI_REPAIR_MODEL,
+  resolveConfiguredAiModel,
+} from '@/utils/aiModelConfig';
 
 const props = defineProps({
   showDialog: Boolean,
   originalCode: String,
   diagramType: Object,
-  error: [String, Object]
+  error: [String, Object],
+  model: {
+    type: String,
+    default: DEFAULT_AI_REPAIR_MODEL,
+  },
+  disableReasoning: {
+    type: Boolean,
+    default: undefined,
+  },
 });
 
 const emit = defineEmits(['close', 'apply']);
@@ -207,6 +243,8 @@ interface DiffRow {
 }
 
 const repairResult = ref<string | null>(null);
+const repairError = ref<string | null>(null);
+const hasRetried = ref(false);
 const diffRows = ref<DiffRow[]>([]);
 
 const leftScrollRef = ref<HTMLElement | null>(null);
@@ -369,6 +407,15 @@ const getFinalCode = () => {
 const applyRepair = () => {
   if (diffRows.value.length > 0) {
     const finalCode = getFinalCode();
+    wasApplied.value = true;
+    const hasModifiedLines = diffRows.value.some(r => r.customContent !== null);
+    const hasRejectedLines = diffRows.value.some(r => r.hasChange && !r.accepted);
+    trackAnalyticsEvent('ai_repair_applied', {
+      feature_area: 'ai',
+      surface: 'modal',
+      macro_type: macroType.value,
+      result: hasModifiedLines || hasRejectedLines ? 'applied_modified' : 'applied_as_is',
+    });
     emit('apply', finalCode);
     closeDialog();
   }
@@ -441,40 +488,177 @@ const repairStatus = ref<string>('');
 const repairProgress = ref<number>(0);
 const currentJobId = ref<string | null>(null);
 let pollIntervalId: number | null = null;
+let pollingGeneration = 0;
+let repairStartedAt = 0;
+let pollCount = 0;
+const wasApplied = ref(false);
+const POLL_INTERVAL_MS = 1000;
+// The backend allows 100 seconds for a large full-document repair attempt.
+// Keep enough client-side headroom to receive the terminal
+// Job update instead of replacing it with a polling timeout.
+const REPAIR_TIMEOUT_BUDGET_MS = 120_000;
+const macroType = computed(
+  () => (props.diagramType?.toString().toLowerCase() ?? 'none') as MacroTypeValue
+);
 
-const triggerAiRepair = async () => {
+type RepairFailurePhase = 'start' | 'poll' | 'server' | 'timeout';
+type RepairJobStatus = Awaited<ReturnType<typeof getFixDiagramStatus>>;
+
+class RepairTimeoutError extends Error {
+  constructor() {
+    super(`Diagram modification timed out after ${REPAIR_TIMEOUT_BUDGET_MS / 1000} seconds`);
+    this.name = 'RepairTimeoutError';
+  }
+}
+
+const withRepairDeadline = async <T,>(operation: () => Promise<T>, deadlineMs: number): Promise<T> => {
+  const remainingMs = deadlineMs - Date.now();
+  if (remainingMs <= 0) throw new RepairTimeoutError();
+
+  let timeoutId: number | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new RepairTimeoutError()), remainingMs);
+  });
+
   try {
-    repairStatus.value = 'Starting AI repair...';
-    repairProgress.value = 0;
-
-    const { jobId } = await startFixDiagram(
-      props.originalCode || '',
-      props.error?.toString() || 'Syntax error',
-      props.diagramType
-    );
-
-    currentJobId.value = jobId;
-    startPolling(jobId);
-
-  } catch (err: any) {
-    repairResult.value = `// Error: ${err.message}`;
-    repairStatus.value = `Error: ${err.message}`;
-    stopPolling();
+    return await Promise.race([operation(), timeoutPromise]);
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
   }
 };
 
-const startPolling = (jobId: string) => {
-  let attempts = 0;
-  const maxAttempts = 30;
-  let isPolling = true;
+const backendAnalytics = (status?: RepairJobStatus) => {
+  const output = status?.output;
+  return {
+    ...(typeof output?.durationMs === 'number' ? { backend_duration_ms: output.durationMs } : {}),
+    ...(typeof output?.llmDurationMs === 'number'
+      ? { backend_llm_duration_ms: output.llmDurationMs }
+      : {}),
+    ...(typeof output?.repairAttempts === 'number' ? { repair_attempts: output.repairAttempts } : {}),
+    ...(typeof output?.model === 'string' ? { ai_model: output.model } : {}),
+    ...(typeof output?.reasoningDisabled === 'boolean' ? { reasoning_disabled: output.reasoningDisabled } : {}),
+  };
+};
 
+let activeRepairModel = props.model;
+let activeRetryAfterFailure = false;
+
+const resolveRepairModel = () => resolveConfiguredAiModel(
+  AI_REPAIR_MODEL_STORAGE_KEY,
+  props.model,
+);
+
+const requestedConfigAnalytics = () => ({
+  ...(typeof activeRepairModel === 'string' ? { ai_model: activeRepairModel } : {}),
+  retry_after_failure: activeRetryAfterFailure,
+  ...(typeof props.disableReasoning === 'boolean'
+    ? { reasoning_disabled: props.disableReasoning }
+    : {}),
+});
+
+const failRepair = (
+  displayMessage: string,
+  failureReason: string,
+  failurePhase: RepairFailurePhase,
+  generation: number,
+  status?: RepairJobStatus,
+) => {
+  if (generation !== pollingGeneration) return;
+
+  console.error('[AIRepair] Repair error:', displayMessage);
+  repairResult.value = null;
+  diffRows.value = [];
+  repairError.value = hasRetried.value
+    ? "We still couldn't repair this code. Please continue editing manually."
+    : failurePhase === 'timeout'
+      ? 'The repair ran out of time before producing a valid result. You can try again or continue editing manually.'
+      : displayMessage;
+  repairStatus.value = `Error: ${displayMessage}`;
+  trackAnalyticsEvent('ai_repair_failed', {
+    feature_area: 'ai',
+    surface: 'modal',
+    macro_type: macroType.value,
+    failure_reason: failureReason,
+    failure_phase: failurePhase,
+    duration_ms: Math.max(0, Date.now() - repairStartedAt),
+    poll_interval_ms: POLL_INTERVAL_MS,
+    timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
+    poll_count: pollCount,
+    ...requestedConfigAnalytics(),
+    ...backendAnalytics(status),
+  });
+  stopPolling();
+};
+
+const triggerAiRepair = async () => {
+  if (hasRetried.value) return;
+
+  stopPolling();
+  const generation = pollingGeneration;
+  activeRetryAfterFailure = repairError.value !== null;
+  hasRetried.value = activeRetryAfterFailure;
+  repairError.value = null;
+  repairResult.value = null;
+  diffRows.value = [];
+  currentJobId.value = null;
+  activeRepairModel = activeRetryAfterFailure
+    ? AI_REPAIR_RETRY_MODEL
+    : resolveRepairModel();
+  repairStartedAt = Date.now();
+  pollCount = 0;
+  const deadlineMs = repairStartedAt + REPAIR_TIMEOUT_BUDGET_MS;
+
+  try {
+    repairStatus.value = 'Starting AI repair...';
+    repairProgress.value = 0;
+    trackAnalyticsEvent('ai_repair_requested', {
+      feature_area: 'ai',
+      surface: 'modal',
+      macro_type: macroType.value,
+      prompt_length: (props.originalCode || '').length,
+      poll_interval_ms: POLL_INTERVAL_MS,
+      timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
+      ...requestedConfigAnalytics(),
+    });
+
+    const { jobId } = await withRepairDeadline(
+      () => startFixDiagram(
+        props.originalCode || '',
+        props.error?.toString() || 'Syntax error',
+        props.diagramType,
+        {
+          ...(activeRepairModel !== undefined ? { model: activeRepairModel } : {}),
+          ...(props.disableReasoning !== undefined
+            ? { disableReasoning: props.disableReasoning }
+            : {}),
+        },
+      ),
+      deadlineMs,
+    );
+
+    if (generation !== pollingGeneration || !props.showDialog) return;
+    currentJobId.value = jobId;
+    startPolling(jobId, generation, deadlineMs);
+
+  } catch (err: any) {
+    const timedOut = err instanceof RepairTimeoutError;
+    failRepair(
+      err.message,
+      timedOut ? 'client_timeout' : 'start_failed',
+      timedOut ? 'timeout' : 'start',
+      generation,
+    );
+  }
+};
+
+const startPolling = (jobId: string, generation: number, deadlineMs: number) => {
   const poll = async () => {
-    if (!isPolling) return;
-
-    attempts++;
+    if (generation !== pollingGeneration) return;
 
     try {
-      const status = await getFixDiagramStatus(jobId);
+      pollCount++;
+      const status = await withRepairDeadline(() => getFixDiagramStatus(jobId), deadlineMs);
+      if (generation !== pollingGeneration) return;
 
       // Update UI
       repairStatus.value = status.message || status.status;
@@ -487,47 +671,82 @@ const startPolling = (jobId: string) => {
           repairStatus.value = 'Completed';
           repairProgress.value = 100;
         } else {
-          throw new Error('Job completed but no diagram code in output');
+          failRepair(
+            'Job completed but no diagram code in output',
+            'missing_output',
+            'server',
+            generation,
+            status,
+          );
+          return;
         }
+        trackAnalyticsEvent('ai_repair_succeeded', {
+          feature_area: 'ai',
+          surface: 'modal',
+          macro_type: macroType.value,
+          duration_ms: Math.max(0, Date.now() - repairStartedAt),
+          poll_interval_ms: POLL_INTERVAL_MS,
+          timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
+          poll_count: pollCount,
+          ...requestedConfigAnalytics(),
+          ...backendAnalytics(status),
+        });
         stopPolling();
         return;
       } else if (status.status === 'FAILED') {
-        throw new Error(`Diagram modification failed: ${status.error || 'Unknown error'}`);
-      } else if (attempts >= maxAttempts) {
-        throw new Error('Diagram modification timed out after 60 seconds');
+        failRepair(
+          `Diagram modification failed: ${status.error || 'Unknown error'}`,
+          status.output?.timedOut ? 'server_timeout' : 'server_failed',
+          status.output?.timedOut ? 'timeout' : 'server',
+          generation,
+          status,
+        );
+        return;
       }
 
       // Schedule next poll only after current one completes
-      if (isPolling) {
-        pollIntervalId = window.setTimeout(poll, 2000);
+      if (generation === pollingGeneration) {
+        const remainingMs = deadlineMs - Date.now();
+        if (remainingMs <= 0) throw new RepairTimeoutError();
+        pollIntervalId = window.setTimeout(poll, Math.min(POLL_INTERVAL_MS, remainingMs));
       }
 
     } catch (err: any) {
-      console.error('[AIRepair] Polling error:', err.message);
-      repairResult.value = `// Error: ${err.message}`;
-      repairStatus.value = `Error: ${err.message}`;
-      stopPolling();
+      const timedOut = err instanceof RepairTimeoutError;
+      failRepair(
+        err.message,
+        timedOut ? 'client_timeout' : 'poll_failed',
+        timedOut ? 'timeout' : 'poll',
+        generation,
+      );
     }
   };
 
-  // Store the isPolling flag so stopPolling can cancel it
-  (poll as any).stopPolling = () => { isPolling = false; };
-
   // Start first poll
-  poll();
+  void poll();
 };
 
 const stopPolling = () => {
+  pollingGeneration++;
   if (pollIntervalId !== null) {
-    clearTimeout(pollIntervalId);
+    window.clearTimeout(pollIntervalId);
     pollIntervalId = null;
   }
 };
 
 const closeDialog = () => {
-  stopPolling(); // Stop polling when dialog closes
+  stopPolling();
+  if (!wasApplied.value && repairResult.value !== null) {
+    trackAnalyticsEvent('ai_repair_dismissed', {
+      feature_area: 'ai',
+      surface: 'modal',
+      macro_type: macroType.value,
+    });
+  }
+  wasApplied.value = false;
   emit('close');
   repairResult.value = null;
+  repairError.value = null;
   diffRows.value = [];
   currentJobId.value = null;
   handleDragEnd();
@@ -540,7 +759,11 @@ watch(repairResult, () => {
   }
 });
 
-watch([() => props.originalCode, () => props.showDialog], ([code, show]) => {
+watch([() => props.originalCode, () => props.showDialog], ([_code, show], [_previousCode, wasShown]) => {
+  if (show && !wasShown) {
+    hasRetried.value = false;
+    repairError.value = null;
+  }
   if (show && !repairResult.value) triggerAiRepair();
 });
 

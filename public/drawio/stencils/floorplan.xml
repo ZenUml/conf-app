@@ -386,6 +386,33 @@
         <fillstroke/>
     </foreground>
 </shape>
+<shape aspect="variable" h="65" name="Drying Machine" strokewidth="inherit" w="60">
+    <connections/>
+    <background>
+        <roundrect arcsize="0.288" h="59" w="59" x="0.5" y="0.5"/>
+    </background>
+    <foreground>
+        <fillstroke/>
+        <rect h="30" w="30" x="15" y="12.5"/>
+        <stroke/>
+        <path>
+            <move x="20" y="27.5"/>
+            <line x="40" y="27.5"/>
+        </path>
+        <stroke/>
+        <fillcolor color="strokeColor" default="#000000"/>
+        <path>
+            <move x="45" y="60"/>
+            <curve x1="45" x2="44.44" x3="43.53" y1="61.38" y2="62.62" y3="63.53"/>
+            <curve x1="42.62" x2="41.38" x3="40" y1="64.44" y2="65" y3="65"/>
+            <line x="20" y="65"/>
+            <curve x1="17.25" x2="15" x3="15" y1="65" y2="62.75" y3="60"/>
+            <line x="45" y="60"/>
+            <close/>
+        </path>
+        <fillstroke/>
+    </foreground>
+</shape>
 <shape aspect="variable" h="100" name="Elevator" strokewidth="inherit" w="100">
     <connections/>
     <background>
@@ -1864,6 +1891,24 @@
         <fill/>
     </foreground>
 </shape>
+<shape aspect="variable" h="67" name="Toilet 2" strokewidth="inherit" w="50">
+    <connections/>
+    <background>
+        <roundrect arcsize="13.33" h="15" w="50" x="0" y="0"/>
+    </background>
+    <foreground>
+        <fillstroke/>
+        <rect h="17" w="32" x="9" y="15"/>
+        <fillstroke/>
+        <ellipse h="50" w="40" x="5" y="17"/>
+        <fillstroke/>
+        <ellipse h="30" w="24" x="13" y="29"/>
+        <stroke/>
+        <fillcolor color="strokeColor" default="#000000"/>
+        <ellipse h="14" w="10" x="20" y="29"/>
+        <fill/>
+    </foreground>
+</shape>
 <shape aspect="variable" h="40" name="Water Cooler" strokewidth="inherit" w="40">
     <connections/>
     <background>
@@ -1872,6 +1917,20 @@
     <foreground>
         <fillstroke/>
         <fillcolor color="#eeeeee"/>
+        <ellipse h="36" w="36" x="2" y="2"/>
+        <fillstroke/>
+        <ellipse h="6" w="6" x="17" y="17"/>
+        <stroke/>
+    </foreground>
+</shape>
+<shape aspect="variable" h="40" name="Water Cooler 2" strokewidth="inherit" w="40">
+    <connections/>
+    <background>
+        <roundrect arcsize="7.5" h="40" w="40" x="0" y="0"/>
+    </background>
+    <foreground>
+        <fillstroke/>
+        <fillcolor color="fillColor1" default="#eeeeee"/>
         <ellipse h="36" w="36" x="2" y="2"/>
         <fillstroke/>
         <ellipse h="6" w="6" x="17" y="17"/>
@@ -1905,6 +1964,39 @@
         <stroke/>
         <rect h="8" w="44" x="3" y="7"/>
         <stroke/>
+    </foreground>
+</shape>
+<shape aspect="variable" h="65" name="Washing Machine" strokewidth="inherit" w="60">
+    <connections/>
+    <background>
+        <roundrect arcsize="0.288" h="59" w="59" x="0.5" y="0.5"/>
+    </background>
+    <foreground>
+        <fillstroke/>
+        <path>
+            <move x="15" y="15"/>
+            <line x="20" y="40"/>
+            <line x="40" y="40"/>
+            <line x="45" y="15"/>
+        </path>
+        <stroke/>
+        <path>
+            <move x="17.5" y="27.5"/>
+            <curve x1="21.23" x2="24.62" x3="30" y1="24.23" y2="24.29" y3="27.5"/>
+            <curve x1="35.66" x2="38.7" x3="42.5" y1="30.88" y2="30.79" y3="27.5"/>
+        </path>
+        <stroke/>
+        <fillcolor color="strokeColor" default="#000000"/>
+        <path>
+            <move x="45" y="60"/>
+            <curve x1="45" x2="44.44" x3="43.53" y1="61.38" y2="62.62" y3="63.53"/>
+            <curve x1="42.62" x2="41.38" x3="40" y1="64.44" y2="65" y3="65"/>
+            <line x="20" y="65"/>
+            <curve x1="17.25" x2="15" x3="15" y1="65" y2="62.75" y3="60"/>
+            <line x="45" y="60"/>
+            <close/>
+        </path>
+        <fill/>
     </foreground>
 </shape>
 </shapes>

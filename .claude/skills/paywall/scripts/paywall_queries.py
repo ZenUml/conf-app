@@ -124,6 +124,16 @@ def _open_with_retry(
     raise last_err
 
 
+# Mixpanel's segmentation API returns only its top-N `on` buckets by volume when
+# `limit` is omitted (default N = 60). Every other bucket is silently absent and
+# reads as zero downstream. Observed 2026-09-06: a fleet-wide client_domain
+# breakdown came back with exactly 60 domains while MCP Insights returned 209 for
+# the same window. Any breakdown query must therefore send an explicit limit that
+# comfortably exceeds the fleet (662 Lite tenants at the time). See SKILL.md
+# "CORRUPTION GUARD #3".
+SEGMENTATION_BUCKET_LIMIT = 5000
+
+
 def call_segmentation(
     secret: str,
     event: str,
@@ -142,6 +152,7 @@ def call_segmentation(
     }
     if on:
         params["on"] = on
+        params["limit"] = str(SEGMENTATION_BUCKET_LIMIT)
     if where:
         params["where"] = where
     url = MIXPANEL_SEGMENTATION_URL + "?" + urllib.parse.urlencode(params)
@@ -240,7 +251,7 @@ def call_jql_unique(
         },
     )
     rows = json.loads(_open_with_retry(req, timeout=120, delays=[10.0, 30.0, 60.0]).decode())
-    return {(r["key"][0] if r["key"] else "<null>"): r["value"] for r in rows}
+    return {(r["key"][0] if (r["key"] and r["key"][0] is not None) else "<null>"): r["value"] for r in rows}
 
 
 def call_jql_unique_by_domain(
@@ -265,7 +276,7 @@ def call_jql_unique_by_domain(
         },
     )
     rows = json.loads(_open_with_retry(req, timeout=120, delays=[10.0, 30.0, 60.0]).decode())
-    return {(r["key"][0] if r["key"] else "<null>"): r["value"] for r in rows}
+    return {(r["key"][0] if (r["key"] and r["key"][0] is not None) else "<null>"): r["value"] for r in rows}
 
 
 def call_jql_per_space_all(
@@ -326,15 +337,19 @@ def call_event(
 
 
 def date_range(window_days: int) -> tuple[str, str]:
-    # window_days=1 → today only (last ~24h rolling, includes partial day).
-    # window_days=N → N days ending today inclusive.
-    # Trade-off: Mixpanel ingestion lag is ~5-10min, so today's data is fresh
-    # enough to monitor "as of now". Earlier behavior used yesterday-only,
-    # which created a 24h blind spot for daily monitoring.
-    today = dt.date.today()
+    # Mixpanel resolves date strings in the PROJECT timezone (US-based),
+    # not the local machine's. Using local dt.date.today() from AEST asked
+    # for a project-tz day that hadn't started yet, so daily runs returned
+    # near-empty data with empty __unique maps (2026-06-03/04/10 incidents).
+    # Fix: anchor the window start on the earliest plausible project-tz
+    # date (UTC-8) and end on the local date — the span always contains
+    # the live project day. window_days=1 therefore covers ~1-2 calendar
+    # days (rolling "today, tz-safe"), summed by the callers.
+    local_today = dt.date.today()
+    project_today = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=8)).date()
     return (
-        (today - dt.timedelta(days=window_days - 1)).isoformat(),
-        today.isoformat(),
+        (project_today - dt.timedelta(days=window_days - 1)).isoformat(),
+        local_today.isoformat(),
     )
 
 

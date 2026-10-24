@@ -2,6 +2,8 @@ import {AtlasDocFormat, AtlasDocElement, MacroParams, AtlasDocExtensionType, For
 import {trackEvent} from "@/utils/window";
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { forgeRequest } from "@/utils/requestUtil";
+import { referencedCustomContentId } from "@/model/page/referencedCustomContent";
+import {LocationTarget} from "@/model/ILocationContext";
 
 export class AtlasPage {
   async getPageId() {
@@ -24,11 +26,18 @@ export class AtlasPage {
     return forgeGlobal.forgeContext?.extension?.location;
   }
 
-  async getLocationTarget() {
-    return forgeGlobal.forgeContext?.extension?.isEditing ? 'contentEdit' : 'contentView';
+  async getLocationTarget(): Promise<LocationTarget> {
+    return forgeGlobal.forgeContext?.extension?.isEditing ? LocationTarget.ContentEdit : LocationTarget.ContentView;
   }
 
-  private async macros(): Promise<AtlasDocElement[]> {
+  /**
+   * `null` means the page's ADF could not be read — distinct from `[]`, which
+   * means it WAS read and holds no macros. Callers that make a safety decision
+   * (the Edit dup gate: "is this customContentId shared?") must not treat an
+   * unreadable page as "no duplicates found"; callers that only want a count
+   * keep the historical assume-empty behaviour via `macros()` below.
+   */
+  private async macrosOrNull(): Promise<AtlasDocElement[] | null> {
     let responseBody = '';
     try {
       const pageId = await this.getPageId();
@@ -44,7 +53,8 @@ export class AtlasPage {
       const response = await forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`);
       console.debug('AtlasPage - page response', response);
       if (!response || !response.body) {
-        return [];
+        // A response with no body is a failed read, not an empty page.
+        return null;
       }
       responseBody = response.body;
       const {body: {atlas_doc_format: {value}}} = response;
@@ -52,21 +62,82 @@ export class AtlasPage {
       return doc.getMacros();
     } catch (e: any) {
       trackEvent(e.message, 'query_macro_atlas_doc_format', 'warning');
-      console.trace('Failed to query all macros on the page. Assume there is no macros on this page.')
-      console.error('This message will be very helpful for the vendor to improve their product.');
-      console.error('Please consider sharing it with the vendor so that they can fix the issue.');
-      console.error('Please remove all sensitive data before sharing.');
-      console.error('==========');
-      console.error(responseBody);
-      console.error('==========');
-      return [];
+      console.warn('Failed to query all macros on the page. Assuming no macros on this page.', { error: e?.message, responseBody });
+      return null;
     }
   }
 
-  async countMacros(matcher: (mps: MacroParams | ForgeGuestParams) => boolean) {
-    return (await this.macros())
+  private async macros(): Promise<AtlasDocElement[]> {
+    return (await this.macrosOrNull()) ?? [];
+  }
+
+  private static count(
+    elements: AtlasDocElement[],
+    matcher: (mps: MacroParams | ForgeGuestParams) => boolean,
+  ): number {
+    return elements
       .map(c => c.attrs.extensionType === AtlasDocExtensionType.ForgeMacro ? c.attrs.parameters.guestParams : c.attrs.parameters.macroParams)
       .filter(mps => mps && matcher(mps))
       .length;
+  }
+
+  async countMacros(matcher: (mps: MacroParams | ForgeGuestParams) => boolean) {
+    return AtlasPage.count(await this.macros(), matcher);
+  }
+
+  /**
+   * Same count, but `undefined` when the page ADF could not be read at all —
+   * so a caller can tell "scanned, found none" from "could not scan". See
+   * macrosOrNull.
+   */
+  async countMacrosOrUnknown(
+    matcher: (mps: MacroParams | ForgeGuestParams) => boolean,
+  ): Promise<number | undefined> {
+    const elements = await this.macrosOrNull();
+    return elements === null ? undefined : AtlasPage.count(elements, matcher);
+  }
+
+  /**
+   * Every customContentId referenced by a macro on this page, IN DOCUMENT ORDER,
+   * from ONE ADF read.
+   *
+   * `countMacrosOrUnknown` answers a per-id question, but the byline asks about
+   * every diagram on the page at once — N calls there would be N full-page ADF
+   * GETs. It also needs the order, to list diagrams the way the page reads.
+   *
+   * An array rather than a Set precisely because order is the point; duplicates
+   * are kept (one custom content can be referenced by several macros) so callers
+   * can decide what a repeat means. `getMacros` traverses `content` depth-first,
+   * so the array is in reading order.
+   *
+   * `undefined` (not an empty array) when the page could not be read, and the
+   * distinction matters: a caller that labels unreferenced diagrams would
+   * otherwise label ALL of them on a page it simply failed to scan.
+   *
+   * Reads the PUBLISHED ADF — the Forge iframe cannot see the editor's
+   * collaborative draft (see macrosOrNull). So a macro placed but not yet
+   * published looks unreferenced here, and callers must treat "unreferenced" as
+   * a hint, never as proof the diagram is unused.
+   */
+  async referencedCustomContentIds(): Promise<string[] | undefined> {
+    const elements = await this.macrosOrNull();
+    if (elements === null) return undefined;
+    const cloudId = forgeGlobal.forgeContext?.cloudId;
+    const ids: string[] = [];
+    for (const el of elements) {
+      const id = AtlasPage.referencedId(el, cloudId);
+      if (id) ids.push(id);
+    }
+    return ids;
+  }
+
+  /**
+   * Which custom content this macro puts on the page. The walk itself lives in
+   * model/page/referencedCustomContent so the one-click place (utils/byline/
+   * addToPage) asks the same question of a raw ADF document — the two answers
+   * disagreeing is what let it append a second copy of a pasted diagram.
+   */
+  private static referencedId(el: AtlasDocElement, cloudId: string | undefined): string | undefined {
+    return referencedCustomContentId(el.attrs.parameters, cloudId);
   }
 }

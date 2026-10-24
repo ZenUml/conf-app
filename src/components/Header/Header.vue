@@ -1,126 +1,141 @@
 <template>
-  <header class="toolbar header border-b border-gray-200 px-6 py-3 flex items-center gap-3 relative z-10 h-14">
+  <header class="toolbar header bg-[#F1F3F4] px-6 grid items-center gap-3 relative z-10 h-10">
     <div class="flex items-center gap-3 flex-1 min-w-0">
+      <DiagramTitleInput />
+    </div>
+    <div class="notch">
       <TabSwitcher
         v-model="diagramType"
         :options="diagramOptions"
       />
-      <div class="flex items-center flex-1 min-w-64 border-2 rounded-md transition-colors duration-200 h-10"
-        :class="titleError ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300 focus-within:border-blue-500'">
-        <span class="pl-3 pr-2 text-xs font-semibold tracking-wide text-gray-400 uppercase select-none flex-shrink-0">Title</span>
-        <div class="w-px h-4 bg-gray-200 flex-shrink-0"></div>
-        <input
-          type="text"
-          placeholder="Name your diagram…"
-          :value="currentTitle"
-          @input="handleTitleChange"
-          class="flex-1 px-2 py-2 bg-transparent outline-none text-sm min-w-0"
-          :class="[titleError ? 'text-red-700 placeholder-red-300' : '', { 'pr-8': isAiTitleEnabled }]" />
-        <div v-if="isAiTitleEnabled" class="pr-1 flex items-center">
-          <button class="rounded-md p-1 text-gray-600 hover:bg-gray-200 transition-colors duration-200"
-            :class="{ 'pointer-events-none opacity-50 cursor-not-allowed': titleLoading }"
-            title="Generate title with AI"
-            @click="handleGenerateTitle"
-            :disabled="titleLoading">
-            <SparklesIcon v-if="!titleLoading" class="w-5 h-5" />
-            <ArrowPathIcon v-else class="w-5 h-5 animate-spin" />
-          </button>
-        </div>
-      </div>
     </div>
-    <div class="flex items-center gap-3 shrink-0">
-      <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
-        @click="templateClick">
-        <LightBulbIcon class="w-4 h-4" />
-        <span>Examples</span>
+    <div class="editor-header-actions flex items-center gap-3 shrink-0 ml-auto">
+      <button
+        v-if="aiChatAvailable"
+        class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-sm font-medium rounded-md transition-colors duration-200"
+        :class="
+          aiChatOpen
+            ? 'bg-violet-100 text-violet-800'
+            : 'text-gray-500 hover:bg-violet-50 hover:text-violet-700'
+        "
+        data-testid="ai-chat-toggle"
+        aria-label="AI Chat"
+        title="AI Chat"
+        @click="$emit('toggle-ai-chat')"
+      >
+        <SparklesIcon class="w-4 h-4" />
+        <span class="editor-action-label">AI Chat</span>
       </button>
-      <button class="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+      <button v-if="diagramType !== DiagramType.Markdown" aria-label="Templates" title="Templates" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+        @click="openTemplateGallery()">
+        <LightBulbIcon class="w-4 h-4" />
+        <span class="editor-action-label">Templates</span>
+      </button>
+      <button aria-label="Help" title="Help" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="helpClick">
         <QuestionMarkCircleIcon class="w-4 h-4" />
-        <span>Help</span>
+        <span class="editor-action-label">Help</span>
       </button>
-      <div class="h-6 w-px bg-gray-300"></div>
+      <div class="h-5 w-px bg-gray-300"></div>
       <div class="relative group/save">
         <publish-button
           :saveAndExit="saveAndExit"
-          :disabled="isPublishDisabled" />
+          :disabled="isPublishDisabled"
+          :loading="isSaving" />
         <div class="absolute top-full right-0 pt-2 pointer-events-none opacity-0 transition-opacity duration-150"
           :class="isPublishDisabled ? 'group-hover/save:opacity-100' : ''">
-          <div class="shadow-lg px-3 py-2 bg-gray-900 text-white text-xs rounded-md whitespace-nowrap">
-            Add a diagram title to publish
+          <div class="shadow-lg px-3 py-2 bg-gray-900 text-white text-xs rounded-md max-w-xs w-max">
+            {{ publishDisabledHint }}
           </div>
         </div>
       </div>
     </div>
-    <Modal :visible="noticeModalVisible"
-      :onConfirm="generateTitle"
-      :onCancel="handleCloseModal">
-      <template v-slot:body>
-        <p>
-          This is an experimental feature, and your data will be sent to
-          Cloudflare. Cloudflare will not use your data as training data.
-        </p>
-      </template>
-    </Modal>
   </header>
+  <TemplateGallery
+    :visible="isTemplateGalleryOpen"
+    :diagram-type="diagramType"
+    @close="closeTemplateGallery"
+    @select="applyTemplate"
+  />
 </template>
 
 <script>
-import { mapState, mapMutations } from "vuex";
+import { mapMutations } from "vuex";
 import PublishButton from "@/components/PublishButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
+import { registerEditorCloseTracking } from "@/utils/analytics/editorCloseOutcome";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, saveDraft, isDraftNewerThanSaved } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { getEditorDiagramOptions, getDiagramConfig, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
+import { getEditorDiagramOptions, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { trackEvent } from "@/utils/window";
+import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { getEditJourneyId, getOrCreateSession } from "@/utils/journeyTracking";
-import Modal from "@/components/Modal/Modal.vue";
-import { toast } from "@/utils/toast";
-import aiGenerateTitle from "@/apis/aiGenerateTitle";
 import { openUrl } from "@/model/globals/forgeGlobal";
 import LightBulbIcon from '@heroicons/vue/24/outline/LightBulbIcon';
 import QuestionMarkCircleIcon from '@heroicons/vue/24/outline/QuestionMarkCircleIcon';
 import SparklesIcon from '@heroicons/vue/24/outline/SparklesIcon';
-import ArrowPathIcon from '@heroicons/vue/24/outline/ArrowPathIcon';
+import DiagramTitleInput from "@/components/Header/DiagramTitleInput.vue";
+import TemplateGallery from "@/components/TemplateGallery/TemplateGallery.vue";
+import { PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
+import { getTemplatesForType } from "@/model/Diagram/EditorTemplates";
+import { hasAutoOpenedStarterGallery, markStarterGalleryAutoOpened } from "@/utils/starterGallery/autoOpenMarker";
+import Example from "@/utils/sequence/Example";
+import { isAiChatEnabled } from '@/apis/aiTitleFeatureFlag';
 
-function getMermaidType(dsl) {
-  let type = dsl.trim().split("\n")[0].split(" ")[0];
-  const typeMap = {
-    graph: "flow chart",
-    sequenceDiagram: "sequence",
-    gantt: "gantt chart",
-    classDiagram: "class",
-    gitGraph: "git",
-    erDiagram: "entity relationship",
-    journey: "journey",
-    quadrantChart: "quadrant chart",
-    'xychart-beta': "xy chart",
-  }
-  return typeMap[type] || type
+// forgeIndex.ts never mounts a genuinely new Sequence/Mermaid/PlantUml macro
+// with an empty code string — it always seeds Example.Sequence / .Mermaid /
+// .PlantUml as placeholder content (see forgeIndex.ts's `doc = { code:
+// Example.Sequence, ... isNew: true }` fallback). A plain `!currentCode`
+// check is therefore never true for the normal "insert a brand-new macro"
+// flow, so the auto-open feature below silently never fired until this was
+// caught by a real Confluence spot check (2026-08-18 — the actual editor
+// showed the seeded "Order Service" sample instead of auto-opening the
+// gallery). Treat the untouched seed as equivalent to empty.
+const SEED_CODE_BY_TYPE = {
+  [DiagramType.Sequence]: Example.Sequence,
+  [DiagramType.Mermaid]: Example.Mermaid,
+  [DiagramType.PlantUml]: Example.PlantUml,
+};
+function isBlankOrUntouchedSeed(diagramType, code, isNewDiagram) {
+  if (!code) return true;
+  return !!isNewDiagram && SEED_CODE_BY_TYPE[diagramType] === code;
 }
 
 export default {
   name: "Header",
+  props: {
+    aiChatOpen: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  emits: ["toggle-ai-chat"],
   components: {
     PublishButton,
     TabSwitcher,
-    Modal,
+    DiagramTitleInput,
+    TemplateGallery,
     LightBulbIcon: { render: LightBulbIcon },
     QuestionMarkCircleIcon: { render: QuestionMarkCircleIcon },
     SparklesIcon: { render: SparklesIcon },
-    ArrowPathIcon: { render: ArrowPathIcon },
   },
   data() {
     return {
       helpUrl: "https://zenuml.com/docs?utm_source=confluence-plugin&utm_medium=help-button&utm_campaign=confluence-plugin",
-      titleError: false,
-      titleLoading: false,
-      noticeModalVisible: false,
-      aiTitleFeatureEnabled: false,
       originalCode: "",
-      diagramOptions: getEditorDiagramOptions()
+      diagramOptions: getEditorDiagramOptions(),
+      // Drives the Publish button's spinner + disabled state while the async
+      // save/publish chain (saveToPlatform → attachment upload → view.submit)
+      // is in flight. Without this the button sits inert for 2–8s with no
+      // feedback and stays clickable, so an impatient user can double-fire.
+      isSaving: false,
+      // Starter-template gallery (#334). Replaces the old external "Examples"
+      // link (which sent the user to zenuml.com/mermaid.js.org/plantuml.com
+      // docs) with an in-product panel of curated, one-click templates.
+      isTemplateGalleryOpen: false,
+      aiChatEnabled: false,
     };
   },
   computed: {
@@ -132,24 +147,47 @@ export default {
         return this.$store.state.diagram.diagramType;
       },
       set(value) {
+        const fromMacroType = this.diagramType;
+        if (value !== fromMacroType) {
+          const isNewMacro = !this.$store.state.diagram.id;
+          trackAnalyticsEvent('macro_type_changed', {
+            feature_area: 'macro',
+            surface: 'editor',
+            macro_type: value,
+            from_macro_type: fromMacroType,
+            to_macro_type: value,
+            operation_mode: isNewMacro ? 'create' : 'edit',
+            type_requested: !!this.$store.state.diagram.typeRequested,
+            is_new_macro: isNewMacro,
+          });
+        }
+        const seededFromMermaid = value === DiagramType.Markdown
+          && fromMacroType === DiagramType.Mermaid
+          && this.$store.state.diagram.markdownCode === undefined
+          && !!this.$store.state.diagram.mermaidCode;
         this.updateDiagramType(value);
+        if (seededFromMermaid) trackAnalyticsEvent('markdown_seeded_from_mermaid', {
+          feature_area: 'content', surface: 'editor', macro_type: 'markdown',
+        });
         // Save user's tab preference to localStorage
-        localStorage.setItem('zenuml-preferred-diagram-type', value);
+        try {
+          localStorage.setItem('zenuml-preferred-diagram-type', value);
+        } catch (e) {
+          console.debug('[Header] could not save preferred diagram type', e);
+        }
       }
     },
-    ...mapState({
-      templateUrl: (state) =>
-        getDiagramConfig(state.diagram.diagramType)?.templateUrl || '',
-      title: (state) => state.diagram.title,
-    }),
     currentCode() {
       return getCodeFromDiagram(this.$store.state.diagram, this.diagramType);
     },
     saveAndExit: function () {
       return () => {
         if (!this.$store.state.diagram.title) {
-          return (this.titleError = true);
+          EventBus.$emit("flash-title-error");
+          return;
         }
+        if (this.isSaving) return; // guard against double-fire
+        this.startSaving();
         EventBus.$emit("save");
       };
     },
@@ -175,97 +213,235 @@ export default {
         EventBus.$emit("exit", codeChanged);
       };
     },
-    isAiTitleEnabled: function () {
-      return this.aiTitleFeatureEnabled;
-    },
-    currentTitle: function () {
-      return this.$store.state.diagram.title;
-    },
     isPublishDisabled: function () {
-      return !this.$store.state.diagram.title || this.titleError;
+      return !this.$store.state.diagram.title || !!this.$store.state.publishBlock;
     },
-  },
-  watch: {
-    diagramType: function () {
-      // Clear title error when switching tabs - let isPublishDisabled compute the correct state
-      this.titleError = false;
+    publishDisabledHint: function () {
+      // publishBlock (model/editDupGate.ts): this editor surface cannot link
+      // a forked CC back into the macro — publishing here would silently
+      // strand the edit. Wins over the title hint.
+      const block = this.$store.state.publishBlock;
+      if (block) return PUBLISH_BLOCK_MESSAGES[block] || 'Publishing is unavailable for this diagram here.';
+      return 'Add a diagram title to publish';
+    },
+    // Hidden while AI chat is open: that panel carries its own Hide/Show code
+    // button for the same pane, and two controls for one pane in view at once
+    // reads as two different things.
+    aiChatAvailable: function () {
+      return this.aiChatEnabled && this.diagramType !== DiagramType.Graph && this.diagramType !== DiagramType.Markdown;
     },
   },
   methods: {
-    ...mapMutations(["updateDiagramType"]),
-    async templateClick() {
-      trackEvent("template", "click", this.diagramType);
-      if (this.templateUrl) {
-        await openUrl(this.templateUrl);
+    draftDiffers(draft) {
+      return draft.code !== this.currentCode
+        || draft.title !== this.$store.state.diagram.title
+        || (draft.diagramType && draft.diagramType !== this.diagramType)
+        || (typeof draft.buffers?.markdown === 'string' && this.$store.state.diagram.markdownCode === undefined)
+        || this.diagramOptions.some(option => typeof draft.buffers?.[option.value] === 'string'
+          && draft.buffers[option.value] !== getCodeFromDiagram(this.$store.state.diagram, option.value));
+    },
+    currentDraft() {
+      const buffers = {};
+      for (const option of this.diagramOptions) {
+        // Preserve an untouched Markdown tab as undefined so first-use seeding still works.
+        if (option.value === DiagramType.Markdown && this.$store.state.diagram.markdownCode === undefined) continue;
+        buffers[option.value] = getCodeFromDiagram(this.$store.state.diagram, option.value);
       }
+      return { code: this.currentCode, title: this.$store.state.diagram.title || '', diagramType: this.diagramType, buffers };
+    },
+    ...mapMutations(["updateDiagramType"]),
+    startSaving() {
+      this.isSaving = true;
+      // Safety net: if neither `saved` nor `save-error` comes back (e.g. an
+      // unexpected hang), release the button so the user isn't stranded on a
+      // spinner. Set comfortably above the worst-case happy path: saveToPlatform
+      // network time + the 8s save-time attachment cap + the 500ms writeback
+      // delay in forgeIndex.ts.
+      clearTimeout(this._savingTimeout);
+      this._savingTimeout = setTimeout(() => { this.isSaving = false; }, 20000);
+    },
+    stopSaving() {
+      this.isSaving = false;
+      clearTimeout(this._savingTimeout);
+    },
+    // #334: opens the starter-template gallery panel. Keeps the pre-existing
+    // "template click" legacy signal (unknown downstream consumers) and adds
+    // the new editor_template_gallery_opened event alongside it, rather than
+    // replacing one tracker with the other. `trigger` defaults to 'manual'
+    // (the Templates-button click path); the mounted() auto-open path below
+    // calls this with 'auto_first_open' explicitly. The button binds
+    // `@click="openTemplateGallery()"` (with parens) rather than a bare
+    // method reference, so Vue does NOT pass the native MouseEvent as the
+    // `trigger` argument.
+    //
+    // Onboarding funnel: this is the producer of editor_starter_shown for
+    // BOTH triggers. `entry_point` reuses the existing EntryPoint values
+    // rather than adding a new one: 'macro_toolbar' for the manual click
+    // (unchanged), 'page_editor' for auto-open — the same value forgeIndex.ts
+    // already uses for macro_create_started, since auto-open fires at the
+    // same "the page editor just opened a brand-new macro" moment. Fired
+    // only when the macro is genuinely new and still empty, which is the
+    // "starter surface on an empty new macro" condition the event documents.
+    // An editing session or a new macro that already has code (e.g. a
+    // restored draft) does not fire it, since the starter surface isn't
+    // replacing a blank slate there. The legacy "template click" signal only
+    // fires for a real click — auto-open didn't originate from one.
+    openTemplateGallery(trigger = "manual") {
+      if (trigger === "manual") {
+        trackEvent("template", "click", this.diagramType);
+      }
+      const isNewMacro = !this.$store.state.diagram.id;
+      trackAnalyticsEvent("editor_template_gallery_opened", {
+        feature_area: "macro",
+        surface: "editor",
+        macro_type: this.diagramType,
+        is_new_macro: isNewMacro,
+        template_gallery_trigger: trigger,
+      });
+      if (isNewMacro && isBlankOrUntouchedSeed(this.diagramType, this.currentCode, this.$store.state.diagram.isNew)) {
+        trackAnalyticsEvent("editor_starter_shown", {
+          feature_area: "macro",
+          surface: "editor",
+          macro_type: this.diagramType,
+          entry_point: trigger === "auto_first_open" ? "page_editor" : "macro_toolbar",
+          trigger,
+        });
+      }
+      this.isTemplateGalleryOpen = true;
+    },
+    closeTemplateGallery() {
+      this.isTemplateGalleryOpen = false;
+    },
+    // Applies the chosen template's DSL into the current diagram-type's code
+    // field via the same store action the CodeMirror editor dispatches on
+    // every keystroke (getStoreUpdateAction) — Editor.vue's `watch(code)`
+    // then pushes the new doc into the editor. A plain buffer replace: the
+    // user can Ctrl/Cmd+Z it in CodeMirror, and nothing reaches Confluence
+    // until Publish, so no destructive-overwrite guard is needed here.
+    applyTemplate(template) {
+      const action = getStoreUpdateAction(this.diagramType);
+      if (action) this.$store.dispatch(action, template.dsl);
+      trackAnalyticsEvent("editor_template_applied", {
+        feature_area: "macro",
+        surface: "editor",
+        template_id: template.id,
+        macro_type: this.diagramType,
+        is_new_macro: !this.$store.state.diagram.id,
+      });
+      this.isTemplateGalleryOpen = false;
     },
     async helpClick() {
       trackEvent("help", "click", this.diagramType);
       await openUrl(this.helpUrl);
     },
-    handleTitleChange(value) {
-      if (value) {
-        this.titleError = false;
-      }
-      this.$store.dispatch("updateTitle", value.target.value);
+  },
+  watch: {
+    aiChatAvailable: {
+      immediate: true,
+      handler(visible, wasVisible) {
+        if (visible && !wasVisible) {
+          trackAnalyticsEvent('ai_chat_button_shown', {
+            feature_area: 'ai',
+            surface: 'editor',
+            macro_type: this.diagramType,
+          });
+        }
+      },
     },
-    handleGenerateTitle() {
-      this.noticeModalVisible = true;
-    },
-    handleCloseModal() {
-      this.noticeModalVisible = false;
-    },
-    async generateTitle() {
-      this.noticeModalVisible = false;
-      this.titleLoading = true;
-      const res = await aiGenerateTitle({
-        dsl: this.currentCode,
-        type:
-          this.diagramType === DiagramType.Mermaid
-            ? getMermaidType(this.currentCode)
-            : DiagramType.Sequence,
-      }).catch((e) => {
-        this.titleLoading = false;
-        toast({ message: e.message, duration: 3000 });
-      });
-      if (!res.ok) {
-        this.titleLoading = false;
-        toast({ message: await res.text(), duration: 3000 });
-        return;
-      }
-      this.titleLoading = false;
-      const generatedTitle = await res.text();
-      this.$store.dispatch("updateTitle", generatedTitle);
+    // The gallery overlay covers the TabSwitcher while open, so a mouse
+    // click can't reach it — but there's no focus trap, so keyboard/AT
+    // navigation could still tab to a hidden tab button and switch
+    // diagramType. Closing on change avoids a template list that reacts
+    // out from under the user mid-interaction, and keeps `applyTemplate`
+    // (which re-reads getStoreUpdateAction(this.diagramType) at click time)
+    // acting on the type the user actually opened the panel for.
+    diagramType() {
+      this.isTemplateGalleryOpen = false;
     },
   },
   async mounted() {
-    // Load user's preferred diagram type from localStorage for new diagrams
+    // Not awaited: the flag is a network round trip, and nothing below reads
+    // it. Awaiting it here pushed the preferred-type switch past that trip, so
+    // a new diagram rendered the Sequence placeholder first and forgeIndex
+    // labelled its macro_create_started / macro_viewed as `sequence`.
+    // isAiChatEnabled never rejects (a failed lookup resolves false).
+    isAiChatEnabled().then((enabled) => { this.aiChatEnabled = enabled; });
+
+    // Load user's preferred diagram type from localStorage for new diagrams.
+    //
+    // Skipped when the type was explicitly ASKED for — the byline's type picker
+    // and a pasted /new/<type> link both seed the doc and set `typeRequested`
+    // (see applyRequestedDiagramType). A remembered preference is a default, and
+    // a default must not overrule a choice the user just made: picking Flowchart
+    // in the byline opened a Sequence editor for anyone whose last diagram was a
+    // sequence, which is most people.
     const isNewDiagram = this.$store.state.diagram.isNew;
-    if (isNewDiagram) {
-      const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
-      if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid)) {
+    const typeWasRequested = !!this.$store.state.diagram.typeRequested;
+    if (isNewDiagram && !typeWasRequested) {
+      // Storage can throw (blocked site data); an uncaught throw here would
+      // reject mounted() before the draft saver and close guard are installed.
+      let savedDiagramType = null;
+      try {
+        savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
+      } catch (e) {
+        console.debug('[Header] could not read preferred diagram type', e);
+      }
+      if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid || savedDiagramType === DiagramType.Markdown)) {
         this.updateDiagramType(savedDiagramType);
       }
     }
 
     // Store original code for change detection on exit
     this.originalCode = this.currentCode;
+    this._originalDraft = JSON.stringify(this.currentDraft());
 
     // Pre-resolve cloudId so the synchronous onClose path has it.
     await primeCloudId();
 
-    // Scope: distinguishes "draft for new diagram of this type" from
-    // "draft for editing this specific custom-content id".
+    // Onboarding funnel: auto-open the starter-template gallery on first
+    // entry to an empty NEW macro, instead of a blank canvas. Mixpanel
+    // (macro_create_succeeded, 2026-05-18..08-17): 33.6% of tenants that
+    // created a first diagram never created a second one.
+    //
+    // Guarded by all three: create mode (isNewMacro), source empty
+    // (this.currentCode, captured above before any draft restore is
+    // applied), and the macro type actually has templates (Graph/OpenApi/
+    // Embed don't — getTemplatesForType returns [] for those, see
+    // EditorTemplates.ts). Once per cloudId+macro-type per browser — see
+    // utils/starterGallery/autoOpenMarker.ts for why that's the scope
+    // ("per user" proxy) instead of accountId. The marker is written BEFORE
+    // opening, so it also covers "dismissing must never re-open in this or
+    // a later session": the decision to auto-open is made at most once,
+    // regardless of what the user does with the gallery afterward.
+    const isNewMacro = !this.$store.state.diagram.id;
+    if (isNewMacro && isBlankOrUntouchedSeed(this.diagramType, this.currentCode, this.$store.state.diagram.isNew) && getTemplatesForType(this.diagramType).length > 0) {
+      const cloudId = getCachedCloudId() || 'unknown-cloud';
+      if (!hasAutoOpenedStarterGallery(cloudId, this.diagramType)) {
+        markStarterGalleryAutoOpened(cloudId, this.diagramType);
+        this.openTemplateGallery("auto_first_open");
+      }
+    }
+
+    // New diagrams share a scope so changing the preferred tab cannot hide
+    // an unsaved document; existing content remains scoped by its id.
     this._draftScope = this.$store.state.diagram.id
       ? `edit:${this.$store.state.diagram.id}`
-      : `new:${this.diagramType}`;
+      : 'new:diagram';
     this._draftSaver = makeDebouncedDraftSaver(this._draftScope, 500);
 
     // Restore if a newer draft exists than the loaded diagram.
-    const draft = await loadDraft(this._draftScope);
+    let draft = await loadDraft(this._draftScope);
+    if (!draft && !this.$store.state.diagram.id) {
+      const legacyScope = `new:${this.diagramType}`;
+      draft = await loadDraft(legacyScope);
+      if (draft) {
+        await saveDraft(this._draftScope, draft);
+        await clearDraft(legacyScope);
+      }
+    }
     if (draft) {
-      const updatedAt = Number(this.$store.state.diagram.updatedAt) || 0;
-      if (draft.savedAt > updatedAt && (draft.code !== this.originalCode || draft.title !== this.$store.state.diagram.title)) {
+      const savedVersionUpdatedAt = getCachedSavedVersionUpdatedAt() ?? this.$store.state.diagram.updatedAt;
+      if (isDraftNewerThanSaved(draft, savedVersionUpdatedAt) && this.draftDiffers(draft)) {
         EventBus.$emit("draft-available", {
           scope: this._draftScope,
           draft,
@@ -278,31 +454,51 @@ export default {
 
     // Persist on every change (debounced).
     this._unwatchDraft = this.$watch(
-      () => ({ code: this.currentCode, title: this.$store.state.diagram.title }),
+      () => this.currentDraft(),
       (val) => {
-        if (val.code !== this.originalCode || val.title !== '') {
-          this._draftSaver?.save({ code: val.code, title: val.title || '' });
+        if (JSON.stringify(val) !== this._originalDraft) {
+          this._draftSaver?.save(val);
         }
       },
     );
+
+    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled).
+    // The modal X is the only close control, so this listener is the only
+    // place the abandonment can be observed. Mode is fixed at mount; the type
+    // is read at close because the type tabs can change it.
+    this._closeOutcomeOff = registerEditorCloseTracking({
+      getMacroType: () => this.diagramType,
+      operationMode: this.$store.state.diagram.id ? 'edit' : 'create',
+      hadChanges: () => JSON.stringify(this.currentDraft()) !== this._originalDraft,
+    });
+    // Registered BEFORE the draft guard: the close-flow integration spec
+    // invokes the last view.onClose handler and expects the draft saver.
 
     // Wire the platform close hook. ashraf.teleb85 reported the iframe is
     // sometimes destroyed before view.onClose finishes, so we keep the body
     // synchronous: flush the pending debounced write directly to localStorage.
     this._closeGuardOff = setupCloseGuard(() => {
-      if (this.currentCode === this.originalCode) return;
+      if (JSON.stringify(this.currentDraft()) === this._originalDraft) return;
       const cloudId = getCachedCloudId();
       if (cloudId) {
-        saveDraftSync(this._draftScope, cloudId, {
-          code: this.currentCode,
-          title: this.$store.state.diagram.title || '',
-        });
+        saveDraftSync(this._draftScope, cloudId, this.currentDraft());
       }
     });
 
-    // Clear draft on successful publish.
-    this._onPublished = () => clearDraft(this._draftScope);
+    // Clear draft + release the Publish button on successful publish. (On the
+    // common path view.submit tears the iframe down first, but the viewer-
+    // launched modal can stay open, so resetting here matters.)
+    this._onPublished = () => {
+      this.stopSaving();
+      this._draftSaver?.cancel();
+      clearDraft(this._draftScope);
+    };
     EventBus.$on('saved', this._onPublished);
+
+    // Release the Publish button when a save fails — forgeIndex.ts keeps the
+    // dialog open for retry, so without this the spinner would never clear.
+    this._onSaveError = () => this.stopSaving();
+    EventBus.$on('save-error', this._onSaveError);
 
     // Restore handler: load the draft into the store + clear it. Uses the
     // diagram-type-specific update action (sequence → updateCode2,
@@ -310,6 +506,13 @@ export default {
     this._onRestore = (payload) => {
       if (payload?.scope !== this._draftScope || !payload?.draft) return;
       const draft = payload.draft;
+      for (const option of this.diagramOptions) {
+        const buffer = draft.buffers?.[option.value];
+        if (typeof buffer === 'string') this.$store.dispatch(getStoreUpdateAction(option.value), buffer);
+      }
+      if (draft.diagramType && this.diagramOptions.some(option => option.value === draft.diagramType)) {
+        this.updateDiagramType(draft.diagramType);
+      }
       const action = getStoreUpdateAction(this.diagramType);
       if (action) this.$store.dispatch(action, draft.code);
       if (draft.title) this.$store.dispatch("updateTitle", draft.title);
@@ -317,16 +520,72 @@ export default {
       clearDraft(this._draftScope);
     };
     EventBus.$on('draft-restore', this._onRestore);
-
-    // this.aiTitleFeatureEnabled = await getFeatureFlags(['AI_TITLE']).then(res => res.AI_TITLE.enabled);
-    this.aiTitleFeatureEnabled = false; // Disable the AI title feature as it is not ready
   },
   beforeUnmount() {
     this._closeGuardOff?.();
+    this._closeOutcomeOff?.();
     this._draftSaver?.flush();
     this._unwatchDraft?.();
+    clearTimeout(this._savingTimeout);
     if (this._onPublished) EventBus.$off('saved', this._onPublished);
+    if (this._onSaveError) EventBus.$off('save-error', this._onSaveError);
     if (this._onRestore) EventBus.$off('draft-restore', this._onRestore);
   },
 };
 </script>
+
+<style scoped>
+/* Diagram-type tabs raised into a notch straddling the header's top edge,
+   concave shoulders cut into the divider — see Claude Design
+   preview/toolbar-header-notch.html. */
+.toolbar {
+  /* Equal side tracks keep the tabs centered as titles and actions change. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.notch {
+  position: relative;
+  flex-shrink: 0;
+  /* Hangs DOWN from the top of the header, 32px tall inside a 40px band so
+     its bottom edge never reaches the work area below. border-top:0 keeps the
+     top edge open; drawing one there leaves two floating stubs, because the
+     side borders are still painted full height. */
+  top: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #E5E7EB;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1280px) {
+  .toolbar {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .editor-header-actions {
+    gap: 6px;
+  }
+
+  .editor-action-label {
+    display: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .notch :deep([role="tab"]) {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .editor-header-actions > button {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+}
+</style>

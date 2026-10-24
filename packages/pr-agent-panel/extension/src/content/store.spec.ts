@@ -71,7 +71,6 @@ describe('page store', () => {
     expect(s.visibleReviews.value.map((item) => item.prNumber)).toEqual([ours.prNumber, REVIEWS[2]!.prNumber])
     s.state.viewerLogin = null
     expect(s.visibleReviews.value).toEqual([])
-    expect(s.review.value).toBeNull()
   })
 
   it('shows the task bound to this PR, until Done dismisses it', () => {
@@ -126,5 +125,12 @@ describe('page store', () => {
 
     s.state.pr = null
     expect(s.task.value).toBeNull()
+  })
+
+  it('shows the open PR\'s review in the panel even when the viewer is not its author', () => {
+    const s = setup()
+    s.state.viewerLogin = 'someone-else'
+    s.applyFrame({ ...base, id: 'r', type: 'reviews', repoKey: 'github.com/example-org/example-repo', items: REVIEWS })
+    expect(s.review.value?.prNumber).toBe(888)
   })
 })

@@ -85,6 +85,8 @@ export const PublishReviewInput = z.object({
   tags: TagsSchema.default([]),
   prState: PrStateSchema.default('unknown'),
   mergeable: z.boolean().optional(),
+  /** GitHub login of the PR author (`gh pr view --json author`). Lets "My PRs" show the row before a status sync. */
+  authorLogin: z.string().min(1).max(39).optional(),
 })
 export const PublishReviewOutput = z.object({ runId: z.string().min(1) })
 

@@ -84,6 +84,8 @@ export const ReviewRunSchema = z.object({
   tags: TagsSchema,
   prState: PrStateSchema,
   mergeable: z.boolean().optional(),
+  /** PR author as the publishing agent read it; a GitHub status sync overrides it. */
+  authorLogin: z.string().min(1).max(39).optional(),
   startedAt: z.number(),
   completedAt: z.number().optional(),
   agentKind: AgentKindSchema,
@@ -143,6 +145,7 @@ export function toReviewSummary(run: ReviewRun, currentHeadSha?: string): Review
     tags: run.tags,
     prState: run.prState,
     readiness: 'unknown',
+    ...(run.authorLogin ? { authorLogin: run.authorLogin } : {}),
     conflict: run.mergeable === false,
     stale: isStale(run.reviewedHeadSha, currentHeadSha),
     completedAt: run.completedAt ?? run.startedAt,

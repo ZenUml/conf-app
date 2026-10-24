@@ -43,18 +43,27 @@ export function installContentShift(doc: Document): () => void {
 }
 
 /**
- * Keeps wheel scrolling over the list inside the list. The browser hands a wheel to the page
- * whenever the list cannot move that way (too short to scroll, or already at the top or bottom);
- * this cancels exactly those wheels, so the page under the list never moves. Returns the undo.
+ * Keeps wheel scrolling over the list inside the list. A wheel scrolls the region under the
+ * pointer (the pinned block, the review rows) when that region can still move that way; when
+ * no region on the pointer's path can, the browser would hand the wheel to the GitHub page, so
+ * it is cancelled. Returns the undo.
  */
-export function containWheel(target: HTMLElement, scroller: () => HTMLElement | null | undefined): () => void {
+export function containWheel(target: HTMLElement): () => void {
   const onWheel = (event: WheelEvent) => {
-    const el = scroller()
-    if (!el || event.deltaY === 0) return
-    const atTop = el.scrollTop <= 0
-    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
-    if ((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom)) event.preventDefault()
+    if (event.deltaY === 0) return
+    for (const node of event.composedPath()) {
+      if (node === target) break
+      if (node instanceof HTMLElement && canScroll(node, event.deltaY)) return
+    }
+    event.preventDefault()
   }
   target.addEventListener('wheel', onWheel, { passive: false })
   return () => target.removeEventListener('wheel', onWheel)
+}
+
+function canScroll(el: HTMLElement, deltaY: number): boolean {
+  const overflow = getComputedStyle(el).overflowY
+  if (overflow !== 'auto' && overflow !== 'scroll') return false
+  if (el.scrollHeight <= el.clientHeight) return false
+  return deltaY < 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1
 }

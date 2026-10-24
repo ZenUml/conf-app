@@ -58,10 +58,11 @@ export function createPageStore(documentId: string) {
 
   const visibleReviews = computed(() => visibleReviewsForViewer(state.reviews, state.viewerLogin))
 
+  /** The open PR's review for the Agent Panel. "My PRs" scopes the list only, never the PR the user is looking at. */
   const review = computed<ReviewSummary | null>(() => {
     const pr = state.pr
     if (!pr) return null
-    return visibleReviews.value.find((r) => r.prNumber === pr.number) ?? null
+    return state.reviews.find((r) => r.prNumber === pr.number) ?? null
   })
 
   function pushMessage(m: PanelMessageView) {

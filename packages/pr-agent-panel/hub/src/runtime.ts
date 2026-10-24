@@ -424,6 +424,7 @@ export class HubRuntime {
       tags: input.tags,
       prState: input.prState,
       ...(input.mergeable !== undefined ? { mergeable: input.mergeable } : {}),
+      ...(input.authorLogin ? { authorLogin: input.authorLogin } : {}),
       startedAt: task.startedAt,
       completedAt: this.now(),
       agentKind: task.agent.kind,

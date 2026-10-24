@@ -59,6 +59,7 @@ describe('installContentShift', () => {
 describe('containWheel', () => {
   function scroller(scrollTop: number, scrollHeight: number, clientHeight: number) {
     const el = document.createElement('div')
+    el.style.overflowY = 'auto'
     Object.defineProperty(el, 'scrollTop', { value: scrollTop })
     Object.defineProperty(el, 'scrollHeight', { value: scrollHeight })
     Object.defineProperty(el, 'clientHeight', { value: clientHeight })
@@ -69,34 +70,66 @@ describe('containWheel', () => {
     target.dispatchEvent(event)
     return event.defaultPrevented
   }
+  function mount(list: HTMLElement) {
+    const host = document.createElement('div')
+    host.append(list)
+    return host
+  }
 
   it('keeps the page still when the list has nothing to scroll', () => {
-    const host = document.createElement('div')
     const list = scroller(0, 400, 800)
-    host.append(list)
-    containWheel(host, () => list)
+    containWheel(mount(list))
     expect(wheel(list, 100)).toBe(true)
     expect(wheel(list, -100)).toBe(true)
   })
 
   it('lets the list scroll while it can and blocks the page at either end', () => {
-    const host = document.createElement('div')
-    let list = scroller(200, 2000, 800)
-    host.append(list)
-    containWheel(host, () => list)
-    expect(wheel(list, 100)).toBe(false)
-    expect(wheel(list, -100)).toBe(false)
-    list = scroller(0, 2000, 800)
-    expect(wheel(host, -100)).toBe(true)
-    list = scroller(1200, 2000, 800)
-    expect(wheel(host, 100)).toBe(true)
+    const middle = scroller(200, 2000, 800)
+    containWheel(mount(middle))
+    expect(wheel(middle, 100)).toBe(false)
+    expect(wheel(middle, -100)).toBe(false)
+    const top = scroller(0, 2000, 800)
+    containWheel(mount(top))
+    expect(wheel(top, -100)).toBe(true)
+    const bottom = scroller(1200, 2000, 800)
+    containWheel(mount(bottom))
+    expect(wheel(bottom, 100)).toBe(true)
   })
 
   it('stops blocking after cleanup', () => {
-    const host = document.createElement('div')
     const list = scroller(0, 400, 800)
-    host.append(list)
-    containWheel(host, () => list)()
+    containWheel(mount(list))()
     expect(wheel(list, 100)).toBe(false)
+  })
+})
+
+describe('containWheel over several scroll regions', () => {
+  function region(scrollTop: number, scrollHeight: number, clientHeight: number) {
+    const el = document.createElement('div')
+    el.style.overflowY = 'auto'
+    Object.defineProperty(el, 'scrollTop', { value: scrollTop })
+    Object.defineProperty(el, 'scrollHeight', { value: scrollHeight })
+    Object.defineProperty(el, 'clientHeight', { value: clientHeight })
+    return el
+  }
+  function wheelOn(el: HTMLElement, deltaY: number) {
+    const event = new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true, composed: true })
+    el.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+
+  it('lets the region under the pointer scroll and blocks the page over a region that cannot', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const pinned = region(50, 600, 200) // can scroll both ways
+    const viewport = region(0, 400, 800) // nothing to scroll
+    const search = document.createElement('input')
+    host.append(pinned, viewport, search)
+    containWheel(host)
+
+    expect(wheelOn(pinned, 100)).toBe(false)
+    expect(wheelOn(pinned, -100)).toBe(false)
+    expect(wheelOn(viewport, 100)).toBe(true)
+    expect(wheelOn(search, 100)).toBe(true)
   })
 })

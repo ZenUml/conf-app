@@ -116,6 +116,17 @@ describe('HubRuntime: tasks and reviews', () => {
     expect(() => runtime.reportProgress(begun.taskId, 'x')).toThrow(ToolError)
   })
 
+  it('carries the author the agent publishes, so a review is visible before any GitHub status sync', () => {
+    const { runtime } = makeRuntime()
+    const conn = connectExtension(runtime)
+    runtime.handleExtensionFrame(conn.id, frame('register', { documentId: 'd1', pr: PR }))
+    const agent = runtime.connectAgent({ kind: 'claude_code', connectedAt: 1 })
+    const begun = runtime.beginTask(agent, { repo: REPO, prNumber: 7, kind: 'review' })
+    runtime.publishReview({ taskId: begun.taskId, headline: 'h', summary: 's', findings: [], tags: [], prState: 'open', authorLogin: 'example-user' })
+    expect(conn.last('reviews')?.items[0].authorLogin).toBe('example-user')
+    expect(runtime.store.history(REPO_KEY, 7)[0].authorLogin).toBe('example-user')
+  })
+
   it('falls back to 0000000 when no head is known and marks the row stale once the tab head moves', () => {
     const { runtime } = makeRuntime()
     const agent = runtime.connectAgent({ kind: 'codex', connectedAt: 1 })

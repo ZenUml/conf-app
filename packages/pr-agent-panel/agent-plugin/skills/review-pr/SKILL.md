@@ -20,7 +20,7 @@ user's own `gh` CLI; the panel shows your progress and your review.
    not empty, those are the user's requests for this PR: take them into
    account.
 3. **Read the PR** with the user's `gh` CLI:
-   - `gh pr view <N> --repo <owner>/<repo> --json title,body,headRefOid,mergeable,isDraft,state`
+   - `gh pr view <N> --repo <owner>/<repo> --json title,body,headRefOid,mergeable,isDraft,state,author`
    - `gh pr diff <N> --repo <owner>/<repo>`
    Read source files around the change when the diff alone is not enough.
 4. **Show progress.** Call `report_progress` at each stage, for example
@@ -34,6 +34,7 @@ user's own `gh` CLI; the panel shows your progress and your review.
    - `prState`: `open`, `draft`, `merged` or `closed` from `state`/`isDraft`.
    - `mergeable`: `false` when `mergeable` is `CONFLICTING`, `true` when `MERGEABLE`, omit when unknown.
    - `headSha`: the `headRefOid` you reviewed.
+   - `authorLogin`: `author.login`, so the "My PRs" list shows the entry at once.
 6. **Finish.** Call `complete_task` with `outcome: "completed"` (or
    `"failed"` with a `reason`).
 

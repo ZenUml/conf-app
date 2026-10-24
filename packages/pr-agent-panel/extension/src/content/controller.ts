@@ -170,7 +170,7 @@ export function createPageController(ctx: ContentScriptContext) {
     listUi = ui
     ui.mount()
     undoContentShift = installContentShift(document)
-    undoContainWheel = containWheel(ui.shadowHost, () => ui.shadow.querySelector<HTMLElement>('.prl-viewport'))
+    undoContainWheel = containWheel(ui.shadowHost)
     window.addEventListener('scroll', queuePlaceList, { passive: true })
     window.addEventListener('resize', queuePlaceList, { passive: true })
     listShownSent = false

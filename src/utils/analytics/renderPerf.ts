@@ -9,10 +9,14 @@
 // cross-macro contamination). Every export is read-only on render behavior:
 // it reads clocks or wraps a promise without altering what runs.
 
+import type { ContentSource } from './catalog';
+
 export type RenderPhase = 'context' | 'fetch' | 'render' | 'cc_fetch' | 'adf_scan';
 
 const durations: Partial<Record<RenderPhase, number>> = {};
 let bootstrapMs: number | undefined;
+let contentSource: ContentSource | undefined;
+let layoutWaitMs: number | undefined;
 
 // Sticky "was the tab ever hidden during this load" flag. Tab-backgrounding
 // throttles timers and inflates whichever phase was in flight — the cause of
@@ -33,8 +37,8 @@ function loadStart(): number | undefined {
 
 /**
  * Record `bootstrap_ms = now − __macroLoadStart`, once. Call at the first line
- * of app code (forgeIndex `initializeCriticalPath`). Captures the head scripts
- * (dom-to-image, md5, DrawIO) + entry bundle eval that run before any app logic.
+ * of app code (forgeIndex `initializeCriticalPath`). Captures the remaining
+ * blocking head scripts + entry bundle eval that run before any app logic.
  * No-ops if `__macroLoadStart` isn't set (test/headless mounts).
  */
 export function markAppEntry(): void {
@@ -42,6 +46,30 @@ export function markAppEntry(): void {
   const start = loadStart();
   if (start === undefined) return;
   bootstrapMs = Math.round(performance.now() - start);
+}
+
+/**
+ * Record where the macro's CONTENT (the diagram doc) came from this render, so
+ * `trackRenderTime` can tag `macro_viewed` with it (via getTimings). Unlike the
+ * phase timers, this is last-wins: the content-SWR fast path marks 'swr_cache'
+ * when it mounts the cached doc, and a background revalidate that re-renders the
+ * fresh doc overrides it with 'fetch'. Left unmarked (undefined) when no content
+ * fetch was involved — absent in the payload, never a default.
+ */
+export function markContentSource(src: ContentSource): void {
+  contentSource = src;
+}
+
+/**
+ * Record how long the viewer waited for a measurable SVG text layout after
+ * mermaid.render() threw `svg element not in render tree` (#706), so
+ * `trackRenderTime` can tag `macro_viewed` with `layout_wait_ms`. Last wins:
+ * a re-render that waits again replaces the earlier figure. Left unset
+ * (absent in the payload) when no wait happened. Not a phase of
+ * `measured_sum_ms`: that sum is bootstrap + context + fetch + render.
+ */
+export function markLayoutWait(ms: number): void {
+  layoutWaitMs = Math.max(0, Math.round(ms));
 }
 
 /**
@@ -75,6 +103,8 @@ export interface RenderTimings {
   page_adf_fetch_ms?: number;
   measured_sum_ms?: number;
   tab_hidden?: boolean;
+  content_source?: ContentSource;
+  layout_wait_ms?: number;
 }
 
 /**
@@ -97,6 +127,8 @@ export function getTimings(): RenderTimings {
     page_adf_fetch_ms: durations.adf_scan,
     measured_sum_ms: measured.length ? measured.reduce((a, b) => a + b, 0) : undefined,
     tab_hidden: everHidden,
+    content_source: contentSource,
+    layout_wait_ms: layoutWaitMs,
   };
 }
 
@@ -108,5 +140,7 @@ export function _resetForTesting(): void {
   delete durations.cc_fetch;
   delete durations.adf_scan;
   bootstrapMs = undefined;
+  contentSource = undefined;
+  layoutWaitMs = undefined;
   everHidden = typeof document !== 'undefined' ? document.hidden : false;
 }

@@ -1,5 +1,10 @@
 import { OkResponse } from "./OkResponse";
 import type { ForgeRequestData } from "./utils/authenticate";
+import { requireForgeUserToken } from "./utils/forgeUserToken";
+import { mixpanelTrack } from "./service/mixpanelService";
+import { getAtlassianInstanceClientDomain } from "./utils/dbUtils";
+import type { D1Database } from "@cloudflare/workers-types";
+import { writePngState } from "../src/lib/pngExportState.js";
 
 // ---------------------------------------------------------------------------
 // Attachment-upload fallback (issue #166)
@@ -78,8 +83,14 @@ import type { ForgeRequestData } from "./utils/authenticate";
 // `async: true` we do the cheap synchronous validation, ACK immediately with
 // `{ ok:true, queued:true }`, and finish the read-check + upload + PUT inside
 // `waitUntil` — which keeps THIS worker alive past the response, so the write
-// survives the client teardown. Failures are logged, not surfaced: the caller
-// has already closed the editor and the view-time backfill remains the net.
+// survives the client teardown. Failures are not surfaced to the caller: it has
+// already closed the editor and the view-time backfill remains the net.
+//
+// They ARE reported to Mixpanel from here, though — `attachment_upload_async_
+// succeeded` / `_failed`, see reportAsyncOutcome (#392). The browser tracker
+// cannot observe this write (its iframe is gone), so before that the outcome
+// existed only as a console.warn and ~34% of all upload attempts had no
+// success/failure signal at all.
 // ---------------------------------------------------------------------------
 
 // Only our own derived artifacts — `zenuml-<customContentId>.png` (backup
@@ -98,13 +109,170 @@ const ALLOWED_CONTENT_TYPES: Record<string, string> = {
   'application/json': 'json',
 };
 
-function fail(status: number, body: string) {
-  return OkResponse({ ok: false, status, body });
-}
+// Which leg of the write died. Async mode reports this as `failure_stage` —
+// without it a server-side failure is a single opaque bucket, and the async
+// path carries ~34% of all upload attempts (#392).
+type UploadStage = 'read_check' | 'upload' | 'properties_put' | 'handler_error';
 
 type UploadResult =
   | { ok: true; attachmentId: string; versionNumber: number }
-  | { ok: false; status: number; body: string };
+  | { ok: false; status: number; body: string; stage: UploadStage; pageStatus?: string };
+
+interface Env {
+  MIXPANEL_TOKEN?: string;
+  DB?: D1Database;
+}
+
+/**
+ * Mixpanel's `client_domain` is the bare subdomain (`example-tenant`), while
+ * D1 stores the full hostname (`example-tenant.atlassian.net`). Convert, so a
+ * backend-emitted event lands in the same bucket as the frontend ones instead
+ * of forking every tenant into two spellings.
+ */
+function toBareClientDomain(hostname: string | null): string | undefined {
+  if (!hostname) return undefined;
+  return hostname.split('.')[0] || undefined;
+}
+
+/**
+ * Pull the diagnostic part out of a Confluence v1 error body.
+ *
+ * Mirrors `extractConfluenceMessage` in src/model/Attachment.ts — duplicated
+ * rather than imported because functions/ and src/ are separate builds (the
+ * same reason analyticsTypes.ts duplicates the event catalog). Keep the two in
+ * sync.
+ *
+ * Every v1 error is wrapped in a ~180-char envelope
+ * ({"statusCode":404,"data":{…},"message":"com.atlassian…"}) and this event
+ * caps `failure_reason` at 200 chars, so the envelope alone consumed the whole
+ * budget: verified on lite-stg, every stored reason was exactly 200 chars and
+ * cut mid-sentence at "…No content found with id : Con". The frontend fixed
+ * this for its own events; the backend reporter shipped without it (#392).
+ */
+function extractConfluenceMessage(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed?.message === 'string' && parsed.message) return parsed.message;
+  } catch {
+    // Possibly a truncated envelope (bodies are capped at 500 chars upstream),
+    // so JSON.parse fails on a well-formed prefix — salvage it textually.
+    const salvaged = /"message"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(body);
+    if (salvaged?.[1]) return salvaged[1];
+  }
+  return body;
+}
+
+/**
+ * Pick the event name and label for an async outcome.
+ *
+ * The interesting case is a 404 from the upload leg. The sync path already
+ * treats that as a benign skip (`attachment_upload_skipped`) because the host
+ * page usually isn't published yet, so v1 has no `current` content to attach
+ * to — and #392's whole thesis is that recording that as an error destroys the
+ * error signal. Shipping the async reporter without the same rule recreated
+ * exactly that: on lite-stg every one of the 14 async events was a `_failed`
+ * with http 404, i.e. an all-benign bucket masquerading as a 100% failure rate.
+ *
+ * A 404 is only benign when the page really is unpublished, so `pageStatus`
+ * (from the read-check the upload already performs) decides:
+ *   - not `current`  -> benign skip, the async twin of the sync 404 skip
+ *   - `current`      -> the app genuinely cannot see the page (#211) ->
+ *                       a real failure, labelled `app_no_access` to match the
+ *                       frontend's vocabulary
+ *   - unknown        -> stays a failure. Never assume benign without evidence;
+ *                       `content_status: 'unknown'` makes the gap visible.
+ * A 401/403 on this path stays a failure regardless — the caller is the page
+ * editor, so an app-auth denial at save time is a real anomaly (the same rule
+ * the snapshot path settled on in #387).
+ */
+function classifyAsyncOutcome(
+  result: UploadResult,
+): { event: 'attachment_upload_async_succeeded' | 'attachment_upload_async_failed' | 'attachment_upload_async_skipped'; label: string } {
+  if (result.ok) return { event: 'attachment_upload_async_succeeded', label: 'succeeded' };
+  if (result.status === 404 && result.stage === 'upload') {
+    if (result.pageStatus && result.pageStatus !== 'current') {
+      return { event: 'attachment_upload_async_skipped', label: 'page_not_published' };
+    }
+    if (result.pageStatus === 'current') {
+      return { event: 'attachment_upload_async_failed', label: 'app_no_access' };
+    }
+  }
+  return { event: 'attachment_upload_async_failed', label: `http_${result.status}` };
+}
+
+/**
+ * Report the terminal outcome of an async (save-time) write.
+ *
+ * The whole point of async mode is that we ack before the write finishes and
+ * the caller's iframe is torn down — so the browser tracker cannot report this
+ * outcome, and until now nothing did: the failure path was a `console.warn`
+ * inside `waitUntil`. That left ~34% of all upload attempts (1,821 of ~5,350
+ * in a 5-day sample) with no success/failure signal at all, on the SAVE path
+ * specifically, which is the one that matters most (#392).
+ *
+ * `attachment_upload_queued` (frontend, unsampled) is the denominator: every
+ * queued upload should produce exactly one event here. Never throws — telemetry
+ * must not be able to break a write that has already been acked.
+ */
+async function reportAsyncOutcome(
+  env: Env | undefined,
+  forgeContext: ForgeRequestData['forgeContext'],
+  params: { pageId: string; attachmentName: string; contentType: string },
+  result: UploadResult,
+): Promise<void> {
+  const token = env?.MIXPANEL_TOKEN;
+  if (!token) return; // not configured (local dev / tests) — nothing to report to
+
+  try {
+    let clientDomain: string | undefined;
+    if (env?.DB) {
+      try {
+        clientDomain = toBareClientDomain(
+          await getAtlassianInstanceClientDomain(env.DB, forgeContext?.cloudId),
+        );
+      } catch {
+        // Attribution is a nice-to-have; never lose the event over it.
+      }
+    }
+
+    const outcome = classifyAsyncOutcome(result);
+
+    await mixpanelTrack(
+      {
+        event: outcome.event,
+        user_account_id: forgeContext?.accountId,
+        feature_area: 'macro',
+        surface: 'backend',
+        event_category: 'export',
+        // Mirrors the frontend's `event_label` grouping so the two sides of the
+        // funnel break down the same way.
+        event_label: outcome.label,
+        page_id: params.pageId,
+        attachment_name: params.attachmentName,
+        content_type: params.contentType,
+        cloud_id: forgeContext?.cloudId,
+        client_domain: clientDomain,
+        from_save: true,
+        ...(result.ok
+          ? { attachment_id: result.attachmentId, version_number: result.versionNumber }
+          : {
+              http_status: result.status,
+              failure_stage: result.stage,
+              // The Confluence `message`, not the envelope that used to eat the
+              // entire 200-char budget.
+              failure_reason: extractConfluenceMessage(result.body).slice(0, 200),
+              // What made this a skip rather than a failure (or vice versa) —
+              // the same guard rail the sync path carries.
+              content_status: result.pageStatus ?? 'unknown',
+            }),
+      },
+      token,
+      env,
+    );
+  } catch (e: any) {
+    console.warn('forge-upload-attachment: async outcome report failed', e?.message ?? e);
+  }
+}
 
 // The read-check → attachment-data POST → properties PUT, shared by the
 // synchronous (401/403 fallback) and the async (save-time) modes. Returns a
@@ -140,7 +308,21 @@ async function doUpload(
   });
   if (!readResp.ok) {
     console.warn(`forge-upload-attachment: user read check failed (${readResp.status}) for page ${p.pageId}`);
-    return { ok: false, status: 403, body: `caller cannot access page ${p.pageId} (read check ${readResp.status})` };
+    return { ok: false, status: 403, body: `caller cannot access page ${p.pageId} (read check ${readResp.status})`, stage: 'read_check' };
+  }
+
+  // The read-check response already carries the page's status — keep it. It is
+  // the only thing that tells a benign upload 404 ("page isn't published yet",
+  // so v1 has no `current` content to attach to) apart from a real one ("the
+  // app cannot see this page at all", #211). Without it both are just `404`
+  // and the async path cannot classify its own dominant outcome (#392).
+  // Never fatal: an unreadable body leaves the status unknown, which the
+  // reporter treats as a failure rather than silently assuming benign.
+  let pageStatus: string | undefined;
+  try {
+    pageStatus = (JSON.parse(await readResp.text()) as { status?: string })?.status;
+  } catch {
+    pageStatus = undefined;
   }
 
   // ---- upload the attachment data as the app -----------------------------
@@ -153,11 +335,14 @@ async function doUpload(
   // v1 attachment API. apiBaseUrl is the api.atlassian.com/ex/confluence/{cloudId}
   // gateway, which proxies the /wiki context — paths are appended WITHOUT /wiki
   // (see functions/utils/confluenceUtils.ts which calls /api/v2/... the same way).
-  const uploadUrl = p.attachmentId
+  const attachmentBase = `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment`;
+  let attachmentId = p.attachmentId;
+  let finalVersion = typeof p.versionNumber === 'number' && p.versionNumber > 0 ? p.versionNumber : 1;
+  const uploadUrl = attachmentId
     ? `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment/${p.attachmentId}/data`
     : `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment`;
 
-  const uploadResp = await fetch(uploadUrl, {
+  const postData = (url: string) => fetch(url, {
     method: 'POST',
     // X-Atlassian-Token: no-check disables the XSRF check for the multipart
     // attachment endpoint. Do NOT set Content-Type — fetch derives the
@@ -165,15 +350,53 @@ async function doUpload(
     headers: { 'X-Atlassian-Token': 'no-check', Authorization: `Bearer ${systemToken}` },
     body: form,
   });
-  const uploadText = await uploadResp.text();
-  if (!uploadResp.ok) {
-    console.warn(`forge-upload-attachment: upload ${uploadResp.status} page=${p.pageId} name=${p.attachmentName}: ${uploadText.slice(0, 200)}`);
-    return { ok: false, status: uploadResp.status, body: uploadText.slice(0, 500) };
+  let uploadResp = await postData(uploadUrl);
+  let uploadText = await uploadResp.text();
+  const statusOf = (response: Response, text: string): number => {
+    if (!response.ok) return response.status;
+    try {
+      const status = JSON.parse(text)?.statusCode;
+      if (typeof status === 'number' && status >= 400) return status;
+    } catch { /* v1 updates can return a plain-text success body. */ }
+    return response.status;
+  };
+  let uploadStatus = statusOf(uploadResp, uploadText);
+  if (!attachmentId && uploadStatus === 400 && /Cannot add a new attachment with same file name/i.test(uploadText)) {
+    // The v2 existence gate can miss a name already visible to v1, including a
+    // competing upload. Re-read as the app and retry at most one data POST.
+    // The caller's page read check above still applies to every write.
+    let existing: any;
+    try {
+      const lookup = await fetch(`${attachmentBase}?filename=${encodeURIComponent(p.attachmentName)}&expand=version,metadata`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${systemToken}` },
+      });
+      if (lookup.ok) {
+        const results = JSON.parse(await lookup.text())?.results;
+        if (Array.isArray(results)) existing = results
+          .filter((item: any) => item.title === p.attachmentName && item.id && Number.isInteger(item.version?.number) && item.version.number > 0)
+          .sort((a: any, b: any) => b.version.number - a.version.number)[0];
+      }
+    } catch { /* A failed re-read preserves the original create error. */ }
+    if (existing) {
+      attachmentId = String(existing.id);
+      finalVersion = existing.version.number;
+      if (existing.metadata?.comment === p.hash) {
+        return { ok: true, attachmentId, versionNumber: finalVersion };
+      }
+      finalVersion += 1;
+      uploadResp = await postData(`${attachmentBase}/${encodeURIComponent(attachmentId)}/data`);
+      uploadText = await uploadResp.text();
+      uploadStatus = statusOf(uploadResp, uploadText);
+    }
+  }
+  if (uploadStatus >= 400 || !uploadResp.ok) {
+    console.warn(`forge-upload-attachment: upload ${uploadStatus} page=${p.pageId} name=${p.attachmentName}: ${uploadText.slice(0, 200)}`);
+    return { ok: false, status: uploadStatus, body: uploadText.slice(0, 500), stage: 'upload', pageStatus };
   }
 
   // New-attachment path: pull the id out of the v1 results envelope. For a
   // new version the frontend already knows the id, so fall back to it.
-  let resolvedAttachmentId: string | null = p.attachmentId ?? null;
+  let resolvedAttachmentId: string | null = attachmentId ?? null;
   try {
     const parsed = JSON.parse(uploadText);
     resolvedAttachmentId = parsed?.results?.[0]?.id ?? parsed?.data?.results?.[0]?.id ?? resolvedAttachmentId;
@@ -181,14 +404,13 @@ async function doUpload(
     // Non-JSON body — keep whatever id we already have.
   }
   if (!resolvedAttachmentId) {
-    return { ok: false, status: 502, body: `upload succeeded but response had no attachment id: ${uploadText.slice(0, 200)}` };
+    return { ok: false, status: 502, body: `upload succeeded but response had no attachment id: ${uploadText.slice(0, 200)}`, stage: 'upload' };
   }
 
   // ---- mirror updateAttachmentProperties: stamp the comment as the app ----
   // Keeps end state identical to the successful user path so the frontend's
   // hash-based change detection (attachment.comment === metaKey) still skips
   // future re-uploads.
-  const finalVersion = typeof p.versionNumber === 'number' && p.versionNumber > 0 ? p.versionNumber : 1;
   const putResp = await fetch(`${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment/${resolvedAttachmentId}`, {
     method: 'PUT',
     headers: {
@@ -207,7 +429,7 @@ async function doUpload(
   if (!putResp.ok) {
     const putText = await putResp.text();
     console.warn(`forge-upload-attachment: properties PUT ${putResp.status} attachment=${resolvedAttachmentId}: ${putText.slice(0, 200)}`);
-    return { ok: false, status: putResp.status, body: putText.slice(0, 500) };
+    return { ok: false, status: putResp.status, body: putText.slice(0, 500), stage: 'properties_put' };
   }
 
   return { ok: true, attachmentId: String(resolvedAttachmentId), versionNumber: finalVersion };
@@ -216,10 +438,12 @@ async function doUpload(
 export const onRequest = async ({
   request,
   data,
+  env,
   waitUntil,
 }: {
   request: Request;
   data: ForgeRequestData;
+  env?: Env;
   waitUntil?: (promise: Promise<any>) => void;
 }) => {
   try {
@@ -228,46 +452,44 @@ export const onRequest = async ({
     // own tenant.
     const apiBaseUrl = data.forgeContext?.apiBaseUrl;
     if (!apiBaseUrl) {
-      return fail(401, 'missing forge context (apiBaseUrl)');
+      return OkResponse({ ok: false, status: 401, body: 'missing forge context (apiBaseUrl)' });
     }
 
     const systemToken = request.headers.get('x-forge-oauth-system');
-    const userToken = request.headers.get('x-forge-oauth-user');
     if (!systemToken) {
-      return fail(401, 'missing x-forge-oauth-system header — not a valid app-token Forge request');
+      return OkResponse({ ok: false, status: 401, body: 'missing x-forge-oauth-system header — not a valid app-token Forge request' });
     }
-    if (!userToken) {
-      // We rely on the user token to confirm the caller can see the page before
-      // writing as the app. forge-custom-content.ts requires this header too.
-      return fail(401, 'missing x-forge-oauth-user header');
-    }
+    // We rely on the user token to confirm the caller can see the page before
+    // writing as the app.
+    const userToken = requireForgeUserToken(request);
+    if (userToken instanceof Response) return userToken;
 
     const body: any = await request.json();
     const {
       pageId, attachmentId, attachmentName, hash, versionNumber,
-      pngBase64, dataBase64, contentType: rawContentType, async: asyncMode,
+      pngBase64, dataBase64, contentType: rawContentType, async: asyncMode, pngAttemptId,
     } = body ?? {};
 
     // ---- input validation (confused-deputy mitigation) --------------------
     if (!pageId || !/^[0-9]+$/.test(String(pageId))) {
-      return fail(400, 'invalid pageId');
+      return OkResponse({ ok: false, status: 400, body: 'invalid pageId' });
     }
     if (!attachmentName || !ATTACHMENT_NAME_RE.test(String(attachmentName))) {
-      return fail(400, 'invalid attachmentName (must be zenuml-<id>.png or zenuml-<id>.json)');
+      return OkResponse({ ok: false, status: 400, body: 'invalid attachmentName (must be zenuml-<id>.png or zenuml-<id>.json)' });
     }
 
     // contentType defaults to image/png for backward compatibility with
     // legacy callers that only ever sent a PNG and never set this field.
     const contentType = String(rawContentType ?? 'image/png');
     if (!(contentType in ALLOWED_CONTENT_TYPES)) {
-      return fail(400, `invalid contentType (must be one of: ${Object.keys(ALLOWED_CONTENT_TYPES).join(', ')})`);
+      return OkResponse({ ok: false, status: 400, body: `invalid contentType (must be one of: ${Object.keys(ALLOWED_CONTENT_TYPES).join(', ')})` });
     }
     // The attachmentName's extension and the declared contentType must agree —
     // this is what stops "upload a PNG under a .json name" (or vice versa)
     // from smuggling the wrong bytes into the wrong-looking artifact.
     const nameExt = String(attachmentName).slice(String(attachmentName).lastIndexOf('.') + 1).toLowerCase();
     if (ALLOWED_CONTENT_TYPES[contentType] !== nameExt) {
-      return fail(400, `attachmentName extension (.${nameExt}) does not match contentType (${contentType})`);
+      return OkResponse({ ok: false, status: 400, body: `attachmentName extension (.${nameExt}) does not match contentType (${contentType})` });
     }
 
     // Exactly one of the legacy `pngBase64` field and the generic `dataBase64`
@@ -275,11 +497,11 @@ export const onRequest = async ({
     // in-flight Forge rollouts while giving new callers (e.g. the JSON
     // snapshot) a type-agnostic field name.
     if (dataBase64 !== undefined && pngBase64 !== undefined) {
-      return fail(400, 'provide only one of dataBase64 or pngBase64');
+      return OkResponse({ ok: false, status: 400, body: 'provide only one of dataBase64 or pngBase64' });
     }
     const payloadBase64 = dataBase64 ?? pngBase64;
     if (!hash || !payloadBase64) {
-      return fail(400, 'missing hash or data (pngBase64/dataBase64)');
+      return OkResponse({ ok: false, status: 400, body: 'missing hash or data (pngBase64/dataBase64)' });
     }
 
     let bytes: Uint8Array;
@@ -288,16 +510,16 @@ export const onRequest = async ({
       bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     } catch {
-      return fail(400, 'payload is not valid base64');
+      return OkResponse({ ok: false, status: 400, body: 'payload is not valid base64' });
     }
     if (bytes.length > MAX_PAYLOAD_BYTES) {
-      return fail(413, `payload too large (${bytes.length} bytes)`);
+      return OkResponse({ ok: false, status: 413, body: `payload too large (${bytes.length} bytes)` });
     }
     // Magic-byte check applies only to the PNG payload — an application/json
     // payload is arbitrary text bytes; the namespace + extension/contentType
     // consistency check above is its guard.
     if (contentType === 'image/png' && (bytes.length < 8 || !PNG_MAGIC.every((b, i) => bytes[i] === b))) {
-      return fail(400, 'payload is not a PNG');
+      return OkResponse({ ok: false, status: 400, body: 'payload is not a PNG' });
     }
 
     const params = {
@@ -311,11 +533,80 @@ export const onRequest = async ({
     // path. Failures are logged only (the editor has already closed; the
     // view-time backfill is the safety net). See the header comment.
     if (asyncMode) {
+      const reportParams = {
+        pageId: params.pageId,
+        attachmentName: params.attachmentName,
+        contentType,
+      };
+      const recordTerminalState = async (r: UploadResult) => {
+        if (contentType !== 'image/png' || typeof pngAttemptId !== 'string' || !/^[\w-]{8,80}$/.test(pngAttemptId)) return;
+        // A failed user read-check never authorizes an app-token page write.
+        // A thrown handler has unknown authorization progress, so skip too.
+        if (!r.ok && (r.stage === 'read_check' || r.stage === 'handler_error')) return;
+        const customContentId = /^zenuml-(\d+)\.png$/.exec(String(attachmentName))?.[1];
+        if (!customContentId) return;
+        const state = r.ok ? 'ready'
+          : r.stage === 'upload' && r.status === 404 && r.pageStatus && r.pageStatus !== 'current' ? 'waiting_for_publish'
+          : r.status === 401 || r.status === 403 ? 'upload_denied' : 'upload_failed';
+        const requestProperty = (url: string, method: string, value?: unknown) => fetch(`${apiBaseUrl}${url.replace(/^\/wiki/, '')}`, {
+          method,
+          headers: { Authorization: `Bearer ${systemToken}`, Accept: 'application/json',
+            ...(value ? { 'Content-Type': 'application/json' } : {}) },
+          ...(value ? { body: JSON.stringify(value) } : {}),
+        });
+        try {
+          const propertyFailures: Array<{ operation: string; reason: string }> = [];
+          const changed = await writePngState(requestProperty, {
+            pageId: String(pageId), customContentId, state, attemptId: pngAttemptId,
+            startedAt: Date.now(), contentHash: String(hash),
+            ...(r.ok ? { attachmentId: r.attachmentId } : {}),
+          }, (operation: string, error: unknown) => {
+            console.warn(`forge-upload-attachment: PNG state ${operation} failed`, error);
+            propertyFailures.push({ operation, reason: error instanceof Error ? error.message.slice(0, 40) : 'unknown' });
+          });
+          if (env?.MIXPANEL_TOKEN) {
+            for (const failure of propertyFailures) {
+              await mixpanelTrack({
+                event: 'png_export_state_persistence_failed', feature_area: 'macro', surface: 'backend',
+                page_id: String(pageId), custom_content_id: customContentId,
+                cloud_id: data.forgeContext?.cloudId, user_account_id: data.forgeContext?.accountId,
+                attachment_name: String(attachmentName),
+                png_export_property_operation: failure.operation, failure_reason: failure.reason,
+              }, env.MIXPANEL_TOKEN, env);
+            }
+            if (changed) await mixpanelTrack({
+              event: 'png_export_state_changed', feature_area: 'macro', surface: 'backend',
+              page_id: String(pageId), custom_content_id: customContentId, png_export_state: state,
+              cloud_id: data.forgeContext?.cloudId, user_account_id: data.forgeContext?.accountId,
+              attachment_name: String(attachmentName),
+            }, env.MIXPANEL_TOKEN, env);
+          }
+        } catch (error) {
+          console.warn('forge-upload-attachment: PNG state update failed', error);
+        }
+      };
       const work = doUpload(apiBaseUrl, systemToken, userToken, params)
-        .then((r) => {
+        .then(async (r) => {
           if (!r.ok) console.warn(`forge-upload-attachment[async]: ${r.status} page=${pageId} name=${attachmentName}: ${r.body.slice(0, 200)}`);
+          // The client is gone by now, so this is the ONLY place the outcome
+          // can be recorded (#392).
+          await recordTerminalState(r);
+          await reportAsyncOutcome(env, data.forgeContext, reportParams, r);
         })
-        .catch((e) => console.error('forge-upload-attachment[async]: handler error', e));
+        .catch(async (e) => {
+          console.error('forge-upload-attachment[async]: handler error', e);
+          // A thrown handler is still an outcome — reporting only the returned
+          // `{ok:false}` results would leave network/runtime errors invisible,
+          // which is the exact blind spot this reporting exists to close.
+          const failed: UploadResult = {
+            ok: false,
+            status: 0,
+            body: String(e?.message ?? e).slice(0, 200),
+            stage: 'handler_error',
+          };
+          await recordTerminalState(failed);
+          await reportAsyncOutcome(env, data.forgeContext, reportParams, failed);
+        });
       if (typeof waitUntil === 'function') {
         waitUntil(work);
       } else {
@@ -331,9 +622,9 @@ export const onRequest = async ({
     const r = await doUpload(apiBaseUrl, systemToken, userToken, params);
     return r.ok
       ? OkResponse({ ok: true, attachmentId: r.attachmentId, versionNumber: r.versionNumber })
-      : fail(r.status, r.body);
+      : OkResponse({ ok: false, status: r.status, body: r.body });
   } catch (e: any) {
     console.error('forge-upload-attachment: handler error', e);
-    return fail(0, `resolver error: ${e?.name ?? 'Error'}: ${String(e?.message ?? e).slice(0, 200)}`);
+    return OkResponse({ ok: false, status: 0, body: `resolver error: ${e?.name ?? 'Error'}: ${String(e?.message ?? e).slice(0, 200)}` });
   }
 };

@@ -6,6 +6,10 @@ interface Env {
 
 type Strategy = (ai: Ai, dsl: string, type?: string) => Promise<string>;
 
+function isOpenApiTitleRequest(type?: string): boolean {
+  return /openapi/i.test((type || '').trim());
+}
+
 // Robustly pull a title out of the model's free-form response. Llama often
 // ignores the "wrap in triple quotes" instruction (especially for sequence
 // DSLs), so fall back through: triple-quoted span -> any quoted span -> the
@@ -33,23 +37,29 @@ const FALLBACK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const strategies: Strategy[] = [
   async (ai, dsl, type) => {
+    const systemPrompt = isOpenApiTitleRequest(type)
+      ? 'Create one concise title (ideally under 60 characters) for the provided OpenAPI specification. Only output the title, enclosed with triple quotes (like: """example title""").'
+      : `You will help the user to create a title for an ${type || 'UML'} diagram, the user will give a DSL that describing an ${type || 'UML'} diagram, you should just give out one concise title (ideally under 60 characters) describing the whole UML and enclose it with triple quotes (like: """example title""").`;
     const result = await (ai as any).run(PRIMARY_MODEL, {
       messages: [
         {
           role: 'system',
-          content: `You will help the user to create a title for an ${type || 'UML'} diagram, the user will give a DSL that describing an ${type || 'UML'} diagram, you should just give out one concise title (ideally under 60 characters) describing the whole UML and enclose it with triple quotes (like: """example title""").`,
+          content: systemPrompt,
         },
         { role: 'user', content: dsl },
       ],
     });
     return extractTitle((result as any).response);
   },
-  async (ai, dsl) => {
+  async (ai, dsl, type) => {
+    const systemPrompt = isOpenApiTitleRequest(type)
+      ? 'Generate one concise title for the provided OpenAPI specification. Only output the title, nothing else.'
+      : 'You are an expert of ZenUML sequence diagram. Generate title for the given DSL. Only output the title, nothing else.';
     const result = await (ai as any).run(FALLBACK_MODEL, {
       messages: [
         {
           role: 'system',
-          content: 'You are an expert of ZenUML sequence diagram. Generate title for the given DSL. Only output the title, nothing else.',
+          content: systemPrompt,
         },
         { role: 'user', content: dsl },
       ],

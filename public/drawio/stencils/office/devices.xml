@@ -3056,7 +3056,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#27ace2"/>
+        <fillcolor color="fillColor2" default="#27ace2"/>
         <path>
             <move x="41.25" y="10.5"/>
             <line x="41.25" y="1.58"/>
@@ -3143,7 +3143,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#672a7b"/>
+        <fillcolor color="fillColor2" default="#672a7b"/>
         <path>
             <move x="42.07" y="10.88"/>
             <line x="48" y="15.39"/>

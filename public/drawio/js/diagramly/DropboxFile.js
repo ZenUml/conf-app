@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2017, JGraph Holdings Ltd
+ * Copyright (c) 2006-2017, draw.io AG
  */
 DropboxFile = function(ui, data, stat)
 {
@@ -268,7 +268,7 @@ DropboxFile.prototype.saveFile = function(title, revision, success, error)
 						}), folder);
 					});
 					
-					if (this.ui.useCanvasForExport && /(\.png)$/i.test(this.getTitle()))
+					if (Editor.useCanvasForExport && /(\.png)$/i.test(this.getTitle()))
 					{
 						var p = this.ui.getPngFileProperties(this.ui.fileNode);
 						

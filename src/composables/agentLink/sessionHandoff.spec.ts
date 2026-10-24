@@ -99,8 +99,16 @@ describe('sessionHandoff', () => {
 
   it('readSession returns null once the record is older than HANDOFF_TTL_MS', () => {
     const session = makeSession()
-    const persistedAt = Date.now()
     persistSession(session)
+    // Read the stamp back rather than sampling the clock beforehand.
+    // persistSession calls Date.now() itself, so a pre-sampled `persistedAt`
+    // is one tick early whenever the millisecond rolls over between the two —
+    // and then `persistedAt + TTL + 1` is only TTL past the REAL stamp, which
+    // isValidPersisted still accepts (`<=`). That made this test fail roughly
+    // whenever the timing went that way (observed on CI, run 30145695554).
+    const persistedAt: number = JSON.parse(
+      localStorage.getItem('agentLinkSession:page-1')!
+    ).persistedAt
 
     // Still readable just under the TTL...
     expect(readSession('page-1', persistedAt + HANDOFF_TTL_MS - 1)).toEqual(session)

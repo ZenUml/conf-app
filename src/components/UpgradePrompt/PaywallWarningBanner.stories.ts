@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
-import { expect, userEvent, within } from 'storybook/test'
+import { expect, within } from 'storybook/test'
 import PaywallWarningBanner from './PaywallWarningBanner.vue'
 import forgeGlobal from '@/model/globals/forgeGlobal'
-import { targetingMarkerKey, macroActivityMarkerKey } from '@/utils/paywall/warningBanner'
+import { targetingMarkerKey, macroActivityMarkerKey, impressionMarkerKey } from '@/utils/paywall/warningBanner'
+import { spaceAdminProbeKey } from '@/utils/paywall/spaceAdminProbe'
 
 type Story = StoryObj<typeof PaywallWarningBanner>
 
@@ -25,6 +26,9 @@ function installMarkers() {
 
   const identity = { clientDomain: DOMAIN, spaceKey: SPACE }
 
+  // Each story starts with a fresh impression counter.
+  localStorage.removeItem(impressionMarkerKey(identity))
+
   // Targeting marker: space is over the limit, CSS enabled, unpaid
   localStorage.setItem(
     targetingMarkerKey(identity),
@@ -44,6 +48,27 @@ function installMarkers() {
       lastActivityAt: new Date().toISOString(),
       activityType: 'edit',
     })
+  )
+
+  // Admin probe marker: not an admin, so the default stories render the author
+  // (advocacy) variant. SpaceAdmin overrides this.
+  localStorage.setItem(
+    spaceAdminProbeKey(identity),
+    JSON.stringify({ lastProbedAt: new Date().toISOString(), isAdmin: false, adminCount: 3 })
+  )
+}
+
+/**
+ * Phase 5b variant: the viewer administers this space. Note NO activity marker —
+ * this is the whole point, an admin who never authors a diagram is now reached.
+ */
+function installSpaceAdminMarkers() {
+  installMarkers()
+  const identity = { clientDomain: DOMAIN, spaceKey: SPACE }
+  localStorage.removeItem(macroActivityMarkerKey(identity))
+  localStorage.setItem(
+    spaceAdminProbeKey(identity),
+    JSON.stringify({ lastProbedAt: new Date().toISOString(), isAdmin: true, adminCount: 3 })
   )
 }
 
@@ -86,7 +111,7 @@ function installNavigationMock() {
 }
 
 const meta: Meta<typeof PaywallWarningBanner> = {
-  title: 'Paywall/PaywallWarningBanner',
+  title: 'Page banner/PaywallWarningBanner',
   component: PaywallWarningBanner,
   tags: ['autodocs'],
   parameters: {
@@ -94,11 +119,14 @@ const meta: Meta<typeof PaywallWarningBanner> = {
     docs: {
       description: {
         component:
-          'Page-banner shown to macro authors when their space is over the ZenUML Lite ' +
-          'diagram limit. Reads state from localStorage markers written by the macro iframe ' +
-          '(targeting) and the editor save path (activity). Gate runs synchronously in ' +
-          '<script setup> so the banner never flashes. ' +
-          'States: shown (gate passes) → dismissed (user clicks ✕, banner hides, snooze written).',
+          'Non-blocking page banner (confluence:pageBanner) on pages of an over-limit ZenUML ' +
+          'Lite space — since the editing block was retired this is the only in-product paywall ' +
+          'surface. Two audiences: recent macro authors get the advocacy text and one action, ' +
+          'View plan and usage; eligible space admins also ' +
+          'get the Unlock this space purchase button. The gate reads localStorage markers ' +
+          'synchronously in <script setup> — targeting written by the macro iframe, activity by ' +
+          'the editor save path — so the banner never flashes. It stays visible on ' +
+          'each qualifying page load and records impressions for analytics.',
       },
     },
   },
@@ -117,8 +145,8 @@ export default meta
 
 /**
  * Normal visible state: gate passes (targeting marker present, activity recent,
- * no dismissal within the snooze window). Shows macro count, both action
- * buttons, and the dismiss ✕.
+ * current policy, unpaid space, over 100 macros, recent author). Shows the
+ * macro count and the View plan and usage button.
  */
 export const Shown: Story = {
   name: 'Shown — gate passes, banner visible',
@@ -127,39 +155,62 @@ export const Shown: Story = {
     const banner = await canvas.findByTestId('paywall-warning-banner')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveTextContent(`${MACRO_COUNT} of 100`)
-    await expect(await canvas.findByTestId('paywall-banner-request-extension')).toBeVisible()
-    await expect(await canvas.findByTestId('paywall-banner-copy-admin')).toBeVisible()
-    await expect(await canvas.findByTestId('paywall-banner-dismiss')).toBeVisible()
+    await expect(await canvas.findByTestId('paywall-banner-plan-usage')).toBeVisible()
+    await expect(canvas.queryByTestId('paywall-banner-dismiss')).toBeNull()
   },
 }
 
 /**
- * Dismissed state: user clicks the ✕ button. The banner sets visible=false,
- * writes the dismissal marker (starts the 7-day snooze), and calls view.close().
- * In Storybook, view.close() is a no-op so we can assert the element is gone.
+ * Existing browser data can contain an old dismissal and a high show count.
+ * Neither affects eligibility on the next page load.
  */
-export const Dismissed: Story = {
-  name: 'Dismissed — banner hidden after ✕ click',
+export const RepeatedImpression: Story = {
+  name: 'Repeated impression — legacy dismissal ignored',
+  decorators: [
+    () => {
+      const identity = { clientDomain: DOMAIN, spaceKey: SPACE }
+      localStorage.setItem(impressionMarkerKey(identity), JSON.stringify({
+        dismissedAt: new Date().toISOString(),
+        lastShownAt: new Date().toISOString(),
+        showCount: 50,
+      }))
+      return { template: '<story />' }
+    },
+  ],
   play: async () => {
     const canvas = within(document.body)
-    // Wait for the banner to appear before clicking
-    await canvas.findByTestId('paywall-warning-banner')
-    await userEvent.click(await canvas.findByTestId('paywall-banner-dismiss'))
-    // Banner should no longer be in the DOM
-    await expect(canvas.queryByTestId('paywall-warning-banner')).toBeNull()
+    await expect(await canvas.findByTestId('paywall-warning-banner')).toBeVisible()
+    await expect(canvas.queryByTestId('paywall-banner-dismiss')).toBeNull()
   },
 }
 
 /**
- * Copy admin message button: switches label to "✓ Copied" after click, then
- * reverts to "Copy admin message" after the 2-second revert timer.
+ * Phase 5b: the viewer is a space admin of the over-limit space and has authored
+ * nothing. The old gate showed this person nothing at all — they were the 93% of
+ * reachable admins the banner never spoke to. They now get the direct purchase
+ * CTA (Enterprise Bundle, per-space, card-paid, no site admin needed) beside
+ * View plan and usage; the author variant instead asks a site admin to upgrade.
+ * The old "copy a message to your admin" relay is gone from the banner.
  */
-export const CopyAdminMessageCopied: Story = {
-  name: 'Copy admin message — copied state',
+export const SpaceAdmin: Story = {
+  name: 'Space admin — direct purchase CTA, no authoring required',
+  // The audience is resolved by the host route
+  // and passed down as a prop — the component never re-derives it from the
+  // probe marker, so the story must pass the prop explicitly.
+  args: { isSpaceAdmin: true },
+  decorators: [
+    () => {
+      installSpaceAdminMarkers()
+      return { template: '<story />' }
+    },
+  ],
   play: async () => {
     const canvas = within(document.body)
-    await canvas.findByTestId('paywall-warning-banner')
-    await userEvent.click(await canvas.findByTestId('paywall-banner-copy-admin'))
-    await expect(await canvas.findByTestId('paywall-banner-copied')).toHaveTextContent('✓ Copied')
+    const banner = await canvas.findByTestId('paywall-warning-banner')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveTextContent('You administer this space')
+    // The purchase CTA replaces the advocacy relay for this audience.
+    await expect(await canvas.findByTestId('paywall-banner-unlock-space')).toHaveTextContent('$299')
+    await expect(await canvas.findByTestId('paywall-banner-plan-usage')).toBeVisible()
   },
 }

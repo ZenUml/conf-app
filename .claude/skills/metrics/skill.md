@@ -30,18 +30,29 @@ Usage: `/metrics <domain> [space]`
 
 Append `/admin/metrics-inspect?domain=<domain>&space=<space>` to the base URL.
 
-For the lite product, always add `&addonKey=com.zenuml.confluence-addon-lite` to the query string — this selects the Lite KV bucket (the endpoint keys off the addonKey containing `-lite`). Omitting it reads the Full bucket, whose counts diverge badly from Lite. For the full product, omit `addonKey`.
+**Always name the product**, using `&addonKey=`:
+
+| product | param |
+|---|---|
+| Lite | `&addonKey=com.zenuml.confluence-addon-lite` |
+| Full | `&addonKey=com.zenuml.confluence-addon` |
+
+This selects the KV key `metrics:<domain>:<productType>`. The base URL does **not** select it — every Pages project reads the same namespace, so `conf-lite` with a Full addonKey returns Full data and vice versa. Only the param matters.
+
+`&productType=<full|lite|diagramly|asyncapi>` is the clearer spelling and is accepted **only** once PR #397 reaches an environment. Against an environment still running the older handler it is ignored and silently falls back to Full — so prefer `addonKey`, which both handlers honour.
+
+Omitting the product no longer defaults to Full (post-#397): the endpoint probes all four products and either resolves a single match (`productResolvedBy: "sole-match"`) or returns `status: "ambiguous_product"` listing each product's `spaceCount` and `newestUpdate`. A product the tenant holds no license for is residue from a past writer bug, not a second install — 458 of 767 domains carry more than one key.
 
 Note: use curl (not WebFetch's follow-through summarization) to get the raw JSON, e.g.
-`curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>"`
+`curl -s "https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite"`
 
 ## Execution
 
 1. Parse the arguments to extract `domain` and optional `space`.
 2. Call the inspect endpoint using `WebFetch`:
-   - If space is provided: `GET <base>/admin/metrics-inspect?domain=<domain>&space=<space>`
-   - If space is omitted: `GET <base>/admin/metrics-inspect?domain=<domain>`
-3. If the user did not specify an environment/variant, determine the variant first — ask, or check which app the tenant has installed (e.g. `forge-installs` skill, or Mixpanel `product_type`) — then use the matching base URL and addonKey. Do not default to Full: Full and Lite read different KV buckets and their counts diverge.
+   - If space is provided: `GET <base>/admin/metrics-inspect?domain=<domain>&addonKey=<key>&space=<space>`
+   - If space is omitted: `GET <base>/admin/metrics-inspect?domain=<domain>&addonKey=<key>`
+3. If the user did not specify a variant, determine it first — ask, or check which app the tenant has installed (e.g. `forge-installs` skill, or Mixpanel `product_type`) — then pass the matching `addonKey`. Do not default to Full: the products read different KV keys and their counts diverge. If you get `ambiguous_product`, resolve it against the tenant's actual Marketplace license rather than picking the larger number — the larger one is usually the fossil.
 
 ## Output Format
 

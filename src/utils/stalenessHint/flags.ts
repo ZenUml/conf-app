@@ -1,5 +1,5 @@
 import { getContext } from '@/model/globals/forgeGlobal'
-import { mapEnvironment } from '@/utils/prefetch/flags'
+import { mapEnvironment } from '@/utils/forgeFlagEnvironment'
 
 export const STALENESS_HINT_FLAG = 'editor-staleness-hint-enabled'
 

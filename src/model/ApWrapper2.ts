@@ -1,17 +1,15 @@
 import {trackEvent, addonKey} from '@/utils/window';
 import time from '@/utils/timer';
 import * as renderPerf from '@/utils/analytics/renderPerf';
-import {IApWrapper, VersionType} from "@/model/IApWrapper";
 import {IMacroData} from "@/model/IMacroData";
 import {IContentProperty} from "@/model/IContentProperty";
-import {ICustomContent, ICustomContentV2, SearchResults, User} from "@/model/ICustomContent";
+import {ICustomContent, ICustomContentV2, SearchResults} from "@/model/ICustomContent";
 import {IUser} from "@/model/IUser";
 import {ILicense} from "@/model/ILicense";
 import {DataSource, Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import {getCodeFromDiagram} from "@/model/Diagram/DiagramTypeConfig";
+import {normalizeMermaidWhitespace} from "@/utils/mermaid/normalizeWhitespace";
 import {
-  AccountUser,
-  ICustomContentResponseBody,
   ICustomContentResponseBodyV2
 } from "@/model/ICustomContentResponseBody";
 import {AtlasPage} from "@/model/page/AtlasPage";
@@ -24,6 +22,13 @@ import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { isUsablePageId } from '@/utils/pageId';
+import { classifyCreateNotFound, parseContentOperations, SaveFailureDiagnosis } from '@/model/saveFailureDiagnosis';
+
+export enum VersionType {
+  Lite = 'lite',
+  Full = 'full'
+}
 
 const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph'];
 // AsyncAPI variant only registers `async-api-doc` in its manifest — the
@@ -32,10 +37,25 @@ const CUSTOM_CONTENT_TYPES = ['zenuml-content-sequence', 'zenuml-content-graph']
 // Querying for sequence/graph keys here would return 400 from the v1/v2
 // search APIs ("Unsupported value for type").
 const ASYNCAPI_CUSTOM_CONTENT_TYPES = ['async-api-doc'];
+// Diagramly stores EVERY diagram under one key, `gpt-custom-content-key`
+// (package.json `forge:deploy:diagramly:*`), where lite/full split theirs across
+// zenuml-content-sequence/-graph. Omitting this branch made the search CQL ask
+// for two types the variant never writes, so every diagram-discovery caller came
+// back empty on Diagramly: the homepage feed card rendered only example rows and
+// Agent Link's search_diagrams / list_diagrams listed nothing (#524, observed on
+// production 2026-08-21).
+//
+// customContentTypesForVariant() is the ONLY place that decides which types a
+// variant queries. Every type list sent to Confluence — the search CQL clause,
+// getMacroContentTypes(), findLegacyCustomContentByUuid() — must derive from it;
+// a call site that names CUSTOM_CONTENT_TYPES directly asks AsyncAPI for types it
+// never registered and gets 400 "Unsupported value for type" (#403).
+const DIAGRAMLY_CUSTOM_CONTENT_TYPES = ['gpt-custom-content-key'];
 function customContentTypesForVariant(): string[] {
-  return forgeGlobal.isAsyncApi ? ASYNCAPI_CUSTOM_CONTENT_TYPES : CUSTOM_CONTENT_TYPES;
+  if (forgeGlobal.isAsyncApi) return ASYNCAPI_CUSTOM_CONTENT_TYPES;
+  if (forgeGlobal.isDiagramly) return DIAGRAMLY_CUSTOM_CONTENT_TYPES;
+  return CUSTOM_CONTENT_TYPES;
 }
-const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 
 // One raw candidate hit for the Agent Link discovery tools (search_diagrams /
 // list_diagrams — see searchDiagramsForge). Assembled from a v1 CQL search
@@ -109,7 +129,30 @@ export interface LoadCustomContentOpts {
   copyCheckMode?: 'full' | 'cross-page-only';
 }
 
-export default class ApWrapper2 implements IApWrapper {
+/**
+ * Classify a v2 custom-content `{ errors: [...] }` envelope. Strict 404
+ * detection: every error in the array must be a true 404 (status === 404 AND
+ * code === 'NOT_FOUND'). A mixed array — or a single error with mismatched
+ * status/code — must be treated as 'other_error' so recovery does not trigger
+ * and the write path does not fall through to create on transient failures.
+ */
+function classifyCustomContentErrors(errors: any[]): {
+  status: 'not_found' | 'other_error';
+  httpStatus?: number;
+  errorCode?: string;
+} {
+  const allStrictNotFound = errors.every(
+    (err: any) => err?.status === 404 && err?.code === 'NOT_FOUND',
+  );
+  const firstError = errors[0] ?? {};
+  return {
+    status: allStrictNotFound ? 'not_found' : 'other_error',
+    httpStatus: typeof firstError.status === 'number' ? firstError.status : undefined,
+    errorCode: firstError.code != null ? String(firstError.code) : undefined,
+  };
+}
+
+export default class ApWrapper2 {
   versionType: VersionType;
   _page: AtlasPage;
   currentUser: IUser | undefined;
@@ -138,7 +181,6 @@ export default class ApWrapper2 implements IApWrapper {
       if (this.versionType === VersionType.Full) {
         this.license = forgeGlobal.forgeContext?.license;
       }
-      console.debug('initializeContext', this.currentUser, this.currentSpace, this.currentPageUrl, this.locationTarget, this.currentPageId, this.license);
 
       if (window) {
         //@ts-ignore
@@ -152,11 +194,7 @@ export default class ApWrapper2 implements IApWrapper {
       }
     } catch (e: any) {
       console.error(e);
-      try {
-        trackEvent('error', 'initializeContext', e.message);
-      } catch (e) {
-        console.error(e);
-      }
+      trackEvent('error', 'initializeContext', e.message);
     }
   }
 
@@ -164,19 +202,11 @@ export default class ApWrapper2 implements IApWrapper {
     return forgeGlobal.forgeContext?.extension?.config as IMacroData | undefined;
   }
 
-  async getMacroBody(): Promise<string | undefined> {
-    return undefined;
-  }
-
-  getContentProperty(_key: any): Promise<IContentProperty | undefined> {
-    return Promise.resolve(undefined);
-  }
-
   // ZEN-1170 Defect 1: discriminated content-property read used by the Forge
-  // viewer/editor legacy-fallback paths. The legacy `getContentProperty` above
-  // collapses every failure to `undefined`, which is safe for viewer-only
-  // callers but unsafe for editors (a transient 403 would look identical to
-  // "no legacy property" and the user could save over the legacy data).
+  // viewer/editor legacy-fallback paths. It reports WHY a read failed rather
+  // than collapsing every failure to `undefined`: for an editor a transient
+  // 403 must not look identical to "no legacy property", or the user could
+  // save over the legacy data.
   async getContentPropertyV2(key: string): Promise<ContentPropertyV2Result> {
     // Resolve pageId with the same fallback chain as initializeContext, since
     // not every Forge entry point calls initializeContext() before reaching
@@ -250,7 +280,6 @@ export default class ApWrapper2 implements IApWrapper {
     } else {
       key = `com.zenuml.confluence-addon${forgeGlobal.isLite ? '-lite' : ''}`;
     }
-    console.debug('getCustomContentTypePrefix', key);
     return `ac:${key}`;
   }
 
@@ -265,31 +294,7 @@ export default class ApWrapper2 implements IApWrapper {
   // Fully-qualified custom-content types for the diagram macros, used to
   // enumerate/count a space's macros via the V2 space custom-content endpoint.
   getMacroContentTypes(): string[] {
-    return CUSTOM_CONTENT_TYPES.map((type) => this.customContentType(type));
-  }
-
-  async createCustomContent(content: Diagram) {
-    const type = this.getCustomContentType();
-    const bodyData: any = {
-      "type": type,
-      "title": content.title || `Untitled ${new Date().toISOString()}`,
-      "space": {
-        "key": (await this.getCurrentSpace()).key
-      },
-      "body": {
-        "raw": {
-          "value": JSON.stringify(content),
-          "representation": "raw"
-        }
-      }
-    };
-    const container = {id: await this._page.getPageId(), type: await this._page.getContentType()};
-    if (container.id) {
-      bodyData.container = container;
-    }
-
-    const response = await this.makeRequest('/rest/api/content', 'POST', bodyData);
-    return response as ICustomContentResponseBody;
+    return customContentTypesForVariant().map((type) => this.customContentType(type));
   }
 
   async createCustomContentV2(content: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -319,8 +324,12 @@ export default class ApWrapper2 implements IApWrapper {
     // extension.content, so pageId is undefined and the POST fails 400.
     // Fall back to spaceId from forgeContext.extension.space when no page
     // is in scope.
+    //
+    // conf-app#523: an unpublished (draft) page reports its id as the sentinel
+    // "0", which is truthy but is not a parent Confluence can resolve (404
+    // "parent page 0 not found"). Treat it like "no page" and use the space.
     const pageId = await this._getCurrentPageId();
-    if (pageId) {
+    if (isUsablePageId(pageId)) {
       data.pageId = pageId;
     } else {
       const space = await this.getCurrentSpace();
@@ -331,8 +340,47 @@ export default class ApWrapper2 implements IApWrapper {
       }
     }
 
-    const response = await this.makeRequest('/api/v2/custom-content', 'POST', data);
+    const response = await this.request('/api/v2/custom-content', 'POST', data);
     return this.assertSavedCustomContent(response, 'create');
+  }
+
+  /**
+   * Read-only probe behind `save_failed_diagnosed`: what may the CALLER create
+   * on the host page, per Confluence itself. One v2 GET with
+   * `include-operations=true`; `operations.results` carries
+   * `create / <our custom-content type>` only when the space grants the caller
+   * "Add attachments" (verified 2026-08-30 on lite-stg with v1, 2026-09-11 with
+   * v2: a user holding "Add pages" only lists create/page but neither
+   * create/attachment nor our type).
+   *
+   * Not v1: `/rest/api/content/{id}?expand=operations` answers **410 Gone**
+   * through Forge's requestConfluence proxy (lite-stg 2026-09-11,
+   * `probe_http_status: 410`, same as the content-property endpoint noted in
+   * loadLegacyContentProperty), which is why every save_failed_diagnosed
+   * fired before this change said page_unreachable. A page the author has
+   * not published yet is a draft; v2 answers its id with 404 unless
+   * `get-draft=true` is passed, so a 404 is retried once that way before the
+   * page is called unreachable (the draft lists the same create operations).
+   * Never throws — a failed probe is reported as `probe_status: 'failed'` so
+   * the save error path can never be made worse by its own diagnostics.
+   */
+  async diagnoseCreateNotFound(): Promise<SaveFailureDiagnosis> {
+    try {
+      const pageId = await this._getCurrentPageId();
+      if (!pageId) return { probe_status: 'failed' };
+      const ccType = this.getCustomContentType();
+      const encodedPageId = encodeURIComponent(pageId);
+      const body = await this.request(`/api/v2/pages/${encodedPageId}?include-operations=true`);
+      const diagnosis = parseContentOperations(body, ccType);
+      if (diagnosis.probe_status !== 'page_unreachable' || diagnosis.probe_http_status !== 404) {
+        return diagnosis;
+      }
+      const draftBody = await this.request(`/api/v2/pages/${encodedPageId}?include-operations=true&get-draft=true`);
+      return parseContentOperations(draftBody, ccType);
+    } catch (e) {
+      console.warn('diagnoseCreateNotFound: probe failed', (e as Error)?.message ?? e);
+      return { probe_status: 'failed' };
+    }
   }
 
   // conf-app#320: forgeRequest returns the parsed JSON body regardless of HTTP
@@ -349,39 +397,31 @@ export default class ApWrapper2 implements IApWrapper {
     if (!response?.errors && isValidCustomContentId(response?.id)) {
       return response as ICustomContentResponseBodyV2;
     }
-    const detail = response?.errors
-      ? JSON.stringify(response.errors).substring(0, 500)
+    const errorsArr = Array.isArray(response?.errors) ? response.errors : undefined;
+    const detail = errorsArr
+      ? JSON.stringify(errorsArr).substring(0, 500)
       : `no id in response (id=${JSON.stringify(response?.id)})`;
     trackEvent(`${op}_custom_content_no_id`, `${op}_custom_content_no_id`, 'error', { detail });
-    throw new Error(`${op}CustomContentV2: save returned no usable customContentId: ${detail}`);
-  }
-
-  async updateCustomContent(contentObj: ICustomContent, newBody: Diagram) {
-    let newVersionNumber = 1;
-
-    if (contentObj.version?.number) {
-      newVersionNumber += contentObj.version?.number
+    const err: any = new Error(`${op}CustomContentV2: save returned no usable customContentId: ${detail}`);
+    // Surface the Atlassian error envelope on the thrown Error so downstream
+    // telemetry (buildStructuredErrorProps) and recovery routing
+    // (saveCustomContentV2's 404 create-fallback) can read the real status/code
+    // instead of logging http_status='unknown'. The body comes back HTTP-200
+    // with an { errors: [...] } array, so the status is not on any HTTP error.
+    const first = errorsArr?.[0];
+    if (first) {
+      err.status = first.status;
+      err.code = first.code;
     }
-    const bodyData = {
-      "type": contentObj.type,
-      "title": newBody.title || contentObj.title,
-      "space": {
-        "key": contentObj.space.key
-      },
-      "container": contentObj.container,
-      "body": {
-        "raw": {
-          "value": JSON.stringify(newBody),
-          "representation": "raw"
-        }
-      },
-      "version": {
-        "number": newVersionNumber
-      }
-    };
-
-    const response = await this.makeRequest(`/rest/api/content/${contentObj.id}`, 'PUT', bodyData);
-    return response as ICustomContentResponseBody;
+    err.responseErrors = errorsArr;
+    // Create-time 404 classification (see saveFailureDiagnosis.ts): the bare
+    // `"title":"Not Found"` envelope is Confluence's permission-masked refusal,
+    // the descriptive container title is an unresolvable page id. Editors read
+    // this to decide whether a probe + a permission-specific message is due.
+    if (op === 'create') {
+      err.errorShape = classifyCreateNotFound(err);
+    }
+    throw err;
   }
 
   private isVersionConflict(error: any): boolean {
@@ -389,11 +429,31 @@ export default class ApWrapper2 implements IApWrapper {
     return msg.includes('Version must be incremented');
   }
 
-  private buildStructuredErrorProps(error: any): { error_message: string; http_status: string | number } {
+  private buildStructuredErrorProps(error: any): { error_message: string; http_status: string | number; error_code?: string } {
     return {
       error_message: String(error?.message || error?.responseText || error).substring(0, 500),
       http_status: error?.status || error?.statusCode || error?.xhr?.status || 'unknown',
+      // Atlassian error envelope code (e.g. INVALID_REQUEST_BODY, NOT_FOUND),
+      // surfaced by assertSavedCustomContent. Lets the update_custom_content_error
+      // dashboard segment failure classes without regex on error_message — the
+      // 400-trashed vs 404-missing split was previously invisible because both
+      // logged http_status='unknown'.
+      error_code: error?.code || error?.errorCode || undefined,
     };
+  }
+
+  // The Confluence v2 custom-content UPDATE endpoint accepts EXACTLY ONE value
+  // for `status`: `current`. (Verified live 2026-08 on staging — the rejection
+  // body reads "CustomContentUpdateAllowedStatus is one of [CURRENT]"; both
+  // `trashed` AND `draft` are rejected with 400 INVALID_REQUEST_BODY.) A macro
+  // whose backing custom content has been moved to Confluence trash reports
+  // status `trashed`, and echoing that back verbatim on the PUT made the save
+  // fail so the edit could never persist and every retry re-failed. Always send
+  // `current`, which for a trashed record also un-trashes it and lands the edit.
+  // See the 2026-08 update_custom_content_error incident (issue #500; 124 errors,
+  // one stuck enterprise user).
+  private normalizeUpdatableStatus(_status: string | undefined): 'current' {
+    return 'current';
   }
 
   private sanitizeCustomContentBody(content: Diagram): Diagram {
@@ -401,6 +461,20 @@ export default class ApWrapper2 implements IApWrapper {
     delete body.recoveredFromOrphan;
     delete body.recoveredFromOrphanId;
     delete body.legacyLoadBlocked;
+    delete body.loadError;
+    // Editor-session state: which surface asked for this diagram's type. It
+    // answers a question that only exists while the editor is open, so writing
+    // it into the stored body would put a permanent flag on customer content to
+    // record a decision made once, seconds earlier.
+    delete body.typeRequested;
+
+    // Pasted rich text carries U+00A0 into mermaidCode, which mermaid's newer
+    // grammars reject on every later render. Normalise at the persistence
+    // boundary so a save always stores parseable source; the renderer repeats
+    // the normalisation for bodies written before this existed.
+    if (typeof body.mermaidCode === 'string') {
+      body.mermaidCode = normalizeMermaidWhitespace(body.mermaidCode);
+    }
 
     // Legacy graph records used `compressed: true` with an LZUTF8 graphXml
     // body. DrawIO saves now emit plain XML, so persisting a stale true flag
@@ -427,7 +501,7 @@ export default class ApWrapper2 implements IApWrapper {
     const buildData = (versionNumber: number) => ({
       "id": content.id,
       "type": content.type,
-      "status": content.status,
+      "status": this.normalizeUpdatableStatus(content.status),
       "pageId": content.pageId,
       "title": sanitizedBody.title || content.title,
       "body": {
@@ -440,17 +514,17 @@ export default class ApWrapper2 implements IApWrapper {
     });
 
     try {
-      const response = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(newVersionNumber));
+      const response = await this.request(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(newVersionNumber));
       const saved = this.assertSavedCustomContent(response, 'update');
       trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
       return saved;
     } catch (error) {
       if (this.isVersionConflict(error)) {
         trackEvent('save_conflict_retry', 'save_conflict_retry', 'info', { content_id: String(content.id) });
-        const fresh = await this.makeRequest(`/api/v2/custom-content/${content.id}?body-format=raw`);
+        const fresh = await this.request(`/api/v2/custom-content/${content.id}?body-format=raw`);
         const freshVersion = (fresh?.version?.number || 0) + 1;
         try {
-          const retryResponse = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(freshVersion));
+          const retryResponse = await this.request(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(freshVersion));
           const savedRetry = this.assertSavedCustomContent(retryResponse, 'update');
           trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
           return savedRetry;
@@ -464,46 +538,9 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
-  async getCustomContentById(id: string): Promise<ICustomContent | undefined> {
-    const customContent = await this.getCustomContentRaw(id);
-    if (!customContent) {
-      throw Error(`Failed to load custom content by id ${id}`);
-    }
-    let diagram = JSON.parse(customContent.body.raw.value);
-    diagram.source = DataSource.CustomContent;
-    const count = (await this._page.countMacros((m) => {
-      //TODO: filter by macro type
-      // Connect-era macros carry {value}; Forge guest params carry a bare
-      // string, which this path has never matched — the typeof narrow keeps
-      // that exact behavior while satisfying the union type.
-      return typeof m?.customContentId === 'object' && m.customContentId?.value === id;
-    }));
-    console.debug(`Found ${count} macros on page`);
-
-    const pageId = await this._page.getPageId();
-    let isCrossPageCopy = pageId && customContent?.container?.id && String(pageId) !== String(customContent.container.id);
-    if (isCrossPageCopy || count > 1) {
-      diagram.isCopy = true;
-      diagram.copyReason = isCrossPageCopy ? 'cross-page' : 'same-page-duplicate';
-      console.warn(`Detected copied macro - ID: ${id}, Cross-page copy: ${isCrossPageCopy}, Instances on page: ${count}, Source page: ${customContent?.container?.id}, Current page: ${pageId}`);
-      if (isCrossPageCopy) {
-        trackEvent('cross_page', 'duplication_detect', 'warning');
-      }
-      if (count > 1) {
-        trackEvent('same_page', 'duplication_detect', 'warning');
-      }
-    } else {
-      diagram.isCopy = false;
-      diagram.copyReason = undefined;
-    }
-    diagram.id = id;
-    let assign = <unknown>Object.assign({}, customContent, {value: diagram});
-    return <ICustomContent>assign;
-  }
-
-  async getCustomContentByIdV2(id: string): Promise<ICustomContentV2 | undefined> {
-    const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
-    return this.parseCustomContentByIdV2Response(id, customContent);
+  async getCustomContentByIdV2(id: string, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
+    const customContent = await this.request(`/api/v2/custom-content/${id}?body-format=raw`);
+    return this.parseCustomContentByIdV2Response(id, customContent, opts);
   }
 
   /**
@@ -531,36 +568,70 @@ export default class ApWrapper2 implements IApWrapper {
     customContent: ICustomContentV2 | undefined;
     status: 'ok' | 'not_found' | 'other_error';
     errorDetail?: string;
+    // Richer diagnostics threaded through to the load-failed support payload
+    // (see viewerLoadOutcome.mapCustomContentLoadError). httpStatus / errorCode
+    // come from the Atlassian error envelope; errorClass distinguishes a thrown
+    // request, a structured { errors: [...] } body, and a malformed response.
+    httpStatus?: number;
+    errorCode?: string;
+    errorClass?: 'thrown' | 'structured' | 'malformed';
   }> {
     let rawResponse: any;
     try {
       rawResponse = await renderPerf.time('cc_fetch', () =>
-        this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`));
+        this.request(`/api/v2/custom-content/${id}?body-format=raw`));
     } catch (e: any) {
-      return { customContent: undefined, status: 'other_error', errorDetail: e?.message ? String(e.message) : String(e) };
+      const httpStatus =
+        typeof e?.status === 'number' ? e.status
+        : typeof e?.statusCode === 'number' ? e.statusCode
+        : typeof e?.xhr?.status === 'number' ? e.xhr.status
+        : undefined;
+      return {
+        customContent: undefined,
+        status: 'other_error',
+        errorDetail: e?.message ? String(e.message) : String(e),
+        httpStatus,
+        errorClass: 'thrown',
+      };
     }
     const errors = rawResponse?.errors;
     if (Array.isArray(errors) && errors.length > 0) {
-      // Strict 404 detection: every error in the array must be a true 404
-      // (status === 404 AND code === 'NOT_FOUND'). A mixed array — or a
-      // single error with mismatched status/code — must be treated as
-      // 'other_error' so recovery does not trigger and the write path
-      // does not fall through to create on transient failures.
-      const allStrictNotFound = errors.every(
-        (err: any) => err?.status === 404 && err?.code === 'NOT_FOUND',
-      );
-      const status: 'not_found' | 'other_error' = allStrictNotFound ? 'not_found' : 'other_error';
+      const { status, httpStatus, errorCode } = classifyCustomContentErrors(errors);
       // Telemetry for non-success shapes preserved from the legacy parsing path.
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
-      return { customContent: undefined, status, errorDetail: JSON.stringify(errors) };
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: status,
+        error_class: 'structured',
+        http_status: httpStatus,
+        error_code: errorCode,
+      });
+      return {
+        customContent: undefined,
+        status,
+        errorDetail: JSON.stringify(errors),
+        httpStatus,
+        errorCode,
+        errorClass: 'structured',
+      };
     }
     if (!rawResponse?.body?.raw?.value) {
       // Truthy response but no parseable body — unexpected shape, not a 404.
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
-      return { customContent: undefined, status: 'other_error', errorDetail: 'malformed_or_empty_response' };
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'malformed',
+      });
+      return {
+        customContent: undefined,
+        status: 'other_error',
+        errorDetail: 'malformed_or_empty_response',
+        errorClass: 'malformed',
+      };
     }
     const parsed = await this.parseCustomContentByIdV2Response(id, rawResponse, opts);
-    return { customContent: parsed, status: parsed ? 'ok' : 'other_error' };
+    return {
+      customContent: parsed,
+      status: parsed ? 'ok' : 'other_error',
+      errorClass: parsed ? undefined : 'malformed',
+    };
   }
 
   private async parseCustomContentByIdV2Response(id: string, customContent: any, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
@@ -572,7 +643,16 @@ export default class ApWrapper2 implements IApWrapper {
     // NULL_DIAGRAM / fallback paths instead of vanishing.
     const rawValue = customContent?.body?.raw?.value;
     if (!rawValue || customContent?.errors) {
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      const errors = customContent?.errors;
+      const structured = Array.isArray(errors) && errors.length > 0;
+      const { status, httpStatus, errorCode } = structured
+        ? classifyCustomContentErrors(errors)
+        : { status: 'other_error' as const, httpStatus: undefined, errorCode: undefined };
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: status,
+        error_class: structured ? 'structured' : 'malformed',
+        ...(structured ? { http_status: httpStatus, error_code: errorCode } : {}),
+      });
       return undefined;
     }
     let diagram = JSON.parse(rawValue);
@@ -609,6 +689,38 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   /**
+   * Count macros on the current page whose config references `id`. Matches
+   * both param shapes: Forge bare-string customContentId and Connect-era
+   * {value} objects. One full-page ADF GET.
+   *
+   * Returns `undefined` when that GET failed — the page ADF is unreadable, so
+   * the answer is UNKNOWN, not zero. The Edit dup gate (model/editDupGate.ts)
+   * depends on that distinction: AtlasPage historically swallowed every fetch
+   * error into an empty macro list, which the gate would read as "no
+   * duplicates on this page" and wave a shared-id macro straight into the
+   * editor — the exact silent fork it exists to stop.
+   */
+  /**
+   * The customContentIds this page's macros reference, in document order, or
+   * `undefined` when the page ADF could not be read. One ADF GET for the whole
+   * page — see AtlasPage.referencedCustomContentIds for why the byline needs the
+   * ordered form rather than N countMacrosReferencing calls.
+   */
+  async referencedCustomContentIds(): Promise<string[] | undefined> {
+    return this._page.referencedCustomContentIds();
+  }
+
+  async countMacrosReferencing(id: string): Promise<number | undefined> {
+    return this._page.countMacrosOrUnknown((m) => {
+      //TODO: filter by macro type
+      const macroCustomContentId = m?.customContentId;
+      return (typeof macroCustomContentId === 'string'
+        ? macroCustomContentId
+        : macroCustomContentId?.value) === id;
+    });
+  }
+
+  /**
    * The full ADF copy-scan: one full-page ADF GET via _page.countMacros plus
    * the cross-page comparison. Runs blocking for edit/config surfaces (its
    * verdict guards the save-fork path) and for callers that pass no
@@ -619,13 +731,11 @@ export default class ApWrapper2 implements IApWrapper {
     ccPageId: string | number | undefined,
   ): Promise<{ isCopy: boolean; copyReason?: 'cross-page' | 'same-page-duplicate' }> {
     return renderPerf.time('adf_scan', async () => {
-      const count = await this._page.countMacros((m) => {
-        //TODO: filter by macro type
-        const macroCustomContentId = m?.customContentId;
-        return (typeof macroCustomContentId === 'string'
-          ? macroCustomContentId
-          : macroCustomContentId?.value) === id;
-      });
+      // An unreadable page ADF keeps this path's historical behaviour —
+      // assume no same-page duplicate (cross-page detection below is
+      // unaffected, it needs no ADF). Only the Edit gate acts on the
+      // unknown, because only it is making a data-loss decision.
+      const count = (await this.countMacrosReferencing(id)) ?? 0;
       console.debug(`Found ${count} macros on page`);
       const pageId = await this._page.getPageId();
       // Require both sides present — undefined pageId on the custom content
@@ -678,7 +788,7 @@ export default class ApWrapper2 implements IApWrapper {
     try {
       const responses = await Promise.all(
         typesToProbe.map(t =>
-          this.makeRequest(`/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`),
+          this.request(`/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`),
         ),
       );
       const errored = responses.find(r => r?.errors);
@@ -729,6 +839,32 @@ export default class ApWrapper2 implements IApWrapper {
     }
   }
 
+  // Lite byline modal: the page's diagram custom-content children, raw.
+  //
+  // Deliberately thin — it returns the REST responses untouched (including
+  // error-shaped ones) and leaves every interpretation to
+  // utils/byline/pageDiagrams.ts, which is pure and unit-tested against the
+  // malformed bodies that occur in real customer data.
+  //
+  // Reads only. The byline item renders on every page, including pages with no
+  // diagram at all, so the empty result is the expected common case, not a
+  // failure. `Promise.all` over the two Lite content types mirrors
+  // probeOrphanRecovery: graph macros stored under the Connect-era
+  // `zenuml-content-graph` type are invisible to a sequence-typed listing.
+  async listPageDiagramContents(pageId: string): Promise<Array<any>> {
+    const limit = 100;
+    const types = customContentTypesForVariant().map(t => this.customContentType(t));
+    // Every mapped promise already has its own .catch (below), so Promise.all
+    // itself can never reject here — no outer try/catch needed.
+    return await Promise.all(
+      types.map(t =>
+        this.request(
+          `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
+        ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
+      ),
+    );
+  }
+
   // ZEN-1170 Defect 2b. Read-OR-recover for the macro's referenced CC.
   // - On happy path: returns the requested CC, no recovery marker.
   // - When the requested CC 404s AND the page has exactly one custom-content
@@ -750,6 +886,9 @@ export default class ApWrapper2 implements IApWrapper {
     recoveredFromOrphanId?: string;
     probeResult?: Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
     directFetchStatus?: 'ok' | 'not_found' | 'other_error';
+    directFetchHttpStatus?: number;
+    directFetchErrorCode?: string;
+    directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
   }> {
     // conf-app#320: a macro whose stored customContentId is the string
     // "undefined"/"null"/empty (a broken save writeback) can never resolve.
@@ -766,14 +905,22 @@ export default class ApWrapper2 implements IApWrapper {
     if (direct.status === 'ok' && direct.customContent) {
       return { customContent: direct.customContent, directFetchStatus: 'ok' };
     }
+    // Carry the direct-fetch diagnostics onto every no-content return so the
+    // load-failed support payload can report the real HTTP status / code /
+    // class instead of "(unknown)".
+    const directDiagnostics = {
+      directFetchHttpStatus: direct.httpStatus,
+      directFetchErrorCode: direct.errorCode,
+      directFetchErrorClass: direct.errorClass,
+    };
     if (direct.status !== 'not_found') {
       // Transient / 403 / 5xx / malformed — refuse to probe. Probing here
       // could surface a sibling for a CC that's only briefly unavailable
       // and (in config surface) later cause an incorrect macro XML rewrite.
-      return { customContent: undefined, directFetchStatus: direct.status };
+      return { customContent: undefined, directFetchStatus: direct.status, ...directDiagnostics };
     }
     if (!pageId) {
-      return { customContent: undefined, directFetchStatus: 'not_found' };
+      return { customContent: undefined, directFetchStatus: 'not_found', ...directDiagnostics };
     }
 
     const probeResult = await this.probeOrphanRecovery(pageId, customContentId);
@@ -787,18 +934,19 @@ export default class ApWrapper2 implements IApWrapper {
       probeResult.candidateCount !== 1 ||
       !probeResult.candidateIds?.[0]
     ) {
-      return { customContent: undefined, probeResult, directFetchStatus: 'not_found' };
+      return { customContent: undefined, probeResult, directFetchStatus: 'not_found', ...directDiagnostics };
     }
     const recoveredId = probeResult.candidateIds[0];
     const recovered = await this.getCustomContentByIdV2(recoveredId);
     if (!recovered) {
-      return { customContent: undefined, probeResult, directFetchStatus: 'not_found' };
+      return { customContent: undefined, probeResult, directFetchStatus: 'not_found', ...directDiagnostics };
     }
     return {
       customContent: recovered,
       recoveredFromOrphanId: customContentId,
       probeResult,
       directFetchStatus: 'not_found',
+      ...directDiagnostics,
     };
   }
 
@@ -826,9 +974,7 @@ export default class ApWrapper2 implements IApWrapper {
   // in-memory sort by version.createdAt picks the most recent.
   async findLegacyCustomContentByUuid(uuid: string): Promise<ICustomContentV2 | undefined> {
     if (!uuid) return undefined;
-    const types = forgeGlobal.isDiagramly
-      ? ['gpt-custom-content-key']
-      : CUSTOM_CONTENT_TYPES;
+    const types = customContentTypesForVariant();
     try {
       // Use CQL exact-title search. The V2 `/api/v2/custom-content?title=...`
       // query param is silently IGNORED by the platform — verified 2026-05-27
@@ -851,7 +997,7 @@ export default class ApWrapper2 implements IApWrapper {
       // case 2026-05-25 had 27 CCs sharing one uuid). Tolerate per-id
       // failures so one 403 doesn't poison the whole recovery.
       const bodies = await Promise.all(ids.map((id: string) =>
-        this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`).catch(() => undefined),
+        this.request(`/api/v2/custom-content/${id}?body-format=raw`).catch(() => undefined),
       ));
 
       let best: any | undefined;
@@ -897,8 +1043,6 @@ export default class ApWrapper2 implements IApWrapper {
     const customContent = await this.getCustomContentRawV2(id, 'include-versions=true');
     const descendingVersions = customContent?.versions?.results.sort((a, b) => b.number - a.number);
     const version = descendingVersions?.find(v => new Date(v.createdAt) < new Date(date)) || descendingVersions?.[descendingVersions.length - 1];
-    console.log(`Found version ${version?.number} created at ${version?.createdAt} before date ${date}`);
-
     const customContentVersion = await this.getCustomContentRawV2(id, `version=${version?.number}&body-format=raw`);
     let diagram = JSON.parse(customContentVersion?.body?.raw?.value || '{}');
     diagram.source = DataSource.CustomContent;
@@ -925,26 +1069,11 @@ export default class ApWrapper2 implements IApWrapper {
     return await this.getCustomContentByIdV2(customContentId);
   }
 
-  private async getCustomContentRaw(id: string): Promise<ICustomContentResponseBody | undefined> {
-    const url = `/rest/api/content/${id}?expand=body.raw,version.number,container,space`;
-    try {
-      const response = await this.makeRequest(url);
-      const customContent = response as ICustomContentResponseBody;
-      console.debug(`Loaded custom content by id ${id}.`);
-      return customContent;
-    } catch (e) {
-      trackEvent(JSON.stringify(e), 'load_custom_content', 'error');
-      // TODO: return a NullCustomContentObject
-      return undefined;
-    }
-  }
-
   private async getCustomContentRawV2(id: string, query: string = 'body-format=raw'): Promise<ICustomContentResponseBodyV2 | undefined> {
     const url = `/api/v2/custom-content/${id}?${query}`;
     try {
-      const response = await this.makeRequest(url);
+      const response = await this.request(url);
       const customContent = response as ICustomContentResponseBodyV2;
-      console.debug(`Loaded custom content by id ${id}.`);
       return customContent;
     } catch (e) {
       trackEvent(JSON.stringify(e), 'load_custom_content', 'error');
@@ -959,30 +1088,7 @@ export default class ApWrapper2 implements IApWrapper {
     return typesClause(customContentTypesForVariant());
   }
 
-  async buildSearchCustomConentUrl(keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = [], limit?: number): Promise<string> {
-    const typesClauseFilter = this.buildTypesClauseFilter();
-    const spaceKeyFilter = (await this.getCurrentSpace()).key;
-    let keywordFilter = '', onlyMineFilter = '', docTypeFilter = '', limitFilter = '' , idFilter = '';
-    if (keyword != '') {
-      const formatKeyword = keyword.replace(/[-:]/g, " ");
-      keywordFilter = ` and (title ~ "${formatKeyword}*" or title ~ "*${formatKeyword}*" or title ~ "${formatKeyword}")`;
-    }
-    if (ids.length > 0) {
-      const idList = ids.join(', ');
-      idFilter = ` and id in (${idList})`;
-  }
-    if (onlyMine) onlyMineFilter = ` and contributor = "${this.currentUser?.atlassianAccountId}"`;
-    if (docType != '') docTypeFilter = ``;
-    if (limit != undefined) limitFilter = `&limit=${limit}`;
-    const searchUrl = `/rest/api/content/search?cql=space="${spaceKeyFilter}" and (${typesClauseFilter}) ${keywordFilter} ${onlyMineFilter} ${docTypeFilter} ${idFilter} order by lastmodified desc${limitFilter}&expand=body.raw,version.number,container,space,body.storage,history.contributors.publishers.users`;
-    return searchUrl;
-  }
-
-  async searchCustomContent(_maxItems: number = SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
-    return await this.searchCustomContentForge(250);
-  }
-
-  async searchCustomContentForge(maxItems: number = 250): Promise<Array<ICustomContent>> {
+  async searchCustomContent(maxItems: number = 250): Promise<Array<ICustomContent>> {
     try {
       // Use the new Forge API to search custom content. Scope by the
       // variant's registered types — otherwise the v2 endpoint returns
@@ -1029,11 +1135,11 @@ export default class ApWrapper2 implements IApWrapper {
       // macro. Bulk-check parent-page liveness and keep only the live ones.
       const live = await this.filterOrphanedByParentPage(results);
 
-      trackEvent(`found ${live.length} content in Forge mode`, 'searchCustomContentForge', 'info');
+      trackEvent(`found ${live.length} content in Forge mode`, 'searchCustomContent', 'info');
       return live;
     } catch (e) {
-      console.error('searchCustomContentForge', e);
-      trackEvent(JSON.stringify(e), 'searchCustomContentForge', 'error');
+      console.error('searchCustomContent', e);
+      trackEvent(JSON.stringify(e), 'searchCustomContent', 'error');
       return [] as Array<ICustomContent>;
     }
   }
@@ -1056,11 +1162,11 @@ export default class ApWrapper2 implements IApWrapper {
     try {
       for (let i = 0; i < pageIds.length; i += 250) {
         const qs = pageIds.slice(i, i + 250).map(id => `id=${encodeURIComponent(id)}`).join('&');
-        const resp: any = await this.makeRequest(`/api/v2/pages?${qs}&limit=250`);
+        const resp: any = await this.request(`/api/v2/pages?${qs}&limit=250`);
         (resp?.results || []).forEach((p: any) => { if (p?.id) livePageIds.add(String(p.id)); });
       }
     } catch (e) {
-      console.warn('searchCustomContentForge: parent-page liveness check failed; returning unfiltered', e);
+      console.warn('searchCustomContent: parent-page liveness check failed; returning unfiltered', e);
       return items;
     }
     return keepLiveParentPageContent(items as Array<ICustomContent & { pageId?: string }>, livePageIds);
@@ -1215,10 +1321,6 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
-    return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
-  }
-
-  async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
     const params = new URLSearchParams();
     customContentTypesForVariant().forEach(type => {
       params.append('type', this.customContentType(type));
@@ -1235,10 +1337,10 @@ export default class ApWrapper2 implements IApWrapper {
     }
 
     const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
-    return await this.searchPagedCustomContentForgeByUrl(searchUrl);
+    return await this.searchPagedCustomContentByUrl(searchUrl);
   }
 
-  async searchPagedCustomContentForgeByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
+  async searchPagedCustomContentByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
     try {
       const response = await forgeRequest(searchUrl);
       
@@ -1289,176 +1391,16 @@ export default class ApWrapper2 implements IApWrapper {
         _links: response._links
       };
 
-      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForgeByUrl', 'info');
-      console.log('searchPagedCustomContentForgeByUrl results:', searchResults);
+      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentByUrl', 'info');
       return searchResults;
     } catch (e) {
-      console.error('searchPagedCustomContentForgeByUrl', e);
-      trackEvent(JSON.stringify(e), 'searchPagedCustomContentForgeByUrl', 'error');
+      console.error('searchPagedCustomContentByUrl', e);
+      trackEvent(JSON.stringify(e), 'searchPagedCustomContentByUrl', 'error');
       return {
         size: 0,
         results: []
       };
     }
-  }
-
-  async searchPagedCustomContentByUrl(searchUrl: string): Promise<SearchResults> {
-    return await this.searchPagedCustomContentForgeByUrl(searchUrl);
-  }
-
-  searchOnce = async (url: string): Promise<SearchResults> => {
-    console.debug(`Searching content with ${url}`);
-    const data = await this.request(url);
-    console.debug(`${data?.size} results returned, has next? ${data?._links?.next != null}`);
-    data.results = data?.results.map(this.parseCustomContent).filter((c: ICustomContent) => c.value && c.value.diagramType);
-    console.debug({action: 'searchOnce', data: data});
-    return data;
-  };
-
-  buildUrl = (sourceUrl: string, newPath: string): string => {
-    if (newPath && newPath.startsWith("/")) {
-      newPath = newPath.substring(1);
-    }
-    return `${this.extractDomainFromURL(sourceUrl)}/${newPath}`;
-  }
-
-  extractDomainFromURL = (url: string): string => {
-    try {
-      const parsedUrl = new URL(url);
-      return parsedUrl.origin;
-    } catch (error) {
-      console.error("Invalid URL:", error);
-      return '';
-    }
-  }
-
-  parseCustomContent = (customContent: ICustomContentResponseBody): ICustomContent => {
-    const result = <unknown>Object.assign({}, customContent, {
-      value: this.parseCustomContentDiagram(customContent),
-      container: Object.assign({}, customContent.container, this.parseCustomContentContainer(customContent)),
-      author: this.parseUser(customContent?.history?.createdBy),
-      contributors: this.parseCustomContentContributors(customContent)
-    });
-    console.debug(`converted result: `, result);
-    return result as ICustomContent;
-  };
-
-  parseUser = (accountUser: AccountUser | undefined): User | undefined => {
-    if (accountUser == undefined) return undefined
-    let accountId = accountUser.accountId || '';
-    let selfLink = accountUser._links?.self || '';
-    let user: User = {
-      id: accountId,
-      name: accountUser.displayName || '',
-      avatar: this.buildUrl(selfLink, accountUser.profilePicture?.path || ''),
-      link: this.buildUrl(selfLink, 'wiki/display/~' + accountId),
-    };
-    return user;
-  }
-
-  parseCustomContentContributors = (customContent: ICustomContentResponseBody): Array<User> => {
-    let contributors: Array<User> = [];
-    const accountUsers = customContent?.history?.contributors?.publishers?.users || new Array<AccountUser>;
-    for (let i = 0; i < accountUsers.length; i++) {
-      let user = this.parseUser(accountUsers[i]);
-      if (user == undefined) continue;
-      contributors.push(user);
-    }
-    return contributors;
-  };
-
-  parseCustomContentContainer = (customContent: ICustomContentResponseBody): any => {
-    let container: { link: string | undefined } = {link: undefined};
-    try {
-      let webui = customContent?.container?._links?.webui || '';
-      let selfUrl = customContent?.container?._links?.self || '';
-      container.link = this.buildUrl(selfUrl, 'wiki' + webui);
-    } catch (e) {
-      console.error('parseCustomContentContainer error: ', e);
-      trackEvent(JSON.stringify(e), 'parseCustomContentContainer', 'error');
-    }
-    return container;
-  };
-
-  parseCustomContentDiagram = (customContent: ICustomContentResponseBody): any => {
-    let diagram: any;
-    const rawValue = customContent?.body?.raw?.value;
-    if (rawValue) {
-      try {
-        diagram = JSON.parse(rawValue);
-        if (diagram.diagramType == undefined) return null;
-        diagram.source = DataSource.CustomContent;
-      } catch (e) {
-        console.error(`parseCustomContentDiagram error: `, e, `raw value: ${rawValue}`);
-        trackEvent(JSON.stringify(e), 'parseCustomContentDiagram', 'error');
-      }
-    }
-    return diagram;
-  };
-
-  async getCustomContentByType(type: string): Promise<Array<ICustomContent>> {
-    try {
-      const space = await this.getCurrentSpace();
-      const spaceId = space.id;
-      const url = `/api/v2/spaces/${spaceId}/custom-content?type=${this.customContentType(type)}&body-format=raw`;
-      const response: { results: Array<any> } = await this.request(url);
-
-      const parseCustomContentBodyV2 = (customContent: ICustomContentResponseBodyV2): ICustomContent => {
-        let diagram: any;
-        const rawValue = customContent?.body?.raw?.value;
-        if (rawValue) {
-          try {
-            diagram = JSON.parse(rawValue);
-            diagram.source = DataSource.CustomContent;
-          } catch (e) {
-            console.error(`parseCustomContentBodyV2 error: `, e, `raw value: ${rawValue}`);
-            trackEvent(JSON.stringify(e), 'parseCustomContentBodyV2', 'error');
-          }
-        }
-        const result = <unknown>Object.assign({}, customContent, {value: diagram}, {container: {id: customContent.pageId}});
-        console.debug(`converted result: `, result);
-        return result as ICustomContent;
-      };
-
-      return response.results.map(parseCustomContentBodyV2).filter(c => c.value?.diagramType);
-    } catch (e) {
-      console.error('getCustomContentByType:', e);
-      trackEvent(JSON.stringify(e), 'getCustomContentByType', 'error');
-      return [];
-    }
-  }
-
-  async getCustomContentByTypes(types: Array<string>): Promise<Array<ICustomContent>> {
-    const [r1, r2] = await Promise.all(types.map(t => this.getCustomContentByType(t)));
-    return r1?.concat(r2);
-  }
-
-  async saveCustomContent(customContentId: string, value: Diagram) {
-    let result;
-    // TODO: Do we really need to check whether it exists?
-    const existing = await this.getCustomContentById(customContentId);
-    const pageId = await this._page.getPageId();
-    const count = (await this._page.countMacros((m) => {
-      // Connect-era {value} form only — bare-string (Forge) params never
-      // matched here; the typeof narrow preserves that.
-      return typeof m?.customContentId === 'object' && m.customContentId?.value === customContentId;
-    }));
-
-    // pageId is absent when editing in custom content list page;
-    // Make sure we don't update custom content on a different page
-    // and there is only one macro linked to the custom content on the current page.
-    if (existing && (!pageId || (String(pageId) === String(existing?.container?.id) && count === 1))) {
-      result = await this.updateCustomContent(existing, value);
-    } else {
-      if (count > 1) {
-        console.warn(`Detected copied macro on the same page ${pageId}.`);
-      }
-      if (String(pageId) !== String(existing?.container?.id)) {
-        console.warn(`Detected copied macro on page ${pageId} (current) and ${existing?.container?.id}.`);
-      }
-      result = await this.createCustomContent(value);
-    }
-    return result
   }
 
   async saveCustomContentV2(customContentId: string, value: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -1529,8 +1471,22 @@ export default class ApWrapper2 implements IApWrapper {
     if (existing && samePage && countAllowsUpdate) {
       try {
         result = await this.updateCustomContentV2(existing, saveValue);
-      } catch (error) {
-        trackEvent('update_custom_content_error', 'update_custom_content_error', 'error', this.buildStructuredErrorProps(error));
+      } catch (error: any) {
+        // updateCustomContentV2 already emitted update_custom_content_error;
+        // don't re-track here (the redundant second emit doubled the error
+        // counts on the dashboard). When the in-place update failed because the
+        // backing record vanished (404 NOT_FOUND) between the existence check
+        // and the PUT — a TOCTOU race, or content trashed/purged mid-edit —
+        // recreate it on the current page so the user's edit is not lost rather
+        // than dead-ending the save. A 404 means the id is gone, so recreating
+        // cannot mint a duplicate of it.
+        if (Number(error?.status) === 404) {
+          trackEvent('update_recreate_fallback', 'update_recreate_fallback', 'info', {
+            content_id: String(existing.id),
+          });
+          result = await this.createCustomContentV2(saveValue);
+          return result;
+        }
         throw error;
       }
     } else {
@@ -1550,18 +1506,19 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   isDisplayMode() {
-    const modal = forgeGlobal.forgeContext?.extension?.modal;
-    if (!modal) return true;
-    // fullscreen is a viewer context, not an editor — still display mode
-    return modal.macroMode === 'fullscreen';
-  }
-
-  async getCustomContent(): Promise<ICustomContent | undefined> {
-    const macroData = await this.getMacroData();
-    if (macroData && macroData.customContentId) {
-      return this.getCustomContentById(macroData.customContentId);
-    }
-    return undefined;
+    const ext = forgeGlobal.forgeContext?.extension;
+    const modal = ext?.modal;
+    // Bridge-opened modal: its explicit macroMode wins (modals inherit the
+    // parent extension, so macro flags below may be stale copies).
+    // fullscreen is a viewer context, not an editor — still display mode.
+    if (modal) return modal.macroMode === 'fullscreen';
+    // conf-app#368: the native macro-config surface (Confluence's own insert /
+    // edit-params dialog) has no extension.modal — only
+    // extension.macro.isConfiguring / isInserting. It is an authoring surface,
+    // not display: classifying it as display stamped authoring preview renders
+    // as surface:'viewer' (with no custom_content_id for new macros) and let
+    // view-time attachment writes fire mid-authoring.
+    return !ext?.macro?.isConfiguring && !ext?.macro?.isInserting;
   }
 
   async getAttachmentsV2(pageId?: string, queryParameters?: any): Promise<Array<Attachment>> {
@@ -1569,28 +1526,13 @@ export default class ApWrapper2 implements IApWrapper {
     queryParameters = queryParameters || {};
     const param = Object.keys(queryParameters).reduce((acc, i) => `${acc}${acc ? '&' : ''}${i}=${queryParameters[i]}`, '');
     const url = `/api/v2/pages/${pageId}/attachments${param ? `?${param}` : ''}`;
-    const response = await this.makeRequest(url);
+    const response = await this.request(url);
     const base = await this._getBaseUrl();
     return response?.results && response?.results.map((a: any) => Object.assign(a, {
       _links: {
         base,
         download: a.downloadLink
       }
-    })) || [];
-  }
-
-  async getAttachments(pageId?: string, queryParameters?: any): Promise<Array<Attachment>> {
-    pageId = pageId || await this._getCurrentPageId();
-    queryParameters = queryParameters || {};
-    const param = Object.keys(queryParameters).reduce((acc, i) => `${acc}${acc ? '&' : ''}${i}=${queryParameters[i]}`, '');
-    const url = `/rest/api/content/${pageId}/child/attachment${param ? `?expand=version&${param}` : ''}`;
-    const response = await this.makeRequest(url);
-    console.debug(`found attachments in page ${pageId} with params ${queryParameters}:`, response);
-    const baseLinks = {base: response._links.base, context: response._links.context};
-    //set 'comment' as top level field to be consistent with V2 API response
-    return response?.results.map((a: any) => Object.assign(a, {
-      comment: a.metadata?.comment,
-      _links: Object.assign(a._links, baseLinks)
     })) || [];
   }
 
@@ -1624,21 +1566,8 @@ export default class ApWrapper2 implements IApWrapper {
     return this.baseUrl || (this.baseUrl = baseOf(await this._getCurrentPageUrl()));
   }
 
-  async _getLicense(): Promise<ILicense | undefined> {
-    return forgeGlobal.forgeContext?.license;
-  }
-
-  async hasFullAddon(): Promise<boolean> {
-    return false;
-  }
-
   async _getLocationTarget(): Promise<LocationTarget> {
     return this.locationTarget || (this.locationTarget = await this._page.getLocationTarget());
-  }
-
-  async isInContentEditOrContentCreate(): Promise<boolean> {
-    const target = await this._getLocationTarget();
-    return target === LocationTarget.ContentEdit || target === LocationTarget.ContentCreate;
   }
 
   async canUserEdit(): Promise<boolean> {
@@ -1651,19 +1580,13 @@ export default class ApWrapper2 implements IApWrapper {
   }
 
   /**
-   * Common request method that handles both forge and connect modes
+   * Issue a Confluence REST request through Forge.
    * @param url The API endpoint URL (without /wiki prefix)
-   * @param method HTTP method (GET, POST, PUT, etc.)
+   * @param type HTTP method (GET, POST, PUT, etc.)
    * @param data Request body data (optional)
-   * @param parseFunction Optional custom parsing function for connect mode
-   * @returns Parsed response data
    */
-  private async makeRequest(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
-    return await forgeRequest(`/wiki${url}`, method, data);
-  }
-
   async request(url: string, type: string = 'GET', data: any = undefined): Promise<any> {
-    return this.makeRequest(url, type, data);
+    return await forgeRequest(`/wiki${url}`, type, data);
   }
 
   async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {
@@ -1674,23 +1597,12 @@ export default class ApWrapper2 implements IApWrapper {
     return loadPaginatedDataUntil(this.request.bind(this), initialUrl, consumer, shouldStop);
   };
 
-  async getAppProperty(_propertyKey: string = ''): Promise<any> {
-    //TODO: Migrate the usage of AppProperty to Forge storage API
-    return;
-  }
-
-  async setAppProperty(_propertyKey: string = '', _value: any = undefined): Promise<any> {
-    //TODO: Migrate the usage of AppProperty to Forge storage API
-    return;
-  }
-
-  async getToken(): Promise<string> {
-    //TODO: Remove - this was a Connect-only method. Callers should use @forge/bridge instead.
-    console.warn('getToken() is deprecated - Connect tokens are no longer available');
-    return '';
-  }
-
-  async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}} | undefined> {
+  // _links (base/webui) is part of the standard v2 "get page by id" envelope
+  // regardless of body-format — confirmed live against lite-dev on 2026-07-30
+  // (identical _links shape with and without ?body-format=export_view) — so
+  // callers can derive the page URL from this single response instead of a
+  // second /pages/{id} round trip (see GenericViewer.vue's copyForAi path).
+  async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}, _links?: {base?: string, webui?: string}} | undefined> {
     const pageId = await this._getCurrentPageId();
     return await this.request(`/api/v2/pages/${pageId}?body-format=export_view`);
   }
@@ -1705,7 +1617,7 @@ export default class ApWrapper2 implements IApWrapper {
       // Using the V2 API as specified in the documentation
       // https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-custom-content/#api-custom-content-id-get
       const url = `/api/v2/custom-content/${contentId}/versions?body-format=raw&limit=100`;
-      const data = await this.makeRequest(url);
+      const data = await this.request(url);
       const versions = data.results || [];
 
       console.log(`%cFound ${versions.length} versions for content ID: ${contentId}`, 'color: #4B5563; font-size: 14px; font-weight: bold;');
@@ -1734,7 +1646,7 @@ export default class ApWrapper2 implements IApWrapper {
         // Fetch the specific version content
         try {
           const versionContentUrl = `/api/v2/custom-content/${contentId}?version=${version.number}&body-format=raw`;
-          const versionData = await this.makeRequest(versionContentUrl);
+          const versionData = await this.request(versionContentUrl);
           if (versionData.body?.raw?.value) {
             const diagramData = JSON.parse(versionData.body.raw.value);
 

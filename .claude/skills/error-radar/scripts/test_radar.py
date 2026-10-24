@@ -3,6 +3,7 @@ import datetime as dt
 import os
 import sys
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import radar  # noqa: E402
@@ -92,6 +93,13 @@ class RadarTest(unittest.TestCase):
         spec.append((saturday, SIG, "tenant-a", 150, 150))
         # 150 is below a weekday's 200 but 30x a usual Saturday.
         self.assertIn("spike", kinds(radar.detect(rows(spec), saturday), SIG))
+
+    def test_half_a_service_account_names_the_missing_half(self):
+        env = {"MIXPANEL_SA_SECRET": "x"}
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(SystemExit) as ctx:
+                radar.auth_header()
+        self.assertIn("MIXPANEL_SA_USER is not set", str(ctx.exception))
 
     def test_render_quiet_day_and_alert_text(self):
         self.assertIn("Nothing new or unusual", radar.render(DAY, [], [], 0))

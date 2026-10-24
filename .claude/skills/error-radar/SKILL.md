@@ -73,9 +73,12 @@ Auth: `MIXPANEL_SA_USER` + `MIXPANEL_SA_SECRET` (service account, sent with
 `project_id`), else `MIXPANEL_API_SECRET`, else `.env.mixpanel`. Two JQL
 queries per run, about 15 s.
 
-The GitHub Action needs three repository secrets: `MIXPANEL_SA_USER`,
+The GitHub Action needs three values: `MIXPANEL_SA_USER`,
 `MIXPANEL_SA_SECRET`, `SLACK_ERROR_RADAR_WEBHOOK` (an incoming webhook for
-#zenuml2). Missing webhook = the job fails, which is the intended signal.
+#zenuml2). Each may be a repository secret or a repository variable (a secret
+wins when both exist). Keep the secret and the webhook as secrets: anyone
+with the webhook URL can post to the channel. The "Check configuration" step
+fails first and names anything missing; that failure is the intended signal.
 
 ## Privacy
 

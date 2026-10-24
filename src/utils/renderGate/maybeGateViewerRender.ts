@@ -1,15 +1,23 @@
-// Orchestrator for the #382 viewport render gate: flag check → viewport
-// turn → telemetry recording. forgeIndex awaits this promise at the viewer
-// mount points via awaitGateBlocking; trackRenderTime merges
-// getGateTelemetry() into macro_viewed.
+// Orchestrator for the #382 viewport render gate: viewport turn → telemetry
+// recording. forgeIndex awaits this promise at the viewer mount points via
+// awaitGateBlocking; trackRenderTime merges getGateTelemetry() into
+// macro_viewed.
+//
+// The gate runs UNCONDITIONALLY. It used to sit behind the
+// `viewport-gated-render` Forge feature flag, which was only ever created on
+// the Lite app — `checkFlag` defaults to false, so Full, Diagramly and
+// AsyncAPI shipped the module inert and rendered every diagram eagerly
+// (measured on Full production 2026-08-21: all macro_viewed events from
+// v2026.08.210645-full carried no render_gate/gate_mode/visible_at_boot).
+// Lite ran it at 100% of production from 2026-08-16 with no rollback, so the
+// switch had stopped earning its slot on the one app that had it.
 //
 // Invariant: this function NEVER rejects and never blocks a render on an
 // error — every failure path resolves promptly (fail-open).
 
-import type { RenderGateOutcome } from "@/utils/analytics/catalog";
+import type { RenderGateMode, RenderGateOutcome } from "@/utils/analytics/catalog";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { awaitViewportTurn, type ViewportTurn } from "./viewportGate";
-import { getViewportGateFlagFast } from "./flags";
 
 export interface GateTelemetry {
   render_gate?: RenderGateOutcome;
@@ -19,6 +27,28 @@ export interface GateTelemetry {
   // delay whenever the fetch was the slower leg (#384 review F3).
   render_deferred_ms?: number;
   visible_at_boot?: boolean;
+  gate_mode?: RenderGateMode;
+}
+
+// #382 gate depth. 'load' (the default) holds the content fetch and the SWR
+// revalidate until the viewport turn as well as the paint, so an offscreen
+// mount costs ~bundle boot + context until released. Measured on a 12-macro
+// lite-dev page (4× CPU, warm): render-depth fires all 12 content GETs in a
+// ~500ms burst; load-depth dissolves the burst over ~5s and improved BOTH
+// first-macro (~-1.2s) and all-macros (~-3s) time on every run — deferring
+// offscreen work relieves the contention the visible macros compete under.
+// The localStorage key is a DIAGNOSTIC override only ('render' restores
+// paint-only gating for A/B comparison in the perf harness or a dev
+// browser); the rollout lever is the viewport-gated-render flag itself.
+export const GATE_MODE_KEY = "zenuml.gateMode";
+
+export function getGateMode(storage?: Pick<Storage, "getItem">): RenderGateMode {
+  try {
+    const raw = (storage ?? localStorage).getItem(GATE_MODE_KEY);
+    return raw === "render" ? "render" : "load";
+  } catch {
+    return "load";
+  }
 }
 
 let telemetry: GateTelemetry = {};
@@ -69,28 +99,9 @@ function removePlaceholder(): void {
   }
 }
 
-// Flag-evaluation identity. The Custom UI iframe origin is shared across all
-// tenants of this app, so the cached verdict must be scoped (#384 review F1).
-function flagScope(): string {
-  const ctx = forgeGlobal.forgeContext as
-    | { cloudId?: string; accountId?: string; environmentType?: string }
-    | undefined;
-  return `${ctx?.cloudId ?? "?"}|${ctx?.accountId ?? "?"}|${ctx?.environmentType ?? "?"}`;
-}
-
 export async function maybeGateViewerRender(deps?: {
-  getFlag?: () => Promise<boolean>;
   awaitTurn?: () => Promise<ViewportTurn>;
 }): Promise<void> {
-  try {
-    // Default flag read is the SYNCHRONOUS cached verdict (flagCache) so a
-    // flag-off render never waits on the bridge FeatureFlags round-trip.
-    const enabled = await (deps?.getFlag ??
-      (async () => getViewportGateFlagFast({ scope: flagScope() })))();
-    if (!enabled) return;
-  } catch {
-    return; // flag layer is fail-closed; a throw here means gate off
-  }
   try {
     showPlaceholder();
     const turn = await (deps?.awaitTurn ??
@@ -100,12 +111,13 @@ export async function maybeGateViewerRender(deps?: {
         })))();
     telemetry = {
       render_gate: turn.outcome,
+      gate_mode: getGateMode(),
       ...(turn.visibleAtBoot !== undefined
         ? { visible_at_boot: turn.visibleAtBoot }
         : {}),
     };
   } catch {
-    telemetry = { render_gate: "failopen" };
+    telemetry = { render_gate: "failopen", gate_mode: getGateMode() };
   } finally {
     removePlaceholder();
   }

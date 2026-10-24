@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Diagram | Board on the real Graph editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Fraunces:opsz,wght@9..144,560&display=swap" rel="stylesheet" />
+  <style>
+    :root { --ink:#1c1917; --muted:#57534e; --line:#d6d3d1; --paper:#f4efe6; --card:#fffdf8; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"IBM Plex Sans",system-ui,sans-serif; color:var(--ink); background:var(--paper); line-height:1.5; }
+    h1,h2,h3 { font-family:Fraunces,Georgia,serif; font-weight:560; letter-spacing:-0.02em; }
+    .wrap { max-width:1100px; margin:0 auto; padding:40px 24px 96px; }
+    .kicker { font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+    h1 { font-size:38px; line-height:1.15; margin:8px 0 12px; }
+    h2 { font-size:24px; margin:0 0 10px; }
+    section { margin-top:48px; }
+    p, li { max-width:72ch; }
+    table { width:100%; border-collapse:collapse; font-size:14px; background:var(--card); }
+    th,td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+    figure { margin:16px 0 8px; }
+    figcaption { font-size:13px; color:var(--muted); margin-top:6px; }
+    img.shot { width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; display:block; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    @media (max-width:800px) { .two { grid-template-columns:1fr; } }
+    /* Replica of the real menubar+toolbar from our-graph-editor-chrome.png */
+    .chrome-replica {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #dfe1e6;
+      border-radius: 8px;
+      overflow: visible;
+      background: #f7f8f9;
+      font: 13px/1 "IBM Plex Sans", sans-serif;
+      color: #44546f;
+      position: relative;
+    }
+    .chrome-replica .menubar {
+      display: flex;
+      align-items: center;
+      position: relative;
+      height: 36px;
+      padding: 0 10px 0 12px;
+      border-bottom: 1px solid #ebecf0;
+      border-radius: 8px 8px 0 0;
+      overflow: visible;
+      z-index: 1;
+    }
+    .chrome-replica .menus { font-size: 13px; white-space: nowrap; color: #172b4d; flex-shrink: 0; }
+    /* Chrome mode — notch pill: hangs from top edge, one level above menus and title. */
+    .chrome-mode {
+      position: absolute;
+      left: 50%;
+      top: -1px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      min-height: 40px;
+      padding: 0 4px 6px;
+      background: #fff;
+      border: 1px solid #c1c7d0;
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      box-shadow: 0 4px 10px rgba(9, 30, 66, 0.1), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+      z-index: 10;
+    }
+    .chrome-mode .seg {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      padding: 8px 14px 4px;
+      font: 600 13px/1.2 "IBM Plex Sans", sans-serif;
+      color: #626f86;
+      cursor: pointer;
+      border-radius: 0 0 8px 8px;
+      transition: color 120ms ease, background 120ms ease;
+      position: relative;
+    }
+    .chrome-mode .seg.on {
+      color: #172b4d;
+      background: linear-gradient(180deg, #f4f5f7 0%, #fff 100%);
+    }
+    .chrome-mode .seg.on::after {
+      content: "";
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: 2px;
+      height: 2px;
+      border-radius: 1px;
+      background: #0c66e4;
+    }
+    .chrome-mode .seg:not(.on):hover { color: #44546f; background: #f7f8f9; }
+    .chrome-mode .seg:focus-visible { outline: 2px solid #388bff; outline-offset: -2px; }
+    .chrome-mode .pipe {
+      align-self: center;
+      width: 1px;
+      height: 14px;
+      margin: 6px 0 0;
+      background: #dfe1e6;
+      flex-shrink: 0;
+    }
+    .titlebar {
+      display: flex;
+      align-items: stretch;
+      height: 28px;
+      min-width: 280px;
+      background: #fff;
+      border: 1px solid #d0d1d4;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+    .titlebar .prefix {
+      padding: 0 8px 0 10px;
+      font: 600 10px/28px "IBM Plex Sans", sans-serif;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: #97a0af;
+      flex-shrink: 0;
+    }
+    .titlebar .div { width: 1px; align-self: center; height: 12px; background: #dfe1e6; flex-shrink: 0; }
+    .titlebar .spark {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+      padding: 0 2px 0 6px;
+      color: #8f7ee7;
+    }
+    .titlebar .spark svg { display: block; }
+    .titlebar .name {
+      border: 0;
+      outline: none;
+      font: 12px/28px "IBM Plex Sans", sans-serif;
+      color: #172b4d;
+      width: 176px;
+      background: transparent;
+      padding: 0 6px 0 2px;
+    }
+    .titlebar .x { color: #8993a4; padding: 0 8px; font-size: 14px; line-height: 28px; }
+    .chrome-replica .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex: none;
+      height: 32px;
+      padding: 0 10px;
+      gap: 6px;
+      border-radius: 0 0 8px 8px;
+      background: #f7f8f9;
+    }
+    .pub { background: #0c66e4; color: #fff; border: 0; border-radius: 3px; height: 24px; padding: 0 10px; font: 600 11px/24px "IBM Plex Sans", sans-serif; }
+    .note { background:#fff7ed; border-left:3px solid #c2410c; padding:10px 14px; font-size:14px; color:#7c2d12; max-width:72ch; }
+    .ask { background:#1c1917; color:#fafaf9; border-radius:14px; padding:22px 24px; }
+    .ask h2 { color:#fafaf9; }
+    .ask p { color:#d6d3d1; }
+    code { font-family:"IBM Plex Mono",monospace; font-size:12.5px; background:#ece7dc; padding:1px 5px; border-radius:3px; }
+    .ask code { background:#44403c; color:#fafaf9; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="kicker">Product pitch · 19 Aug 2026 · screenshots from lite-stg tonight · draft, not sent</p>
+    <h1>Use their names: Diagram and Board. Keep them off the title field.</h1>
+    <p>
+      The official Confluence app’s slash menu on lite-stg tonight is <b>Draw.io Diagram</b> and <b>Draw.io Board</b>.
+      Space nav is <b>draw.io Diagrams</b> and <b>Whiteboards</b>. The two chromes are Atlas (menus, grid, shape libraries) and Sketch (hamburger, no grid, slim left rail).
+    </p>
+    <p>
+      <b>Diagram | Board</b> picks which editor chrome loads — it is not the document name. TITLE already owns naming (AI sparkle, our label, dismiss). Those are different jobs; do not merge them into one bar.
+      Center the mode switch on the menubar — same row as menus and TITLE, but in a notch pill that hangs from the top edge so it reads one level above both.
+    </p>
+
+    <section>
+      <h2>Our editor, captured tonight</h2>
+      <p>
+        Lite-stg Graph Edit on <code>E2E test page at lite · graph · 2026-07-29 07:26</code>.
+        Modal title is already <b>Graph (DrawIO) Lite</b>. TITLE sits on the DrawIO menubar. Publish sits on the toolbar row under TITLE. Close is the Confluence modal X, not a DrawIO Close button (<code>noExitBtn=1</code>).
+      </p>
+      <figure>
+        <img class="shot" src="screenshots/our-graph-editor.png" alt="Live Graph (DrawIO) Lite editor on lite-stg" />
+        <figcaption>Live Graph editor. File · Edit · View · Arrange · Extras · Help on the left. TITLE on the menubar right. Publish on the toolbar right.</figcaption>
+      </figure>
+      <figure>
+        <img class="shot" src="screenshots/our-graph-editor-chrome.png" alt="Crop of Graph editor menubar and toolbar" />
+        <figcaption>As shipped. TITLE is a 28px white field (<code>h-7</code>, <code>border-gray-300</code>, 10px uppercase prefix). Publish is the next row. The empty band between Help and TITLE is where a centered mode switch belongs.</figcaption>
+      </figure>
+      <h3>Centered notch pill — menus left, title right</h3>
+      <p>Diagram | Board sits in a white notch pill centered on the menubar: flush with the chrome top, rounded bottom, slight drop shadow — it hangs into the row like a layer above File/Edit and TITLE. Menus stay left; TITLE stays right. Click either label to toggle.</p>
+      <div class="chrome-replica">
+        <div class="menubar">
+          <div class="menus">File &nbsp; Edit &nbsp; View &nbsp; Arrange &nbsp; Extras &nbsp; Help</div>
+          <div class="chrome-mode" id="chrome-mode" role="group" aria-label="Editor chrome">
+            <button type="button" class="seg on" data-chrome="diagram" aria-pressed="true">Diagram</button>
+            <span class="pipe" aria-hidden="true"></span>
+            <button type="button" class="seg" data-chrome="board" aria-pressed="false">Board</button>
+          </div>
+          <div class="titlebar">
+            <span class="prefix">Title</span>
+            <div class="div"></div>
+            <span class="spark" aria-hidden="true">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394a2.25 2.25 0 0 0 1.423 1.423Z" />
+              </svg>
+            </span>
+            <input class="name" value="Check if Lamp is Working" readonly aria-label="Document title" />
+            <span class="x" aria-hidden="true">×</span>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="pub" type="button">Publish</button>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin-top:8px;">Notch pill is geometric center of the menubar; TITLE keeps its 28px white field on the right. Publish stays on the toolbar row.</p>
+    </section>
+
+    <section>
+      <h2>What they actually call the two chromes</h2>
+      <table>
+        <thead>
+          <tr><th>Surface</th><th>Official draw.io (lite-stg + their docs)</th><th>Ours today</th><th>Proposal</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Slash menu</td>
+            <td>Draw.io Diagram · Draw.io Board</td>
+            <td>Graph (DrawIO)</td>
+            <td>Graph / Board (DrawIO) — keep Graph so it does not collide with our Diagram (Mermaid, PlantUML &amp; ZenUML) macro</td>
+          </tr>
+          <tr>
+            <td>Space sidebar</td>
+            <td>draw.io Diagrams · Whiteboards</td>
+            <td>—</td>
+            <td>Not in this slice</td>
+          </tr>
+          <tr>
+            <td>In-editor name of the chrome</td>
+            <td>Not labelled. The two macros <i>are</i> the two chromes.</td>
+            <td>Atlas only</td>
+            <td>Diagram | Board in a centered notch pill on the menubar — not inside the title field, not tucked beside Help.</td>
+          </tr>
+          <tr>
+            <td>Filename / title</td>
+            <td>Untitled Diagram-….drawio in the menubar</td>
+            <td>TITLE overlay (AI sparkle, our name)</td>
+            <td>Keep TITLE. Hide DrawIO’s filename on Board chrome so it does not sit next to TITLE.</td>
+          </tr>
+          <tr>
+            <td>Save</td>
+            <td>Publish + Close</td>
+            <td>Publish + modal X</td>
+            <td>Unchanged</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Official Diagram vs Board chrome</h2>
+      <p>Left is a real lite-stg capture of <b>draw.io Diagram</b> Edit. Right is draw.io’s own Board editor photo (Sketch theme). We did not get a live Board Edit tonight — the Board macro is on the DrawIO test page, but view-mode did not surface its toolbar. Inserting a fresh Board is the first spike, not this UI pass.</p>
+      <div class="two">
+        <figure>
+          <img class="shot" src="screenshots/official-drawio-diagram-editor.png" alt="Official draw.io Diagram editor on Confluence" />
+          <figcaption>Diagram = Atlas. Filename top-right. Publish + Close on the toolbar. Grid, shape libraries, format panel.</figcaption>
+        </figure>
+        <figure>
+          <img class="shot" src="screenshots/official-drawio-board-editor.png" alt="Official draw.io Board editor (vendor photo)" />
+          <figcaption>Board = Sketch. Hamburger, no File menu, no grid, slim left rail (text, sticky, shapes, freehand). Filename is a box in the top bar. Publish + Close still top-right.</figcaption>
+        </figure>
+      </div>
+      <figure>
+        <img class="shot" src="screenshots/official-diagram-menubar.png" alt="Official Diagram menubar and toolbar right cluster" />
+        <figcaption>Official Diagram right cluster: filename on the menubar, Publish + Close on the toolbar. We replaced filename with TITLE and dropped Close. The switch must not steal Publish’s row.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2>The control</h2>
+      <table>
+        <thead>
+          <tr><th>Rule</th><th>Why, from the real UI</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Labels: Diagram | Board</td>
+            <td>Those are the slash-menu names on lite-stg. Do not use Graph | Board (Graph is the product). Do not use Atlas | Sketch (theme names, not user-facing).</td>
+          </tr>
+          <tr>
+            <td>Menubar center — notch pill, separate from menus and TITLE</td>
+            <td>Mode picks chrome (<code>sketch=1</code> reload); menus are actions; TITLE names the document. Three different jobs → three zones on one row. Center a white notch pill (top flush, rounded bottom, shadow) so it reads as the layer above File/Edit and the title field. TITLE keeps its existing right overlay.</td>
+          </tr>
+          <tr>
+            <td>No extra click on insert</td>
+            <td>Forge does not tell us the user typed /board. Default Diagram (or last-created theme). Board is one click on this control.</td>
+          </tr>
+          <tr>
+            <td>Board reloads the iframe with <code>sketch=1</code></td>
+            <td>That is how their Board macro is implemented. Same mxfile. Existing shapes keep styles.</td>
+          </tr>
+          <tr>
+            <td>On Board chrome, hide DrawIO’s filename box</td>
+            <td>Their Board puts a filename field in the top bar. We already name the document in TITLE. Two name fields would sit in the same band.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>What we are not doing</h2>
+      <ul>
+        <li>A fifth slash-menu item named Board (DrawIO).</li>
+        <li>A Sequence-style type tab. Those tabs switch engines. This switch only changes chrome.</li>
+        <li>A blocking create chooser over this editor.</li>
+        <li>Restyling existing shapes when the user flips Diagram → Board.</li>
+      </ul>
+      <div class="note">
+        Slash match for <code>/board</code> on a title <code>Graph / Board (DrawIO)</code> is still unverified. Rename on staging and type it before we treat the title as discoverability. Live slash tonight already lists Draw.io Board as its own row — that is their app, not ours.
+      </div>
+    </section>
+
+    <section class="ask">
+      <h2>Ask</h2>
+      <p>
+        Approve: <b>Diagram | Board</b> in a centered notch pill on the menubar (title field unchanged on the right). Slash title <b>Graph / Board (DrawIO)</b>. No fifth menu item. Next: staging slash-match check, then a live Board Edit capture on lite-stg.
+      </p>
+      <p>This page is a draft. It has not been sent.</p>
+    </section>
+  </div>
+  <script>
+    document.querySelectorAll('#chrome-mode .seg').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#chrome-mode .seg').forEach((b) => {
+          b.classList.remove('on');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        btn.classList.add('on');
+        btn.setAttribute('aria-pressed', 'true');
+      });
+    });
+  </script>
+</body>
+</html>

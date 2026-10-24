@@ -273,11 +273,13 @@ export default async function authenticate({
       data.forgeContext = await authenticateForgeRequest(jwt, env);
       return OkResponse();
     } catch (e) {
+      console.error('JWT validation failed:', e);
       captureError(e);
       return response(401, 'Unauthorized: JWT validation failed');
     }
 
   } catch (e) {
+    console.error('Unexpected error authenticating Forge request:', e);
     captureError(e);
     return response(500, `Unexpected error: ${e}`);
   }

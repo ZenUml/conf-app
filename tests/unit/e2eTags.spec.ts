@@ -1,0 +1,116 @@
+/**
+ * Every E2E spec carries the closed tag taxonomy (ADR-0007 §5).
+ *
+ * The impact-based selection on PRs runs only the specs whose tags match the
+ * changed source paths (plus `@smoke`), so a spec with a missing or misspelt
+ * tag is a spec that is silently never selected for the change it covers.
+ * This guard makes that impossible to land: every top-level `test.describe`
+ * / `test` block in tests/e2e-tests/tests must declare a `{ tag: [...] }`
+ * details object whose tags all come from `tests/e2e-tests/config/tags.ts`,
+ * with at least one SURFACE tag, at least one TYPE or CONCERN tag, and a
+ * BEHAVIOR tag — the
+ * same closed-set discipline `storyTitles.spec.ts` applies to the Storybook
+ * tree.
+ *
+ * Only top-level blocks are checked: Playwright propagates a describe's tags
+ * to everything nested in it.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { ALL_TAGS, BEHAVIOR_TAGS, CONCERN_TAGS, SURFACE_TAGS, TYPE_TAGS } from '../e2e-tests/config/tags';
+import { CATEGORIES } from '../e2e-tests/config/categories.mjs';
+
+const ROOT = path.resolve(__dirname, '../e2e-tests/tests');
+
+function specFiles(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) return specFiles(p);
+    return d.isFile() && d.name.endsWith('.spec.ts') ? [p] : [];
+  });
+}
+
+/** Top-level `test(...)` / `test.describe(...)` / `test.describe.serial(...)` heads, with their details object if any. */
+const HEAD = /^(test(?:\.describe(?:\.serial|\.parallel)?)?)\(\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`)\s*,\s*(\{[^}]*\})?/gm;
+
+function topLevelBlocks(source: string): Array<{ head: string; tags: string[] | null }> {
+  const out: Array<{ head: string; tags: string[] | null }> = [];
+  for (const m of source.matchAll(HEAD)) {
+    const details = m[2];
+    const tagMatch = details?.match(/tag:\s*(\[[^\]]*\]|'[^']*'|"[^"]*")/);
+    out.push({
+      head: m[0].slice(0, 80),
+      tags: tagMatch ? [...tagMatch[1].matchAll(/@[\w:-]+/g)].map((t) => t[0]) : null,
+    });
+  }
+  return out;
+}
+
+const files = specFiles(ROOT);
+
+describe('E2E tag taxonomy', () => {
+  it('finds the specs', () => {
+    expect(files.length).toBeGreaterThan(40);
+  });
+
+  it('keeps the four execution-relevant axes disjoint', () => {
+    const all = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS, ...BEHAVIOR_TAGS];
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  for (const file of files) {
+    const rel = path.relative(ROOT, file);
+    it(`${rel}: every top-level block carries a surface tag and a type or concern tag from the closed sets`, () => {
+      const blocks = topLevelBlocks(fs.readFileSync(file, 'utf8'));
+      expect(blocks.length, 'at least one top-level test/describe').toBeGreaterThan(0);
+      for (const b of blocks) {
+        expect(b.tags, `missing { tag: [...] } on: ${b.head}`).not.toBeNull();
+        const tags = b.tags!;
+        if (!rel.startsWith('viewer-preview')) {
+          expect(tags.some(t => t.startsWith('@test:')), 'behavior category').toBe(true);
+          expect(tags.some(t => t.startsWith('@variant:')), 'variant applicability').toBe(true);
+        }
+        expect(tags.filter((t) => !ALL_TAGS.includes(t)), `tags not in config/tags.ts on: ${b.head}`).toEqual([]);
+        expect(tags.some((t) => (SURFACE_TAGS as readonly string[]).includes(t)), `no surface tag on: ${b.head}`).toBe(true);
+        expect(
+          tags.some((t) => (TYPE_TAGS as readonly string[]).includes(t) || (CONCERN_TAGS as readonly string[]).includes(t)),
+          `no type or concern tag on: ${b.head}`,
+        ).toBe(true);
+      }
+    });
+  }
+});
+
+// The Live Agent Link specs need the Agent Link feature flag (the macro renders
+// "Connect to Agent" only when it is on) and the /agent-link/mcp route, and both
+// exist only on lite-stg. On dia-stg and full-stg the affordance never renders,
+// so the specs fail deterministically — the first main runs that planned them
+// there (2026-10-08, e69826c2 and 22b1beab) went red on exactly that assertion.
+// Applicability lives in two places that must agree: the spec `@variant:` tags,
+// which scripts/test-selection/plan.mjs filters each variant's plan on, and the
+// catalog `variants`, which Jev reads as context.
+describe('Live Agent Link E2E applies to lite only', () => {
+  const agentLinkFiles = files.filter((f) => path.relative(ROOT, f).startsWith('agent-link/'));
+
+  it('finds both agent-link specs', () => {
+    expect(agentLinkFiles.map((f) => path.relative(ROOT, f)).sort()).toEqual([
+      'agent-link/agent-link-e2e.spec.ts',
+      'agent-link/agent-link-multi-page-crosstalk.spec.ts',
+    ]);
+  });
+
+  for (const file of agentLinkFiles) {
+    it(`${path.relative(ROOT, file)}: every top-level block is tagged @variant:lite and nothing else`, () => {
+      for (const b of topLevelBlocks(fs.readFileSync(file, 'utf8'))) {
+        expect(b.tags!.filter((t) => t.startsWith('@variant:')), b.head).toEqual(['@variant:lite']);
+      }
+    });
+  }
+
+  it('the catalog declares both agent-link categories for lite only', () => {
+    for (const id of ['agent-link-e2e', 'agent-link-multi-page-crosstalk']) {
+      expect(CATEGORIES.find((c) => c.id === id)?.variants, id).toEqual(['lite']);
+    }
+  });
+});

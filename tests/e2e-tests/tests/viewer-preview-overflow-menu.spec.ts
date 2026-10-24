@@ -3,8 +3,9 @@
  * debug info flow.
  *
  * Failure mode being guarded: the trigger button can render at 0×0 because of
- * Vue scoped-CSS hashing (a parent component's `.viewer-pill-btn` rule cannot
- * pierce a child component's data-v scope hash via `::v-slotted`). A unit
+ * Vue scoped-CSS hashing (a parent component's button rule — once the bottom
+ * pill's `.viewer-pill-btn` — cannot pierce a child component's data-v scope
+ * hash via `::v-slotted`). A unit
  * test that only inspects DOM presence cannot catch this — the button is in
  * the DOM but has zero clickable area. This spec asserts measured geometry,
  * opens the menu, and verifies the bundle download triggers.
@@ -14,7 +15,7 @@
  * project preference. This spec runs against the local Vite dev server and
  * is NOT gated by default CI workflows (`build-test-deploy`, `e2e-test*`).
  * Run it manually before pushing any change that touches OverflowMenu,
- * GenericViewer toolbar markup, or `.viewer-pill-btn` / `.viewer-icon`
+ * GenericViewer header markup, or `.overflow-menu-trigger` / `.viewer-icon`
  * scoped styling.
  *
  * Run (commands must be issued from the directories shown — the project
@@ -33,11 +34,12 @@
  * not just this one.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from '../fixtures/mixpanel-test.js'
+import { localDevUrl } from '../helpers/localDevUrl'
 
-const BASE = 'http://127.0.0.1:8080/viewer-preview.html'
+const BASE = localDevUrl('viewer-preview.html')
 
-test.describe('GenericViewer — OverflowMenu trigger + Download debug info', () => {
+test.describe('GenericViewer — OverflowMenu trigger + Download debug info', { tag: ['@viewer', '@export'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } })
 
   test.beforeEach(async ({ page }) => {
@@ -57,13 +59,21 @@ test.describe('GenericViewer — OverflowMenu trigger + Download debug info', ()
     })
   })
 
-  test('More trigger is 30×30 and Download debug info produces a JSON bundle', async ({ page }) => {
+  test('More trigger is 28×28 and Download debug info produces a JSON bundle', async ({ page }) => {
     await page.goto(BASE)
 
-    // Reveal the bottom-edge toolbar (hover-gated).
+    // Reveal the header actions (hover-gated). The More menu moved from the
+    // removed bottom pill into the header in the staged header (2026-10).
     await page.locator('.viewer-surface').hover()
 
-    const more = page.getByRole('button', { name: 'More' })
+    // Scoped to OverflowMenu's own trigger rather than by accessible name.
+    // `getByRole('button', { name: 'More' })` matches by SUBSTRING, so once
+    // CopyForAiMenu shipped a trigger titled "Copy for AI — more options" the
+    // name matched two buttons and this line failed on a strict-mode violation.
+    // It went unnoticed because this spec only ever ran by hand; its first CI
+    // run caught it. The class is the component's own contract and cannot be
+    // captured by a sibling's wording.
+    const more = page.locator('.overflow-menu-trigger')
     await expect(more).toBeVisible({ timeout: 10_000 })
 
     // Geometry assertion — the actual production failure mode.

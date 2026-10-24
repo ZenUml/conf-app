@@ -12,6 +12,8 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 
 const macroViewedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
+const viewerLoadFailedCalls = () =>
+  vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
 
 const swaggerMock = vi.hoisted(() => {
   const updateSpec = vi.fn();
@@ -86,6 +88,56 @@ describe('OpenApiViewer', () => {
     expect(swaggerMock.updateSpec).toHaveBeenCalledWith(store.state.diagram.code);
   });
 
+  describe('loadError terminal state (Diagram.loadError, slice 1)', () => {
+    it('shows a terminal message instead of the example spec when loadError is already set at mount', () => {
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
+
+      const wrapper = mount(OpenApiViewer, {
+        global: { plugins: [store] },
+      });
+
+      expect(wrapper.text()).toContain("This diagram isn't available");
+      expect(wrapper.find('#swagger-ui').exists()).toBe(false);
+      // Nothing SwaggerUI-related should run when there's nothing to mount.
+      expect(swaggerMock.swaggerFactory).not.toHaveBeenCalled();
+      expect(window.ui).toBeUndefined();
+    });
+
+    it('switches to a terminal message when loadError arrives later via the store watcher', async () => {
+      const wrapper = mount(OpenApiViewer, {
+        global: { plugins: [store] },
+      });
+      swaggerMock.updateSpec.mockClear();
+
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.text()).toContain("This diagram isn't available");
+      expect(wrapper.find('#swagger-ui').exists()).toBe(false);
+      expect(swaggerMock.updateSpec).not.toHaveBeenCalled();
+    });
+
+    it('renders the swagger UI normally when loadError is absent (happy path unaffected)', () => {
+      const wrapper = mount(OpenApiViewer, {
+        global: { plugins: [store] },
+      });
+
+      expect(wrapper.find('#swagger-ui').exists()).toBe(true);
+      expect(wrapper.find('.openapi-load-error').exists()).toBe(false);
+      expect(swaggerMock.swaggerFactory).toHaveBeenCalled();
+    });
+
+    it('still reports macro_viewed on a failed load — readership metric, not success-only', async () => {
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+
+      store.state.diagram = { ...NULL_DIAGRAM, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+
+      expect(macroViewedCalls()).toHaveLength(1);
+    });
+  });
+
   // #413. The OpenAPI entry mounts this component before its content load
   // resolves, so reporting from mounted() both timed an empty skeleton and
   // snapshotted renderPerf before any fetch phase existed — openapi shipped
@@ -139,6 +191,37 @@ describe('OpenApiViewer', () => {
       expect(macroViewedCalls()).toHaveLength(1);
     });
 
+    // #113: content_state is a wipe signal, so a load that never delivered a
+    // body must NOT read as `empty`.
+    it.each([
+      ['authored', 'openapi: 3.0.0\ninfo:\n  title: Mine', 'authored'],
+      ['empty (a wiped body)', '  \n', 'empty'],
+    ])('carries content_state for a loaded %s body', (_label, code, expected) => {
+      mount(OpenApiViewer, {
+        props: { doc: { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code } },
+        global: { plugins: [store] },
+      });
+
+      expect(macroViewedCalls()[0][1].content_state).toBe(expected);
+    });
+
+    it('omits content_state when the load never delivered a document', async () => {
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+
+      expect(macroViewedCalls()[0][1]).not.toHaveProperty('content_state');
+    });
+
+    it('omits content_state when the load failed with a loadError', async () => {
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+      store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+
+      expect(macroViewedCalls()[0][1]).not.toHaveProperty('content_state');
+    });
+
     it('reports at mount when the content is already in hand (embed host, editor preview)', () => {
       mount(OpenApiViewer, {
         props: { doc: { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code: 'openapi: 3.0.0' } },
@@ -146,6 +229,56 @@ describe('OpenApiViewer', () => {
       });
 
       expect(macroViewedCalls()).toHaveLength(1);
+    });
+  });
+
+  // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): this file had
+  // zero error handling of any kind — `grep -n "error|Error|catch|failed"`
+  // returned no matches. 12.4% of view volume (graph+openapi+embed) had no
+  // failure telemetry at all.
+  describe('render-failure telemetry', () => {
+    it('fires viewer_load_failed when SwaggerUIBundle construction throws', () => {
+      swaggerMock.swaggerFactory.mockImplementationOnce(() => {
+        throw new Error('swagger-ui init boom');
+      });
+
+      mount(OpenApiViewer, { global: { plugins: [store] } });
+
+      expect(viewerLoadFailedCalls()).toHaveLength(1);
+      expect(viewerLoadFailedCalls()[0][1]).toMatchObject({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'openapi',
+        failure_stage: 'render_crash',
+        failure_reason: 'swagger-ui init boom',
+      });
+    });
+
+    it('fires viewer_load_failed when specActions.updateSpec throws, and still reports macro_viewed once the load settles — macro_viewed is readership, not success', async () => {
+      swaggerMock.updateSpec.mockImplementationOnce(() => {
+        throw new Error('bad spec boom');
+      });
+
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+
+      expect(viewerLoadFailedCalls()).toHaveLength(1);
+      expect(viewerLoadFailedCalls()[0][1]).toMatchObject({
+        macro_type: 'openapi',
+        failure_stage: 'render_crash',
+        failure_reason: 'bad spec boom',
+      });
+
+      // A construction/updateSpec crash must not break the mounted() lifecycle
+      // that follows it — reportRenderOnce() still needs to run.
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+      expect(macroViewedCalls()).toHaveLength(1);
+    });
+
+    it('does not fire viewer_load_failed on a clean render', () => {
+      mount(OpenApiViewer, { global: { plugins: [store] } });
+
+      expect(viewerLoadFailedCalls()).toHaveLength(0);
     });
   });
 });

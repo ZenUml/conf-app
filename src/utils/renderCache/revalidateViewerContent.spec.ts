@@ -61,6 +61,18 @@ describe('revalidateViewerContent', () => {
     expect(events).toEqual(['afterFresh']);
   });
 
+  it('preserves attribution when revalidating sequence content', async () => {
+    const fresh = { ...NULL_DIAGRAM, code: 'fresh' };
+    const attribution = { customContentId: 'cc-author', createdByAccountId: 'example-author' };
+    await revalidateViewerContent({
+      customContentId: 'cc-author', cachedHash: 'old',
+      loadFresh: async () => fresh,
+      cacheAttribution: () => attribution,
+      onChanged: () => {},
+    });
+    expect(getCachedContent('cc-author')?.attribution).toEqual(attribution);
+  });
+
   it('leaves the cache and callbacks untouched when fresh content is missing', async () => {
     const customContentId = 'cc-missing';
     const onChanged = vi.fn();

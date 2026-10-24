@@ -28,16 +28,25 @@ export const APPS = {
         yqEvalExpr: 'del(.app.licensing)',
       },
       {
-        description: 'Remove confluence:contentBylineItem',
-        yqEvalExpr: 'del(.modules["confluence:contentBylineItem"])',
+        // Key-scoped: Lite ships TWO byline entries — zenuml-byline-newuser
+        // (the activation nudge) and zenuml-byline-diagrams (the diagram
+        // index). Only zenuml-byline-aiaide is Diagramly-branded and opens the
+        // diagramly chat backend, so only it goes. A whole-module delete here
+        // would take both of the others with it — don't reintroduce that.
+        description: 'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser)',
+        yqEvalExpr:
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
       },
       {
-        // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
-        // `zenuml-asyncapi-embed-macro` (embed reference) — only the
-        // asyncapi variant ships these.
-        description: 'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
+        // ADR-0005 Option A: Lite ships the page-rendered AsyncAPI macro
+        // (`zenuml-asyncapi-macro`) — content stored under the shared
+        // `zenuml-content-sequence` type, discriminated by diagramType, like
+        // OpenAPI. Only the embed macro is stripped: it references documents
+        // of the `async-api-doc` type, which Lite does not claim (that type
+        // stays asyncapi-variant-only, along with the dashboard spacePage).
+        description: 'Remove asyncapi embed macro (zenuml-asyncapi-embed-macro; Lite keeps zenuml-asyncapi-macro per ADR-0005)',
         yqEvalExpr:
-          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
+          'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro"))',
       },
       {
         description: 'Remove asyncapi custom content (async-api-doc)',
@@ -47,6 +56,15 @@ export const APPS = {
       {
         description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
         yqEvalExpr: 'del(.modules["confluence:spacePage"])',
+      },
+      {
+        // AsyncAPI Studio (transitively via AJV / @asyncapi/parser) compiles
+        // JSON Schema validators at runtime via `new Function()`, which the
+        // default Forge Custom UI CSP forbids. Required now that Lite ships
+        // the AsyncAPI macro (ADR-0005); scoped to the app's sandboxed
+        // iframe. Same edit as the asyncapi variant's.
+        description: "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
+        yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
       },
       {
         // Strip the Connect lifecycle module (connectModules). It lives in
@@ -60,7 +78,7 @@ export const APPS = {
       {
         description: 'Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -84,6 +102,13 @@ export const APPS = {
       production: 'https://conf-full.zenuml.com',
     },
     manifestEdits: [
+      {
+        // Plan and Usage is the Lite limit page; keep other globalPage entries
+        // intact for Full. Mirrored in staging-deploy.yml and release.yml.
+        description: 'Remove zenuml-plan-usage-page from confluence:globalPage (Full has no Lite usage limit)',
+        yqEvalExpr:
+          'del(.modules["confluence:globalPage"][] | select(.key == "zenuml-plan-usage-page"))',
+      },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
         // `zenuml-asyncapi-embed-macro` (embed reference) — only the
@@ -109,14 +134,43 @@ export const APPS = {
         yqEvalExpr: 'del(.connectModules)',
       },
       {
-        description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
+        // Key-scoped: Full keeps zenuml-byline-newuser AND zenuml-byline-diagrams
+        // (the diagram index). Only zenuml-byline-aiaide is Diagramly-branded.
+        // Mirrored in release.yml and staging-deploy.yml.
+        description:
+          'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser + zenuml-byline-diagrams)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))',
       },
       {
-        description: 'Remove Lite remote-storage declaration from Full',
+        // zenuml-byline-diagrams' display condition (`not entityPropertyExists
+        // zenuml-full-active`) is Lite-only semantics: it hides Lite's byline
+        // where Full is present. Kept in Full it would subtract Full's OWN
+        // presence marker and hide the byline on every space, so Full ships
+        // it unconditionally. Mirrored in release.yml and staging-deploy.yml.
+        description: 'Drop the Lite-only displayConditions from zenuml-byline-diagrams (Full shows it on every space)',
         yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)',
+      },
+      {
+        // The typed /d/<type>/*/* paste-to-place matchers move to Full's own
+        // host instead of being stripped. Identical patterns in Lite and Full
+        // would race for one pasted URL on a both-installed site, and the
+        // loser's macro points at app-scoped custom content it cannot read —
+        // a permanently broken macro. On conf-full.zenuml.com only Full
+        // claims them; buildDiagramDeeplink mints the same host
+        // (typedDeeplinkHostForProductType). The /new/<type> matchers go: no
+        // Full surface mints them. The embed macro's 3-segment /d/*/* matcher
+        // is untouched (repointed by its own edit below). Mirrored in
+        // release.yml and staging-deploy.yml.
+        description: 'Move byline paste-to-place matchers to conf-full.zenuml.com and drop /new/ matchers (Full byline mints conf-full links)',
+        yqEvalExpr:
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://conf-full.zenuml.com/") | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
+      },
+      {
+        description: 'Remove Lite snapshot and Diagramly demo schedules from Full',
+        yqEvalExpr:
+          'del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page")) | del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "diagramly-demo-page-pipeline"))',
       },
       {
         description: 'Point embed deeplink autoConvert matcher at conf-full.zenuml.com',
@@ -145,17 +199,17 @@ export const APPS = {
       staging: 'https://conf-stg-lite.zenuml.com',
       production: 'https://conf-lite.zenuml.com',
     },
-    // Diagramly includes licensing; remove only the global UI modules and embed macro.
+    // Diagramly includes licensing; remove only the global UI modules. The
+    // embed macro ships in Diagramly (task 6 deeplink productization) — do
+    // NOT add a "remove embed macro" edit here. CI (.github/workflows/
+    // release.yml + staging-deploy.yml) maintains its OWN parallel copy of
+    // these manifest edits, independent of this array — if you change what
+    // this wizard strips/keeps for diagramly, change both CI workflows too.
     manifestEdits: [
       {
         description: 'Remove globalSettings + globalPage + spacePage',
         yqEvalExpr:
           'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
-      },
-      {
-        description: 'Remove embed macro (zenuml-embed-macro)',
-        yqEvalExpr:
-          'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))',
       },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
@@ -178,14 +232,39 @@ export const APPS = {
         yqEvalExpr: 'del(.connectModules)',
       },
       {
-        description: 'Remove Lite macro snapshot schedule from Diagramly',
+        description: 'Remove the Lite diagrams byline entry (Diagramly keeps Aide)',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))',
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))',
       },
       {
-        description: 'Remove Lite remote-storage declaration from Diagramly',
+        // The unplaced-diagram banner is gated on a content property that only
+        // `zenuml-byline-diagrams` writes, and Diagramly strips that entry just
+        // above. Shipped here it is a module that can never fire — an iframe
+        // slot Confluence reserves against a key nothing in this variant will
+        // ever set. Mirrored in release.yml and staging-deploy.yml.
+        description:
+          'Remove zenuml-unplaced-banner from confluence:pageBanner — Diagramly ships no zenuml-byline-diagrams, the sole writer of the content property it is gated on',
+        yqEvalExpr: 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))',
+      },
+      {
+        // The /new/<type> and /d/<type>/*/* matchers are the byline's
+        // paste-to-create and paste-to-place links, and Diagramly ships no
+        // byline to mint them. Left in place they collide on both-installed
+        // sites: identical patterns in two apps, one pasted URL, and if the
+        // other app's macro wins the conversion the (app-scoped) custom
+        // content behind a /d/ link is unreadable — a permanently broken
+        // macro. The embed macro's 3-segment /d/*/* matchers are untouched:
+        // that form predates the byline and resolves as a read-only embed.
+        // Full and AsyncAPI, which do ship the byline, move these matchers to
+        // their own hosts instead. If Diagramly ever ships it, do the same.
+        description: 'Remove byline paste-to-create matchers (Diagramly ships no byline that mints them)',
         yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
+      },
+      {
+        description: 'Remove Lite macro snapshot schedule from Diagramly',
+        yqEvalExpr:
+          'del(.modules.function[] | select(.key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily" or .key == "full-lite2full-hourly" or .key == "full-presence-daily"))',
       },
     ],
     sites: {
@@ -234,8 +313,8 @@ export const APPS = {
       production: 'https://zenapi.zenuml.com',
     },
     // AsyncAPI is a single-purpose variant: strip every macro except the
-    // AsyncAPI one, and drop the dashboard / get-started / byline modules
-    // that don't apply.
+    // API-spec ones, and drop the dashboard / get-started modules and the
+    // byline entries that don't apply.
     manifestEdits: [
       // Note: licensing stays enabled — matches the standalone
       // AsyncAPI-Conf-V2 manifest. lite is the only variant that strips
@@ -253,12 +332,42 @@ export const APPS = {
           'del(.modules.macro[] | select(.key | test("zenuml-asyncapi|zenuml-openapi-macro") | not))',
       },
       {
-        // AsyncAPI ships only confluence:spacePage (the per-space "My API
-        // Documents" entry). Strip the ZenUML globalPage + getStarted +
-        // byline entries — they don't apply to asyncapi.
-        description: 'Remove globalSettings + globalPage + contentBylineItem (asyncapi uses spacePage only)',
+        // AsyncAPI's onboarding surface is confluence:spacePage (the per-space
+        // "My API Documents" entry). Strip the ZenUML globalPage + getStarted +
+        // homepage-feed entries — they don't apply to asyncapi. The byline is
+        // handled key by key below. Mirrored in release.yml and
+        // staging-deploy.yml.
+        description: 'Remove globalSettings + globalPage + homepageFeed (asyncapi uses spacePage only)',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:contentBylineItem"])',
+          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:homepageFeed"])',
+      },
+      {
+        // AsyncAPI keeps only zenuml-byline-diagrams (the diagram index, with
+        // OpenAPI + AsyncAPI tiles — src/utils/byline/pickerTypes.ts). aiaide is
+        // Diagramly-branded; the newuser nudge opens prepared diagrams of
+        // generic types this app does not ship. Its Lite-only display
+        // condition goes for the same reason as Full's: it reads Full's
+        // presence marker, which says nothing about this app. It is titled
+        // "API Docs": this app's byline lists and creates OpenAPI/AsyncAPI
+        // specs, not diagrams (its panel copy follows, src/utils/byline/
+        // bylineNoun.ts). No collision: Full, the other app with a plain
+        // title, cannot be installed beside this one.
+        // Mirrored in release.yml and staging-deploy.yml.
+        description:
+          'Keep only zenuml-byline-diagrams in confluence:contentBylineItem, titled "API Docs", without its Lite-only displayConditions',
+        yqEvalExpr:
+          'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) | (.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .title) = "API Docs" | (.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .tooltip) = "See the API docs on this page, or add one"',
+      },
+      {
+        // ${LITE_KEY_SUFFIX} is empty here, so the templated key would be
+        // Full's `zenuml-unplaced-diagrams` — and content properties are
+        // site-global across apps, so each app's banner would boot on the
+        // other's record. Must equal unplacedPropertyKeyFor('asyncapi') in
+        // src/utils/byline/unplacedProperty.ts. Mirrored in release.yml and
+        // staging-deploy.yml.
+        description: 'Gate zenuml-unplaced-banner on zenuml-unplaced-diagrams-asyncapi (not Full\'s key)',
+        yqEvalExpr:
+          '(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner") | .displayConditions.entityPropertyExists.propertyKey) = "zenuml-unplaced-diagrams-asyncapi"',
       },
       {
         description: 'Remove non-asyncapi custom content types',
@@ -275,14 +384,27 @@ export const APPS = {
         yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
       },
       {
-        description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
+        // Same move as Full's, onto this app's own host: the asyncapi app keeps
+        // zenuml-asyncapi-macro and zenuml-openapi-macro, whose typed
+        // /d/<type>/*/* matchers would otherwise race Lite's (and Full's
+        // openapi one) on a both-installed site — and the loser's macro points
+        // at custom content scoped to the other app, which it cannot read.
+        // buildDiagramDeeplink mints zenapi.zenuml.com here
+        // (typedDeeplinkHostForProductType). /new/<type> goes: nothing in this
+        // app mints it. The trailing del is not optional: yq's `|=` over
+        // `.modules.macro[].autoConvert.matchers[]` CREATES `matchers: []` on
+        // every macro that had no autoConvert (here zenuml-asyncapi-embed-macro),
+        // and Forge's lint rejects an empty matchers list, failing the deploy.
+        // Full's edit carries it too, for when the macros Full keeps change.
+        // Mirrored in release.yml and staging-deploy.yml.
+        description: 'Move byline paste-to-place matchers to zenapi.zenuml.com and drop /new/ matchers (AsyncAPI byline mints zenapi links)',
         yqEvalExpr:
-          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn")) | del(.modules.scheduledTrigger)',
+          'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://zenapi.zenuml.com/") | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)',
       },
       {
-        description: 'Remove Lite remote-storage declaration from AsyncAPI',
+        description: 'Remove Lite snapshot and Diagramly demo schedules from AsyncAPI',
         yqEvalExpr:
-          'del(.remotes[] | select(.key == "connect").operations[] | select(. == "storage")) | del(.remotes[] | select(.key == "connect").storage)',
+          'del(.modules.function[] | select(.key == "createDemoPage" or .key == "createDemoPageScheduled" or .key == "macroCountSnapshotFn" or .key == "liteFullConversionFn" or .key == "fullPresenceFn")) | del(.modules.scheduledTrigger)',
       },
     ],
     sites: {
@@ -504,6 +626,15 @@ async function buildApp({ app }) {
     maxLiveChars: 5000,
     progressDotsEveryMs: 1500,
   })
+
+  // The Diagramly development deploy script also omits this large asset tree.
+  // Keeping it in the Forge resource can make the upload time out.
+  if (app.productType === 'diagramly') {
+    fs.rmSync(path.resolve(process.cwd(), 'dist/drawio'), {
+      recursive: true,
+      force: true,
+    })
+  }
 }
 
 async function runTunnel({ appEnvVars, forgeEnv }) {

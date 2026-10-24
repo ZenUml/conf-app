@@ -63,6 +63,8 @@ Reconciliation:
 
 **Gate B — does an embed count toward the Lite 100-macro space limit?** Task 0 Step 3. This is a pricing lever, not an implementation detail: if embeds are free and clones are not, Lite users get silently steered, and every post-launch measurement of "what users prefer" becomes an artifact of the quota. Decide it deliberately and record the decision here before Task 6.
 
+**Gate B — DECIDED 2026-07-31: embeds do NOT count toward the Lite 100-macro space limit.** An embed is a reference, not a new diagram; this also matches the autoconvert path's de-facto behavior (it writes no config and creates no custom content, so it was already quota-free by construction). Known asymmetry: editor-created embeds DO write a custom content record — verifying the paywall's space count excludes embed content is tracked in ZenUml/conf-app#427.
+
 ---
 
 ## Phase 0 — Escape-hatch spike (BLOCKING)
@@ -432,3 +434,10 @@ _(fill as tasks complete)_
 |---|---|---|---|
 | | Gate A | | |
 | | Gate B | | |
+
+## Decisions 2026-07-31 (grilling session)
+
+- **Diagramly ships the embed macro + autoConvert matcher**, bundled with the mint surface (Task 6) on branch `feat/deeplink-mint-pill`. The variant's embed-macro strip in `scripts/forge-wizard.mjs` is removed; the macro inherits the base matcher host `conf-lite.zenuml.com`, the designed diagramly host. Rationale: the original strip was motivated by low embed usage, but pre-2026-07-12 embed volume is void (see "What the data does NOT say" above); autoconvert changes the economics, and enabling before the mint surface exists would only re-add the picker with zero upside.
+- **AsyncAPI autoconvert is deferred indefinitely.** Its embed macro (`zenuml-asyncapi-embed-macro`) runs a separate pipeline (`forge-asyncapi-viewer.ts` + picker editor) with no `autoConvertLink` resolution and no mint surface, and the matcher host question (zenapi proxy routes vs. a colliding shared host) is unresolved. Task 8's "all four variants" / asyncapi-matcher instruction is SUPERSEDED for asyncapi. Revisit trigger: `embed_autoconvert_rendered` traction on lite/diagramly, or a direct asyncapi customer request.
+- **Task 6 shipped** on `feat/deeplink-mint-pill` (mint = bare deeplink from the viewer pill; ticketed previews stay with the share-card work, PR #405).
+- **Cross-app matcher overlap (Lite + Diagramly, both on `conf-lite.zenuml.com/d/*/*`) is a previously accepted known issue, not a new gate.** Same-app collision was tested on #360 (winner = last-declared in manifest.yml, no conflict detection); cross-app winner is untested by design decision — the byline-activation design doc (2026-07-26, "Known issue accepted") records that a wrong-app match fail-softs into the orphan path because custom content is app-namespaced, judged low-probability, revisit only on real-world signal. That analysis was made for Lite+Full sharing one host (now split by #382) and carries over to Lite+Diagramly unchanged.

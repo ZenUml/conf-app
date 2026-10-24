@@ -129,13 +129,23 @@ function decodeMixpanel(post) {
   } catch { return null; }
 }
 
-const MP_PROP_KEYS = ['macro_type', 'duration_ms', 'fetch_ms', 'render_ms', 'event_category', 'load_type', 'renderer', 'cache', 'source', 'content_provider'];
+const MP_PROP_KEYS = ['macro_type', 'duration_ms', 'fetch_ms', 'render_ms', 'event_category', 'load_type', 'renderer', 'cache', 'source', 'content_provider',
+  // #382 gate + phase decomposition (load-gate spike)
+  'bootstrap_ms', 'context_ms', 'measured_sum_ms', 'content_source', 'cache_state',
+  'render_gate', 'render_deferred_ms', 'visible_at_boot', 'gate_mode'];
+
+// --cpu <rate>: CDP CPU throttling multiplier (e.g. 4). Applied to the main
+// frame AND every OOPIF target — Forge macro iframes run in their own
+// renderer processes, so throttling only the main target would leave the
+// macro JS at full speed.
+const CPU_RATE = parseFloat(args.cpu || '0') || 0;
 
 async function applyThrottle(context, target, conditions) {
   try {
     const s = await context.newCDPSession(target);
     await s.send('Network.enable');
-    await s.send('Network.emulateNetworkConditions', conditions);
+    if (conditions) await s.send('Network.emulateNetworkConditions', conditions);
+    if (CPU_RATE > 1) await s.send('Emulation.setCPUThrottlingRate', { rate: CPU_RATE });
     return s;
   } catch { return null; }
 }
@@ -148,10 +158,12 @@ async function runOnce(context, runIdx, { throttled, cold, discard }) {
   if (cold) await cdpMain.send('Network.clearBrowserCache');
   if (throttled) await cdpMain.send('Network.emulateNetworkConditions', FAST4G);
 
+  if (CPU_RATE > 1) await cdpMain.send('Emulation.setCPUThrottlingRate', { rate: CPU_RATE });
+
   const frameSessionQueue = [];
   page.on('frameattached', (f) => {
-    if (throttled) {
-      const p = applyThrottle(context, f, FAST4G).then(s => { if (s) sessions.push(s); });
+    if (throttled || CPU_RATE > 1) {
+      const p = applyThrottle(context, f, throttled ? FAST4G : null).then(s => { if (s) sessions.push(s); });
       frameSessionQueue.push(p.catch(() => {}));
     }
   });
@@ -261,6 +273,18 @@ const context = await browser.newContext({
   storageState: STORAGE,
   viewport: { width: 1440, height: 900 },
 });
+
+// --set-ls key=value: seed a localStorage key in EVERY frame (init script runs
+// in OOPIFs too), e.g. --set-ls zenuml.gateMode=load for the #382 load-gate
+// spike. The Forge iframe origin is unreachable via storageState origins
+// (dynamic CDN host), so an init script is the only reliable seeding point.
+if (args['set-ls']) {
+  const eq = String(args['set-ls']).indexOf('=');
+  const k = String(args['set-ls']).slice(0, eq), v = String(args['set-ls']).slice(eq + 1);
+  await context.addInitScript(([key, val]) => {
+    try { localStorage.setItem(key, val); } catch { /* opaque/sandboxed origin */ }
+  }, [k, v]);
+}
 
 try {
   if (CACHE === 'warm') {

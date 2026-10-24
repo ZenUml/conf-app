@@ -1,9 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { createPageAndSetup } from './insert-helpers.js';
 import {
   pasteDeeplinkUntilConverted,
-  readConversion,
   isEmbedMacro,
   embedDeeplinkUrl,
 } from '../../helpers/embedDeeplink.js';
@@ -19,7 +18,7 @@ const SAMPLE = embedDeeplinkUrl(
 
 const skip = !testConfig.macros.includes('embed');
 
-test.describe(`Embed deeplink autoConvert - ${testConfig.productType}`, () => {
+test.describe(`Embed deeplink autoConvert - ${testConfig.productType}`, { tag: ['@test:embed-deeplink-autoconvert', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@embed', '@deeplink', '@smoke'] }, () => {
   test.skip(skip, `Macro "embed" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test('pasting a /d/ deeplink converts to the embed macro (not a smart-link)', async ({
@@ -37,18 +36,11 @@ test.describe(`Embed deeplink autoConvert - ${testConfig.productType}`, () => {
     expect(conv.cardCount, 'converted to a smart-link card instead of the macro').toBe(0);
   });
 
-  test('naive type+space produces a plain hyperlink, NOT the embed macro (control)', async ({
-    page,
-  }) => {
-    const variantLabel = testConfig.isLite ? ' Lite' : '';
-    await createPageAndSetup(page, variantLabel);
-
-    await page.locator('.ProseMirror').first().click();
-    await page.keyboard.type(SAMPLE, { delay: 5 });
-    await page.keyboard.press('Space');
-    const conv = await readConversion(page);
-
-    expect(isEmbedMacro(conv), 'typing must NOT trigger the macro autoConvert').toBe(false);
-    expect(conv.anchorHrefs.length, 'typing a URL should linkify into an anchor').toBeGreaterThan(0);
-  });
+  // The type+space CONTROL leg ("typing must NOT autoconvert; it should
+  // linkify") lives in the /pvt-autoconvert skill, NOT here. It asserts
+  // Confluence's own linkify-on-type behavior, which varies by the editor
+  // cohort the account is served: on 2026-07-31 it failed 3/3 for the CI
+  // robot account on zenuml prod while passing for a human account on the
+  // same site and for the same robot account on lite-stg (issue #430).
+  // A per-account editor rollout is not something a hard CI gate can pin.
 });

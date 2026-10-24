@@ -1689,6 +1689,9 @@ export type AnalyticsEventName =
   // -> task started -> message queued -> message delivered -> task completed.
   // Counts and outcomes only; never repo names, PR titles, diffs or review text.
   | "pr_panel_review_list_shown"
+  // After each review list response, record the default My PRs scope outcome.
+  // Aggregate counts only; no GitHub login or PR identity.
+  | "pr_panel_review_scope_applied"
   | "pr_panel_review_row_clicked"
   // delete_requested: valid MCP call before local mutation (no properties).
   // delete_completed: local mutation result; delete_outcome and deleted_run_count only.

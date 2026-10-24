@@ -1172,6 +1172,10 @@ export type AnalyticsProperties = {
   // GitHub PR Agent Panel — see catalog.ts pr_panel_* events; counts/outcomes
   // only, no repository or PR identifiers.
   review_count?: number; // rows rendered in the left list
+  scope_mode?: 'mine'; // default review queue scope
+  scope_outcome?: 'resolved' | 'identity_unavailable';
+  visible_review_count?: number;
+  excluded_review_count?: number;
   deleted_run_count?: number; // local review runs removed for one PR
   delete_outcome?: 'deleted' | 'not_found' | 'failed';
   sync_outcome?: 'updated' | 'unchanged' | 'partial' | 'failed';

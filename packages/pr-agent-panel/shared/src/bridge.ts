@@ -76,6 +76,7 @@ export const TelemetryFrame = Base.extend({
   type: z.literal('telemetry'),
   event: z.enum([
     'pr_panel_review_list_shown',
+    'pr_panel_review_scope_applied',
     'pr_panel_review_row_clicked',
     'pr_panel_panel_toggled',
     'pr_panel_hub_connected',
@@ -86,6 +87,10 @@ export const TelemetryFrame = Base.extend({
   props: z
     .object({
       review_count: z.number().int().nonnegative().optional(),
+      scope_mode: z.literal('mine').optional(),
+      scope_outcome: z.enum(['resolved', 'identity_unavailable']).optional(),
+      visible_review_count: z.number().int().nonnegative().optional(),
+      excluded_review_count: z.number().int().nonnegative().optional(),
       row_index: z.number().int().nonnegative().optional(),
       is_stale: z.boolean().optional(),
       panel_state: z.enum(['expanded', 'collapsed']).optional(),

@@ -41,5 +41,4 @@ export interface RootState {
   // body round-trip into storage and drafts (the ZEN-1170 trap).
   publishBlock?: PublishBlockReason | null
   error: any,
-  onElementClick: Function
 }

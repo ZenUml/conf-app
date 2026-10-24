@@ -591,7 +591,7 @@ describe('Markdown tab discovery and draft restore', () => {
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('markdown_seeded_from_mermaid', expect.objectContaining({ macro_type: 'markdown' }));
     store.commit('updateDiagramType', DiagramType.Mermaid);
     await wrapper.vm.$nextTick();
-    EventBus.$emit('draft-restore', { scope: 'edit:md-edit', draft: { code: '# Recovered', title: 'Recovered', diagramType: 'markdown', buffers: { mermaid: 'flowchart TD\nA-->B', markdown: '# Recovered', sequence: 'Saved sequence buffer' } } });
+    EventBus.$emit('draft-restore', { scope: 'edit:md-edit', draft: { code: '# Recovered', title: 'Recovered', diagramType: 'markdown', buffers: { mermaid: 'flowchart TD\nA-->B', markdown: '# Recovered', sequence: 'Saved sequence buffer' }, savedAt: 0 } });
     await wrapper.vm.$nextTick();
     expect(store.state.diagram.diagramType).toBe(DiagramType.Markdown);
     expect(store.state.diagram.markdownCode).toBe('# Recovered');

@@ -1,5 +1,5 @@
 // $Id = LocalFile.js,v 1.12 2010-01-02 09 =45 =14 gaudenz Exp $
-// Copyright (c) 2006-2014, JGraph Ltd
+// Copyright (c) 2006-2014, JGraph Holdings Ltd
 /**
  * Constructs a new point for the optional x and y coordinates. If no
  * coordinates are given, then the default values for <x> and <y> are used.
@@ -8,7 +8,7 @@
  * @param {number} x X-coordinate of the point.
  * @param {number} y Y-coordinate of the point.
  */
-LocalFile = function(ui, data, title, temp, fileHandle, desc)
+LocalFile = function(ui, data, title, temp, fileHandle, desc, editable)
 {
 	DrawioFile.call(this, ui, data);
 	
@@ -16,6 +16,7 @@ LocalFile = function(ui, data, title, temp, fileHandle, desc)
 	this.mode = (temp) ? null : App.MODE_DEVICE;
 	this.fileHandle = fileHandle;
 	this.desc = desc;
+	this.editable = editable;
 };
 
 //Extends mxEventSource
@@ -80,9 +81,10 @@ LocalFile.prototype.isRenamable = function()
  * @param {number} dx X-coordinate of the translation.
  * @param {number} dy Y-coordinate of the translation.
  */
-LocalFile.prototype.save = function(revision, success, error)
+LocalFile.prototype.isEditable = function()
 {
-	this.saveAs(this.title, success, error);
+	return DrawioFile.prototype.isEditable.apply(this, arguments) &&
+		(this.editable == null || this.editable);
 };
 
 /**
@@ -91,9 +93,10 @@ LocalFile.prototype.save = function(revision, success, error)
  * @param {number} dx X-coordinate of the translation.
  * @param {number} dy Y-coordinate of the translation.
  */
-LocalFile.prototype.saveAs = function(title, success, error)
+LocalFile.prototype.setEditable = function(editable)
 {
-	this.saveFile(title, false, success, error);
+	this.editable = editable;
+	this.descriptorChanged();
 };
 
 /**
@@ -102,9 +105,20 @@ LocalFile.prototype.saveAs = function(title, success, error)
  * @param {number} dx X-coordinate of the translation.
  * @param {number} dy Y-coordinate of the translation.
  */
-LocalFile.prototype.saveAs = function(title, success, error)
+LocalFile.prototype.save = function(revision, success, error, unloading, overwrite)
 {
-	this.saveFile(title, false, success, error);
+	this.saveAs(this.title, success, error, unloading, overwrite);
+};
+
+/**
+ * Translates this point by the given vector.
+ * 
+ * @param {number} dx X-coordinate of the translation.
+ * @param {number} dy Y-coordinate of the translation.
+ */
+LocalFile.prototype.saveAs = function(title, success, error, unloading, overwrite)
+{
+	this.saveFile(title, false, success, error, null, unloading, overwrite);
 };
 
 /**
@@ -150,63 +164,112 @@ LocalFile.prototype.getLatestVersion = function(success, error)
  * @param {number} dx X-coordinate of the translation.
  * @param {number} dy Y-coordinate of the translation.
  */
-LocalFile.prototype.saveFile = function(title, revision, success, error, useCurrentData)
+LocalFile.prototype.saveFile = function(title, revision, success, error, useCurrentData, unloading, overwrite)
 {
 	if (title != this.title)
 	{
 		this.fileHandle = null;
 		this.desc = null;
+		this.editable = null;
 	}
-	
+
 	this.title = title;
 
-	// Updates data after changing file name
-	if (!useCurrentData)
+	// Updates data after changing file name, waits for the fonts to be
+	// loaded into the local cache for saving SVG files with embedded
+	// fonts and renders the PNG for binary files, keeps the synchronous
+	// flow during page unload
+	var generateData = mxUtils.bind(this, function(fn, fail)
 	{
-		this.updateFileData();
-	}
-	
-	var binary = this.ui.useCanvasForExport && /(\.png)$/i.test(this.getTitle());
-	this.setShadowModified(false);
-	var savedData = this.getData();
-	
+		var doGenerate = mxUtils.bind(this, function()
+		{
+			var binary = Editor.useCanvasForExport && /(\.png)$/i.test(this.getTitle());
+			this.setShadowModified(false);
+			var savedData = this.getData();
+
+			if (binary)
+			{
+				var p = this.ui.getPngFileProperties(this.ui.fileNode);
+
+				this.ui.getEmbeddedPng(mxUtils.bind(this, function(imageData)
+				{
+					fn(imageData, savedData, binary);
+				}), fail, (this.ui.getCurrentFile() != this) ?
+					savedData : null, p.scale, p.border);
+			}
+			else
+			{
+				fn(savedData, savedData, binary);
+			}
+		});
+
+		if (!useCurrentData && !unloading)
+		{
+			this.loadFonts(mxUtils.bind(this, function()
+			{
+				this.updateFileData();
+				doGenerate();
+			}));
+		}
+		else
+		{
+			if (!useCurrentData)
+			{
+				this.updateFileData();
+			}
+
+			doGenerate();
+		}
+	});
+
 	var done = mxUtils.bind(this, function()
 	{
 		this.setModified(this.getShadowModified());
 		this.contentChanged();
-		
+
 		if (success != null)
 		{
 			success();
 		}
 	});
-	
-	var doSave = mxUtils.bind(this, function(data)
+
+	if (this.fileHandle != null)
 	{
-		if (this.fileHandle != null)
+		// Sets shadow modified state during save
+		if (!this.savingFile)
 		{
-			// Sets shadow modified state during save
-			if (!this.savingFile)
+			this.savingFileTime = new Date();
+			this.savingFile = true;
+
+			var errorWrapper = mxUtils.bind(this, function(e, writable)
 			{
-				this.savingFileTime = new Date();
-				this.savingFile = true;
-				
-				var errorWrapper = mxUtils.bind(this, function(e)
+				this.savingFile = false;
+
+				// Discards the swap file for the aborted save
+				if (writable != null)
 				{
-					this.savingFile = false;
-					
-					if (error != null)
-					{
-						// Wraps error object to offer save status option
-						error({error: e});
-					}
-				});
-				
-				// Saves a copy as a draft while saving
-				this.saveDraft();
-				
-				this.fileHandle.createWritable().then(mxUtils.bind(this, function(writable)
+					writable.abort().then(function() { }, function() { });
+				}
+
+				if (error != null)
 				{
+					// Wraps error object to offer save status option
+					error({error: e});
+				}
+			});
+
+			// Creates the writable before the data is generated so that the
+			// write permission prompt is shown while the transient user
+			// activation of the event that triggered the save is valid, as
+			// generating the data can take longer than the lifespan of the
+			// user activation, in which case the prompt would be blocked
+			this.fileHandle.createWritable().then(mxUtils.bind(this, function(writable)
+			{
+				generateData(mxUtils.bind(this, function(data, savedData, binary)
+				{
+					// Saves a copy as a draft while saving
+					this.saveDraft(savedData);
+
 					this.fileHandle.getFile().then(mxUtils.bind(this, function(newDesc)
 					{
 						this.invalidFileHandle = null;
@@ -215,8 +278,8 @@ LocalFile.prototype.saveFile = function(title, revision, success, error, useCurr
 							'desc', [this.desc], 'newDesc', [newDesc],
 							'conflict', this.desc.lastModified !=
 								newDesc.lastModified);
-						
-						if (this.desc.lastModified == newDesc.lastModified)
+
+						if (overwrite || this.desc.lastModified == newDesc.lastModified)
 						{
 							writable.write((binary) ? this.ui.base64ToBlob(data, 'image/png') : data).then(mxUtils.bind(this, function()
 							{
@@ -230,7 +293,7 @@ LocalFile.prototype.saveFile = function(title, revision, success, error, useCurr
 											this.savingFile = false;
 											this.desc = desc;
 											this.fileSaved(savedData, lastDesc, done, errorWrapper);
-											
+
 											// Deletes draft after saving
 											this.removeDraft();
 										}
@@ -240,22 +303,31 @@ LocalFile.prototype.saveFile = function(title, revision, success, error, useCurr
 										}
 									}), errorWrapper);
 								}), errorWrapper);
-							}), errorWrapper);
+							}), mxUtils.bind(this, function(e)
+							{
+								errorWrapper(e, writable);
+							}));
 						}
 						else
 						{
 							this.inConflictState = true;
-							errorWrapper();
+							errorWrapper(null, writable);
 						}
 					}), mxUtils.bind(this, function(e)
 					{
 						this.invalidFileHandle = true;
-						errorWrapper(e);
+						errorWrapper(e, writable);
 					}));
-				}), errorWrapper);
-			}
+				}), mxUtils.bind(this, function(e)
+				{
+					errorWrapper(e, writable);
+				}));
+			}), errorWrapper);
 		}
-		else
+	}
+	else
+	{
+		generateData(mxUtils.bind(this, function(data, savedData, binary)
 		{
 			if (this.ui.isOfflineApp() || this.ui.isLocalFileSave())
 			{
@@ -268,7 +340,7 @@ LocalFile.prototype.saveFile = function(title, revision, success, error, useCurr
 				{
 					var dot = title.lastIndexOf('.');
 					var format = (dot > 0) ? title.substring(dot + 1) : 'xml';
-	
+
 					// Do not update modified flag
 					new mxXmlRequest(SAVE_URL, 'format=' + format +
 						'&xml=' + encodeURIComponent(data) +
@@ -284,24 +356,9 @@ LocalFile.prototype.saveFile = function(title, revision, success, error, useCurr
 					}));
 				}
 			}
-			
-			done();
-		}
-	});
-	
-	if (binary)
-	{
-		var p = this.ui.getPngFileProperties(this.ui.fileNode);
 
-		this.ui.getEmbeddedPng(mxUtils.bind(this, function(imageData)
-		{
-			doSave(imageData);
-		}), error, (this.ui.getCurrentFile() != this) ?
-			savedData : null, p.scale, p.border);
-	}
-	else
-	{
-		doSave(savedData);
+			done();
+		}), error);
 	}
 };
 

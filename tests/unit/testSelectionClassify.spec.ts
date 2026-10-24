@@ -1,0 +1,112 @@
+import { describe, it, expect } from 'vitest';
+import { CATEGORY_SELECTION_THRESHOLD, classify, isUnitTestPath, pathRule, SENSITIVE_DIFF_PATTERN } from '../../scripts/test-selection/classify.mjs';
+import { CATEGORIES } from '../e2e-tests/config/categories.mjs';
+import { publishLabels } from '../../scripts/test-selection/labels.mjs';
+import { evaluate } from '../../scripts/test-selection/replay.mjs';
+const diff = { base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), tested_tree: 'c'.repeat(40), paths: ['src/components/Mermaid.vue'], changes: [], complete: true, diff: 'public diff' };
+const body = (probability = 0.02) => ({ model: 'jev-1.13.0', usage: { input_tokens: 12, output_tokens: 5 }, answers: Object.fromEntries(CATEGORIES.map(c => [c.id, { type: 'noul', noul: probability }])) });
+const response = (b: any) => async () => new Response(JSON.stringify(b), { status: 200 });
+describe('Jev conservative classification', () => {
+  it('selects only high-confidence categories, but observation never narrows execution', async () => { const r = await classify({ diff, apiKey: 'fake', fetchImpl: response(body(0.9)) }); expect(r.mode).toBe('selected'); expect(r.execution_mode).toBe('observe'); expect(Object.values(r.categories).every((c: any) => c.selected && !c.uncertain)).toBe(true); });
+  it('leaves weaker associations unselected', async () => { const r = await classify({ diff, apiKey: 'fake', fetchImpl: response(body(CATEGORY_SELECTION_THRESHOLD - 0.01)) }); expect(r.fallback_reason).toBe('empty-selection'); expect(Object.values(r.categories).every((c: any) => !c.selected && c.uncertain)).toBe(true); });
+  it('enables guarded selection without claiming calibration', async () => { const r = await classify({ diff, apiKey: 'fake', mode: 'enabled', fetchImpl: response(body(0.9)) }); expect(r.execution_mode).toBe('enabled'); expect(r.rules).toContain('deterministic-coverage-floor-required'); });
+  it.each([
+    [{ ...diff, complete: false }, 'key', false, 'incomplete-diff'],
+    [{ ...diff, paths: ['mystery/file'] }, 'key', false, 'unknown-path'],
+    [{ ...diff, paths: ['manifest.yml'] }, 'key', false, 'shared-path'],
+    [{ ...diff, paths: ['private/report.md'] }, 'key', false, 'excluded-sensitive-path'],
+    [diff, '', false, 'missing-api-key'], [diff, 'key', true, 'human-test-all'],
+  ])('fails closed for deterministic rules', async (d, key, full, reason) => { const r = await classify({ diff: d, apiKey: key, humanFull: full, fetchImpl: () => { throw new Error('must not call'); } }); expect(r.mode).toBe('all'); expect(r.fallback_reason).toBe(reason); });
+  it.each([{}, { ...body(), answers: {} }, { ...body(), answers: Object.fromEntries(CATEGORIES.map(c => [c.id, { type: 'noul', noul: 2 }])) }])('rejects malformed or incomplete answers', async b => { expect((await classify({ diff, apiKey: 'fake', fetchImpl: response(b) })).fallback_reason).toBe('api-invalid-or-timeout'); });
+  it('does not transmit likely customer or credential data', async () => { const r = await classify({ diff: { ...diff, diff: 'https://customer.atlassian.net/wiki' }, apiKey: 'fake', fetchImpl: () => { throw new Error('must not transmit'); } }); expect(r.fallback_reason).toBe('potential-sensitive-diff'); });
+  it('does not mistake a Vue token binding for a hard-coded secret', () => {
+    expect(SENSITIVE_DIFF_PATTERN.test(':token="agentLinkToken"')).toBe(false);
+    expect(SENSITIVE_DIFF_PATTERN.test("token: 'actual-secret'" )).toBe(true);
+  });
+  it('excludes only unit-test fixture content from the Jev diff', () => {
+    expect(isUnitTestPath('src/components/AgentLink/ConnectMcpDialog.spec.ts')).toBe(true);
+    expect(isUnitTestPath('tests/e2e-tests/tests/agent-link/agent-link-e2e.spec.ts')).toBe(false);
+    expect(isUnitTestPath('src/components/AgentLink/ConnectMcpDialog.vue')).toBe(false);
+    // `node --test` suites under scripts/ use this suffix; one held a fake Mixpanel token.
+    expect(isUnitTestPath('scripts/ci/lite-deploy-benchmark.node-test.mjs')).toBe(true);
+    expect(isUnitTestPath('scripts/ci/lite-deploy-benchmark.mjs')).toBe(false);
+  });
+  it('permits behavior-specific analytics and Agent Link helper diffs for classification', () => {
+    expect(pathRule('src/utils/analytics/catalog.ts')).toBeNull();
+    expect(pathRule('tests/e2e-tests/helpers/agentLink.ts')).toBeNull();
+  });
+  it('asks Jev to widen direct spec coverage from behavior evidence rather than filenames alone', async () => {
+    let payload: any;
+    await classify({ diff, apiKey: 'fake', mode: 'enabled', fetchImpl: async (_url: string, init: any) => {
+      payload = JSON.parse(init.body);
+      return new Response(JSON.stringify(body(0.9)), { status: 200 });
+    } });
+    expect(payload.state.instructions).toContain('Changed E2E specs are already selected directly');
+    expect(payload.state.instructions).toContain('Do not select generic, adjacent, or format-wide categories');
+  });
+  it('handles API rejection and timeout', async () => { expect((await classify({ diff, apiKey: 'fake', fetchImpl: async () => new Response('', { status: 401 }) })).fallback_reason).toBe('api-http-error'); expect((await classify({ diff, apiKey: 'fake', fetchImpl: async () => { throw new Error('abort'); } })).mode).toBe('all'); });
+  it('checks renamed old paths and deleted paths conservatively', async () => { const r = await classify({ diff: { ...diff, paths: ['src/model/old.ts', 'src/components/new.vue'], changes: [{ status: 'R100', path: 'src/components/new.vue', old_path: 'src/model/old.ts' }] }, apiKey: 'fake' }); expect(r.fallback_reason).toBe('shared-path'); expect(pathRule('src/model/deleted.ts')).toBe('shared-path'); });
+});
+describe('trusted label publisher', () => {
+  const selection = { schema_version: 1, category_version: '', head_sha: diff.head_sha, mode: 'selected', categories: {} };
+  it('rejects stale heads before mutations', async () => { const { CATEGORY_VERSION } = await import('../e2e-tests/config/categories.mjs'); let calls = 0; const r = await publishLabels({ selection: { ...selection, category_version: CATEGORY_VERSION }, repo: 'ZenUml/conf-app', pr: 1, token: 'fake', fetchImpl: async () => { calls++; return new Response(JSON.stringify({ head: { sha: 'd'.repeat(40) } })); } }); expect(r.outcome).toBe('stale'); expect(calls).toBe(1); });
+  it('preserves test:all and unrelated labels', async () => { const { CATEGORY_VERSION } = await import('../e2e-tests/config/categories.mjs'); const calls: any[] = []; await publishLabels({ selection: { ...selection, mode: 'all', category_version: CATEGORY_VERSION }, repo: 'ZenUml/conf-app', pr: 1, token: 'fake', fetchImpl: async (url: string, opts: any) => { calls.push([url, opts.method]); if (url.includes('/pulls/')) return new Response(JSON.stringify({ head: { sha: diff.head_sha } })); if (opts.method === 'GET') return new Response(JSON.stringify([{ name: 'test:all' }, { name: 'bug' }, { name: `test:${CATEGORIES[0].id}` }])); return new Response('{}'); } }); expect(calls.filter(c => c[1] === 'DELETE').every(c => !c[0].includes('test%3Aall') && !c[0].endsWith('/bug'))).toBe(true); });
+});
+describe('reviewed historical replay', () => {
+  it('records misses and actual duration inputs without claiming calibration', () => { const r = evaluate({ mode: 'selected', categories: { one: { selected: true } } }, { id: 'review', reviewed_by: 'reviewer', expected_categories: ['one', 'two'], tests: [{ id: 't1', categories: ['one'], duration_ms: 500 }, { id: 't2', categories: ['two'], duration_ms: 900 }] }); expect(r.misses).toEqual(['two']); expect(r.missed_test_ids).toEqual(['t2']); expect(r.estimated_selected_duration_ms).toBe(500); expect(r.calibration).toBe('not-established'); });
+  it('does not count smoke or a selected second category as missed coverage', () => { const r = evaluate({ mode: 'selected', categories: { one: { selected: true }, two: { selected: false } } }, { reviewed_by: 'reviewer', expected_categories: ['one', 'two'], tests: [{ id: 'both', categories: ['one', 'two'], duration_ms: 100 }, { id: 'smoke', categories: ['two'], smoke: true, duration_ms: 200 }, { id: 'omitted', categories: ['two'], duration_ms: 300 }] }); expect(r.misses).toEqual(['two']); expect(r.selected_test_ids).toEqual(['both', 'smoke']); expect(r.missed_test_ids).toEqual(['omitted']); });
+  it('requires reviewed expectations', () => expect(() => evaluate({}, { expected_categories: [] })).toThrow());
+});
+describe('SENSITIVE_DIFF_PATTERN narrowing', () => {
+  // These fixtures never reach the pattern in CI: readDiff() drops unit-spec file contents via isUnitTestPath.
+  const uuid = '0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b';
+  it.each([
+    '-/** Fail-closed: standalone env, missing cloudId, missing flag, any error => off,',
+    '+  cloudId: string | undefined,',
+    'agg = aggregate_tx_by_app(txs)                   # keyed by (cloudId, addonKey) — no cross-app double count',
+    '# opens a blank AsyncAPI editor; `/d/asyncapi/<cloudId>/<contentId>`',
+    'call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string }',
+    'buildHomepagePrompt: ({ cloudId }: { cloudId?: string }) => `home prompt for ${cloudId || "-"}`',
+    'cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,',
+    '"cloudId": "<verified cloud ID>",',
+    'cloud_id: cloudId,',
+    'encodeURIComponent(cloudId)',
+    "const SUPPORT_PORTAL_URL = 'https://zenuml.atlassian.net/servicedesk'",
+    'https://lite-stg.atlassian.net/wiki/home',
+    'https://example-tenant.atlassian.net/wiki',
+    'cloudId: process.env.CLOUD_ID',
+    'https://${domain}.atlassian.net/wiki',
+    'https://<site>.atlassian.net/wiki',
+    'https://zenuml-stg.atlassian.net/wiki/spaces/X',
+    '<https://zenuml.atlassian.net>',
+    'see https://zenuml.atlassian.net.',
+  ])('does not treat %s as sensitive', line => {
+    expect(SENSITIVE_DIFF_PATTERN.test(line)).toBe(false);
+  });
+  it.each([
+    'https://customer.atlassian.net/wiki',
+    'https://evil-zenuml.atlassian.net/wiki',
+    `cloudId: "${uuid}"`,
+    `"cloudId": "${uuid}"`,
+    `cloud_id = '${uuid}'`,
+    `?cloudId=${uuid}`,
+    "token: 'actual-secret'",
+    'cloudId:"0F1E2D3C-4B5A-6978-8A9B-0C1D2E3F4A5B"',
+    'cloudId = 0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b',
+    'cloudId: `0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b`',
+    "fn(cloudId, '0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b')",
+    'https://zenuml.atlassian.net.evil.atlassian.net/x',
+    'https://zenuml.atlassian.net@customer.atlassian.net/',
+  ])('still treats %s as sensitive', line => {
+    expect(SENSITIVE_DIFF_PATTERN.test(line)).toBe(true);
+  });
+  it('documented gap: a bare UUID with no cloud-id key is not sensitive', () => {
+    expect(SENSITIVE_DIFF_PATTERN.test(uuid)).toBe(false);
+  });
+  it('still lets an identifier-only diff reach the Jev call', async () => {
+    let called = false;
+    const r = await classify({ diff: { ...diff, diff: '+  call: { tool: string; cloudId?: string }' }, apiKey: 'fake', fetchImpl: async () => { called = true; throw new Error('abort'); } });
+    expect(called).toBe(true);
+    expect(r.fallback_reason).not.toBe('potential-sensitive-diff');
+  });
+});

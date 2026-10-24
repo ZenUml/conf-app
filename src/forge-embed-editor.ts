@@ -1,55 +1,157 @@
 import globals from "@/model/globals";
-import { getView, getContext as initForgeContext, isInserting } from './model/globals/forgeGlobal';
-import { saveToPlatform } from "@/model/ContentProvider/Persistence";
-import MacroUtil from "@/model/MacroUtil";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import forgeGlobal, { getView, getContext as initForgeContext } from './model/globals/forgeGlobal';
+import { trackEvent } from "@/utils/window";
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
+import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
+import { markCsatPending } from "@/utils/csat";
 import { mountRoot } from "@/mount-root";
+import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeEmbedEditor from "@/components/DrawIoExtension/ForgeEmbedEditor.vue";
-import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import EventBus from './EventBus';
+
+installRestoreDraftBanner();
+import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
-import { useCustomerSuccessService, MACROS_LIMIT, getUpgradeContext } from '@/composables/useCustomerSuccessService';
-import { isPageEditorEditBlocked } from '@/utils/paywall/preEditGate';
-import { trackUpgradeEvent, UpgradeEventName, UIComponent } from '@/utils/upgradeTracking';
-import PageEditorPaywallGate from '@/components/UpgradePrompt/PageEditorPaywallGate.vue';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
+import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
+import { isValidCustomContentId } from '@/utils/customContentId';
+import { markEditorAuthoringStarted, markEditorSaved, registerEditorCloseTracking } from '@/utils/analytics/editorCloseOutcome';
+import { toast } from '@/utils/toast';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 
-async function saveEmbedAndExit(_customContentId: string) {
-  const macroData = await globals.apWrapper.getMacroData();
+// Captured at editor open from extension.config.uuid; forwarded back through
+// view.submit's replace-semantics so Connect-era guestParams.uuid survives.
+let originalConfigUuid: string | undefined;
 
-  const id = await saveToPlatform({
-    diagramType: DiagramType.Embed,
-    source: DataSource.CustomContent,
-  } as Diagram);
-  
-  const isNew = !macroData?.uuid;
+// The operation mode, decided ONCE when the editor opens and used for the start
+// event, the close-without-save outcome and the success event (conf-app#519).
+// The success path used to re-derive it from `getMacroData().uuid`, a different
+// discriminator from the start event's `resolveEffectiveCustomContentId`, so a
+// session could open as a create and be reported as an edit (or vice versa).
+// initializeMacro assigns it before the editor mounts, so the Publish handler
+// can never run first.
+let embedOperationMode: 'create' | 'edit' = 'create';
 
-  if (isNew) {
-    trackAnalyticsEvent("macro_create_succeeded", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: "embed",
-      operation_mode: "create",
-    });
-  } else {
-    trackAnalyticsEvent("macro_save_succeeded", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: "embed",
-      operation_mode: "edit",
-    });
-  }
-  
-  // End journey after all tracking is done
-  if (getEditJourneyId()) {
-    endEditJourney('saved');
-  }
-  
+async function saveEmbedAndExit(selectedCustomContentId: string) {
+  // Start the publish-latency clock at the save-handler entry (≈ the Publish
+  // click in DocumentList.vue). Stopped at the redirect below.
+  markPublishClicked();
+  // Embed save = point the macro at the user's picked document. No new
+  // customContent record is created. The picked CC's body (its native
+  // diagramType + code/graphXml/mermaidCode) is what the embed viewer
+  // dispatches on. Connect-era behaviour was the same: saveMacro({
+  // customContentId: window.picked.id, ... }) referenced the picked
+  // record directly.
+  //
+  // Bug history (ZEN-125): a TS strictness pass on 2026-03-26 (3fddbcc2)
+  // dropped the customContentId field while silencing `as Diagram`, then
+  // 2026-04-27 (810d513d) renamed the orphaned parameter to start with `_`
+  // to silence the unused-arg lint warning — which made the bug look
+  // intentional in source. Result was every embed save POSTed an empty
+  // {diagramType:"embed",source:"custom-content"} placeholder, and the
+  // viewer rendered "Unknown diagram type: embed".
+  const isNew = embedOperationMode === 'create';
+
+  const savedIdProps = {
+    content_id: selectedCustomContentId,
+    custom_content_id: selectedCustomContentId,
+    attachment_name: `zenuml-${selectedCustomContentId}.png`,
+  };
+
   setTimeout(async () => {
-    if(await isInserting()) {
-      await (await getView()).submit({config: {customContentId: id, updatedAt: new Date().toISOString()}});
-    } else {
-      await (await getView()).close();
+    try {
+      if (!isValidCustomContentId(selectedCustomContentId)) {
+        // conf-app#320 defense-in-depth: an embed macro must reference a real
+        // existing customContentId. Never persist "undefined"/junk into config.
+        trackEvent('save_failed', 'writeback_skipped_invalid_id', 'error', {
+          selected_custom_content_id: String(selectedCustomContentId),
+          macro_type: 'embed',
+        });
+        await (await getView()).close();
+        return;
+      }
+      // The picker lists docs from the SEARCH index, but the viewer loads via
+      // GET-by-id. Custom content is parented to a page; when that page is
+      // deleted the content is ORPHANED — it lingers in the eventually-consistent
+      // search index (so it's still pickable and even previews) but GET-by-id
+      // 404s because the parent no longer exists. Persisting such a pick makes a
+      // silently-broken embed ("couldn't be loaded"). Block on a definitive 404
+      // so the user picks a renderable doc instead. Fail-OPEN on transient errors
+      // (isCustomContentFetchableV2 only returns false for a real not_found).
+      if (!(await globals.apWrapper.isCustomContentFetchableV2(selectedCustomContentId))) {
+        trackEvent('save_failed', 'embed_target_not_fetchable', 'error', {
+          selected_custom_content_id: String(selectedCustomContentId),
+          macro_type: 'embed',
+        });
+        toast({
+          message: "This diagram can't be embedded — it appears to have been deleted, or its page was removed. Pick a different diagram.",
+          duration: 7000,
+        });
+        // Keep the editor open so the user can pick another; re-enable Publish
+        // (DocumentList.vue listens for save-error to clear its loading state).
+        EventBus.$emit('save-error', new Error('embed target not fetchable'));
+        return;
+      }
+      // The save is going to be submitted: only now is it a success. Reported
+      // here, after the invalid-id and not-fetchable gates, so a pick that keeps
+      // the editor open is not counted. The authoring journey ends here too, for
+      // the same reason: ending it before the gates emitted macro_authoring_ended
+      // 'saved' for a rejected pick, and a later close then emitted
+      // macro_create_cancelled, so the two events contradicted each other.
+      // The success event is awaited (sendBeacon transport) so it is ordered
+      // before view.submit tears this iframe down. Delivery stays best-effort:
+      // Mixpanel keeps batching unless send_immediately is set, so the await
+      // does not guarantee the event leaves the browser. The correctness fix for
+      // conf-app#519 is the single operation-mode discriminator above, not the
+      // await. Embed bypasses Persistence.ts, so the saved mark (see
+      // editorCloseOutcome) is here too.
+      if (getEditJourneyId()) {
+        endEditJourney('saved');
+      }
+      markEditorSaved();
+      await trackAnalyticsEventBeforeUnload(
+        isNew ? "macro_create_succeeded" : "macro_save_succeeded",
+        {
+          feature_area: "macro",
+          surface: "editor",
+          macro_type: "embed",
+          operation_mode: isNew ? "create" : "edit",
+          ...(isNew && getCreationFlowProps()),
+          ...savedIdProps,
+        },
+      );
+      if (!isNew) markCsatPending();
+      // Redirect starts now (view.submit below). Stop the clock. Placed after
+      // the invalid-id / not-fetchable early-returns so it only fires on a real
+      // redirect, not when the editor stays open for a re-pick.
+      trackPublishCompleted({
+        macro_type: 'embed',
+        operation_mode: isNew ? 'create' : 'edit',
+        content_id: String(selectedCustomContentId),
+        custom_content_id: String(selectedCustomContentId),
+      });
+      await (await getView()).submit({config: {
+        customContentId: selectedCustomContentId,
+        updatedAt: new Date().toISOString(),
+        ...(originalConfigUuid && { uuid: originalConfigUuid }),
+      }});
+      markRecentMacroActivity(isNew ? 'create' : 'edit');
+      // Notify listeners after the macro state is durable; on submit
+      // failure the catch path intentionally does NOT emit so any local
+      // draft survives as a retry anchor.
+      EventBus.$emit('saved', selectedCustomContentId);
+    } catch (error) {
+      console.error('view.submit failed after embed save', error);
+      // Dialog didn't close — release the Publish button (DocumentList.vue).
+      EventBus.$emit('save-error', error);
+      trackEvent('save_failed', 'view_submit_failed', 'error', {
+        error_message: String((error as any)?.message || error).substring(0, 500),
+        selected_custom_content_id: selectedCustomContentId,
+        macro_type: 'embed',
+      });
     }
   }, 500);
 }
@@ -60,9 +162,14 @@ async function exit() {
 
 async function initializeMacro() {
   const context = await initForgeContext();
-  
+
+  originalConfigUuid = context.extension?.config?.uuid;
+
   // Start journey tracking
-  const macroUuid = context.extension?.config?.uuid || uuidv4();
+  const macroUuid =
+    forgeGlobal.forgeContext?.localId
+    || context.extension?.config?.uuid
+    || uuidv4();
   const isDialog = !!context.extension?.modal;
   const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
   
@@ -80,86 +187,89 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
+  // Analytics only — deliberately NOT reused for the load path above, which
+  // keeps its narrower config-only read. resolveEffectiveCustomContentId also
+  // covers extension.modal and the autoconvert link, so it answers "is this a
+  // new macro" correctly for a macro opened from the modal surface.
+  const resolvedCustomContentId = resolveEffectiveCustomContentId(context);
+  embedOperationMode = resolvedCustomContentId ? 'edit' : 'create';
+  setEditJourneyMeta({
+    macroType: 'embed',
+    operationMode: embedOperationMode,
+  });
 
-  const mountEditor = async () => {
-    let doc: Diagram | undefined;
-    if(!customContentId) {
-      doc = {
-        diagramType: DiagramType.Embed,
-        isNew: true
-      } as Diagram;
-    } else {
-      const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-      console.log('loadDiagram - customContent', customContent);
-      doc = customContent?.value;
-    }
-
-    store.state.diagram = doc ?? NULL_DIAGRAM;
-    window.diagram = doc ?? NULL_DIAGRAM;
-    console.log('loadDiagram - window.diagram', window.diagram);
-
-    mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, {
-      saveEmbedAndExit,
-      exit,
-      doc
-    });
-
-    // Track begin event (create or edit)
-    const isNew = await MacroUtil.isCreateNew();
-    if (isNew) {
-      trackAnalyticsEvent("macro_create_started", {
-        feature_area: "macro",
-        surface: "editor",
-        macro_type: "embed",
-        entry_point: "page_editor",
-      });
-    } else {
-      trackAnalyticsEvent("macro_edit_opened", {
-        feature_area: "macro",
-        surface: "editor",
-        macro_type: "embed",
-        entry_point: "macro_toolbar",
-      });
-    }
-  };
-
-  const customerSuccess = useCustomerSuccessService();
-  await customerSuccess.initialize();
-
-  if (isPageEditorEditBlocked(customContentId, customerSuccess.shouldBlockActions.value)) {
-    let spaceKey = '';
-    try {
-      spaceKey = (await globals.apWrapper.getCurrentSpace())?.key || '';
-    } catch (error) {
-      console.debug('Could not resolve current space for page-editor paywall gate', error);
-    }
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_BLOCKED_EDIT, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor',
-      ...getUpgradeContext(),
-    });
-
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-      ui_component: UIComponent.VIEWER_NOTICE,
-      action_type: 'page_editor',
-      ...getUpgradeContext(),
-    });
-
-    mountRoot(NULL_DIAGRAM, PageEditorPaywallGate, {
-      macrosCreated: customerSuccess.macrosCreated.value,
-      macrosLimit: MACROS_LIMIT,
-      upgradeUrl: customerSuccess.upgradeUrl.value,
-      enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-      spaceKey,
-      onContinueEditing: () => {
-        void mountEditor();
-      },
-    });
-    return;
+  let doc: Diagram | undefined;
+  if (customContentId) {
+    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
+    console.log('loadDiagram - customContent', customContent);
+    doc = customContent?.value;
   }
 
-  await mountEditor();
+  // ZEN-1170 Defect 1 sibling (PR #139): cross-page-paste recovery via
+  // uuid → CC title. Mirrors the embed viewer fallback so an Edit click on
+  // a recovered embed doesn't open a blank editor that would silently wipe
+  // the diagram the viewer is showing on first save. Runs before the
+  // isNew=true default so we don't shadow a real recovered diagram.
+  if (!doc) {
+    const storageUuid = context.extension?.config?.uuid;
+    if (storageUuid) {
+      const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
+      if (recovered?.value) {
+        doc = recovered.value;
+        doc.recoveredFromOrphan = true;
+        trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
+          surface: 'editor',
+          macro_type: 'embed',
+          recovered_id: String(recovered.id ?? ''),
+          is_copy: doc.isCopy ? 'true' : 'false',
+          ...(context.extension?.content?.id && { page_id: context.extension.content.id }),
+        });
+      }
+    }
+  }
+
+  if (!doc) {
+    doc = { diagramType: DiagramType.Embed, isNew: true } as Diagram;
+  }
+
+  store.state.diagram = doc ?? NULL_DIAGRAM;
+  window.diagram = doc ?? NULL_DIAGRAM;
+  console.log('loadDiagram - window.diagram', window.diagram);
+
+  const contentProps = { saveEmbedAndExit, exit, doc };
+  const paywalled = await tryPageEditorPaywall({
+    doc: doc ?? NULL_DIAGRAM,
+    content: ForgeEmbedEditor,
+    contentProps,
+    macroKind: 'embed',
+    customContentId,
+  });
+  if (!paywalled) {
+    mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, contentProps);
+  }
+
+  // Was MacroUtil.isCreateNew(), which reads only extension.config — see the
+  // matching note in forge-graph-editor.ts.
+  const isNew = embedOperationMode === 'create';
+  markEditorAuthoringStarted();
+  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
+    feature_area: 'macro',
+    surface: 'editor',
+    macro_type: 'embed',
+    operation_mode: embedOperationMode,
+    entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(isNew && getCreationFlowProps()),
+    ...(resolvedCustomContentId && {
+      content_id: resolvedCustomContentId,
+      custom_content_id: resolvedCustomContentId,
+    }),
+  });
+  // The picker cannot tell whether the selection changed, so had_changes is
+  // left off; the close-without-save itself is what the funnel needs.
+  registerEditorCloseTracking({
+    getMacroType: () => 'embed',
+    operationMode: isNew ? 'create' : 'edit',
+  });
 }
 
 

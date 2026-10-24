@@ -10,9 +10,9 @@ Merge a green PR to `main` and verify CI succeeds. In this repo, **merge to main
 ## What happens on merge to main
 
 1. Build + unit tests
-2. Deploy all 4 variants (lite, full, full-forge, diagramly) to Cloudflare staging
+2. Deploy all 3 variants (lite, full, diagramly) to Cloudflare staging
 3. Run E2E tests against staging Confluence instances
-4. Create draft GitHub releases for each variant (lite, full, full-forge, diagramly)
+4. Create draft GitHub releases for each variant (lite, full, diagramly)
 
 Production deployment requires manually publishing those draft releases (or using `/release-app`).
 
@@ -38,7 +38,7 @@ If a precondition fails (other than Draft), report which one and stop.
 If `isDraft === true`, this PR has not been E2E-verified (the Draft gate skips `E2E: Lite`). `/land-pr` means "I want this merged" — so flip it Ready, wait for the resulting CI run with E2E to go green, then merge. Don't refuse and don't merge without verification.
 
 ```bash
-gh pr ready <PR_NUMBER> --repo ZenUml/confluence-plugin-cloud
+gh pr ready <PR_NUMBER> --repo ZenUml/conf-app
 ```
 
 Tell the user: "PR is Draft → marking Ready and waiting for CI (~14 min) to verify E2E before merge."
@@ -56,7 +56,7 @@ Confirm CI is green and `E2E: Lite` is among the passed checks (not skipped). Re
 Fetch the repo's enabled merge strategies and pick the right flag (GitHub requires one when multiple strategies are enabled):
 
 ```bash
-MERGE_FLAG=$(gh api repos/ZenUml/confluence-plugin-cloud \
+MERGE_FLAG=$(gh api repos/ZenUml/conf-app \
   --jq 'if .allow_squash_merge and (.allow_merge_commit | not) and (.allow_rebase_merge | not) then "--squash"
         elif .allow_rebase_merge and (.allow_merge_commit | not) and (.allow_squash_merge | not) then "--rebase"
         else "--merge" end')
@@ -65,6 +65,17 @@ gh pr merge <PR_NUMBER> --auto --delete-branch $MERGE_FLAG
 ```
 
 Logic: use `--squash` if only squash is enabled, `--rebase` if only rebase is enabled, otherwise `--merge` (GitHub's default when multiple strategies are on). Do not override with `--squash` or `--rebase` unless the user explicitly requests it.
+
+**NEVER pass `--delete-branch` while another open PR uses this branch as its base.** Deleting the base branch makes GitHub **close** the stacked child PR, and a closed PR can be neither reopened (`reopenPullRequest` fails) nor retargeted (`Cannot change the base branch of a closed pull request`) — the only recovery is recreating it, losing its number, review history, and comments. Check first, and drop the flag if anything comes back:
+
+```bash
+HEAD_REF=$(gh pr view <PR_NUMBER> --repo ZenUml/conf-app --json headRefName -q .headRefName)
+gh pr list --repo ZenUml/conf-app --state open --base "$HEAD_REF" --json number,title
+```
+
+Correct order for a stack: merge the parent **without** `--delete-branch` → retarget each child (`gh api -X PATCH repos/ZenUml/conf-app/pulls/<child> -f base=main`; the `gh pr edit --base` path can silently no-op) → then `git push origin --delete "$HEAD_REF"`.
+
+_(2026-07-29: merging #409 with `--delete-branch` closed stacked #410; it had to be recreated as #412.)_
 
 Using `--auto` arms auto-merge so GitHub merges when all checks pass.
 
@@ -81,23 +92,31 @@ Poll until state is `MERGED`. Timeout after 5 minutes.
 After merge, the `Build, Test and Draft Release` workflow runs on main. Watch it:
 
 ```bash
-gh run list --repo ZenUml/confluence-plugin-cloud --branch main --limit 1 --json databaseId,status,conclusion
-gh run watch <RUN_ID> --repo ZenUml/confluence-plugin-cloud
+gh run list --repo ZenUml/conf-app --branch main --limit 1 --json databaseId,status,conclusion
+gh run watch <RUN_ID> --repo ZenUml/conf-app
 ```
 
 ### 5. Verify draft releases created
 
 ```bash
-gh release list --repo ZenUml/confluence-plugin-cloud --limit 4
+gh release list --repo ZenUml/conf-app --limit 4
 ```
 
 Confirm draft releases were created for the expected variants.
+
+### 6. Name the next release step in canary order
+
+Before offering any production release, invoke the **release-app** skill in `preflight` mode (read-only) and read its canary order ("Variants & gates"). Do not compose release options from memory.
+
+The order is **diagramly → lite → full**: Diagramly first (canary, fewest users); Lite only after Diagramly is published for the same commit SHA (same session allowed); Full only ≥ 24 hours after Lite for that SHA, never in the same session. AsyncAPI is independent. Offer the release options in that order, recommend Diagramly first, and never offer Lite or Full as the first step. Publishing still needs an explicit user trigger.
+
+_(2026-09-15: after landing #689 the report offered "release Lite" first, skipping the Diagramly canary.)_
 
 ## Output
 
 Report one of:
 
-- **LANDED** — merged, staging deployed, draft releases created
+- **LANDED** — merged, staging deployed, draft releases created; next release step named per Step 6
 - **MERGE BLOCKED** — which precondition failed
 - **CI FAILED** — merged but CI failed on main, with error details
 

@@ -1,7 +1,8 @@
 /**
  * Mermaid validation utilities
  */
-import mermaid from 'mermaid';
+import { loadMermaid } from './loadMermaid';
+import { normalizeMermaidWhitespace } from './normalizeWhitespace';
 import { SyntaxValidationResult } from '../validate/types';
 import { extractErrorLineText, findMostRelevantLineNumber, replaceLineNumberInErrorMessage, createErrorLocation } from '../validate/common';
 
@@ -10,9 +11,13 @@ import { extractErrorLineText, findMostRelevantLineNumber, replaceLineNumberInEr
  * @param code The Mermaid code to validate
  * @returns Promise<SyntaxValidationResult> with valid flag and error details if invalid
  */
-export async function validateMermaidSyntax(code: string): Promise<SyntaxValidationResult> {
+export async function validateMermaidSyntax(rawCode: string): Promise<SyntaxValidationResult> {
+  // Pasted U+00A0 is not a syntax error the author can see or fix — normalise
+  // before parsing so the editor doesn't report one. See normalizeWhitespace.
+  const code = normalizeMermaidWhitespace(rawCode);
   try {
-    // Initialize mermaid if not already done
+    const mermaid = await loadMermaid();
+    // Re-initialize for validation (looser settings than the renderer's defaults)
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'loose',

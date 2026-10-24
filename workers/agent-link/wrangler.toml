@@ -1,0 +1,66 @@
+# Companion Worker: hosts the AgentLinkSession Durable Object for the Live
+# Agent Link relay.
+#
+# Cloudflare Pages cannot host a Durable Object class internally — wrangler's
+# Pages config validator requires a DO binding to name the Worker where the
+# DO is actually defined (`script_name`), and the Pages Functions bundler
+# hardcodes `doBindings: []`. So AgentLinkSession is defined and deployed
+# here, in a standalone Worker, and the Pages project (wrangler-stg.toml /
+# wrangler-prod.toml) binds to it cross-Worker via `script_name`. See
+# functions/agent-link/AgentLinkSession.ts's file header and
+# functions/agent-link/channel.ts's TODO(agent-link) for the full story.
+#
+# Deploy:
+#   pnpm --filter agent-link deploy:stg
+#   pnpm --filter agent-link deploy:prod
+
+name = "conf-agent-link"
+main = "src/index.ts"
+compatibility_date = "2024-11-11"
+compatibility_flags = ["nodejs_compat"]
+account_id = "8d5fc7ce04adc5096f52485cce7d7b3d"
+
+# `durable_objects` / `migrations` are NOT inherited by named environments in
+# wrangler (confirmed via `wrangler deploy --dry-run --env stg`, which warned
+# "durable_objects exists at the top level, but not on env.stg" and reported
+# "No bindings found"). So the binding + migration are duplicated verbatim
+# under [env.stg] / [env.production] below; the top-level copy only serves a
+# no-`--env` dry-run / local default.
+[[durable_objects.bindings]]
+name = "AGENT_LINK"
+class_name = "AgentLinkSession"
+
+# SQLite-backed DO storage (Workers' current default backend for new DO
+# classes) — required so AgentLinkSession's `this.state.storage` calls work.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AgentLinkSession"]
+
+# Staging
+[env.stg]
+name = "conf-agent-link-stg"
+# cron-aggregate is cron-only and has no public route; this Worker serves
+# HTTP/WS traffic (GET /channel), so it needs a reachable URL for
+# WS-connect verification. workers.dev is fine for stg (no custom route
+# needed yet).
+workers_dev = true
+
+[[env.stg.durable_objects.bindings]]
+name = "AGENT_LINK"
+class_name = "AgentLinkSession"
+
+[[env.stg.migrations]]
+tag = "v1"
+new_sqlite_classes = ["AgentLinkSession"]
+
+# Production
+[env.production]
+name = "conf-agent-link-prod"
+
+[[env.production.durable_objects.bindings]]
+name = "AGENT_LINK"
+class_name = "AgentLinkSession"
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["AgentLinkSession"]

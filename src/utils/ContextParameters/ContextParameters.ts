@@ -2,6 +2,17 @@
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export function getClientDomain() {
+  // Dev sandbox fallback — `xdm_e` and `initialContext.currentPageUrl` are
+  // never set when running in the standalone local sandbox, so the upgrade URL
+  // would otherwise read `?domain=` with an empty value. Allow tests / the
+  // sandbox to inject a domain via localStorage.
+  try {
+    const mocked = window.localStorage?.getItem('mockClientDomain');
+    if (mocked) return mocked;
+  } catch {
+    // localStorage may be unavailable (private browsing, restrictive iframe);
+    // fall through to the production resolution path.
+  }
   return getSubdomain(getBaseUrl());
 }
 
@@ -18,13 +29,22 @@ export function getBaseUrl() {
   }
 }
 
+/**
+ * What `getSpaceKey` returns when no source supplied one. It is a SENTINEL, not
+ * an empty value — analytics wants a bucket rather than a missing property — so
+ * `getSpaceKey() || fallback` never fires and any caller interpolating the
+ * result into a URL builds `/wiki/spaces/no_space_context/...`. Callers that
+ * need a real key must compare against this.
+ */
+export const NO_SPACE_CONTEXT = 'no_space_context';
+
 export function getSpaceKey() {
   //@ts-ignore
   const urlSpaceKey = getUrlParam('spaceKey');
   //@ts-ignore
   const initialContextSpaceKey = window.initialContext?.currentSpace?.key;
   const forgeSpaceKey = forgeGlobal.forgeContext?.extension?.space?.key;
-  return urlSpaceKey || initialContextSpaceKey || forgeSpaceKey || 'no_space_context';
+  return urlSpaceKey || initialContextSpaceKey || forgeSpaceKey || NO_SPACE_CONTEXT;
 }
 
 export function getSubdomain(baseUrl: string) {

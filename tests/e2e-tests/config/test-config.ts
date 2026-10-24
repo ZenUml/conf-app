@@ -1,7 +1,7 @@
-import { getAppProfile, APP_PROFILES, type AppProfile, type MacroType } from './apps.js';
+import { getAppProfile, APP_PROFILES, type AppProfile, type MacroType, type ProductType } from './apps.js';
 
 export { TIMEOUTS } from './timeouts.js';
-export type { MacroType } from './apps.js';
+export type { MacroType, ProductType } from './apps.js';
 
 interface TestConfig {
   domain: string;
@@ -9,9 +9,15 @@ interface TestConfig {
   existingPageId: string | undefined;
   parentPageId: string;
   parentPageName: string;
+  /** Same values as Vite `PRODUCT_TYPE` / Forge wizard (`lite` | `full` | `diagramly`). */
+  productType: ProductType;
   isLite: boolean;
   isForge: boolean;
   isProd: boolean;
+  /** Full app is co-installed on this tenant — hides the Lite Diagrams byline by design. */
+  fullCoinstalled: boolean;
+  /** Pages host matched by this variant's embed macro autoConvert rule. */
+  deeplinkHost: string;
   macros: MacroType[];
   addonKey: string;
   sequenceMacroKey: string;
@@ -26,6 +32,13 @@ interface TestConfig {
   baseUrl: string;
   pageUrl(id: string): string;
   validate(): void;
+}
+
+/** Optional override when using legacy env vars (`APP` unset) — matches build `PRODUCT_TYPE`. */
+function productTypeFromEnv(): ProductType | undefined {
+  const t = process.env.PRODUCT_TYPE;
+  if (t === 'lite' || t === 'full' || t === 'diagramly' || t === 'asyncapi') return t;
+  return undefined;
 }
 
 function resolveProfile(): AppProfile {
@@ -50,7 +63,10 @@ function resolveProfile(): AppProfile {
     parentPageId: siteProfile?.parentPageId || '',
     parentPageName: siteProfile?.parentPageName || 'Before release test pages',
     isLite,
+    productType:
+      productTypeFromEnv() ?? siteProfile?.productType ?? (isLite ? 'lite' : 'full'),
     isForge,
+    fullCoinstalled: siteProfile?.fullCoinstalled,
     macros: ['sequence', 'graph', 'openapi', 'embed', 'mermaid'],
     addonKey: siteProfile?.addonKey ?? (isLite ? 'com.zenuml.confluence-addon-lite' : 'com.zenuml.confluence-addon'),
     sequenceMacroKey: siteProfile?.sequenceMacroKey ?? (isLite ? 'zenuml-sequence-macro-lite' : 'zenuml-sequence-macro'),
@@ -68,9 +84,12 @@ export const testConfig: TestConfig = {
   existingPageId: process.env.PAGE_ID,
   parentPageId: process.env.PARENT_PAGE_ID || profile.parentPageId,
   parentPageName: profile.parentPageName,
+  productType: profile.productType,
   isLite: profile.isLite,
   isForge: profile.isForge,
   isProd: profile.id.endsWith('@prod'),
+  fullCoinstalled: profile.fullCoinstalled ?? false,
+  deeplinkHost: profile.productType === 'full' ? 'conf-full.zenuml.com' : 'conf-lite.zenuml.com',
   macros: profile.macros,
   addonKey: profile.addonKey,
   sequenceMacroKey: profile.sequenceMacroKey,
@@ -80,8 +99,10 @@ export const testConfig: TestConfig = {
   macroNameOverrides: profile.macroNameOverrides ?? {},
 
   credentials: {
-    username: process.env.ZENUML_STAGE_USERNAME || '',
-    password: process.env.ZENUML_STAGE_PASSWORD || '',
+    // ATLASSIAN_* are the names the agent container injects; ZENUML_STAGE_* are
+    // the local/CI names. Accept either so E2E runs unchanged in both.
+    username: process.env.ZENUML_STAGE_USERNAME || process.env.ATLASSIAN_USERNAME || '',
+    password: process.env.ZENUML_STAGE_PASSWORD || process.env.ATLASSIAN_PASSWORD || '',
   },
 
   get baseUrl(): string {
@@ -94,10 +115,10 @@ export const testConfig: TestConfig = {
 
   validate(): void {
     if (!this.credentials.username) {
-      throw new Error('Missing username (ZENUML_STAGE_USERNAME)');
+      throw new Error('Missing username (ZENUML_STAGE_USERNAME or ATLASSIAN_USERNAME)');
     }
     if (!this.credentials.password) {
-      throw new Error('Missing password (ZENUML_STAGE_PASSWORD)');
+      throw new Error('Missing password (ZENUML_STAGE_PASSWORD or ATLASSIAN_PASSWORD)');
     }
   },
 };

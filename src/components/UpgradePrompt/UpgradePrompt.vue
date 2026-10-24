@@ -1,8 +1,9 @@
 <template>
   <Teleport to="body">
     <div ref="modalContainer" v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4" tabindex="-1" @keydown.esc="tracking.handleClose">
-      <!-- Backdrop -->
-      <div class="fixed inset-0 bg-black bg-opacity-50" @click="tracking.handleClose"></div>
+      <!-- Backdrop. 75% opacity (was 50%) so the editor underneath is dimmed
+           enough to recede as context, not distract from the modal. -->
+      <div class="fixed inset-0 bg-black bg-opacity-75" @click="tracking.handleClose"></div>
 
       <!-- Modal content - Optimized for 700×600px iframe -->
       <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[660px] overflow-y-auto">
@@ -16,39 +17,120 @@
           </p>
         </div>
 
-        <!-- Calculator Heading - Slim -->
-        <div class="px-4 py-2 bg-gray-50 border-b border-gray-200">
-          <h3 class="text-base font-bold text-gray-900">Pick the upgrade that fits your team</h3>
+        <!-- Hero: illustration + title + body -->
+        <PaywallHero />
+
+        <!-- Purchase surface. Deliberately ABOVE the advocacy draft: the first
+             thing offered should be a way to fix this yourself, not a way to ask
+             someone else. Between 2026-05-12 (05b5287f, which deleted the
+             pricing cards) and this change the modal had NO purchase path at
+             all — the Marketplace URL and the price appeared only inside the
+             copied message. Rails are ordered by who can actually complete
+             them: the bundle needs nobody, Marketplace needs a site admin. -->
+        <div class="px-4 pb-3">
+          <div class="rounded-md border border-gray-200 bg-white px-3 py-2.5">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-xs font-medium text-gray-900 leading-5">
+                  Unlock this space for your whole team
+                </p>
+                <p class="text-[11px] text-gray-600 leading-4">
+                  {{ ENTERPRISE_BUNDLE_PRICE }} · pay by card, no Confluence admin needed
+                </p>
+              </div>
+              <button
+                data-testid="unlock-space-btn"
+                class="shrink-0 rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-1"
+                @click="onUnlockSpace"
+              >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
+            </div>
+            <p class="mt-1.5 border-t border-gray-100 pt-1.5 text-[11px] text-gray-600 leading-4">
+              Have more than one space over the limit?
+              <button
+                data-testid="marketplace-cta"
+                class="text-blue-600 hover:text-blue-800 hover:underline"
+                @click="onViewMarketplacePlan"
+              >Compare the Full plan →</button>
+              <span class="text-gray-500">Covers every space; a Confluence site admin has to approve it.</span>
+            </p>
+          </div>
         </div>
 
-        <!-- Two-column pricing comparison - Compact -->
-        <div class="grid grid-cols-2 gap-0 border-b border-gray-200">
-          <!-- Marketplace Section -->
-          <MarketplacePricingCard
-            :upgrade-url="upgradeUrl"
-            @slider-change="handleSliderChange"
-            @cta-click="tracking.trackMarketplaceClick"
-          />
+        <!-- Collapsible draft preview -->
+        <div class="px-4 pb-1">
+          <button
+            class="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 cursor-pointer select-none w-full"
+            @click="onDraftPreviewToggle"
+            :aria-expanded="draftExpanded ? 'true' : 'false'"
+            data-testid="draft-toggle-btn"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              :class="draftExpanded ? 'rotate-90' : ''"
+              class="transition-transform duration-150 shrink-0"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            Preview the draft before you copy
+          </button>
+        </div>
+        <DraftCard v-if="draftExpanded" :ctx="messageContext" />
 
-          <!-- Enterprise Bundle Section -->
-          <EnterpriseBundleCard
-            :bundle-url="enterpriseBundleUrl"
-            @cta-click="tracking.trackEnterpriseBundleClick"
-          />
+        <!-- Primary advocacy CTA -->
+        <AdvocacyButton
+          :message="message"
+          @copied="tracking.trackAdvocacyCopy"
+        />
+
+        <!-- Support-assisted extension CTA -->
+        <div class="px-4 pb-3">
+          <div class="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-xs text-blue-950 leading-5">
+                Need time to review upgrade options? Request a temporary extension from support.
+              </p>
+              <button
+                data-testid="request-extension-btn"
+                class="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                @click="onRequestExtension"
+              >Request extension</button>
+            </div>
+            <p
+              v-if="extensionRequestStatus"
+              class="mt-1 text-[11px] text-blue-800"
+              data-testid="request-extension-status"
+            >{{ extensionRequestStatus }}</p>
+          </div>
         </div>
 
         <!-- Footer - Continue editing + Learn more -->
-        <div class="px-4 py-2 bg-gray-50 flex justify-between items-center">
-          <button
-            data-testid="continue-editing-btn"
-            class="text-xs text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
-            @click="onContinueEditing"
-          >Continue editing without upgrading</button>
+        <div class="px-4 py-2 bg-gray-50 flex justify-between items-center gap-3">
+          <div class="min-w-0">
+            <button
+              v-if="canContinueEditing"
+              data-testid="continue-editing-btn"
+              class="text-xs text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
+              :title="continueAttemptsTooltip"
+              :aria-label="continueButtonAriaLabel"
+              @click="onContinueEditing"
+            >{{ continueButtonCopy }}</button>
+            <span
+              v-else
+              data-testid="continue-attempts-exhausted"
+              class="text-xs text-gray-500"
+              :title="continueAttemptsTooltip"
+              :aria-label="continueButtonAriaLabel"
+            >Request extension to continue editing</span>
+          </div>
+          <!-- @click.prevent + openUrl, NOT a bare target="_blank": the Forge
+               Custom UI iframe sandbox has no allow-popups, so the browser
+               silently drops plain anchor navigations. router.open (inside
+               openUrl) is the only working outbound path. -->
           <a
             href="https://zenuml.com/upgrade/"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+            class="shrink-0 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+            @click.prevent="onLearnMore"
           >
             Why do I need to upgrade? →
           </a>
@@ -59,19 +141,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
-import MarketplacePricingCard from './MarketplacePricingCard.vue'
-import EnterpriseBundleCard from './EnterpriseBundleCard.vue'
+import { ref, computed, watch, nextTick } from 'vue'
+import PaywallHero from './PaywallHero.vue'
+import DraftCard from './DraftCard.vue'
+import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
-import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
+import { trackUpgradeEvent, UpgradeEventName, UIComponent, bundleClientReferenceId } from '@/utils/upgradeTracking'
+import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
+import { CONTINUE_ATTEMPTS_STORAGE_SOURCE } from '@/utils/paywall/continueAttempts'
+import { getUpgradeContext, useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
+import {
+  buildAdvocacyMessage,
+  type AdvocacyMessageContext,
+  type MacroKind,
+} from './buildAdvocacyMessage'
+import {
+  buildExtensionRequestContext,
+  buildExtensionRequestMessage,
+  buildExtensionRequestUrl,
+} from './buildExtensionRequest'
+import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
-const props = defineProps<{
-  visible: boolean
-  macrosCreated: number
-  macrosLimit: number
-  upgradeUrl: string
-  enterpriseBundleUrl: string
-}>()
+const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
+
+const props = withDefaults(
+  defineProps<{
+    visible: boolean
+    macrosCreated: number
+    macrosLimit: number
+    upgradeUrl: string
+    enterpriseBundleUrl: string
+    macroKind?: MacroKind
+    actionType?: PaywallActionType
+    remainingContinueAttempts?: number
+  }>(),
+  { macroKind: 'unknown' }
+)
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -79,29 +185,155 @@ const emit = defineEmits<{
 }>()
 
 function onContinueEditing() {
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
-    prompt_variant: 'legacy',
-  })
+  const attemptsBefore = props.remainingContinueAttempts
+  const attemptsAfter = attemptsBefore === undefined
+    ? undefined
+    : Math.max(0, attemptsBefore - 1)
+  const attemptTrackingPayload = attemptsBefore === undefined
+    ? {}
+    : {
+        remaining_attempts_before: attemptsBefore,
+        remaining_attempts_after: attemptsAfter,
+        storage_source: CONTINUE_ATTEMPTS_STORAGE_SOURCE,
+      }
+
+  // Pass action_type only when set so unit tests (which mount without it)
+  // keep the existing single-arg call shape. Production always sets actionType
+  // via PaywallGate, so the per-surface continued_rate breakdown still works.
+  if (props.actionType !== undefined) {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, {
+      action_type: props.actionType,
+      ...attemptTrackingPayload,
+    })
+  } else if (attemptsBefore !== undefined) {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING, attemptTrackingPayload)
+  } else {
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUED_EDITING)
+  }
+
   emit('continueEditing')
+
+  if (attemptsBefore !== undefined) {
+    const phase2Payload = {
+      ...(props.actionType !== undefined ? { action_type: props.actionType } : {}),
+      ...attemptTrackingPayload,
+      ...getUpgradeContext(),
+    }
+    trackUpgradeEvent(UpgradeEventName.PAYWALL_CONTINUE_USED, phase2Payload)
+    if (attemptsAfter === 0) {
+      trackUpgradeEvent(UpgradeEventName.PAYWALL_ATTEMPTS_EXHAUSTED, phase2Payload)
+    }
+  }
 }
 
-// Track current pricing values from MarketplacePricingCard
-const currentUserCount = ref(50)
-const currentAnnualCost = ref(0)
+const customerSuccess = useCustomerSuccessService() as ReturnType<typeof useCustomerSuccessService> | undefined
 
-// Initialize tracking
-const tracking = useUpgradeTracking(
-  () => props.visible,
-  () => currentUserCount.value,
-  () => currentAnnualCost.value,
-  () => emit('close')
-)
+const messageContext = computed<AdvocacyMessageContext>(() => ({
+  spaceKey: customerSuccess?.spaceKey?.value ?? '',
+  macroCount: props.macrosCreated,
+  macrosLimit: props.macrosLimit,
+  upgradeUrl: props.upgradeUrl,
+  enterpriseBundleUrl: props.enterpriseBundleUrl,
+  enterpriseBundlePrice: ENTERPRISE_BUNDLE_PRICE,
+  macroKind: props.macroKind,
+}))
 
-// Handle slider changes with tracking
-const handleSliderChange = (userCount: number, annualCost: number) => {
-  currentUserCount.value = userCount
-  currentAnnualCost.value = annualCost
-  tracking.trackSliderChange()
+const message = computed(() => buildAdvocacyMessage(messageContext.value))
+
+const tracking = useUpgradeTracking(() => props.visible, () => emit('close'), () => props.actionType)
+
+const draftExpanded = ref(false)
+const extensionRequestStatus = ref('')
+const canContinueEditing = computed(() => props.remainingContinueAttempts === undefined || props.remainingContinueAttempts > 0)
+const continueButtonCopy = computed(() => {
+  const attempts = props.remainingContinueAttempts ?? 0
+  if (props.remainingContinueAttempts === undefined) return 'Continue editing without upgrading'
+  return `Continue editing without upgrading (${attempts})`
+})
+const continueAttemptsTooltip = computed(() => {
+  const attempts = props.remainingContinueAttempts ?? 0
+  if (props.remainingContinueAttempts === undefined) return undefined
+  if (attempts <= 0) return 'No continue attempts remain. Request an extension or upgrade to keep editing.'
+  return `You have ${attempts} temporary continue ${attempts === 1 ? 'attempt' : 'attempts'} left before editing is blocked for you in this space.`
+})
+const continueButtonAriaLabel = computed(() => continueAttemptsTooltip.value || continueButtonCopy.value)
+
+function onDraftPreviewToggle() {
+  const willExpand = !draftExpanded.value
+  draftExpanded.value = willExpand
+  tracking.trackAdvocacyDraftPreviewToggle(willExpand)
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (!navigator.clipboard?.writeText) {
+      return false
+    }
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch (e) {
+    console.warn('[paywall] failed to copy extension request details', e)
+    return false
+  }
+}
+
+/** Shared context for both purchase rails, so a rail comparison is apples to
+ *  apples. `ui_component: 'modal'` is what separates these from the page-banner
+ *  emissions of the same events. */
+function purchaseContext() {
+  return {
+    ...(props.actionType !== undefined ? { action_type: props.actionType } : {}),
+    ui_component: UIComponent.MODAL,
+    space_key: messageContext.value.spaceKey,
+    ...getUpgradeContext(),
+  }
+}
+
+/** Enterprise Bundle rail — per-space, card payment, completable by anyone.
+ *  This is the primary CTA precisely because it requires no permission the
+ *  person in front of the modal might not have. */
+async function onUnlockSpace() {
+  const reference = bundleClientReferenceId(props.enterpriseBundleUrl)
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
+    bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
+    ...(reference !== undefined ? { client_reference_id: reference } : {}),
+    ...purchaseContext(),
+  })
+  await openUrl(props.enterpriseBundleUrl)
+}
+
+/** Marketplace (Full plan) rail — covers every space, but only a Confluence
+ *  site admin can complete it. Tracked separately so we can tell "wanted to buy
+ *  but lacked the rights" apart from "did not want to buy". */
+async function onViewMarketplacePlan() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_MARKETPLACE_CTA_CLICKED, purchaseContext())
+  await openUrl(props.upgradeUrl)
+}
+
+async function onLearnMore() {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_LEARN_MORE_CLICKED, purchaseContext())
+  await openUrl('https://zenuml.com/upgrade/')
+}
+
+async function onRequestExtension() {
+  const requestContext = buildExtensionRequestContext({
+    spaceKey: messageContext.value.spaceKey,
+    macroCount: props.macrosCreated,
+    macrosLimit: props.macrosLimit,
+    macroKind: props.macroKind,
+  })
+  const requestUrl = buildExtensionRequestUrl(requestContext)
+  const requestMessage = buildExtensionRequestMessage(requestContext)
+  // Clipboard copy is a safety net: JSM drops the prefill params if the user
+  // navigates within the portal before submitting.
+  const copied = await copyToClipboard(requestMessage)
+
+  tracking.trackExtensionRequestClick(copied, requestUrl)
+  extensionRequestStatus.value = copied
+    ? 'Support form opened with your details pre-filled (also copied to your clipboard as backup).'
+    : 'Support form opened with your details pre-filled — just confirm and submit.'
+
+  await openUrl(requestUrl)
 }
 
 const modalContainer = ref<HTMLElement | null>(null)

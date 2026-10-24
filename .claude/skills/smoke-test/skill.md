@@ -4,14 +4,27 @@ description: >
   [on <site>] [lite|full|diagramly] [macros...]
   Sites: zenuml-stg (default), zenuml, lite-stg, full-stg, dia-stg, diagramly.
   Smoke test ZenUML Confluence Cloud macros (ZenUML, PlantUML, Mermaid, Graph/DrawIO, OpenAPI).
-  Uses the Playwright MCP to create a test page, insert macros, publish, and verify rendering.
+  Uses agent-browser to create a test page, insert macros, publish, and verify rendering.
   Triggers on "smoke test confluence", "test macros on staging", "verify ZenUML on confluence",
   "run smoke test on zenuml-stg", "test lite macros", or any macro validation request.
 ---
 
 # Confluence Smoke Test — ZenUML Macros
 
-Drive the smoke test using the available Playwright MCP tools (`mcp__playwright__*`).
+Drive the smoke test with `agent-browser`. Every call carries `--session conf-app --restore=stg`
+(see `CLAUDE.md` § "Browser automation and Forge iframes"). Shorthand used throughout this file:
+
+```bash
+A(){ agent-browser --session conf-app --restore=stg "$@"; }
+```
+
+**Verification status (2026-08-17 migration from Playwright MCP).** Verified by running them:
+`frame` into the Forge modal OOPIF and into the nested DrawIO frame, `eval` in both layers,
+`console` reaching the macro OOPIF's logs. Translated from the Playwright steps but **not yet
+re-run end-to-end under agent-browser**: the slash-menu keystroke path, the Browse-dialog search,
+the mark-then-click selections, the DrawIO shape insert, and both Publish steps. The selectors,
+waits, and gotchas are unchanged from the Playwright version that did run; the command spellings
+are new. Treat a failure in those steps as a possible translation defect and fix this file.
 
 ## Arguments
 
@@ -36,68 +49,204 @@ If parentPageId is unknown, discover it (see Step 0).
 
 ## Variant Differences
 
-All three variants use the **Forge modal** pattern:
-- Dialog: `[data-testid="custom-ui-modal-dialog"]`
+All three variants use the **Forge fullscreen modal** pattern (verified 2026-06-04 on zenuml.atlassian.net for Lite, Full, and Diagramly):
+- Dialog: `[data-testid="custom-ui-fullscreen-modal-dialog"]`  ← ALL variants; `custom-ui-modal-dialog` is obsolete
 - App iframe: `[data-testid="hosted-resources-iframe"]`
+
+**Always scope the iframe selector to the modal wrapper.** A bare
+`[data-testid="hosted-resources-iframe"]` matches several elements on multi-install sites
+(`zenuml.atlassian.net` has all 3 apps installed) and also matches the page banner's iframe on
+single-variant sites:
+
+```bash
+A frame "[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]"
+A eval "location.host"    # must return the cdn.prod.atlassian-dev.net host
+```
 
 Lite appends " Lite" to macro names. Diagramly and Full do not.
 Staging apps append " (Staging)" — this is fine, matching handles it automatically.
 
-## Critical Playwright MCP Behaviors (learned from testing)
+### Disambiguating Full vs Diagramly when both are installed
 
-**Forge iframe elements are exposed in the a11y tree** — after `browser_snapshot`, iframe
-elements appear with `f9e*` ref prefixes. Using `browser_click ref=f9e22` or
-`browser_type ref=f9e22 text="..."` automatically generates correct `contentFrame()` code.
-This solves cross-origin iframe interaction without any special handling.
+Production site `zenuml.atlassian.net` has **all three apps installed side-by-side**, so the Diagram macro appears in the macro browser as:
 
-**NEVER use `browser_press_key('/')` in the Confluence editor** — it disconnects the Playwright
-MCP extension every time (CDP crash). Instead, type "/" via `browser_type ref=<editor-ref> text="/"`.
-`browser_type` uses `fill()` which DOES trigger the slash menu on Confluence (confirmed).
+| # | Name (search match) | Description (disambiguator) | Module key |
+|---|---------------------|------------------------------|------------|
+| 1 | `Diagram (Mermaid, PlantUML & ZenUML)` | `Diagramly for Confluence` | `gpt-diagram-macro` |
+| 2 | `Diagram (Mermaid, PlantUML & ZenUML)` | `ZenUML for Confluence` | `zenuml-sequence-macro` |
+| 3 | `Diagram (Mermaid, PlantUML & ZenUML) Lite` | `ZenUML for Confluence Lite` | `zenuml-sequence-macro-lite` |
 
-**`fill('/')` only works reliably when the editor is empty or contains only plain text** — after
-a macro node is inserted, ProseMirror's document structure is complex (macro nodes are atom nodes).
-`fill()` may not position the cursor correctly after existing macro nodes and can silently insert
-"/" as garbage text without triggering the slash menu. For the 2nd macro onwards, use `slowly: true`
-(`pressSequentially`) instead — it fires keydown/keypress/keyup events that ProseMirror handles correctly.
+Full and Diagramly share the exact same display name, so name-only matching picks one
+non-deterministically — usually the wrong one. Always disambiguate by **description text**:
 
-**Always re-snapshot before using refs** — refs become stale after DOM changes (page load,
-macro insert, panel open). Call `browser_snapshot` and use the fresh refs.
+| Variant | Text conditions on the option element |
+|---------|----------------------------------------|
+| Lite | contains `Lite` |
+| Full | contains `ZenUML for Confluence`, does NOT contain `Lite` |
+| Diagramly | contains `Diagramly for Confluence` |
+
+Same disambiguation applies to **Graph (DrawIO)** and **OpenAPI** macros — on multi-install sites, expect 2–3 entries per macro type; pick by description text. If a variant's macro browser entry isn't observable, the app likely isn't installed on that site.
+
+The wrong variant produces a successful save with the wrong app's bundle, debug bar, and D1 row. The toolbar version label (e.g. `…-full:e34a…` vs `…-diagramly:e34a…`) is the after-the-fact tell.
+
+### The mark-then-click pattern (use this instead of role/name matching)
+
+agent-browser has no locator-filter chain, and role-based name matching is unreliable across this
+app (see Troubleshooting). Select the element in JavaScript, tag it with an attribute, then issue a
+real click against that attribute. The click is a genuine CDP mouse event, so DrawIO and ProseMirror
+handlers fire:
+
+```bash
+A eval "(() => {
+  const dlg = document.querySelector('[role=dialog][aria-label=\"Browse\"]');
+  const opts = [...dlg.querySelectorAll('[role=option], [role=gridcell] button')];
+  const m = opts.find(o => o.textContent.includes('Diagram (Mermaid')
+                        && o.textContent.includes('ZenUML for Confluence')
+                        && !o.textContent.includes('Lite'));
+  if (!m) return 'NO MATCH — options: ' + opts.map(o => o.textContent.trim()).join(' | ');
+  document.querySelectorAll('[data-ab-pick]').forEach(e => e.removeAttribute('data-ab-pick'));
+  m.setAttribute('data-ab-pick', '1');
+  return 'marked: ' + m.textContent.trim();
+})()"
+A click "[data-ab-pick]"
+```
+
+On no match the return value enumerates every option, which is the diagnostic you need anyway.
+
+## Lite paywall on over-limit test spaces (e.g. `lite-stg` / `SD`, and `zenuml` / `ZEN`)
+
+**Production `zenuml` / `ZEN` is over the limit too** (measured 2026-09-02 during the
+`v2026.09.021021-lite` PVT: banner read "2142 of 100"). Every Lite run on production hits both
+the over-limit banner and the macro-editor paywall modal, so handle them exactly as below —
+this is not specific to staging.
+
+`lite-stg`'s `SD` space is deliberately kept over the Lite 100-macro limit (thousands of macros) as
+shared paywall test data (see the **paywall** skill). Every macro-editor mount there shows the
+`UpgradePrompt` modal INSIDE the Forge iframe — handle it unconditionally right after entering the
+modal frame, before any tab/title interaction:
+
+```bash
+# already inside the Forge modal frame
+A eval "(() => {
+  const banner = document.querySelector('[data-zenuml-draft-banner]');
+  if (banner) {
+    const d = [...banner.querySelectorAll('button')].find(b => b.textContent.includes('Discard'));
+    if (d) { d.setAttribute('data-ab-pick','1'); return 'draft-banner'; }
+  }
+  const p = [...document.querySelectorAll('button')].find(b => b.textContent.includes('Continue editing'));
+  if (p) { p.setAttribute('data-ab-pick','1'); return 'paywall'; }
+  return 'none';
+})()"
+# if the result is 'draft-banner' or 'paywall':
+A click "[data-ab-pick]"; A wait 500
+# re-run the eval — a stale draft banner and the paywall can both be present
+```
+
+**Do NOT locate the paywall button by accessible name** — it has an `aria-label`
+("You have N temporary continue attempt left…") that differs entirely from its visible text
+("Continue editing without upgrading (N)"), so name matching never resolves and hangs for the full
+timeout with no error. Text matching in `eval` bypasses this (verified 2026-07-27).
+
+**The counter is cumulative, not per test run.** It's `localStorage`-keyed
+`paywallContinueAttempts:<domain>:<spaceKey>:<accountId>` inside the **Forge iframe's origin**
+(`*.cdn.prod.atlassian-dev.net`), default 3 since 2026-08-16 (was 15), decremented once per click
+across *all* smoke-test runs and manual testing against that (domain, space) pair — a single 5-macro
+run does not reset it. If it hits 0, the button is replaced by non-clickable "Request extension"
+text. Reset it proactively at the start of a run (cheap) rather than discovering exhaustion mid-run.
+Run this **inside the Forge iframe frame context**, not the top page:
+
+```bash
+A eval "(() => {
+  const k = Object.keys(localStorage).find(k => k.startsWith('paywallContinueAttempts:'));
+  if (!k) return 'no key';
+  localStorage.removeItem(k);
+  return 'cleared ' + k;
+})()"
+```
+
+## Page title format (required)
+
+Whenever this skill **creates a new Confluence page**, set the **page title** to:
+
+```text
+Smoke Test <lite|full|diagramly> <YYYY-MM-DD HH:mm> (<short label>)
+```
+
+| Part | Meaning |
+|------|---------|
+| `Smoke Test` | Fixed prefix so runs are easy to search in Confluence. |
+| Product (`lite`, `full`, or `diagramly`) | Forge **variant** for this run — must match the smoke-test variant. |
+| `<YYYY-MM-DD HH:mm>` | **Local** date and time, 24-hour clock, minutes zero-padded. Example: `2026-05-11 14:30`. |
+| `<short label>` | Macro slot from the table below: `Sequence`, `Mermaid`, `PlantUML`, `Graph`, `OpenAPI`. |
+
+**Example:** `Smoke Test diagramly 2026-05-11 14:30 (Graph)`.
+
+If Confluence reports a **duplicate title** (same variant + same minute), append **seconds** (`YYYY-MM-DD HH:mm:ss`) or a short random suffix, then retry.
+
+## Critical browser-automation behaviors (learned from testing)
+
+**Forge iframe content is inlined in the snapshot** — `A snapshot` shows the `Iframe` node with its
+subtree, and the `@e*` refs inside it work directly with `click` / `fill`. To scope `eval` into the
+frame, `A frame "<selector-or-@ref>"` first; confirm with `A eval "location.host"`, which must
+return the `cdn.prod.atlassian-dev.net` host. `A frame main` returns to the top document.
+
+**Nested frames need one `frame` call per layer** — the DrawIO editor sits inside the Forge modal
+OOPIF. Take a fresh `snapshot` *inside* layer 1 to read layer 2's ref; `@e` refs are per-snapshot
+and per-frame. Requires agent-browser ≥ the 2026-08-17 nested-frame patch.
+
+**Slash menu needs real keystrokes** — `A fill` sets the value directly and ProseMirror (Confluence's
+editor) never sees the `input` events, so the menu does not open. Use `A keyboard type "/"`, which
+emits genuine keydown/keypress/keyup. This holds for the **first** macro and every subsequent one;
+after a macro node exists, ProseMirror treats it as an atom and a value-set can land the caret in
+the wrong place and insert "/" as plain text.
+
+(This replaces an older Playwright-MCP-specific workaround where `browser_press_key('/')` crashed the
+extension via CDP and `fill()` was the workaround. Neither applies to agent-browser — no extension
+relay to crash, and `fill` is the thing to avoid.)
+
+**Always re-snapshot before using refs** — refs become stale after DOM changes (page load, macro
+insert, panel open, any `frame` switch). Call `A snapshot` and use the fresh refs.
 
 **Editor textbox ref changes after macro insert** — after a macro is published and the modal closes,
-take a fresh snapshot to get the new textbox ref. The textbox will show `[active]` only after you
-click the editor area. Use `browser_click ref=<editor-area>` first, then snapshot, then find the
-new `textbox "Page editing area..."` ref before typing.
+take a fresh snapshot. The textbox shows `[active]` only after you click the editor area. Click
+`[data-testid="ak-editor-fp-content-area"]` first, then snapshot, then use the new
+`textbox "Page editing area…"` ref.
 
-**`browser_wait_for text="..."` cannot see iframe text** — use `browser_take_screenshot` + a
-fixed wait instead of waiting for text that lives inside the Forge CDN iframe.
+**`A wait --text "…"` cannot see iframe text** — text inside the Forge CDN iframe is invisible to
+top-frame text waits. Use `A frame <iframe>` + `A wait <selector>`, or a fixed `A wait <ms>` plus
+`A screenshot`.
 
-**If browser disconnects** — call `browser_close` then `browser_navigate` back to the edit URL.
-Auto-save recovers all content including partially-inserted macros.
+**If the browser session breaks** — `A close` then `A open <edit-url>`. Auto-save recovers all
+content including partially-inserted macros.
+
+**Batch multi-step sequences** — `A batch --bail "cmd1" "cmd2" …` runs commands in one process and
+stops at the first error, which keeps a 10-step insert flow to a single tool call.
 
 ## Smoke Test Steps
 
 ### Step 0: Navigate, login if needed, discover parent page
 
-Credentials live in `tests/e2e-tests/.env`:
-- `ZENUML_STAGE_USERNAME`, `ZENUML_STAGE_PASSWORD`, `ATLASSIAN_OTP` (TOTP secret)
+`--restore=stg` restores the saved robot1yanhui session, so login is normally not needed.
 
-```
-browser_navigate url="https://{domain}/wiki/home"
-browser_take_screenshot   ← check if on login page
+```bash
+A open "https://{domain}/wiki/home"
+A screenshot /tmp/step0.png    # check whether the login page appeared instead
 ```
 
-If on login page, fill credentials using `browser_snapshot` to get input refs, then
-`browser_type` for username/password. For OTP, generate it via shell:
+If the restored state has expired, credentials live in `tests/e2e-tests/.env`
+(`ZENUML_STAGE_USERNAME`, `ZENUML_STAGE_PASSWORD`, `ATLASSIAN_OTP`). Fill the fields from a fresh
+snapshot, and generate the OTP via shell:
+
 ```bash
 cd /Users/pengxiao/workspaces/zenuml/conf-app/tests/e2e-tests
 node -e "const o = require('./utils/otp.js'); console.log(o.generateOtp())"
 ```
-Then `browser_type` the OTP into the verification input.
 
-If parentPageId is unknown, navigate to the REST search endpoint directly and read the JSON:
-```
-browser_navigate url="https://{domain}/wiki/rest/api/content/search?cql=space%3DSD%20AND%20title%20~%20%22Smoke%20Test%22&expand=ancestors&limit=3"
-browser_take_screenshot   ← read ancestors[last].id from JSON
+If parentPageId is unknown, read the REST search result as text — no browser rendering needed:
+
+```bash
+A open "https://{domain}/wiki/rest/api/content/search?cql=space%3DSD%20AND%20title%20~%20%22Smoke%20Test%22&expand=ancestors&limit=3"
+A get text "body"    # read ancestors[last].id from the JSON
 ```
 
 ### Step 1–2: One page per macro
@@ -107,229 +256,259 @@ repositioning problems. The slash menu always works reliably on a fresh/empty ed
 
 **Macro list — create one page for each:**
 
-| # | Macro | Search term | Tab / action | Page title (with unique timestamp) |
-|---|-------|-------------|--------------|-----------------------------------|
-| 1 | Diagram Lite — Sequence (ZenUML) | `zenuml` | Click "Sequence" tab | `Smoke Test {random6digits} (Sequence)` |
-| 2 | Diagram Lite — Mermaid | `zenuml` | Click "Mermaid" tab | `Smoke Test {random6digits} (Mermaid)` |
-| 3 | Diagram Lite — PlantUML | `zenuml` | Click "PlantUML" tab | `Smoke Test {random6digits} (PlantUML)` |
-| 4 | Graph (DrawIO) Lite | `graph` | Wait 8s, title = "Name your graph…" | `Smoke Test {random6digits} (Graph)` |
-| 5 | OpenAPI Lite | `openapi` | Wait 5s, title = "Title" | `Smoke Test {random6digits} (OpenAPI)` |
+| # | Macro | Search term | Tab / action | Page title (see § Page title format) |
+|---|-------|-------------|--------------|----------------------------------------|
+| 1 | Diagram Lite — Sequence (ZenUML) | `zenuml` | Click "Sequence" tab | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (Sequence)` |
+| 2 | Diagram Lite — Mermaid | `zenuml` | Click "Mermaid" tab | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (Mermaid)` |
+| 3 | Diagram Lite — PlantUML | `zenuml` | Click "PlantUML" tab | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (PlantUML)` |
+| 4 | Graph (DrawIO) Lite | `graph` | Wait 8s, title = "Name your graph…" | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (Graph)` |
+| 5 | OpenAPI Lite | `openapi` | Wait 5s, title = "Title" | `Smoke Test <variant> <YYYY-MM-DD HH:mm> (OpenAPI)` |
 
 For Full/Diagramly variants, macro names do not include "Lite" — adjust the search match accordingly.
 
-**Important:** Each page title includes a 6-digit timestamp suffix to ensure uniqueness and prevent Confluence publish conflicts from duplicate titles.
+**Important:** Each page title includes **product type** (`lite` / `full` / `diagramly`) and **datetime** (`YYYY-MM-DD HH:mm`) per § Page title format. Add seconds only if Confluence rejects a duplicate.
 
 **For each macro, repeat this flow:**
 
 #### Create a page
 
-```
-browser_navigate url="https://{domain}/wiki/create-content/page?spaceKey={spaceKey}&parentPageId={parentPageId}"
+```bash
+A open "https://{domain}/wiki/create-content/page?spaceKey={spaceKey}&parentPageId={parentPageId}"
+A wait 3000
 ```
 
-Wait 3s, then set the page title via evaluate (more reliable than snapshot+type):
-```
-browser_evaluate function="() => {
-  const t = document.querySelector('[placeholder=\"Give this page a title\"]');
+Set the page title via `eval` — the native setter plus a dispatched `input` event is more reliable
+than snapshot+type here. Substitute `{variant}` (`lite` \| `full` \| `diagramly`) and
+`{macro label}` (`Sequence`, `Mermaid`, …):
+
+```bash
+A eval "(() => {
+  // Selector: textarea[name='editpages-title']  (NOT [placeholder='Give this page a title'] — that does not match)
+  const t = document.querySelector('textarea[name=\"editpages-title\"]');
   if (!t) return 'not found';
   t.focus();
   const s = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-  const timestamp = Date.now().toString().slice(-6);  // last 6 digits of milliseconds
-  s.call(t, 'Smoke Test ' + timestamp + ' ({macro name})');
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = new Date();
+  const stamp = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  s.call(t, 'Smoke Test {variant} ' + stamp + ' ({macro label})');
   t.dispatchEvent(new Event('input', { bubbles: true }));
   return 'set';
-}"
+})()"
 ```
 
-**Note:** Each page title must be unique to avoid Confluence publishing conflicts. The timestamp suffix ensures uniqueness.
+If publish fails with duplicate title, re-run with `stamp` including seconds: append
+`':' + pad(d.getSeconds())` inside the datetime string. Uniqueness comes from variant +
+minute-level timestamp; use seconds only on collision.
 
-#### Open slash menu, browse, and insert macro — all in one script
-
-Use `browser_run_code` to open the editor, trigger the slash menu, search the Browse dialog,
-and interact with the Forge modal in a **single tool call** per macro. This avoids repeated
-`browser_snapshot` → grep → ref cycles.
+#### Open the slash menu, browse, and insert the macro
 
 **For Diagram macros (Sequence / Mermaid / PlantUML):**
 
-```
-browser_run_code code="async (page) => {
-  // Activate editor and open slash menu
-  await page.locator('[data-testid=\"ak-editor-fp-content-area\"]').click();
-  await page.getByRole('textbox', { name: 'Page editing area, start' }).fill('/');
-  await page.getByText('View more').first().waitFor({ state: 'visible', timeout: 10000 });
+```bash
+# 1. Move focus from the title into the body, then open the slash menu.
+#    `A press Enter` from the title is what MOUNTS the body editor — until it
+#    runs there is no [contenteditable] in the DOM at all, so clicking the
+#    content area does nothing and the "/" lands in the title field. Verified
+#    on production 2026-09-07: without the Enter, "View more" never appears and
+#    the wait below times out at 25 s.
+A press Enter
+A batch --bail \
+  "wait 2000" \
+  "keyboard type /" \
+  "wait --text \"View more\"" \
+  "find text \"View more\" click" \
+  "wait 2000"
 
-  // Open Browse dialog
-  await page.getByText('View more').first().click();
-  await page.waitForTimeout(2000);
+# 2. Search the Browse dialog. The input needs real keystrokes too.
+A batch --bail \
+  "click [role=dialog][aria-label=\"Browse\"] input" \
+  "keyboard type zenuml" \
+  "wait 2000"
 
-  // Search for macro (use 'zenuml', 'graph', or 'openapi')
-  const dialog = page.locator('[role=dialog][aria-label=\"Browse\"]');
-  const input = dialog.locator('input');
-  await input.focus();
-  await input.fill('zenuml');
-  await input.dispatchEvent('input');
-  await input.dispatchEvent('change');
-  await page.waitForTimeout(2000);
-
-  // Click matching option — Lite: include 'Lite'; Full/Diagramly: exclude 'Lite'
-  const options = dialog.locator('[role=option], [role=gridcell] button');
-  const match = options.filter({ hasText: 'Diagram (Mermaid' }).filter({ hasNotText: 'Lite' }).first();
-  await match.click();
-  await page.waitForTimeout(500);
-  // REQUIRED: Browse dialog selects on click but needs Insert button to confirm
-  await page.getByTestId('ModalElementBrowser__insert-button').click();
-
-  // Wait for Forge modal and interact with iframe
-  await page.waitForTimeout(5000);
-  const frame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
-  await frame.getByRole('tab', { name: 'Sequence' }).click();  // change tab name as needed
-  await frame.getByRole('textbox', { name: 'Name your diagram…' }).fill('Test Sequence');
-  await frame.getByRole('button', { name: 'Publish' }).click();
-
-  // Publish the Confluence page
-  await page.waitForTimeout(2000);
-  await page.getByTestId('publish-button').click();
-  await page.waitForTimeout(500);
-  try {
-    await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 });
-  } catch {}
-  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
-  return page.url();
-}"
+# 3. Pick the right variant (mark-then-click; see § The mark-then-click pattern)
+A eval "(() => {
+  const dlg = document.querySelector('[role=dialog][aria-label=\"Browse\"]');
+  const opts = [...dlg.querySelectorAll('[role=option], [role=gridcell] button')];
+  //   Lite:      t.includes('Lite')
+  //   Full:      t.includes('ZenUML for Confluence') && !t.includes('Lite')
+  //   Diagramly: t.includes('Diagramly for Confluence')
+  const m = opts.find(o => { const t = o.textContent;
+    return t.includes('Diagram (Mermaid') && t.includes('ZenUML for Confluence') && !t.includes('Lite'); });
+  if (!m) return 'NO MATCH — options: ' + opts.map(o => o.textContent.trim()).join(' | ');
+  m.setAttribute('data-ab-pick', '1');
+  return 'marked: ' + m.textContent.trim();
+})()"
+A batch --bail \
+  "click [data-ab-pick]" \
+  "wait 500" \
+  "find testid ModalElementBrowser__insert-button click" \
+  "wait 5000"
 ```
 
-Change `tab: 'Sequence'` → `'Mermaid'` or `'PlantUML'` and title accordingly per macro.
-For **Lite** variant, change the `filter({ hasNotText: 'Lite' })` to `filter({ hasText: 'Lite' })`.
+> The Browse dialog **selects** on click but needs the Insert button to confirm. Skipping it leaves
+> the dialog open with nothing inserted.
+
+```bash
+# 3b. Dismiss the Starter-templates gallery, which opens over the macro editor
+#     on a fresh macro and swallows the first tab click. Its close control is
+#     aria-label="Close template gallery" — NOT the generic "Close", which
+#     matches nothing here.
+A frame "[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]"
+A eval "(() => { const c=[...document.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')==='Close template gallery'); if(!c) return 'none'; c.setAttribute('data-ab-cg','1'); return 'gallery'; })()"
+# if it returned 'gallery':
+A click "[data-ab-cg]"
+
+# 4. Enter the Forge modal frame and clear any draft banner / paywall
+A frame "[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]"
+A eval "location.host"     # must be the cdn.prod.atlassian-dev.net host
+# → run the draft-banner / paywall eval from § Lite paywall, then click [data-ab-pick] if it matched
+
+# 5. Pick the tab, name the diagram, publish the macro
+A eval "(() => {
+  const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Sequence');
+  if (!b) return 'no tab';
+  b.setAttribute('data-ab-pick-tab', '1');
+  return 'ok';
+})()"
+A batch --bail \
+  "click [data-ab-pick-tab]" \
+  "fill input[placeholder=\"Untitled diagram\"] \"Test Sequence\"" \
+  "wait 500"
+A eval "(() => {
+  const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('Publish'));
+  if (!b) return 'no publish';
+  b.setAttribute('data-ab-pub', '1');
+  return 'ok';
+})()"
+A click "[data-ab-pub]"
+
+# 6. Publish the Confluence page
+A frame main
+A batch --bail \
+  "wait 2000" \
+  "find testid publish-button click" \
+  "wait 1500"
+A eval "(() => {
+  const bs = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Publish');
+  const b = bs[bs.length - 1];
+  if (!b) return 'no confirm dialog';
+  b.setAttribute('data-ab-pub2', '1');
+  return 'ok';
+})()"
+# only if the previous eval returned 'ok':
+A click "[data-ab-pub2]"
+A wait --url "!*edit-v2*"    # or poll: A get url
+```
+
+Change the tab name (`Sequence` → `Mermaid` / `PlantUML`) and the diagram title per macro, and swap
+the variant condition in the option-picking eval.
+
+> **Never match these buttons by accessible name.** Role-based name matching is unreliable across
+> this app's buttons and tabs (confirmed 2026-07-27: the tab buttons and the page-level
+> "Publish page" confirmation button both intermittently fail name matching even though a plain
+> text scan resolves them). The mark-then-click pattern is the default here.
 
 **For Graph (DrawIO):**
 
+Same steps 1–4, with search term `graph` and the option condition `t.includes('Graph (DrawIO)')`.
+Wait 8000 ms after Insert instead of 5000 — DrawIO is slower to mount. Then:
+
+```bash
+# in the outer Forge modal frame
+A fill "input[placeholder*=\"Name your graph\"]" "Test Graph"
+
+# enter the inner DrawIO frame — layer 2
+A snapshot | grep Iframe          # re-read the ref HERE, inside layer 1
+A frame "@<inner-ref>"
+A eval "typeof window.mxClient"   # must return "object"
 ```
-browser_run_code code="async (page) => {
-  await page.locator('[data-testid=\"ak-editor-fp-content-area\"]').click();
-  await page.getByRole('textbox', { name: 'Page editing area, start' }).fill('/');
-  await page.getByText('View more').first().waitFor({ state: 'visible', timeout: 10000 });
-  await page.getByText('View more').first().click();
-  await page.waitForTimeout(2000);
 
-  const dialog = page.locator('[role=dialog][aria-label=\"Browse\"]');
-  const input = dialog.locator('input');
-  await input.focus();
-  await input.fill('graph');
-  await input.dispatchEvent('input');
-  await input.dispatchEvent('change');
-  await page.waitForTimeout(2000);
+> **REQUIRED: give the graph content, else it publishes EMPTY.** The default DrawIO canvas has no
+> cells, so the macro renders blank and does not exercise the graph renderer.
 
-  // Lite: include 'Lite'; Full/Diagramly: exclude 'Lite'
-  const match = dialog.locator('[role=option], [role=gridcell] button')
-    .filter({ hasText: 'Graph (DrawIO)' }).filter({ hasNotText: 'Lite' }).first();
-  await match.click();
-  await page.waitForTimeout(500);
-  await page.getByTestId('ModalElementBrowser__insert-button').click();
+**Use the postMessage protocol, not the shape picker.** The editor loads with `embed=1`, DrawIO's
+official embed mode, which exposes *only* the JSON postMessage protocol — the same one the app
+itself uses (`ForgeGraphEditor.vue:82` `sendToFrame`). Send a `load` action with the XML you want:
 
-  // DrawIO: double-nested iframe — title in outer, Publish in inner
-  await page.waitForTimeout(8000);
-  const outerFrame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
-  await outerFrame.getByRole('textbox', { name: 'Name your graph…' }).fill('Test Graph');
-  const innerFrame = outerFrame.locator('iframe').contentFrame();
-  await innerFrame.getByRole('button', { name: 'Publish' }).click();
-
-  await page.waitForTimeout(2000);
-  await page.getByTestId('publish-button').click();
-  try { await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 }); } catch {}
-  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
-  return page.url();
-}"
+```bash
+# from the OUTER Forge modal frame, addressing the inner DrawIO iframe
+A eval "document.querySelector('iframe').contentWindow.postMessage(JSON.stringify({action:'load', xml:'<mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/><mxCell id=\"2\" value=\"Test Graph\" style=\"rounded=0;\" vertex=\"1\" parent=\"1\"><mxGeometry x=\"120\" y=\"120\" width=\"160\" height=\"60\" as=\"geometry\"/></mxCell></root></mxGraphModel>', autosave:1}), '*'); 'sent'"
 ```
+
+See the **graph-macro** skill for the full protocol (actions `load` / `export`, events `init` /
+`autosave` / `save` / `export`) and for why `window.editorUi` does not exist.
+
+> **The shape-picker route below is DEAD — do not use it.** An older version of this file told you
+> to `A dblclick ".geDiagramContainer"` then click `.geShapePicker .geItem`. On production
+> 2026-09-07 all four variations failed: the double-click opened no picker, `.geShapePicker .geItem`
+> matched nothing, the `Extras` menu opened with no items, and `.geDiagramContainer` itself was not
+> in the DOM. That cost a full PVT round and the Graph screenshot had to be taken locally instead.
+> The postMessage route above is the supported interface and the one the app itself uses.
+
+```bash
+# Re-read the title before publishing — the shape-label typing can land in the title field
+# instead if focus did not move as expected (see the paywall skill's Graph gotcha).
+A frame "[data-testid=\"custom-ui-fullscreen-modal-dialog\"] [data-testid=\"hosted-resources-iframe\"]"
+A get value "input[placeholder*=\"Name your graph\"]"
+# if it is not 'Test Graph', fill it again
+
+# Publish lives in the INNER DrawIO frame, not the outer modal
+A frame "@<inner-ref>"
+A eval "(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Publish')); if(!b) return 'no publish'; b.setAttribute('data-ab-pub','1'); return 'ok'; })()"
+A click "[data-ab-pub]"
+```
+
+Then publish the Confluence page exactly as in step 6 above.
 
 **For OpenAPI:**
 
-```
-browser_run_code code="async (page) => {
-  await page.locator('[data-testid=\"ak-editor-fp-content-area\"]').click();
-  await page.getByRole('textbox', { name: 'Page editing area, start' }).fill('/');
-  await page.getByText('View more').first().waitFor({ state: 'visible', timeout: 10000 });
-  await page.getByText('View more').first().click();
-  await page.waitForTimeout(2000);
-
-  const dialog = page.locator('[role=dialog][aria-label=\"Browse\"]');
-  const input = dialog.locator('input');
-  await input.focus();
-  await input.fill('openapi');
-  await input.dispatchEvent('input');
-  await input.dispatchEvent('change');
-  await page.waitForTimeout(2000);
-
-  const match = dialog.locator('[role=option], [role=gridcell] button')
-    .filter({ hasText: 'OpenAPI' }).filter({ hasNotText: 'Lite' }).first();
-  await match.click();
-  await page.waitForTimeout(500);
-  await page.getByTestId('ModalElementBrowser__insert-button').click();
-
-  await page.waitForTimeout(5000);
-  const frame = page.locator('[data-testid=\"hosted-resources-iframe\"]').contentFrame();
-  await frame.getByRole('textbox', { name: 'Title' }).fill('Test OpenAPI');
-  await frame.getByRole('button', { name: 'Publish' }).click();
-
-  await page.waitForTimeout(2000);
-  await page.getByTestId('publish-button').click();
-  try { await page.getByRole('button', { name: 'Publish' }).last().click({ timeout: 2000 }); } catch {}
-  await page.waitForURL(u => !u.includes('edit-v2'), { timeout: 30000 });
-  return page.url();
-}"
-```
+Same steps 1–6 as the Diagram macros, with:
+- search term `openapi`, option condition `t.includes('OpenAPI')`
+- no tab click
+- the title field is labelled `Title`, not `Untitled diagram`:
+  `A fill "input[placeholder*=\"Title\"]" "Test OpenAPI"` (confirm the exact placeholder from a
+  snapshot inside the frame first)
 
 #### Verify and move to PVT
 
-The `browser_run_code` script above already publishes the page and waits for the URL to change.
-After it returns, take a screenshot to confirm rendering, then move to PVT:
-
-```
-browser_take_screenshot   ← confirm macro rendered
+```bash
+A screenshot /tmp/{macro}-published.png    # confirm the macro rendered
 ```
 
-```
-browser_evaluate function="async () => {
-  // ... PVT move code (see Step 5)
-}"
-```
-
-Then navigate to a new page and repeat for the next macro.
+Then run the PVT move (Step 5) and repeat for the next macro.
 
 ### Step 3: Publish the page
 
-```
-browser_snapshot   ← get ref for "Publish..." button in toolbar
-browser_click ref=<publish-btn-ref> element="Publish..."
-```
+Covered inline as step 6 of the insert flow. As a standalone sequence:
 
-If a confirmation dialog appears, click the final Publish button:
-```
-browser_evaluate function="() => {
-  const btns = Array.from(document.querySelectorAll('button'))
-    .filter(b => b.textContent?.trim() === 'Publish');
-  btns[btns.length - 1]?.click();
-  return btns.length;
-}"
-```
-
-Wait for the URL to change to a published page URL (no longer contains `edit-v2`):
-```
-browser_wait_for text="Edit" timeout=30000   ← "Edit" button appears on published page
+```bash
+A find testid publish-button click
+A wait 1500
+# confirmation dialog, if present — mark-then-click the LAST 'Publish' button
+A eval "(() => {
+  const bs = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Publish');
+  const b = bs[bs.length - 1];
+  if (!b) return 'none';
+  b.setAttribute('data-ab-pub2', '1');
+  return String(bs.length);
+})()"
+A click "[data-ab-pub2]"
+A wait --text "Edit"    # the Edit button appears on the published page
 ```
 
 ### Step 4: Verify macros rendered
 
-```
-browser_take_screenshot   ← full page screenshot
-browser_snapshot          ← count ForgeExtensionContainer iframes
+```bash
+A screenshot /tmp/published-full.png
+A get count "[data-testid=\"ForgeExtensionContainer\"]"
 ```
 
-Look for `[data-testid="ForgeExtensionContainer"]` elements in the snapshot. Each inserted macro
-should produce one container. Report the count.
+Each inserted macro should produce one container. Report the count.
 
 ### Step 5: Move page to PVT folder
 
-Extract the page ID from the current URL (`/pages/{pageId}/`), then:
+Extract the page ID from the current URL (`/pages/{pageId}/`), then run the move script.
 
 **Important:** Do not use the v1 `/wiki/rest/api/content/{parentId}/child/page?title=...`
 endpoint to look up folders by name. The `title=` filter is fuzzy and limited to a page of
@@ -338,8 +517,27 @@ Combined with `createFolder` swallowing the resulting 400 ("page already exists"
 ends up calling `movePage(pageId, undefined)` which returns 200 without re-parenting — a
 silent failure. Use the v2 space-scoped lookup with an exact-title + parentId filter instead.
 
+**Second gotcha (confirmed 2026-07-27 on `lite-stg`/`SD`): the top-level `PVT` folder may not be
+a direct child of `parentId` at all.** Confluence page titles are unique per-*space*, not
+per-parent, so an existing `PVT` page can be nested arbitrarily deep under some other historical
+parent (e.g. found under `Software Development → Before release test pages → PVT` instead of
+directly under `Software Development`). A parent-scoped lookup for `PVT` correctly finds nothing,
+then `createFolder('PVT', parentId)` correctly 400s ("already exists") against the space-wide
+title — the failure isn't pagination this time, it's a wrong assumption about nesting depth.
+**Find the existing `PVT` page space-wide by CQL before ever attempting to create one:**
+
+```bash
+A open "https://{domain}/wiki/rest/api/content/search?cql=space%3D{spaceKey}%20AND%20title%3D%22PVT%22&expand=ancestors&limit=5"
+A get text "body"
 ```
-browser_evaluate function="async () => {
+
+Read the single result's `id` and use it directly as `pvtId` for the year/month lookups below —
+only fall back to `createFolder('PVT', parentId)` if this search genuinely returns zero results.
+
+Run the move from the published page (the fetches need its origin and cookies):
+
+```bash
+A eval "(async () => {
   const pageId = location.pathname.match(/\/pages\/(\d+)\//)?.[1];
   const parentId = '{parentPageId}';
   const spaceKey = '{spaceKey}';  // e.g. 'SD', 'ZS', 'ZEN'
@@ -362,10 +560,9 @@ browser_evaluate function="async () => {
   }
 
   async function movePage(pid, newParentId) {
-    const r = await fetch('/wiki/rest/api/content/' + pid + '?expand=version,body.storage', {headers: {'Accept': 'application/json'}});
-    const p = await r.json();
-    const r2 = await fetch('/wiki/rest/api/content/' + pid, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'page', title: p.title, ancestors: [{id: parseInt(newParentId)}], version: {number: p.version.number + 1}, body: {storage: {value: p.body.storage.value, representation: 'storage'}}})});
-    if (!r2.ok) throw new Error('movePage failed: ' + r2.status);
+    // Use the purpose-built move endpoint — simpler and doesn't require version+body fetch
+    const r = await fetch('/wiki/rest/api/content/' + pid + '/move/append/' + newParentId, {method: 'PUT', headers: {'Accept': 'application/json', 'Content-Type': 'application/json'}});
+    if (!r.ok) throw new Error('movePage failed: ' + r.status);
   }
 
   const year = new Date().getFullYear().toString();
@@ -379,8 +576,10 @@ browser_evaluate function="async () => {
   if (!mo) mo = {id: await createFolder(month, yr.id)};
   await movePage(pageId, mo.id);
   return 'Moved to PVT / ' + year + ' / ' + month;
-}"
+})()"
 ```
+
+`A eval` awaits promises, so the async IIFE returns its resolved value directly.
 
 ### Step 6: Report results
 
@@ -388,25 +587,33 @@ Summarize:
 - Which macros were inserted successfully (and which tab was tested)
 - How many ForgeExtensionContainers rendered on the published page
 - PVT folder path where the page was moved
-- Any disconnects or errors encountered
+- Any errors encountered (include `A console` output — it covers the macro OOPIF's own logs)
 - Screenshot
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| Browser disconnects when trying to type "/" | Use `browser_type ref=<editor-ref> text="/"` — NEVER `browser_press_key('/')` |
-| `browser_type` fails with "ref required" | Take `browser_snapshot` first to get current refs |
-| Refs are stale (wrong element clicked) | Always re-snapshot after any DOM change |
-| `browser_wait_for text="Sequence"` times out | "Sequence" is in the iframe — use `browser_take_screenshot` + wait instead |
-| Publish button stays disabled | Title input is empty — fill it first with `browser_type` |
-| Details panel opens instead of editor | Stale ref — re-snapshot and use fresh editor ref |
-| CSAT survey blocks title input | Look for Dismiss button ref in snapshot, click it |
+| Slash menu does not open | Two causes. (a) `A fill` bypasses ProseMirror's `input` events — use `A keyboard type "/"`. (b) The body editor is not mounted yet: after setting the title, `A press Enter` — until then `document.querySelector('[contenteditable]')` is null and the keystroke goes to the title textarea (hit on production 2026-09-07) |
+| First tab click in the macro editor does nothing | The Starter-templates gallery is open over it. Close it with `aria-label="Close template gallery"`; the generic `Close` selector does not match. It also re-opens on a later mount, so re-check rather than assuming one dismissal holds |
+| The macro editor opens on the wrong diagram tab | `TabSwitcher` persists the last-used type to localStorage, so a fresh macro opens on whatever the previous run selected. Always click the tab you want and assert `aria-selected === 'true'` before publishing |
+| "/" appears as plain text in the editor | Caret is not in a text position; click `[data-testid="ak-editor-fp-content-area"]` first, then re-snapshot |
+| Refs are stale (wrong element clicked) | Re-snapshot after any DOM change, any navigation, and any `frame` switch |
+| `A wait --text "Sequence"` times out | "Sequence" is inside the Forge iframe — enter the frame first, or use `A wait <ms>` + `A screenshot` |
+| Publish button stays disabled | Title input is empty — set it first |
+| Diagram title fill matches nothing / hangs | The Sequence/Mermaid/PlantUML title placeholder was renamed `Name your diagram…` → `Untitled diagram` (`DiagramTitleInput.vue`, shipped v2026.08.222120). Use `input[placeholder="Untitled diagram"]`. Graph (`Name your graph…`, `DrawIoHeader.vue`) and OpenAPI (`Title`, `OpenApiTitleInput.tsx`) are unchanged |
+| Details panel opens instead of editor | Stale ref — re-snapshot and use a fresh editor ref |
+| CSAT survey blocks title input | Find the Dismiss button in the snapshot and click it |
 | Macro search returns 0 results | App not installed — report and skip |
-| Browser disconnects after macro insert | `browser_close` then `browser_navigate` back to edit URL — draft is auto-saved |
-| Garbage text (e.g. "/hel") appears in editor | Remove via `browser_evaluate` querying `[contenteditable] p` containing the text |
-| `fill('/')` inserts "/" as text without triggering slash menu | Editor already has macro nodes — use `slowly: true` (pressSequentially) instead of fill |
-| Slash menu doesn't appear after `slowly: true` | Use toolbar "Insert elements" button (find its ref in snapshot) as fallback |
-| Second/third macro not visible on published page | Cursor repositioning (Step 2d) failed — editor was not active when typing "/". Always verify `[contenteditable=true]` before proceeding |
-| DrawIO editor needs depth ≥ 10 snapshot | DrawIO is double-nested: outer `hosted-resources-iframe` (f72e*) + inner DrawIO canvas iframe (f74e*). Title is in outer (f72e*), Publish button is in inner (f74e*) |
-| OpenAPI title field is "Title" not "Name your diagram…" | OpenAPI modal uses different label — search for `textbox "Title"` in snapshot, not "Name your diagram…" |
+| Garbage text (e.g. "/hel") appears in editor | Remove via `A eval` querying `[contenteditable] p` containing the text |
+| A button confirmed present by `eval` but `find role … --name` times out | Role/name matching is unreliable across this app (the paywall's Continue button has a mismatched `aria-label`; other buttons fail intermittently for reasons not yet determined) — use the mark-then-click pattern |
+| `frame` reports `✓ Done` but `eval` still runs in the top document | agent-browser older than the 2026-08-17 nested-frame patch — check with `A eval "location.host"` and upgrade |
+| DrawIO shape picker opens but no shape is inserted | An `eval`-driven `el.click()` does not register with DrawIO — use `A find first ".geShapePicker .geItem" click` (real CDP click) |
+| `hosted-resources-iframe` matches several elements | Multi-install site, or the page banner also renders one — always scope with `[data-testid="custom-ui-fullscreen-modal-dialog"] [data-testid="hosted-resources-iframe"]` (hit even on single-variant `lite-stg`, 2026-07-27) |
+| iframe not found with `custom-ui-modal-dialog` | Obsolete — all variants now use `custom-ui-fullscreen-modal-dialog` (verified 2026-06-04, Lite + Full + Diagramly) |
+| Page title `[placeholder="Give this page a title"]` returns null | Use `textarea[name="editpages-title"]` instead |
+| `publish-button` click blocked by a blanket overlay | The "Publish page" confirmation modal is open — mark-then-click its own Publish button (the LAST one in the DOM) |
+| Lite paywall modal appears at macro-editor mount, blocking tab/title interaction | See **Lite paywall** section — `lite-stg`/`SD` is intentionally over the 100-macro limit; handle unconditionally, don't treat as an error |
+| Paywall "Continue editing" button gone, replaced by "Request extension" text | Counter (`paywallContinueAttempts:…`) hit 0 — cumulative across all past sessions, not per-run. Delete the key from the **Forge iframe origin's** localStorage (see **Lite paywall** section) |
+| "Unsaved changes from N mins ago" banner blocks the tab click | A prior aborted run left an in-progress edit. Click its `Discard` button (see **Lite paywall** section) |
+| `createFolder('PVT', parentId)` 400s "already exists" even though a parent-scoped search found nothing | The existing `PVT` page isn't a direct child of `parentId` — Confluence titles are unique per-space, not per-parent. Find it space-wide by CQL first (see Step 5's second gotcha) |

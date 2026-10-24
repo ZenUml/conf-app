@@ -1,75 +1,48 @@
-import SwaggerUIBundle from 'swagger-ui'
 import "swagger-ui/dist/swagger-ui.css";
-import SpecListener from './utils/spec-listener'
 import './assets/tailwind.css'
 
-import OpenApiExample from '@/model/OpenApi/OpenApiExample'
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import globals from '@/model/globals';
 import OpenApiViewer from "@/components/Viewer/OpenApiViewer.vue";
 import EventBus from './EventBus'
-import {mountRoot} from "@/mount-root";
-import macroMetrics from "@/services/MacroMetrics";
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import store from "@/model/store2";
-import { Diagram, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import type { Diagram } from "@/model/Diagram/Diagram";
+import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
+import { openDocument } from '@/utils/documentOpening/openDocument';
+// resolveOpenApiId carries the pasted-deeplink fallback this file used to do
+// inline — see openApiTarget.ts.
+import { buildOpenApiViewerTarget, resolveOpenApiId } from '@/utils/documentOpening/targets/openApiTarget';
+import { mapOpenErrorToLoadError } from '@/utils/viewerLoadOutcome';
+// Still needed by the `edit` handler below, which forwards the macro's id into
+// the editor modal — that path is not part of the openDocument refactor.
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { guardEditClick } from '@/utils/guardEditClick';
 
-// @ts-ignore
-window.SwaggerUIBundle = SwaggerUIBundle;
-
-function initSwaggerUi() {
-  const elementId = 'swagger-ui';
-  const element = document.getElementById(elementId);
-  if(element && element.innerHTML.trim()) {
-    element.innerHTML = '';
-  }
-
-  const ui = SwaggerUIBundle({
-    // url: "https://petstore.swagger.io/v2/swagger.json",
-    dom_id: `#${elementId}`,
-    presets: [
-      SwaggerUIBundle.presets.apis,
-      // SwaggerUIStandalonePreset
-    ],
-    plugins: [
-      SwaggerUIBundle.plugins.DownloadUrl,
-      SpecListener
-    ],
-    // requestSnippetsEnabled: true,
-    // layout: "StandaloneLayout"
-  })
-
-  // eslint-disable-next-line
-  // @ts-ignore
-  window.ui = ui
-}
-
-async function loadDiagram() {
-
+async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
-  let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
-  if(!customContentId) {
-  } else {
-    const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-    console.log('loadDiagram - customContent', customContent);
-    doc = customContent?.value;
+  const pageId = context.extension?.content?.id;
+  const outcome = await openDocument({
+    policy: 'read',
+    context,
+    pageId,
+    target: buildOpenApiViewerTarget(),
+  });
+  if (outcome.kind === 'failed') {
+    // Pipeline OpenError → store-level DiagramLoadError at this boundary, so
+    // the recovery panel (GenericViewer, store.viewerLoadState) and the
+    // openDocument pipeline keep their own vocabularies without a third one.
+    return { doc: undefined, loadError: mapOpenErrorToLoadError(outcome.error) };
   }
-  store.state.diagram = doc ?? NULL_DIAGRAM;
-  window.diagram = doc ?? NULL_DIAGRAM;
-  console.log('loadDiagram - window.diagram', window.diagram);
+  return { doc: outcome.document.doc, loadError: null, attribution: outcome.document.attribution };
+}
 
-  // eslint-disable-next-line
-  // @ts-ignore
-  window.updateSpec(doc?.code || OpenApiExample);
-
+function afterLoad(doc: Diagram | undefined) {
   setTimeout(async function () {
     try {
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(doc?.code ?? '');
+        await createAttachmentIfContentChanged(doc?.code ?? '', 'openapi');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
       }
@@ -83,34 +56,47 @@ async function loadDiagram() {
 }
 
 async function initializeMacro() {
-  await globals.apWrapper.initializeContext();
-  trackAnalyticsEvent("macro_viewed", {
-    feature_area: "macro",
-    surface: "viewer",
-    macro_type: "openapi",
-    entry_point: "page_view",
+  await bootstrapForgeViewer({
+    macroKind: 'openapi',
+    content: OpenApiViewer,
+    loadDiagram,
+    afterLoad,
+    // Same resolver the TargetSpec above uses (config, falling back to the
+    // dashboard modal's carried id) — this also doubles as the SWR cache key,
+    // so it must resolve the SAME id `loadDiagram`'s openDocument() call does.
+    resolveContentId: (context) => resolveOpenApiId(context)?.contentId,
+    onError: (error) => {
+      console.error('Error loading OpenAPI viewer', error);
+    },
   });
-
-  // Initialize with empty doc, will be loaded in loadDiagram
-  mountRoot(NULL_DIAGRAM, OpenApiViewer);
-  initSwaggerUi();
-
-  await loadDiagram();
 }
 
 export default initializeMacro();
 
 EventBus.$on('edit', async () => {
+  const ctx = await initForgeContext();
+  // Forward the macro's customContentId so the editor modal can load the
+  // right diagram via context.extension.modal.customContentId (matches the
+  // sequence-editor pattern in forgeIndex.ts). Without this, viewer-launched
+  // edits arrive at forge-swagger-editor.ts with no customContentId and are
+  // mistakenly treated as new-macro sessions.
+  // Resolved (not a raw config read) so a pasted macro forwards its real id
+  // instead of opening the editor as a new-macro session.
+  const customContentId = resolveEffectiveCustomContentId(ctx);
+  // Same-page duplicate gate — see forge-graph-viewer.ts. Memoized, so the
+  // shared forgeIndex listener firing on this same click costs no extra GET.
+  if (!(await guardEditClick({ customContentId, macroType: 'openapi' }))) return;
+
+
   await openModal({
     resource: 'main',
-    onClose: (payload: any) => {
-      console.log('onClose called with', payload);
+    onClose: () => {
       location.reload();
     },
-    size: 'max',
+    size: 'fullscreen',
     context: {
       macroMode: 'editor',
+      ...(customContentId && { customContentId }),
     },
   });
 });
-

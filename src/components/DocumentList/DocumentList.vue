@@ -28,8 +28,7 @@
         </div>
         <div class="w-80 flex-shrink-0 px-4 py-3 bg-white">
           <div class="flex items-center justify-end space-x-2">
-            <publish-button :save-and-exit="saveAndExit" />
-            <close-button :exit="exit" />
+            <publish-button :save-and-exit="saveAndExit" :loading="isSaving" />
           </div>
         </div>
 
@@ -53,8 +52,12 @@
                 :key="containerPage.id"
                 class="block px-6 py-3 bg-white border-t hover:bg-gray-50">
                 <div class="mt-2 text-sm text-gray-600">
+<!-- @click.prevent + openUrl: the Forge iframe sandbox has no
+                       allow-popups, so a bare target="_blank" anchor click is
+                       silently dropped. -->
                   <a :href="`${baseUrl}${containerPage.id}`"
                     target="_blank"
+                    @click.prevent="openUrl(`${baseUrl}${containerPage.id}`)"
                     class="flex items-center justify-between hover:underline group">
                     <span class="inline-block truncate">Page: {{ containerPage.title }}</span>
                     <svg xmlns="http://www.w3.org/2000/svg"
@@ -96,7 +99,6 @@
               :hideHeader="true"
               class="w-full h-full"
             />
-            <!-- Loading state -->
             <div v-else class="flex items-center justify-center h-full text-gray-500">
               Select a document to preview
             </div>
@@ -109,15 +111,16 @@
 
 <script>
 import PublishButton from "@/components/PublishButton.vue";
-import CloseButton from "@/components/CloseButton.vue";
-import { DiagramType, getDiagramData } from "@/model/Diagram/Diagram";
-import { loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
+import { DiagramType } from "@/model/Diagram/Diagram";
+import { getDiagramData, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { AtlasPage } from "@/model/page/AtlasPage";
 import _ from 'lodash';
 import { trackEvent } from "@/utils/window";
-import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import { getContext as initForgeContext, openUrl } from '@/model/globals/forgeGlobal';
 import globals from '@/model/globals';
+import { setupCloseGuard } from "@/utils/closeGuard";
+import { primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
 
 export default {
   name: 'DocumentList', // for embed-editor
@@ -129,7 +132,13 @@ export default {
       docTypeFilter: '',
       baseUrl: '',
       filterKeyword: '',
-      previewComponentCache: {} // Cache for loaded components
+      previewComponentCache: {}, // Cache for loaded components
+      sessionOriginalPickedId: null,
+      closeGuardOff: null,
+      // Drives the Publish button spinner while the embed save (repoint macro
+      // → view.submit) is in flight, cleared on the `saved`/`save-error`
+      // lifecycle. See Header.vue for the equivalent on the main editor.
+      isSaving: false,
     };
   },
   computed: {
@@ -137,7 +146,6 @@ export default {
       return DiagramType;
     },
     filteredCustomContentList() {
-      console.debug(`current filterKeyword: ${this.filterKeyword}`);
 
       const results = this.customContentList.filter(item => {
         if (!item?.id) {
@@ -156,7 +164,6 @@ export default {
         }
         return false;
       });
-      console.debug(`filteredCustomContentList:`, results);
       return results;
     },
     filteredPageList() {
@@ -164,7 +171,6 @@ export default {
       const emptyContainer = { id: '', title: '' };
       const pages = Object.keys(map).map(k => Object.assign({}, map[k][0].container || emptyContainer, { customContents: map[k] }));
       const sorted = _.sortBy(pages, [p => p.title?.toLowerCase()]);
-      console.debug(`filteredPageList:`, sorted);
       return sorted;
     },
     previewComponent() {
@@ -174,12 +180,15 @@ export default {
     saveAndExit: function () {
       const that = this;
       return function () {
+        if (that.isSaving) return; // guard against double-fire
         window.picked = that.picked;
+        that.startSaving();
         EventBus.$emit('save-embed', that.picked);
       }
     },
     exit: function () {
       return function () {
+        // Track exit from document list with context
         const that = this;
         trackEvent("exit", "document_list", DiagramType.Embed, {
           selected_document: that.picked?.id || null,
@@ -194,13 +203,47 @@ export default {
   watch: {
     picked: {
       async handler(newPicked) {
-        console.log('DocumentList - picked', newPicked);
+        // Capture the initial selection as the baseline for dirty-state detection.
+        // `picked` is set asynchronously by initializeForForge/Connect, so we can't
+        // capture in mounted(); the first non-empty value is our baseline.
+        if (newPicked?.id && this.sessionOriginalPickedId === null) {
+          this.sessionOriginalPickedId = newPicked.id;
+        }
         if (newPicked && newPicked.value?.diagramType) {
           await this.getPreviewComponentForForge(newPicked.value.diagramType);
         }
       },
       immediate: true
     }
+  },
+  async mounted() {
+    // Release the Publish button when the embed save completes or fails.
+    this._onSaved = () => this.stopSaving();
+    this._onSaveError = () => this.stopSaving();
+    EventBus.$on('saved', this._onSaved);
+    EventBus.$on('save-error', this._onSaveError);
+
+    await primeCloudId();
+    this._draftScope = 'new:embed';
+    this.closeGuardOff = setupCloseGuard(() => {
+      if (this.sessionOriginalPickedId === null) return;
+      if (this.picked?.id === this.sessionOriginalPickedId) return;
+      const cloudId = getCachedCloudId();
+      if (cloudId && this.picked?.id) {
+        // For embed, the "code" payload is just the selected id. The next
+        // mount can offer to restore by pre-selecting it.
+        saveDraftSync(this._draftScope, cloudId, {
+          code: String(this.picked.id),
+          title: '',
+        });
+      }
+    });
+  },
+  beforeUnmount() {
+    this.closeGuardOff?.();
+    clearTimeout(this._savingTimeout);
+    if (this._onSaved) EventBus.$off('saved', this._onSaved);
+    if (this._onSaveError) EventBus.$off('save-error', this._onSaveError);
   },
   async created() {
     await this.initializeForForge();
@@ -220,15 +263,27 @@ export default {
     }
   },
   methods: {
+    openUrl,
+    startSaving() {
+      this.isSaving = true;
+      // Safety net so an unexpected hang can't strand the spinner (embed save
+      // is only a repoint + 500ms writeback, but keep parity with Header.vue).
+      clearTimeout(this._savingTimeout);
+      this._savingTimeout = setTimeout(() => { this.isSaving = false; }, 20000);
+    },
+    stopSaving() {
+      this.isSaving = false;
+      clearTimeout(this._savingTimeout);
+    },
     async initializeForForge() {
+      // Forge mode: Get custom content ID from context and load content
       const context = await initForgeContext();
       const customContentId = context.extension?.config?.customContentId;
       
-      console.debug(`Forge mode - custom content id: ${customContentId}`);
       
       if (customContentId) {
+        // Load the specific custom content
         const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-        console.debug(`Forge mode - loaded custom content:`, customContent);
         
         if (customContent) {
           this.picked = customContent;
@@ -236,14 +291,15 @@ export default {
         }
       }
       
-      this.customContentList = await globals.apWrapper.searchCustomContentForge();
-      console.debug(`Forge mode - loaded custom content list:`, this.customContentList);
+      // Load all custom content for the list
+      this.customContentList = await globals.apWrapper.searchCustomContent();
     },
-    
+
     setFilter(docType) {
       this.docTypeFilter = docType;
     },
     selectDocument(customContentItem) {
+      // Update the picked document
       this.picked = customContentItem;
       
       if (this.$store) {
@@ -257,15 +313,14 @@ export default {
           isNew: false,
           ...customContentItem.value
         };
-        
+
         this.$store.state.diagram = diagram;
+
         window.diagram = diagram;
-        
-        console.log('DocumentList: Updated store with selected document', diagram);
+
       }
     },
     async getPreviewComponentForForge(diagramType) {
-      console.log('getPreviewComponentForForge', diagramType);
       if (this.previewComponentCache[diagramType]) {
         return this.previewComponentCache[diagramType];
       }
@@ -279,7 +334,6 @@ export default {
   },
   components: {
     PublishButton,
-    CloseButton,
   }
 }
 </script>

@@ -6,8 +6,6 @@ export default async function (features: string[]) {
   const client = getClientDomain();
   const featuresParam = features.join(",");
 
-  trackEvent(`${client || 'empty'}|${featuresParam}`, 'get_feature_flags_attempt', 'info');
-
   if (!client) {
     trackEvent('empty_client_domain', 'get_feature_flags', 'error');
     return {};

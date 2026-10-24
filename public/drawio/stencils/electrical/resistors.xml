@@ -237,8 +237,8 @@
 </shape>
 <shape aspect="variable" h="45" name="Resistor, Shunt" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.78"/>
-        <constraint name="out" perimeter="0" x="1" y="0.78"/>
+        <constraint name="in" perimeter="0" x="0" y="0.7778"/>
+        <constraint name="out" perimeter="0" x="1" y="0.7778"/>
         <constraint name="control1" perimeter="0" x="0.3" y="0"/>
         <constraint name="control2" perimeter="0" x="0.7" y="0"/>
     </connections>
@@ -514,8 +514,8 @@
 </shape>
 <shape aspect="variable" h="65.5" name="Trimmer Resistor 1" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.54"/>
-        <constraint name="out" perimeter="0" x="1" y="0.54"/>
+        <constraint name="in" perimeter="0" x="0" y="0.542"/>
+        <constraint name="out" perimeter="0" x="1" y="0.542"/>
     </connections>
     <background>
         <rect h="20" w="64" x="18" y="25.5"/>
@@ -537,8 +537,8 @@
 </shape>
 <shape aspect="variable" h="65.5" name="Trimmer Resistor 2" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.54"/>
-        <constraint name="out" perimeter="0" x="1" y="0.54"/>
+        <constraint name="in" perimeter="0" x="0" y="0.542"/>
+        <constraint name="out" perimeter="0" x="1" y="0.542"/>
     </connections>
     <foreground>
         <path>

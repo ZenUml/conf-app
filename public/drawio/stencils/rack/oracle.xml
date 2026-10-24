@@ -12,7 +12,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -115,7 +115,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -185,7 +185,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -265,7 +265,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -397,7 +397,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="109.5" y="141.75"/>
@@ -442,7 +442,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="0.301"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -574,7 +574,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="109.5" y="141.75"/>
@@ -626,7 +626,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -674,7 +674,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="0.301"/>
         <miterlimit limit="4"/>
         <dashpattern pattern="none"/>
@@ -723,7 +723,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -801,7 +801,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="106.5" y="6.5"/>
@@ -921,7 +921,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="20.69" h="82" w="14.5" x="2.5" y="36.5"/>
         <fill/>
@@ -942,7 +942,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1010,7 +1010,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="0.301"/>
         <miterlimit limit="4"/>
         <dashpattern pattern="none"/>
@@ -1067,7 +1067,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1105,7 +1105,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="8.5" y="8.5"/>
@@ -1140,7 +1140,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1208,7 +1208,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="20.69" h="56" w="14.5" x="2.5" y="32.5"/>
         <fill/>
@@ -1229,7 +1229,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1349,7 +1349,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="83.5" y="6.5"/>
@@ -1384,7 +1384,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1544,7 +1544,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="8.5" y="6.5"/>
@@ -1579,7 +1579,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1707,7 +1707,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="25" h="12" w="143" x="9.5" y="2.5"/>
         <fill/>
@@ -1728,7 +1728,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1776,7 +1776,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="20.69" h="82" w="14.5" x="2.5" y="36.5"/>
         <fill/>
@@ -1804,7 +1804,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1893,7 +1893,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="8.82" h="34" w="103" x="10.5" y="4.5"/>
         <fill/>
@@ -1913,7 +1913,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2031,7 +2031,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="132.5" y="1.5"/>
@@ -2103,7 +2103,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2196,7 +2196,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="88.5" y="4.5"/>
@@ -2237,7 +2237,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2336,7 +2336,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="18.75" h="42" w="16" x="1.5" y="1.5"/>
         <fill/>
@@ -2356,7 +2356,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2459,7 +2459,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="18.75" h="42" w="16" x="1.5" y="36.5"/>
         <fill/>
@@ -2479,7 +2479,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2547,7 +2547,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="5.5" y="61.5"/>
@@ -2588,7 +2588,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2656,7 +2656,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="20.69" h="56" w="14.5" x="2.5" y="32.5"/>
         <fill/>
@@ -2675,7 +2675,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2845,7 +2845,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -3464,7 +3464,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -3552,7 +3552,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="8.82" h="34" w="103" x="10.5" y="4.5"/>
         <fill/>
@@ -3572,7 +3572,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -3740,7 +3740,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="42.5" y="46.4"/>
@@ -3841,7 +3841,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -3939,7 +3939,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="50" h="5" w="95" x="11.5" y="2.5"/>
         <fill/>
@@ -3960,7 +3960,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -4108,7 +4108,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="9.5" y="5.5"/>
@@ -4141,7 +4141,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -4311,7 +4311,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -4481,7 +4481,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -4772,7 +4772,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.644"/>
         <path>
             <move x="158.77" y="11.52"/>
@@ -4831,7 +4831,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -4889,7 +4889,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="19.96" h="5.01" w="72.39" x="3.84" y="3.17"/>
         <fill/>
@@ -4909,7 +4909,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -4956,7 +4956,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="17.13" h="9.75" w="85.35" x="9.17" y="3.19"/>
         <fill/>
@@ -4976,7 +4976,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -5005,7 +5005,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="12.49" y="31.8"/>
@@ -5131,7 +5131,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <roundrect arcsize="10.15" h="49.28" w="96.29" x="9.83" y="5.49"/>
         <fill/>

@@ -1,0 +1,347 @@
+// Reusable primitives for testing the unsaved-edit close guard
+// (`src/utils/closeGuard.ts`) end-to-end through the Forge bridge fullscreen
+// modal. view.onClose flushes the editor draft before the iframe closes;
+// per-keystroke localStorage drafts also protect work if that callback is lost.
+// Verify dirty edits by reading the draft before closing through the visible
+// header X and reading it after reopening. Synthetic beforeunload is retained
+// only for clean editors; it is not the dirty-close protection mechanism.
+//
+// SCREENSHOT CONVENTION: when these helpers are used as part of a manually-
+// driven test execution (e.g. via Playwright MCP) that records evidence in
+// `docs/fullscreen-test-plan.html`, every test case should produce at least
+// one screenshot saved under `docs/screenshots/<case-key>.png`. The test
+// plan webpage renders inline thumbnails when the notes contain markdown
+// `![](docs/screenshots/foo.png)` — that's the integration point.
+// `.playwright-mcp/` is NOT served by Vite, so screenshots saved there
+// won't render in the test plan.
+
+import { Page, FrameLocator, expect } from '@playwright/test';
+
+export type EditorKind = 'sequence' | 'graph' | 'openapi' | 'embed';
+
+/**
+ * Locate the Forge bridge modal's editor iframe content frame. Matches the
+ * `data-testid="custom-ui-fullscreen-modal-dialog"` selector that Forge uses for Custom
+ * UI bridge modals — same convention as `EditorPage.interactWithForgeDiagramMacro`.
+ */
+export function bridgeModalFrame(page: Page): FrameLocator {
+  return page
+    .getByTestId('custom-ui-fullscreen-modal-dialog')
+    .locator('[data-testid="hosted-resources-iframe"]')
+    .contentFrame();
+}
+
+/**
+ * Wait for the bridge modal to be open and its editor iframe to have loaded.
+ * Use after triggering insert or edit. Throws if the modal doesn't appear.
+ */
+export async function waitForBridgeModal(page: Page, timeoutMs = 15_000): Promise<void> {
+  const modal = page.getByTestId('custom-ui-fullscreen-modal-dialog');
+  await expect(modal).toBeVisible({ timeout: timeoutMs });
+  await expect(modal.locator('[data-testid="hosted-resources-iframe"]')).toBeVisible({ timeout: timeoutMs });
+}
+
+/**
+ * Dispatch a synthetic `beforeunload` event in the given frame and return
+ * whether the listener called preventDefault. The deterministic primitive.
+ *
+ * Caveats:
+ *  - In-iframe instrumentation (defineProperty getters/setters on window
+ *    state, monkey-patches on Event.prototype) leaks across dispatches and
+ *    can produce false-positive `defaultPrevented=true`. Re-open the modal
+ *    between independent tests rather than dispatching repeatedly in the
+ *    same frame.
+ *  - Do NOT pre-seed `event.returnValue` — WebIDL boolean conversion turns
+ *    `undefined` into `false` which sets the canceled flag before dispatch.
+ */
+export async function dispatchSyntheticBeforeunload(frame: FrameLocator): Promise<boolean> {
+  return frame.locator('body').evaluate(() => {
+    const e = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+}
+
+/**
+ * Read back the per-keystroke draft the editor persists to localStorage
+ * (`zenuml.draft.<cloudId>.<scope>` — see src/utils/draftStore.ts).
+ *
+ * This is the mechanism that REPLACED beforeunload. src/utils/closeGuard.ts
+ * explains why: a parent page JS-destroying an iframe fires beforeunload
+ * listeners but suppresses the dialog by design, so the old synthetic-dispatch
+ * assertion only ever proved a listener was registered. The listener is gone
+ * now; the draft is what actually protects unsaved work, so that is what the
+ * dirty-path tests assert.
+ *
+ * Scans rather than reconstructing the key, because cloudId is resolved inside
+ * the iframe and the scope differs between create (`new:openapi`) and edit
+ * (`edit:<id>`).
+ */
+export async function readPersistedDraft(
+  frame: FrameLocator,
+): Promise<{ key: string; code: string } | null> {
+  return frame.locator('body').evaluate(() => {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith('zenuml.draft.')) continue;
+      try {
+        const value = JSON.parse(localStorage.getItem(key) ?? 'null');
+        if (value && typeof value.code === 'string') return { key, code: value.code };
+      } catch {
+        // Corrupt entry — keep scanning.
+      }
+    }
+    return null;
+  });
+}
+
+/**
+ * Same primitive but operating on the top-level Confluence page, not a
+ * Forge iframe. Useful for `page-actions:3` (close-page-while-dirty) where
+ * Confluence's own editor registers a beforeunload listener.
+ */
+export async function dispatchSyntheticBeforeunloadOnPage(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const e = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+}
+
+/**
+ * Convenience: assert clean state, then dirty the editor, then assert dirty.
+ * The single-call shape future tests should use.
+ */
+export async function expectGuardContract(
+  page: Page,
+  kind: EditorKind,
+  options: { dirtyAction?: () => Promise<void> } = {},
+): Promise<void> {
+  const frame = bridgeModalFrame(page);
+
+  // Clean baseline — editor mounted but no edits yet.
+  const cleanResult = await dispatchSyntheticBeforeunload(frame);
+  expect(cleanResult, `clean dispatch for ${kind}`).toBe(false);
+
+  const previousDraft = await readPersistedDraft(frame);
+
+  // Editor-specific dirty action (or caller-provided override).
+  if (options.dirtyAction) {
+    await options.dirtyAction();
+  } else {
+    await dirtyEditor(page, kind);
+  }
+
+  await expect.poll(async () => {
+    const draft = await readPersistedDraft(frame);
+    return Boolean(draft?.code && draft.code !== previousDraft?.code);
+  }, { timeout: 15_000 }).toBe(true);
+}
+
+/**
+ * Per-editor "make it dirty" action. Each editor exposes a different
+ * mechanism for state mutation, but the abstraction is the same: change
+ * something the editor's per-keystroke draft saver observes.
+ */
+export async function dirtyEditor(page: Page, kind: EditorKind): Promise<void> {
+  const frame = bridgeModalFrame(page);
+  switch (kind) {
+    case 'sequence':
+      await dirtySequenceEditor(frame);
+      return;
+    case 'openapi':
+      await dirtyOpenApiEditor(frame);
+      return;
+    case 'graph':
+      await dirtyGraphEditor(frame);
+      return;
+    case 'embed':
+      await dirtyEmbedPicker(frame);
+      return;
+  }
+}
+
+/**
+ * Sequence/Mermaid/PlantUML editor: type into the CodeMirror surface.
+ * The Vue `Header.vue` component watches `currentCode` against `originalCode`.
+ */
+async function dirtySequenceEditor(frame: FrameLocator): Promise<void> {
+  const cm = frame.locator('.cm-content, .CodeMirror textarea').first();
+  await cm.click();
+  await cm.press('End');
+  await cm.pressSequentially(' // dirty', { delay: 30 });
+}
+
+/**
+ * The spec dirtyOpenApiEditor types in. Valid OpenAPI (so Publish still works
+ * for callers that save afterwards) with a title that differs from the
+ * OpenApiExample template every OpenAPI test starts from.
+ */
+const DIRTY_OPENAPI_SPEC = `openapi: 3.0.0
+info:
+  title: Dirty Edit
+  version: 0.0.1
+paths: {}
+`;
+
+/**
+ * OpenAPI/Swagger editor: type into the YAML editor textarea.
+ * `react/Header.tsx` captures the baseline lazily via `window.specListeners`
+ * (the first non-empty spec value); typing fires the listener and updates
+ * `window.specContent`.
+ */
+async function dirtyOpenApiEditor(frame: FrameLocator): Promise<void> {
+  // Ace keeps its real input in an off-screen `textarea.ace_text-input` and
+  // paints the visible text in `.ace_content` on top of it. Two consequences,
+  // both of which this helper used to get wrong:
+  //
+  //  1. Clicking the textarea always loses to "ace_content intercepts pointer
+  //     events". Click the content layer — that is what ace itself listens on.
+  //  2. That textarea is a one-character proxy, not the document, so
+  //     `pressSequentially` against it silently no-ops: the buffer came back
+  //     byte-identical and every caller's assertion failed. Select the whole
+  //     document and `fill()` instead — the one ace-input path in this repo
+  //     known to work (enterCodeInAceEditor in DiagramTestHelper.ts).
+  //
+  // The replacement is a valid spec with a DIFFERENT `info.title` on purpose:
+  // callers assert both that the buffer changed AND that the rendered swagger
+  // heading changed, and the old ` # dirty` append satisfied neither — it is a
+  // YAML comment, so it could never move `info.title`.
+  const aceContent = frame.locator('.ace_content').first();
+  await aceContent.waitFor({ state: 'visible', timeout: 15_000 });
+  await aceContent.click();
+  const textarea = frame.locator('textarea').first();
+  await textarea.press('ControlOrMeta+a');
+  await textarea.fill(DIRTY_OPENAPI_SPEC);
+
+  // Ace's buffer changes synchronously, but swagger-editor syncs ace ->
+  // `window.specContent` through a debounce, and that is the value both the
+  // close guard and the callers' assertions read. Callers used to sleep a flat
+  // 500ms, which is under the debounce for a whole-buffer replace — the editor
+  // visibly held the new spec while `specContent` still held the old one. Wait
+  // for the propagation instead of guessing at it.
+  await frame
+    .locator('body')
+    .evaluate(
+      (_el, expected) =>
+        new Promise<void>((resolve) => {
+          const deadline = Date.now() + 5000;
+          const tick = () => {
+            const w = window as unknown as { specContent?: string };
+            if (w.specContent?.includes(expected) || Date.now() > deadline) resolve();
+            else setTimeout(tick, 100);
+          };
+          tick();
+        }),
+      'Dirty Edit',
+    )
+    .catch(() => {});
+}
+
+/** Marker XML the graph dirty-path helpers dispatch and then assert on. */
+export const GRAPH_DIRTY_MARKER = 'zenuml-e2e-dirty-marker';
+
+const GRAPH_DIRTY_XML = `<mxfile><diagram name="Page-1"><mxGraphModel><root>`
+  + `<mxCell id="0" /><mxCell id="1" parent="0" />`
+  + `<mxCell id="dirty" value="${GRAPH_DIRTY_MARKER}" vertex="1" parent="1" />`
+  + `</root></mxGraphModel></diagram></mxfile>`;
+
+/**
+ * DrawIO editor: simulate a DrawIO autosave with `modified: true`.
+ *
+ * The xml payload is REQUIRED, not decoration. ForgeGraphEditor.vue's autosave
+ * handler only reaches the draft saver inside `if (payload.xml)`, so a payload
+ * without it flips the component's dirty flag and persists nothing — which is
+ * why the dirty-path assertions must key off the persisted draft (see
+ * readPersistedDraft) rather than any window global.
+ */
+async function dirtyGraphEditor(frame: FrameLocator): Promise<void> {
+  await frame.locator('body').evaluate((_el, xml) => {
+    const drawioFrame = document.querySelector('iframe') as HTMLIFrameElement | null;
+    if (!drawioFrame?.contentWindow) {
+      throw new Error('DrawIO inner iframe not found');
+    }
+    // The Vue message handler listens on the OUTER window, so we
+    // dispatch the message there directly (no need to round-trip through
+    // postMessage if we're in the same realm — which we are because the
+    // handler is `addEventListener('message', ...)` on the editor's
+    // window).
+    window.dispatchEvent(new MessageEvent('message', {
+      data: JSON.stringify({ event: 'autosave', modified: true, xml }),
+    }));
+  }, GRAPH_DIRTY_XML);
+}
+
+/**
+ * Embed picker (DocumentList.vue): click a different document so picked.id
+ * changes. Falls back to JS-level mutation if no second document is visible.
+ */
+async function dirtyEmbedPicker(frame: FrameLocator): Promise<void> {
+  const items = frame.locator('a[class*="block px-6 py-3"]:has(span.font-semibold)');
+  const count = await items.count();
+  if (count >= 2) {
+    // Click the second item if first is the initial selection.
+    await items.nth(1).click();
+    return;
+  }
+  if (count === 1) {
+    await items.first().click();
+    return;
+  }
+  throw new Error('Embed picker has no documents to switch to — cannot dirty');
+}
+
+/**
+ * Click the Atlassian header X. Use with `page.on('dialog', ...)` registered
+ * BEFORE the click. Returns whether a dialog event fired.
+ *
+ * Some headless Playwright configurations auto-dismiss beforeunload without
+ * surfacing a dialog event; treat a no-dialog result as inconclusive rather
+ * than a guard failure unless you can independently confirm via synthetic
+ * dispatch that the guard is registered.
+ */
+/**
+ * Save a screenshot to `docs/screenshots/<name>.png` (the path the test plan
+ * webpage serves) and return the markdown image string ready to embed in a
+ * test-plan note. The convention enforces that every test execution records
+ * visual evidence.
+ *
+ *   const md = await attachScreenshot(page, 'rerun-cross-6');
+ *   notes += '\n\n' + md;
+ *
+ * Pass `element` for a node-scoped shot, or omit for a viewport shot.
+ */
+export async function attachScreenshot(
+  page: Page,
+  name: string,
+  options: { fullPage?: boolean; element?: import('@playwright/test').Locator } = {},
+): Promise<string> {
+  const path = `docs/screenshots/${name}.png`;
+  if (options.element) {
+    await options.element.screenshot({ path });
+  } else {
+    await page.screenshot({ path, fullPage: options.fullPage ?? false });
+  }
+  return `![](${path})`;
+}
+
+export async function clickHeaderXAndCaptureDialog(
+  page: Page,
+  options: { timeoutMs?: number; accept?: boolean } = {},
+): Promise<{ fired: boolean; type?: string }> {
+  const dialogPromise = page.waitForEvent('dialog', { timeout: options.timeoutMs ?? 5_000 })
+    .catch(() => null);
+
+  const closeBtn = page.getByTestId('custom-ui-fullscreen-modal-dialog').getByRole('button', { name: /close/i }).first();
+  await closeBtn.click();
+
+  const dialog = await dialogPromise;
+  if (!dialog) return { fired: false };
+
+  if (options.accept) {
+    await dialog.accept();
+  } else {
+    await dialog.dismiss();
+  }
+  return { fired: true, type: dialog.type() };
+}

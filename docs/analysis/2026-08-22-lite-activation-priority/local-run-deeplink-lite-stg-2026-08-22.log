@@ -1,0 +1,57 @@
+
+Running 8 tests using 1 worker
+
+🚀 Starting authentication setup...
+📁 Found existing auth state at /Users/pengxiao/workspaces/zenuml/conf-app/tests/e2e-tests/auth-state-lite-stg.atlassian.net.json — validating session...
+✅ Cached session is live — skipping authentication setup
+  ✓  1 [auth] › tests/setup/auth.setup.ts:35:6 › authenticate (2.4s)
+  ✓ Parent page loaded
+  ✓ Editor ready: "Smoke Test 2026-08-22T01-30-11 Lite 8ea8x"
+  [debug] clickInsertElements[1]: typing "/" to open slash menu
+  [diag] before-viewmore[1] | dialogs: [] | popups: [listbox]
+  [debug] clickInsertElements[1]: clicked View more
+  [diag] after-viewmore[1] | dialogs: [Browse] | popups: [dialog]
+  [debug] clickInsertElements[1]: combobox ready [2970ms]
+  [debug] Typed "diagram" into Insert elements combobox
+  [debug] Options for "diagram" (5 total): ["DiagramCreate a whiteboard using the flowchart template","Diagram (Mermaid, PlantUML & ZenUML) Lite (Staging)Create diagrams with Mermaid, PlantUML & ZenUML. ZenUML for Confluence Lite","draw.io DiagramInserts a new draw.io diagram","Embed draw.io DiagramEmbed an existing draw.io diagram","Embed a Diagram, Graph or API Spec Lite (Staging)Embed an existing Diagram, Graph or API Spec. ZenUML for Confluence Lite"]
+  ✓ Page published
+  ✓ 1 macro iframe(s) visible on published page [frame_visible_ms=3]
+  ℹ auto-copy headline: Saved — copy the link to place it
+  ℹ manual-copy button after click: ✓ Copied
+  ✓  2 [insert] › tests/insert/byline-create.spec.ts:73:7 › Byline create path - lite › lists the page's diagrams, then hands back an editable typed deeplink (12.9s)
+  ✓ Parent page loaded
+  ✓ Editor ready: "Smoke Test 2026-08-22T01-30-52 Lite udeba"
+  ✓  3 [insert] › tests/insert/embed-deeplink-autoconvert.spec.ts:24:7 › Embed deeplink autoConvert - lite › pasting a /d/ deeplink converts to the embed macro (not a smart-link) (8.6s)
+  ✓ Parent page loaded
+  ✓ Editor ready: "Smoke Test 2026-08-22T01-31-01 Lite eltnt"
+  ✓  4 [insert] › tests/insert/typed-deeplink-autoconvert.spec.ts:83:9 › Typed diagram deeplink autoConvert - lite › /d/sequence/ and /new/sequence both convert to the sequence macro (9.1s)
+  ✓ Parent page loaded
+  ✓ Editor ready: "Smoke Test 2026-08-22T01-31-09 Lite 8nmbv"
+  ✓  5 [insert] › tests/insert/typed-deeplink-autoconvert.spec.ts:83:9 › Typed diagram deeplink autoConvert - lite › /d/mermaid/ and /new/mermaid both convert to the mermaid macro (8.8s)
+  ✓ Parent page loaded
+  ✓ Editor ready: "Smoke Test 2026-08-22T01-31-18 Lite m1hxm"
+  ✓  6 [insert] › tests/insert/typed-deeplink-autoconvert.spec.ts:83:9 › Typed diagram deeplink autoConvert - lite › /d/graph/ and /new/graph both convert to the graph macro (8.2s)
+  ✓ Parent page loaded
+  ✓ Editor ready: "Smoke Test 2026-08-22T01-31-26 Lite n891z"
+  ✓  7 [insert] › tests/insert/typed-deeplink-autoconvert.spec.ts:83:9 › Typed diagram deeplink autoConvert - lite › /d/openapi/ and /new/openapi both convert to the openapi macro (7.9s)
+  ✓ Parent page loaded
+  ✓ Editor ready: "Smoke Test 2026-08-22T01-31-34 Lite flogn"
+  [debug] clickInsertElements[1]: typing "/" to open slash menu
+  [diag] before-viewmore[1] | dialogs: [] | popups: [listbox]
+  [debug] clickInsertElements[1]: clicked View more
+  [diag] after-viewmore[1] | dialogs: [Browse] | popups: [dialog]
+  [debug] clickInsertElements[1]: combobox ready [2854ms]
+  [debug] Typed "graph" into Insert elements combobox
+  [debug] Options for "graph" (3 total): ["Graph (DrawIO) Lite (Staging)Create a Graph powered by DrawIO. ZenUML for Confluence Lite","Embed a Diagram, Graph or API Spec Lite (Staging)Embed an existing Diagram, Graph or API Spec. ZenUML for Confluence Lite","Resolution TimeDisplays a bar graph of elapsed time to resolve work items for a space or filter."]
+  ✓ Page published
+  ✓ 1 macro iframe(s) visible on published page [frame_visible_ms=1009]
+  ✓ macro rendered content verified (inside iframe) [content_verify_ms=9]
+  ✓ source diagram custom content: 227311756
+  ✓ Parent page loaded
+  ✓ Editor ready: "Smoke Test 2026-08-22T01-32-11 Lite 03s24"
+  ✓ Page published
+  ✓ 1 macro iframe(s) visible on published page [frame_visible_ms=1016]
+  ✓ macro rendered content verified (inside iframe) [content_verify_ms=12]
+  ✓  8 [insert] › tests/insert/typed-deeplink-render.spec.ts:93:7 › Typed deeplink renders its target - lite › a pasted graph deeplink renders the diagram, not an empty canvas (49.3s)
+
+  8 passed (2.3m)

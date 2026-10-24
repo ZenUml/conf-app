@@ -1,3 +1,4 @@
+import { json } from '../OkResponse';
 import type { SpaceLicenseRecord } from './space-license'
 
 interface Env {
@@ -10,18 +11,12 @@ interface StripeCheckoutSession {
   customer_email: string | null
   customer_details?: { email?: string }
   metadata: Record<string, string>
+  client_reference_id?: string | null
 }
 
 interface StripeEvent {
   type: string
   data: { object: StripeCheckoutSession }
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
 }
 
 async function verifyStripeSignature(
@@ -109,49 +104,103 @@ async function activateLicense(
   }
 }
 
+/**
+ * The Payment Link stamps `client_reference_id=<domain>__<spaceKey>` (see
+ * useCustomerSuccessService.enterpriseBundleUrl). A Confluence subdomain can
+ * only contain [a-z0-9-] (DNS), so the FIRST `__` unambiguously splits domain
+ * from spaceKey even though a sanitised spaceKey may itself contain `_`
+ * (personal-space `~` is replaced with `_` before stamping — those keys will
+ * not match the real KV key and still need manual activation).
+ */
+export function parseClientReference(
+  ref: string | null | undefined
+): { domain: string; spaceKey: string } | null {
+  if (!ref) return null
+  const idx = ref.indexOf('__')
+  if (idx <= 0) return null
+  const domain = ref.slice(0, idx)
+  const spaceKey = ref.slice(idx + 2)
+  if (!spaceKey) return null
+  if (!/^[a-z0-9-]+$/.test(domain)) return null
+  return { domain, spaceKey }
+}
+
+async function resolveCloudId(domain: string): Promise<string | null> {
+  const res = await fetch(`https://${domain}.atlassian.net/_edge/tenant_info`)
+  if (!res.ok) return null
+  const body = (await res.json()) as { cloudId?: string }
+  return body.cloudId ?? null
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context
 
   if (request.method !== 'POST') {
-    return jsonResponse(405, { error: 'method_not_allowed' })
+    return json({ error: 'method_not_allowed' }, { status: 405 })
   }
 
   if (!env.STRIPE_WEBHOOK_SECRET || !env.SPACE_LICENSE_KV) {
     console.error('Missing STRIPE_WEBHOOK_SECRET or SPACE_LICENSE_KV binding')
-    return jsonResponse(500, { error: 'server_configuration' })
+    return json({ error: 'server_configuration' }, { status: 500 })
   }
 
   const signature = request.headers.get('stripe-signature')
   if (!signature) {
-    return jsonResponse(400, { error: 'missing_signature' })
+    return json({ error: 'missing_signature' }, { status: 400 })
   }
 
   const payload = await request.text()
   const valid = await verifyStripeSignature(payload, signature, env.STRIPE_WEBHOOK_SECRET)
   if (!valid) {
-    return jsonResponse(400, { error: 'invalid_signature' })
+    return json({ error: 'invalid_signature' }, { status: 400 })
   }
 
   let event: StripeEvent
   try {
     event = JSON.parse(payload) as StripeEvent
   } catch {
-    return jsonResponse(400, { error: 'invalid_json' })
+    return json({ error: 'invalid_json' }, { status: 400 })
   }
 
   if (event.type !== 'checkout.session.completed') {
-    return jsonResponse(200, { received: true, action: 'ignored' })
+    return json({ received: true, action: 'ignored' }, { status: 200 })
   }
 
   const session = event.data.object
-  const { cloudId, spaceKey } = session.metadata ?? {}
+  let { cloudId, spaceKey } = session.metadata ?? {}
+
+  // Payment Links can't set metadata; the purchase surface stamps
+  // client_reference_id instead. Fall back to it when metadata is absent.
+  if (!cloudId || !spaceKey) {
+    const parsed = parseClientReference(session.client_reference_id)
+    if (parsed) {
+      spaceKey = parsed.spaceKey
+      const resolved = await resolveCloudId(parsed.domain).catch(() => null)
+      if (!resolved) {
+        // Transient tenant_info failure must NOT ack the event — a 500 makes
+        // Stripe retry, so a real payment can't silently fail to activate.
+        console.error(
+          `Stripe session ${session.id}: could not resolve cloudId for domain "${parsed.domain}"`
+        )
+        return json({
+          error: 'cloud_id_resolution_failed',
+          message: `Could not resolve cloudId for ${parsed.domain}`,
+        }, { status: 500 })
+      }
+      cloudId = resolved
+    }
+  }
 
   if (!cloudId || !spaceKey) {
-    console.error('Stripe session missing cloudId or spaceKey in metadata', session.id)
-    return jsonResponse(400, {
+    console.error(
+      'Stripe session missing cloudId/spaceKey in metadata AND no parseable client_reference_id',
+      session.id
+    )
+    return json({
       error: 'missing_metadata',
-      message: 'Checkout session metadata must include cloudId and spaceKey',
-    })
+      message:
+        'Checkout session must carry cloudId+spaceKey metadata or a <domain>__<spaceKey> client_reference_id',
+    }, { status: 400 })
   }
 
   const activatedBy =
@@ -160,9 +209,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     await activateLicense(env.SPACE_LICENSE_KV, cloudId, spaceKey, session.id, activatedBy)
     console.log(`Space license activated: ${cloudId}/${spaceKey} via Stripe session ${session.id}`)
-    return jsonResponse(200, { received: true, cloudId, spaceKey })
+    return json({ received: true, cloudId, spaceKey }, { status: 200 })
   } catch (error) {
     console.error('Failed to activate license:', error)
-    return jsonResponse(500, { error: 'activation_failed' })
+    return json({ error: 'activation_failed' }, { status: 500 })
   }
 }

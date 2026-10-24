@@ -69,4 +69,25 @@ describe('ReviewStore', () => {
     expect(store.listLatestCompleted(REPO_KEY).every((r) => !r.stale)).toBe(true)
     expect(store.history(REPO_KEY, 8).map((r) => r.runId)).toEqual(['pr8'])
   })
+
+  it('deletes the entire visible PR entry without exposing older runs or touching another PR or repo', () => {
+    const dir = tempDir()
+    const store = new ReviewStore(dir)
+    const otherRepo = 'github.com/another/widgets'
+    store.upsert(run({ runId: 'old', completedAt: 100 }))
+    store.upsert(run({ runId: 'latest', completedAt: 300 }))
+    store.upsert(run({ runId: 'other-pr', pr: PR2, completedAt: 200 }))
+    store.upsert(run({ runId: 'other-repo', repoKey: otherRepo, completedAt: 400 }))
+
+    expect(store.deleteForPr(REPO_KEY, PR.number)).toBe(2)
+    expect(store.deleteForPr(REPO_KEY, PR.number)).toBe(0)
+    expect(store.history(REPO_KEY, PR.number)).toEqual([])
+    expect(store.listLatestCompleted(REPO_KEY).map((item) => item.runId)).toEqual(['other-pr'])
+    expect(store.history(otherRepo).map((item) => item.runId)).toEqual(['other-repo'])
+
+    const reopened = new ReviewStore(dir)
+    expect(reopened.history(REPO_KEY, PR.number)).toEqual([])
+    expect(reopened.listLatestCompleted(REPO_KEY).map((item) => item.runId)).toEqual(['other-pr'])
+    expect(reopened.history(otherRepo).map((item) => item.runId)).toEqual(['other-repo'])
+  })
 })

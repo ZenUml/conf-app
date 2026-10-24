@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Review the pull request open in the ZenUML PR Agent Panel. Use when the user asks to review "this PR", "the PR in the panel", "the PR I'm looking at", or a message from the PR Agent Panel asks for a review or follow-up on a PR.
+description: Review the pull request open in the ZenUML PR Agent Panel, or remove a saved review entry from its left list. Use when the user asks to review "this PR", "the PR in the panel", "the PR I'm looking at", delete a panel review entry, or follow up on a PR.
 ---
 
 # Review the PR in the ZenUML PR Agent Panel
@@ -36,6 +36,17 @@ user's own `gh` CLI; the panel shows your progress and your review.
    - `headSha`: the `headRefOid` you reviewed.
 6. **Finish.** Call `complete_task` with `outcome: "completed"` (or
    `"failed"` with a `reason`).
+
+## Remove a review entry from the panel
+
+When the user asks to remove a left-list review entry, identify its exact
+`{host, owner, repo, prNumber}` from the request or `get_active_pr`, then call
+`delete_review_entry` with `{repo: {host, owner, repo}, prNumber}`. This removes
+all local review runs for that PR so an older review cannot reappear. The
+result reports `deleted` and `deletedRuns`; `deleted: false` means there was no
+matching local entry. Do not call GitHub deletion APIs or `begin_task` for this
+operation. An active task can publish a new review later, which will create a
+new entry.
 
 ## Rules
 

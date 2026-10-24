@@ -17,7 +17,7 @@ async function connectClient() {
 }
 
 describe('MCP server', () => {
-  it('lists exactly the nine contract tools with output schemas', async () => {
+  it('lists exactly the contract tools with output schemas', async () => {
     const { client } = await connectClient()
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort())
@@ -77,6 +77,32 @@ describe('MCP server', () => {
     const unknown = await client.callTool({ name: 'report_progress', arguments: { taskId: 'nope', text: 'x' } })
     expect(unknown.isError).toBe(true)
     expect(JSON.stringify(unknown.content)).toContain('No task nope')
+  })
+
+  it('deletes one PR entry through MCP and broadcasts the updated list', async () => {
+    const { runtime, client } = await connectClient()
+    const conn = connectExtension(runtime)
+    runtime.handleExtensionFrame(conn.id, frame('register', { documentId: 'd1', pr: PR }))
+    const agent = runtime.connectAgent({ kind: 'codex', connectedAt: 2 })
+    const { taskId } = runtime.beginTask(agent, { repo: REPO, prNumber: PR.number, kind: 'review' })
+    runtime.publishReview({ taskId, headline: 'First', summary: 's', findings: [], tags: [], prState: 'open' })
+    runtime.publishReview({ taskId, headline: 'Second', summary: 's', findings: [], tags: [], prState: 'open' })
+    runtime.handleExtensionFrame(conn.id, frame('userMessage', { documentId: 'd1', text: 'Keep this message' }))
+    expect(conn.last('reviews')?.items).toHaveLength(1)
+
+    const deleted = await client.callTool({ name: 'delete_review_entry', arguments: { repo: REPO, prNumber: PR.number } })
+    expect(deleted.structuredContent).toEqual({ deleted: true, deletedRuns: 2 })
+    expect(conn.last('reviews')?.items).toEqual([])
+    expect(runtime.store.history(REPO_KEY, PR.number)).toEqual([])
+    expect(runtime.getTask(taskId)?.status).toBe('working')
+    expect(runtime.queue.pending().map((message) => message.text)).toEqual(['Keep this message'])
+
+    const again = await client.callTool({ name: 'delete_review_entry', arguments: { repo: REPO, prNumber: PR.number } })
+    expect(again.structuredContent).toEqual({ deleted: false, deletedRuns: 0 })
+
+    runtime.publishReview({ taskId, headline: 'New review', summary: 's', findings: [], tags: [], prState: 'open' })
+    expect(conn.last('reviews')?.items.map((item) => item.headline)).toEqual(['New review'])
+    expect(runtime.store.history(REPO_KEY, PR.number).map((run) => run.headline)).toEqual(['New review'])
   })
 
   it('wait_for_panel_messages returns a message typed while it waits', async () => {

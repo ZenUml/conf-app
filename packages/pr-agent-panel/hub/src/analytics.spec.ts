@@ -63,4 +63,26 @@ describe('Analytics', () => {
     expect(() => analytics.track('pr_panel_message_queued')).not.toThrow()
     await expect(analytics.flush()).resolves.toBeUndefined()
   })
+
+  it('tracks deletion outcome and count without repository or PR identifiers', async () => {
+    const sent: string[] = []
+    const analytics = new Analytics({
+      token: 'tok',
+      idPath: join(tempDir(), 'id'),
+      fetchImpl: async (_url, init) => { sent.push(init.body) },
+    })
+    analytics.track('pr_panel_review_entry_delete_completed', {
+      delete_outcome: 'deleted',
+      deleted_run_count: 2,
+      repo: 'private/repo',
+      pr_number: 42,
+      title: 'private title',
+    })
+    await analytics.flush()
+    const [event] = JSON.parse(sent[0]) as { properties: Record<string, unknown> }[]
+    expect(event.properties).toMatchObject({ delete_outcome: 'deleted', deleted_run_count: 2 })
+    expect(event.properties).not.toHaveProperty('repo')
+    expect(event.properties).not.toHaveProperty('pr_number')
+    expect(event.properties).not.toHaveProperty('title')
+  })
 })

@@ -16,6 +16,8 @@ export type AnalyticsProps = Record<string, string | number | boolean | undefine
  */
 export const ALLOWED_PROPERTY_KEYS: ReadonlySet<string> = new Set([
   'review_count',
+  'deleted_run_count',
+  'delete_outcome',
   'row_index',
   'is_stale',
   'panel_state',

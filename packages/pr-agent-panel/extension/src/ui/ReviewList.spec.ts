@@ -86,6 +86,14 @@ describe('ReviewList', () => {
     expect(w.text()).not.toMatch(/\d+\s*reviews?/i)
   })
 
+  it('removes only the deleted PR row when the Hub sends a replacement list', async () => {
+    const w = mountList()
+    const remaining = REVIEWS.filter((item) => item.prNumber !== 888)
+    await w.setProps({ items: remaining })
+    const numbers = w.findAll('[data-testid="list-row"]').map((row) => row.text().match(/#\d+/)?.[0])
+    expect(numbers).toEqual(['#683', '#684', '#581'])
+  })
+
   it('shows the caller\'s empty text when it cannot know (Hub not connected)', () => {
     const w = mount(ReviewList, { props: { items: [], emptyText: 'The ZenUML Hub is not running.' } })
     expect(w.get('[data-testid="list-empty"]').text()).toBe('The ZenUML Hub is not running.')

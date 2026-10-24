@@ -28,6 +28,7 @@ import {
   ListPanelMessagesInput,
   PublishReviewInput,
   ReadReviewHistoryInput,
+  DeleteReviewEntryInput,
   WaitForPanelMessagesInput,
   GetActivePrOutput,
   BeginTaskOutput,
@@ -85,6 +86,7 @@ type BeginTaskArgs = z.output<typeof BeginTaskInput>
 type PublishReviewArgs = z.output<typeof PublishReviewInput>
 type CompleteTaskArgs = z.output<typeof CompleteTaskInput>
 type ReadReviewHistoryArgs = z.output<typeof ReadReviewHistoryInput>
+type DeleteReviewEntryArgs = z.output<typeof DeleteReviewEntryInput>
 type ListPanelMessagesArgs = z.output<typeof ListPanelMessagesInput>
 type WaitForPanelMessagesArgs = z.output<typeof WaitForPanelMessagesInput>
 
@@ -437,6 +439,23 @@ export class HubRuntime {
 
   readReviewHistory(input: ReadReviewHistoryArgs): { runs: ReviewRun[] } {
     return { runs: this.store.history(repoKeyOf(input.repo), input.prNumber, input.limit) }
+  }
+
+  deleteReviewEntry(input: DeleteReviewEntryArgs): { deleted: boolean; deletedRuns: number } {
+    this.analytics?.track('pr_panel_review_entry_delete_requested')
+    const repoKey = repoKeyOf(input.repo)
+    try {
+      const deletedRuns = this.store.deleteForPr(repoKey, input.prNumber)
+      if (deletedRuns > 0) this.broadcast(this.reviewsBody(repoKey))
+      this.analytics?.track('pr_panel_review_entry_delete_completed', {
+        delete_outcome: deletedRuns > 0 ? 'deleted' : 'not_found',
+        deleted_run_count: deletedRuns,
+      })
+      return { deleted: deletedRuns > 0, deletedRuns }
+    } catch (error) {
+      this.analytics?.track('pr_panel_review_entry_delete_completed', { delete_outcome: 'failed' })
+      throw error
+    }
   }
 
   listPanelMessages(consumerId: string, input: ListPanelMessagesArgs): { messages: PanelMessage[] } {

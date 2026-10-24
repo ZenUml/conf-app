@@ -45,6 +45,17 @@ describe('page store', () => {
     expect(s.review.value?.prNumber).toBe(888)
   })
 
+  it('removes a deleted review entry when the Hub broadcasts a replacement list', () => {
+    const s = setup()
+    const repoKey = 'github.com/example-org/example-repo'
+    s.applyFrame({ ...base, id: 'before', type: 'reviews', repoKey, items: REVIEWS })
+    expect(s.review.value?.prNumber).toBe(888)
+    const otherRows = REVIEWS.filter((item) => item.prNumber !== 888)
+    s.applyFrame({ ...base, id: 'after', type: 'reviews', repoKey, items: otherRows })
+    expect(s.review.value).toBeNull()
+    expect(s.state.reviews).toEqual(otherRows)
+  })
+
   it('shows the task bound to this PR, until Done dismisses it', () => {
     const s = setup()
     const other: Task = { ...TASK_WORKING, taskId: 't9', prNumber: 1 }

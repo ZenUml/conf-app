@@ -33,6 +33,7 @@ export const TOOL_NAMES = [
   'publish_review',
   'complete_task',
   'read_review_history',
+  'delete_review_entry',
   'list_panel_messages',
   'wait_for_panel_messages',
 ] as const
@@ -101,6 +102,16 @@ export const ReadReviewHistoryInput = z.object({
 })
 export const ReadReviewHistoryOutput = z.object({ runs: z.array(ReviewRunSchema) })
 
+/** Remove the list entry and all its earlier local reviews so an older run cannot reappear. */
+export const DeleteReviewEntryInput = z.object({
+  repo: RepoRefSchema,
+  prNumber: z.number().int().positive(),
+})
+export const DeleteReviewEntryOutput = z.object({
+  deleted: z.boolean(),
+  deletedRuns: z.number().int().nonnegative(),
+})
+
 export const ListPanelMessagesInput = z.object({
   taskId: z.string().optional(),
   /** Only messages created after this epoch-ms. */
@@ -122,6 +133,7 @@ export const TOOL_SCHEMAS = {
   publish_review: { input: PublishReviewInput, output: PublishReviewOutput },
   complete_task: { input: CompleteTaskInput, output: CompleteTaskOutput },
   read_review_history: { input: ReadReviewHistoryInput, output: ReadReviewHistoryOutput },
+  delete_review_entry: { input: DeleteReviewEntryInput, output: DeleteReviewEntryOutput },
   list_panel_messages: { input: ListPanelMessagesInput, output: ListPanelMessagesOutput },
   wait_for_panel_messages: { input: WaitForPanelMessagesInput, output: WaitForPanelMessagesOutput },
 } as const

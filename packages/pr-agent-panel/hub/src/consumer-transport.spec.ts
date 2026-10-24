@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { connect, type Server, type Socket } from 'node:net'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CLIENT_EVENT_METHOD, HOOK_METHOD } from '@zenuml/pr-panel-shared'
+import { CLIENT_EVENT_METHOD, HOOK_METHOD, TOOL_NAMES } from '@zenuml/pr-panel-shared'
 import { listenConsumerSocket } from './consumer-transport'
 import type { HubRuntime } from './runtime'
 import { PR, REPO, connectExtension, frame, makeRuntime } from './test-helpers'
@@ -74,7 +74,7 @@ describe('consumer socket', () => {
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })}\n`)
     const list = await reader.next()
-    expect((list.result as { tools: unknown[] }).tools).toHaveLength(9)
+    expect((list.result as { tools: { name: string }[] }).tools.map((tool) => tool.name).sort()).toEqual([...TOOL_NAMES].sort())
     socket.destroy()
     await new Promise((r) => setTimeout(r, 30))
     expect(runtime.agentCount).toBe(0)

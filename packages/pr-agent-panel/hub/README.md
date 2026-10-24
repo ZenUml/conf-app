@@ -62,6 +62,12 @@ real reviews; `PR_PANEL_STORE_DIR` overrides both.
 Before 2026-10-24 the store was `<os temp>/zenuml-pr-panel/store`. On start, a Hub whose store has no
 reviews copies them from there once; it never deletes the old copy.
 
+The MCP `delete_review_entry` tool takes an exact `repo` (`host`, `owner`,
+`repo`) and `prNumber`. It atomically removes every stored review run for
+that PR, returns `{deleted, deletedRuns}`, and broadcasts the replacement
+review list to connected extensions. Other PRs, tasks and panel messages are
+unchanged. An active task may later publish a new review for the same PR.
+
 The Hub refuses a runtime directory or socket that is a symlink or owned by
 another user.
 

@@ -76,6 +76,18 @@ export class ReviewStore {
       .slice(0, limit)
   }
 
+  /** Delete every run for one PR; keeping other PRs in the same repo file intact. */
+  deleteForPr(repoKey: string, prNumber: number): number {
+    const key = repoKey.toLowerCase()
+    const runs = this.load(key)
+    const remaining = runs.filter((run) => run.pr.number !== prNumber)
+    const deleted = runs.length - remaining.length
+    if (deleted === 0) return 0
+    this.save(key, remaining)
+    this.cache.set(key, remaining)
+    return deleted
+  }
+
   /**
    * Latest completed run per PR, newest first. `current` is the PR head the
    * page shows: a map `prNumber -> headSha` marks only those PRs, a bare SHA

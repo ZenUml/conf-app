@@ -130,6 +130,20 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
   )
 
   server.registerTool(
+    'delete_review_entry',
+    {
+      description:
+        'Permanently delete the local review-list entry for the exact repository and PR number, including all older review runs for that PR. Does not delete the GitHub PR or affect other PRs, tasks, or panel messages.',
+      inputSchema: TOOL_SCHEMAS.delete_review_entry.input,
+      outputSchema: TOOL_SCHEMAS.delete_review_entry.output,
+    },
+    (args) => {
+      const out = runtime.deleteReviewEntry(args)
+      return toolResult('delete_review_entry', out, out.deleted ? `${out.deletedRuns} local review run(s) deleted.` : 'No local review entry found.')
+    },
+  )
+
+  server.registerTool(
     'list_panel_messages',
     {
       description:

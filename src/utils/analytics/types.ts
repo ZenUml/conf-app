@@ -14,6 +14,8 @@ import type {
   CacheState,
   ContentState,
   CacheSource,
+  PlantUmlRenderer,
+  PlantUmlLocalFailureReason,
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
@@ -310,6 +312,9 @@ export type AnalyticsProperties = {
   // PlantUML paste normalisation (conf-app#632)
   diagrams_pasted?: number;
   paste_truncated?: boolean;
+  // ADR-0010 self-hosted PlantUML rendering
+  plantuml_renderer?: PlantUmlRenderer;
+  plantuml_failure_reason?: PlantUmlLocalFailureReason;
 
   // AI
   prompt_length?: number;

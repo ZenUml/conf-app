@@ -238,6 +238,20 @@ export type ContentState = "default" | "authored" | "empty";
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
 export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
 
+// Which engine drew a PlantUML diagram (ADR-0010). `server` = the public
+// www.plantuml.com server, which receives the diagram source; `local` = the
+// @plantuml/core engine in the viewer's own browser, which sends nothing.
+// Rides on macro_viewed for macro_type=plantuml only; absent elsewhere.
+export type PlantUmlRenderer = "server" | "local";
+
+// Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
+// is NOT a failure: the engine draws it like the server did, and the existing
+// syntax-error path reports it.
+//   load_failed  — the engine chunk did not load (network, CSP)
+//   include      — an !include / stdlib library the engine could not resolve
+//   engine_error — the engine crashed or called its error callback
+export type PlantUmlLocalFailureReason = "load_failed" | "include" | "engine_error";
+
 // Where the diagram CONTENT (the macro's doc) came from on this render — distinct
 // from cache_source, which is about the rendered SVG.
 //   fetch     — loaded over the network this view (first view / cache miss)
@@ -443,6 +457,11 @@ export type AnalyticsEventName =
   // was present and only the first was kept, because the macro renders a single
   // diagram and merging them silently produced a picture the author never wrote.
   | "plantuml_paste_normalized"
+  // ADR-0010: the in-browser PlantUML engine produced no diagram for a body it
+  // was asked to draw. `plantuml_failure_reason` says why; `surface` says
+  // viewer or editor. Never carries the source. Read against macro_viewed with
+  // plantuml_renderer=local for a failure rate before widening the rollout.
+  | "plantuml_local_render_failed"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a

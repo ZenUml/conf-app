@@ -16,26 +16,38 @@ import { Locator, Page } from '@playwright/test';
  *
  * A trial click tells us whether the pointer would reach the textbox. If it
  * would (sites without the panel), click as before. If not, focus the
- * contenteditable directly: ProseMirror takes keyboard input and keeps a
- * selection for the toolbar "+" insert without any pointer event, and the
- * panel itself is never touched, so no template gets applied.
- *
- * Returns true when the body was covered and had to be focused via the DOM.
+ * contenteditable directly and check that focus actually landed there: on
+ * prod it sometimes stays in the page title, and a Ctrl+A/Delete meant for
+ * the body then wipes the title instead. When it did not land, click the
+ * title (never covered) and press End + Enter, which moves the caret into
+ * the body. The panel itself is never clicked, so no template gets applied,
+ * and it does not block typing or paste once the body has focus.
  */
-export async function focusEditorBody(page: Page, editorEl: Locator): Promise<boolean> {
-  if (await isPointerReachable(editorEl)) {
-    await editorEl.click();
-    return false;
-  }
-  console.log('  [debug] editor body covered (Rovo template panel?) — focusing it via the DOM');
-  await editorEl.focus();
-  await page.waitForTimeout(200);
-  return true;
-}
-
-export async function isPointerReachable(editorEl: Locator): Promise<boolean> {
-  return editorEl
+export async function focusEditorBody(page: Page, editorEl: Locator): Promise<void> {
+  const reachable = await editorEl
     .click({ trial: true, timeout: 2000 })
     .then(() => true)
     .catch(() => false);
+  if (reachable) {
+    await editorEl.click();
+    return;
+  }
+
+  await editorEl.focus();
+  await page.waitForTimeout(200);
+  if (await hasFocusWithin(editorEl)) {
+    console.log('  [debug] editor body covered (Rovo template panel?) — focused it via the DOM');
+    return;
+  }
+
+  await page.locator('[data-test-id="editor-title"]').click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  const focused = await hasFocusWithin(editorEl);
+  console.log(`  [debug] editor body covered (Rovo template panel?) — entered it from the title: ${focused ? 'focused' : 'STILL NOT FOCUSED'}`);
+}
+
+function hasFocusWithin(editorEl: Locator): Promise<boolean> {
+  return editorEl.evaluate((el) => el.contains(document.activeElement)).catch(() => false);
 }

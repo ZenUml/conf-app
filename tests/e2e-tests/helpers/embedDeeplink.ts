@@ -1,5 +1,5 @@
 import { Page } from '@playwright/test';
-import { focusEditorBody, isPointerReachable } from './editorFocus.js';
+import { focusEditorBody } from './editorFocus.js';
 
 // Embed-deeplink autoConvert automation. A real paste event is required:
 // typing only linkifies the URL and never runs Forge macro autoConvert.
@@ -18,17 +18,7 @@ export function embedDeeplinkUrl(host: string, cloudId: string, contentId: strin
 }
 
 export async function pasteDeeplink(page: Page, url: string): Promise<void> {
-  if (await focusEditorBody(page, editorBody(page))) {
-    // The Rovo template panel shows only while the doc is empty, and a paste
-    // into that empty doc never reaches the page body (prod Lite smoke,
-    // 2026-10-24: extensionKeys [] on every attempt). Give the doc a first
-    // paragraph, then paste into a fresh empty paragraph below it.
-    await page.keyboard.type('.');
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(300);
-    const cleared = await isPointerReachable(editorBody(page));
-    console.log(`  [debug] pasteDeeplink: typed a lead paragraph; panel ${cleared ? 'gone' : 'still covering the body'}`);
-  }
+  await focusEditorBody(page, editorBody(page));
   await page.waitForTimeout(200);
   await page.evaluate(({ selector, url: u }) => {
     const pm = document.querySelector(selector) as HTMLElement | null;

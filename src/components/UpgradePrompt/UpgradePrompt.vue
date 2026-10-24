@@ -7,8 +7,20 @@
 
       <!-- Modal content - Optimized for 700×600px iframe -->
       <div class="relative bg-white rounded-lg shadow-xl w-[680px] max-h-[660px] overflow-y-auto">
-        <!-- Header - Factual -->
+        <!-- Header. First beat is the investment mirror (paywall-rhythm W2):
+             recognition of what the team built comes BEFORE the limit
+             statement, so the limit reads as protecting an asset rather than
+             opening with a reprimand. Space-level tier only for now
+             (mirror_level: 'space') — personal/team tiers arrive with the
+             /api/user-diagram-stats endpoint. -->
         <div class="px-4 py-2 border-b border-gray-200">
+          <p
+            v-if="macrosCreated > 0"
+            data-testid="investment-mirror"
+            class="text-xs font-medium text-emerald-800"
+          >
+            Your team has built {{ macrosCreated }} diagrams in this space.
+          </p>
           <h2 class="text-sm font-semibold text-gray-900">
             This space has reached the ZenUML Lite limit ({{ macrosLimit }} macros).
           </h2>
@@ -17,6 +29,12 @@
           </p>
         </div>
 
+        <!-- At the last continue the modal collapses to the commitment
+             question: every mid-section surface (hero, purchase card, draft,
+             advocacy, extension) yields, because the three commitment options
+             ARE those rails — showing both duplicates every CTA and buries
+             the question ("crazily busy", review 2026-08-10). -->
+        <template v-if="!isLastContinueAttempt">
         <!-- Hero: illustration + title + body -->
         <PaywallHero />
 
@@ -35,7 +53,8 @@
                   Unlock this space for your whole team
                 </p>
                 <p class="text-[11px] text-gray-600 leading-4">
-                  {{ ENTERPRISE_BUNDLE_PRICE }} · pay by card, no Confluence admin needed
+                  {{ ENTERPRISE_BUNDLE_PRICE }} · pay by card, no Confluence admin needed.
+                  Editing resumes instantly — your diagrams stay.
                 </p>
               </div>
               <button
@@ -101,6 +120,41 @@
             >{{ extensionRequestStatus }}</p>
           </div>
         </div>
+        </template>
+
+        <!-- Last-continue commitment beat (paywall-rhythm W1). Only degrees of
+             yes: unlock now, route the request to an admin, or spend the final
+             attempt. Rendered ABOVE the footer so the three options read as
+             the modal's closing question, not footer chrome. -->
+        <div
+          v-if="isLastContinueAttempt"
+          data-testid="commitment-prompt"
+          class="px-6 py-8"
+        >
+          <p class="text-sm font-semibold text-gray-900">
+            This is your last continue.
+          </p>
+          <p class="mt-1 text-sm text-gray-700">
+            Keep this space's diagram work uninterrupted?
+          </p>
+          <div class="mt-4 flex flex-col gap-2">
+            <button
+              data-testid="commitment-unlock-btn"
+              class="w-full rounded bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              @click="onCommitmentAnswer('unlock')"
+            >Unlock now — {{ ENTERPRISE_BUNDLE_PRICE }} · editing resumes instantly</button>
+            <button
+              data-testid="commitment-ask-admin-btn"
+              class="w-full rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+              @click="onCommitmentAnswer('ask_admin')"
+            >Ask your admin — copy the request (includes numbers and price)</button>
+          </div>
+          <p
+            v-if="commitmentStatus"
+            class="mt-2 text-xs text-gray-600"
+            data-testid="commitment-status"
+          >{{ commitmentStatus }}</p>
+        </div>
 
         <!-- Footer - Continue editing + Learn more -->
         <div class="px-4 py-2 bg-gray-50 flex justify-between items-center gap-3">
@@ -111,7 +165,7 @@
               class="text-xs text-gray-600 hover:text-gray-800 hover:underline cursor-pointer"
               :title="continueAttemptsTooltip"
               :aria-label="continueButtonAriaLabel"
-              @click="onContinueEditing"
+              @click="isLastContinueAttempt ? onCommitmentAnswer('continue_last') : onContinueEditing()"
             >{{ continueButtonCopy }}</button>
             <span
               v-else
@@ -119,7 +173,7 @@
               class="text-xs text-gray-500"
               :title="continueAttemptsTooltip"
               :aria-label="continueButtonAriaLabel"
-            >Request extension to continue editing</span>
+            >Your diagrams are safe — request an extension above to resume editing.</span>
           </div>
           <!-- @click.prevent + openUrl, NOT a bare target="_blank": the Forge
                Custom UI iframe sandbox has no allow-popups, so the browser
@@ -244,19 +298,49 @@ const tracking = useUpgradeTracking(() => props.visible, () => emit('close'), ()
 
 const draftExpanded = ref(false)
 const extensionRequestStatus = ref('')
+const commitmentStatus = ref('')
 const canContinueEditing = computed(() => props.remainingContinueAttempts === undefined || props.remainingContinueAttempts > 0)
+const isLastContinueAttempt = computed(() => props.remainingContinueAttempts === 1)
+// Tiered copy (paywall-rhythm W1): full allowance stays neutral, the
+// second-to-last carries the loss preview, the last is the commitment beat.
+// Every tier keeps the literal 'Continue editing' substring — E2E helpers and
+// the smoke-test skill locate this button by that text.
 const continueButtonCopy = computed(() => {
-  const attempts = props.remainingContinueAttempts ?? 0
-  if (props.remainingContinueAttempts === undefined) return 'Continue editing without upgrading'
+  const attempts = props.remainingContinueAttempts
+  if (attempts === undefined) return 'Continue editing without upgrading'
+  if (attempts === 1) return 'Continue editing (last time)'
+  if (attempts === 2) return 'Continue editing (2 left) — after that, new edits pause'
   return `Continue editing without upgrading (${attempts})`
 })
 const continueAttemptsTooltip = computed(() => {
   const attempts = props.remainingContinueAttempts ?? 0
   if (props.remainingContinueAttempts === undefined) return undefined
-  if (attempts <= 0) return 'No continue attempts remain. Request an extension or upgrade to keep editing.'
+  if (attempts <= 0) return 'No continue attempts remain. Your diagrams still render; request an extension or upgrade to keep editing.'
   return `You have ${attempts} temporary continue ${attempts === 1 ? 'attempt' : 'attempts'} left before editing is blocked for you in this space.`
 })
 const continueButtonAriaLabel = computed(() => continueAttemptsTooltip.value || continueButtonCopy.value)
+
+/** Route a commitment-prompt answer (last-continue beat). Tracks the answer,
+ *  then reuses the existing rail handlers so each path behaves exactly like
+ *  its standalone control. */
+async function onCommitmentAnswer(answer: 'unlock' | 'ask_admin' | 'continue_last') {
+  trackUpgradeEvent(UpgradeEventName.PAYWALL_COMMITMENT_ANSWERED, {
+    commitment_answer: answer,
+    ...purchaseContext(),
+  })
+  if (answer === 'unlock') {
+    await onUnlockSpace()
+    return
+  }
+  if (answer === 'ask_admin') {
+    const copied = await copyToClipboard(message.value)
+    commitmentStatus.value = copied
+      ? 'Request copied — paste it to your admin. It includes the space numbers and both upgrade options.'
+      : 'Copy failed — use "Copy upgrade request" below; it contains the same message.'
+    return
+  }
+  onContinueEditing()
+}
 
 function onDraftPreviewToggle() {
   const willExpand = !draftExpanded.value
@@ -285,6 +369,9 @@ function purchaseContext() {
     ...(props.actionType !== undefined ? { action_type: props.actionType } : {}),
     ui_component: UIComponent.MODAL,
     space_key: messageContext.value.spaceKey,
+    // Which investment-mirror tier this modal rendered with (paywall-rhythm
+    // W2). Space-level is the only tier until /api/user-diagram-stats ships.
+    mirror_level: 'space' as const,
     ...getUpgradeContext(),
   }
 }

@@ -119,9 +119,29 @@ export const AttemptsLow3: Story = {
   },
   play: async () => {
     const body = within(document.body)
-    await expect(await body.findByTestId('continue-editing-btn')).toHaveTextContent(
-      'Continue editing without upgrading (3)'
+    const button = await body.findByTestId('continue-editing-btn')
+    await expect(button).toHaveTextContent('Continue editing without upgrading (3)')
+    await expect(button).toHaveAttribute(
+      'title',
+      'You have 3 temporary continue attempts left before editing is blocked for you in this space.'
     )
+    await expect(await body.findByTestId('investment-mirror')).toHaveTextContent(
+      'Your team has built 105 diagrams in this space.'
+    )
+  },
+}
+
+export const LossPreview: Story = {
+  name: 'W1 - loss preview (2 left)',
+  args: {
+    remainingContinueAttempts: 2,
+  },
+  play: async () => {
+    const body = within(document.body)
+    await expect(await body.findByTestId('continue-editing-btn')).toHaveTextContent(
+      'Continue editing (2 left) — after that, new edits pause'
+    )
+    await expect(body.queryByTestId('commitment-prompt')).toBeNull()
   },
 }
 
@@ -133,11 +153,14 @@ export const LastAttempt: Story = {
   play: async () => {
     const body = within(document.body)
     const button = await body.findByTestId('continue-editing-btn')
-    await expect(button).toHaveTextContent('Continue editing without upgrading (1)')
-    await expect(button).toHaveAttribute(
-      'title',
-      'You have 1 temporary continue attempt left before editing is blocked for you in this space.'
-    )
+    await expect(button).toHaveTextContent('Continue editing (last time)')
+    await expect(await body.findByTestId('commitment-prompt')).toBeVisible()
+    await expect(await body.findByTestId('commitment-unlock-btn')).toBeVisible()
+    await expect(await body.findByTestId('commitment-ask-admin-btn')).toBeVisible()
+    // Collapsed state: the mid-section rails yield to the commitment question
+    await expect(body.queryByTestId('unlock-space-btn')).toBeNull()
+    await expect(body.queryByTestId('advocacy-copy-btn')).toBeNull()
+    await expect(body.queryByTestId('request-extension-btn')).toBeNull()
   },
 }
 
@@ -149,10 +172,12 @@ export const AttemptsExhausted: Story = {
   play: async () => {
     const body = within(document.body)
     const exhaustedCopy = await body.findByTestId('continue-attempts-exhausted')
-    await expect(exhaustedCopy).toHaveTextContent('Request extension to continue editing')
+    await expect(exhaustedCopy).toHaveTextContent(
+      'Your diagrams are safe — request an extension above to resume editing.'
+    )
     await expect(exhaustedCopy).toHaveAttribute(
       'title',
-      'No continue attempts remain. Request an extension or upgrade to keep editing.'
+      'No continue attempts remain. Your diagrams still render; request an extension or upgrade to keep editing.'
     )
     await expect(await body.findByTestId('request-extension-btn')).toBeVisible()
     await expect(await body.findByTestId('advocacy-copy-btn')).toBeVisible()
@@ -164,7 +189,7 @@ export const AttemptsExhausted: Story = {
 export const RequestExtensionCopied: Story = {
   name: 'Request extension — clipboard available',
   args: {
-    remainingContinueAttempts: 15,
+    remainingContinueAttempts: 3,
   },
   play: async () => {
     const body = within(document.body)
@@ -179,7 +204,7 @@ export const RequestExtensionCopied: Story = {
 export const RequestExtensionCopyFailed: Story = {
   name: 'Request extension — clipboard unavailable',
   args: {
-    remainingContinueAttempts: 15,
+    remainingContinueAttempts: 3,
   },
   parameters: {
     extensionRequestCopy: false,
@@ -196,7 +221,7 @@ export const RequestExtensionCopyFailed: Story = {
 export const DraftPreviewExpanded: Story = {
   name: 'Draft preview expanded',
   args: {
-    remainingContinueAttempts: 15,
+    remainingContinueAttempts: 3,
   },
   play: async () => {
     const body = within(document.body)

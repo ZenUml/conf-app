@@ -1,4 +1,6 @@
-// Run: node --test .claude/skills/error-radar/scripts/signature.test.js
+// Run: node --test .claude/skills/error-radar/scripts/signature_test.js
+// Named *_test.js, not *.test.js: the root Vitest run collects every
+// *.test.js in the repo and fails on a file written for node:test.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { radarIsErrorEvent, radarNormalize, radarSignature } = require('./signature.js');

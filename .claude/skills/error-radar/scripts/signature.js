@@ -1,7 +1,7 @@
 // Error signature for the error radar.
 //
 // This file is inlined verbatim into the JQL script that radar.py sends to
-// Mixpanel, and is also required by signature.test.js. Keep it ES5 — the JQL
+// Mixpanel, and is also required by signature_test.js. Keep it ES5 — the JQL
 // runtime is not a module environment — and keep it free of tenant data.
 //
 // A signature groups occurrences that are "the same error": event name,

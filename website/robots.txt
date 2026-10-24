@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://confluence.zenuml.com/sitemap.xml

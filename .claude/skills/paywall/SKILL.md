@@ -7,11 +7,45 @@ description: Manage the ZenUML Lite paywall rollout (Lite variant only — Full 
 
 This skill covers the Lite variant only. Full and Diagramly have no in-app restrictions.
 
+## ⚠️ Block retired 2026-09 — most of this doc is now historical
+
+`shouldBlockActions` in `useCustomerSuccessService.ts` is hardcoded `false`: editing is **never
+blocked** at any macro count, on any space. `PaywallGate`/`UpgradePrompt` no longer mount, and
+`paywall_triggered`, `paywall_blocked_edit`, and `paywall_blocked_create` **stop firing entirely**
+going forward — do not read a drop in those events as tenants falling under the limit. The
+non-blocking `PaywallWarningBanner` (`paywall_banner_shown`/`paywall_banner_dismissed`,
+`extension_request_clicked`, `paywall_bundle_cta_clicked`) is the only surviving in-app signal.
+Everything below this notice that reasons about block/trigger events, Continue-attempts, or
+Group A/B block-rate comparisons describes the retired behavior — treat it as historical unless a
+future Plan-and-usage/Request-Full redesign reinstates a gate. CSS/`PAYWALL_EXEMPT` enrollment
+state (Steps 1–5) is unaffected and still governs whether the warning banner is eligible to show.
+
+## Default-on semantics (2026-08-07, lite-paywall-default-on)
+
+The Lite paywall is now **on by default for every Lite tenant**. `CUSTOMER_SUCCESS_SERVICE`
+(CSS, Step 1 below) is **no longer the live paywall gate** — it is only the daily
+macro-count snapshot enrollment list. The runtime gate is a separate KV value,
+`PAYWALL_EXEMPTIONS`, in the same `KV_FEATURE_FLAGS` namespace:
+
+- absent from `PAYWALL_EXEMPTIONS` → tenant gets the default-on paywall (warn 85 / block 100);
+- an exact domain key set to `true` → that tenant is exempt (unrestricted);
+- `"*": true` → fleet-wide kill switch, every tenant is exempt;
+- `false` values are the same as absent — not exempt;
+- read/write with `python3 .claude/skills/paywall/scripts/paywall_exemptions.py get|put '<json>'`
+  (same namespace as `css_flag.py`, key `PAYWALL_EXEMPTIONS`, boolean-only values enforced
+  before any write reaches KV).
+
+Do not read `-x-` soft-disabled CSS keys (Step 1's convention below) as the live
+disable mechanism anymore — that convention now only affects snapshot enrollment. A
+tenant's real paywall state comes from `PAYWALL_EXEMPTIONS`, not CSS. See
+`docs/superpowers/specs/2026-08-04-lite-paywall-default-on-design.md` for the full
+design and rollout gates.
+
 ## Default Behaviour (no arguments)
 
 When invoked with no description or extra prompt, run **both** the daily monitoring and A/B impact analysis automatically:
 
-1. Read the current CSS flag (Step 1) — the live CSS flag is the authoritative domain list
+1. Read the current CSS flag (Step 1) — CSS is the snapshot-enrollment list, kept for the tenant-data gathering steps below; it is NOT the live paywall gate (see **Default-on semantics** above — that's `PAYWALL_EXEMPTIONS`)
 2. Run the parallel Mixpanel queries for the last 1 day (Step 2 below) — Q1–Q4 in parallel, then Q5 for domains with blocks or high save volume
 3. Build the domain table and suggest next steps
 4. Run the **A/B Impact Analysis** section — measures paywall friction against control tenants
@@ -25,19 +59,19 @@ When debugging a specific tenant (version drift, missing paywall, odd events), u
 
 ## Rollout States
 
-Every Lite tenant sits in one of three states. Your job is to determine which state each tenant is in and recommend the next action.
+Every Lite tenant sits in one of three states. Your job is to determine which state each tenant is in and recommend the next action. The "gate" column is `PAYWALL_EXEMPTIONS` (see **Default-on semantics** above), not CSS — CSS only decides snapshot enrollment.
 
-| State | CSS | What user sees |
+| State | Gate (`PAYWALL_EXEMPTIONS`) | What user sees |
 |-------|-----|----------------|
-| **Unrestricted** | ❌ | No paywall at all |
-| **Paywall on** | ✅ | Warning at 85 macros (per space), blocked at 100 macros (per space). `UpgradePrompt` when an edit is blocked. The user gets **15 "continue editing" attempts per user+space** before the modal hard-blocks (continue button disappears, replaced by "Request extension to continue editing") — see **Continue-attempts gate** below. |
+| **Unrestricted (exempt)** | domain or `"*"` set to `true` | No paywall at all |
+| **Paywall on (default)** | absent or `false` | Warning at 85 macros (per space), blocked at 100 macros (per space). `UpgradePrompt` when an edit is blocked. The user gets **3 "continue editing" attempts per user+space** (15 before 2026-08-16) before the modal hard-blocks (continue button disappears, replaced by "Request extension to continue editing") — see **Continue-attempts gate** below. |
 | **Licensed** | any | Space paid via KV license — restrictions bypassed entirely |
 
 ## Continue-attempts gate (added 2026-06-02, `v2026.06.02-lite`)
 
-Once a space is over the limit, the `UpgradePrompt` no longer offers unlimited "Continue editing without upgrading". Each user gets **15 attempts per (clientDomain, spaceKey, userAccountId)**, tracked client-side.
+Once a space is over the limit, the `UpgradePrompt` no longer offers unlimited "Continue editing without upgrading". Each user gets **3 attempts per (clientDomain, spaceKey, userAccountId)**, tracked client-side (`DEFAULT_CONTINUE_ATTEMPTS`, lowered from 15 on 2026-08-16). The new value applies to new (user, space) pairs only — a stored balance is never rewritten, so users who started under the old default still hold up to 15.
 
-- **Mechanism:** `src/utils/paywall/continueAttempts.ts`. State lives in **localStorage** under key `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (parts URL-encoded), shape `{ remainingAttempts, firstTriggeredAt, lastUsedAt, exhaustedAt }`. Default `DEFAULT_CONTINUE_ATTEMPTS = 15`. Created at paywall mount (`getOrCreateContinueAttempts`), decremented per continue click (`useContinueAttempt`). **Lite-only** — gated on `isLite`, so full/diagramly never trigger it. localStorage lives in the **Forge iframe origin** (`*.cdn.prod.atlassian-dev.net`), not the top-level page.
+- **Mechanism:** `src/utils/paywall/continueAttempts.ts`. State lives in **localStorage** under key `paywallContinueAttempts:<clientDomain>:<spaceKey>:<userAccountId>` (parts URL-encoded), shape `{ remainingAttempts, firstTriggeredAt, lastUsedAt, exhaustedAt }`. Default `DEFAULT_CONTINUE_ATTEMPTS = 3` (15 before 2026-08-16). Created at paywall mount (`getOrCreateContinueAttempts`), decremented per continue click (`useContinueAttempt`). **Lite-only** — gated on `isLite`, so full/diagramly never trigger it. localStorage lives in the **Forge iframe origin** (`*.cdn.prod.atlassian-dev.net`), not the top-level page.
 - **UI:** continue button reads `Continue editing without upgrading (N)`; at `N=0` it's replaced by the `continue-attempts-exhausted` span ("Request extension to continue editing"). The advocacy/request-extension CTAs remain.
 - **New events** (register/query alongside the existing paywall events):
   - `paywall_continue_used` — every continue click while attempts are tracked. Props: `remaining_attempts_before`, `remaining_attempts_after`, `storage_source: 'local_storage'`, `action_type`, plus upgrade context. **This is the decrement event.**
@@ -104,7 +138,8 @@ cd ~/workspaces/zenuml/conf-app/private && git add src/data/paywall-enrolled.jso
 
 | Resource | Value |
 |----------|-------|
-| KV namespace | `fe9042cb20994651b0a2ef9e68f9037c` |
+| CSS flag KV namespace (`KV_FEATURE_FLAGS` — CSS flag only, NOT space licenses) | `fe9042cb20994651b0a2ef9e68f9037c` |
+| `PAYWALL_EXEMPTIONS` KV key (same namespace, production only — see **Default-on semantics** above) | `python3 .claude/skills/paywall/scripts/paywall_exemptions.py get\|put '<json>'` |
 | D1 production DB | `conf-zenuml-prod` |
 | metrics-inspect URL | `https://conf-lite.zenuml.com/admin/metrics-inspect?domain=<domain>&addonKey=com.zenuml.confluence-addon-lite` |
 | Mixpanel project ID | `3373228` (full reference: the **mixpanel** skill) |
@@ -118,9 +153,13 @@ cd ~/workspaces/zenuml/conf-app/private && git add src/data/paywall-enrolled.jso
 
 Prefer `scripts/paywall_queries.py` over hand-built Mixpanel payloads. It centralises the segmentation query for every event in this skill so a filter-shape mistake can't silently substitute a global aggregate. It pulls the API secret from `.env.mixpanel` and prints `{event: {breakdown: count}}` as JSON.
 
-> **CORRUPTION GUARD — empty `__unique` maps mean the WHOLE run is bad.** Observed 2026-06-03, 2026-06-04, 2026-06-10: `daily` returned `{}` for every `__unique` key while totals were silently undercounted 10–30× (e.g. vin3s triggered 3 vs actual 91). Root cause (found 2026-06-10): `date_range()` used local-time `dt.date.today()` — in an AEST morning that date hasn't started in the Mixpanel project timezone, so the script queried a near-future day. Fixed in the script (project-tz-safe window), but keep the tripwire: **if any `__unique` map comes back empty, discard ALL script output from that run (`daily` AND `per-space-all`) and re-pull via MCP Insights.** `ab-metrics --window-days 7` only loses a leading sliver and has stayed reliable.
+> **CORRUPTION GUARD — empty `__unique` maps mean the WHOLE run is bad.** Observed 2026-06-03, 2026-06-04, 2026-06-10: `daily` returned `{}` for every `__unique` key while totals were silently undercounted 10–30× (e.g. `example-tenant-a` triggered 3 vs actual 91 — real name: see private/ client profiles). Root cause (found 2026-06-10): `date_range()` used local-time `dt.date.today()` — in an AEST morning that date hasn't started in the Mixpanel project timezone, so the script queried a near-future day. Fixed in the script (project-tz-safe window), but keep the tripwire: **if any `__unique` map comes back empty, discard ALL script output from that run (`daily` AND `per-space-all`) and re-pull via MCP Insights.** `ab-metrics --window-days 7` usually only loses a leading sliver, but see the 2026-07-10 update to Guard #2 below — it is not immune either.
 >
-> **CORRUPTION GUARD #2 — `__unique` > total is impossible; the `__unique` map is the bad one (NOT the totals).** Observed 2026-06-22: `daily` totals were correct (paywall_triggered vin3s=3, zeptonow=2, MCP-confirmed) but the `__unique` maps were **inflated** — reported `paywall_triggered__unique` vin3s=17, linemanwongnai=6, zeptonow=5, etc. (32 "unique users" against 5 total events). The JQL `__unique` sub-query appears to span a wider-than-today window in this failure mode (opposite of guard #1, where totals undercount and uniques empty). **Tripwire: for any event, if a domain's `__unique` value exceeds its total, the whole `__unique` set is untrustworthy this run — keep the totals, but re-pull the unique counts via MCP Insights** (math:`unique`, breakdown `client_domain`, last 1 day). Totals + per-space (which carry no unique) stay usable.
+> **CORRUPTION GUARD #2 — `__unique` > total is impossible; the `__unique` map is the bad one (NOT the totals).** Observed 2026-06-22: `daily` totals were correct (paywall_triggered `example-tenant-a`=3, `example-tenant-b`=2, MCP-confirmed) but the `__unique` maps were **inflated** — reported `paywall_triggered__unique` `example-tenant-a`=17, `example-tenant-c`=6, `example-tenant-b`=5, etc. (32 "unique users" against 5 total events; real names: see private/ client profiles). The JQL `__unique` sub-query appears to span a wider-than-today window in this failure mode (opposite of guard #1, where totals undercount and uniques empty). **Tripwire: for any event, if a domain's `__unique` value exceeds its total, the whole `__unique` set is untrustworthy this run — keep the totals, but re-pull the unique counts via MCP Insights** (math:`unique`, breakdown `client_domain`, last 1 day, global `is_internal_client_domain = "false"` filter). Totals + per-space (which carry no unique) stay usable. **2026-07-10 update: this also hit `ab-metrics --window-days 7`** — 3 low-volume domains showed `macro_save_succeeded__unique` of 1-2 against a total of 0 (unique > total, same signature). Small magnitude (immaterial for high-volume tenants) but the earlier "has stayed reliable" claim for `ab-metrics` was too strong — apply the same tripwire to it, not just `daily`/`per-space-all`.
+>
+> **CORRUPTION GUARD #3 — a `client_domain` breakdown that comes back with EXACTLY 60 buckets is truncated, not complete.** Observed 2026-09-06: `daily --window-days 30` and `ab-metrics --window-days 30` both returned exactly 60 domains for `macro_save_succeeded` AND exactly 60 for `macro_viewed`. The same window via MCP Insights returned 209 / 245 / 467 / 77 buckets (saves / creates / views / triggered). Cause: `call_segmentation()` passed no `limit`, so Mixpanel's segmentation API returned only its default top-N segments by volume. Every domain outside the top 60 was silently ABSENT and read as zero — a fleet-wide "which tenants are inactive" pass built on this output over-counted inactive tenants 79 → 35 (true value). **Fixed 2026-09-07: every `on` breakdown now sends `limit=SEGMENTATION_BUCKET_LIMIT` (5000; covered by `scripts/test_paywall_queries.py`, run it directly with `python3`). Keep the tripwire anyway: if any breakdown map has exactly 60 keys, the limit is not reaching the API — treat every missing domain as UNKNOWN, not zero, and re-pull via MCP Insights (`Run-Query`, `breakdowns` on `client_domain`, one report can carry all four events).** The per-domain `where` path (`per-space`, `per-space-all`) is not affected (a single tenant never has 60 spaces), but see the quota trap below before looping it over many domains.
+>
+> **QUOTA TRAP — the raw Query API has an hourly cap that a per-domain loop exhausts in minutes.** 2026-09-06: `per-space-all` over 123 domains (×4 events) plus a parallel 123-call `macro_viewed` loop hit HTTP 429 within ~10 min and stayed 429 past the top of the next UTC hour — the window is ROLLING (~60 min from the burst), not calendar-hour, despite what the script's error text says. Do not fan `call_event(where_domain=…)` out over more than a handful of domains; for fleet-wide questions use one Insights breakdown (Guard #3). The MCP path uses a different auth/quota bucket and kept working while the script was locked out.
 
 ```bash
 # Q1 + Q3–Q4 in one call (paywall_triggered, advocacy_message_copied,
@@ -151,14 +190,16 @@ python3 .claude/skills/paywall/scripts/paywall_queries.py per-space <domain>
 python3 .claude/skills/paywall/scripts/paywall_queries.py daily --window-days 7
 ```
 
-The legacy MCP-based approach below is preserved for the cases where the script can't run (`.env.mixpanel` missing, no network, or you need a chart format the script doesn't produce). In those cases use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`. The query reference below documents each event's purpose — read those notes regardless of execution path, since they tell you what each metric *means*.
+The legacy MCP-based approach below is preserved for the cases where the script can't run (`.env.mixpanel` missing, no network, or you need a chart format the script doesn't produce). In those cases use `mcp__claude_ai_Mixpanel__Run-Query` with project_id=3373228, last 1 day, chartType=table, breakdown by `client_domain`, plus the mixpanel skill's global `is_internal_client_domain = "false"` filter. The query reference below documents each event's purpose — read those notes regardless of execution path, since they tell you what each metric *means*.
 
-> **Server name matters (MCP fallback).** The `mcp__mixpanel__Run-Query` variant rejects the `report` parameter as a string in some sessions (`Input should be a valid dictionary`). Use the `mcp__claude_ai_Mixpanel__` namespace consistently — it accepts the same payload reliably.
+> **Server name matters (MCP fallback).** Use the `mcp__claude_ai_Mixpanel__` tool namespace consistently — the older, deprecated Mixpanel MCP server rejected the `report` parameter as a string in some sessions (`Input should be a valid dictionary`); the claude.ai namespace accepts the same payload reliably.
 
 **Correct breakdown schema (MCP fallback)** (the schema evolves — if validation fails, call `Get-Query-Schema(report_type: 'insights')` first):
 ```json
 "breakdowns": [{"metric": {"type": "property", "propertyName": "client_domain", "propertyType": "string", "resource": "event"}}]
 ```
+
+**Filter shapes (MCP fallback, verified 2026-08-22):** string filters take a SINGLE value — no arrays (`{"type":"string","propertyName":"client_domain","operator":"equals","value":"<one-domain>"}`). For a customer-wide domain table, pair the breakdown with the mixpanel skill's global filter `{"type":"string","propertyName":"is_internal_client_domain","propertyType":"string","resource":"event","operator":"equals","value":"false"}`; do not list internal domains one by one. A specifically targeted customer query may instead use its `client_domain = "<one-domain>"` filter. For per-editor (champion-structure) breakdowns use `user_account_id` — breaking down by `distinct_id` returns a single `"undefined"` bucket.
 
 The daily script runs these events in parallel internally.
 
@@ -297,7 +338,7 @@ AND createdAt >= date('now', '-30 days')
 GROUP BY clientDomain, action"
 
 # 4. Recent macro activity — Mixpanel only (run per domain, parallelise)
-# mcp__mixpanel__Run-Query: event=macro_viewed, filter client_domain equals <domain>,
+# mcp__claude_ai_Mixpanel__Run-Query: event=macro_viewed, filter client_domain equals <domain>,
 # measurement unique users, last 30 days, chartType=table
 # DO NOT use D1 UserBehaviorEvent/DailyBehaviorCounter — those track all Confluence page views, not macro views
 ```
@@ -474,7 +515,13 @@ Paywall conversion has **two rails**, each with its own source of truth. Check b
 | Rail | Buyer path | Source of truth |
 |------|-----------|-----------------|
 | 1. Marketplace plan | admin switches tenant Lite → paid Full SKU (per-user billing via Atlassian) | Marketplace license report: `https://marketplace.atlassian.com/manage/vendors/1215266/reporting/licenses` |
-| 2. Enterprise Bundle | direct Stripe payment ($299/space/yr, no admin needed), manual KV activation | KV `license:*` keys in namespace `fe9042cb20994651b0a2ef9e68f9037c` (`npx wrangler kv key list --namespace-id fe9042cb20994651b0a2ef9e68f9037c --remote`) |
+| 2. Enterprise Bundle | direct Stripe payment ($299/space/yr, no admin needed), manual KV activation | KV `license:*` keys in **SPACE_LICENSE_KV**, prod namespace `8969e8528105403bb2d9adca9fc16567` (`npx wrangler kv key list --namespace-id 8969e8528105403bb2d9adca9fc16567 --remote`) — **not** the CSS/feature-flags namespace `fe9042cb…`, which never holds `license:*` keys |
+
+> **Which CTA feeds which rail (verified in code 2026-09-11).** The page-banner / modal `paywall_bundle_cta_clicked` opens `buy.stripe.com/…?client_reference_id=…` → **rail 2**. The Plan-and-usage page's `plan_usage_purchase_clicked` and the Request-Full path open the Marketplace listing → **rail 1**. Check the rail that matches the click, not just one.
+>
+> **Telling a Stripe purchase apart in SPACE_LICENSE_KV.** `functions/api/stripe-webhook.ts` writes the record; a paid one carries a Stripe id in `paymentReference` (`cs_…` / `sub_…`). Grants and extensions have an empty `paymentReference` and `activatedBy` like `support:temp-7d-…`. The date field is **`createdAt`** (there is no `activatedAt`). A KV count is still the webhook's view — a payment whose webhook failed will not appear, and no Chrome profile on this machine is logged in to the Stripe dashboard (checked 2026-09-11), so a direct Stripe check needs the user.
+>
+> **Rail 2 caveats.** (a) The canonical home of the SPACE_LICENSE_KV namespace id is `.claude/skills/extend-space-license/SKILL.md` — read it there rather than trusting a copy. (b) A raw `license:*` key count **over-counts conversions**: test grants and temporary editing extensions (granted via the extend-space-license skill) live in the same namespace. `kv key get` each record and filter by its `status` / `activatedBy` fields before counting a key as a paid conversion.
 
 **Rail 1 — Marketplace report.** The page needs a vendor-account login, so use the user's browser session (claude-in-chrome works — it's a normal page, no Forge iframe). Don't scrape the UI table; hit the same-origin REST API from the page context and **aggregate in-page** (the extension's DLP filter blocks raw response bodies as credential-like data):
 
@@ -489,7 +536,7 @@ fetch('/rest/2/vendors/1215266/reporting/licenses?limit=200&dateType=start&start
 - Match `cloudSiteHostname` against the CSS tenant list to attribute a conversion to the paywall. Return hostnames with `.` escaped (e.g. `foo[.]atlassian[.]net`) or the DLP filter may redact them.
 - Useful params: `dateType=start|end|update`, `offset` for pagination (50/page unfiltered), `order` is NOT a valid param (400).
 
-**Baseline (2026-06-10, 6 weeks of paywall):** zero conversions from paywalled tenants on either rail — 0 COMMERCIAL/EVALUATION from the CSS cohort on rail 1 (only 2 unrelated 1-user organic licenses project-wide), 0 `license:*` keys on rail 2, 0 service-desk extension tickets despite 44 in-product extension clicks. The funnel dies before reaching anyone with budget; track this check weekly alongside the A/B run.
+**Baseline (2026-06-10, 6 weeks of paywall):** zero conversions from paywalled tenants on either rail — 0 COMMERCIAL/EVALUATION from the CSS cohort on rail 1 (only 2 unrelated 1-user organic licenses project-wide), 0 `license:*` keys on rail 2 (note: that count was read from the wrong namespace — the KV_FEATURE_FLAGS id — before the 2026-07-05 fix above; re-derive from SPACE_LICENSE_KV with the status/activatedBy filter before reusing it), 0 service-desk extension tickets despite 44 in-product extension clicks. The funnel dies before reaching anyone with budget; track this check weekly alongside the A/B run.
 
 ---
 
@@ -642,3 +689,54 @@ cd ~/workspaces/zenuml/conf-app/private && git add src/data/paywall-ab.json && g
 | Upgrade tracking event names | `src/utils/upgradeTracking.ts` |
 | Space license endpoint | `functions/api/space-status.ts`, `functions/api/space-license.ts` |
 | Pricing tiers + cost formula | `docs/pricing-model.yml` |
+| Is a specific tenant already paying / on a trial? | `tenant` skill — `whois <domain>` (single-tenant lookup, incl. Lite Layer-B) |
+
+## How the Lite paywall actually enforces (don't misread this as a bug)
+
+It is a **metered soft-paywall, and the number in "Continue editing without upgrading (N)" IS the gate.**
+`DEFAULT_CONTINUE_ATTEMPTS = 3` (15 before 2026-08-16; a stored balance is never rewritten); each click decrements N and lets the user reach the editor and
+**save normally — saves persisting during the grace window is BY DESIGN, not a leak.** When N hits 0,
+the Continue-editing button is replaced by non-clickable "Request extension to continue editing"
+(`UpgradePrompt.vue`, `canContinueEditing = remainingContinueAttempts > 0`), and the modal can no
+longer be dismissed into the editor → user is locked out.
+
+So `saveToPlatform` deliberately has **no** `shouldBlockActions` check — access is gated at the modal
+via the counter, not at the persistence layer. (The "save is gated in the persistence layer" code
+comments are misleading wording; ignore them.)
+
+The only real weakness: the counter is `localStorage`-keyed
+(`paywallContinueAttempts:domain:space:user`), so clearing storage/incognito resets it to 3 (the default) — a minor
+client-side soft spot, NOT a missing save-gate.
+
+### Skipping the paywall on an over-limit Lite space
+
+When the paywall modal appears at editor mount (e.g. inserting/editing a Lite macro on an over-limit
+space like `ZEN` or `SD`), click the modal's **"Continue editing"** button to proceed into the editor.
+This is the intended in-product bypass — do NOT read paywall code or hunt for `localStorage` overrides
+(`mockSpacePaid` etc.) to suppress it.
+
+**The modal DOM lives INSIDE the Forge iframe, not the top-level page.** Detecting it with
+`page.evaluate(() => document.body.innerText)` on the Confluence page returns nothing and reads as
+"no paywall" — that false negative cost a wrongly-abandoned spot check on 2026-07-25. Find the frame
+first, then assert/click inside it:
+
+```js
+const host = page.frames().find(async f => /reached the ZenUML Lite limit/i.test(await f.evaluate(() => document.body?.innerText || '')));
+await host.locator('[data-testid="continue-editing-btn"]').first().click();  // label: "Continue editing without upgrading (N)"
+```
+
+Two gotchas once you're through: the Graph editor is **two** nested frames (app chrome with
+`Name your graph…` + the DrawIO canvas frame with `.geDiagramContainer` and Publish) — `page.frames()`
+returns them flattened, so locate each by content rather than chaining `.contentFrame()`. And
+`page.keyboard.type()` after a shape insert can land in the **title input** instead of the shape label,
+which silently defeats any empty-title (AI auto-title) assertion — always re-read the title field
+before publishing.
+
+If `N = 0`, the counter is exhausted and the continue button is gone; reset it by deleting
+`paywallContinueAttempts:<domain>:<space>:<accountId>` from the **iframe origin's** localStorage.
+
+### Staging paywall test data
+
+On `lite-stg`, the large space over the 100-macro limit (the one that triggers the paywall) is **`SD`**
+(~1230 macros) — same setup as the `zenuml` instance. Use `SD` when you need a real over-threshold Lite
+space to verify paywall or macro-count behaviour, instead of re-discovering it each time.

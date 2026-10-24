@@ -3014,6 +3014,72 @@
         <fillstroke/>
     </foreground>
 </shape>
+<shape aspect="variable" h="101.869" name="Scheduler 2" strokewidth="inherit" w="82.51">
+    <connections>
+        <constraint name="N" perimeter="0" x="0.6" y="0.03"/>
+        <constraint name="S" perimeter="0" x="0.57" y="1"/>
+        <constraint name="W" perimeter="0" x="0.04" y="0.48"/>
+        <constraint name="E" perimeter="0" x="1" y="0.45"/>
+        <constraint name="NE" perimeter="0" x="0.89" y="0.21"/>
+        <constraint name="NW" perimeter="0" x="0.18" y="0.18"/>
+        <constraint name="SE" perimeter="0" x="0.86" y="0.67"/>
+        <constraint name="SW" perimeter="0" x="0.18" y="0.77"/>
+    </connections>
+    <foreground>
+        <path>
+            <move x="51.01" y="12.369"/>
+            <arc large-arc-flag="0" rx="31.5" ry="31.5" sweep-flag="0" x="19.51" x-axis-rotation="0" y="43.869"/>
+            <arc large-arc-flag="0" rx="31.5" ry="31.5" sweep-flag="0" x="51.01" x-axis-rotation="0" y="75.369"/>
+            <arc large-arc-flag="0" rx="31.5" ry="31.5" sweep-flag="0" x="82.51" x-axis-rotation="0" y="43.869"/>
+            <arc large-arc-flag="0" rx="31.5" ry="31.5" sweep-flag="0" x="51.01" x-axis-rotation="0" y="12.369"/>
+            <close/>
+            <move x="51.198" y="14.619"/>
+            <arc large-arc-flag="0" rx="3.062" ry="2.562" sweep-flag="1" x="54.26" x-axis-rotation="0" y="17.181"/>
+            <arc large-arc-flag="0" rx="3.062" ry="2.562" sweep-flag="1" x="51.198" x-axis-rotation="0" y="19.744"/>
+            <arc large-arc-flag="0" rx="3.062" ry="2.562" sweep-flag="1" x="48.135" x-axis-rotation="0" y="17.181"/>
+            <arc large-arc-flag="0" rx="3.062" ry="2.562" sweep-flag="1" x="51.198" x-axis-rotation="0" y="14.619"/>
+            <close/>
+            <move x="51.01" y="23.91"/>
+            <arc large-arc-flag="0" rx="5.8" ry="5.8" sweep-flag="1" x="56.51" x-axis-rotation="0" y="27.869"/>
+            <line x="56.51" y="40.869"/>
+            <line x="67.01" y="51.369"/>
+            <arc large-arc-flag="0" rx="6" ry="6" sweep-flag="1" x="59.01" x-axis-rotation="0" y="59.869"/>
+            <line x="45.51" y="46.869"/>
+            <line x="45.51" y="27.869"/>
+            <arc large-arc-flag="0" rx="5.8" ry="5.8" sweep-flag="1" x="51.01" x-axis-rotation="0" y="23.91"/>
+            <close/>
+            <move x="24.698" y="42.369"/>
+            <arc large-arc-flag="0" rx="3.188" ry="3" sweep-flag="1" x="27.885" x-axis-rotation="0" y="45.369"/>
+            <arc large-arc-flag="0" rx="3.188" ry="3" sweep-flag="1" x="24.698" x-axis-rotation="0" y="48.369"/>
+            <arc large-arc-flag="0" rx="3.188" ry="3" sweep-flag="1" x="21.51" x-axis-rotation="0" y="45.369"/>
+            <arc large-arc-flag="0" rx="3.188" ry="3" sweep-flag="1" x="24.698" x-axis-rotation="0" y="42.369"/>
+            <close/>
+            <move x="78.26" y="42.494"/>
+            <arc large-arc-flag="0" rx="3" ry="2.75" sweep-flag="1" x="81.26" x-axis-rotation="0" y="45.244"/>
+            <arc large-arc-flag="0" rx="3" ry="2.75" sweep-flag="1" x="78.26" x-axis-rotation="0" y="47.994"/>
+            <arc large-arc-flag="0" rx="3" ry="2.75" sweep-flag="1" x="75.26" x-axis-rotation="0" y="45.244"/>
+            <arc large-arc-flag="0" rx="3" ry="2.75" sweep-flag="1" x="78.26" x-axis-rotation="0" y="42.494"/>
+            <close/>
+            <move x="51.948" y="68.619"/>
+            <arc large-arc-flag="0" rx="3.438" ry="2.75" sweep-flag="1" x="55.385" x-axis-rotation="0" y="71.369"/>
+            <arc large-arc-flag="0" rx="3.438" ry="2.75" sweep-flag="1" x="51.948" x-axis-rotation="0" y="74.119"/>
+            <arc large-arc-flag="0" rx="3.438" ry="2.75" sweep-flag="1" x="48.51" x-axis-rotation="0" y="71.369"/>
+            <arc large-arc-flag="0" rx="3.438" ry="2.75" sweep-flag="1" x="51.948" x-axis-rotation="0" y="68.619"/>
+            <close/>
+        </path>
+        <fill/>
+        <path>
+            <move x="59.01" y="89.869"/>
+            <line x="47.01" y="101.869"/>
+            <line x="47.01" y="93.869"/>
+            <arc large-arc-flag="1" rx="45.2" ry="45.2" sweep-flag="1" x="67.01" x-axis-rotation="0" y="7.369"/>
+            <arc large-arc-flag="1" rx="40.9" ry="40.9" sweep-flag="0" x="47.01" x-axis-rotation="0" y="85.869"/>
+            <line x="47.01" y="77.869"/>
+            <close/>
+        </path>
+        <fill/>
+    </foreground>
+</shape>
 <shape aspect="variable" h="99.01" name="Script File" strokewidth="inherit" w="95.5">
     <connections>
         <constraint name="N" perimeter="0" x="0.5" y="0"/>

@@ -11,14 +11,80 @@ const global = {
   isAsyncApi: undefined,
 } as any;
 
+// zenumlRemoteBaseUrl is the origin that `callRemote` (→ invokeRemote) targets
+// for our own backend endpoints (/diagramly/*, etc). It MUST match the `connect`
+// remote's baseUrl (manifest `${BACKEND_API_BASE_URL}`) for the running variant,
+// or invokeRemote can't resolve a declared remote and the backend rejects the
+// Forge invocation token. asyncapi shares the Lite Cloudflare Pages project but
+// on its own hostnames (staging: conf-stg-lite; prod: zenapi.zenuml.com — a
+// custom domain aliased to conf-lite), so it needs its own entries rather than
+// reusing LITE (whose prod host is conf-lite.zenuml.com).
+// DEVELOPMENT_* deliberately reuse the STAGING backends.
+//
+// They used to point at https://confluence-plugin.pages.dev, which NOTHING in
+// CI deploys (.github/workflows only publish conf-stg-lite / conf-stg-full /
+// conf-lite / conf-full). That project drifted: measured 2026-08-07 it still
+// served older routes (/feature-flags 400, /api/space-status 401) but answered
+// /forge-upload-attachment with 405 and no content-type — the static SPA
+// handler, i.e. the path is absent from its deployed public/_routes.json. So
+// every DEVELOPMENT Forge environment — whimet4's `yanhui`, and any local
+// `forge:tunnel` session — silently lost any backend route added after that
+// project was last deployed. The attachment app-fallback surfaced it as
+// "cannot parse body as JSON. Status: 405".
+//
+// Pointing dev at staging keeps the invariant above satisfiable: the whimet4
+// workflow already sets BACKEND_API_BASE_URL=conf-stg-lite, so client and
+// manifest now agree. The tradeoff is that dev traffic reads/writes the staging
+// D1 + KV; that was already true of anything routed through the manifest remote.
 const REMOTE_BASE_URL_MAP = {
-  DEVELOPMENT_LITE: 'https://confluence-plugin.pages.dev',
+  DEVELOPMENT_LITE: 'https://conf-stg-lite.zenuml.com',
   STAGING_LITE: 'https://conf-stg-lite.zenuml.com',
   PRODUCTION_LITE: 'https://conf-lite.zenuml.com',
-  DEVELOPMENT_FULL: 'https://confluence-plugin.pages.dev',
+  DEVELOPMENT_FULL: 'https://conf-stg-full.zenuml.com',
   STAGING_FULL: 'https://conf-stg-full.zenuml.com',
   PRODUCTION_FULL: 'https://conf-full.zenuml.com',
+  DEVELOPMENT_ASYNCAPI: 'https://conf-stg-lite.zenuml.com',
+  STAGING_ASYNCAPI: 'https://conf-stg-lite.zenuml.com',
+  PRODUCTION_ASYNCAPI: 'https://zenapi.zenuml.com',
 };
+
+// Map the resolved product variant to its REMOTE_BASE_URL_MAP key suffix.
+// asyncapi must NOT fall through to 'FULL' — its backend is the Lite project,
+// not conf-*-full (see BACKEND_API_BASE_URL in the forge:*:asyncapi:* scripts).
+type RemoteUrlVariant = 'ASYNCAPI' | 'LITE' | 'FULL';
+
+function remoteUrlVariant(flags: {
+  isAsyncApi?: boolean
+  isLite?: boolean
+  isDiagramly?: boolean
+}): RemoteUrlVariant {
+  if (flags.isAsyncApi) return 'ASYNCAPI';
+  if (flags.isLite || flags.isDiagramly) return 'LITE';
+  return 'FULL';
+}
+
+// Pure, exported for unit testing: resolve the backend origin for a given Forge
+// environmentType ('DEVELOPMENT' | 'STAGING' | 'PRODUCTION') and product-variant
+// flags. Returns undefined for an unknown environment key.
+export function resolveZenumlRemoteBaseUrl(
+  environmentType: string,
+  flags: { isAsyncApi?: boolean; isLite?: boolean; isDiagramly?: boolean },
+): string | undefined {
+  // A Forge tunnel can point its declared remote at a local ngrok endpoint.
+  // Vite injects this only for the local dev server; deployed bundles keep the
+  // normal per-variant mapping below.
+  const localOverride = import.meta.env.DEV && import.meta.env.VITE_JOINT_DEBUG_REMOTE_BASE_URL;
+  if (environmentType === 'DEVELOPMENT' && localOverride) {
+    const url = new URL(localOverride);
+    if (url.protocol !== 'https:' || url.username || url.password ||
+        url.pathname !== '/' || url.search || url.hash) {
+      throw new Error('VITE_JOINT_DEBUG_REMOTE_BASE_URL must be an HTTPS origin');
+    }
+    return url.origin;
+  }
+  const key = `${environmentType}_${remoteUrlVariant(flags)}` as keyof typeof REMOTE_BASE_URL_MAP;
+  return REMOTE_BASE_URL_MAP[key];
+}
 
 function isStandaloneEnvironment(): boolean {
   try {
@@ -62,14 +128,19 @@ function getStandaloneContext(): any {
     if (preset) {
       if (preset.paywall) applyPaywallSandboxMocks();
       const isEditor = preset.macroMode === 'editor';
+      // Fullscreen is the other bridge-opened modal. It carries extension.modal
+      // like the editor does, but is a display surface — isDisplayMode() reads
+      // macroMode === 'fullscreen' as true, and macro.isConfiguring stays false.
+      const isModal = isEditor || preset.macroMode === 'fullscreen';
       return {
         extension: {
           type: 'standalone',
           content: { id: 'local-dev-page' },
           config: { uuid: 'local-dev-uuid', customContentId: preset.customContentId },
           // In a real Forge page macro, extension.modal is only set when the app is opened
-          // as a dialog (editor). Viewer mode has no modal — isDisplayMode() checks for this.
-          modal: isEditor ? { macroMode: preset.macroMode, diagramType: preset.diagramType } : undefined,
+          // as a dialog (editor or fullscreen). Inline viewer mode has no modal —
+          // isDisplayMode() checks for this.
+          modal: isModal ? { macroMode: preset.macroMode, diagramType: preset.diagramType } : undefined,
           macro: { isConfiguring: isEditor, isInserting: false },
         },
         moduleKey: preset.moduleKey,
@@ -96,17 +167,18 @@ function getStandaloneContext(): any {
   };
 }
 
+function applyVariantFlags() {
+  global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
+  global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
+  global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
+}
+
 function applyStandaloneContext() {
   global.isForge = false;
   global.view = STANDALONE_VIEW_STUB;
   global.forgeContext = getStandaloneContext();
-  global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
-  global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
-  global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
-  const urlVariant = (global.isLite || global.isDiagramly) ? 'LITE' : 'FULL';
-  global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`DEVELOPMENT_${urlVariant}`];
-  console.log('forgeGlobal - standalone (local dev), no Forge bridge');
-  console.debug('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
+  applyVariantFlags();
+  global.zenumlRemoteBaseUrl = resolveZenumlRemoteBaseUrl('DEVELOPMENT', global);
 }
 
 export async function getView() {
@@ -126,13 +198,12 @@ export async function getView() {
     global.isForge = true;
     global.view = view;
     global.forgeContext = ctx;
-    global.isDiagramly = import.meta.env.PRODUCT_TYPE === 'diagramly';
-    global.isLite = import.meta.env.PRODUCT_TYPE === 'lite';
-    global.isAsyncApi = import.meta.env.PRODUCT_TYPE === 'asyncapi';
-    const urlVariant = (global.isLite || global.isDiagramly) ? 'LITE' : 'FULL';
-    global.zenumlRemoteBaseUrl = REMOTE_BASE_URL_MAP[`${ctx.environmentType}_${urlVariant}`];
+    applyVariantFlags();
+    global.zenumlRemoteBaseUrl = resolveZenumlRemoteBaseUrl(ctx.environmentType, global);
+    // KEEP — a documented investigation technique (docs/superpowers/plans/
+    // 2026-07-18-job-b-spike-findings.md) captures this exact console line via
+    // Playwright's page.on('console') to read the real Forge `ap.context`.
     console.log('forgeGlobal - context', global.forgeContext);
-    console.debug('forgeGlobal - zenumlRemoteBaseUrl', global.zenumlRemoteBaseUrl);
   } catch (e) {
     if (isStandaloneEnvironment()) {
       applyStandaloneContext();
@@ -163,12 +234,26 @@ export async function isFullscreenMode() {
   return context.extension.modal?.macroMode === 'fullscreen';
 }
 
+/**
+ * True when this fullscreen modal was opened by the Export PNG button rather
+ * than by someone asking for Fullscreen. Set in the `fullscreen` EventBus
+ * handler's modal context (forgeIndex.ts).
+ */
+export async function isExportEntry() {
+  const context = await getContext();
+  return context.extension.modal?.openExport === true;
+}
+
 // Pass `size: 'fullscreen'` to fill the viewport (100vw × 100vh, no Confluence chrome).
 // GA'd Apr 28 2026 (FRGE-557 / CHANGE-3163). Atlassian-enforced header (~50px, app icon + title + X) is unavoidable.
 export async function openModal(_options: any) {
   const { Modal } = await import("@forge/bridge");
   const modal = new Modal(_options);
-  modal.open();
+  // Return the open() result. It is a promise in the bridge, and dropping it
+  // detached both its rejection and its completion — a caller that awaits
+  // openModal() to guard against a double open was released before the bridge
+  // had opened anything (conf-app export-in-fullscreen review, round 1).
+  return modal.open();
 }
 
 export async function isInserting() {
@@ -188,6 +273,55 @@ export async function openUrl(url: string) {
   } else {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
+}
+
+// In-product navigation to a Confluence page, for surfaces that hold a
+// spaceKey + pageId but no page context of their own (the homepage feed card).
+// `router.navigate` keeps the user inside Confluence — `openUrl`/`router.open`
+// would spawn a tab — and is the same call BylineDiagrams uses to reach a
+// page's editor. Plain `<a href>` is not an option: links inside a Custom UI
+// iframe are inert under the Forge sandbox.
+export async function navigateToPage(spaceKey: string, pageId: string) {
+  const path = `/wiki/spaces/${spaceKey}/pages/${pageId}`;
+  if (global.isForge) {
+    const { router } = await import("@forge/bridge");
+    await router.navigate(path);
+  } else {
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+}
+
+// In-product navigation to one of OUR OWN app's other confluence:globalPage
+// routes (e.g. the page banner linking to the Plan-and-usage page). Forge
+// exposes no bridge API to resolve "my own app's URL" from inside a running
+// Custom UI iframe, but every such iframe's own `location.pathname` already
+// starts with `/<appId>/<environmentId>/...` (verified against a live
+// zenuml-dashboard globalPage load: the browser-visible URL is
+// `/wiki/apps/<appId>/<environmentId>/<route>` — same two IDs, same order).
+// Deriving them from the running iframe's own address avoids hardcoding an
+// environment-specific app/environment id pair that would break across
+// dev/staging/prod.
+export function buildAppPageUrl(route: string): string | undefined {
+  try {
+    const segments = window.location.pathname.split('/').filter(Boolean);
+    const [appId, environmentId] = segments;
+    if (!appId || !environmentId) return undefined;
+    return `/wiki/apps/${appId}/${environmentId}/${route}`;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function navigateToAppPage(route: string): Promise<boolean> {
+  const path = buildAppPageUrl(route);
+  if (!path) return false;
+  if (global.isForge) {
+    const { router } = await import("@forge/bridge");
+    await router.navigate(path);
+  } else {
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+  return true;
 }
 
 // @ts-ignore

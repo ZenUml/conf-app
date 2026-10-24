@@ -1,0 +1,45 @@
+name: Error radar
+
+# Daily detector for new and unusual conf-app error signatures in Mixpanel
+# (.claude/skills/error-radar/SKILL.md). Posts to #zenuml2 by webhook; the
+# Claude scheduled task "Error radar triage" replies in that thread.
+#
+# The radar output names real tenants and this repository's logs are public:
+# the run step prints only --quiet's tenant-free summary, and nothing is
+# uploaded as an artifact.
+
+on:
+  schedule:
+    - cron: '47 21 * * *'   # 08:47 AEDT / 07:47 AEST, after the UTC day closes
+  workflow_dispatch:
+    inputs:
+      day:
+        description: 'UTC day to examine (YYYY-MM-DD); empty = yesterday'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: error-radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Unit tests
+        run: |
+          python3 -m unittest discover -s .claude/skills/error-radar/scripts -p 'test_*.py'
+          node --test .claude/skills/error-radar/scripts/signature.test.js
+      - name: Detect and post
+        env:
+          MIXPANEL_SA_USER: ${{ secrets.MIXPANEL_SA_USER }}
+          MIXPANEL_SA_SECRET: ${{ secrets.MIXPANEL_SA_SECRET }}
+          SLACK_ERROR_RADAR_WEBHOOK: ${{ secrets.SLACK_ERROR_RADAR_WEBHOOK }}
+          DAY: ${{ inputs.day }}
+        run: |
+          python3 .claude/skills/error-radar/scripts/radar.py --quiet --post ${DAY:+--day "$DAY"}

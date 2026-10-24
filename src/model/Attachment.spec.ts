@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to define mocks before they're used in vi.mock factories
-const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence, mockRecordPublishStep } = vi.hoisted(() => {
+const { mockTrackEvent, mockTrackAnalyticsEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence, mockRecordPublishStep } = vi.hoisted(() => {
   const mockTrackEvent = vi.fn();
+  const mockTrackAnalyticsEvent = vi.fn();
   const mockRecordPublishStep = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
@@ -16,6 +17,7 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCal
 
   return {
     mockTrackEvent,
+    mockTrackAnalyticsEvent,
     mockApWrapper,
     mockGetContext,
     mockForgeRequest,
@@ -35,6 +37,10 @@ vi.mock('@/model/captureBlob', () => ({
 // Per-step publish timing: only the save-time PNG capture reports into it.
 vi.mock('@/utils/analytics/publishTiming', () => ({
   recordPublishStep: (...args: any[]) => mockRecordPublishStep(...args)
+}));
+
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: (...args: any[]) => mockTrackAnalyticsEvent(...args)
 }));
 
 // Mock md5
@@ -75,6 +81,7 @@ vi.mock('@forge/bridge', () => ({
 
 import createAttachmentIfContentChanged, { capturePng } from './Attachment';
 import { ForgeRequestError } from '@/utils/forgeRequestError';
+import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
@@ -110,6 +117,9 @@ describe('Attachment', () => {
     vi.clearAllMocks();
     // Reset window state
     delete (window as any).createAttachmentInProgress;
+    // A 429 test leaves a site cooldown behind; never let it defer later tests.
+    localStorage.clear();
+    resetRateLimitCooldown();
     // Setup default mocks for Forge
     mockGetContext.mockResolvedValue({
       extension: { config: { customContentId: 'test-uuid' } }
@@ -332,6 +342,117 @@ describe('Attachment', () => {
       );
 
       consoleErrorSpy.mockRestore();
+    });
+
+    describe('Confluence rate limit (429)', () => {
+      const html429 = (retryAfter?: string) => new ForgeRequestError({
+        status: 429,
+        method: 'GET',
+        url: '/wiki/api/v2/pages/123456/attachments?filename=zenuml-x.png',
+        contentType: 'text/html;charset=utf-8',
+        body: '<!doctype html><html><head><title>HTTP Status 429 – Too Many Requests</title></head></html>',
+        retryAfter,
+      });
+      const analyticsCalls = (name: string) => mockTrackAnalyticsEvent.mock.calls.filter(c => c[0] === name);
+
+      it('defers instead of failing, and records the cooldown from Retry-After', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValue(html429('120'));
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_failed', expect.any(String), expect.anything(),
+        );
+        expect(analyticsCalls('attachment_upload_rate_limited')).toEqual([[
+          'attachment_upload_rate_limited',
+          expect.objectContaining({
+            surface: 'viewer',
+            http_status: 429,
+            failed_request: 'GET /wiki/api/v2/pages/{id}/attachments',
+            retry_after_source: 'header',
+            retry_after_s: 120,
+            cooldown_ms: 120_000,
+          }),
+        ]]);
+        expect((window as any).createAttachmentInProgress).toBe(false);
+      });
+
+      it('uses the default cooldown when there is no Retry-After header', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValue(html429());
+
+        await createAttachmentIfContentChanged('test content');
+
+        const [, props] = analyticsCalls('attachment_upload_rate_limited')[0];
+        expect(props).toMatchObject({ retry_after_source: 'default', cooldown_ms: 5 * 60 * 1000 });
+        expect(props).not.toHaveProperty('retry_after_s');
+      });
+
+      it('skips the next view-time backfill without any request while the cooldown runs', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429());
+        await createAttachmentIfContentChanged('test content');
+        mockApWrapper.getAttachmentsV2.mockClear();
+
+        await createAttachmentIfContentChanged('other content');
+
+        expect(mockApWrapper.getAttachmentsV2).not.toHaveBeenCalled();
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+        expect(analyticsCalls('attachment_upload_deferred')).toEqual([[
+          'attachment_upload_deferred',
+          expect.objectContaining({ surface: 'viewer', cooldown_remaining_ms: expect.any(Number) }),
+        ]]);
+        expect(analyticsCalls('attachment_upload_deferred')[0][1].cooldown_remaining_ms).toBeGreaterThan(0);
+      });
+
+      it('retries once the cooldown has passed', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+          mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429('60'));
+          await createAttachmentIfContentChanged('test content');
+          vi.setSystemTime(Date.now() + 61_000);
+          mockApWrapper.getAttachmentsV2.mockClear();
+
+          await createAttachmentIfContentChanged('test content').catch(() => {});
+
+          expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
+          expect(analyticsCalls('attachment_upload_deferred')).toHaveLength(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('still attempts a save-time write during the cooldown', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429());
+        await createAttachmentIfContentChanged('test content');
+        mockApWrapper.getAttachmentsV2.mockClear();
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockCallRemote.mockResolvedValue({ ok: true, queued: true });
+
+        await createAttachmentIfContentChanged('test content', undefined, { customContentId: 'test-uuid', fromSave: true });
+
+        expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
+        expect(analyticsCalls('attachment_upload_deferred')).toHaveLength(0);
+      });
+
+      it('treats a 429 on the data POST the same way', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: false,
+          status: 429,
+          text: vi.fn().mockResolvedValue('Too Many Requests'),
+        });
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockCallRemote).not.toHaveBeenCalledWith('/forge-upload-attachment', expect.anything(), expect.anything());
+        expect(analyticsCalls('attachment_upload_rate_limited')[0][1]).toMatchObject({
+          failed_request: 'POST attachment data',
+          retry_after_source: 'default',
+        });
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_failed', expect.any(String), expect.anything(),
+        );
+      });
     });
 
     it('records the status and failing call when the attachments GET gets an HTML page', async () => {

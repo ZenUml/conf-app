@@ -1272,6 +1272,20 @@ export type AnalyticsEventName =
   // performs: not-current -> this skip; `current` -> a real failure labelled
   // `app_no_access` (the app cannot see the page — #211), never a skip.
   | "attachment_upload_async_skipped"
+  // Confluence rate-limited the PNG attachment write: a 429 on the attachments
+  // GET, the data POST or the properties PUT. Production 2026-10-22/23 showed
+  // these as the whole non-JSON `attachment_upload_failed` bucket (an HTML
+  // "HTTP Status 429 – Too Many Requests" page on the attachments GET), mostly
+  // from one site whose page views each fire a backfill. The write is deferred
+  // (the next view after the cooldown retries), not failed, and starts a
+  // per-site cooldown. Properties: page_id, custom_content_id,
+  // attachment_name, http_status, failed_request, retry_after_source,
+  // retry_after_s, cooldown_ms.
+  | "attachment_upload_rate_limited"
+  // A view-time backfill skipped without sending any request because this
+  // site's rate-limit cooldown is still running. Properties: page_id,
+  // custom_content_id, cooldown_remaining_ms.
+  | "attachment_upload_deferred"
   // Daily macro-count inventory snapshots. These are emitted by the
   // Cloudflare snapshot service, not by the browser tracker. Registering them
   // here keeps the shared analytics vocabulary explicit before the scheduled

@@ -57,6 +57,20 @@ describe('ReviewStore', () => {
     expect(store.listLatestCompleted(REPO_KEY)[0].priority).toBe('P0')
   })
 
+  it('enumerates completed reviews across repository files after restart, including unopened PRs', () => {
+    const dir = tempDir()
+    const store = new ReviewStore(dir)
+    const otherRepo = 'github.com/other/repo'
+    store.upsert(run({ runId: 'first' }))
+    store.upsert(run({ runId: 'second', pr: PR2 }))
+    store.upsert(run({ runId: 'third', repoKey: otherRepo, pr: { ...PR, owner: 'other', repo: 'repo', number: 42 } }))
+    store.upsert(run({ runId: 'unfinished', pr: { ...PR, number: 99 }, status: 'running' }))
+    const reopened = new ReviewStore(dir)
+    expect(reopened.listReviewedPrRefs().map((ref) => `${ref.owner}/${ref.repo}#${ref.number}`).sort()).toEqual([
+      'Acme/Widgets#7', 'acme/widgets#8', 'other/repo#42',
+    ])
+  })
+
   it('lists the latest completed run per PR, newest first, and marks stale rows', () => {
     const store = new ReviewStore(tempDir())
     store.upsert(run({ runId: 'old', completedAt: 200, reviewedHeadSha: '1111111' }))

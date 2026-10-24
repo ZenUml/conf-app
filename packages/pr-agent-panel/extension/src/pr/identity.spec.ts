@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parsePrRef, parseRepoRef, readHeadSha, readPrState, readTitle } from './identity'
+import { parsePrRef, parseRepoRef, readHeadSha, readPrState, readTitle, readViewerLogin } from './identity'
 import fixture from './__fixtures__/pr-page.html?raw'
 
 const doc = (html: string) => new DOMParser().parseFromString(html, 'text/html')
@@ -69,6 +69,19 @@ describe('title', () => {
     const ref = parsePrRef('https://github.com/o/r/pull/1', doc(`<span class="js-issue-title">${long}</span>`))
     expect(ref?.title).toHaveLength(300)
     expect(parsePrRef('https://github.com/o/r/pull/1', doc('<p>nothing</p>'))?.title).toBeUndefined()
+  })
+})
+
+describe('signed-in GitHub identity', () => {
+  it('reads the account from GitHub actor metadata, not the repository owner', () => {
+    expect(readViewerLogin(doc('<meta name="user-login" content="MrCoder"><meta name="octolytics-actor-login" content="mrcoder">'))).toBe('MrCoder')
+    expect(readViewerLogin(doc('<meta name="octolytics-actor-login" content="MrCoder">'))).toBe('MrCoder')
+  })
+
+  it('fails closed for absent, conflicting, or malformed actor metadata', () => {
+    expect(readViewerLogin(doc(''))).toBeNull()
+    expect(readViewerLogin(doc('<meta name="user-login" content="Alice"><meta name="octolytics-actor-login" content="Bob">'))).toBeNull()
+    expect(readViewerLogin(doc('<meta name="user-login" content="Alice<script>">'))).toBeNull()
   })
 })
 

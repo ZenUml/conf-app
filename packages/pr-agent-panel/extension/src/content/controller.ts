@@ -10,7 +10,7 @@ import { createShadowRootUi, type ShadowRootContentScriptUi } from 'wxt/utils/co
 import { buildTelemetryFrame, messageLengthBucket, type TelemetryEvent, type TelemetryProps } from '../analytics/telemetry'
 import { PanelPort, documentId, envelope } from '../bridge/port'
 import { containWheel, installContentShift, listColumnTop } from '../pr/page-column'
-import { parsePrRef, parseRepoRef, readPrState } from '../pr/identity'
+import { parsePrRef, parseRepoRef, readPrState, readViewerLogin } from '../pr/identity'
 import { getPrefs, onPrefsChanged, setPref } from '../state/prefs'
 import AgentPanel from '../ui/AgentPanel.vue'
 import ReviewList from '../ui/ReviewList.vue'
@@ -47,6 +47,7 @@ export function createPageController(ctx: ContentScriptContext) {
   }
 
   function readPage(): { pr: PrRef | null; changed: boolean } {
+    state.viewerLogin = readViewerLogin(document)
     const pr = parsePrRef(location.href, document)
     const repo = pr ?? parseRepoRef(location.href)
     const prev = state.pr
@@ -143,11 +144,11 @@ export function createPageController(ctx: ContentScriptContext) {
         const app = createApp({
           render: () =>
             h(ReviewList, {
-              items: state.reviews,
+              items: store.visibleReviews.value,
               currentPrNumber: state.pr?.number ?? null,
               emptyText:
                 state.status.state === 'connected'
-                  ? undefined
+                  ? state.viewerLogin ? undefined : 'Sign in to GitHub to see only your PRs.'
                   : state.prefs.mcpAccess !== 'enabled' || state.status.needsPermission
                     ? 'Enable MCP access in the ZenUML panel to see AI reviews.'
                     : 'The ZenUML Hub is not running. Start your agent session to see AI reviews.',
@@ -201,7 +202,7 @@ export function createPageController(ctx: ContentScriptContext) {
   function maybeSendListShown() {
     if (listShownSent || !listUi || !state.reviewsLoaded) return
     listShownSent = true
-    telemetry('pr_panel_review_list_shown', { review_count: state.reviews.length })
+    telemetry('pr_panel_review_list_shown', { review_count: store.visibleReviews.value.length })
   }
 
   /**
@@ -276,7 +277,15 @@ export function createPageController(ctx: ContentScriptContext) {
     port.onStatus((s) => (state.status = s))
     port.onFrame((f) => {
       store.applyFrame(f)
-      if (f.type === 'reviews') maybeSendListShown()
+      if (f.type === 'reviews') {
+        telemetry('pr_panel_review_scope_applied', {
+          scope_mode: 'mine',
+          scope_outcome: state.viewerLogin ? 'resolved' : 'identity_unavailable',
+          visible_review_count: store.visibleReviews.value.length,
+          excluded_review_count: f.items.length - store.visibleReviews.value.length,
+        })
+        maybeSendListShown()
+      }
     })
     port.connect()
     ctx.onInvalidated(() => {

@@ -7,6 +7,7 @@ import { computed, reactive } from 'vue'
 import { repoKeyOf, type HubFrame, type PrRef, type PrState, type ReviewSummary, type Task } from '@zenuml/pr-panel-shared'
 import type { HubStatusMessage } from '../bridge/messages'
 import { DEFAULT_PREFS, type Prefs } from '../state/prefs'
+import { visibleReviewsForViewer } from '../pr/ownership'
 import type { PanelConnection, PanelMessageView } from '../ui/types'
 
 type StateFrame = Extract<HubFrame, { type: 'state' }>
@@ -21,6 +22,7 @@ export function createPageStore(documentId: string) {
     prState: 'unknown' as PrState,
     repoKey: null as string | null,
     reviews: [] as ReviewSummary[],
+    viewerLogin: null as string | null,
     reviewsLoaded: false,
     prefs: { ...DEFAULT_PREFS } as Prefs,
     messages: [] as PanelMessageView[],
@@ -54,10 +56,12 @@ export function createPageStore(documentId: string) {
     return pool.reduce<Task | null>((best, t) => (!best || t.startedAt > best.startedAt ? t : best), null)
   })
 
+  const visibleReviews = computed(() => visibleReviewsForViewer(state.reviews, state.viewerLogin))
+
   const review = computed<ReviewSummary | null>(() => {
     const pr = state.pr
     if (!pr) return null
-    return state.reviews.find((r) => r.prNumber === pr.number) ?? null
+    return visibleReviews.value.find((r) => r.prNumber === pr.number) ?? null
   })
 
   function pushMessage(m: PanelMessageView) {
@@ -160,7 +164,7 @@ export function createPageStore(documentId: string) {
     if (!state.dismissedTaskIds.includes(taskId)) state.dismissedTaskIds.push(taskId)
   }
 
-  return { state, connection, task, review, applyFrame, addUserMessage, noteCancel, dismissTask }
+  return { state, connection, task, review, visibleReviews, applyFrame, addUserMessage, noteCancel, dismissTask }
 }
 
 export type PageStore = ReturnType<typeof createPageStore>

@@ -24,7 +24,7 @@ describe('saved PR status refresh', () => {
     const result = await readSavedPrStatuses(refs, async (query) => {
       queries.push(query)
       return { data: { repository: {
-        p0: { state: 'OPEN', isDraft: true, headRefOid: 'aaaaaaa1', mergeable: 'MERGEABLE', mergeStateStatus: 'DRAFT' },
+        p0: { state: 'OPEN', isDraft: true, headRefOid: 'aaaaaaa1', mergeable: 'MERGEABLE', mergeStateStatus: 'DRAFT', author: { login: 'MrCoder' }, assignees: { nodes: [{ login: 'someone-else' }] } },
         p1: { state: 'CLOSED', isDraft: false, headRefOid: 'bbbbbbb2', mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' },
         p2: { state: 'MERGED', isDraft: false, headRefOid: 'ccccccc3', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' },
         p3: { state: 'OPEN', isDraft: false, headRefOid: 'ddddddd4', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' },
@@ -32,10 +32,12 @@ describe('saved PR status refresh', () => {
     })
     expect(queries).toHaveLength(1)
     expect(queries[0]).toContain('pullRequest(number: 7)')
+    expect(queries[0]).toContain('author { login } assignees(first: 100)')
     expect(queries[0]).not.toContain('pullRequests(')
     expect(result.failed).toBe(0)
     expect(result.observations.map((item) => item.observed.state)).toEqual(['draft', 'closed', 'merged', 'open'])
     expect(result.observations.map((item) => item.observed.readiness)).toEqual(['blocked', 'blocked', 'blocked', 'ready'])
+    expect(result.observations[0]?.observed).toMatchObject({ authorLogin: 'MrCoder', assigneeLogins: ['someone-else'] })
   })
 
   it('preserves status on partial and total GitHub failures', async () => {
@@ -90,16 +92,17 @@ describe('saved PR status refresh', () => {
     const sync = new PrStatusSync({
       reviews, statuses, onChanged: (repo) => runtime.refreshReviews(repo),
       read: async () => ({ observations: [
-        { ref: PR, observed: { state: 'merged', headSha: 'ccccccc3' } },
+        { ref: PR, observed: { state: 'merged', headSha: 'ccccccc3', authorLogin: 'MrCoder', assigneeLogins: [] } },
         { ref: PR2, observed: { state: 'draft', headSha: 'ddddddd4' } },
       ], failed: 0 }),
     })
     await sync.refresh()
     const rows = conn.last('reviews')?.items ?? []
     expect(rows.map((row) => row.prState)).toEqual(['merged', 'draft'])
+    expect(rows[0]).toMatchObject({ authorLogin: 'MrCoder', assigneeLogins: [] })
     expect(rows.map((row) => row.stale)).toEqual([true, true])
     expect(conn.of('reviews')).toHaveLength(1) // one broadcast for this repository
-    expect(new PrStatusStore(dir).get(REPO_KEY, 7)).toEqual({ state: 'merged', headSha: 'ccccccc3', readiness: 'unknown' })
+    expect(new PrStatusStore(dir).get(REPO_KEY, 7)).toEqual({ state: 'merged', headSha: 'ccccccc3', readiness: 'unknown', authorLogin: 'MrCoder', assigneeLogins: [] })
     expect(statSync(join(dir, 'pr-status.json')).mode & 0o777).toBe(0o600)
     expect(JSON.parse(readFileSync(join(dir, 'pr-status.json'), 'utf8'))[`${REPO_KEY}#7`].state).toBe('merged')
     expect(reviews.history(REPO_KEY, 7)[0].prState).toBe('open') // historical result remains intact

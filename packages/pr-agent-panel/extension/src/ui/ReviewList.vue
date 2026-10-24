@@ -179,7 +179,7 @@ function open(item: ReviewSummary, index: number) {
           </label>
         </div>
       </div>
-      <div class="prl-caption" data-testid="list-caption">AI reviews · ready first</div>
+      <div class="prl-caption" data-testid="list-caption">AI reviews · 仅我的 PR · ready first</div>
     </div>
 
     <section v-if="pinnedRows.length" class="prl-pinned" :class="{ 'prl-pinned-only': !ordinaryRows.length }" aria-label="P0 reviews" data-testid="pinned-reviews">
@@ -208,7 +208,7 @@ function open(item: ReviewSummary, index: number) {
       </ol>
       <p v-else-if="pinnedRows.length" class="prl-empty" data-testid="list-empty">{{ items.some((item) => item.priority !== 'P0') ? 'No other reviews match these filters.' : 'No other completed AI reviews.' }}</p>
       <p v-else-if="items.length" class="prl-empty" data-testid="list-empty">No reviews match these filters.</p>
-      <p v-else-if="!pinnedRows.length" class="prl-empty" data-testid="list-empty">{{ emptyText ?? 'No completed AI reviews in this repository yet.' }}</p>
+      <p v-else-if="!pinnedRows.length" class="prl-empty" data-testid="list-empty">{{ emptyText ?? 'No completed AI reviews for your PRs here yet.' }}</p>
     </div>
     <div v-if="ordinaryRows.length" class="prl-pagination" aria-label="Review pages" data-testid="list-pagination">
       <button type="button" aria-label="Previous review page" data-testid="page-prev" :disabled="pageIndex === 0" @click="setPage(pageIndex - 1)">‹</button>

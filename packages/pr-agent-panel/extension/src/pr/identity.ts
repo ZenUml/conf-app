@@ -83,6 +83,16 @@ export function readTitle(doc: Document): string | undefined {
   return undefined
 }
 
+/** GitHub's signed-in actor, not the repository owner or PR author. Fail closed on conflicting page metadata. */
+export function readViewerLogin(doc: Document): string | null {
+  const login = doc.querySelector<HTMLMetaElement>('meta[name="user-login"]')?.content?.trim()
+  const actor = doc.querySelector<HTMLMetaElement>('meta[name="octolytics-actor-login"]')?.content?.trim()
+  const value = login || actor
+  if (!value || !/^[A-Za-z0-9-]{1,39}$/.test(value)) return null
+  if (login && actor && login.toLowerCase() !== actor.toLowerCase()) return null
+  return value
+}
+
 /**
  * Best effort: a `.sha` next to the head ref (classic layout), else the
  * `headSha` field of the React app's embedded JSON. Undefined when neither is

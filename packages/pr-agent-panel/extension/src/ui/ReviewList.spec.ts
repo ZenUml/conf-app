@@ -93,14 +93,14 @@ describe('ReviewList', () => {
     expect(w.get('[data-testid="list-search"]').attributes('placeholder')).toBe('Search reviews')
     expect(w.get('[data-testid="filter-priority"] option').text()).toBe('All priorities ▾')
     expect(w.get('[data-testid="filter-state"] option').text()).toBe('All states ▾')
-    expect(w.get('[data-testid="list-caption"]').text()).toBe('AI reviews · ready first')
+    expect(w.get('[data-testid="list-caption"]').text()).toBe('AI reviews · 仅我的 PR · ready first')
     expect(w.text()).not.toMatch(/\d+\s*reviews?/i)
   })
 
   it('says so when the repository has no completed reviews', () => {
     const w = mount(ReviewList, { props: { items: [] } })
     expect(w.findAll('[data-testid="list-row"]')).toHaveLength(0)
-    expect(w.get('[data-testid="list-empty"]').text()).toBe('No completed AI reviews in this repository yet.')
+    expect(w.get('[data-testid="list-empty"]').text()).toBe('No completed AI reviews for your PRs here yet.')
     expect(w.text()).not.toMatch(/\d+\s*reviews?/i)
   })
 

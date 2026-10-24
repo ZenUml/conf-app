@@ -6,22 +6,22 @@ const url = (n: number) => `https://github.com/example-org/example-repo/pull/${n
 
 export const REVIEWS: ReviewSummary[] = [
   {
-    runId: 'r683', repoKey, prNumber: 683, url: url(683), priority: 'P1', prState: 'open', conflict: true, stale: false, completedAt: 1,
+    runId: 'r683', repoKey, prNumber: 683, url: url(683), priority: 'P1', prState: 'open', authorLogin: 'example-user', conflict: true, stale: false, completedAt: 1,
     headline: 'Make the first save succeed', summary: 'The first save and Agent Link pairing decide whether a user completes setup.',
     tags: ['Onboarding', 'Engagement'],
   },
   {
-    runId: 'r684', repoKey, prNumber: 684, url: url(684), priority: 'P1', prState: 'draft', conflict: false, stale: false, completedAt: 2,
+    runId: 'r684', repoKey, prNumber: 684, url: url(684), priority: 'P1', prState: 'draft', authorLogin: 'example-user', conflict: false, stale: false, completedAt: 2,
     headline: 'Show a usable example right after install', summary: 'Example pages and templates shorten the path to a first diagram; depends on #683.',
     tags: ['Onboarding', 'New feature'],
   },
   {
-    runId: 'r888', repoKey, prNumber: 888, url: url(888), priority: 'P1', prState: 'draft', conflict: false, stale: true, completedAt: 3,
+    runId: 'r888', repoKey, prNumber: 888, url: url(888), priority: 'P1', prState: 'draft', authorLogin: 'example-user', conflict: false, stale: true, completedAt: 3,
     headline: 'Help admins see where diagrams are used', summary: 'Lists the page each diagram sits on; permissions, paging and counts need follow-up.',
     tags: ['Revenue', 'UX', 'issue #893'],
   },
   {
-    runId: 'r581', repoKey, prNumber: 581, url: url(581), priority: 'P2', prState: 'open', conflict: true, stale: false, completedAt: 4,
+    runId: 'r581', repoKey, prNumber: 581, url: url(581), priority: 'P2', prState: 'open', authorLogin: 'example-user', conflict: true, stale: false, completedAt: 4,
     headline: 'Turn customer follow-up into an actionable queue', summary: 'Combines licence and lifecycle signals to tell operations which customers to follow up.',
     tags: ['Revenue', 'Engagement'],
   },

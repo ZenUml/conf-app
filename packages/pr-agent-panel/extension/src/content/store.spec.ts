@@ -11,6 +11,7 @@ function setup() {
   store.state.status = { state: 'connected', port: 47391 }
   store.state.pr = PR_888
   store.state.repoKey = 'github.com/example-org/example-repo'
+  store.state.viewerLogin = 'example-user'
   return store
 }
 
@@ -54,6 +55,23 @@ describe('page store', () => {
     s.applyFrame({ ...base, id: 'after', type: 'reviews', repoKey, items: otherRows })
     expect(s.review.value).toBeNull()
     expect(s.state.reviews).toEqual(otherRows)
+  })
+
+  it('keeps another author out after a background review refresh, while adding a newly assigned PR', () => {
+    const s = setup()
+    const repoKey = 'github.com/example-org/example-repo'
+    const ours = REVIEWS[0]!
+    const other = { ...REVIEWS[1]!, authorLogin: 'another-user', assigneeLogins: [] }
+    s.applyFrame({ ...base, id: 'initial', type: 'reviews', repoKey, items: [ours, other] })
+    expect(s.visibleReviews.value.map((item) => item.prNumber)).toEqual([ours.prNumber])
+
+    s.applyFrame({ ...base, id: 'refresh', type: 'reviews', repoKey, items: [ours, other, {
+      ...REVIEWS[2]!, authorLogin: 'another-user', assigneeLogins: ['EXAMPLE-USER'],
+    }] })
+    expect(s.visibleReviews.value.map((item) => item.prNumber)).toEqual([ours.prNumber, REVIEWS[2]!.prNumber])
+    s.state.viewerLogin = null
+    expect(s.visibleReviews.value).toEqual([])
+    expect(s.review.value).toBeNull()
   })
 
   it('shows the task bound to this PR, until Done dismisses it', () => {

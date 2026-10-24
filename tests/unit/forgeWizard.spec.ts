@@ -47,7 +47,7 @@ describe('forge-wizard manifest preview helpers', () => {
     })
     expect(manifest.modules.function).toContainEqual({
       key: 'macroCountSnapshotFn',
-      handler: 'macro-count-snapshot.scheduledHandler',
+      handler: 'forge-functions/macro-count-snapshot.scheduledHandler',
       timeoutSeconds: 900,
     })
     const connect = manifest.remotes.find((remote: any) => remote.key === 'connect')
@@ -170,7 +170,7 @@ describe('forge-wizard manifest preview helpers', () => {
 
     // Every macro Lite ships must carry ${LITE_KEY_SUFFIX} so its key resolves
     // to a `-lite` name, the way the CQL `macro in (...)` searches that key on
-    // the bare macro name expect (src/lite-full-conversion.ts). The AsyncAPI
+    // the bare macro name expect (src/forge-functions/lite-full-conversion.ts). The AsyncAPI
     // macro was added unsuffixed when ADR-0005 landed.
     it('every macro Lite keeps is templated with the Lite key suffix', () => {
       const manifest = load(fs.readFileSync('manifest.yml', 'utf8')) as any

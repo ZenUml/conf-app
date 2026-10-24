@@ -1,7 +1,7 @@
-// src/lib/exportSampling.js
+// src/forge-functions/exportSampling.js
 //
 // Sampling for the export events, which are emitted from the Forge backend
-// functions (src/export.js, src/asyncapi-export.js) straight to the Mixpanel
+// functions (src/forge-functions/export.js, src/forge-functions/asyncapi-export.js) straight to the Mixpanel
 // /import endpoint. That path never touches the browser bundle, so
 // src/utils/analytics/eventSampling.ts does NOT apply to it — these two tables
 // are separate on purpose, and each is the single source of truth for its own
@@ -21,7 +21,7 @@
 //
 // `macro_export_failed` keeps twice the rate of the success paths so the
 // failure-reason breakdown keeps usable counts in its smaller buckets.
-import { isOctoberBillingBudgetActive } from './octoberBudgetWindow.js';
+import { isOctoberBillingBudgetActive } from '../lib/octoberBudgetWindow.js';
 
 export const EXPORT_EVENT_SAMPLE_RATES = {
   macro_export_requested: 0.05,

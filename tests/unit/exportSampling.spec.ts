@@ -3,7 +3,7 @@ import {
   EXPORT_EVENT_SAMPLE_RATES,
   decideExportSample,
   exportSampleRateFor,
-} from '@/lib/exportSampling.js'
+} from '@/forge-functions/exportSampling.js'
 
 describe('exportSampling', () => {
   beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z')))

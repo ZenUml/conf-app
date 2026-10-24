@@ -2,7 +2,7 @@ import api, { route } from '@forge/api';
 
 /**
  * Space-property maintenance for the byline visibility sweep:
- * src/full-presence.ts writes `zenuml-full-active` from the Full app, which the
+ * src/forge-functions/full-presence.ts writes `zenuml-full-active` from the Full app, which the
  * Lite byline's display condition subtracts. (A Lite-side sweep writing a
  * `zenuml-byline-lite` enrolment property used this module too until 2026-10;
  * that gate was removed — see the zenuml-byline-diagrams comment in

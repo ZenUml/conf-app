@@ -27,8 +27,8 @@ vi.mock('@forge/api', () => ({
   getAppContext,
 }));
 
-import { enrollSpaceImpl, runEnrollmentPipelineImpl } from '../../src/createDemoPage';
-import { MACROS, DIAGRAMLY_CUSTOM_CONTENT_TYPE } from '../../src/demoPageContent';
+import { enrollSpaceImpl, runEnrollmentPipelineImpl } from '../../src/forge-functions/createDemoPage';
+import { MACROS, DIAGRAMLY_CUSTOM_CONTENT_TYPE } from '../../src/forge-functions/demoPageContent';
 
 function makeResponse(body: unknown, status = 200) {
   return {

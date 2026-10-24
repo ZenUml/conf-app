@@ -1,6 +1,6 @@
 // Per-page lookup of whether the currently-loaded macro lives on a Diagramly
 // demo page. The backend tags the page on creation with a
-// `diagramly-demo-page` page property (see createDemoPage.js → tagDemoPage).
+// `diagramly-demo-page` page property (see forge-functions/createDemoPage.js → tagDemoPage).
 // Frontend reads it once per page id and caches in-memory so the per-view
 // network cost is paid at most once per session.
 //

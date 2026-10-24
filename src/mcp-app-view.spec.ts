@@ -104,6 +104,11 @@ describe('extractDiagram', () => {
     );
   });
 
+  it('takes a Markdown record\'s markdownCode, not the stale code draft (#918)', () => {
+    const stored = { title: 'Notes', diagramType: 'markdown', code: 'A->B: stale zenuml draft', markdownCode: '# Notes' };
+    expect(extractDiagram({ structuredContent: { source: JSON.stringify(stored) } })?.dsl).toBe('# Notes');
+  });
+
   it('skips a read_diagram source that is bare DSL with no type', () => {
     expect(extractDiagram({ structuredContent: { title: 'x', source: 'A->B: hi' } })).toBeNull();
   });

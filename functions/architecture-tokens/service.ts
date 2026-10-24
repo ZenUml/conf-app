@@ -27,6 +27,23 @@ export interface RelatedResponse {
   contentVersion: number | null;
   participants: RelatedParticipant[];
   error_kind?: string;
+  /** With error_kind 'confluence_unavailable': the HTTP status Confluence answered, when it answered. */
+  confluence_http_status?: number;
+}
+
+/**
+ * A Confluence lookup that answered non-2xx. Carries the status so the
+ * `confluence_unavailable` response can say whether it was a 429 rate limit,
+ * a 403 or a 5xx — the viewer's failure event had no way to tell.
+ */
+export class ConfluenceLookupError extends Error {
+  constructor(what: string, readonly status: number) {
+    super(`confluence ${what} ${status}`);
+  }
+}
+
+function confluenceStatusOf(error: unknown): { confluence_http_status?: number } {
+  return error instanceof ConfluenceLookupError ? { confluence_http_status: error.status } : {};
 }
 
 export interface ConfluencePageInfo {
@@ -77,7 +94,7 @@ export function confluencePageResolver(
           Authorization: `Bearer ${forgeOAuthUser}`,
         },
       });
-      if (!response.ok) throw new Error(`confluence search ${response.status}`);
+      if (!response.ok) throw new ConfluenceLookupError('search', response.status);
 
       const body = await response.json() as {
         results?: Array<{
@@ -297,7 +314,7 @@ export function confluenceContentResolver(
           headers: { Accept: 'application/json', Authorization: `Bearer ${forgeOAuthUser}` },
         },
       );
-      if (!response.ok) throw new Error(`confluence custom-content ${response.status}`);
+      if (!response.ok) throw new ConfluenceLookupError('custom-content', response.status);
 
       const body = await response.json() as {
         results?: Array<{
@@ -358,8 +375,14 @@ export async function relatedDiagrams(
   let live: Map<string, LiveContent>;
   try {
     live = await resolveContent([contentId, ...new Set(nearest.map((c) => c.contentId))]);
-  } catch {
-    return { indexedAt, contentVersion, participants: [], error_kind: 'confluence_unavailable' };
+  } catch (error) {
+    return {
+      indexedAt,
+      contentVersion,
+      participants: [],
+      error_kind: 'confluence_unavailable',
+      ...confluenceStatusOf(error),
+    };
   }
 
   // Counted before the version and permission filters: the circle answers "how widely is
@@ -394,12 +417,13 @@ export async function relatedDiagrams(
   let pages: Map<string, ConfluencePageInfo>;
   try {
     pages = new Map((await resolve(pageIds)).map((page) => [page.id, page]));
-  } catch {
+  } catch (error) {
     return {
       indexedAt,
       contentVersion,
       participants: [],
       error_kind: 'confluence_unavailable',
+      ...confluenceStatusOf(error),
     };
   }
 

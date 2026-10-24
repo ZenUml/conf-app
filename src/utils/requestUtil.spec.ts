@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { callRemote, forgeRequest, loadPaginatedDataUntil } from './requestUtil';
 import { ForgeRequestError, templateUrl } from './forgeRequestError';
+import { ConfluenceThrottledError, _resetForTesting as resetThrottle, noteConfluenceThrottled } from './confluenceThrottle';
 
 const mockRequestConfluence = vi.fn();
 const mockInvokeRemote = vi.fn();
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
 vi.mock('@forge/bridge', () => ({
   requestConfluence: (...args: any[]) => mockRequestConfluence(...args),
   invokeRemote: (...args: any[]) => mockInvokeRemote(...args),
@@ -145,6 +147,69 @@ describe('forgeRequest', () => {
       await expect(forgeRequest('/wiki/x', 'PUT', {})).resolves.toEqual(envelope);
       await expect(forgeRequest('/wiki/x', 'PUT', {}, {})).resolves.toEqual(envelope);
     });
+  });
+});
+
+describe('forgeRequest under Confluence rate limiting (429)', () => {
+  const html429 = (headers: Record<string, string> = {}) => new Response(
+    '<!doctype html><html><head><title>HTTP Status 429 – Too Many Requests</title></head></html>',
+    { status: 429, headers: { 'content-type': 'text/html;charset=utf-8', ...headers } },
+  );
+  beforeEach(() => {
+    mockRequestConfluence.mockReset();
+    vi.spyOn(window, 'top', 'get').mockReturnValue({} as Window);
+    localStorage.clear();
+    resetThrottle();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('a save-path POST retries the 429 and returns the created content', async () => {
+    mockRequestConfluence
+      .mockResolvedValueOnce(html429({ 'retry-after': '1' }))
+      .mockResolvedValueOnce(new Response('{"id":"42"}', { status: 200 }));
+    vi.useFakeTimers();
+
+    const pending = forgeRequest('/wiki/api/v2/custom-content', 'POST', { title: 't' }, { priority: 'user' });
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await expect(pending).resolves.toEqual({ id: '42' });
+    expect(mockRequestConfluence).toHaveBeenCalledTimes(2);
+    expect(mockRequestConfluence.mock.calls[1][1]).toMatchObject({ method: 'POST', body: '{"title":"t"}' });
+  });
+
+  it('without a priority a 429 still fails at once, as before, and keeps Retry-After', async () => {
+    mockRequestConfluence.mockResolvedValueOnce(html429({ 'retry-after': '30' }));
+    const error = await forgeRequest('/wiki/api/v2/pages/1/attachments').catch(e => e);
+    expect(error).toBeInstanceOf(ForgeRequestError);
+    expect(error).toMatchObject({ status: 429, retryAfter: '30' });
+    expect(mockRequestConfluence).toHaveBeenCalledTimes(1);
+  });
+
+  it('that 429 opens the cooldown, and a background request then is not sent at all', async () => {
+    mockRequestConfluence.mockResolvedValueOnce(html429());
+    await forgeRequest('/wiki/api/v2/pages/1/attachments').catch(() => {});
+    mockRequestConfluence.mockClear();
+
+    const error = await forgeRequest('/wiki/rest/api/user?accountId=abc', 'GET', undefined, { priority: 'background' }).catch(e => e);
+
+    expect(error).toBeInstanceOf(ConfluenceThrottledError);
+    expect(error).toMatchObject({ status: 429, endpoint: 'GET /wiki/rest/api/user' });
+    expect(mockRequestConfluence).not.toHaveBeenCalled();
+  });
+
+  it('a save-path request still goes out during the cooldown', async () => {
+    noteConfluenceThrottled('600');
+    mockRequestConfluence.mockResolvedValueOnce(new Response('{"id":"7"}', { status: 200 }));
+    await expect(forgeRequest('/wiki/api/v2/custom-content/7', 'PUT', {}, { priority: 'user' })).resolves.toEqual({ id: '7' });
+  });
+
+  it('a background request is sent normally when there is no cooldown', async () => {
+    mockRequestConfluence.mockResolvedValueOnce(new Response('{"displayName":"A"}', { status: 200 }));
+    await expect(forgeRequest('/wiki/rest/api/user?accountId=abc', 'GET', undefined, { priority: 'background' }))
+      .resolves.toEqual({ displayName: 'A' });
   });
 });
 

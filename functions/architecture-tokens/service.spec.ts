@@ -444,6 +444,39 @@ describe('relatedDiagrams', () => {
     expect(out.error_kind).toBe('confluence_unavailable');
   });
 
+  it('carries the Confluence status of a failed lookup, so a 429 is told apart from a 5xx', async () => {
+    const rateLimited = vi.fn(async () => new Response('<!doctype html>', { status: 429 }));
+    const viaContent = await relatedDiagrams(
+      dbWith([row({})], [row({ contentId: '2', pageId: '200' })]),
+      'cid',
+      '1',
+      async () => [],
+      confluenceContentResolver('https://api.atlassian.test', 'token', rateLimited as unknown as typeof fetch),
+    );
+    expect(viaContent).toMatchObject({ error_kind: 'confluence_unavailable', confluence_http_status: 429 });
+
+    const viaSearch = await relatedDiagrams(
+      dbWith([row({})], [row({ contentId: '2', pageId: '200' })]),
+      'cid',
+      '1',
+      confluencePageResolver('https://api.atlassian.test', 'token', vi.fn(async () => new Response('', { status: 503 })) as unknown as typeof fetch),
+      liveAsIndexed([row({})], [row({ contentId: '2', pageId: '200' })]),
+    );
+    expect(viaSearch).toMatchObject({ error_kind: 'confluence_unavailable', confluence_http_status: 503 });
+  });
+
+  it('has no confluence_http_status when the lookup never got an answer', async () => {
+    const out = await relatedDiagrams(
+      dbWith([row({})], [row({ contentId: '2', pageId: '200' })]),
+      'cid',
+      '1',
+      async () => { throw new TypeError('fetch failed'); },
+      liveAsIndexed([row({})], [row({ contentId: '2', pageId: '200' })]),
+    );
+    expect(out.error_kind).toBe('confluence_unavailable');
+    expect(out).not.toHaveProperty('confluence_http_status');
+  });
+
   it('shows nothing when this diagram has been edited since it was indexed', async () => {
     // content 128483345: indexed at version 2, live at version 56 — every row about it
     // describes text that is 54 versions old

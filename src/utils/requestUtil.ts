@@ -1,4 +1,5 @@
-import { ForgeRequestError } from "@/utils/forgeRequestError";
+import { ForgeRequestError, templateUrl } from "@/utils/forgeRequestError";
+import { deferIfThrottled, sendWithThrottleHandling, type RequestPriority } from "@/utils/confluenceThrottle";
 
 export async function loadAllPaginatedData(requestFunc: any, initialUrl: string, consumer: (data: any) => void): Promise<void> {
   return loadPaginatedDataUntil(requestFunc, initialUrl, consumer, () => false);
@@ -57,6 +58,14 @@ export interface ForgeRequestOptions {
    * which has no HTTP status.
    */
   throwOnHttpError?: boolean;
+  /**
+   * How a Confluence 429 is handled (see utils/confluenceThrottle.ts). Every
+   * 429 opens the site's cooldown whatever the priority. 'user' (the save
+   * path) also retries the 429 with bounded backoff. 'background' (optional
+   * work) is not sent at all while the cooldown runs: it throws
+   * ConfluenceThrottledError instead. Unset keeps the old behaviour.
+   */
+  priority?: RequestPriority;
 }
 
 export async function forgeRequest(url: string, method: string = 'GET', data: any = undefined, options: ForgeRequestOptions = {}): Promise<any> {
@@ -66,14 +75,18 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
     const response = await mockAp.request({ url: apiUrl, type: method, body: data ? JSON.stringify(data) : undefined });
     return response ? JSON.parse(response.body) : undefined;
   }
+  if (options.priority === 'background') {
+    const deferred = deferIfThrottled(`${method.toUpperCase()} ${templateUrl(url)}`);
+    if (deferred) throw deferred;
+  }
   const { requestConfluence } = await import("@forge/bridge");
-  const response = await requestConfluence(url, {
+  const response = await sendWithThrottleHandling(() => requestConfluence(url, {
     method,
     headers: {
       'Content-Type': 'application/json'
     },
     body: data && JSON.stringify(data)
-  });
+  }), { method, url, priority: options.priority });
   // Callers rely on getting the parsed body whatever the HTTP status — a 4xx
   // `{ errors: [...] }` envelope is data to them (e.g. loadCustomContentV2's
   // not_found). So a JSON body is returned as-is. Only a body that does not
@@ -81,14 +94,15 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
   // ForgeRequestError carrying the status instead of a bare SyntaxError.
   const text = await response.text();
   const contentType = response.headers.get('content-type') ?? '';
+  const retryAfter = response.headers.get('retry-after');
   let parsed: any;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text });
+    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text, retryAfter });
   }
   if (options.throwOnHttpError && !response.ok) {
-    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text, nonJson: false });
+    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text, nonJson: false, retryAfter });
   }
   return parsed;
 }

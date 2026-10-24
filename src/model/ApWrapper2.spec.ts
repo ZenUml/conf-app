@@ -131,7 +131,8 @@ describe('ApWrapper2', () => {
       expect(forgeRequest).toHaveBeenCalledWith(
         '/wiki/api/v2/custom-content/123',
         'PUT',
-        expect.objectContaining({ version: { number: 6 } })
+        expect.objectContaining({ version: { number: 6 } }),
+        { priority: 'user' },
       );
       expect(trackEvent).toHaveBeenCalledWith('"123"', 'update_custom_content', 'info');
     });
@@ -216,7 +217,8 @@ describe('ApWrapper2', () => {
       expect(forgeRequest).toHaveBeenNthCalledWith(3,
         '/wiki/api/v2/custom-content/123',
         'PUT',
-        expect.objectContaining({ version: { number: 6 } })
+        expect.objectContaining({ version: { number: 6 } }),
+        { priority: 'user' },
       );
 
       // Verify conflict retry event was tracked
@@ -1364,6 +1366,28 @@ describe('ApWrapper2', () => {
       expect(result?.id).toBe(ccId);                                    // id unchanged → no fork
     });
 
+    // Confluence 429s failed saves outright (one Lite tenant, 2026-10). Every
+    // request of the save now carries user priority, so a 429 retries
+    // (utils/confluenceThrottle.ts), and the existence check no longer runs the
+    // full-page ADF copy scan, whose verdict the save never reads.
+    it('sends every save request with user priority, and no copy-scan ADF read', async () => {
+      const countMacros = vi.fn().mockResolvedValue(1);
+      const countMacrosOrUnknown = vi.fn().mockResolvedValue(1);
+      Object.assign((wrapper as any)._page, { countMacros, countMacrosOrUnknown });
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce(mockExistence())
+        .mockResolvedValueOnce({ id: ccId, version: { number: 3 } });
+
+      await wrapper.saveCustomContentV2(ccId, diagramToSave());
+
+      expect(vi.mocked(forgeRequest).mock.calls.map((c) => [c[0], c[1], c[3]])).toEqual([
+        [`/wiki/api/v2/custom-content/${ccId}?body-format=raw`, 'GET', { priority: 'user' }],
+        [`/wiki/api/v2/custom-content/${ccId}`, 'PUT', { priority: 'user' }],
+      ]);
+      expect(countMacros).toHaveBeenCalledWith(expect.any(Function), { priority: 'user' });
+      expect(countMacrosOrUnknown).not.toHaveBeenCalled();
+    });
+
     // The normal healthy case — exactly one macro references the cc.
     it('count === 1 (single macro) → UPDATES in place', async () => {
       (wrapper as any)._page.countMacros = vi.fn().mockResolvedValue(1);
@@ -1673,7 +1697,8 @@ describe('ApWrapper2', () => {
       expect(forgeRequest).toHaveBeenNthCalledWith(2,
         '/wiki/api/v2/custom-content/123?body-format=raw',
         'GET',
-        undefined
+        undefined,
+        { priority: 'user' },
       );
     });
   });

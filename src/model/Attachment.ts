@@ -6,6 +6,7 @@ import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
 import {ForgeRequestError} from '@/utils/forgeRequestError';
+import { deferIfThrottled } from '@/utils/confluenceThrottle';
 import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
@@ -999,6 +1000,14 @@ async function createAttachmentIfContentChanged(
   // viewer call sites are covered without per-caller guards.
   const macroCustomContentId = overrideId ?? resolveEffectiveCustomContentId(forgeGlobal.forgeContext);
   if (!macroCustomContentId) {
+    return;
+  }
+
+  // The view-time backfill is optional work: while Confluence is rate-limiting
+  // this site (any request's 429, utils/confluenceThrottle.ts) it stands down
+  // so the remaining budget goes to saves. The next view after the cooldown
+  // writes the PNG. The save-time write is the user's own action and runs.
+  if (!opts?.fromSave && deferIfThrottled('work:png_backfill')) {
     return;
   }
 

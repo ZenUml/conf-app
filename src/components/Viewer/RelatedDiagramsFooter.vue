@@ -105,6 +105,7 @@ import {
   type RelatedResponse,
 } from '@/services/ArchitectureTokens'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { deferIfThrottled, noteConfluenceThrottled } from '@/utils/confluenceThrottle'
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender'
 
 const props = defineProps<{
@@ -341,24 +342,35 @@ function onWindowResize() {
 
 async function load() {
   if (requested || !props.enabled || !props.ready) return
+  // The backend answers from Confluence as this user, on the same rate limit as
+  // their saves: during a 429 cooldown the optional lookup is not made.
+  if (deferIfThrottled('work:related_diagrams_lookup')) return
   requested = true
   const started = performance.now()
   let response: RelatedResponse
   try {
     response = await getRelatedDiagrams(props.customContentId, { pageId: props.pageId })
   } catch (error) {
+    // callRemote attaches our backend's status to a non-2xx answer (e.g. 403
+    // no_user_credential for a guest); a timeout or transport error has none.
+    const status = Number((error as { status?: unknown })?.status)
     trackAnalyticsEvent('related_diagrams_lookup_failed', {
       ...baseProperties(),
       error_kind: error instanceof RelatedLookupError ? error.kind : 'network',
+      ...(Number.isInteger(status) && status > 0 ? { http_status: status } : {}),
       duration_ms: Math.round(performance.now() - started),
     })
     return
   }
 
   if (response.error_kind) {
+    // A 429 the backend got from Confluence is this user's limit too: open the
+    // cooldown so this page's other optional work stands down.
+    if (response.confluence_http_status === 429) noteConfluenceThrottled()
     trackAnalyticsEvent('related_diagrams_lookup_failed', {
       ...baseProperties(),
       error_kind: response.error_kind,
+      ...(response.confluence_http_status ? { confluence_http_status: response.confluence_http_status } : {}),
       duration_ms: Math.round(performance.now() - started),
     })
     return

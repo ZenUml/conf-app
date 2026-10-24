@@ -22,7 +22,6 @@ import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
-import { isUsablePageId } from '@/utils/pageId';
 import { classifyCreateNotFound, parseContentOperations, SaveFailureDiagnosis } from '@/model/saveFailureDiagnosis';
 
 export enum VersionType {
@@ -55,6 +54,13 @@ function customContentTypesForVariant(): string[] {
   if (forgeGlobal.isAsyncApi) return ASYNCAPI_CUSTOM_CONTENT_TYPES;
   if (forgeGlobal.isDiagramly) return DIAGRAMLY_CUSTOM_CONTENT_TYPES;
   return CUSTOM_CONTENT_TYPES;
+}
+
+// A draft page reports "0"; only positive integer IDs can parent custom content.
+function customContentParentId(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const id = String(value).trim();
+  return /^[1-9]\d*$/.test(id) ? id : undefined;
 }
 
 // One raw candidate hit for the Agent Link discovery tools (search_diagrams /
@@ -328,15 +334,18 @@ export default class ApWrapper2 {
     // conf-app#523: an unpublished (draft) page reports its id as the sentinel
     // "0", which is truthy but is not a parent Confluence can resolve (404
     // "parent page 0 not found"). Treat it like "no page" and use the space.
-    const pageId = await this._getCurrentPageId();
-    if (isUsablePageId(pageId)) {
+    const pageId = customContentParentId(await this._getCurrentPageId());
+    if (pageId) {
       data.pageId = pageId;
     } else {
       const space = await this.getCurrentSpace();
-      if (space?.id) {
-        data.spaceId = space.id;
+      const spaceId = customContentParentId(space?.id);
+      if (spaceId) {
+        data.spaceId = spaceId;
       } else {
-        throw new Error('createCustomContentV2: no page or space context available');
+        throw Object.assign(new Error('createCustomContentV2: no page or space context available'), {
+          code: 'MISSING_CONTENT_PARENT',
+        });
       }
     }
 

@@ -179,7 +179,10 @@
           <span class="row__text">
             <span class="row__title" :title="d.title">{{ d.title }}</span>
             <span class="row__type">
-              {{ label(d.diagramType) }}<template v-if="isUnplaced(d)"> · not on this page</template>
+              {{ label(d.diagramType) }}<template v-if="isUnplaced(d)"> · not on the published page</template>
+            </span>
+            <span v-if="isUnplaced(d)" class="row__placement-hint">
+              {{ canEdit ? 'Add to page makes this diagram visible here.' : 'Copy URL, then ask a page editor to paste it into the page.' }}
             </span>
           </span>
           <span class="row__cta">Open</span>
@@ -634,6 +637,24 @@ const openedAt = Date.now()
 let acted = false
 let pageId = ''
 
+// One result per post-editor resolution attempt. Clear before tracking so a
+// trailing copy/thumbnail error cannot report the saved diagram twice. A retry
+// re-arms this guard and carries is_retry; teardown alone reports no outcome.
+let createOutcomePending = false
+
+/**
+ * Emit the one terminal event for the create attempt in flight, or nothing if
+ * that attempt has already reported. See `createOutcomePending`.
+ */
+function trackCreateOutcome(
+  name: 'byline_diagram_created' | 'byline_create_cancelled' | 'byline_create_unresolved',
+  props: Record<string, unknown>,
+) {
+  if (!createOutcomePending) return
+  createOutcomePending = false
+  trackAnalyticsEvent(name, props)
+}
+
 /**
  * Whether the host page is already in the editor. Read once at mount: the
  * byline iframe is booted by Confluence per host render, so it cannot outlive a
@@ -754,6 +775,10 @@ function trackDismissed() {
     dwell_ms: Date.now() - openedAt,
   })
 }
+
+// A byline iframe torn down before modal onClose cannot resolve its create.
+// Do not infer cancellation from that missing signal. The editor iframe has
+// separate explicit-close telemetry, scoped to its own creation attempt.
 
 /**
  * The dismissal signal that actually fires in production. Closing the Forge
@@ -1064,6 +1089,8 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
   trackAnalyticsEvent('byline_create_clicked', { ...baseProps(), macro_type: macroType })
 
   const before = diagrams.value.map(d => d.id)
+  // Arm before opening so an open rejection still produces an outcome.
+  createOutcomePending = true
   creating.value = true
   try {
     await openModal({
@@ -1091,10 +1118,18 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
   } catch (e) {
     creating.value = false
     console.error('[byline] failed to open the editor', e)
+    const failureReason = (e as any)?.message ? String((e as any).message) : String(e)
     trackAnalyticsEvent('byline_editor_deeplinked', {
       ...baseProps(),
       result: 'failed',
-      failure_reason: (e as any)?.message ? String((e as any).message) : String(e),
+      failure_reason: failureReason,
+    })
+    // The deeplink result describes routing; the create funnel needs its own outcome.
+    trackCreateOutcome('byline_create_unresolved', {
+      ...baseProps(),
+      macro_type: macroType,
+      result: 'editor_never_opened',
+      failure_reason: failureReason,
     })
   }
 }
@@ -1103,7 +1138,7 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
  * Re-read the page after the editor closes. A new id means the user saved;
  * no new id means they cancelled, and the modal simply returns to the list.
  */
-async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
+async function afterEditorClosed(before: string[], macroType: MacroTypeValue, isRetry = false) {
   try {
     const responses = await globals.apWrapper.listPageDiagramContents(pageId)
     const health = summarizeListing(responses)
@@ -1118,11 +1153,12 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
       // Hold the list, say so, and offer a retry.
       pendingCreate = { before, macroType }
       createUnresolved.value = true
-      trackAnalyticsEvent('byline_diagram_created', {
+      trackCreateOutcome('byline_create_unresolved', {
         ...baseProps(),
         macro_type: macroType,
         ...health,
         result: 'listing_failed',
+        ...(isRetry ? { is_retry: true } : {}),
       })
       return
     }
@@ -1137,11 +1173,12 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     if (!newId && health.failed_type_count > 0) {
       pendingCreate = { before, macroType }
       createUnresolved.value = true
-      trackAnalyticsEvent('byline_diagram_created', {
+      trackCreateOutcome('byline_create_unresolved', {
         ...baseProps(),
         macro_type: macroType,
         ...health,
         result: 'listing_partial',
+        ...(isRetry ? { is_retry: true } : {}),
       })
       return
     }
@@ -1157,7 +1194,11 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     // cannot yet show it.
     void syncUnplacedState()
     if (!newId) {
-      trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })
+      trackCreateOutcome('byline_create_cancelled', {
+        ...baseProps(),
+        macro_type: macroType,
+        ...(isRetry ? { is_retry: true } : {}),
+      })
       return
     }
     // Same accessor model/Attachment.ts uses — `globals` is the app singleton
@@ -1173,10 +1214,11 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     // type-check .vue files, which is why the arity mismatch stayed green.)
     const created = after.find(d => d.id === newId)
     const link = buildDiagramDeeplink(toMacroType(created?.diagramType || ''), cloudId || '', newId)
-    trackAnalyticsEvent('byline_diagram_created', {
+    trackCreateOutcome('byline_diagram_created', {
       ...baseProps(),
       macro_type: macroType,
       custom_content_id: String(newId),
+      ...(isRetry ? { is_retry: true } : {}),
       // buildDiagramDeeplink returns undefined for a missing cloudId or a type
       // outside DEEPLINK_TYPES; every picker tile is in that set, so the second
       // case means the saved diagram's stored type was not what we asked for.
@@ -1205,6 +1247,17 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     console.error('[byline] failed to resolve the created diagram', e)
     pendingCreate = { before, macroType }
     createUnresolved.value = true
+    // trackCreateOutcome is a no-op when the attempt already reported,
+    // which is what keeps a throw from the trailing copy/thumbnail work — both
+    // of which run AFTER byline_diagram_created has fired — from reporting a
+    // second outcome for a create already counted as saved.
+    trackCreateOutcome('byline_create_unresolved', {
+      ...baseProps(),
+      macro_type: macroType,
+      result: 'resolve_failed',
+      failure_reason: (e as any)?.message ? String((e as any).message) : String(e),
+      ...(isRetry ? { is_retry: true } : {}),
+    })
   } finally {
     creating.value = false
   }
@@ -1217,7 +1270,11 @@ function onRetryCreate() {
   const { before, macroType } = pendingCreate
   createUnresolved.value = false
   creating.value = true
-  void afterEditorClosed(before, macroType)
+  // A retry is a fresh resolution attempt and must be allowed to report its own
+  // outcome — the first attempt's byline_create_unresolved already cleared the
+  // flag. `is_retry` is what keeps the two separable in the funnel.
+  createOutcomePending = true
+  void afterEditorClosed(before, macroType, true)
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -1626,6 +1683,11 @@ async function onLearnMore() {
 }
 .row__type {
   font-size: 12px;
+  color: #5e6c84;
+}
+.row__placement-hint {
+  font-size: 12px;
+  line-height: 1.4;
   color: #5e6c84;
 }
 .row__cta {

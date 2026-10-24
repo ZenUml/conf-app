@@ -15,6 +15,7 @@ import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
 import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
 import { resolveEffectiveCustomContentId } from "@/utils/effectiveCustomContentId";
+import { captureCreationAttemptProperties, resetCreationAttemptTelemetry } from "./creationAttemptTelemetry";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -473,6 +474,7 @@ export async function _awaitableTrackAnalyticsEvent(
     const sample = decideSample(eventName);
     if (!sample.keep) return;
 
+    const creationProperties = captureCreationAttemptProperties(eventName, callerProps);
     await _initMixpanel();
     _identify();
     const explicitReplayProperties = _startExplicitReplay(eventName);
@@ -481,6 +483,7 @@ export async function _awaitableTrackAnalyticsEvent(
 
     const enriched: Record<string, unknown> = {
       ...callerProps,
+      ...creationProperties,
       ...(sample.rate < 1 ? { sample_rate: sample.rate } : {}),
       user_account_id:
         callerProps.user_account_id ?? _getCurrentUserAccountId(),
@@ -547,6 +550,7 @@ export async function trackAnalyticsEventBeforeUnload(
 }
 
 export function _resetForTesting(): void {
+  resetCreationAttemptTelemetry();
   _initPromise = null;
   _identified = false;
   _authoringReplayDraw = null;

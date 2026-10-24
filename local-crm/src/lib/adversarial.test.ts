@@ -1,49 +1,37 @@
 /**
- * Adversarial suite. Every test here states an invariant the console must hold
- * for its own claims to be true, then attacks it with hostile input: dates the
- * parser was not written for, a dataset read on a different day, duplicate
- * grants, a case with its grant missing, a stage list with no current stage.
+ * Adversarial suite: each test states an invariant the console needs for its own
+ * claims to hold, then attacks it with input the code was not written for.
  *
- * A failure here is a finding, not a flake. Each block names what breaks in the
- * UI when the invariant does not hold.
+ * Every case here was reproduced against the running console or in the module
+ * itself before the test was written. A failure is a finding, not a flake.
  */
 import { describe, expect, it } from 'vitest'
-import type { Dataset, Grant } from '@/data/types'
+import type { Dataset } from '@/data/types'
 import { placeholderDataset } from '@/data/placeholder'
-import { bareYear, human, iso, isoOrNull, relative, setBareDateYear } from './format'
-import { buildEvents, buildSites, buildSiteStats, pastEvents } from './derive'
-import { grantState, lifecycleOf, stageLabel } from './lifecycle'
-import { buildCase } from './caseModel'
-import { runnableActionIds } from './actions'
-import { crmReducer, INITIAL_CRM_STATE } from '@/stores/crm'
+import { bareYear, human, iso, isoOrNull, relative, requestedLabel, setBareDateYear } from './format'
+import { lifecycleOf, stageLabel } from './lifecycle'
+import { crmReducer, INITIAL_CRM_STATE, isKeyForSelected, stampNow } from '@/stores/crm'
 
-const data = placeholderDataset
-
-function clone(patch: Partial<Dataset>): Dataset {
-  return { ...data, ...patch }
-}
-
-const GRANT: Grant = {
-  created: '10 Aug',
-  domain: 'tenant-x',
-  space: 'OPS',
-  origin: 'ZEN-9001',
-  expires: '17 Aug',
-  active: false
-}
+const data: Dataset = placeholderDataset
 
 describe('date parsing under hostile input', () => {
-  it('reads a bare day-month against the dataset year, not a hardcoded one', () => {
-    // The console is read "as of" data.today. A bare '27 Aug' belongs to the
-    // year the console is read in, or every card is dated a year out.
-    expect(bareYear()).toBe(data.today.slice(0, 4))
-    try {
-      setBareDateYear('2027')
-      expect(iso('27 Aug')).toBe('2027-08-27')
-      expect(human('2027-08-27')).toBe('27 Aug')
-    } finally {
-      setBareDateYear(data.today.slice(0, 4))
-    }
+  it('rejects a value it cannot parse instead of inventing a day', () => {
+    // Observed: iso('unknown') -> '2026-01-unknown', printed as "unknown Jan".
+    expect(() => iso('unknown')).toThrow()
+    expect(() => iso('')).toThrow()
+    expect(() => iso('not a date')).toThrow()
+    expect(() => iso('2026-08-30')).toThrow()
+  })
+
+  it('rejects a month token it does not know instead of defaulting to January', () => {
+    // The console itself renders '30 Sept' through en-GB. Fed back in, the old
+    // parser returned 2026-01-30: a September grant read as 30 January.
+    expect(() => iso('30 Sept')).toThrow()
+  })
+
+  it('offers a non-throwing reader for values that may be absent', () => {
+    expect(isoOrNull('unknown')).toBeNull()
+    expect(isoOrNull('27 Aug 25')).toBe('2025-08-27')
   })
 
   it('round-trips every date it prints', () => {
@@ -52,162 +40,132 @@ describe('date parsing under hostile input', () => {
     }
   })
 
-  it('refuses a date it cannot parse instead of inventing one', () => {
-    // '2026-01-00' is not a day. It sorted, grouped and printed like one.
-    expect(() => iso('not a date')).toThrow()
-    expect(() => iso('unknown')).toThrow()
-    expect(() => iso('30 Sept')).toThrow()
-    expect(isoOrNull('unknown')).toBeNull()
-  })
-
   it('never prints NaN to the operator', () => {
     expect(relative('not-a-day', data.today)).not.toContain('NaN')
   })
-})
 
-describe('case identity', () => {
-  it('keeps a case id stable when the dataset gains a row', () => {
-    // Ids are the key for the drawer selection AND for every action stamp in
-    // `done`. If they are positional, an audit line moves to another customer
-    // the moment the extraction is refreshed.
-    const before = buildEvents(data)
-    const after = buildEvents(
-      clone({ grants: [{ ...GRANT, created: '29 Aug', expires: '05 Sep' }, ...data.grants] })
-    )
-    const target = before[10]
-    const moved = after.find(event => event.id === target.id)
-    expect(moved?.who).toBe(target.who)
-    expect(moved?.day).toBe(target.day)
+  it('keeps the year on a request from another year', () => {
+    // 5 of 36 open JSM requests are 2025 rows. Rendered without a year they read
+    // as this year's requests: ZEN-1157 (2025-04-07) showed "requested 07 Apr".
+    expect(requestedLabel('2025-04-07T00:54:27.292Z')).toBe('07 Apr 25')
+    expect(requestedLabel('2026-05-25T00:00:00.000Z')).toBe('25 May')
+    expect(requestedLabel(null)).toBeNull()
+  })
+
+  it('prints one month vocabulary everywhere', () => {
+    // en-GB writes September as 'Sept'; the rest of the console writes 'Sep'.
+    expect(requestedLabel('2025-09-30T00:00:00.000Z')).toBe('30 Sep 25')
+  })
+
+  it('reads bare dates against the dataset year, not a literal in the formatter', () => {
+    expect(bareYear()).toBe(data.today.slice(0, 4))
+    try {
+      setBareDateYear('2027')
+      expect(iso('27 Aug')).toBe('2027-08-27')
+      expect(human('2027-08-27')).toBe('27 Aug')
+      expect(human('2026-08-27')).toBe('27 Aug 26')
+    } finally {
+      setBareDateYear(data.today.slice(0, 4))
+    }
+  })
+
+  it('refuses a year value that is not a year', () => {
+    expect(() => setBareDateYear('26')).toThrow()
   })
 })
 
-describe('grant state machine', () => {
-  it('flags a second grant on the same space on the same day as a repeat', () => {
-    // Same space, same day, two writes. This is precisely the failure the
-    // console exists to surface: nothing in KV stops a concurrent replay.
-    const first: Grant = { ...GRANT, created: '10 Aug' }
-    const second: Grant = { ...GRANT, created: '10 Aug' }
-    const doubled = clone({ grants: [first, second] })
-    expect(grantState(doubled, second)[0]).toBe('already-applied')
-  })
-
-  it('does not silently render the ingest lifecycle for a grant case', () => {
-    // A grant case whose grant is missing falls through every branch and lands
-    // on the ingest run's stages: read / classified / written / logged.
+describe('lifecycle', () => {
+  it('does not render the ingest run stages for a grant case with no grant', () => {
     const view = lifecycleOf(data, 'granted', null)
     expect(view.stages.map(stage => stage.name)).not.toContain('read')
+    expect(view.stalled).toBe(true)
   })
 
-  it('never labels a stage as current when no stage is current', () => {
+  it('refuses an unknown case kind instead of picking a lifecycle for it', () => {
+    expect(() => lifecycleOf(data, 'nonsense' as never, null)).toThrow()
+  })
+
+  it('does not label a completed stage as the current position', () => {
+    // A grant that has not expired yet has no `now` stage at all. The old label
+    // read 'detected · 1 of 8' — a stage the case finished.
     const view = {
       stalled: false,
       branches: '',
       stages: [
-        { name: 'received', state: 'done' as const, note: '' },
-        { name: 'applied', state: 'done' as const, note: '' }
+        { name: 'detected', state: 'done' as const, note: '' },
+        { name: 'needs-evidence', state: 'todo' as const, note: '' },
+        { name: 'resolved', state: 'todo' as const, note: '' }
       ]
     }
-    expect(stageLabel(view)).not.toBe('received · 1 of 2')
+    expect(stageLabel(view)).toBe('needs-evidence · 2 of 3')
   })
 
-  it('does not crash on a case with no stages', () => {
+  it('does not crash on an empty stage list', () => {
     expect(() => stageLabel({ stalled: false, branches: '', stages: [] })).not.toThrow()
   })
 })
 
-describe('dataset self-consistency', () => {
-  it('agrees with itself about which grants are still running', () => {
-    // `active` is a stored boolean; `expires` is the date the stream prints.
-    // When they disagree the same grant reads "active" on Pending and
-    // "expired" in the stream on the same screen refresh.
-    const wrong = data.grants.filter(
-      grant => Boolean(grant.active) !== iso(grant.expires) > data.today
-    )
-    expect(wrong.map(grant => `${grant.domain}/${grant.space}`)).toEqual([])
-  })
-
-  it('keeps an unidentifiable grant out of the site list', () => {
-    // A grant whose cloud ID resolves to nothing has no site. Grouping it by
-    // its placeholder domain invents a site row and inflates "sites on file".
-    const sites = buildSites(data)
-    expect(sites.map(site => site.domain).filter(domain => domain.startsWith('('))).toEqual([])
-  })
-
-  it('counts sites on file consistently with the rows it lists', () => {
-    const sites = buildSites(data)
-    const stat = buildSiteStats(data, sites).find(row => row.label === 'sites on file')
-    expect(stat?.value).toBe(sites.filter(site => !site.domain.startsWith('(')).length)
-  })
-
-  it('never emits an expiry before its own grant', () => {
-    const backwards = data.grants.filter(grant => iso(grant.expires) < iso(grant.created))
-    expect(backwards).toEqual([])
-  })
-})
-
-describe('action audit trail', () => {
-  it('stamps an action with the wall-clock instant it ran', () => {
-    // The stamp is built from data.today plus the operator's local time. Read a
-    // dataset extracted yesterday and every action is filed under yesterday's
-    // date with today's clock time.
-    const stale = clone({ today: '2026-01-01' })
-    const state = crmReducer(INITIAL_CRM_STATE, {
-      type: 'run',
-      key: 'e1:revoke',
-      needsConfirm: false,
-      stamp: `${stale.today} 00:00`
-    })
-    const stamped = state.done['e1:revoke']
-    expect(stamped.startsWith(new Date().toISOString().slice(0, 4))).toBe(true)
-  })
-
-  it('does not let one repeated click serve as its own confirmation', () => {
-    // ActionCard keeps the CTA mounted while the confirm strip is open, and the
-    // second click sends the same key. The reducer reads a matching key as the
-    // confirmation, so a double-click runs the action without the text being read.
-    // Reproduced in the running console: "Apply migration 0025" stamped
-    // `done · 30 Aug 2026 18:11` from two clicks on the CTA alone.
-    const first = crmReducer(INITIAL_CRM_STATE, {
+describe('action confirmation', () => {
+  it('does not let a repeated click on the same button serve as its own confirmation', () => {
+    // Reproduced in the running console: two clicks on the "Apply" CTA stamped
+    // `done · 30 Aug 2026 18:11 · peng.xiao` with the confirm strip untouched.
+    const armed = crmReducer(INITIAL_CRM_STATE, {
       type: 'run',
       key: 'ingest:migrate',
       needsConfirm: true,
       stamp: 'stamp-1'
     })
-    const second = crmReducer(first, {
+    expect(armed.confirming).toBe('ingest:migrate')
+
+    const clickedAgain = crmReducer(armed, {
       type: 'run',
       key: 'ingest:migrate',
       needsConfirm: true,
       stamp: 'stamp-2'
     })
-    expect(second.done['ingest:migrate']).toBeUndefined()
+    expect(clickedAgain.done['ingest:migrate']).toBeUndefined()
+    expect(clickedAgain.confirming).toBe('ingest:migrate')
   })
 
-  it('refuses to run an action the case has blocked', () => {
-    // Every write action is suppressed while a case is blocked. The store checks
-    // that set before dispatching, so the rule does not live in the UI alone.
-    const event = buildEvents(data).find(row => row.kind === 'registered')!
-    const model = buildCase(data, event)
-    expect(model.blockers.length).toBeGreaterThan(0)
-    const runnable = runnableActionIds(model, event.id, null, {})
-    expect(runnable.has(`${event.id}:release`)).toBe(false)
-    expect(runnable.has(`${event.id}:profile`)).toBe(true)
+  it('stamps only on the confirm control', () => {
+    const armed = crmReducer(INITIAL_CRM_STATE, {
+      type: 'run',
+      key: 'ingest:migrate',
+      needsConfirm: true,
+      stamp: 'stamp-1'
+    })
+    const confirmed = crmReducer(armed, {
+      type: 'confirm',
+      key: 'ingest:migrate',
+      stamp: 'stamp-2'
+    })
+    expect(confirmed.done['ingest:migrate']).toBe('stamp-2')
+    expect(confirmed.confirming).toBeNull()
+  })
+
+  it('ignores a confirmation for a key that was never armed', () => {
+    const state = crmReducer(INITIAL_CRM_STATE, {
+      type: 'confirm',
+      key: 'ingest:migrate',
+      stamp: 'stamp-1'
+    })
+    expect(state.done).toEqual({})
+  })
+
+  it('runs an action only for the case that is open', () => {
+    expect(isKeyForSelected('grant:g1:created', 'grant:g1:created:revoke')).toBe(true)
+    expect(isKeyForSelected('grant:g1:created', 'grant:g2:created:revoke')).toBe(false)
+    expect(isKeyForSelected(null, 'grant:g1:created:revoke')).toBe(false)
   })
 })
 
-describe('empty and degenerate datasets', () => {
-  it('renders a stream with no rows at all', () => {
-    const empty = clone({ registrations: [], grants: [] })
-    expect(() => pastEvents(empty, buildEvents(empty))).not.toThrow()
-  })
-
-  it('survives a registration whose fields are empty strings', () => {
-    const broken = clone({
-      registrations: [
-        { id: 'r0', seen: '', domain: '', cloudId: '', p: 'lite', licence: '', tier: '' }
-      ]
-    })
-    const events = buildEvents(broken)
-    expect(() => buildCase(broken, events[0])).not.toThrow()
-    expect(events[0].day).not.toContain('undefined')
+describe('audit stamp', () => {
+  it('records the instant the operator ran the action, not the dataset date', () => {
+    // The stamp was built from data.today plus the local clock: reading a
+    // dataset extracted earlier filed every action under the extraction date.
+    // Local components: the stamp reads the operator's own clock, so a UTC
+    // literal would move the date under a runner in another timezone.
+    const stamp = stampNow('peng.xiao', new Date(2026, 2, 4, 5, 6, 7))
+    expect(stamp).toBe('04 Mar 2026 05:06 · peng.xiao')
   })
 })

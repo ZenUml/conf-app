@@ -3,9 +3,10 @@ import { count } from '@/lib/format'
 import { PRODUCT } from '@/lib/palette'
 import { useCrmStore } from '@/stores/crm'
 import type { SiteStat } from '@/lib/derive'
+import { MARKETPLACE_TECHNICAL_CONTACT_LABEL } from '@/data/sitesApi'
 
 const GRID =
-  'grid min-w-[696px] grid-cols-[minmax(170px,1.6fr)_96px_minmax(110px,0.9fr)_minmax(150px,1.2fr)_100px] gap-2'
+  'grid min-w-[880px] grid-cols-[minmax(170px,1.45fr)_96px_minmax(110px,0.8fr)_minmax(150px,1.1fr)_minmax(180px,1.2fr)_100px] gap-2'
 
 function statColor(tone: SiteStat['tone']): string {
   if (tone === 'brand') return 'var(--color-primary)'
@@ -14,17 +15,26 @@ function statColor(tone: SiteStat['tone']): string {
 }
 
 export default function SitesScreen() {
-  const { sites, siteStats, query } = useCrmStore()
+  const { sites, siteStats, query, sitesLoad, lifecycleLoad } = useCrmStore()
 
   return (
     <div className="px-6 pb-7 pt-5">
       <div className="mb-2.5 flex flex-wrap items-baseline gap-2.5">
         <h3 className="text-h3 font-semibold">Every site we hold context for</h3>
         <span className="text-body-sm text-fg2">
-          grouped by cloud ID where one is known — a domain is display information, never an identity key
+          source-backed from the Marketplace licence export — a domain is display information, never an identity key
         </span>
       </div>
 
+      {sitesLoad.state === 'live' && sitesLoad.summary ? (
+        <div className="mb-2 rounded-md border border-line bg-bg2 px-3.5 py-2 text-micro text-fg2">
+          Marketplace source · {sitesLoad.summary.licenseCount} licence rows · read {sitesLoad.generatedAt ? new Date(sitesLoad.generatedAt).toLocaleString() : 'now'}
+        </div>
+      ) : (
+        <div className="mb-2 rounded-md border border-dashed border-line bg-bg2 px-3.5 py-2 text-micro text-fg2">
+          {sitesLoad.state === 'error' ? `${sitesLoad.error ?? 'Marketplace source unavailable'}. No sanitized site rows are substituted.` : 'Marketplace source is loading. No sanitized site rows are substituted.'}
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap gap-px overflow-hidden rounded-md border border-line bg-line">
         {siteStats.map(stat => (
           <div key={stat.label} className="min-w-[120px] flex-1 bg-bg1 px-3.5 py-2.5">
@@ -41,7 +51,7 @@ export default function SitesScreen() {
 
       <div className="overflow-x-auto rounded-lg border border-line bg-bg1">
         <div className={`${GRID} border-b border-line bg-bg2 px-[18px] py-[9px]`}>
-          {['Client', 'Cloud ID', 'Apps', 'Extensions', 'Activity'].map(label => (
+          {['Client', 'Cloud ID', 'Apps', 'Extensions', MARKETPLACE_TECHNICAL_CONTACT_LABEL, 'Source'].map(label => (
             <div key={label} className="lc-label whitespace-nowrap">
               {label}
             </div>
@@ -50,7 +60,7 @@ export default function SitesScreen() {
         {sites.length ? (
           sites.map(site => (
             <div
-              key={site.domain}
+              key={site.cloudId}
               className={`${GRID} lc-t-bg items-center border-b border-bg3 bg-bg1 px-[18px] py-3.5 last:border-b-0 hover:bg-bg2`}
             >
               <div
@@ -80,21 +90,24 @@ export default function SitesScreen() {
               >
                 {site.extensions}
               </div>
+              <div className="min-w-0 break-words text-micro text-fg2" title={site.technicalContacts.join(', ')}>
+                {lifecycleLoad.state === 'live'
+                  ? (site.technicalContacts.length ? site.technicalContacts.join(', ') : '—')
+                  : lifecycleLoad.state === 'error' ? 'local contact source unavailable' : 'local contacts loading'}
+              </div>
               <div className="whitespace-nowrap font-mono text-micro text-fg3">{site.last}</div>
             </div>
           ))
         ) : (
-          <div className="min-w-[696px] px-[18px] py-10 text-center text-body-sm text-fg2">
-            {query.trim() ? `No sites match “${query.trim()}”.` : 'No sites are on file.'}
+          <div className="min-w-[880px] px-[18px] py-10 text-center text-body-sm text-fg2">
+            {query.trim() ? `No sites match “${query.trim()}”.` : sitesLoad.state === 'loading' ? 'Loading Marketplace sites…' : 'No Marketplace sites are available.'}
           </div>
         )}
       </div>
 
       <div className="mt-2 text-micro leading-6 text-fg3">
-        Cloud IDs exist only for sites that appear in the Marketplace licence export. Extension grants
-        are keyed on a cloud ID inside KV but the listing does not return it, so grant-only sites show{' '}
-        <span className="text-bad">none on file</span>. Editing extensions are a Lite-only mechanism,
-        which is why every grant-only site reads as <span className="font-mono">lite</span>.
+        Marketplace is authoritative for this inventory. Current editing grants are joined by cloud ID;
+        grant-only tenants with no Marketplace row are kept out of site inventory instead of being invented as sites. Technical contacts are current Marketplace export records joined by cloud ID, not confirmed Site Contacts.
       </div>
     </div>
   )

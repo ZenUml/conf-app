@@ -6,6 +6,28 @@ export type OrphanDiagramKind = 'sequence' | 'graph' | 'openapi' | 'embed';
 export type ProbeResult = Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
 
 /**
+ * Direct by-id fetch diagnostics, exactly as loadCustomContentWithOrphanRecovery
+ * returns them. Callers pass their `loaded` result straight through; only these
+ * four fields are read.
+ */
+export interface DirectFetchDetail {
+  directFetchStatus?: 'ok' | 'not_found' | 'other_error';
+  directFetchHttpStatus?: number;
+  directFetchErrorCode?: string;
+  directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
+}
+
+function directFetchProps(detail: DirectFetchDetail | undefined) {
+  if (!detail) return {};
+  return {
+    ...(detail.directFetchStatus && { direct_fetch_status: detail.directFetchStatus }),
+    ...(detail.directFetchHttpStatus !== undefined && { direct_fetch_http_status: detail.directFetchHttpStatus }),
+    ...(detail.directFetchErrorCode && { direct_fetch_error_code: detail.directFetchErrorCode }),
+    ...(detail.directFetchErrorClass && { direct_fetch_error_class: detail.directFetchErrorClass }),
+  };
+}
+
+/**
  * Fire a Mixpanel `customcontent_orphan_observed` event after a viewer/editor
  * encounters a customContentId that no longer resolves. Caller hands us the
  * probe result it already has from loadCustomContentWithOrphanRecovery — we
@@ -17,45 +39,58 @@ export type ProbeResult = Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>
  * failed). The same event covers both cases so Mixpanel queries can compute
  * recovery rate as `count where recovery_used=true / count(all)`.
  *
- * Best-effort. Wrapped in try/catch so a telemetry failure can never re-crash
- * the caller.
+ * `options.directFetch` carries the by-id fetch outcome (status / HTTP status /
+ * error code / error class). It is what tells `probe_skipped_no_probe_result`
+ * apart: a 403, a 5xx, a thrown request and a malformed body all skip the probe.
+ *
+ * Best-effort. Delegates to trackEvent, which never throws synchronously
+ * (fire-and-forget async internally), so it can never re-crash the caller.
+ *
+ * INVARIANT — fire at most ONCE per macro load. Every macro type has exactly
+ * one owner for this event: forgeIndex.ts (the shared Custom UI entry) owns it
+ * for the sequence family it renders itself, and each dedicated viewer/editor
+ * entry (forge-graph-*, forge-swagger-*, forge-embed-*, forge-asyncapi-*) owns
+ * it for its own type. The shared entry MUST NOT call this for a macro it
+ * delegates (it gates the load on isSequenceFamilyEntry), otherwise
+ * non-sequence macros double-count and the extra event is mislabeled
+ * diagram_kind='sequence'. The recovery-rate metric is
+ * `count(recovery_used=true) / count(all)`; keeping this event single-fire per
+ * load keeps that ratio meaningful.
  */
 export function reportOrphanObserved(
   pageId: string | undefined,
   orphanId: string,
   diagramKind: OrphanDiagramKind,
   probeResult: ProbeResult | undefined,
-  options: { recoveryUsed?: boolean; recoveredId?: string } = {},
+  options: { recoveryUsed?: boolean; recoveredId?: string; directFetch?: DirectFetchDetail } = {},
 ): void {
-  try {
-    if (!pageId || !probeResult) {
-      // Two distinct reasons we couldn't probe:
-      //   - no_page_id:       context.extension.content.id was undefined at call time
-      //   - no_probe_result:  pageId was present but loadCustomContentWithOrphanRecovery
-      //                       refused to probe (transient direct-fetch error: 403/5xx/parse).
-      //                       The CC may still exist — don't conflate with true orphans.
-      trackEvent(orphanId, 'customcontent_orphan_observed', 'warning', {
-        diagram_kind: diagramKind,
-        recoverable: !pageId ? 'probe_skipped_no_page_id' : 'probe_skipped_no_probe_result',
-        recovery_used: false,
-        ...(pageId && { page_id: pageId }),
-      });
-      return;
-    }
+  if (!pageId || !probeResult) {
+    // Two distinct reasons we couldn't probe:
+    //   - no_page_id:       context.extension.content.id was undefined at call time
+    //   - no_probe_result:  pageId was present but loadCustomContentWithOrphanRecovery
+    //                       refused to probe (transient direct-fetch error: 403/5xx/parse).
+    //                       The CC may still exist — don't conflate with true orphans.
     trackEvent(orphanId, 'customcontent_orphan_observed', 'warning', {
       diagram_kind: diagramKind,
-      page_id: pageId,
-      recoverable: String(probeResult.recoverable),
-      candidate_count: probeResult.candidateCount,
-      page_children_total: probeResult.pageChildrenTotal,
-      recovery_used: Boolean(options.recoveryUsed),
-      ...(options.recoveredId && { recovered_id: options.recoveredId }),
-      ...(probeResult.truncated && { truncated: true }),
-      ...(probeResult.probeError && { probe_error: probeResult.probeError }),
+      recoverable: !pageId ? 'probe_skipped_no_page_id' : 'probe_skipped_no_probe_result',
+      recovery_used: false,
+      ...(pageId && { page_id: pageId }),
+      ...directFetchProps(options.directFetch),
     });
-  } catch (e) {
-    console.warn('[orphanTelemetry] reportOrphanObserved failed', e);
+    return;
   }
+  trackEvent(orphanId, 'customcontent_orphan_observed', 'warning', {
+    diagram_kind: diagramKind,
+    page_id: pageId,
+    recoverable: String(probeResult.recoverable),
+    candidate_count: probeResult.candidateCount,
+    page_children_total: probeResult.pageChildrenTotal,
+    recovery_used: Boolean(options.recoveryUsed),
+    ...(options.recoveredId && { recovered_id: options.recoveredId }),
+    ...(probeResult.truncated && { truncated: true }),
+    ...(probeResult.probeError && { probe_error: probeResult.probeError }),
+    ...directFetchProps(options.directFetch),
+  });
 }
 
 /**
@@ -70,14 +105,10 @@ export function reportOrphanMacroRepaired(
   newId: string,
   diagramKind: OrphanDiagramKind,
 ): void {
-  try {
-    trackEvent(oldOrphanId, 'customcontent_orphan_macro_repaired', 'info', {
-      diagram_kind: diagramKind,
-      ...(pageId && { page_id: pageId }),
-      old_custom_content_id: oldOrphanId,
-      new_custom_content_id: newId,
-    });
-  } catch (e) {
-    console.warn('[orphanTelemetry] reportOrphanMacroRepaired failed', e);
-  }
+  trackEvent(oldOrphanId, 'customcontent_orphan_macro_repaired', 'info', {
+    diagram_kind: diagramKind,
+    ...(pageId && { page_id: pageId }),
+    old_custom_content_id: oldOrphanId,
+    new_custom_content_id: newId,
+  });
 }

@@ -4,13 +4,12 @@
 // open the Sequence editor as the canonical surface — the chrome assertions
 // here are macro-agnostic, but you need a real editor mounted to observe them.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectModalVisible,
   expectFullscreenLayout,
   expectSingleHeaderClose,
-  expectHeaderTitle,
   expectNoConfluenceChrome,
   clickHeaderClose,
   expectModalClosed,
@@ -23,9 +22,10 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Forge bridge fullscreen modal — cross-cutting chrome', () => {
+test.describe('Forge bridge fullscreen modal — cross-cutting chrome', { tag: ['@test:cross-cutting', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@modal', '@sequence'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only; Connect uses different chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required to mount the modal');
 
@@ -50,15 +50,10 @@ test.describe('Forge bridge fullscreen modal — cross-cutting chrome', () => {
     await expect(innerCloseBtns).toHaveCount(0);
   });
 
-  // cross:2 — Header shows app icon + macro title.
-  test('cross:2 — header shows the macro module title', async ({ page }) => {
-    await insertMacro(page, 'sequence');
-    // The exact module title from manifest.yml. Lite variant adds " Lite".
-    const titlePart = testConfig.isLite
-      ? /Diagram \(Mermaid, PlantUML & ZenUML\) Lite/
-      : /Diagram \(Mermaid, PlantUML & ZenUML\)/;
-    await expectHeaderTitle(page, titlePart, 'edit');
-  });
+  // cross:2 deleted 2026-09-03 (fix/e2e-stale-specs, issue #609): asserted
+  // Atlassian's own modal-header chrome text (the macro module title), not
+  // anything this app owns or controls — that chrome is out of scope for our
+  // E2E suite.
 
   // cross:3 — No Confluence chrome around modal.
   test('cross:3 — modal has aria-modal=true (no chrome reachable)', async ({ page }) => {
@@ -77,11 +72,16 @@ test.describe('Forge bridge fullscreen modal — cross-cutting chrome', () => {
   });
 
   // cross:5 — Close (header X) — dirty state.
-  test('cross:5 — dirty state: synthetic beforeunload is preventDefault=true', async ({ page }) => {
-    await insertMacro(page, 'sequence');
+  test('cross:5 — dirty draft survives header close', async ({ page }) => {
+    const { editorPage, macroName } = await insertMacro(page, 'sequence');
     await dirtyEditor(page, 'sequence');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result, 'synthetic beforeunload on dirty editor').toBe(true);
+    // view.onClose replaced beforeunload; the draft protects unsaved work.
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
+    await clickHeaderClose(page, 'edit');
+    await expectModalClosed(page, 'edit');
+    await editorPage.clickInsertElements();
+    await editorPage.searchAndSelectMacro('diagram', macroName);
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
   });
 
   // cross:6 — Esc key behavior.

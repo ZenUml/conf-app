@@ -22,8 +22,25 @@ Read the conversation and/or the user's prompt to identify:
 - **Observed**: What actually happens (wrong behavior)
 - **Expected**: What should happen instead
 - **Component**: Which UI component or flow is involved
+- **Lifecycle path**: Whether the report concerns create/new, edit/existing, or both
 
 If key details are missing, ask one focused question before proceeding.
+
+### Do not conflate create and edit
+
+For bugs involving editor initialization, default content, validation, AI actions, drafts, titles,
+or persistence, treat create/new and edit/existing as independent reproduction paths. Existing
+content hydrates persisted state; new content may show a default value before its store, globals, or
+save payload are initialized. A successful existing-content check does not disprove a create-only
+bug, and vice versa.
+
+Run the smallest applicable matrix:
+
+1. Create new content through the real editor and exercise the trigger through first save.
+2. Open existing content and exercise the same trigger through update save.
+
+If the report explicitly names one path, prioritize it and record the other as not tested. Do not use
+an API-created fixture to reproduce a bug in editor initialization or first-save behavior.
 
 ## Step 2 — Choose the Right Environment
 
@@ -61,7 +78,7 @@ sleep 4
 ```
 Then re-check and proceed.
 
-Use `mcp__playwright__*` tools to automate browser interactions.
+Use `agent-browser --session conf-app --restore=stg` to automate browser interactions.
 Take a screenshot after each key interaction to document what you observe.
 
 **Track the EventBus edit counter exposed by the harness:**
@@ -103,7 +120,7 @@ then suggest the next environment to try or ask the user for more context.
 
 ## Playwright Tips for This App
 
-The Playwright MCP (`mcp__playwright__*`) is the right tool for browser automation.
+`agent-browser` is the default browser automation tool (see `CLAUDE.md` § "Browser automation and Forge iframes").
 
 - The local SPA (`viewer-preview.html`) is NOT inside a Forge iframe, so standard
   `browser_click`, `browser_snapshot`, etc. work directly.

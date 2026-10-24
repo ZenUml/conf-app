@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Repair Historical Regression"
+  short_description: "Replay private historical DSL and validate the current AI Repair Prompt"
+  default_prompt: "Use $ai-repair-regression to run simple regression on saved historical AI Repair error DSL."
+policy:
+  allow_implicit_invocation: true

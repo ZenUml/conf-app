@@ -18,8 +18,10 @@
  *    instead (./stdlib.ts): a library we host (C4) arrives as data from our
  *    own chunk; any other `!include <lib/...>` gets "cannot include" rather
  *    than a fetch to plantuml.github.io, which would just be a different third
- *    party. URL and local-file includes fail the same way: the engine has no
- *    network access of its own.
+ *    party. GitHub C4-PlantUML URL includes are rewritten to the hosted
+ *    library first (stdlib.ts rewriteHostedIncludes); other URL and
+ *    local-file includes fail the same way: the engine has no network access
+ *    of its own.
  *  - The engine measures text with a canvas, so it needs a real browser:
  *    jsdom cannot run it, and unit tests mock this module's import.
  *
@@ -28,7 +30,7 @@
  * SVG had, and validate.ts reads them unchanged.
  */
 import type { PlantUmlLocalFailureReason, PlantUmlUnresolvedInclude } from '@/utils/analytics/catalog';
-import { installPlantUmlStdlibLoader } from './stdlib';
+import { installPlantUmlStdlibLoader, rewriteHostedIncludes } from './stdlib';
 
 export class PlantUmlLocalRenderError extends Error {
   constructor(
@@ -36,6 +38,8 @@ export class PlantUmlLocalRenderError extends Error {
     message: string,
     /** For reason=include: which kind of include the engine could not resolve. */
     public readonly unresolvedInclude?: PlantUmlUnresolvedInclude,
+    /** A GitHub C4 URL include was rewritten to the hosted library for this run. */
+    public readonly includeRewritten = false,
   ) {
     super(message);
     this.name = 'PlantUmlLocalRenderError';
@@ -92,13 +96,22 @@ function unresolvedKind(svg: string): PlantUmlUnresolvedInclude {
   return 'local';
 }
 
-function classify(svg: string): string {
+const SYNTAX_ERROR_MARKER = 'Syntax Error?';
+
+function classify(svg: string, includeRewritten: boolean): string {
   if (svg.includes(CRASH_MARKER)) {
-    throw new PlantUmlLocalRenderError('engine_error', 'The PlantUML engine crashed on this diagram');
+    throw new PlantUmlLocalRenderError('engine_error', 'The PlantUML engine crashed on this diagram', undefined, includeRewritten);
   }
   if (ERROR_PAGE_MARKER.test(svg) && INCLUDE_MARKER.test(svg)) {
     throw new PlantUmlLocalRenderError(
-      'include', 'This diagram uses an !include library that is not available yet', unresolvedKind(svg));
+      'include', 'This diagram uses an !include library that is not available yet', unresolvedKind(svg), includeRewritten);
+  }
+  // The hosted C4 is one release; the URL the author wrote may name another.
+  // Rather than show a syntax error the server would not have shown, give the
+  // diagram back to the server, which fetches the ref the author asked for.
+  if (includeRewritten && svg.includes(SYNTAX_ERROR_MARKER)) {
+    throw new PlantUmlLocalRenderError(
+      'include', 'A GitHub C4 include did not render with the hosted C4 library', 'url', true);
   }
   return svg;
 }
@@ -120,11 +133,12 @@ export function renderPlantUmlLocally(code: string): Promise<string> {
 
   const svg = (async () => {
     const [renderToString] = await Promise.all([loadEngine(), loadOptionalData(source)]);
+    const { source: engineSource, rewritten } = rewriteHostedIncludes(source);
     const raw = await new Promise<string>((resolve, reject) => {
-      renderToString(source.split('\n'), resolve, (message) =>
-        reject(new PlantUmlLocalRenderError('engine_error', `PlantUML engine error: ${message}`)));
+      renderToString(engineSource.split('\n'), resolve, (message) =>
+        reject(new PlantUmlLocalRenderError('engine_error', `PlantUML engine error: ${message}`, undefined, rewritten)));
     });
-    return classify(raw);
+    return classify(raw, rewritten);
   })();
   renders.set(source, { svg, at: now });
   svg.catch(() => renders.delete(source));

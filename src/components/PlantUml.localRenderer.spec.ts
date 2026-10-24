@@ -113,6 +113,24 @@ describe('PlantUml local renderer (ADR-0010)', () => {
     });
   });
 
+  it('reports plantuml_include_rewritten when a GitHub C4 URL include was drawn locally', async () => {
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.PlantUml,
+      plantUmlCode: '@startuml\n!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml\nPerson(a, "A")\n@enduml',
+    };
+    vi.mocked(renderPlantUmlLocally).mockResolvedValue(LOCAL_SVG);
+
+    mount(PlantUml, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, viewed] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(viewed).toMatchObject({ plantuml_renderer: 'local', plantuml_include_rewritten: true });
+    expect(window.fetch).not.toHaveBeenCalled();
+  });
+
   it('uses the engine when the Forge flag is on, without any localStorage opt-in', async () => {
     localStorage.removeItem(PLANTUML_RENDERER_STORAGE_KEY);
     vi.mocked(isPlantUmlLocalRendererEnabled).mockResolvedValueOnce(true);

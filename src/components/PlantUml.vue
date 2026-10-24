@@ -30,6 +30,7 @@ Bob --&gt; Alice: Hi there!
 import { plantumlEncode } from '@/utils/plantuml/encode';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
 import { plantUmlRenderer } from '@/utils/plantuml/renderer';
+import { rewriteHostedIncludes } from '@/utils/plantuml/stdlib';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { normalizePlantUmlSvg, readPlantUmlSvgSize } from '@/utils/plantuml/normalizeSvg';
 import { DiagramType } from '@/model/Diagram/Diagram';
@@ -137,6 +138,7 @@ export default {
     async renderLocally(code) {
       let reason = 'load_failed';
       let unresolvedInclude;
+      let includeRewritten = false;
       try {
         const { renderPlantUmlLocally, PlantUmlLocalRenderError } = await import('@/utils/plantuml/engine');
         try {
@@ -144,11 +146,12 @@ export default {
         } catch (err) {
           reason = err instanceof PlantUmlLocalRenderError ? err.reason : 'engine_error';
           unresolvedInclude = err instanceof PlantUmlLocalRenderError ? err.unresolvedInclude : undefined;
+          includeRewritten = err instanceof PlantUmlLocalRenderError && err.includeRewritten;
           throw err;
         }
       } catch (err) {
         console.warn('PlantUML local engine could not draw this diagram; using the server', err);
-        trackAnalyticsEvent('plantuml_local_render_failed', this.localFailureProps(reason, unresolvedInclude));
+        trackAnalyticsEvent('plantuml_local_render_failed', this.localFailureProps(reason, unresolvedInclude, includeRewritten));
         return null;
       }
     },
@@ -162,7 +165,7 @@ export default {
       // injected into a flex parent that squashes one axis (conf-app#626).
       return normalizePlantUmlSvg(await response.text());
     },
-    localFailureProps(reason, unresolvedInclude) {
+    localFailureProps(reason, unresolvedInclude, includeRewritten = false) {
       return {
         feature_area: 'macro',
         surface: this.isDisplayMode ? 'viewer' : 'editor',
@@ -170,6 +173,7 @@ export default {
         plantuml_renderer: 'local',
         plantuml_failure_reason: reason,
         ...(unresolvedInclude ? { plantuml_unresolved_include: unresolvedInclude } : {}),
+        ...(includeRewritten ? { plantuml_include_rewritten: true } : {}),
       };
     },
     /** Re-bind the pan/zoom viewport after a new server SVG lands. */
@@ -229,7 +233,11 @@ export default {
           trackRenderTime(
             'plantuml', this.isDisplayMode, 'live_render', 'none',
             viewContentState(this.$store.state.diagram, DiagramType.PlantUml),
-            { renderer },
+            {
+              renderer,
+              // Only a local draw used the rewrite; a fallback drew the original.
+              includeRewritten: renderer === 'local' && rewriteHostedIncludes(code).rewritten,
+            },
           );
         }
       } catch (err) {

@@ -54,6 +54,43 @@ export const plantumlStdlibLoader: Loader = (url, ok, err) => {
   );
 };
 
+/**
+ * GitHub URL includes of C4-PlantUML, rewritten to the hosted library.
+ *
+ * The engine has no network access and never hands a URL include to
+ * PLANTUML_FILE_LOADER (measured: "cannot include" without a call), so
+ * `!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml`
+ * can only be honoured by rewriting it to `!include <C4/C4_Container>` before
+ * rendering. Production uses exactly this form (ADR-0010: 105 such lines, all
+ * `master`, five files). The rewrite is one line for one line, so line numbers
+ * in error messages still match the author's source. Only top-level files the
+ * hosted library has are rewritten; anything else is left for the fallback.
+ *
+ * The hosted copy is one release (see ./stdlib/README.md), while a URL may name
+ * another ref. engine.ts treats a syntax error in a rewritten diagram as an
+ * include failure, so a version mismatch falls back to the server, which
+ * fetches the ref the author asked for.
+ */
+const C4_URL_INCLUDE = new RegExp(
+  String.raw`^([ \t]*)!(include|include_once|include_many|includeurl)[ \t]+` +
+  String.raw`https?://(?:raw\.githubusercontent\.com/plantuml-stdlib/C4-PlantUML|github\.com/plantuml-stdlib/C4-PlantUML/raw)` +
+  String.raw`/(?:refs/(?:heads|tags)/)?[^/\s]+/(C4(?:_[A-Za-z]+)?)\.puml[ \t]*\r?$`,
+  'gm',
+);
+const HOSTED_C4_FILES = new Set(['c4', 'c4_component', 'c4_container', 'c4_context', 'c4_deployment', 'c4_dynamic', 'c4_sequence']);
+
+export function rewriteHostedIncludes(code: string): { source: string; rewritten: boolean } {
+  let rewritten = false;
+  const source = code.replace(C4_URL_INCLUDE, (line, indent: string, directive: string, file: string) => {
+    if (!HOSTED_C4_FILES.has(file.toLowerCase())) return line;
+    rewritten = true;
+    // !includeurl has no library form; plain !include is its equivalent.
+    const kept = directive === 'includeurl' ? 'include' : directive;
+    return `${indent}!${kept} <C4/${file}>`;
+  });
+  return { source, rewritten };
+}
+
 /** Install the loader before the engine's first render. Idempotent. */
 export function installPlantUmlStdlibLoader(): void {
   (globalThis as StdlibGlobals).PLANTUML_STDLIB_LOADER = plantumlStdlibLoader;

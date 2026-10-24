@@ -216,12 +216,21 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    official `c4.min.js` by `scripts/plantuml-stdlib/bundle-to-json.mjs`, which
    parses the bundle and accepts only literal data, so no downloaded code runs.
    Any other library is declined and falls back. `PLANTUML_STDLIB_BASE` stays unset.
-   **Still open:** the 112 GitHub `C4-PlantUML` URL includes. The engine never
-   hands URL includes to `PLANTUML_FILE_LOADER` (measured: it reports "cannot
-   include" without calling it), so they need a source rewrite before rendering:
-   known `plantuml-stdlib/C4-PlantUML/<ref>/<File>.puml` URLs become
-   `<C4/<File>>`. Then tupadr3, azure and aws (8 diagrams), which are optional.
-   Other local-file and URL includes stay on the fallback.
+   **GitHub C4 URL includes done (2026-10-24).** The engine never hands URL
+   includes to `PLANTUML_FILE_LOADER` (measured: it reports "cannot include"
+   without calling it). So `rewriteHostedIncludes` (in `stdlib.ts`) rewrites
+   `!include` / `!include_once` / `!include_many` / `!includeurl` lines that
+   point at `plantuml-stdlib/C4-PlantUML/<ref>/<File>.puml` to
+   `!include <C4/<File>>` before the engine runs, one line for one line, so
+   error line numbers still match. It covers only top-level files the hosted
+   library has. In production every such line uses
+   `raw.githubusercontent.com/…/master/` and one of five files (105 lines). If a
+   rewritten diagram renders as a syntax error, for example because a pinned
+   older ref used a macro 2.14.0 lacks, it is treated as an include failure and
+   falls back to plantuml.com, which fetches the ref the author named.
+   `plantuml_include_rewritten` marks these renders on `macro_viewed` and on
+   failures. **Still open:** tupadr3, azure and aws (8 diagrams), which are
+   optional. Other local-file and URL includes stay on the fallback.
 5. **Roll out the Forge flag** by site: diagramly, then lite, then full. The flag
    must first be created in the Developer Console for each app (forge-feature-flag
    skill). Gate each widening on `macro_viewed` split by `plantuml_renderer`

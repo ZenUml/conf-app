@@ -87,6 +87,15 @@ export const C4FromHostedStdlib: Story = {
   play: async ({ canvasElement }) => expectDrawnWithoutServer(canvasElement, 'Online shop'),
 }
 
+/**
+ * The production form of C4: a GitHub URL include. The engine has no network
+ * access, so stdlib.ts rewrites it to the hosted library before rendering.
+ */
+export const C4FromGitHubUrl: Story = {
+  render: localRendererStory('@startuml\n!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml\nPerson(user, "Customer")\nContainer(api, "Orders API", "Go")\nRel(user, api, "Places orders")\n@enduml'),
+  play: async ({ canvasElement }) => expectDrawnWithoutServer(canvasElement, 'Orders API'),
+}
+
 /** Stands in for plantuml.com's answer to the Azure diagram below. */
 const SERVER_AZURE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="160px" height="60px" viewBox="0 0 160 60"><rect x="5" y="5" width="150" height="50" fill="#0078D4"/><text x="20" y="35" fill="#FFFFFF">Azure (server)</text></svg>'
 

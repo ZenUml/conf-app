@@ -59,6 +59,24 @@ describe('renderPlantUmlLocally (ADR-0010)', () => {
     expect(err.unresolvedInclude).toBe(kind);
   });
 
+  it('renders GitHub C4 URL includes from the hosted library', async () => {
+    engineReturns(OK_SVG);
+    await renderPlantUmlLocally('@startuml\n!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml\nPerson(a, "A")\n@enduml');
+    expect(vi.mocked(renderToString).mock.calls[0][0]).toEqual(['@startuml', '!include <C4/C4_Context>', 'Person(a, "A")', '@enduml']);
+  });
+
+  it('gives a rewritten diagram that hits a syntax error back to the server', async () => {
+    engineReturns(SYNTAX_SVG);
+    const err = await renderPlantUmlLocally('@startuml\n!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v1.0.0/C4_Context.puml\nOldMacro(a)\n@enduml').catch((e) => e);
+    expect(err).toBeInstanceOf(PlantUmlLocalRenderError);
+    expect(err).toMatchObject({ reason: 'include', unresolvedInclude: 'url', includeRewritten: true });
+  });
+
+  it('still shows a syntax error in a diagram nothing was rewritten in', async () => {
+    engineReturns(SYNTAX_SVG);
+    await expect(renderPlantUmlLocally('@startuml\nbad\n@enduml')).resolves.toBe(SYNTAX_SVG);
+  });
+
   it('installs the stdlib loader before the engine runs', async () => {
     delete (globalThis as Record<string, unknown>).PLANTUML_STDLIB_LOADER;
     engineReturns(OK_SVG);

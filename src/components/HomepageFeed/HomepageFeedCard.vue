@@ -169,7 +169,7 @@ import {
   mcpServerName,
   buildHomepagePrompt,
 } from "@/composables/agentLink/connectInstructions";
-import { writeClipboard } from "@/composables/agentLink/clipboard";
+import { writeClipboard } from "@/utils/clipboard";
 
 const QUICK_START_URL = "https://zenuml.atlassian.net/wiki/spaces/Doc/overview";
 

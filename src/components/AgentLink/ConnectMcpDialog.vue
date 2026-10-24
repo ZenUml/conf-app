@@ -86,7 +86,7 @@ import {
   buildHeadlessPrompt,
   mcpAddCommand,
 } from '@/composables/agentLink/connectInstructions'
-import { writeClipboard } from '@/composables/agentLink/clipboard'
+import { writeClipboard } from '@/utils/clipboard'
 
 // The viewer's "Connect MCP" button opens this over the inline macro. First
 // release: headless MCP only (connectInstructions.ts RELAY_SESSIONS_ENABLED),

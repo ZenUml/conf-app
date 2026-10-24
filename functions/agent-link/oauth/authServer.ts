@@ -46,7 +46,6 @@ import {
   deletePending,
   issueAccessToken,
   issueCode,
-  issueRefreshToken,
   isChainRevoked,
   loadLegacyRefreshToken,
   publishAccessToken,
@@ -55,8 +54,6 @@ import {
   loadPending,
   newChainId,
   randomToken,
-  redeemRefreshToken,
-  revokeChain,
   REGISTER_LIMIT,
   REGISTER_WINDOW_SECONDS,
   saveClient,
@@ -76,11 +73,15 @@ export type ChainRevokeReason = 'refresh_reused' | 'client_mismatch';
 
 export interface AsDeps {
   store: GrantStoreLike;
-  refreshLedger?: RefreshLedger;
   nowMs?: () => number;
   /** Told when a refresh chain is revoked, for analytics. Must not throw into the response. */
   onChainRevoked?: (event: { reason: ChainRevokeReason; userId: string; clientId: string }) => void | Promise<void>;
   onRefreshCompleted?: (event: { outcome: 'rotated' | 'retried' | 'rejected' | 'unavailable'; reason?: string; userId?: string; reuseAgeMs?: number }) => void | Promise<void>;
+}
+
+/** The token endpoint also needs the D1 refresh ledger; register, authorize and consent do not. */
+export interface TokenDeps extends AsDeps {
+  refreshLedger: RefreshLedger;
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
@@ -525,6 +526,16 @@ async function readForm(request: Request): Promise<TokenBody> {
   return out;
 }
 
+function tokenResponse(t: { accessToken: string; expiresIn: number; refreshToken: string; scope: string }): Response {
+  return json({
+    access_token: t.accessToken,
+    token_type: 'Bearer',
+    expires_in: t.expiresIn,
+    refresh_token: t.refreshToken,
+    scope: t.scope,
+  }, { status: 200, headers: JSON_HEADERS });
+}
+
 /**
  * POST /agent-link/oauth/token.
  *
@@ -533,186 +544,128 @@ async function readForm(request: Request): Promise<TokenBody> {
  * `client_id` presented here must still match the one the code was issued to,
  * or one registered client could redeem another's code.
  */
-export async function handleToken(request: Request, deps: AsDeps): Promise<Response> {
+export async function handleToken(request: Request, deps: TokenDeps): Promise<Response> {
   const body = await readForm(request);
   const now = (deps.nowMs ?? Date.now)();
-  const completeRefresh = async (event: Parameters<NonNullable<AsDeps['onRefreshCompleted']>>[0]) => {
-    try { await deps.onRefreshCompleted?.(event); } catch { /* telemetry never changes token response */ }
-  };
+  if (body.grant_type === 'authorization_code') return handleAuthorizationCodeGrant(body, deps, now);
+  if (body.grant_type === 'refresh_token') return handleRefreshGrant(body, request, deps, now);
+  return oauthError(400, 'unsupported_grant_type', 'supported: authorization_code, refresh_token');
+}
 
-  if (body.grant_type === 'authorization_code') {
-    if (!body.code) return oauthError(400, 'invalid_request', 'code is required');
-    if (!body.code_verifier) return oauthError(400, 'invalid_request', 'code_verifier is required');
+async function handleAuthorizationCodeGrant(body: TokenBody, deps: TokenDeps, now: number): Promise<Response> {
+  if (!body.code) return oauthError(400, 'invalid_request', 'code is required');
+  if (!body.code_verifier) return oauthError(400, 'invalid_request', 'code_verifier is required');
 
-    // Required, not optional: RFC 6749 §3.2.1 obliges a public client to
-    // identify itself here, and treating it as optional meant a client that
-    // simply omitted it skipped the binding check below entirely.
-    if (!body.client_id) return oauthError(400, 'invalid_request', 'client_id is required');
+  // Required, not optional: RFC 6749 §3.2.1 obliges a public client to
+  // identify itself here, and treating it as optional meant a client that
+  // simply omitted it skipped the binding check below entirely.
+  if (!body.client_id) return oauthError(400, 'invalid_request', 'client_id is required');
 
-    const record = await consumeCode(deps.store, body.code);
-    if (!record) return oauthError(400, 'invalid_grant', 'the code is unknown, used, or expired');
-    if (body.client_id !== record.clientId) {
-      return oauthError(400, 'invalid_grant', 'the code was issued to a different client');
-    }
-    if (body.redirect_uri && body.redirect_uri !== record.redirectUri) {
-      return oauthError(400, 'invalid_grant', 'redirect_uri does not match the authorization request');
-    }
-    if (!(await verifyPkce(body.code_verifier, record.codeChallenge))) {
-      return oauthError(400, 'invalid_grant', 'code_verifier does not match the code_challenge');
-    }
+  const record = await consumeCode(deps.store, body.code);
+  if (!record) return oauthError(400, 'invalid_grant', 'the code is unknown, used, or expired');
+  if (body.client_id !== record.clientId) {
+    return oauthError(400, 'invalid_grant', 'the code was issued to a different client');
+  }
+  if (body.redirect_uri && body.redirect_uri !== record.redirectUri) {
+    return oauthError(400, 'invalid_grant', 'redirect_uri does not match the authorization request');
+  }
+  if (!(await verifyPkce(body.code_verifier, record.codeChallenge))) {
+    return oauthError(400, 'invalid_grant', 'code_verifier does not match the code_challenge');
+  }
 
-    // A new sign-in starts a new refresh chain; see asStore.ts "refresh chains".
-    const chainId = newChainId();
-    const refreshRecord = {
+  // A new sign-in starts a new refresh chain; see asStore.ts "refresh chains".
+  const chainId = newChainId();
+  // The D1 chain must exist before this access token can be accepted by the
+  // headless endpoint.
+  let refreshToken: string;
+  try {
+    refreshToken = await deps.refreshLedger.issue({
       userId: record.userId,
       clientId: record.clientId,
       scope: record.scope,
       resource: record.resource,
       chainId,
-    };
-    // The D1 chain must exist before this access token can be accepted by the
-    // headless endpoint. Production always supplies a ledger.
-    let refresh: string;
-    try {
-      refresh = deps.refreshLedger
-        ? await deps.refreshLedger.issue(refreshRecord, now)
-        : await issueRefreshToken(deps.store, refreshRecord);
-    } catch {
-      return oauthError(503, 'temporarily_unavailable', 'token service is temporarily unavailable');
-    }
-    const { token, expiresInSeconds } = await issueAccessToken(
-      deps.store,
-      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId, ledger: !!deps.refreshLedger },
-      now,
-    );
-    return json({
-      access_token: token,
-      token_type: 'Bearer',
-      expires_in: expiresInSeconds,
-      refresh_token: refresh,
-      scope: record.scope,
-    }, { status: 200, headers: JSON_HEADERS });
+    }, now);
+  } catch {
+    return oauthError(503, 'temporarily_unavailable', 'token service is temporarily unavailable');
+  }
+  const { token, expiresInSeconds } = await issueAccessToken(
+    deps.store,
+    { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId, ledger: true },
+    now,
+  );
+  return tokenResponse({ accessToken: token, expiresIn: expiresInSeconds, refreshToken, scope: record.scope });
+}
+
+async function handleRefreshGrant(body: TokenBody, request: Request, deps: TokenDeps, now: number): Promise<Response> {
+  const ledger = deps.refreshLedger;
+  const completeRefresh = async (event: Parameters<NonNullable<AsDeps['onRefreshCompleted']>>[0]) => {
+    try { await deps.onRefreshCompleted?.(event); } catch { /* telemetry never changes token response */ }
+  };
+  if (!body.refresh_token) {
+    await completeRefresh({ outcome: 'rejected', reason: 'missing_refresh_token' });
+    return oauthError(400, 'invalid_request', 'refresh_token is required');
+  }
+  if (!body.client_id) {
+    await completeRefresh({ outcome: 'rejected', reason: 'missing_client_id' });
+    return oauthError(400, 'invalid_request', 'client_id is required');
   }
 
-  if (body.grant_type === 'refresh_token') {
-    if (!body.refresh_token) {
-      await completeRefresh({ outcome: 'rejected', reason: 'missing_refresh_token' });
-      return oauthError(400, 'invalid_request', 'refresh_token is required');
-    }
-    if (!body.client_id) {
-      await completeRefresh({ outcome: 'rejected', reason: 'missing_client_id' });
-      return oauthError(400, 'invalid_request', 'client_id is required');
-    }
-
-    if (deps.refreshLedger) {
-      try {
-        // Old KV credentials may still be live at cutover. Import only when
-        // D1 has no row; a used or revoked legacy credential never rotates.
-        const known = await deps.refreshLedger.inspect(body.refresh_token);
-        const legacy = !known || known.legacy ? await loadLegacyRefreshToken(deps.store, body.refresh_token) : null;
-        if (known?.legacyLineage && known.chainId && await isChainRevoked(deps.store, known.chainId)) {
-          await deps.refreshLedger.revoke(known.chainId, now);
-          await completeRefresh({ outcome: 'rejected', reason: 'revoked' });
-          return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
-        }
-        if (known?.legacy && legacy?.usedAtMs !== undefined) {
-          await deps.refreshLedger.revoke(known.chainId, now);
-          await completeRefresh({ outcome: 'rejected', reason: 'reused' });
-          return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
-        }
-        if (known?.legacy && !legacy && known.usedAtMs === null) {
-          await completeRefresh({ outcome: 'rejected', reason: 'expired' });
-          return oauthError(400, 'invalid_grant', 'the refresh token is expired');
-        }
-        if (!known && legacy && legacy.resource === resourceFor(request.url)) {
-          if (legacy.chainId && await isChainRevoked(deps.store, legacy.chainId)) {
-            await completeRefresh({ outcome: 'rejected', reason: 'revoked', userId: legacy.userId });
-            return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
-          }
-          await deps.refreshLedger.importLegacy(body.refresh_token, legacy, now);
-        }
-        const result = await deps.refreshLedger.rotate(body.refresh_token, body.client_id, resourceFor(request.url), now);
-        if (result.status === 'rotated' || result.status === 'retried') {
-          const pair = result.pair;
-          await publishAccessToken(deps.store, pair.accessToken, {
-            userId: pair.record.userId, clientId: pair.record.clientId, scope: pair.record.scope,
-            resource: pair.record.resource, chainId: pair.record.chainId, ledger: true,
-            expiresAtMs: pair.accessExpiresAtMs,
-          }, now);
-          await completeRefresh({ outcome: result.status, userId: pair.record.userId, reuseAgeMs: result.reuseAgeMs });
-          return json({
-            access_token: pair.accessToken,
-            token_type: 'Bearer',
-            expires_in: Math.max(1, Math.ceil((pair.accessExpiresAtMs - now) / 1000)),
-            refresh_token: pair.refreshToken,
-            scope: pair.scope,
-          }, { status: 200, headers: JSON_HEADERS });
-        }
-        if (result.status === 'client_mismatch' || result.status === 'reused') {
-          try {
-            await deps.onChainRevoked?.({ reason: result.status === 'client_mismatch' ? 'client_mismatch' : 'refresh_reused',
-              userId: result.record!.userId, clientId: result.record!.clientId });
-          } catch { /* telemetry never changes token response */ }
-        }
-        await completeRefresh({ outcome: 'rejected', reason: result.status,
-          userId: 'record' in result ? result.record?.userId : undefined, reuseAgeMs: result.reuseAgeMs });
-        return oauthError(400, 'invalid_grant', 'the refresh token is invalid or this sign-in was revoked; sign in again');
-      } catch {
-        await completeRefresh({ outcome: 'unavailable', reason: 'storage_unavailable' });
-        return oauthError(503, 'temporarily_unavailable', 'refresh service is temporarily unavailable');
-      }
-    }
-
-    const redeemed = await redeemRefreshToken(deps.store, body.refresh_token, now);
-    if (redeemed.status === 'unknown') {
-      return oauthError(400, 'invalid_grant', 'the refresh token is unknown, used, or expired');
-    }
-    if (redeemed.status === 'revoked') {
+  try {
+    // Old KV credentials may still be live at cutover. Import only when
+    // D1 has no row; a used or revoked legacy credential never rotates.
+    const known = await ledger.inspect(body.refresh_token);
+    const legacy = !known || known.legacy ? await loadLegacyRefreshToken(deps.store, body.refresh_token) : null;
+    if (known?.legacyLineage && known.chainId && await isChainRevoked(deps.store, known.chainId)) {
+      await ledger.revoke(known.chainId, now);
+      await completeRefresh({ outcome: 'rejected', reason: 'revoked' });
       return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
     }
-    // A used token presented again, or a live one under another client: either
-    // way it is in two hands, so the whole chain goes (asStore.ts "refresh
-    // chains"), the legitimate client included. It signs in again.
-    const reason: ChainRevokeReason | null =
-      redeemed.status === 'reused' ? 'refresh_reused' : body.client_id !== redeemed.record.clientId ? 'client_mismatch' : null;
-    if (reason) {
-      await revokeChain(deps.store, redeemed.record.chainId, now);
-      try {
-        await deps.onChainRevoked?.({ reason, userId: redeemed.record.userId, clientId: redeemed.record.clientId });
-      } catch {
-        // analytics must never change the token response
-      }
-      return oauthError(
-        400,
-        'invalid_grant',
-        reason === 'refresh_reused'
-          ? 'the refresh token was already used; this sign-in has been revoked, sign in again'
-          : 'the refresh token was issued to a different client; this sign-in has been revoked',
-      );
+    if (known?.legacy && legacy?.usedAtMs !== undefined) {
+      await ledger.revoke(known.chainId, now);
+      await completeRefresh({ outcome: 'rejected', reason: 'reused' });
+      return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
     }
-    // The rotated token starts unused; JSON drops the undefined marker.
-    const record = { ...redeemed.record, usedAtMs: undefined };
-
-    // The upstream Atlassian grant is NOT refreshed here. It has its own
-    // lifecycle in tokenStore.getAccessToken, driven by actual Confluence
-    // calls; tying the two together would refresh Atlassian on a schedule set
-    // by an idle agent.
-    const { token, expiresInSeconds } = await issueAccessToken(
-      deps.store,
-      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId: record.chainId },
-      now,
-    );
-    const refresh = await issueRefreshToken(deps.store, record);
-    return json({
-      access_token: token,
-      token_type: 'Bearer',
-      expires_in: expiresInSeconds,
-      refresh_token: refresh,
-      scope: record.scope,
-    }, { status: 200, headers: JSON_HEADERS });
+    if (known?.legacy && !legacy && known.usedAtMs === null) {
+      await completeRefresh({ outcome: 'rejected', reason: 'expired' });
+      return oauthError(400, 'invalid_grant', 'the refresh token is expired');
+    }
+    if (!known && legacy && legacy.resource === resourceFor(request.url)) {
+      if (legacy.chainId && await isChainRevoked(deps.store, legacy.chainId)) {
+        await completeRefresh({ outcome: 'rejected', reason: 'revoked', userId: legacy.userId });
+        return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
+      }
+      await ledger.importLegacy(body.refresh_token, legacy, now);
+    }
+    const result = await ledger.rotate(body.refresh_token, body.client_id, resourceFor(request.url), now);
+    if (result.status === 'rotated' || result.status === 'retried') {
+      const pair = result.pair;
+      await publishAccessToken(deps.store, pair.accessToken, {
+        userId: pair.record.userId, clientId: pair.record.clientId, scope: pair.record.scope,
+        resource: pair.record.resource, chainId: pair.record.chainId, ledger: true,
+        expiresAtMs: pair.accessExpiresAtMs,
+      }, now);
+      await completeRefresh({ outcome: result.status, userId: pair.record.userId, reuseAgeMs: result.reuseAgeMs });
+      return tokenResponse({
+        accessToken: pair.accessToken,
+        expiresIn: Math.max(1, Math.ceil((pair.accessExpiresAtMs - now) / 1000)),
+        refreshToken: pair.refreshToken,
+        scope: pair.scope,
+      });
+    }
+    if (result.status === 'client_mismatch' || result.status === 'reused') {
+      try {
+        await deps.onChainRevoked?.({ reason: result.status === 'client_mismatch' ? 'client_mismatch' : 'refresh_reused',
+          userId: result.record!.userId, clientId: result.record!.clientId });
+      } catch { /* telemetry never changes token response */ }
+    }
+    await completeRefresh({ outcome: 'rejected', reason: result.status,
+      userId: 'record' in result ? result.record?.userId : undefined, reuseAgeMs: result.reuseAgeMs });
+    return oauthError(400, 'invalid_grant', 'the refresh token is invalid or this sign-in was revoked; sign in again');
+  } catch {
+    await completeRefresh({ outcome: 'unavailable', reason: 'storage_unavailable' });
+    return oauthError(503, 'temporarily_unavailable', 'refresh service is temporarily unavailable');
   }
-
-  return oauthError(400, 'unsupported_grant_type', 'supported: authorization_code, refresh_token');
 }
 
 export { ACCESS_TOKEN_TTL_SECONDS, loadPending };

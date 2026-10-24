@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test';
+import { focusEditorBody } from './editorFocus.js';
 
 // Embed-deeplink autoConvert automation. A real paste event is required:
 // typing only linkifies the URL and never runs Forge macro autoConvert.
@@ -17,7 +18,7 @@ export function embedDeeplinkUrl(host: string, cloudId: string, contentId: strin
 }
 
 export async function pasteDeeplink(page: Page, url: string): Promise<void> {
-  await editorBody(page).click();
+  await focusEditorBody(page, editorBody(page));
   await page.waitForTimeout(200);
   await page.evaluate(({ selector, url: u }) => {
     const pm = document.querySelector(selector) as HTMLElement | null;
@@ -122,7 +123,7 @@ export async function pasteUntil(
 }
 
 async function clearEditor(page: Page): Promise<void> {
-  await editorBody(page).click();
+  await focusEditorBody(page, editorBody(page));
   await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.press('Delete');
   await page.waitForTimeout(150);

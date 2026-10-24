@@ -7,6 +7,13 @@ export interface DiagramLoadError {
   httpStatus?: number;
   errorCode?: string;
   errorClass?: 'thrown' | 'structured' | 'malformed';
+  /**
+   * The load produced a document that LOOKS renderable but is not the one the
+   * macro asked for (a Board macro holding only a legacy Diagram body).
+   * classifyViewerLoadOutcome lets a terminal error beat displayability;
+   * a non-terminal error never masks a document a recovery path restored.
+   */
+  terminal?: boolean;
 }
 
 export type ViewerLoadState =

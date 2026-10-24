@@ -18,6 +18,11 @@ import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentI
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { guardEditClick } from '@/utils/guardEditClick';
 import { attributionFromCustomContent } from '@/model/DiagramAttribution';
+import {
+  GRAPH_EDITOR_MODE_CONFIG_KEY,
+  normalizeGraphEditorMode,
+} from '@/utils/graph/graphEditorMode';
+import { getBoardDocumentLoadError, resolveGraphXml } from '@/utils/graph/boardDocument';
 
 async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
@@ -50,9 +55,10 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
       reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
-      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       loadError = mapCustomContentLoadError(loaded);
     }
   }
@@ -126,6 +132,18 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
     }
   }
 
+  // A ZEN-1170 recovery above may have restored `doc` after the customContent
+  // fetch set loadError. The document is present and renderable, so the error
+  // no longer describes this load — clearing it keeps classifyViewerLoadOutcome
+  // from turning a successful recovery into an error panel.
+  if (doc && loadError) {
+    loadError = null;
+  }
+
+  if (normalizeGraphEditorMode(context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]) === 'board') {
+    loadError = getBoardDocumentLoadError(doc) ?? loadError;
+  }
+
   return { doc, loadError, ...(attribution ? { attribution } : {}) };
 }
 
@@ -134,7 +152,10 @@ function afterLoad(doc: Diagram | undefined) {
   // compressed graph bodies to plain XML before the store write). Here we only
   // need plain XML for the attachment side-effect below, plus the compressed_*
   // telemetry that sizes how many legacy compressed graph macros are loaded.
-  let graphXml = doc?.graphXml;
+  // Snapshot the document the macro actually DISPLAYS. A Board macro's
+  // attachment is what Confluence PDF/Word export and page previews consume,
+  // so reading graphXml unconditionally exported the stale Diagram document.
+  let graphXml = resolveGraphXml(doc);
   if (doc?.compressed) {
     trackEvent('compressed_field_viewer', 'load', 'warning');
     if (!graphXml?.startsWith('<mxGraphModel')) {
@@ -166,13 +187,20 @@ function afterLoad(doc: Diagram | undefined) {
 
 async function initializeMacro() {
   await ensureDrawioViewerLoaded();
+  const context = await initForgeContext();
+  const graphEditorMode = normalizeGraphEditorMode(
+    context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY],
+  );
   await bootstrapForgeViewer({
     macroKind: 'graph',
     content: ForgeGraphViewer,
+    contentProps: { graphEditorMode },
     loadDiagram,
     afterLoad,
-    // Same id `loadDiagram` reads off `context.extension.config` above.
-    resolveContentId: (context) => context.extension?.config?.customContentId,
+    // Same id `loadDiagram` loads above, pasted-deeplink fallback included. It
+    // is also the SWR cache key, so a raw config read here left a pasted graph
+    // macro uncached (#561).
+    resolveContentId: resolveEffectiveCustomContentId,
     onError: (error) => {
       console.error('Error loading graph viewer', error);
     },
@@ -189,7 +217,10 @@ EventBus.$on('edit', async () => {
   // and consults it too, but the page GET is paid once.
   const ctx = await initForgeContext();
   if (!(await guardEditClick({
-    customContentId: ctx.extension?.config?.customContentId,
+    // Resolved, not a raw config read (as forge-swagger-ui.ts does): a pasted
+    // macro has no config id, and an undefined id makes the gate skip, so a
+    // same-page duplicate of it was never caught.
+    customContentId: resolveEffectiveCustomContentId(ctx),
     macroType: 'graph',
   }))) return;
 

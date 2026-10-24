@@ -1,4 +1,5 @@
 import { Env } from '../../utils/KVEnv';
+import { json } from '../../OkResponse';
 
 interface SpaceMetrics {
   space: string;
@@ -144,12 +145,6 @@ function buildDomainResponse(
   };
 }
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body, null, 2), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-
 export const onRequest = async ({ request, env }: { request: Request; env: Env }) => {
   const url = new URL(request.url);
   const domain = url.searchParams.get('domain');
@@ -158,7 +153,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Env }
   const requestedProduct = url.searchParams.get('productType') || '';
 
   if (!domain) {
-    return json({ error: 'Missing domain parameter' }, 400);
+    return json({ error: 'Missing domain parameter' }, { status: 400, space: 2 });
   }
   if (requestedProduct && !isProductType(requestedProduct)) {
     return json(
@@ -166,7 +161,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Env }
         error: `Unknown productType '${requestedProduct}'`,
         validProductTypes: PRODUCT_TYPES,
       },
-      400
+      { status: 400, space: 2 }
     );
   }
 
@@ -178,7 +173,8 @@ export const onRequest = async ({ request, env }: { request: Request; env: Env }
     return json(
       space
         ? buildSpaceResponse(kvKey, data, space, product)
-        : buildDomainResponse(kvKey, data, product)
+        : buildDomainResponse(kvKey, data, product),
+      { space: 2 }
     );
   };
 
@@ -217,7 +213,7 @@ export const onRequest = async ({ request, env }: { request: Request; env: Env }
         productsProbed: [...PRODUCT_TYPES],
         staleThresholdHours: STALE_THRESHOLD_HOURS,
       },
-    });
+    }, { space: 2 });
   }
 
   // Several products hold data. Report the fork; the caller picks with
@@ -242,5 +238,5 @@ export const onRequest = async ({ request, env }: { request: Request; env: Env }
         + 'license for is residue from a past writer bug, not a second install.',
       staleThresholdHours: STALE_THRESHOLD_HOURS,
     },
-  });
+  }, { space: 2 });
 };

@@ -1,3 +1,4 @@
+import { json } from '../OkResponse';
 // GET /agent-link/channel — proxies the macro's and the agent's WebSocket
 // upgrade requests through to the AgentLinkSession Durable Object instance
 // for their shared `?token=`.
@@ -40,7 +41,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const url = new URL(request.url);
   const token = url.searchParams.get('token');
   if (!token) {
-    return new Response(JSON.stringify({ error: 'Missing token' }), {
+    return json({ error: 'Missing token' }, {
       status: 400,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });

@@ -4,7 +4,7 @@ import { captureError } from "./utils/sentry";
 import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
 import { ForgeUserBehaviorEventBody, mapForgeUserBehaviorEvent } from "./service/forgeUserBehavior";
-import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain, insertUserBehaviorEvent, upsertAtlassianInstance } from "./utils/dbUtils";
+import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain, upsertAtlassianInstance } from "./utils/dbUtils";
 import { archiveAnalyticsEvent, insertAnalyticsEventFact, normalizeMappedAnalyticsEvent } from "./utils/analytics";
 import { D1Database } from "@cloudflare/workers-types";
 

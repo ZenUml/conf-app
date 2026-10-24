@@ -393,10 +393,12 @@ padding: 12px 16px
 
 ### 8.8 Paywall / Upgrade Modal
 
-- **Hero text:** `"Awesome progress—{{n}} diagrams already! Unlock unlimited access to keep building."`
-- Gold CTA with gradient + `hover:scale-105` (the only transform in the system).
-- Feature list uses `✓` checkmarks.
-- Best-for callout: `"Best for: [description]"` with `💡` prefix.
+> This section is stale beyond the header text below — `UpgradePrompt.vue`'s actual current
+> header is factual (see §9.1), and a repo search found no gold-gradient CTA, `✓` checkmark
+> list, or "Best for" callout anywhere in that component. Needs a real re-audit against the
+> live component; not attempted here, out of scope for the tone-rule fix this section came from.
+
+- **Header text (factual, not a hero):** `"This space has reached the ZenUML Lite limit ({{n}} macros)."` / `"Existing diagrams still render. To create or edit, upgrade the space."`
 
 ### 8.9 Error / CantDisplay State
 
@@ -413,7 +415,12 @@ padding: 12px 16px
 
 ### 9.1 Tone
 
-Confident, slightly nerdy, never patronising. Assumes the user knows what a sequence diagram is. When nudging (toasts, paywall), congratulate before transacting.
+Confident, slightly nerdy, never patronising. Assumes the user knows what a sequence diagram is.
+In paywall/upgrade copy, state usage as fact and keep the ask separate — never congratulate the
+user on their usage immediately before asking them to pay. That sequence produced a real
+negative-impression incident (a user read "you created lots of diagrams!" followed immediately by
+a payment ask as a bait-and-switch). The shipped paywall modal already reflects this: its header is
+literally commented `<!-- Header - Factual -->` in `UpgradePrompt.vue`, not congratulatory.
 
 ### 9.2 Rules
 
@@ -436,7 +443,7 @@ Confident, slightly nerdy, never patronising. Assumes the user knows what a sequ
 | Title placeholder        | `Name your diagram…`                                                                        |
 | Disabled publish tooltip | `Add a diagram title to publish`                                                            |
 | Copy success toast       | `Code copied to clipboard`                                                                  |
-| Paywall hero             | `Awesome progress—{{n}} diagrams already! Unlock unlimited access to keep building.`        |
+| Paywall modal header     | `This space has reached the ZenUML Lite limit ({{n}} macros).` / `Existing diagrams still render. To create or edit, upgrade the space.` (factual, not congratulatory — see §9.1) |
 | Best-for callout         | `Best for: Multiple spaces heavily use this app`                                            |
 | GetStarted hero          | `Welcome to ZenUML Diagrams!`                                                               |
 | GetStarted instruction   | `Navigate to any Confluence page and use the "+" button to insert a ZenUML macro`          |
@@ -497,7 +504,7 @@ All assets live in `assets/` (copied from `conf-app/public/image/` and `conf-app
 | Use Heroicons v2 outline at stroke-width 1.5                                           | Use filled icons, Font Awesome, or SVG sprites              |
 | Use `transition-colors duration-200` for hover states                                  | Add bounce, spring, or scale animations (except Upgrade CTA)|
 | Use `hover:scale-105` only on the Upgrade gold CTA                                     | Scale other buttons or cards on hover                       |
-| Congratulate before transacting in upgrade/paywall copy                                | Lead with the ask                                           |
+| State usage neutrally, keep the upgrade ask in its own section                         | Congratulate the user right before asking them to pay       |
 | Use system font stack (no webfont)                                                     | Load Google Fonts or custom webfonts                        |
 | Use `rgba(0,0,0,0.5)` for modal backdrops                                              | Use backdrop-filter blur                                    |
 | Use `translateY(-2px)` card hover only on GetStarted cards                             | Lift app-chrome cards on hover                              |

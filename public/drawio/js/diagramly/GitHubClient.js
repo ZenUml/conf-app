@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2024, JGraph Holdings Ltd
+ * Copyright (c) 2006-2024, draw.io AG
  */
 //Add a closure to hide the class private variables without changing the code a lot
 (function ()
@@ -35,7 +35,7 @@ GitHubClient.prototype.baseUrl = DRAWIO_GITHUB_API_URL;
 
 GitHubClient.prototype.baseHostUrl = DRAWIO_GITHUB_URL;
 
-GitHubClient.prototype.redirectUri = window.location.protocol + '//' + window.location.host + '/github2';
+GitHubClient.prototype.redirectUri = window.DRAWIO_SERVER_URL + 'github2';
 
 /**
  * Maximum file size of the GitHub REST API.
@@ -156,9 +156,16 @@ GitHubClient.prototype.authenticateStep2 = function(state, success, error)
 				{
 					if (req.getStatus() >= 200 && req.getStatus() <= 299)
 					{
-						_token = JSON.parse(req.getText()).access_token;
-						this.setUser(null);
-						success();
+						try
+						{
+							_token = JSON.parse(req.getText()).access_token;
+							this.setUser(null);
+							success();
+						}
+						catch (e)
+						{
+							error({message: mxResources.get('authFailed'), retry: auth});
+						}
 					}
 					else 
 					{
@@ -494,7 +501,7 @@ GitHubClient.prototype.getFile = function(path, success, error, asLibrary, check
 	
 	// Handles .vsdx, Gliffy and PNG+XML files by creating a temporary file
 	if (!checkExists && (/\.v(dx|sdx?)$/i.test(path) || /\.gliffy$/i.test(path) ||
-		/\.pdf$/i.test(path) || (!this.ui.useCanvasForExport && binary)))
+		/\.pdf$/i.test(path) || (!Editor.useCanvasForExport && binary)))
 	{
 		// Should never be null
 		if (_token != null)
@@ -522,7 +529,34 @@ GitHubClient.prototype.getFile = function(path, success, error, asLibrary, check
 		{
 			try
 			{
-				success(this.createGitHubFile(org, repo, ref, JSON.parse(req.getText()), asLibrary));
+				var obj = JSON.parse(req.getText());
+
+				// Additional request needed to get file contents
+				if (obj.content == '' && obj.git_url != null)
+				{
+					var contentReq = new mxXmlRequest(obj.git_url, null, 'GET');
+
+					this.executeRequest(contentReq, mxUtils.bind(this, function(contentReq)
+					{
+						var contentObject = JSON.parse(contentReq.getText());
+						
+						if (contentObject.content != '')
+						{
+							obj.content = contentObject.content;
+							obj.encoding = contentObject.encoding;
+
+							success(this.createGitHubFile(org, repo, ref, obj, asLibrary));
+						}
+						else
+						{
+							error({message: mxResources.get('errorLoadingFile')});
+						}
+					}), error);
+				}
+				else
+				{
+					success(this.createGitHubFile(org, repo, ref, obj, asLibrary));
+				}
 			}
 			catch (e)
 			{
@@ -666,12 +700,14 @@ GitHubClient.prototype.showCommitDialog = function(filename, isNew, success, can
 	var dlg = new FilenameDialog(this.ui, mxResources.get((isNew) ? 'addedFile' : 'updateFile',
 		[filename]), mxResources.get('ok'), mxUtils.bind(this, function(message)
 	{
-		resume();
-		success(message);
+		resume(function()
+		{
+			success(message);
+		});
 	}), mxResources.get('commitMessage'), null, null, null, null, mxUtils.bind(this, function()
 	{
 		cancel();
-	}), null, 280);
+	}));
 
 	this.ui.showDialog(dlg.container, 400, 80, true, false);
 	dlg.init();
@@ -794,7 +830,7 @@ GitHubClient.prototype.saveFile = function(file, success, error, overwrite, mess
 	
 	var fn2 = mxUtils.bind(this, function()
 	{
-		if (this.ui.useCanvasForExport && /(\.png)$/i.test(path))
+		if (Editor.useCanvasForExport && /(\.png)$/i.test(path))
 		{
 			var p = this.ui.getPngFileProperties(this.ui.fileNode);
 			
@@ -870,7 +906,6 @@ GitHubClient.prototype.showGitHubDialog = function(showFiles, fn, hideNoFilesErr
 
 	var hd = document.createElement('h3');
 	mxUtils.write(hd, mxResources.get((showFiles) ? 'selectFile' : 'selectFolder'));
-	hd.style.cssText = 'width:100%;text-align:center;margin-top:0px;margin-bottom:12px';
 	content.appendChild(hd);
 
 	var btn = this.ui.createToolbarButton(Editor.refreshImage,

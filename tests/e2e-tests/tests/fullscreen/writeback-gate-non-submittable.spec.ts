@@ -23,7 +23,7 @@
 // "not submittable"), both locked by unit tests (editDupGate.spec.ts /
 // writebackGate.spec.ts).
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
@@ -35,6 +35,7 @@ import {
   expectModalVisible,
   expectModalClosed,
 } from '../../helpers/FullscreenModalHelper.js';
+import { dismissStarterGalleryIfPresent } from '../../helpers/starterGallery.js';
 
 const SEQUENCE_MACRO_BASE = 'Diagram (Mermaid, PlantUML & ZenUML)';
 const FORGE_IFRAME = '[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]';
@@ -58,6 +59,7 @@ async function insertAndPublishMacroPage(page: Page): Promise<string> {
   await expectModalVisible(page, 'edit');
   await page.waitForTimeout(1500);
   await dismissPaywall(page);
+  await dismissStarterGalleryIfPresent(page, modalContentFrame(page, 'edit'));
   await fillEditorTitle(page, `Gate170 ${Date.now()}`);
   await clickEditorPublish(page);
   await expectModalClosed(page, 'edit');
@@ -85,7 +87,7 @@ async function insertAndPublishNonSequenceMacro(page: Page, kind: 'graph' | 'ope
   return pageId!;
 }
 
-test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', () => {
+test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', { tag: ['@test:writeback-gate-non-submittable', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@viewer', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 
@@ -115,7 +117,7 @@ test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped befo
     // The click-time gate scans the page ADF, finds the shared id, and flips
     // the viewer into the same disabled-Edit state a cross-page copy gets —
     // this disable happening at all proves the gate fired.
-    const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+    const editBtn = firstMacro.getByRole('button', { name: 'Edit', exact: true });
     await expect(editBtn, 'gate must disable Edit after the click').toBeDisabled({ timeout: 15_000 });
     await expect(editBtn).toHaveAttribute('title', /several copies/i);
 
@@ -153,7 +155,7 @@ test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped befo
       });
 
       const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
-      const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+      const editBtn = firstMacro.getByRole('button', { name: 'Edit', exact: true });
       await expect(editBtn).toBeVisible({ timeout: 30_000 });
       // Enabled at load now (no load-time full scan) — the gate is the click.
       await expect(editBtn, 'load-time scan is gone, so Edit starts enabled').toBeEnabled();
@@ -174,7 +176,7 @@ test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped befo
       const pageId = await insertAndPublishNonSequenceMacro(page, kind);
       await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${pageId}`);
       const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
-      const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+      const editBtn = firstMacro.getByRole('button', { name: 'Edit', exact: true });
       await expect(editBtn).toBeVisible({ timeout: 30_000 });
       await editBtn.click();
       await expectModalVisible(page, 'edit', 30_000);
@@ -192,7 +194,7 @@ test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped befo
 
       await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${copyPageId}`);
       const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
-      const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+      const editBtn = firstMacro.getByRole('button', { name: 'Edit', exact: true });
       await expect(editBtn).toBeVisible({ timeout: 30_000 });
       await expect(editBtn, `${kind} cross-page copy must not be editable in-viewer`).toBeDisabled();
       await expect(editBtn).toHaveAttribute('title', /lives on another page/i);
@@ -212,7 +214,7 @@ test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped befo
     // View the COPY page — its macro's cc lives on the source page (samePage===false).
     await page.goto(`https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${copyPageId}`);
     const firstMacro = page.locator(FORGE_IFRAME).first().contentFrame();
-    const editBtn = firstMacro.getByRole('button', { name: 'Edit' });
+    const editBtn = firstMacro.getByRole('button', { name: 'Edit', exact: true });
     await expect(editBtn).toBeVisible({ timeout: 30_000 });
     await expect(editBtn, 'cross-page copy must not be editable in-viewer').toBeDisabled();
     await expect(editBtn).toHaveAttribute('title', /lives on another page/i);

@@ -58,7 +58,7 @@ on 10-19. Re-run the backtest after changing a constant:
 S=.claude/skills/error-radar/scripts
 python3 $S/radar.py --backtest 2026-09-20 2026-10-19 --save-data /tmp/radar.json   # queries Mixpanel once
 python3 $S/radar.py --input /tmp/radar.json --backtest 2026-09-20 2026-10-19        # offline re-runs
-python3 -m unittest discover -s $S -p 'test_*.py' && node --test $S/signature.test.js
+python3 -m unittest discover -s $S -p 'test_*.py' && node --test $S/signature_test.js
 ```
 
 ## Running it
@@ -75,10 +75,13 @@ queries per run, about 15 s.
 
 The GitHub Action needs three values: `MIXPANEL_SA_USER`,
 `MIXPANEL_SA_SECRET`, `SLACK_ERROR_RADAR_WEBHOOK` (an incoming webhook for
-#zenuml2). Each may be a repository secret or a repository variable (a secret
-wins when both exist). Keep the secret and the webhook as secrets: anyone
-with the webhook URL can post to the channel. The "Check configuration" step
-fails first and names anything missing; that failure is the intended signal.
+#zenuml2). `MIXPANEL_SA_USER` may be a repository secret or variable.
+`MIXPANEL_SA_SECRET` and `SLACK_ERROR_RADAR_WEBHOOK` must be **secrets**:
+GitHub prints variables verbatim in the step env block and this repo's logs
+are public, so a webhook saved as a variable is published (it was, once, on
+2026-10-24). The "Check configuration" step fails
+first, naming anything missing and refusing a sensitive value found among the
+variables; it only ever sees true/false for those two.
 
 ## Privacy
 

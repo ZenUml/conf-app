@@ -45,6 +45,8 @@ Reconsider paused customers only when a subsequent authorised run finds the reco
 
 Apply the contact policy. Use a short natural message with one easy reply, verified product name and relevant context. Draft when drafting is requested. If the user already authorised the actual send/schedule/grant or record update, complete it within that scope without another confirmation. Otherwise prepare a concrete reviewable result before asking for any necessary authorisation.
 
+For a ZenUML Lite paid-upgrade email, use [zenuml-upgrade-email](../zenuml-upgrade-email/SKILL.md) to verify the claims, write or revise the message, and save its Gmail draft. This flow still owns customer selection, commercial direction, authorisation and the tracker handoff.
+
 Before sending, re-check recipients, latest replies, equivalent drafts/scheduled messages and the final content against scope. For scheduling, use the recipient's verified timezone, explicit calendar date and daylight-saving rules; verify what the mail system actually scheduled. A spreadsheet date is not a scheduled email.
 
 Verify the result in the original system. An attempted or ambiguous send is **待核验**, not **已发送**; inspect before retrying to prevent duplicates. Then append one activity record and update the opportunity summary. Never silently roll back an external action because a tracker write failed: report the discrepancy and reconcile from evidence.

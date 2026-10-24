@@ -22,4 +22,4 @@ jobs:
         run: |
           # No checkout or execution of PR code in this privileged context.
           jq -n --arg ref "$BRANCH" --arg pr "$PR" '{ref:$ref,inputs:{"force-all":"true","pr-number":$pr}}' > dispatch.json
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-test-deploy.yml/dispatches" --input dispatch.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/pr-validation.yml/dispatches" --input dispatch.json

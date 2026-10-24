@@ -109,6 +109,18 @@ describe('DiagramTransformViewport', () => {
     expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
   });
 
+  it('fits the requested axis and recentres after a pan/zoom', async () => {
+    const wrapper = mountViewport(false, { width: 500, height: 300 });
+    await wrapper.vm.layout();
+    wrapper.vm.zoomIn();
+    wrapper.vm.fitAxis('height');
+    expect(scaleOf(wrapper)).toBeCloseTo(0.75, 5);
+    expect(wrapper.get('.rendered').attributes('style')).toContain('translate(-125px, 0px)');
+    wrapper.vm.fitAxis('width');
+    expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
+    expect(wrapper.get('.rendered').attributes('style')).toContain('translate(0px, 50px)');
+  });
+
   it('zooms on Ctrl/Cmd + wheel', async () => {
     const wrapper = mountViewport(true);
     await wrapper.vm.layout();

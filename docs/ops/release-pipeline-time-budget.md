@@ -1,5 +1,13 @@
 # Release pipeline time budget
 
+**Current staging policy, 2026-10-09:** all four main validation lanes and daily
+regression transactions run independently after one shared migration gate.
+Full no longer waits for Lite, and the optional Full lane switch is removed.
+See [ADR-0007's superseding decision](../adr/0007-release-order-aware-pipeline.md#superseding-decision--all-four-staging-variants-are-peers-2026-10-09)
+and [pipeline graphs](pipeline-graphs.md). The measurements below describe the
+historical configurations; the new main runtime needs observation after merge.
+Production release order remains Diagramly → Lite → Full after the seven-day soak.
+
 What a release costs in wall-clock, where the minutes go, and which of them
 were cut on 2026-09-11 (ADR-0006). Re-measure before changing anything here;
 the numbers below are from named runs, not estimates, except where marked.
@@ -225,6 +233,37 @@ First run with selection in effect on someone else's PR ([34667734251](https://g
 would add to the selection (never remove) — evidence for widening the map
 after two weeks. It needs the `ANTHROPIC_API_KEY` repository secret; without
 it the step exits with a notice and the deterministic selection is unaffected.
+
+## Main runs 2026-10-11 → 10-18: two modes
+
+Thirty main runs fall into two modes. `exec` = last root job end − first root
+job created.
+
+| mode (Lite E2E shards) | runs | exec p50 | exec p90 | tail E2E shard p50 | tail-shard runner queue p50 |
+|---|---|---|---|---|---|
+| selected (8) | 14 | 653 s | 692 s | 102 s | 9 s |
+| full regression (9) | 16 (14 green) | 1666 s | 1773 s | 706 s | 627 s |
+
+Run 38484209250 (attempt 2) has 9 Lite shards but its policy log says `fallback=none`; counted as full by shard count, so the full-mode count is 15 or 16.
+
+Fallback counts from the policy job's `Selection saved:` line: none 15,
+`potential-sensitive-diff` 14, `api-http-error` 1.
+
+The 14 `potential-sensitive-diff` run ids: 38108243393, 38124076835,
+38318443680, 38349253806, 38860494125, 38861974429, 38869506410, 38871337084,
+38977293169, 38988054541, 38999578190, 39023661750, 39025209256, 39030648810.
+
+- Full mode runs 36 shards against the 20-job runner cap. That is why the tail
+  shard waits 627 s for a runner.
+- 11 of 30 runs waited more than 60 s behind the previous main run on the
+  concurrency group, 6.1 h in total. Every wait was behind a full-mode run.
+- Quiet selected run 39082321939: exec 649 s. Deploy: Lite = Cloudflare 76 s in
+  parallel with Forge 75 s. Validate = plan 26 s + shard ≤108 s + aggregate
+  14 s. Orchestration tax (exec − tail deploy − tail validate) p50 219 s.
+- Full run example 39025209256: exec 1827 s, Validate: Full 1439 s, max shard
+  889 s, shard runner queue 217 s.
+
+On the first main run after this change merges, the deterministic floor does not return `mode: 'all'`: with `scope: 'main'`, `select()` in `scripts/e2e-select.mjs` logs each changed path as "Jev-classified behavior" and never reaches the `RUN_EVERYTHING` or unmapped branches, and none of the changed paths (`scripts/test-selection/classify.mjs`, `tests/unit/*.spec.ts`, `docs/**`) is a direct E2E test, so the floor is `@smoke` only. `POLICY_VERSION` and `EXECUTION_SELECTOR_CATALOG_FINGERPRINT` do not change, so `decisionError` in `scripts/test-selection/resolve.mjs` does not reject the selection as stale. The diff contains no sensitive match under the new pattern (measured with `readDiff` on the final branch diff), so Jev is called; the run is `selected` unless Jev fails, in which case the fallback is `api-invalid-or-timeout`, not `potential-sensitive-diff`. Confirm with the first post-merge run's `Selection saved:` line.
 
 ## How to re-measure
 

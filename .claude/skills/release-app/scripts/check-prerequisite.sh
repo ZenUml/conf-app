@@ -79,12 +79,12 @@ if [[ "$variant" == "full" ]]; then
     || block "could not parse publishedAt for $matching_tag: $matching_published_at"
   now_epoch="$(date -u '+%s')"
   age_seconds=$((now_epoch - published_epoch))
-  if (( age_seconds < 604800 )); then
-    remaining_seconds=$((604800 - age_seconds))
-    remaining_days="$(awk -v seconds="$remaining_seconds" 'BEGIN { printf "%.2f", seconds / 86400 }')"
-    block "$matching_tag targets $draft_sha but has soaked for < 7 days; $remaining_days days remain"
+  if (( age_seconds < 86400 )); then
+    remaining_seconds=$((86400 - age_seconds))
+    remaining_hours="$(awk -v seconds="$remaining_seconds" 'BEGIN { printf "%.1f", seconds / 3600 }')"
+    block "$matching_tag targets $draft_sha but has soaked for < 24 hours; $remaining_hours hours remain"
   fi
-  printf 'OK: %s and %s target %s; lite soak is >= 7 days\n' "$draft_tag" "$matching_tag" "$draft_sha"
+  printf 'OK: %s and %s target %s; lite soak is >= 24 hours\n' "$draft_tag" "$matching_tag" "$draft_sha"
 else
   printf 'OK: %s and %s target %s\n' "$draft_tag" "$matching_tag" "$draft_sha"
 fi

@@ -5,9 +5,7 @@ export const CATEGORIES = [
     "id": "agent-link-e2e",
     "description": "Live Agent Link \u2014 end to end. Verifies agent connects, reads the page + diagram, edits it live, and the macro shows connected; TTL slides on agent activity (PR1 sliding window).",
     "variants": [
-      "lite",
-      "full",
-      "diagramly"
+      "lite"
     ],
     "dependencies": [],
     "positive_examples": [
@@ -23,9 +21,7 @@ export const CATEGORIES = [
     "id": "agent-link-multi-page-crosstalk",
     "description": "Live Agent Link \u2014 multi-page cross-talk isolation. Verifies two concurrent sessions on two different pages never leak edits across each other.",
     "variants": [
-      "lite",
-      "full",
-      "diagramly"
+      "lite"
     ],
     "dependencies": [],
     "positive_examples": [

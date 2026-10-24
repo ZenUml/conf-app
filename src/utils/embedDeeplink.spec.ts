@@ -6,6 +6,7 @@ import {
   resolveLocalContentId,
   newlyCreatedId,
   buildDiagramDeeplink,
+  typedDeeplinkHostForProductType,
   parseDiagramDeeplink,
   resolveLocalTypedContentId,
 } from './embedDeeplink';
@@ -126,16 +127,23 @@ describe('newlyCreatedId', () => {
 describe('typed diagram deeplinks', () => {
   it('mints a 4-segment link per supported type', () => {
     for (const type of ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi', 'asyncapi']) {
-      expect(buildDiagramDeeplink(type, CLOUD, '42'))
+      expect(buildDiagramDeeplink(type, CLOUD, '42', 'lite'))
         .toBe(`https://confluence.zenuml.com/d/${type}/${CLOUD}/42`);
     }
   });
 
-  // Minting must stay on the host the typed autoConvert matchers in
-  // manifest.yml list, or a pasted link silently fails to convert.
-  it('mints on the host the manifest matchers are written against', () => {
-    expect(buildDiagramDeeplink('graph', CLOUD, '42'))
-      .toContain('https://confluence.zenuml.com/');
+  // Minting must stay on the host the variant's typed autoConvert matchers
+  // list, or a pasted link silently fails to convert — and on a DIFFERENT host
+  // per byline-shipping variant, or two installed apps race for one paste.
+  it('mints on the host each variant\'s manifest matchers are written against', () => {
+    expect(buildDiagramDeeplink('graph', CLOUD, '42', 'lite'))
+      .toBe(`https://confluence.zenuml.com/d/graph/${CLOUD}/42`);
+    expect(buildDiagramDeeplink('graph', CLOUD, '42', 'full'))
+      .toBe(`https://conf-full.zenuml.com/d/graph/${CLOUD}/42`);
+    expect(buildDiagramDeeplink('openapi', CLOUD, '42', 'asyncapi'))
+      .toBe(`https://zenapi.zenuml.com/d/openapi/${CLOUD}/42`);
+    const hosts = ['lite', 'full', 'asyncapi'].map(typedDeeplinkHostForProductType);
+    expect(new Set(hosts).size).toBe(hosts.length);
   });
 
   it('refuses an unknown type or missing parts', () => {
@@ -147,13 +155,13 @@ describe('typed diagram deeplinks', () => {
   // The Lite byline's AsyncAPI tile mints this form; without it the created
   // diagram has no link that places it on the page (ADR-0005 Option A).
   it('round-trips the asyncapi type the Lite byline mints', () => {
-    const link = buildDiagramDeeplink('asyncapi', CLOUD, '42');
+    const link = buildDiagramDeeplink('asyncapi', CLOUD, '42', 'lite');
     expect(link).toBe(`https://confluence.zenuml.com/d/asyncapi/${CLOUD}/42`);
     expect(parseDiagramDeeplink(link)).toEqual({ type: 'asyncapi', cloudId: CLOUD, contentId: '42' });
   });
 
   it('round-trips, and parses on every migrated host', () => {
-    for (const host of ['confluence', 'conf-lite', 'conf-full']) {
+    for (const host of ['confluence', 'conf-lite', 'conf-full', 'zenapi']) {
       expect(parseDiagramDeeplink(`https://${host}.zenuml.com/d/graph/${CLOUD}/42`))
         .toEqual({ type: 'graph', cloudId: CLOUD, contentId: '42' });
     }

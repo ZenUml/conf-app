@@ -16,9 +16,9 @@
 //     refusal, exactly as addToPage.ts does (design §7). An agent that retries
 //     must not duplicate a diagram, and an agent racing a human editor must
 //     lose.
-//   - `create_diagram` consults the server-side paywall gate first (§9.1,
-//     headlessGate.ts). The frontend's gate never runs for a headless call, so
-//     without this, creation here would be a revenue bypass.
+//   - `create_diagram` classifies the space against the Lite limit first
+//     (§9.1, headlessGate.ts) for analytics. It never refuses, matching the
+//     UI, whose paywall block was retired in 2026-09.
 
 import { listAccessibleSites, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
 import { confluenceReaderFor } from './confluenceReader';
@@ -30,14 +30,46 @@ import {
   DATA_LOSS_MIN_RATIO,
   guardUpdateDiagram,
 } from '../updateDiagramGuard';
-import { getAccessToken, type GrantStore } from './tokenStore';
+import { getAccessToken, type GrantEventSink, type GrantStore } from './tokenStore';
 import {
   customContentTypesFor,
+  detectInstalledVariants,
   extensionKeyFor,
+  NEWEST_FIRST,
   resolveMacroIdentity,
   VARIANTS,
   type ConfluenceGet,
+  type IdentityFailureReason,
 } from '../macroIdentity';
+
+/**
+ * Turn an identity refusal into something true.
+ *
+ * Every reason used to collapse into "Could not work out which ZenUML app that
+ * site runs", which is only accurate for one of them. On 2026-10-03 a
+ * 'no_extension_node' refusal was read as "ZenUML isn't installed" and sent a
+ * user to Confluence admin to check an install that was fine — the resolver had
+ * in fact FOUND our custom content and merely had no macro node to learn the
+ * appId/environmentId from. The detail the resolver carries is appended, since
+ * it names which of the causes it was.
+ */
+export function identityFailureMessage(
+  reason: IdentityFailureReason,
+  detail: string | undefined,
+  suffix = '',
+): string {
+  const head =
+    reason === 'no_macro_on_site'
+      ? 'No ZenUML diagrams were found on that site.'
+      : reason === 'no_extension_node'
+        ? 'ZenUML is installed on that site, but none of the recent diagrams sampled sits on a page with a current ' +
+          '(Forge) ZenUML macro, and older Connect-era macros do not record the app environment a new macro needs. ' +
+          'This is not an installation problem: insert one diagram with ZenUML in Confluence, then retry.'
+        : reason === 'app_id_mismatch'
+          ? 'That site returned two conflicting ZenUML app identities, so it is not safe to write to it.'
+          : 'Could not reach Confluence to work out which ZenUML app that site runs. This is usually temporary.';
+  return `${head}${suffix}${detail ? ` (${detail})` : ''}`;
+}
 
 export interface HeadlessContext {
   store: GrantStore;
@@ -49,25 +81,63 @@ export interface HeadlessContext {
   nowMs?: () => number;
   /** The KV bindings the paywall gate reads (design 9.1). Only create_diagram needs them. */
   gateEnv?: GateEnv;
+  /** Told when the user's Atlassian grant fails to refresh or is dropped (analytics). */
+  onGrantEvent?: GrantEventSink;
+}
+
+/**
+ * MCP tool annotations. Both connector directories (Claude's and ChatGPT's)
+ * reject a tool that lacks a `title` and the hint that applies to it, and
+ * Claude derives auto-permissions from them: read-only tools run without a
+ * prompt, destructive ones always ask. So every tool that writes to
+ * Confluence is destructive here, including the two that only add — Claude's
+ * review criteria ask for `destructiveHint: true` on any tool that modifies
+ * data, and a page created or a macro appended is a publish others can see.
+ */
+export interface HeadlessToolAnnotations {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  /** True when a call reaches beyond this server into the user's Confluence. */
+  openWorldHint: boolean;
 }
 
 export interface HeadlessToolDescriptor {
   name: string;
+  title: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations: HeadlessToolAnnotations;
+}
+
+function readOnly(title: string): Pick<HeadlessToolDescriptor, 'title' | 'annotations'> {
+  return {
+    title,
+    annotations: { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  };
+}
+
+function write(title: string, idempotentHint: boolean): Pick<HeadlessToolDescriptor, 'title' | 'annotations'> {
+  return {
+    title,
+    annotations: { title, readOnlyHint: false, destructiveHint: true, idempotentHint, openWorldHint: true },
+  };
 }
 
 export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'list_sites',
+    ...readOnly('List Confluence sites'),
     description:
       'List the Confluence sites your ZenUML authorization can reach, with the cloudId each other tool needs. Start here. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'list_diagrams',
+    ...readOnly('List diagrams'),
     description:
-      'List ZenUML diagrams on a site, most-recently-modified first. Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
+      'List ZenUML diagrams on a site, most-recently-modified first, each with its diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -80,8 +150,9 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'read_diagram',
+    ...readOnly('Read diagram'),
     description:
-      'Read one diagram’s source (the DSL or spec text) by its contentId, as listed by list_diagrams. Read-only.',
+      'Read one diagram’s source (the DSL or spec text) and diagramType by its contentId, as listed by list_diagrams. Edit that source and send all of it back with update_diagram. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -93,6 +164,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'read_page',
+    ...readOnly('Read page'),
     description:
       'Read a Confluence page: its title, version, space, and body in Confluence storage format. Read-only.',
     inputSchema: {
@@ -106,6 +178,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'create_page',
+    ...write('Create page', false),
     description:
       'Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML): paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.',
     inputSchema: {
@@ -122,6 +195,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'update_page',
+    ...write('Update page', true),
     description:
       'Replace a page’s body, and optionally its title. Send the COMPLETE new body — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.',
     inputSchema: {
@@ -143,14 +217,16 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'get_status',
+    ...readOnly('Get connection status'),
     description:
       'Which mode this connection is in, who it acts as, and which ZenUML app each reachable site runs. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'update_diagram',
+    ...write('Update diagram', true),
     description:
-      'Replace a diagram’s source with new DSL. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Publishes one new version, so page history can revert it.',
+      'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change. To rename only, send the unchanged source with the new `title`.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -158,12 +234,17 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
         contentId: { type: 'string', description: 'From list_diagrams.' },
         dsl: { type: 'string', description: 'The complete new source. Not a patch.' },
         summary: { type: 'string', description: 'Optional. Note for the version history.' },
+        title: {
+          type: 'string',
+          description: 'Optional. Renames the diagram to this title. Omit or leave blank to keep the current title.',
+        },
       },
       required: ['cloudId', 'contentId', 'dsl'],
     },
   },
   {
     name: 'create_diagram',
+    ...write('Create diagram on page', false),
     description:
       'Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).',
     inputSchema: {
@@ -195,8 +276,7 @@ export class HeadlessToolError extends Error {
       | 'bad_params'
       | 'forbidden'
       | 'conflict'
-      | 'guardrail_rejected'
-      | 'limit_reached',
+      | 'guardrail_rejected',
     readonly detail?: unknown,
   ) {
     super(message);
@@ -206,7 +286,7 @@ export class HeadlessToolError extends Error {
 
 async function sitesFor(ctx: HeadlessContext) {
   const now = (ctx.nowMs ?? Date.now)();
-  const token = await getAccessToken(ctx.store, ctx.secret, ctx.app, ctx.fetchImpl, ctx.userId, now);
+  const token = await getAccessToken(ctx.store, ctx.secret, ctx.app, ctx.fetchImpl, ctx.userId, now, ctx.onGrantEvent);
   if (!token.ok) {
     // 'reauthorize_required' is the user's to fix and says so; the others are
     // transient and must not be reported as "you are logged out".
@@ -244,6 +324,7 @@ async function readerFor(ctx: HeadlessContext, cloudId: string): Promise<Conflue
     fetchImpl: ctx.fetchImpl,
     userId: ctx.userId,
     cloudId,
+    onGrantEvent: ctx.onGrantEvent,
   });
 }
 
@@ -254,6 +335,7 @@ interface CustomContentRow {
   version?: { createdAt?: unknown; number?: unknown };
   pageId?: unknown;
   spaceId?: unknown;
+  body?: { raw?: { value?: unknown } };
 }
 
 /** The site row for `cloudId`, or a refusal. Every write path starts here. */
@@ -278,29 +360,68 @@ function requestFor(ctx: HeadlessContext, cloudId: string): ConfluenceRequest {
     userId: ctx.userId,
     cloudId,
     nowMs: ctx.nowMs,
+    onGrantEvent: ctx.onGrantEvent,
   });
 }
 
 /**
- * The stored diagram body: `{title, code, diagramType}` JSON in a `raw` body.
+ * Which field of the stored body holds the source for `diagramType`.
+ *
+ * Mirrors getDiagramData in src/model/Diagram/DiagramTypeConfig.ts — the one
+ * the viewer renders from — duplicated for the same Worker reason as
+ * DIAGRAM_TYPE_BY_FOLDED below. Only sequence and the API specs live in
+ * `code`. The first headless version wrote every type there, so a mermaid
+ * diagram it created rendered as the empty "Start with Mermaid" state while
+ * read_diagram, which read `code` too, showed the source as if all was well
+ * (zenuml.atlassian.net, 2026-10-10).
+ */
+export function sourceFieldFor(diagramType: string | undefined, raw: Record<string, unknown> = {}): string {
+  switch (diagramType) {
+    case 'mermaid':
+      return 'mermaidCode';
+    case 'markdown':
+      return 'markdownCode';
+    case 'plantuml':
+      return 'plantUmlCode';
+    case 'graph':
+      // A Board macro publishes boardGraphXml; legacy Board records without
+      // that field still publish graphXml.
+      return raw.graphEditorMode === 'board' && raw.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml';
+    default:
+      return 'code';
+  }
+}
+
+/**
+ * The stored diagram body: JSON in a `raw` body carrying `title`,
+ * `diagramType`, and the source under the field sourceFieldFor names.
  *
  * Tolerant on purpose. Older records and other variants have carried extra
  * fields, and an update must preserve whatever it did not set rather than
  * rewrite the record to this module's idea of the shape.
  */
-function parseStoredDiagram(value: unknown): { raw: Record<string, unknown>; code?: string; diagramType?: string } {
-  if (typeof value !== 'string') return { raw: {} };
+function parseStoredDiagram(value: unknown): {
+  raw: Record<string, unknown>;
+  code?: string;
+  diagramType?: string;
+  field: string;
+} {
+  if (typeof value !== 'string') return { raw: {}, field: 'code' };
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
-    return {
-      raw: parsed,
-      code: typeof parsed.code === 'string' ? parsed.code : undefined,
-      diagramType: typeof parsed.diagramType === 'string' ? parsed.diagramType : undefined,
-    };
+    const diagramType = typeof parsed.diagramType === 'string' ? parsed.diagramType : undefined;
+    const field = sourceFieldFor(diagramType, parsed);
+    // A record the first headless version wrote has the source in `code` and
+    // no type field at all. An app-written record has the type field (maybe
+    // empty) and a stale sample in `code`, so fall back only when it is absent.
+    const fromField = parsed[field];
+    const fromCode = field !== 'code' && fromField === undefined ? parsed.code : undefined;
+    const code = typeof fromField === 'string' ? fromField : typeof fromCode === 'string' ? fromCode : undefined;
+    return { raw: parsed, code, diagramType, field };
   } catch {
     // Not JSON: treat the whole value as the source, which is what the
     // earliest records were.
-    return { raw: {}, code: value };
+    return { raw: {}, code: value, field: 'code' };
   }
 }
 
@@ -311,6 +432,14 @@ function parseStoredDiagram(value: unknown): { raw: Record<string, unknown>; cod
 function summaryFor(summary: unknown, title?: string): string {
   const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
   return title ? `Added ZenUML diagram "${title}" via Agent Link${note}` : `Updated by ZenUML Agent Link${note}`;
+}
+
+/** The update_diagram version message; names the new title when the call renamed the diagram. */
+function updateSummaryFor(summary: unknown, renamedTo?: string): string {
+  const base = summaryFor(summary);
+  if (!renamedTo) return base;
+  const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
+  return `${base.slice(0, base.length - note.length)}, renamed to "${renamedTo}"${note}`;
 }
 
 /**
@@ -492,11 +621,35 @@ function guardPageBody(current: string, next: string): { ok: true } | { ok: fals
   return { ok: true };
 }
 
+/**
+ * Is this the graph-only custom-content type? lite/full store graphs under
+ * their own `-graph` type and every other diagram type under the other one
+ * (customContentTypeFor here; DIAGRAM_TYPE_TO_CONTENT_KEY in ApWrapper2.ts).
+ * The reverse does not hold: older graphs sit under the sequence type too.
+ */
+function isGraphContentType(type: unknown): boolean {
+  return typeof type === 'string' && type.endsWith('-graph');
+}
+
+/**
+ * What kind of diagram a listed row is. The custom-content type cannot say:
+ * the sequence type holds mermaid, plantuml, OpenAPI and older graphs alike,
+ * and listing it as `type` led an agent to call a Mermaid flowchart a sequence
+ * diagram (zenuml-review, 2026-10-24). Graph-type rows are fetched without a
+ * body, so their (possibly large) XML never travels.
+ */
+function listedDiagramType(row: CustomContentRow): string | null {
+  if (isGraphContentType(row.type)) return 'graph';
+  const stored = parseStoredDiagram(row.body?.raw?.value).diagramType;
+  if (!stored) return null;
+  return canonicalDiagramType(stored) ?? stored;
+}
+
 function diagramRow(row: CustomContentRow) {
   return {
     contentId: typeof row.id === 'string' ? row.id : String(row.id ?? ''),
     title: typeof row.title === 'string' ? row.title : '',
-    type: typeof row.type === 'string' ? row.type : '',
+    diagramType: listedDiagramType(row),
     pageId: typeof row.pageId === 'string' ? row.pageId : undefined,
     modifiedAt: typeof row.version?.createdAt === 'string' ? row.version.createdAt : undefined,
   };
@@ -549,29 +702,35 @@ export async function callHeadlessTool(
       const limit = Math.min(Math.max(Number(args.limit) || 25, 1), 100);
       const get = await readerFor(ctx, cloudId);
 
-      const identity = await resolveMacroIdentity(get);
-      if (!identity.ok) {
-        throw new HeadlessToolError(
-          identity.reason === 'no_macro_on_site'
-            ? 'No ZenUML diagrams were found on that site.'
-            : 'Could not work out which ZenUML app that site runs.',
-          identity.reason === 'no_macro_on_site' ? 'not_found' : 'upstream',
-          identity.reason,
-        );
+      // Listing needs only the variant, which the custom-content type alone
+      // proves. It used to run the full identity resolve — a page sample
+      // hunting for an environmentId only a create needs — and so refused to
+      // list anything on zenuml.atlassian.net, whose sampled pages held only
+      // Connect-era macros (2026-10-05). A site can also run several variants
+      // at once; list them all.
+      const installed = await detectInstalledVariants(get);
+      if (installed.variants.length === 0) {
+        throw installed.probeError
+          ? new HeadlessToolError(
+              identityFailureMessage('probe_failed', installed.probeError),
+              'upstream',
+              'probe_failed',
+            )
+          : new HeadlessToolError(identityFailureMessage('no_macro_on_site', undefined), 'not_found', 'no_macro_on_site');
       }
 
       // Only OUR content types. A site's custom content is shared by every
       // app on it — an unfiltered listing on whimet4 came back full of
       // draw.io rows (2026-09-25) — and a caller asking for ZenUML diagrams
       // has no way to tell which of those are ours.
-      const profile = VARIANTS.find((v) => v.variant === identity.identity.variant)!;
-      const types = customContentTypesFor(profile);
+      const types = VARIANTS.filter((v) => installed.variants.includes(v.variant)).flatMap(customContentTypesFor);
       const pageId = typeof args.pageId === 'string' ? args.pageId : '';
 
       const rows: CustomContentRow[] = [];
       if (pageId) {
         // The page-scoped endpoint takes no type filter, so filter on the way out.
-        const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250`);
+        // Bodies come along for the diagram type; one page's worth is small.
+        const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250&body-format=raw`);
         if (res.status !== 200) {
           throw new HeadlessToolError('Confluence refused the listing.', 'upstream', { status: res.status });
         }
@@ -580,7 +739,11 @@ export async function callHeadlessTool(
         }
       } else {
         for (const type of types) {
-          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}`);
+          // Newest first at the source: the default is oldest first, and the
+          // sort below only reorders what came back — so without this the tool
+          // returned each type's OLDEST `limit` rows as "most recent".
+          const body = isGraphContentType(type) ? '' : '&body-format=raw';
+          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&${NEWEST_FIRST}${body}`);
           // A 404 is Confluence saying this variant never wrote that type —
           // information, not a failure (the same rule macroIdentity applies).
           if (res.status === 404) continue;
@@ -595,7 +758,7 @@ export async function callHeadlessTool(
         .map(diagramRow)
         .sort((a, b) => (b.modifiedAt ?? '').localeCompare(a.modifiedAt ?? ''))
         .slice(0, limit);
-      return { cloudId, variant: identity.identity.variant, diagrams };
+      return { cloudId, variants: installed.variants, diagrams };
     }
 
     case 'read_diagram': {
@@ -617,6 +780,7 @@ export async function callHeadlessTool(
         version?: { number?: unknown };
         body?: { raw?: { value?: unknown } };
       };
+      const stored = parseStoredDiagram(body.body?.raw?.value);
       return {
         contentId,
         title: typeof body.title === 'string' ? body.title : '',
@@ -625,7 +789,11 @@ export async function callHeadlessTool(
         // (ADR 0003's context: a stale version is a 400, not a silent
         // overwrite). Surfaced now so a reader can see what it would send.
         version: typeof body.version?.number === 'number' ? body.version.number : undefined,
-        source: typeof body.body?.raw?.value === 'string' ? body.body.raw.value : '',
+        // The DSL itself, unwrapped from the stored envelope, so what an agent reads is what update_diagram takes back.
+        // Returning the raw envelope made the obvious "read, edit, write back"
+        // loop fail the parse guard: the agent edited JSON, not DSL.
+        diagramType: stored.diagramType,
+        source: stored.code ?? '',
       };
     }
 
@@ -683,7 +851,13 @@ export async function callHeadlessTool(
       }
 
       const versionNumber = Number(current.version?.number);
-      const nextBody = { ...stored.raw, code: dsl };
+      // A rename sets the record title AND the body JSON title, as the viewer's
+      // rename does (renameDiagramTitle -> updateCustomContentV2). Blank or
+      // non-string = no rename, both stay as stored.
+      const requestedTitle = typeof args.title === 'string' ? args.title.trim() : '';
+      const currentTitle = typeof current.title === 'string' ? current.title : 'Untitled diagram';
+      const nextBody: Record<string, unknown> = { ...stored.raw, [stored.field]: dsl };
+      if (requestedTitle) nextBody.title = requestedTitle;
       const write = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}`, {
         method: 'PUT',
         body: {
@@ -691,12 +865,12 @@ export async function callHeadlessTool(
           type: current.type,
           status: typeof current.status === 'string' ? current.status : 'current',
           pageId: current.pageId,
-          title: typeof current.title === 'string' ? current.title : 'Untitled diagram',
+          title: requestedTitle || currentTitle,
           body: { value: JSON.stringify(nextBody), representation: 'raw' },
           version: {
             number: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
             // §9.3: page history must show which edits an agent made.
-            message: summaryFor(args.summary),
+            message: updateSummaryFor(args.summary, requestedTitle || undefined),
           },
         },
       });
@@ -719,6 +893,7 @@ export async function callHeadlessTool(
         version: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
         diff: verdict.diff,
         unvalidated: verdict.unvalidated,
+        titleChanged: !!requestedTitle && requestedTitle !== currentTitle,
       };
     }
 
@@ -751,7 +926,7 @@ export async function callHeadlessTool(
       const identity = await resolveMacroIdentity(get);
       if (!identity.ok) {
         throw new HeadlessToolError(
-          'Could not work out which ZenUML app that site runs, so the macro key cannot be built.',
+          identityFailureMessage(identity.reason, identity.detail, ' The macro key cannot be built without it.'),
           'upstream',
           identity.reason,
         );
@@ -796,7 +971,7 @@ export async function callHeadlessTool(
       }
       if (!Array.isArray(adf.content)) throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
 
-      // §9.1, blocking: the frontend paywall never runs for a headless call.
+      // §9.1: classify for analytics only; the limit no longer blocks, as in the UI.
       const spaceKey = spaceKeyFromLinks(page._links);
       const gate = await checkCreateAllowed(ctx.gateEnv ?? {}, {
         variant: identity.identity.variant,
@@ -805,13 +980,6 @@ export async function callHeadlessTool(
         spaceKey,
         accountId: ctx.userId,
       });
-      if (!gate.allowed) {
-        throw new HeadlessToolError(
-          `This space is on the free plan and already has ${gate.macroCount} of ${gate.limit} diagrams. Upgrade the space to add more.`,
-          'limit_reached',
-          gate,
-        );
-      }
 
       const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'Untitled diagram';
       const created = await request('/wiki/api/v2/custom-content', {
@@ -820,7 +988,7 @@ export async function callHeadlessTool(
           type: customContentTypeFor(identity.identity, storedType),
           title,
           pageId,
-          body: { value: JSON.stringify({ title, code: dsl, diagramType: storedType }), representation: 'raw' },
+          body: { value: JSON.stringify({ title, diagramType: storedType, [sourceFieldFor(storedType)]: dsl }), representation: 'raw' },
         },
       });
       if (created.status === 403) throw new HeadlessToolError('You do not have permission to create content here.', 'forbidden');

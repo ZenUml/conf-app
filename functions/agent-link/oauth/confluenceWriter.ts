@@ -11,7 +11,7 @@
 // outcome to report rather than an error to work around.
 
 import { apiBaseUrlFor, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
-import { getAccessToken, type GrantStore } from './tokenStore';
+import { getAccessToken, type GrantEventSink, type GrantStore } from './tokenStore';
 
 export interface WriterContext {
   store: GrantStore;
@@ -21,6 +21,8 @@ export interface WriterContext {
   userId: string;
   cloudId: string;
   nowMs?: () => number;
+  /** Told when the user's Atlassian grant fails to refresh or is dropped (analytics). */
+  onGrantEvent?: GrantEventSink;
 }
 
 export interface ConfluenceResponse {
@@ -43,7 +45,7 @@ export function confluenceRequestFor(ctx: WriterContext): ConfluenceRequest {
   const now = ctx.nowMs ?? Date.now;
 
   return async (path, init = {}) => {
-    const token = await getAccessToken(ctx.store, ctx.secret, ctx.app, ctx.fetchImpl, ctx.userId, now());
+    const token = await getAccessToken(ctx.store, ctx.secret, ctx.app, ctx.fetchImpl, ctx.userId, now(), ctx.onGrantEvent);
     if (!token.ok) {
       return {
         ok: false,

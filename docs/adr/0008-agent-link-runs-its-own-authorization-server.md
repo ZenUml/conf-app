@@ -105,6 +105,34 @@ What already exists, and bears on the choice:
    Refresh-token rotation on our side mirrors Atlassian's: a new refresh token
    on every use, the old one dead.
 
+   *Amended 2026-10-10:* with reuse detection (OAuth 2.1 §4.3.1). Each sign-in
+   starts a refresh chain. A redeemed token is kept, marked used, rather than
+   deleted. If a used token comes back, or a refresh token arrives under
+   another client, the whole chain is revoked: its refresh tokens and every
+   access token it issued. The legitimate client signs in again. KV's eventual
+   consistency means a replay that reaches another edge within the propagation
+   window can still fork the chain rather than revoke it. See `asStore.ts`,
+   "refresh chains".
+
+   *Amended 2026-10-14 (issue #787):* D1 now owns refresh-token state and
+   chain revocation. Each token is stored by hash under the authorization
+   server issuer, and a transactional, conditional parent update gates the
+   successor insert. Exactly one rotation wins across Workers. The winner
+   saves an AES-GCM sealed response receipt with a fresh IV and associated
+   data binding issuer, parent hash, client and chain. A matching retry during
+   the fixed 300-second window receives the same access and refresh pair if
+   the successor is still unused; its access expiry remains the original
+   absolute time. A later reuse revokes the chain. Access handles remain in
+   KV, but headless validation consults D1 for a chain's revocation state.
+   D1 failures are service failures, never a reason to use the old KV rotation
+   path. Legacy KV refresh rows are imported on first presentation; used rows
+   and KV revocation markers retain their rejection behavior. First import
+   still inherits KV's consistency limits while old-version Workers may be
+   serving. Deployment must drain old Workers and allow their final KV writes to
+   propagate before treating legacy import as stable; draining alone does not
+   prove that every KV reader has observed the latest state. The cutover does not alter storage of the
+   separate upstream Atlassian grant.
+
 3. **Our consent screen is the security boundary, not a formality.** The
    spec's rule exists because one static upstream client id (ours at
    Atlassian) fronts many dynamically registered MCP clients. Without a

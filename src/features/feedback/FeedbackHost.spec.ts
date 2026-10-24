@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FeedbackHost from './FeedbackHost.vue'
+import feedbackHostSource from './FeedbackHost.vue?raw'
 import type { FeedbackContext } from './feedbackSession'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
@@ -30,6 +31,19 @@ describe('FeedbackHost', () => {
     expect(trigger.attributes('aria-label')).toBe('Send feedback')
     await trigger.trigger('focusin')
     expect(wrapper.get('[data-testid="feedback-edge"]').classes()).toContain('revealed')
+  })
+
+  // jsdom has no layout or hit-testing and does not apply scoped SFC styles, so the hit-area
+  // contract is asserted on the component source, the same way ConnectPanel.spec.ts does.
+  it('limits the edge hit area to the visible trigger so clicks beside it reach the UI underneath', () => {
+    const edgeRule = feedbackHostSource.match(/\.feedback-edge\s*\{([^}]*)\}/)?.[1] ?? ''
+    const triggerRule = feedbackHostSource.match(/\.edge-trigger\s*\{([^}]*)\}/)?.[1] ?? ''
+
+    // The fixed container must shrink to the collapsed 32px tab. A fixed container width keeps a
+    // transparent strip beside the tab that still takes pointer events and reveals the wide tab.
+    expect(triggerRule).toMatch(/(^|[;\s])width\s*:\s*32px/)
+    expect(edgeRule).toMatch(/position\s*:\s*fixed/)
+    expect(edgeRule).not.toMatch(/(^|[;\s])width\s*:/)
   })
 
   it('nudges open only once from 600ms until 2400ms', async () => {

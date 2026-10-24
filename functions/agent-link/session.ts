@@ -9,6 +9,7 @@
 import { sessionRegistry as registry } from './registrySingleton';
 import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
+import { json } from '../OkResponse';
 
 interface Env {
   // Same cross-Worker binding channel.ts/mcp.ts/AgentLinkSession.ts use —
@@ -40,7 +41,7 @@ const JSON_HEADERS = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 // builds.
 
 function jsonError(status: number, message: string): Response {
-  return new Response(JSON.stringify({ error: message }), { status, headers: JSON_HEADERS });
+  return json({ error: message }, { status, headers: JSON_HEADERS });
 }
 
 export async function onRequestOptions(): Promise<Response> {

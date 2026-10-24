@@ -2,7 +2,7 @@
 // ZenUML) macro inside the fullscreen Forge bridge modal. Source of truth
 // is docs/fullscreen-test-rerun-data.json.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectModalVisible,

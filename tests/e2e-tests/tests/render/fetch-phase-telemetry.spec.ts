@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { getPageId } from '../../utils/page-registry.js';
 import { captureMixpanelEvents } from '../../helpers/macroViewedCapture.js';

@@ -4,13 +4,11 @@
 // and a DrawIO export sidebar for Graph; Versions is a console-log dump for
 // all three (the Forge versions UI is currently emit-only, no modal).
 //
-// Toolbar buttons live inside the macro iframe and use these aria-labels
-// (see src/components/Viewer/GenericViewer.vue):
-//   - "Fullscreen"
-//   - "Edit"
-//   - "Export" (the button itself is a download icon; aria-label is "Download PNG")
-//   - "Copy Code"
-//   - "Versions"
+// Controls live inside the macro iframe (see src/components/Viewer/GenericViewer.vue):
+//   - header buttons "Fullscreen" and "Edit"
+//   - header "More" (⋯) menu items "Copy diagram link", "Copy page link",
+//     "Export PNG", "Versions", "Download debug info" — the staged header
+//     (2026-10) removed the bottom pill that used to hold them
 //
 // CAVEATS:
 //  - Clipboard reads require navigator.clipboard.readText() from the TOP page
@@ -18,8 +16,8 @@
 //    won't have clipboard permission.
 //  - Versions in the current build only logs to console — there's no DOM
 //    target to assert on. We listen to console messages and pattern-match.
-//  - The Export aria-label on the actual button is "Download PNG" (the button
-//    that opens the export modal), not "Export". Use a regex to be tolerant.
+//  - "More" must be matched exactly: getByRole name matching is a substring
+//    match, and the Copy for AI chevron is labelled "Copy for AI — more options".
 
 import { Page, FrameLocator, expect, ConsoleMessage } from '@playwright/test';
 import { MacroPage } from '../pages/MacroPage.js';
@@ -50,19 +48,29 @@ export async function openFullscreenViewer(page: Page, kind: ViewerKind): Promis
 }
 
 /**
- * Click the toolbar "Export PNG" pill button and assert the shared
+ * Open the inline header's More (⋯) menu and pick an item. The header actions
+ * are hover-revealed; Playwright's click moves the pointer onto the trigger,
+ * which reveals them.
+ */
+export async function clickMoreMenuItem(frame: FrameLocator, name: string): Promise<void> {
+  const more = frame.getByRole('button', { name: 'More', exact: true });
+  await expect(more).toBeVisible({ timeout: 30_000 });
+  await more.click();
+  const item = frame.getByRole('menuitem', { name, exact: true });
+  await expect(item).toBeVisible();
+  await item.click();
+}
+
+/**
+ * Pick "Export PNG" from the header More menu and assert the shared
  * ExportModal (src/components/ExportModal/ExportModal.vue) opens. As of the
  * V8 viewer redesign (2026-05-04) ALL three macro types share this one
- * export UI — Graph no longer opens a separate DrawIO export sidebar; it's
- * the same Export PNG pill + modal as Sequence/OpenAPI (aria-label="Export
- * PNG" per GenericViewer.vue's bottom pill row).
+ * export UI — Graph no longer opens a separate DrawIO export sidebar.
  */
 export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 'export-modal' | 'unknown' }> {
   const frame = viewerFrame(page, kind);
   await expect(frame.locator('body')).toBeVisible({ timeout: 30_000 });
-  const exportBtn = frame.getByRole('button', { name: 'Export PNG' });
-  await expect(exportBtn).toBeVisible();
-  await exportBtn.click();
+  await clickMoreMenuItem(frame, 'Export PNG');
 
   // The dialog no longer opens inside the inline macro iframe. That iframe is
   // ~560px wide and a few hundred px tall (564x256 on the production page this
@@ -168,9 +176,7 @@ export async function clickVersionsAndCaptureLogs(
   };
   page.on('console', listener);
   try {
-    const btn = frame.getByRole('button', { name: 'Versions' });
-    await expect(btn).toBeVisible({ timeout: 30_000 });
-    await btn.click();
+    await clickMoreMenuItem(frame, 'Versions');
     // Wait for the version-fetch + log roundtrip.
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {

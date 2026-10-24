@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect } from './mixpanel-test.js';
 import { MacroPage } from '../pages/MacroPage.js';
 import { testConfig } from '../config/test-config.js';
 import type { RenderMacroType } from '../config/apps.js';

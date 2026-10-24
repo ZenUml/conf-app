@@ -386,11 +386,14 @@ export class ConfluenceEditorPage {
     // (`isVisible({ timeout })` is no guard here — Playwright ignores the timeout
     // and answers immediately.)
     const browseDialog = this.page.getByRole('dialog', { name: /Browse|Insert|Element/i });
-    const insertButton = visibleDialog.getByRole('button', { name: 'Insert' });
+    // Result cards can include descriptive text such as "Inserts a new draw.io
+    // diagram", so the default substring role lookup is ambiguous. The modal
+    // action itself has the exact accessible name "Insert" in the observed DOM.
+    const insertButton = browseDialog.getByRole('button', { name: 'Insert', exact: true });
     for (let attempt = 1; attempt <= 2; attempt++) {
       await option.first().click();
       if (await browseDialog.isVisible()) {
-        await insertButton.click({ timeout: 3000 }).catch(() => null);
+        await insertButton.click({ timeout: 3000 });
       }
       const closed = await expect(browseDialog)
         .toBeHidden({ timeout: 5000 })

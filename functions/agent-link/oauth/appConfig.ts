@@ -36,6 +36,7 @@
 
 import type { AtlassianAppConfig } from './atlassianClient';
 import type { GrantStore } from './tokenStore';
+import type { D1Database } from '@cloudflare/workers-types';
 
 /** The path every registered callback shares. Fixed by the console registration. */
 export const OAUTH_CALLBACK_PATH = '/agent-link/oauth/callback';
@@ -47,6 +48,7 @@ export interface OAuthEnv {
   ATLASSIAN_OAUTH_REDIRECT_URI?: string;
   OAUTH_GRANT_KV?: GrantStore;
   OAUTH_GRANT_SECRET?: string;
+  DB?: D1Database;
 }
 
 export class OAuthConfigError extends Error {

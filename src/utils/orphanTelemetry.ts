@@ -6,6 +6,28 @@ export type OrphanDiagramKind = 'sequence' | 'graph' | 'openapi' | 'embed';
 export type ProbeResult = Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>;
 
 /**
+ * Direct by-id fetch diagnostics, exactly as loadCustomContentWithOrphanRecovery
+ * returns them. Callers pass their `loaded` result straight through; only these
+ * four fields are read.
+ */
+export interface DirectFetchDetail {
+  directFetchStatus?: 'ok' | 'not_found' | 'other_error';
+  directFetchHttpStatus?: number;
+  directFetchErrorCode?: string;
+  directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
+}
+
+function directFetchProps(detail: DirectFetchDetail | undefined) {
+  if (!detail) return {};
+  return {
+    ...(detail.directFetchStatus && { direct_fetch_status: detail.directFetchStatus }),
+    ...(detail.directFetchHttpStatus !== undefined && { direct_fetch_http_status: detail.directFetchHttpStatus }),
+    ...(detail.directFetchErrorCode && { direct_fetch_error_code: detail.directFetchErrorCode }),
+    ...(detail.directFetchErrorClass && { direct_fetch_error_class: detail.directFetchErrorClass }),
+  };
+}
+
+/**
  * Fire a Mixpanel `customcontent_orphan_observed` event after a viewer/editor
  * encounters a customContentId that no longer resolves. Caller hands us the
  * probe result it already has from loadCustomContentWithOrphanRecovery — we
@@ -16,6 +38,10 @@ export type ProbeResult = Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>
  * probe ran but recovery was not used (no candidate, ambiguous, or probe
  * failed). The same event covers both cases so Mixpanel queries can compute
  * recovery rate as `count where recovery_used=true / count(all)`.
+ *
+ * `options.directFetch` carries the by-id fetch outcome (status / HTTP status /
+ * error code / error class). It is what tells `probe_skipped_no_probe_result`
+ * apart: a 403, a 5xx, a thrown request and a malformed body all skip the probe.
  *
  * Best-effort. Delegates to trackEvent, which never throws synchronously
  * (fire-and-forget async internally), so it can never re-crash the caller.
@@ -36,7 +62,7 @@ export function reportOrphanObserved(
   orphanId: string,
   diagramKind: OrphanDiagramKind,
   probeResult: ProbeResult | undefined,
-  options: { recoveryUsed?: boolean; recoveredId?: string } = {},
+  options: { recoveryUsed?: boolean; recoveredId?: string; directFetch?: DirectFetchDetail } = {},
 ): void {
   if (!pageId || !probeResult) {
     // Two distinct reasons we couldn't probe:
@@ -49,6 +75,7 @@ export function reportOrphanObserved(
       recoverable: !pageId ? 'probe_skipped_no_page_id' : 'probe_skipped_no_probe_result',
       recovery_used: false,
       ...(pageId && { page_id: pageId }),
+      ...directFetchProps(options.directFetch),
     });
     return;
   }
@@ -62,6 +89,7 @@ export function reportOrphanObserved(
     ...(options.recoveredId && { recovered_id: options.recoveredId }),
     ...(probeResult.truncated && { truncated: true }),
     ...(probeResult.probeError && { probe_error: probeResult.probeError }),
+    ...directFetchProps(options.directFetch),
   });
 }
 

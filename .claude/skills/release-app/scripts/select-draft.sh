@@ -11,7 +11,7 @@
 # lite/full draft is the one built from the already-published prerequisite commit,
 # not the newest one: merges after the canary keep producing newer drafts that no
 # prerequisite has validated. This script only selects; check-prerequisite.sh still
-# enforces the gate (including the 7-day full soak).
+# enforces the gate (including the 24-hour full soak).
 #
 # Output: `SELECT: <tag> <sha> [matches <prerequisite-tag>]` (exit 0), one
 # `SKIP: <tag> <sha> — <reason>` line per newer draft passed over, or

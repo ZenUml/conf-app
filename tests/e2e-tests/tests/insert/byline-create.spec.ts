@@ -14,7 +14,7 @@
  * in this repo knows what Confluence puts there. The component tests pin the
  * branching given a location; only this pins that the location is real.
  */
-import { test, expect } from '@playwright/test';
+import { installMixpanelIsolation, test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { AUTH_STATE_PATH } from '../../config/auth-state.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
@@ -62,6 +62,7 @@ test.describe(`Byline create path - ${testConfig.productType}`, { tag: ['@test:b
     // guarantees an app-origin frame exists to seed the mocks into.
     const variantLabel = testConfig.isLite ? ' Lite' : '';
     const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+    await installMixpanelIsolation(context);
     const setupPage = await context.newPage();
     try {
       const editorPage = await createPageAndSetup(setupPage, variantLabel);

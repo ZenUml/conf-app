@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 import HomepageFeedCard from './HomepageFeedCard.vue'
+import forgeGlobal from '@/model/globals/forgeGlobal'
 
 type Story = StoryObj<typeof HomepageFeedCard>
 
@@ -101,5 +102,35 @@ export const ExampleOpensInPlace: Story = {
     await waitFor(async () => {
       await expect(sequence).toHaveAttribute('aria-expanded', 'false')
     })
+  },
+}
+
+/**
+ * With the agent-link flag on (standalone reads it from localStorage), a
+ * Connect MCP row sits below the action and opens the headless setup inline:
+ * the `claude mcp add` command and a prompt that lists the viewer's diagrams,
+ * since the Home page names no diagram.
+ */
+export const ConnectMcpOpen: Story = {
+  name: 'Connect MCP row, opened',
+  loaders: [
+    () => {
+      // The card never resolves a Forge context in Storybook, so forgeGlobal
+      // keeps its isForge: true default and the flag lookup would fail closed.
+      forgeGlobal.isForge = false
+      try {
+        localStorage.setItem('mockAgentLinkEnabled', 'true')
+      } catch {
+        /* storage blocked: the row stays hidden, which the play below reports */
+      }
+      return {}
+    },
+  ],
+  play: async () => {
+    const canvas = within(document.body)
+    const toggle = await canvas.findByRole('button', { name: /Connect MCP/ })
+    await userEvent.click(toggle)
+    await waitFor(() => expect(canvas.getByText(/claude mcp add/)).toBeVisible())
+    await expect(canvas.getByText(/list_diagrams/)).toBeVisible()
   },
 }

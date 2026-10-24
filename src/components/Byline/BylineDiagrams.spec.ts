@@ -92,6 +92,11 @@ async function closeEditor() {
 describe('BylineDiagrams', () => {
   enableAutoUnmount(afterEach);
 
+  // These specs assert Lite's shape (every picker tile, confluence.zenuml.com
+  // links); the unit-test build defaults PRODUCT_TYPE to 'full'.
+  beforeEach(() => vi.stubEnv('PRODUCT_TYPE', 'lite'));
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
@@ -152,6 +157,25 @@ describe('BylineDiagrams', () => {
 
       expect(wrapper.find('[data-testid="byline-empty"]').exists()).toBe(true);
       expect(events('byline_opened')[0][1]).toMatchObject({ listing_failed: false });
+    });
+
+    // The AsyncAPI app titles this byline "API Docs"; its panel says so too.
+    it('speaks of API docs in the AsyncAPI app', async () => {
+      vi.stubEnv('PRODUCT_TYPE', 'asyncapi');
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(), ok()]);
+      const wrapper = await mountByline();
+
+      expect(wrapper.find('[data-testid="byline-heading"]').text()).toBe('Add an API doc to this page');
+      expect(wrapper.find('[data-testid="byline-empty"]').text()).toContain('Write it here');
+      expect(wrapper.text()).not.toMatch(/diagram/i);
+    });
+
+    it('keeps "diagram" in Lite', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok(), ok()]);
+      const wrapper = await mountByline();
+
+      expect(wrapper.find('[data-testid="byline-heading"]').text()).toBe('Add a diagram to this page');
+      expect(wrapper.find('[data-testid="byline-empty"]').text()).toContain('Draw it here');
     });
 
     it('treats empty survivors plus a failed type as unknown, not empty', async () => {
@@ -734,6 +758,35 @@ describe('BylineDiagrams', () => {
       expect(opts.context.diagramType).toBe('graph');
     });
 
+    // #614: the editor opens in a separate modal iframe, so the origin has to
+    // ride the modal context. The host page mode (viewing or editing) is what
+    // separates the two byline origins.
+    it('hands creationOrigin byline_view to the editor when the host page is being viewed', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-type-graph"]').trigger('click');
+      await flushPromises();
+
+      const opts = vi.mocked(openModal).mock.calls.at(-1)?.[0] as any;
+      expect(opts.context.creationOrigin).toBe('byline_view');
+    });
+
+    it('hands creationOrigin byline_editor to the editor when the host page is in the editor', async () => {
+      forgeGlobalMock.forgeContext = {
+        cloudId: 'cloud-1',
+        extension: { content: { id: 'page-1' }, isEditing: true },
+      };
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-type-graph"]').trigger('click');
+      await flushPromises();
+
+      const opts = vi.mocked(openModal).mock.calls.at(-1)?.[0] as any;
+      expect(opts.context.creationOrigin).toBe('byline_editor');
+    });
+
     // ADR-0005 Option A put the AsyncAPI macro in Lite, and the byline is the
     // Lite-only surface. Routing is what this pins: the tile must announce
     // `asyncapi` as the modal diagramType, because that field is the ONLY
@@ -904,6 +957,29 @@ describe('BylineDiagrams', () => {
       expect(wrapper.find('[data-testid="byline-copy-url"]').exists()).toBe(true);
       expect(wrapper.text()).toContain('not on this page');
       expect(events('diagram_added_to_page')[0][1]).toMatchObject({ result: 'forbidden' });
+    });
+
+    it('says why when the write did not land, and keeps the button to retry', async () => {
+      // It used to say nothing: "Adding…" flipped back to "Add to page" and
+      // the click read as dead (whimet4, 2026-10-16).
+      const FAILED = "Couldn't add it to the page. Try again, or copy the link and paste it into the editor.";
+      placeDiagram.mockResolvedValueOnce({
+        result: 'failed', reason: 'unresolved_macro_key', placed: false, refused: false, message: FAILED,
+      });
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="byline-add-failed"]').text()).toBe(FAILED);
+      expect(wrapper.find('[data-testid="byline-add-to-page"]').exists()).toBe(true);
+
+      // The retry clears the old reason before it runs.
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[data-testid="byline-add-failed"]').exists()).toBe(false);
     });
 
     it('renders the rows in the order the page reads, strays last', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { decidePageBanner, handlePageBannerRoute } from './pageBanner'
+import { decidePageBanner, handlePageBannerRoute, maybeHandleTargetedSurvey } from './pageBanner'
 import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
@@ -16,7 +16,6 @@ vi.mock('@/utils/byline/unplacedMarker', () => ({
   deriveUnplacedIdentity: vi.fn(),
   isUnplacedBannerCandidate: vi.fn(),
 }))
-vi.mock('@/utils/paywall/adminBannerFlag', () => ({ isAdminBannerEnabled: vi.fn() }))
 vi.mock('@/model/globals', () => ({
   default: { apWrapper: { initializeContext: vi.fn().mockResolvedValue(undefined) } },
 }))
@@ -27,6 +26,8 @@ vi.mock('@/components/WhatsNew/WhatsNewBanner.vue', () => ({ default: { name: 'W
 vi.mock('@/utils/whatsNew/state', () => ({ whatsNewCandidate: vi.fn() }))
 const viewClose = vi.fn()
 vi.mock('@forge/bridge', () => ({ view: { close: () => viewClose() } }))
+vi.mock('@/components/TargetedSurvey/TargetedSurveyBanner.vue', () => ({ default: { name: 'TargetedSurveyBanner' } }))
+vi.mock('@/features/targetedSurvey/survey', () => ({ loadTargetedSurvey: vi.fn() }))
 
 // Capture the root props handed to createApp — that is how the audience reaches
 // the component, and a silent drop would be invisible in a render assertion.
@@ -45,7 +46,6 @@ const csat = vi.mocked(isCsatPendingFresh)
 const csatSuppressed = vi.mocked(isCsatSuppressed)
 const identity = vi.mocked(deriveWarningBannerIdentity)
 const isAdmin = vi.mocked(isCurrentUserSpaceAdmin)
-const flag = vi.mocked((await import('@/utils/paywall/adminBannerFlag')).isAdminBannerEnabled)
 const unplacedMarker = await import('@/utils/byline/unplacedMarker')
 const unplaced = vi.mocked(unplacedMarker.isUnplacedBannerCandidate)
 const unplacedIdentity = vi.mocked(unplacedMarker.deriveUnplacedIdentity)
@@ -57,6 +57,7 @@ const RELEASE = {
   headline: 'Two new things',
   items: [{ id: 'a', title: 'A', body: 'Body A' }],
 }
+const loadSurvey = vi.mocked((await import('@/features/targetedSurvey/survey')).loadTargetedSurvey)
 
 describe('decidePageBanner — central priority for page-banner slots', () => {
   beforeEach(() => {
@@ -123,8 +124,7 @@ describe('decidePageBanner — central priority for page-banner slots', () => {
     expect(paywall).toHaveBeenCalledWith(1234, IDENTITY, true)
   })
 
-  // The distinction matters because only the admin-only impression is subject to
-  // the Phase 5b flag; an author who is also an admin must keep the old path.
+  // The author gate remains the first route even when the user is also an admin.
   it('reports plain paywall — not paywall-admin — when the author gate already passes', () => {
     paywall.mockReturnValue(true)
     csat.mockReturnValue(false)
@@ -174,9 +174,38 @@ describe('decidePageBanner — central priority for page-banner slots', () => {
   })
 })
 
-// The Phase 5b flag is the kill switch for an audience of ~5,021 people across
-// 19 live tenants, so its OFF path is tested explicitly rather than assumed.
-describe('handlePageBannerRoute — Phase 5b flag gating', () => {
+describe('page-banner targeted survey fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    document.body.innerHTML = '<div id="app"></div>'
+    identity.mockReturnValue(IDENTITY)
+    isAdmin.mockReturnValue(false)
+    paywall.mockReturnValue(false)
+    csat.mockReturnValue(false)
+    unplaced.mockReturnValue(false)
+    unplacedIdentity.mockReturnValue(UNPLACED_IDENTITY)
+    loadSurvey.mockResolvedValue({ survey: {
+      uuid: '71861d63-dc0b-4a75-8a04-724711577d70', revision: 1,
+      expiresAt: '2099-01-01T00:00:00.000Z', title: 'Help us improve ZenUML',
+      question: 'What could we improve?', options: [{ id: 'editing', label: 'Editing diagrams' }],
+    }, terminalKey: 'synthetic-key' })
+  })
+
+  it.each(['lite', 'full'])('mounts the fallback in %s after existing banners decline', async (product) => {
+    expect(decidePageBanner()).toBe('none')
+    expect(await maybeHandleTargetedSurvey(product)).toBe(true)
+    expect(loadSurvey).toHaveBeenCalledOnce()
+    expect(mountSpy).toHaveBeenCalledOnce()
+    expect(createdWith).toMatchObject({ terminalKey: 'synthetic-key' })
+  })
+
+  it('never loads it in Diagramly', async () => {
+    expect(await maybeHandleTargetedSurvey('diagramly')).toBe(false)
+    expect(loadSurvey).not.toHaveBeenCalled()
+  })
+})
+
+describe('handlePageBannerRoute — paywall audiences', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     createdWith = undefined
@@ -186,56 +215,22 @@ describe('handlePageBannerRoute — Phase 5b flag gating', () => {
     unplacedIdentity.mockReturnValue(UNPLACED_IDENTITY)
   })
 
-  it('mounts the admin banner when the flag is on', async () => {
-    flag.mockResolvedValue(true)
+  it('mounts the admin banner with the space-admin audience', async () => {
     await expect(handlePageBannerRoute('paywall-admin')).resolves.toBe('paywall-admin')
     expect(mountSpy).toHaveBeenCalledOnce()
     // The audience is handed to the component, never re-derived inside it.
     expect(createdWith).toEqual({ isSpaceAdmin: true })
   })
 
-  it('drops the admin impression entirely when the flag is off', async () => {
-    flag.mockResolvedValue(false)
-    await expect(handlePageBannerRoute('paywall-admin')).resolves.toBe('none')
-    expect(mountSpy).not.toHaveBeenCalled()
-  })
-
-  it('falls back to CSAT when the flag is off and a CSAT trigger is pending', async () => {
-    flag.mockResolvedValue(false)
-    csat.mockReturnValue(true)
-    await expect(handlePageBannerRoute('paywall-admin', 999)).resolves.toBe('csat')
-    expect(csat).toHaveBeenCalledWith(999)
-    expect(mountSpy).toHaveBeenCalledOnce()
-  })
-
-  it('never consults the flag for the pre-Phase-5b author banner', async () => {
+  it('mounts the author banner without space-admin props', async () => {
     await expect(handlePageBannerRoute('paywall')).resolves.toBe('paywall')
-    expect(flag).not.toHaveBeenCalled()
     expect(createdWith).toBeUndefined()
-  })
-
-  it('never consults the flag for CSAT', async () => {
-    await expect(handlePageBannerRoute('csat')).resolves.toBe('csat')
-    expect(flag).not.toHaveBeenCalled()
-  })
-
-  it('does NOT resume down the list when the flag is off — the flag is the paywall banner\'s', async () => {
-    // This branch predates the unplaced notice and belongs to the paywall
-    // banner's kill switch. Widening it would change what a flagged-off admin
-    // sees for reasons that have nothing to do with the flag, and the unplaced
-    // notice reaches the page through its own gated module anyway.
-    flag.mockResolvedValue(false)
-    csat.mockReturnValue(false)
-    unplaced.mockReturnValue(true)
-    await expect(handlePageBannerRoute('paywall-admin')).resolves.toBe('none')
-    expect(mountSpy).not.toHaveBeenCalled()
   })
 
   it('tells the unplaced banner which store admitted it', async () => {
     // Re-deriving this inside the component would cost a property read on the
     // one path that has no property.
     await expect(handlePageBannerRoute('unplaced')).resolves.toBe('unplaced')
-    expect(flag).not.toHaveBeenCalled()
     expect(mountSpy).toHaveBeenCalledOnce()
     expect(createdWith).toEqual({ source: 'marker' })
   })

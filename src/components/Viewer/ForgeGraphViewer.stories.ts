@@ -116,14 +116,14 @@ export const RealTwoPageExport: Story = {
     const canvas = within(canvasElement)
     await waitFor(() => {
       expect(canvasElement.textContent).toContain('ORDERS PAGE 1')
-      expect(canvasElement.textContent).toContain('1 / 2')
+      expect(canvasElement.textContent).toContain('1 of 2')
     }, { timeout: 15000 })
     await expect(canvas.getByRole('button', { name: 'Next page' })).toBeEnabled()
 
     canvas.getByRole('button', { name: 'Next page' }).click()
     await waitFor(() => {
       expect(canvasElement.textContent).toContain('FULFILMENT PAGE 2')
-      expect(canvasElement.textContent).toContain('2 / 2')
+      expect(canvasElement.textContent).toContain('2 of 2')
     })
     await expect(canvas.getByRole('button', { name: 'Previous page' })).toBeEnabled()
 
@@ -140,7 +140,7 @@ export const RealTwoPageExport: Story = {
     canvas.getByRole('button', { name: 'Previous page' }).click()
     await waitFor(() => {
       expect(canvasElement.textContent).toContain('ORDERS PAGE 1')
-      expect(canvasElement.textContent).toContain('1 / 2')
+      expect(canvasElement.textContent).toContain('1 of 2')
     })
     canvas.getByRole('button', { name: 'Export PNG' }).click()
     await waitFor(() => {

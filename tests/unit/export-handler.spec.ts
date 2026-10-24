@@ -49,7 +49,7 @@ vi.mock('@forge/api', () => ({
   },
 }));
 
-import { handler } from '../../src/export.js';
+import { handler, trackExportEvent } from '../../src/export.js';
 
 function mixpanelBodiesFromFetch(fetchMock: typeof fetch): unknown[] {
   const calls = vi.mocked(fetchMock).mock.calls;
@@ -92,6 +92,31 @@ describe('Forge export resolver (src/export.js)', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     delete process.env.MIXPANEL_TOKEN;
+    delete process.env.MIXPANEL_DISABLED;
+  });
+
+  it('suppresses Forge export telemetry in the disabled staging environment while production still imports', async () => {
+    process.env.MIXPANEL_DISABLED = 'true';
+    await trackExportEvent('macro_export_requested', { account_id: 'example-account', client_domain: 'example-tenant' });
+    expect(fetch).not.toHaveBeenCalled();
+
+    process.env.MIXPANEL_DISABLED = 'false';
+    await trackExportEvent('macro_export_requested', { account_id: 'example-account', client_domain: 'example-tenant' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.mixpanel.com/import?strict=1');
+  });
+
+  it('sends the final October export rate in the Mixpanel import payload', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-12T00:00:00Z'));
+    await trackExportEvent('macro_export_requested', {
+      account_id: 'example-account',
+      client_domain: 'example-tenant',
+      sample_rate: 0.9,
+    });
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{ event: string; properties: { sample_rate: number } }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].event).toBe('macro_export_requested');
+    expect(rows[0].properties.sample_rate).toBe(0.005);
   });
 
   it('includes custom_content_id on macro_export_failed when catch runs (Word config path)', async () => {
@@ -621,16 +646,59 @@ describe('Forge export resolver (src/export.js)', () => {
       event?: string;
       properties?: {
         failure_reason?: string;
+        http_status?: number;
         used_asuser_fallback?: boolean;
         fallback_http_status?: number;
         fallback_error_name?: string;
       };
     }>;
     const failed = rows.find((r) => r.event === 'macro_export_failed');
-    expect(failed?.properties?.failure_reason).toBe('attachments_api_404');
+    // #654: no user credential is the guest/anonymous case, not a missing page.
+    expect(failed?.properties?.failure_reason).toBe('no_user_credential');
+    expect(failed?.properties?.http_status).toBe(404);
     expect(failed?.properties?.used_asuser_fallback).toBe(true);
     expect(failed?.properties?.fallback_http_status).toBeUndefined();
     expect(failed?.properties?.fallback_error_name).toBe('NEEDS_AUTHENTICATION_ERR');
+  });
+
+  it('keeps attachments_api_404 when asUser() throws a non-auth error (#654)', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => 'not found',
+    });
+    asUserRequest.mockRejectedValue(new TypeError('network down'));
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-fb4',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SP',
+        accountId: 'acc-fb4',
+        extension: { content: { id: '777' } },
+      },
+      extensionPayload: {
+        config: { customContentId: 'cc-fb-typeerror' },
+      },
+    };
+
+    await handler(payload);
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: {
+        failure_reason?: string;
+        http_status?: number;
+        used_asuser_fallback?: boolean;
+        fallback_error_name?: string;
+      };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('attachments_api_404');
+    expect(failed?.properties?.http_status).toBe(404);
+    expect(failed?.properties?.used_asuser_fallback).toBe(true);
+    expect(failed?.properties?.fallback_error_name).toBe('TypeError');
   });
 
   it('uses subdomain prefix as client_domain in analytics events', async () => {
@@ -758,6 +826,50 @@ describe('Forge export resolver (src/export.js)', () => {
     const failed = rows.find((r) => r.event === 'macro_export_failed');
     expect(failed?.properties?.failure_reason).toBe('attachment_not_found');
     expect(failed?.properties?.macro_type).toBe('graph');
+  });
+
+  it('records the first unexplained missing PNG, then shows a known placeholder without repeated failure, and recovers when the attachment appears', async () => {
+    let property: any = null;
+    let attachmentExists = false;
+    asAppRequest.mockImplementation(async (url: unknown, opts?: { method?: string; body?: string; headers?: Record<string, string> }) => {
+      const value = String(url);
+      if (value.includes('/attachments?')) return new Response(JSON.stringify({
+        results: attachmentExists ? [{ fileId: 'file-new', downloadLink: '/wiki/download/new.png' }] : [],
+        _links: { base: 'https://example.atlassian.net' },
+      }));
+      if (value.includes('/properties')) {
+        if (opts?.method === 'POST' || opts?.method === 'PUT') {
+          property = { id: 'property-1', value: JSON.parse(opts.body!).value, version: { number: (property?.version.number ?? 0) + 1 } };
+          return new Response('{}');
+        }
+        return new Response(JSON.stringify({ results: property ? [property] : [] }));
+      }
+      if (opts?.headers?.Range) return new Response(new Uint8Array(32));
+      return new Response(JSON.stringify({ body: { raw: { value: JSON.stringify({ diagramType: 'sequence' }) } } }));
+    });
+    const payload = {
+      exportType: 'pdf', context: { siteUrl: 'https://example.atlassian.net', extension: { content: { id: '123' } } },
+      extensionPayload: { config: { customContentId: '456' } },
+    };
+    await handler(payload);
+    expect(property.value.state).toBe('missing');
+    let rows = mixpanelBodiesFromFetch(fetch) as Array<{ event: string; properties?: { failure_reason?: string } }>;
+    expect(rows.filter(r => r.event === 'macro_export_failed')).toHaveLength(1);
+    vi.mocked(fetch).mockClear();
+
+    const placeholder = await handler(payload) as any;
+    expect(placeholder.content[0].content[0].text).toContain('missing');
+    rows = mixpanelBodiesFromFetch(fetch) as typeof rows;
+    expect(rows.filter(r => r.event === 'macro_export_placeholder_shown')).toHaveLength(1);
+    expect(rows.filter(r => r.event === 'macro_export_failed')).toHaveLength(0);
+    vi.mocked(fetch).mockClear();
+
+    attachmentExists = true;
+    const recovered = await handler(payload) as any;
+    expect(recovered.content[0].content[0].attrs.id).toBe('file-new');
+    expect(asAppRequest.mock.calls.filter(([url]) => String(url).includes('/properties'))).toHaveLength(4);
+    rows = mixpanelBodiesFromFetch(fetch) as typeof rows;
+    expect(rows.some(r => r.event === 'macro_export_succeeded')).toBe(true);
   });
 
   it('#435: records macro_type "none" (not omitted) when the type genuinely cannot be determined — no customContentId', async () => {

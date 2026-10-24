@@ -21,7 +21,7 @@
 // RED on buggy code: the modal stays open + "view.submit/close failed" logs.
 // GREEN after 1a: the modal closes cleanly, no submit failure.
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';

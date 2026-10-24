@@ -51,7 +51,7 @@ if (process.env.CHANGED_FILES_PATH) {
 const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const plan = scopedPlan({ discover, selection, resolved, head, tree, policy: POLICY_VERSION, variant,
   shards: Number(process.env.MAX_SHARDS || 1), scope: suite === 'regression' ? 'all' : suite === 'regression-render' ? 'render' : suite,
-  grep: process.env.LEGACY_GREP || '', sourcePaths });
+  grep: process.env.SELECTION_SCOPE === 'main' ? resolved?.grep || '' : process.env.LEGACY_GREP || '', sourcePaths, selectionScope: process.env.SELECTION_SCOPE || 'pr' });
 writeFileSync(process.env.PLAN_PATH || 'test-plan.json', JSON.stringify(plan, null, 2));
 writeFileSync(process.env.METRICS_PATH || 'selection-metrics.json', JSON.stringify(plan.selection_metrics, null, 2));
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, metricsSummary(plan.selection_metrics));

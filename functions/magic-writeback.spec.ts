@@ -26,15 +26,54 @@ beforeEach(() => {
 });
 describe('reviewed Magic writeback', () => {
   it('rejects missing authenticated context/tokens before any access', async () => {
-    for (const key of Object.keys(ctx)) {
+    // accountId is the user principal, not part of the app context: its absence
+    // is a 403 (see the no_user_credential tests below), not a 401.
+    for (const key of Object.keys(ctx).filter(k => k !== 'accountId')) {
       const result = await invoke(request(), { ...ctx, [key]: undefined });
       expect(result.status).toBe(401);
     }
-    for (const key of ['x-forge-oauth-user', 'x-forge-oauth-system']) {
-      const result = await invoke(request(undefined, { [key]: '' }));
-      expect(result.status).toBe(401);
-    }
+    const result = await invoke(request(undefined, { 'x-forge-oauth-system': '' }));
+    expect(result.status).toBe(401);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+  // Forge sends no x-forge-oauth-user (and no principal) for guest and anonymous
+  // viewers. The context is otherwise valid, so this is a clean 403, never a
+  // fallback to the app token and never a queue or Confluence access.
+  describe('viewer without a user credential', () => {
+    const noUser = { 'x-forge-oauth-user': '' };
+    const expectNoUserCredential = async (result: Response) => {
+      expect(result.status).toBe(403);
+      expect(await result.json()).toEqual({ error: 'no_user_credential' });
+    };
+    it('answers 403 no_user_credential when the user token header is missing or empty', async () => {
+      await expectNoUserCredential(await invoke(request(undefined, noUser)));
+      const headerless = new Request('https://backend.example/magic-writeback', { method: 'POST', headers: { 'x-forge-oauth-system': 'app-token' }, body: JSON.stringify({ contentId: '123' }) });
+      await expectNoUserCredential(await invoke(headerless));
+    });
+    it('answers 403 no_user_credential when the principal (accountId) is absent', async () => {
+      await expectNoUserCredential(await invoke(request(), { ...ctx, accountId: undefined }));
+      await expectNoUserCredential(await invoke(request(), { ...ctx, accountId: '' }));
+    });
+    it('makes no Confluence call and leaves the queued delivery untouched', async () => {
+      enqueue(); const before = row();
+      await expectNoUserCredential(await invoke(request(undefined, noUser)));
+      await expectNoUserCredential(await invoke(request(), { ...ctx, accountId: undefined }));
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(row()).toEqual(before);
+      expect(row().claimToken).toBeNull();
+    });
+    it('never falls back to the app token for that viewer', async () => {
+      enqueue(); fetchMock.mockResolvedValue(reply(doc()));
+      await invoke(request(undefined, noUser));
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.headers?.Authorization === 'Bearer app-token')).toHaveLength(0);
+    });
+    it('keeps 401 when the context itself is invalid, even without a user credential', async () => {
+      expect((await invoke(request(undefined, { ...noUser, 'x-forge-oauth-system': '' }))).status).toBe(401);
+      expect((await invoke(request(undefined, noUser), { ...ctx, cloudId: undefined })).status).toBe(401);
+      expect((await invoke(request(undefined, noUser), { ...ctx, forgeAppId: 'unknown-app' })).status).toBe(401);
+      expect((await invoke(request(undefined, noUser), { ...ctx, environmentId: 'dev-a' })).status).toBe(401);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
   it('makes no Confluence call for an empty queue and ignores payload identity hints', async () => {
     enqueue({ ...ctx, cloudId: 'tenant-b' });
@@ -50,7 +89,7 @@ describe('reviewed Magic writeback', () => {
   });
   it('denies an unreadable target without disclosing or app-writing the artifact', async () => {
     enqueue(); fetchMock.mockResolvedValue(reply({}, 403));
-    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable' });
+    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable', reason: 'read_403' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer user-token');
     expect(row().claimToken).toBeNull();
@@ -149,6 +188,15 @@ describe('reviewed Magic writeback', () => {
     expect(await (await invoke()).json()).toEqual({ outcome: 'written', artifact });
     expect(row().claimToken).toBe('new-owner');
   });
+  it('reports a status-only reason when the PUT fails', async () => {
+    enqueue(); fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({ message: 'secret tenant text' }, 500));
+    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable', reason: 'put_500' });
+  });
+  it('reports a fixed reason on exception without the error message', async () => {
+    enqueue(); fetchMock.mockRejectedValue(new Error('token abc leaked'));
+    const body = await (await invoke()).json();
+    expect(body).toEqual({ outcome: 'unavailable', reason: 'exception' });
+  });
   it('purges expired payloads without reading Confluence', async () => {
     enqueue(ctx, Date.now() - 1);
     expect(await (await invoke()).json()).toEqual({ outcome: 'miss' });
@@ -156,6 +204,6 @@ describe('reviewed Magic writeback', () => {
   });
   it('fails open to Original for a failed write and never returns queued SVG', async () => {
     enqueue(); fetchMock.mockResolvedValueOnce(reply(doc())).mockResolvedValueOnce(reply({}, 403));
-    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable' }); expect(row().claimToken).toBeNull();
+    expect(await (await invoke()).json()).toEqual({ outcome: 'unavailable', reason: 'put_403' }); expect(row().claimToken).toBeNull();
   });
 });

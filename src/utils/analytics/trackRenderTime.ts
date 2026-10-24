@@ -59,15 +59,17 @@ export function measureCacheState(): {
 // rendered — see utils/analytics/contentState.ts. Omitted when the caller has
 // no verdict (e.g. the load failed), in which case the property is absent.
 //
-// `plantumlRenderer` (ADR-0010) is which engine drew a PlantUML diagram; the
-// PlantUML viewer passes it, every other caller leaves it absent.
+// `plantuml` (ADR-0010) says how a PlantUML diagram was drawn: which engine
+// (`renderer`) and whether a GitHub C4 URL include was rewritten to the hosted
+// C4 library (`includeRewritten`). The PlantUML viewer passes it, every other
+// caller leaves it absent.
 export function trackRenderTime(
   macroType: MacroTypeValue,
   isDisplayMode: boolean,
   renderMode: RenderMode = 'live_render',
   cacheSource: CacheSource = 'none',
   contentState?: ContentState,
-  plantumlRenderer?: PlantUmlRenderer,
+  plantuml?: { renderer: PlantUmlRenderer; includeRewritten?: boolean },
 ): void {
   const t0 = window.__macroLoadStart;
   if (typeof t0 !== 'number') return;
@@ -87,7 +89,8 @@ export function trackRenderTime(
     render_mode: renderMode,
     cache_source: cacheSource,
     ...(contentState !== undefined ? { content_state: contentState } : {}),
-    ...(plantumlRenderer !== undefined ? { plantuml_renderer: plantumlRenderer } : {}),
+    ...(plantuml !== undefined ? { plantuml_renderer: plantuml.renderer } : {}),
+    ...(plantuml?.includeRewritten ? { plantuml_include_rewritten: true } : {}),
     duration_ms,
     cache_state: cacheState,
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),

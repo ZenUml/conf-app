@@ -229,7 +229,7 @@ export default {
           trackRenderTime(
             'plantuml', this.isDisplayMode, 'live_render', 'none',
             viewContentState(this.$store.state.diagram, DiagramType.PlantUml),
-            renderer,
+            { renderer },
           );
         }
       } catch (err) {

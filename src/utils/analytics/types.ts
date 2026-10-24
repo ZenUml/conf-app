@@ -317,6 +317,10 @@ export type AnalyticsProperties = {
   plantuml_renderer?: PlantUmlRenderer;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
+  // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
+  // library for this render. On macro_viewed (local renders) and on
+  // plantuml_local_render_failed. Absent when nothing was rewritten.
+  plantuml_include_rewritten?: boolean;
 
   // AI
   prompt_length?: number;

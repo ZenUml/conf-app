@@ -1,0 +1,183 @@
+/* The review rail follows GitHub's typography, controls and surface colours. */
+:host(zenuml-pr-list) {
+  all: initial;
+  display: block;
+  position: fixed;
+  left: 0;
+  top: 0; /* set from the repository tabs by the controller (page-column.ts) */
+  bottom: 0;
+  width: 320px;
+  z-index: 29;
+}
+
+.prl {
+  box-sizing: border-box;
+  width: 320px;
+  position: absolute; /* fill the fixed host top to bottom, so the right border runs full height */
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #ffffff;
+  border-right: 1px solid #d0d7de;
+  color: #1f2328;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+.prl *, .prl *::before, .prl *::after { box-sizing: border-box; }
+.prl-sticky { flex: 0 0 auto; background: #ffffff; z-index: 1; }
+.prl-viewport { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.prl-measure { position: absolute; top: 0; left: 0; right: 0; visibility: hidden; pointer-events: none; }
+.prl-pinned { flex: 0 0 auto; min-height: 0; max-height: 48%; overflow-y: auto; overscroll-behavior: contain; border-bottom: 1px solid #d0d7de; }
+.prl-pinned-only { max-height: 100%; }
+.prl-pinned-caption { display: flex; align-items: center; height: 26px; padding: 0 16px; background: #fff8c5; color: #7d4e00; font-size: 12px; font-weight: 600; }
+
+.prl-controls { padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 8px; }
+.prl-search {
+  display: block;
+  width: 292px;
+  height: 34px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2328;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.prl-search::placeholder { color: #6e7781; }
+.prl-search:focus { border-color: #0969da; box-shadow: 0 0 0 3px #0969da33; }
+
+.prl-filters { display: flex; gap: 8px; }
+.prl-chip { position: relative; display: block; height: 31px; }
+.prl-chip-priority { width: 140px; }
+.prl-chip-state { width: 144px; }
+.prl-chip select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #24292f;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+}
+.prl-chip select:hover { background: #f3f4f6; }
+.prl-chip select:focus-visible { border-color: #0969da; box-shadow: 0 0 0 3px #0969da33; }
+
+.prl-caption {
+  height: 30px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  background: #f6f8fa;
+  color: #57606a;
+  font-size: 12px;
+  font-weight: 500;
+  justify-content: space-between;
+}
+
+.prl-rows { list-style: none; margin: 0; padding: 0; }
+.prl-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 100px;
+  padding: 12px 16px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid #d8dee4;
+}
+.prl-row:hover { background: #f6f8fa; }
+.prl-row:focus-visible { outline: 2px solid #0969da; outline-offset: -2px; }
+.prl-row-selected, .prl-row-selected:hover { background: #ddf4ff; }
+.prl-row-p0 { background: #fff8c5; }
+.prl-row-p0:hover { background: #fff1a8; }
+.prl-row-p0.prl-row-selected { background: #ddf4ff; }
+
+.prl-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #57606a; }
+.prl-meta-draft { color: #8250df; }
+.prl-meta-left { display: flex; gap: 8px; min-width: 0; }
+.prl-status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.prl-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 3px; vertical-align: 1px; }
+.prl-stale {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  color: #7d4e00;
+  background: #fff8c5;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.prl-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 18px; color: #1f2328; overflow-wrap: anywhere; }
+.prl-readiness { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; line-height: 16px; }
+.prl-readiness-label { flex: 0 0 auto; font-weight: 700; }
+.prl-readiness-reason { min-width: 0; overflow-wrap: anywhere; color: #57606a; }
+.prl-readiness-ready .prl-readiness-label { color: #1a7f37; }
+.prl-readiness-blocked .prl-readiness-label { color: #cf222e; }
+.prl-readiness-unknown .prl-readiness-label { color: #57606a; }
+.prl-reason {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: #57606a;
+  overflow-wrap: anywhere;
+}
+.prl-tags { display: flex; gap: 0 14px; flex-wrap: wrap; font-size: 12px; font-weight: 500; color: #57606a; }
+
+.prl-empty { padding: 16px; color: #57606a; font-size: 12px; }
+
+.prl-pagination {
+  flex: 0 0 42px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px;
+  border-top: 1px solid #d0d7de;
+  background: #f6f8fa;
+  color: #57606a;
+  font-size: 12px;
+  font-weight: 500;
+}
+.prl-pagination button {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #fff;
+  color: #24292f;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.prl-pagination button:hover:not(:disabled) { background: #f6f8fa; }
+.prl-pagination button:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+.prl-pagination button:disabled { color: #aab6c3; cursor: default; }
+
+/* Keep a complete row visible when the GitHub tab strip leaves little vertical space. */
+.prl-compact .prl-controls { padding: 4px 14px; gap: 4px; }
+.prl-compact .prl-search { height: 28px; }
+.prl-compact .prl-chip { height: 26px; }
+.prl-compact .prl-caption { height: 22px; }
+.prl-compact .prl-pagination { flex-basis: 32px; min-height: 32px; }
+.prl-compact .prl-row { min-height: 88px; padding-top: 6px; padding-bottom: 6px; gap: 2px; }
+.prl-compact .prl-pinned-caption { height: 20px; }
+.prl-compact .prl-pinned .prl-row { min-height: 68px; }

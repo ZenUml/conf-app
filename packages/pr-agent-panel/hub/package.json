@@ -1,0 +1,37 @@
+{
+  "name": "@zenuml/pr-panel-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Hub for the GitHub PR Agent Panel: loopback WebSocket server for the extension, Unix-socket MCP server for agents, review store. Ships the pr-panel-mcp stdio shim.",
+  "type": "module",
+  "bin": {
+    "pr-panel-mcp": "dist/cli.mjs"
+  },
+  "files": ["dist/**/*", "README.md"],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "start": "node dist/hub.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@zenuml/pr-panel-shared": "workspace:*",
+    "nanoid": "^6.0.2",
+    "proper-lockfile": "^4.1.2",
+    "ws": "^8.22.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/ws": "^8.18.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.9"
+  }
+}

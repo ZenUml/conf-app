@@ -137,19 +137,82 @@ Two more properties surfaced:
   stories refuse any plantuml.com request; the include story stands in for the
   server and shows the fallback drawing.
 
+## Production exposure (D1, 2026-10-24)
+
+Measured with read-only aggregate queries over `CustomContent` in the production D1
+(`conf-zenuml-prod`). The diagram source is `body.raw.value.plantUmlCode`. Only
+counts were read, never diagram text. Site-level detail stays out of this public
+record (client-privacy policy).
+
+**Scope:** the 4,060 PlantUML diagrams owned by the three Forge apps, 83 sites in
+all. More than 4,000 older rows with numeric app IDs are Connect-era records with no
+site, and are left out.
+
+| App | Diagrams | Sites |
+|---|---|---|
+| Lite | 3,220 | 73 |
+| Full | 494 | 9 |
+| Diagramly | 346 | 1 |
+
+Every body starts with `@startuml` and none are empty. The average is 1.7k
+characters, 109 exceed 8k, and the largest is 36.5k.
+
+**What would take the fallback today.** That is any diagram with an `!include` the
+engine cannot resolve: 171 diagrams (4.2%) on 10 sites.
+
+| Include | Diagrams | Sites | After rollout step 4 |
+|---|---|---|---|
+| URL into `github.com/plantuml-stdlib/C4-PlantUML` (`!includeurl` / `!include https://…`) | 112 | 6 | local, if known stdlib URLs map to the self-hosted copy |
+| `<C4/...>` stdlib | 43 | ≤4 | local |
+| other `plantuml-stdlib` URLs (sprites 2, unidentified 3) | 5 | ≤1 | local for the sprite repo; the rest stay on the fallback |
+| `<tupadr3/...>`, `<azure/...>`, `<awslib/...>` | 8 | ≤2 | local, if those bundles are hosted too |
+| another GitHub URL | 3 | 1 | fallback |
+
+So C4, through both the stdlib and its GitHub URL, accounts for about 90% of the
+fallback cases. After step 4 roughly 6–8 diagrams (about 0.2%) would still need
+plantuml.com. Note that for the URL includes, plantuml.com fetches GitHub on the
+viewer's behalf today, so GitHub is a second third party in that path.
+
+**Features the engine handles without the fallback:** `!theme` (196 diagrams,
+9 sites; `themes.js` loads on demand), `<&icon>` sprites (62), `!pragma layout` (24),
+`skinparam` (1,389). Emoji and custom `sprite $` are unused.
+
+**Layout risk.** These counts come from a keyword heuristic and are approximate.
+Diagram kinds that never used Graphviz should render the same; the rest get the
+engine's built-in Smetana layout instead of Graphviz.
+
+| Kind | Diagrams | Sites | Created in the last 90 days |
+|---|---|---|---|
+| sequence (no Graphviz) | 2,778 (68%) | 63 | 1,103 |
+| activity (no Graphviz) | 200 (5%) | 17 | 82 |
+| component / use case / state / deployment | 681 (17%) | 39 | 270 |
+| class / entity | 187 (5%) | 12 | 31 |
+| C4 | 158 (4%) | 7 | 27 |
+| unclassified | 56 | 4 | 5 |
+
+About a quarter (roughly 1,000 diagrams on about 45 sites) can change layout. Those
+are what step 3 must compare.
+
+**Limits.** D1 mirrors Confluence and can lag or miss diagrams. It also says nothing
+about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
+
 ## Rollout plan
 
-1. **Measure exposure.** On our own staging sites, scan PlantUML custom content for
-   `!include`, `!theme`, sprites and large diagrams. Customer-content analysis
-   belongs in `private/`.
+1. **Measure exposure.** Done 2026-10-24 on production D1 (previous section).
+   Per-site detail, if needed, belongs in `private/`.
 2. **Forge iframe.** Done for Lite on 2026-10-24 (see above). Repeat on a Full or
    Diagramly install before rolling out there, since their CSP has no `'unsafe-eval'`.
-3. **Visual comparison.** Render the staging corpus with both renderers and compare.
-   The public server's PlantUML version is unknown, and Smetana and Graphviz lay out
-   differently.
-4. **Self-host the stdlib** (C4, AWS, …) under our own static assets and set
-   `PLANTUML_STDLIB_BASE`. Local-file `!include` needs a `PLANTUML_FILE_LOADER`, or
-   stays unsupported as it is today.
+3. **Visual comparison.** Render a sample with both renderers and compare. The public
+   server's PlantUML version is unknown, and Smetana and Graphviz lay out
+   differently. Sample from the roughly 1,000 Graphviz-layout diagrams, weighted to
+   the 270 component/state/use-case diagrams created in the last 90 days. Sequence
+   and activity diagrams need only a spot check.
+4. **Self-host the stdlib** under our own static assets and set
+   `PLANTUML_STDLIB_BASE`. C4 first: it covers about 90% of today's fallbacks. Also
+   map the known `plantuml-stdlib` GitHub URLs (`C4-PlantUML`, the sprites repo)
+   onto the hosted copy through a `PLANTUML_FILE_LOADER` that answers only those
+   URLs. tupadr3, azure and aws are optional (8 diagrams). Other local-file and URL
+   includes stay on the fallback.
 5. **Roll out the Forge flag** by site: diagramly, then lite, then full. The flag
    must first be created in the Developer Console for each app (forge-feature-flag
    skill). Gate each widening on `macro_viewed` split by `plantuml_renderer`

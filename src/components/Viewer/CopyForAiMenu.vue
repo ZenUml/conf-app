@@ -4,9 +4,10 @@
   the primary segment, only the copied preamble differs (buildCopyForAiPrompt.ts
   / job property, catalog.ts's copy_for_ai_clicked).
 
-  Not a reuse of OverflowMenu.vue: the trigger is a chevron segment joined to
-  the primary button and the items carry a description line. The menu shares
-  OverflowMenu's keyboard model (menuKeyboard.ts): role="menu"/"menuitem",
+  Own template, not OverflowMenu.vue's: the trigger is a chevron segment joined
+  to the primary button and the items carry a description line. The open/close
+  controller is shared with OverflowMenu (useMenuPopover.ts), and so is the
+  keyboard model (menuKeyboard.ts): role="menu"/"menuitem",
   ArrowDown/ArrowUp on the trigger open + focus the first item, ↑ ↓ Home End
   move, Escape closes and returns focus to the trigger, Tab closes,
   click-outside closes. Emits opened/closed so the viewer header stays

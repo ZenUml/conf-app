@@ -7,7 +7,7 @@ import OverflowMenu from './OverflowMenu.vue'
 
 const Harness = defineComponent({
   emits: ['opened', 'closed'],
-  setup(_p, { emit }) {
+  setup(_p: Record<string, never>, { emit }: { emit: (event: 'opened' | 'closed') => void }) {
     return useMenuPopover(emit)
   },
   template: `

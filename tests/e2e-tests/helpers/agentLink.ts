@@ -1,4 +1,6 @@
-import { Page } from '@playwright/test';
+import { Page, expect } from '@playwright/test';
+import { PageCreator } from '../utils/page-creator.js';
+import { testConfig } from '../config/test-config.js';
 
 /**
  * Helpers for the Live Agent Link end-to-end test. Two actors share one
@@ -15,12 +17,15 @@ import { Page } from '@playwright/test';
  *    happen WHILE the Playwright tab is open (do not close the browser first).
  *  - The Forge Custom UI iframe is a sandboxed cross-origin OOPIF; content
  *    lives in a child frame whose URL matches *.atlassian-dev.net.
- *  - `connect(code)` binds the fixed MCP transport session and pushes verified
- *    presence, which flips the macro panel `waiting -> connected`.
+ *  - `read_page`/the first agent op is what fires `agent_connected` and flips
+ *    the macro panel `waiting -> connected` (the green border). There is no
+ *    dedicated pairing envelope.
  */
 
-// lite-stg backend (REMOTE_BASE_URL_MAP STAGING_LITE in src/model/globals/forgeGlobal.ts).
-export const AGENT_LINK_STG_BASE = 'https://conf-stg-lite.zenuml.com';
+// Match the active staging app's remote (Diagramly shares Lite's backend).
+export const AGENT_LINK_STG_BASE = testConfig.productType === 'full'
+  ? 'https://conf-stg-full.zenuml.com'
+  : 'https://conf-stg-lite.zenuml.com';
 export const agentLinkMcpUrl = (base = AGENT_LINK_STG_BASE) => `${base}/agent-link/mcp`;
 
 export interface McpResult {
@@ -30,53 +35,16 @@ export interface McpResult {
   error: any;
 }
 
-/** Start one standard Streamable HTTP MCP transport session. */
-export async function initializeAgentLinkMcp(base = AGENT_LINK_STG_BASE): Promise<string> {
-  const init = await fetch(agentLinkMcpUrl(base), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 0,
-      method: 'initialize',
-      params: {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'agent-link-e2e', version: '1' },
-      },
-    }),
-  });
-  if (!init.ok) throw new Error(`MCP initialize failed: HTTP ${init.status}`);
-  const mcpSessionId = init.headers.get('mcp-session-id');
-  if (!mcpSessionId) throw new Error('MCP initialize returned no Mcp-Session-Id');
-  await fetch(agentLinkMcpUrl(base), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'mcp-session-id': mcpSessionId },
-    body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
-  });
-  return mcpSessionId;
-}
-
-/** Pair a newly initialized MCP transport session with one Macro code. */
-export async function connectAgentLink(code: string, base = AGENT_LINK_STG_BASE): Promise<string> {
-  const mcpSessionId = await initializeAgentLinkMcp(base);
-  const result = await agentLinkMcp(mcpSessionId, 'connect', { code }, base);
-  if (result.status !== 200 || result.error || result.result?.connected !== true) {
-    throw new Error(`Agent Link connect failed: ${JSON.stringify(result)}`);
-  }
-  return mcpSessionId;
-}
-
-/** Call one hosted-MCP tool through an already-paired transport session. */
+/** Call one hosted-MCP tool as the agent, presenting the session token. */
 export async function agentLinkMcp(
-  mcpSessionId: string,
+  token: string,
   name: string,
   args: Record<string, unknown> = {},
   base = AGENT_LINK_STG_BASE,
 ): Promise<McpResult> {
   const res = await fetch(agentLinkMcpUrl(base), {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'mcp-session-id': mcpSessionId },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
   });
   let body: any = null;
@@ -103,8 +71,8 @@ export async function agentLinkMcp(
  * Whether the agent-link functions are actually routed on this deployment.
  * The `conf-stg-lite` alias is SHARED and gets clobbered by macro-only
  * deploys (see reference: shared-lite-stg-alias-clobber) — when that happens
- * `/agent-link/mcp` POST falls through to the static SPA handler. A live
- * endpoint completes an anonymous MCP initialize and issues Mcp-Session-Id.
+ * `/agent-link/mcp` POST falls through to the static SPA handler and returns
+ * 405. A live endpoint returns a JSON-RPC error (401/invalid token) instead.
  * The spec skips (not fails) when this is false, since the feature ships on an
  * unreleased build.
  */
@@ -112,21 +80,16 @@ export async function isAgentLinkEndpointLive(base = AGENT_LINK_STG_BASE): Promi
   try {
     const res = await fetch(agentLinkMcpUrl(base), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'route-probe', version: '1' } },
-      }),
+      headers: { 'content-type': 'application/json', authorization: 'Bearer probe' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
-    return res.status === 200 && Boolean(res.headers.get('mcp-session-id'));
+    return res.status !== 405 && res.status !== 404;
   } catch {
     return false;
   }
 }
 
-const forgeFrames = (page: Page) => page.frames().filter((f) => /atlassian-dev\.net/.test(f.url()));
+export const forgeFrames = (page: Page) => page.frames().filter((f) => /atlassian-dev\.net/.test(f.url()));
 
 /** Opt the macro into Agent Link + skip the Lite paywall via localStorage. */
 export async function enableAgentLinkOverrides(page: Page): Promise<void> {
@@ -136,13 +99,42 @@ export async function enableAgentLinkOverrides(page: Page): Promise<void> {
     try {
       localStorage.setItem('mockAgentLinkEnabled', 'true');
       localStorage.setItem('mockSpacePaid', 'true');
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith('agentLinkSession:'))
-        .forEach((k) => localStorage.removeItem(k));
+      // A newly opened fullscreen iframe must retain the inline macro's handoff.
+      // Each normal test owns fresh content, so no previous session needs clearing.
     } catch {
       /* origin without storage access — ignore */
     }
   });
+}
+
+/** A private diagram per test prevents another user's session from blocking mint. */
+export async function openIsolatedAgentLinkPage(page: Page): Promise<void> {
+  if (testConfig.isProd) throw new Error('Agent Link isolated fixtures require a staging profile');
+  await enableAgentLinkOverrides(page);
+  await page.goto(testConfig.baseUrl, { waitUntil: 'domcontentloaded' });
+  const pageId = await new PageCreator(page).createTestPage({ sequence: true });
+  if (!pageId) throw new Error('Agent Link fixture creation returned no page ID');
+  await openMacroPage(page, testConfig.pageUrl(pageId));
+}
+
+/** Mint precedes the macro's relay WebSocket bootstrap; wait for readiness. */
+export async function waitForAgentLinkReady(token: string): Promise<void> {
+  await expect.poll(async () => (await agentLinkMcp(token, 'get_status')).status, {
+    timeout: 20000,
+    message: 'relay accepts the minted session',
+  }).toBe(200);
+}
+
+/** Disconnect only this test's own live UI session before closing its page. */
+export async function disconnectAgentLink(page: Page): Promise<void> {
+  for (const frame of forgeFrames(page)) {
+    const button = frame.getByTestId('agent-link-disconnect-btn');
+    if (await button.isVisible().catch(() => false)) {
+      await button.click();
+      await expect.poll(() => readPanelClass(page)).toContain('closed');
+      return;
+    }
+  }
 }
 
 /** Navigate to a page with a ZenUML macro and wait for its Forge frame. */
@@ -155,16 +147,12 @@ export async function openMacroPage(page: Page, pageUrl: string, timeout = 60000
   await page.waitForTimeout(6000); // let the macro mount + resolve the flag
 }
 
-/** Click the inline macro's "Connect to Agent" (mints a session, opens Fullscreen). */
+/** Click the inline macro's "Connect MCP" (opens the inline dialog). */
 export async function clickConnectToAgent(page: Page): Promise<boolean> {
   for (const f of forgeFrames(page)) {
-    const text = await f.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
-    if (/connect to agent/i.test(text)) {
-      await f
-        .getByText(/connect to agent/i)
-        .first()
-        .click({ timeout: 9000 })
-        .catch(() => {});
+    const button = f.getByTestId('connect-mcp-btn');
+    if (await button.count().catch(() => 0)) {
+      await button.click({ timeout: 9000 });
       return true;
     }
   }
@@ -203,20 +191,6 @@ export async function readPanelClass(page: Page): Promise<string | null> {
       })
       .catch(() => null);
     if (c) return c;
-  }
-  return null;
-}
-
-/** The presence progress element's innerText, e.g. '已连接'. Null when absent. */
-export async function readProgressStage(page: Page): Promise<string | null> {
-  for (const f of forgeFrames(page)) {
-    const t = await f
-      .evaluate(() => {
-        const el = document.querySelector('[data-testid="agent-link-progress"]');
-        return el ? (el as HTMLElement).innerText : null;
-      })
-      .catch(() => null);
-    if (t) return t;
   }
   return null;
 }

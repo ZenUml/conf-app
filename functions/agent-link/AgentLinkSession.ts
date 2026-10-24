@@ -72,6 +72,7 @@ import { PendingOps } from './pendingOps';
 import type { PendingOpResult } from './pendingOps';
 import { effectiveExpiryMs, isAtCap, isExpired, MAX_SESSION_MS, nextState } from './sessionToken';
 import type { BoundContext, SessionRecord, SessionState } from './sessionToken';
+import { json } from '../OkResponse';
 
 interface Env {
   // Self-referencing binding: the companion Worker (workers/agent-link/)
@@ -95,40 +96,13 @@ interface ContentLock {
   expiresAt: number;
 }
 
-interface McpBinding {
-  token: string;
-  expiresAtMs: number;
-}
-
 /** Sent back to a peer when the other side isn't connected yet, or on a malformed message. */
 function errorEnvelope(reason: string, id?: string): string {
   return JSON.stringify({ kind: 'error', id, payload: { message: reason } });
 }
 
-function jsonResponse(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
 /** How long `POST /agent-op` waits for the macro's `result`/`error` reply before returning 504. */
 export const AGENT_OP_TIMEOUT_MS = 20_000;
-
-/** Monotonic rank of the MCP relay's connection-experience presence stages
- * (2026-08-15 spec §3): only a strictly higher-ranked stage than the one
- * already persisted triggers a push (see handleSessionInfo below). */
-const PRESENCE_RANK = { initialized: 1, discovered: 2, verified: 3, working: 4 } as const;
-type PresenceStage = keyof typeof PRESENCE_RANK;
-
-/** Narrows a raw `?presence=` query value to a real stage. `hasOwnProperty`,
- * not `PRESENCE_RANK[v] !== undefined`: the latter also accepts every
- * inherited Object.prototype key, so `?presence=constructor` (or `__proto__`,
- * `toString`, …) passed the guard and was persisted verbatim onto the session
- * record and pushed to the macro as a presence stage. */
-function isPresenceStage(value: string | null): value is PresenceStage {
-  return value !== null && Object.prototype.hasOwnProperty.call(PRESENCE_RANK, value);
-}
 
 type SessionAuthFailure = { ok: false; status: number; code: 'invalid' | 'expired' };
 type SessionAuth = { ok: true } | SessionAuthFailure;
@@ -229,11 +203,11 @@ export class AgentLinkSession {
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const { token, expiresAt } = body ?? {};
     if (typeof token !== 'string' || !token || typeof expiresAt !== 'number') {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
 
     await this.ensureContentLock();
@@ -241,15 +215,12 @@ export class AgentLinkSession {
     if (this.contentLock && this.contentLock.token !== token && this.contentLock.expiresAt > now) {
       // A4 (spec review): surface the held claim's expiry so the mint endpoint
       // can return an honest retry-after instead of a bare 409.
-      return jsonResponse(
-        { error: 'diagram_already_linked', lock_expires_at: this.contentLock.expiresAt },
-        409,
-      );
+      return json({ error: 'diagram_already_linked', lock_expires_at: this.contentLock.expiresAt }, { status: 409 });
     }
 
     this.contentLock = { token, expiresAt };
     await this.state.storage.put('contentLock', this.contentLock);
-    return jsonResponse({ ok: true }, 200);
+    return json({ ok: true }, { status: 200 });
   }
 
   /**
@@ -265,7 +236,7 @@ export class AgentLinkSession {
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const token = body?.token;
 
@@ -274,7 +245,7 @@ export class AgentLinkSession {
       this.contentLock = null;
       await this.state.storage.delete('contentLock');
     }
-    return jsonResponse({ ok: true }, 200);
+    return json({ ok: true }, { status: 200 });
   }
 
   /**
@@ -462,34 +433,13 @@ export class AgentLinkSession {
     // Agent-side HTTP transport (mcp.ts) — neither of these is a WebSocket
     // upgrade, so they're handled before the Upgrade check below.
     if (url.pathname === '/session' && request.method === 'GET') {
-      return this.handleSessionInfo(
-        url.searchParams.get('bump') === '1',
-        // Raw string — validated/narrowed by isPresenceStage() inside
-        // handleSessionInfo, never cast blindly at this call site.
-        url.searchParams.get('presence'),
-        url.searchParams.get('client'),
-      );
+      return this.handleSessionInfo(url.searchParams.get('bump') === '1');
     }
     if (url.pathname === '/activity' && request.method === 'POST') {
       return this.handleActivity(request);
     }
     if (url.pathname === '/agent-op' && request.method === 'POST') {
       return this.handleAgentOp(request);
-    }
-    if (url.pathname === '/mcp-claim' && request.method === 'POST') {
-      return this.handleMcpClaim(request);
-    }
-    if (url.pathname === '/mcp-release' && request.method === 'POST') {
-      return this.handleMcpRelease(request);
-    }
-    if (url.pathname === '/mcp-binding' && request.method === 'POST') {
-      return this.handleMcpBindingWrite(request);
-    }
-    if (url.pathname === '/mcp-binding' && request.method === 'GET') {
-      return this.handleMcpBindingRead();
-    }
-    if (url.pathname === '/mcp-binding' && request.method === 'DELETE') {
-      return this.handleMcpBindingDelete();
     }
     // Per-contentId mint-exclusivity (design §7 decision #2) — called on a
     // SEPARATE DO instance of this same class, addressed by
@@ -715,44 +665,18 @@ export class AgentLinkSession {
    * instance the macro bootstrapped) to authenticate a token regardless of
    * which Worker isolate the HTTP request landed on.
    */
-  private async handleSessionInfo(
-    bump: boolean,
-    presence: string | null,
-    client: string | null,
-  ): Promise<Response> {
+  private async handleSessionInfo(bump: boolean): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
-    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+    if (!auth.ok) return json({ error: auth.code }, { status: auth.status });
 
     // `?bump=1` marks this poll as bump-worthy agent activity (mcp.ts's
     // read-only ops route here): slide the idle window + push status before
     // reporting the fresh deadline.
     if (bump) await this.bumpActivity();
 
-    // `?presence=<stage>&client=<name>` — the MCP relay's connection-
-    // experience heartbeat (2026-08-15 spec §3, Task 2). Presence is
-    // deliberately NOT activity: it must never slide the TTL or re-arm the
-    // alarm (that's bump's job, above), so this persists+pushes independently
-    // via storage.put rather than going through bumpActivity(). Only a
-    // strictly higher-ranked stage than the one already on record triggers a
-    // push — repeats and regressions (a stale/out-of-order relay request) are
-    // silent. An unrecognized `presence` value (garbage query string) is
-    // ignored outright by isPresenceStage(), which is an own-property check —
-    // a plain `PRESENCE_RANK[presence] !== undefined` would have let every
-    // Object.prototype key ('constructor', 'toString', …) through.
-    if (isPresenceStage(presence) && this.session) {
-      const prev = this.session.presenceStage;
-      if (!prev || PRESENCE_RANK[presence] > PRESENCE_RANK[prev]) {
-        this.session.presenceStage = presence;
-        if (client && !this.session.clientName) this.session.clientName = client;
-        await this.state.storage.put('session', this.session);
-        this.pushStatus({ type: 'agent_presence', stage: presence, clientName: this.session.clientName });
-      }
-    }
-
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
-    return jsonResponse(
-      {
+    return json({
         state: session.state,
         boundContext: session.boundContext,
         issuedAtMs: session.issuedAtMs,
@@ -764,105 +688,7 @@ export class AgentLinkSession {
         // Baseline for the relay-side update_diagram guardrail; omitted until
         // the agent has read the diagram at least once.
         lastDiagram: this.lastDiagram ?? undefined,
-      },
-      200,
-    );
-  }
-
-  /** Atomically consumes this target's one-time linking code for one MCP
-   * transport session. The DO instance itself is addressed by the code, so a
-   * persisted claimant is enough to prevent silent takeover. */
-  private async handleMcpClaim(request: Request): Promise<Response> {
-    await this.ensureSession();
-    const auth = this.validateSession();
-    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
-
-    let body: { mcpSessionId?: unknown };
-    try {
-      body = await request.json();
-    } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
-    }
-    const mcpSessionId = typeof body?.mcpSessionId === 'string' ? body.mcpSessionId.trim() : '';
-    if (!mcpSessionId) return jsonResponse({ error: 'invalid_body' }, 400);
-    if (!this.macroSocket) return jsonResponse({ error: 'target_unavailable' }, 409);
-
-    const existing = await this.state.storage.get<string>('mcpClaim');
-    if (existing && existing !== mcpSessionId) {
-      return jsonResponse({ error: 'code_already_used' }, 409);
-    }
-    await this.state.storage.put('mcpClaim', mcpSessionId);
-
-    // Pairing is presence, not bump-worthy work: report the verified stage to
-    // the Macro without sliding the Agent Link token's idle deadline.
-    if (this.session) {
-      const previous = this.session.presenceStage;
-      if (!previous || PRESENCE_RANK.verified > PRESENCE_RANK[previous]) {
-        this.session.presenceStage = 'verified';
-        await this.state.storage.put('session', this.session);
-        this.pushStatus({ type: 'agent_presence', stage: 'verified', clientName: this.session.clientName });
-      }
-    }
-
-    const session = this.session as SessionRecord;
-    return jsonResponse(
-      {
-        ok: true,
-        expiresAtMs: effectiveExpiryMs(session.issuedAtMs, session.lastActivityMs),
-      },
-      200,
-    );
-  }
-
-  /** Releases a consumed linking code when its owning MCP transport ends or
-   * switches targets. A stale/non-owner release is an idempotent no-op. */
-  private async handleMcpRelease(request: Request): Promise<Response> {
-    let body: { mcpSessionId?: unknown };
-    try {
-      body = await request.json();
-    } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
-    }
-    const mcpSessionId = typeof body?.mcpSessionId === 'string' ? body.mcpSessionId.trim() : '';
-    if (!mcpSessionId) return jsonResponse({ error: 'invalid_body' }, 400);
-
-    const existing = await this.state.storage.get<string>('mcpClaim');
-    if (existing === mcpSessionId) await this.state.storage.delete('mcpClaim');
-    return jsonResponse({ ok: true }, 200);
-  }
-
-  /** Stores the target-code lookup on the DO instance addressed by
-   * `mcp:<Mcp-Session-Id>`. This instance intentionally has no Macro session. */
-  private async handleMcpBindingWrite(request: Request): Promise<Response> {
-    let body: { token?: unknown; expiresAtMs?: unknown };
-    try {
-      body = await request.json();
-    } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
-    }
-    const token = typeof body?.token === 'string' ? body.token.trim() : '';
-    const expiresAtMs = body?.expiresAtMs;
-    if (!token || typeof expiresAtMs !== 'number' || expiresAtMs <= Date.now()) {
-      return jsonResponse({ error: 'invalid_body' }, 400);
-    }
-    const binding: McpBinding = { token, expiresAtMs };
-    await this.state.storage.put('mcpBinding', binding);
-    return jsonResponse({ ok: true }, 200);
-  }
-
-  private async handleMcpBindingRead(): Promise<Response> {
-    const binding = await this.state.storage.get<McpBinding>('mcpBinding');
-    if (!binding) return jsonResponse({ error: 'not_paired' }, 404);
-    if (binding.expiresAtMs <= Date.now()) {
-      await this.state.storage.delete('mcpBinding');
-      return jsonResponse({ error: 'binding_expired' }, 410);
-    }
-    return jsonResponse(binding, 200);
-  }
-
-  private async handleMcpBindingDelete(): Promise<Response> {
-    await this.state.storage.delete('mcpBinding');
-    return jsonResponse({ ok: true }, 200);
+      }, { status: 200 });
   }
 
   /** `POST /activity` — the non-forwarded-activity ingress (spec §4.2): today
@@ -871,20 +697,20 @@ export class AgentLinkSession {
   private async handleActivity(request: Request): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
-    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+    if (!auth.ok) return json({ error: auth.code }, { status: auth.status });
     let body: { type?: unknown; detail?: unknown };
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const type = body?.type;
     if (type !== 'guardrail_rejected' && type !== 'agent_request' && type !== 'turn') {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const detail = typeof body?.detail === 'string' ? body.detail : undefined;
     await this.bumpActivity({ type, ...(detail ? { detail } : {}) });
-    return jsonResponse({ ok: true }, 200);
+    return json({ ok: true }, { status: 200 });
   }
 
   /**
@@ -898,17 +724,17 @@ export class AgentLinkSession {
   private async handleAgentOp(request: Request): Promise<Response> {
     await this.ensureSession();
     const auth = this.validateSession();
-    if (!auth.ok) return jsonResponse({ error: auth.code }, auth.status);
+    if (!auth.ok) return json({ error: auth.code }, { status: auth.status });
 
     let body: { id?: unknown; op?: unknown; args?: unknown };
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
     const { id, op, args } = body ?? {};
     if (typeof id !== 'string' || !id || typeof op !== 'string' || !op) {
-      return jsonResponse({ error: 'invalid_body' }, 400);
+      return json({ error: 'invalid_body' }, { status: 400 });
     }
 
     const session = this.session as SessionRecord; // validateSession() guarantees non-null here
@@ -919,12 +745,12 @@ export class AgentLinkSession {
       // the agent's only way to observe "waiting for the macro to
       // reconnect" (design §7 decision #4) instead of erroring on every poll.
       if (op === 'get_status') {
-        return jsonResponse({ ok: true, payload: { state: 'suspended', resume_deadline } }, 200);
+        return json({ ok: true, payload: { state: 'suspended', resume_deadline } }, { status: 200 });
       }
       // Every other op is a structured, RETRIABLE error — never queued (a
       // queued write could apply a stale edit after the user moved on,
       // which is worse than a clean retry once the macro reattaches).
-      return jsonResponse({ error: 'macro_disconnected', resume_deadline }, 409);
+      return json({ error: 'macro_disconnected', resume_deadline }, { status: 409 });
     }
 
     // get_status is answered by the DO in every state — link status is
@@ -933,8 +759,7 @@ export class AgentLinkSession {
     // failed with "unsupported op: get_status" (found in the 2026-07-10
     // staging spot check; only the suspended branch above ever worked).
     if (op === 'get_status') {
-      return jsonResponse(
-        {
+      return json({
           ok: true,
           payload: {
             state: session.state,
@@ -949,13 +774,11 @@ export class AgentLinkSession {
               ),
             ),
           },
-        },
-        200,
-      );
+        }, { status: 200 });
     }
 
     if (!this.macroSocket) {
-      return jsonResponse({ error: 'macro_not_connected' }, 409);
+      return json({ error: 'macro_not_connected' }, { status: 409 });
     }
 
     const envelope = JSON.stringify({ kind: 'op', id, op, payload: args ?? {} });
@@ -968,19 +791,19 @@ export class AgentLinkSession {
       // closing) — don't make the caller wait out the full timeout for a
       // message that never went anywhere.
       this.pendingOps.cancel(id);
-      return jsonResponse({ error: 'macro_not_connected' }, 409);
+      return json({ error: 'macro_not_connected' }, { status: 409 });
     }
 
     const result = await outcome;
     if ('timedOut' in result) {
-      return jsonResponse({ error: 'macro_timeout' }, 504);
+      return json({ error: 'macro_timeout' }, { status: 504 });
     }
     // Keep the diagram snapshot fresh for the relay-side update_diagram
     // guardrail (only on a successful reply — a failed op didn't change state).
     if (result.ok) {
       await this.cacheDiagramFromOp(op, args, result.payload);
     }
-    return jsonResponse({ ok: result.ok, payload: result.payload }, 200);
+    return json({ ok: result.ok, payload: result.payload }, { status: 200 });
   }
 
   /**

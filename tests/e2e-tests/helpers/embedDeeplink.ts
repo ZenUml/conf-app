@@ -66,6 +66,61 @@ export function isEmbedMacro(conv: EditorConversion): boolean {
   return conv.extensionKeys.some((k) => k.includes('zenuml-embed-macro'));
 }
 
+/**
+ * Did the paste convert into the given macro?
+ *
+ * Substring, not equality: Lite suffixes every macro key with `-lite`
+ * (`zenuml-graph-macro` -> `zenuml-graph-macro-lite`), so a caller can pass the
+ * unsuffixed key and have it match on every variant.
+ */
+export function isMacro(conv: EditorConversion, macroKey: string): boolean {
+  return conv.extensionKeys.some((k) => k.includes(macroKey));
+}
+
+/**
+ * The typed paste-to-place link — `/d/<type>/<cloudId>/<contentId>`, four path
+ * segments to the embed form's three.
+ *
+ * Host is deliberately NOT `testConfig.deeplinkHost`. The embed matcher moved to
+ * the per-variant serving hosts (conf-lite / conf-full) in the #382 migration,
+ * but the typed matchers in manifest.yml are still written against
+ * confluence.zenuml.com, and `buildDiagramDeeplink` mints to match them. Point
+ * this at the variant host and nothing converts.
+ */
+export function typedDeeplinkUrl(type: string, cloudId: string, contentId: string): string {
+  return `https://confluence.zenuml.com/d/${type}/${cloudId}/${contentId}`;
+}
+
+/** The create-a-new-diagram-of-this-type link. Carries no site or content. */
+export function newDiagramUrl(type: string): string {
+  return `https://confluence.zenuml.com/new/${type}`;
+}
+
+/**
+ * Generalized form of pasteDeeplinkUntilConverted: retries until `done` holds,
+ * so a cold editor's not-yet-loaded Forge matchers read as startup timing rather
+ * than a conversion failure. Returns the last observed state either way, so a
+ * caller can assert on what actually appeared.
+ */
+export async function pasteUntil(
+  page: Page,
+  url: string,
+  done: (conv: EditorConversion) => boolean,
+  opts: { attempts?: number; settleMs?: number } = {},
+): Promise<EditorConversion> {
+  const attempts = opts.attempts ?? 12;
+  const settleMs = opts.settleMs ?? 1500;
+  let conv: EditorConversion = { extensionKeys: [], cardCount: 0, anchorHrefs: [] };
+  for (let i = 0; i < attempts; i++) {
+    await clearEditor(page);
+    await pasteDeeplink(page, url);
+    conv = await readConversion(page, settleMs);
+    if (done(conv)) return conv;
+    await page.waitForTimeout(1000);
+  }
+  return conv;
+}
+
 async function clearEditor(page: Page): Promise<void> {
   await editorBody(page).click();
   await page.keyboard.press('ControlOrMeta+a');
@@ -81,15 +136,5 @@ export async function pasteDeeplinkUntilConverted(
   url: string,
   opts: { attempts?: number; settleMs?: number } = {},
 ): Promise<EditorConversion> {
-  const attempts = opts.attempts ?? 12;
-  const settleMs = opts.settleMs ?? 1500;
-  let conv: EditorConversion = { extensionKeys: [], cardCount: 0, anchorHrefs: [] };
-  for (let i = 0; i < attempts; i++) {
-    await clearEditor(page);
-    await pasteDeeplink(page, url);
-    conv = await readConversion(page, settleMs);
-    if (isEmbedMacro(conv)) return conv;
-    await page.waitForTimeout(1000);
-  }
-  return conv;
+  return pasteUntil(page, url, isEmbedMacro, opts);
 }

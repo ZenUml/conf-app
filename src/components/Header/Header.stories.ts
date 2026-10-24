@@ -1,8 +1,16 @@
-import type { Meta, StoryObj } from '@storybook/vue3-vite'
+import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
+import type { App } from 'vue'
 import Header from './Header.vue'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import forgeGlobal from '@/model/globals/forgeGlobal'
+
+// Header.vue reads the store through mapState/mapGetters, so the Vuex plugin is
+// installed on Storybook's root Vue app via setup(). See GenericViewer.stories.ts
+// for why the decorator `app:` idiom never worked on @storybook/vue3-vite 10.4.
+setup((app: App) => {
+  app.use(store)
+})
 
 type Story = StoryObj<typeof Header>
 
@@ -48,24 +56,18 @@ function setupStore({
 // ---------------------------------------------------------------------------
 
 const meta: Meta<typeof Header> = {
-  title: 'Layout/Header',
+  title: 'Editor/Diagram/Header',
   component: Header,
   parameters: {
     layout: 'fullscreen',
     docs: {
       description: {
         component:
-          'Top toolbar in the Workspace editor. Contains the diagram-type tab switcher (Sequence / Mermaid / PlantUML), the diagram title input, Templates (starter-template gallery) and Help buttons, and the Publish button. Publish is disabled until a title is provided.',
+          'Top toolbar of the diagram editor (Workspace.vue): the diagram title input on the left, the Sequence / Mermaid / PlantUML / Markdown tab strip, then the Hide/Show code toggle, AI Chat and Templates (when available), Help and Publish on the right. At narrow widths, AI Chat, Templates and Help use compact icon buttons so the toolbar stays on one row. Publish is disabled until a title is provided; hovering the disabled button shows "Add a diagram title to publish".',
       },
     },
   },
   decorators: [
-    // Provide Vuex store as a Vue plugin so mapState / mapMutations resolve in Header.
-    () => ({
-      template: '<story />',
-      // @ts-expect-error — Storybook Vue3 decorator `app` param; not in the TS overload
-      app: (app: import('vue').App) => app.use(store),
-    }),
     // Reset forge globals before each story.
     () => {
       stubForge()
@@ -83,7 +85,7 @@ export default meta
 /**
  * Default state when creating a new Sequence diagram.
  * The Publish button is disabled because the title is empty.
- * Hovering the Publish button reveals the "Add a diagram title" tooltip.
+ * Hovering the Publish button reveals the "Add a diagram title to publish" tooltip.
  */
 export const SequenceNoTitle: Story = {
   decorators: [
@@ -122,7 +124,7 @@ export const SequenceWithTitle: Story = {
 // ---------------------------------------------------------------------------
 
 /**
- * Mermaid diagram type selected — the middle tab is highlighted in emerald.
+ * Mermaid diagram type selected — the middle tab carries the Mermaid accent (#FF3670 underline and dot).
  */
 export const MermaidDiagram: Story = {
   decorators: [
@@ -144,7 +146,7 @@ export const MermaidDiagram: Story = {
 // ---------------------------------------------------------------------------
 
 /**
- * PlantUML diagram type selected — the third tab is active.
+ * PlantUML diagram type selected — the third tab carries the PlantUML accent (#B84800).
  */
 export const PlantUmlDiagram: Story = {
   decorators: [
@@ -183,3 +185,32 @@ export const NewDiagram: Story = {
     },
   ],
 }
+
+// ---------------------------------------------------------------------------
+// Auto-opened starter gallery (onboarding funnel)
+// ---------------------------------------------------------------------------
+
+/**
+ * First entry to a brand-new, empty macro: the starter-template gallery
+ * opens itself instead of showing a blank canvas (`template_gallery_trigger:
+ * 'auto_first_open'`). Requires clearing the "already auto-opened" browser
+ * marker (see utils/starterGallery/autoOpenMarker.ts) so the story always
+ * demonstrates a first visit — in a real session this fires once per
+ * cloudId + macro type per browser, never again after that.
+ */
+export const AutoOpenStarterGallery: Story = {
+  decorators: [
+    () => {
+      localStorage.removeItem('zenuml.starterGalleryAutoOpened.unknown-cloud.sequence')
+      setupStore({
+        diagramType: DiagramType.Sequence,
+        title: '',
+        code: '',
+        isNew: true,
+        id: '',
+      })
+      return { template: '<story />' }
+    },
+  ],
+}
+

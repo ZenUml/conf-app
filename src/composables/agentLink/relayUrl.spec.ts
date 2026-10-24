@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { agentLinkMcpUrl, agentLinkWsUrl, mintAgentLinkSession, toWebSocketBaseUrl } from './relayUrl'
+import { agentLinkWsUrl, mintAgentLinkSession, toWebSocketBaseUrl } from './relayUrl'
 
 describe('toWebSocketBaseUrl', () => {
   it('upgrades https:// to wss://', () => {
@@ -34,17 +34,6 @@ describe('agentLinkWsUrl', () => {
       'https://conf-full.zenuml.com'
     )
     expect(url.startsWith('wss://conf-full.zenuml.com/agent-link/channel?')).toBe(true)
-  })
-})
-
-describe('agentLinkMcpUrl', () => {
-  it('derives the MCP endpoint from the backend base URL', () => {
-    expect(agentLinkMcpUrl('https://conf-stg-lite.zenuml.com')).toBe(
-      'https://conf-stg-lite.zenuml.com/agent-link/mcp'
-    )
-  })
-  it('defaults to forgeGlobal.zenumlRemoteBaseUrl', () => {
-    expect(agentLinkMcpUrl()).toMatch(/\/agent-link\/mcp$/)
   })
 })
 

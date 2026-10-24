@@ -76,6 +76,20 @@ describe('Header', () => {
     expect(wrapper.emitted('toggle-ai-chat')).toHaveLength(1)
   })
 
+  it('carries no code-panel control at all — the panel owns its own', async () => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.isNew = false
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await flushPromises()
+
+    // Hiding and showing the source pane both happen at the pane's own edge
+    // (Workspace.vue renders those controls). A toggle creeping back into the
+    // toolbar would put a third, distant control on the same state.
+    expect(wrapper.find('[data-testid="code-panel-toggle"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Hide code')
+    expect(wrapper.text()).not.toContain('Show code')
+  })
+
   it('tracks each AI Chat button visibility transition without counting re-renders', async () => {
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.isNew = false
@@ -129,6 +143,56 @@ describe('Header', () => {
       await w.vm.$nextTick();
 
       expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
+    it('applies before the AI Chat flag answers, not after its round trip', () => {
+      // The preference must land in mount's synchronous part. forgeIndex reads
+      // doc.diagramType (the same object as store.state.diagram) right after
+      // mountRoot to label macro_create_started, and the Sequence placeholder
+      // renders — firing macro_viewed(sequence) — while mounted() awaits. With
+      // the flag read ahead of this block, every new Lite diagram with a
+      // remembered Mermaid preference was counted as a sequence create and
+      // view from 2026-08-31 (v2026.08.302214-lite).
+      vi.mocked(isAiChatEnabled).mockReturnValue(new Promise(() => {}));
+      localStorage.setItem('zenuml-preferred-diagram-type', DiagramType.Mermaid);
+      mountWith({ isNew: true, typeRequested: false, diagramType: DiagramType.Sequence });
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
+    it('still installs draft protection when reading the preference throws', async () => {
+      // Storage can throw (blocked site data, sandboxed iframe). mounted() must
+      // not reject before the draft saver / restore handler / close guard exist.
+      const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => {
+        if (key === 'zenuml-preferred-diagram-type') throw new DOMException('denied', 'SecurityError');
+        return null;
+      });
+      try {
+        const w = mountWith({ id: '', isNew: true, typeRequested: false, diagramType: DiagramType.Sequence, title: 'T' });
+        await flushPromises();
+
+        // The draft-restore handler is registered at the end of mounted().
+        EventBus.$emit('draft-restore', { scope: 'new:diagram', draft: { code: 'Restored->Me: hi', title: 'Restored', diagramType: 'sequence', buffers: {} } });
+        await w.vm.$nextTick();
+        expect(store.state.diagram.title).toBe('Restored');
+        expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('still switches the diagram type when saving the preference throws', async () => {
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      try {
+        const w = mountWith({ id: 'x1', isNew: false, typeRequested: false, diagramType: DiagramType.Sequence });
+        await flushPromises();
+        expect(() => { (w.vm as any).diagramType = DiagramType.Mermaid; }).not.toThrow();
+        expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+      } finally {
+        spy.mockRestore();
+      }
     });
 
     it('never overrules a type the user just picked', async () => {

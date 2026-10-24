@@ -111,6 +111,84 @@ describe('reportOrphanObserved', () => {
     );
   });
 
+  // #148: the direct by-id fetch detail rides on the event so a
+  // probe_skipped_no_probe_result can be told apart (403 vs 5xx vs thrown vs
+  // malformed) instead of collapsing into one bucket.
+  describe('direct-fetch detail (#148)', () => {
+    function lastProps() {
+      return vi.mocked(trackEvent).mock.calls[0][3] as Record<string, unknown>;
+    }
+
+    it('reports a structured 403 as other_error / 403 / FORBIDDEN / structured', () => {
+      reportOrphanObserved('page1', 'orphan1', 'sequence', undefined, {
+        recoveryUsed: false,
+        directFetch: {
+          directFetchStatus: 'other_error',
+          directFetchHttpStatus: 403,
+          directFetchErrorCode: 'FORBIDDEN',
+          directFetchErrorClass: 'structured',
+        },
+      });
+
+      expect(lastProps()).toMatchObject({
+        recoverable: 'probe_skipped_no_probe_result',
+        direct_fetch_status: 'other_error',
+        direct_fetch_http_status: 403,
+        direct_fetch_error_code: 'FORBIDDEN',
+        direct_fetch_error_class: 'structured',
+      });
+    });
+
+    it('reports a thrown fetch with class thrown and no http status / code', () => {
+      reportOrphanObserved('page1', 'orphan1', 'sequence', undefined, {
+        directFetch: { directFetchStatus: 'other_error', directFetchErrorClass: 'thrown' },
+      });
+
+      expect(lastProps()).toMatchObject({ direct_fetch_status: 'other_error', direct_fetch_error_class: 'thrown' });
+      expect(lastProps()).not.toHaveProperty('direct_fetch_http_status');
+      expect(lastProps()).not.toHaveProperty('direct_fetch_error_code');
+    });
+
+    it('reports a malformed body with class malformed', () => {
+      reportOrphanObserved('page1', 'orphan1', 'graph', undefined, {
+        directFetch: { directFetchStatus: 'other_error', directFetchErrorClass: 'malformed' },
+      });
+
+      expect(lastProps()).toMatchObject({ direct_fetch_error_class: 'malformed' });
+    });
+
+    it('keeps the probe fields unchanged next to a strict-404 direct fetch', () => {
+      const probe = fakeProbe({ recoverable: true, candidateCount: 1, pageChildrenTotal: 3 });
+
+      reportOrphanObserved('page1', 'orphan1', 'sequence', probe, {
+        recoveryUsed: false,
+        directFetch: {
+          directFetchStatus: 'not_found',
+          directFetchHttpStatus: 404,
+          directFetchErrorCode: 'NOT_FOUND',
+          directFetchErrorClass: 'structured',
+        },
+      });
+
+      expect(lastProps()).toMatchObject({
+        recoverable: 'true',
+        candidate_count: 1,
+        page_children_total: 3,
+        recovery_used: false,
+        direct_fetch_status: 'not_found',
+        direct_fetch_http_status: 404,
+        direct_fetch_error_code: 'NOT_FOUND',
+        direct_fetch_error_class: 'structured',
+      });
+    });
+
+    it('adds no direct_fetch_* keys when no detail is supplied', () => {
+      reportOrphanObserved('page1', 'orphan1', 'sequence', undefined);
+
+      expect(Object.keys(lastProps()).filter((k) => k.startsWith('direct_fetch_'))).toEqual([]);
+    });
+  });
+
 });
 
 describe('reportOrphanMacroRepaired', () => {

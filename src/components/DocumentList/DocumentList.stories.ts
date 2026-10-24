@@ -27,7 +27,7 @@ setup((app: App) => {
  *    preset context skips the Forge bridge. `extension.location` feeds the
  *    "Page:" link base; `extension.config.customContentId` pre-selects a document
  *    exactly as an existing Embed macro does;
- *  - globals.apWrapper.searchCustomContentForge / getCustomContentByIdV2 return
+ *  - globals.apWrapper.searchCustomContent / getCustomContentByIdV2 return
  *    the fixture below.
  * Nothing here reaches Forge, Confluence or the backend.
  *
@@ -90,7 +90,7 @@ function configureStory({ items, pickedId }: { items: CustomContentItem[]; picke
       config: pickedId ? { customContentId: pickedId } : {},
     },
   } as any
-  ;(globals.apWrapper as any).searchCustomContentForge = async () => items
+  ;(globals.apWrapper as any).searchCustomContent = async () => items
   ;(globals.apWrapper as any).getCustomContentByIdV2 = async (id: string) =>
     items.find((item) => item.id === id) ?? null
 }

@@ -37,6 +37,7 @@ describe("React AIChatPanel core flow", () => {
   let root: Root | null;
 
   beforeEach(() => {
+    localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -203,6 +204,7 @@ describe("React AIChatPanel core flow", () => {
       diagramCode: originalCode,
       diagramType: "openapi",
       prompt: "Update the API title",
+      model: "openai/gpt-5.6-luna",
       signal: expect.any(AbortSignal),
     }));
     expect(onDiagramlyDiagramBound).toHaveBeenCalledWith("diagram-1");
@@ -226,6 +228,7 @@ describe("React AIChatPanel core flow", () => {
         turn_index: 1,
         input_source: "typed",
         retry_after_failure: false,
+        ai_model: "openai/gpt-5.6-luna",
       }),
     );
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
@@ -236,11 +239,38 @@ describe("React AIChatPanel core flow", () => {
         poll_count: 2,
         lines_added: 1,
         lines_removed: 1,
+        ai_model: "openai/gpt-5.6-luna",
       }),
     );
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       "ai_chat_diff_toggled",
       expect.objectContaining({ interaction_state: "opened" }),
+    );
+  });
+
+  it("uses the ai_chat_model localStorage override for the request and analytics", async () => {
+    localStorage.setItem("ai_chat_model", " anthropic/claude-sonnet-5 ");
+    vi.mocked(runAIChatSession).mockResolvedValueOnce({
+      diagramId: "diagram-1",
+      diagramCreated: false,
+      updatedCode: "openapi: 3.0.0",
+      noChange: true,
+      jobId: "job-model",
+    });
+    renderPanel({
+      currentCode: "openapi: 3.0.0",
+      diagramlyDiagramId: "diagram-1",
+    });
+
+    submit("Keep it concise");
+    await flushAsyncWork();
+
+    expect(runAIChatSession).toHaveBeenCalledWith(expect.objectContaining({
+      model: "anthropic/claude-sonnet-5",
+    }));
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "ai_chat_prompt_submitted",
+      expect.objectContaining({ ai_model: "anthropic/claude-sonnet-5" }),
     );
   });
 

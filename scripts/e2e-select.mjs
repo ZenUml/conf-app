@@ -12,7 +12,17 @@
 // `@smoke` is always part of a selection.
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
-import { IMPACT, NO_E2E_IMPACT, RUN_EVERYTHING } from '../tests/e2e-tests/config/impact-map.mjs';
+import { CATEGORIES } from '../tests/e2e-tests/config/categories.mjs';
+import { EXECUTION_IMPACT, IMPACT, NO_E2E_IMPACT, RUN_EVERYTHING } from '../tests/e2e-tests/config/impact-map.mjs';
+
+const EXECUTION_SELECTOR_TAGS = new Set(CATEGORIES.map(({ id }) => `@test:${id}`));
+
+const DIRECT_TEST_DEPENDENCIES = {
+  'tests/e2e-tests/helpers/agentLink.ts': [
+    'agent-link/agent-link-e2e.spec.ts',
+    'agent-link/agent-link-multi-page-crosstalk.spec.ts',
+  ],
+};
 
 export function globToRegExp(glob) {
   // Supports `**` (any depth, including none), `*` (within a segment) and
@@ -35,21 +45,50 @@ export function globToRegExp(glob) {
   return new RegExp('^' + re + '$');
 }
 
-/** @returns {{ mode: 'all'|'selected', tags: string[], grep: string, reasons: string[] }} */
-export function select(files) {
+const directSpecPath = path => {
+  // PR staging runs named projects only. Root-level viewer-preview specs use
+  // the separate preview project, so they cannot be direct PR coverage.
+  const match = /^tests\/e2e-tests\/tests\/([^/]+\/.+\.(?:spec|test)\.[cm]?[jt]s)$/.exec(path);
+  return match?.[1] ?? null;
+};
+const directTestFilesFor = path => {
+  const spec = directSpecPath(path);
+  return spec ? [spec] : DIRECT_TEST_DEPENDENCIES[path] ?? [];
+};
+
+/** @returns {{ mode: 'all'|'selected', tags: string[], grep: string, reasons: string[], direct_test_files: string[] }} */
+export function select(files, { scope = 'pr' } = {}) {
   const reasons = [];
   const tags = new Set(['@smoke']);
+  const direct_test_files = new Set();
   let all = false;
   for (const file of files) {
+    const directFiles = directTestFilesFor(file);
+    if (directFiles.length) { directFiles.forEach(path => direct_test_files.add(path)); reasons.push(`${file}: direct test (${directFiles.join(', ')})`); continue; }
+    if (scope === 'main') {
+      reasons.push(`${file}: Jev-classified behavior`);
+      continue;
+    }
     const shared = RUN_EVERYTHING.find(g => globToRegExp(g).test(file));
     if (shared) { reasons.push(`${file}: runs everything (${shared})`); all = true; continue; }
     const none = NO_E2E_IMPACT.find(g => globToRegExp(g).test(file));
     if (none) { reasons.push(`${file}: no E2E impact (${none})`); continue; }
-    const hits = IMPACT.filter(({ glob }) => globToRegExp(glob).test(file));
-    if (hits.length > 0) {
-      const t = [...new Set(hits.flatMap(h => h.tags))];
+    const executionHits = EXECUTION_IMPACT.filter(({ glob }) => globToRegExp(glob).test(file));
+    if (executionHits.length > 0) {
+      const t = [...new Set(executionHits.flatMap(h => h.tags))];
+      if (t.some(tag => !EXECUTION_SELECTOR_TAGS.has(tag))) {
+        reasons.push(`${file}: invalid execution selector → runs everything`); all = true; continue;
+      }
       t.forEach(x => tags.add(x));
       reasons.push(`${file}: ${t.join(' ')}`);
+      continue;
+    }
+    const descriptiveHits = IMPACT.filter(({ glob }) => globToRegExp(glob).test(file));
+    if (descriptiveHits.length > 0) {
+      const t = [...new Set(descriptiveHits.flatMap(h => h.tags))];
+      // Descriptive tags are context for Jev, not an execution filter. The
+      // model's category result can widen the smoke and direct-spec floor.
+      reasons.push(`${file}: Jev-classified behavior (${t.join(' ')})`);
       continue;
     }
     reasons.push(`${file}: unmapped → runs everything`); all = true;
@@ -57,8 +96,8 @@ export function select(files) {
   if (files.length === 0) { reasons.push('no changed files → runs everything'); all = true; }
   const sorted = [...tags].sort();
   return all
-    ? { mode: 'all', tags: [], grep: '', reasons }
-    : { mode: 'selected', tags: sorted, grep: sorted.join('|'), reasons };
+    ? { mode: 'all', tags: [], grep: '', reasons, direct_test_files: [] }
+    : { mode: 'selected', tags: sorted, grep: sorted.join('|'), reasons, direct_test_files: [...direct_test_files].sort() };
 }
 
 function changedFiles(base, head) {

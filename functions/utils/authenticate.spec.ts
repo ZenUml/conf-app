@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair, SignJWT } from 'jose';
+import { inspect } from 'node:util';
 import authenticate, {
   normalizeAllowedForgeAppAris,
   validateContextToken,
@@ -107,13 +108,22 @@ describe('validateContextToken', () => {
   });
 
   it('does not log decoded FIT payloads on failure', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await expect(validateContextToken('not-a-jwt', APP_ID, async () => {
-      throw new Error('should not resolve');
-    })).rejects.toBeDefined();
+    const { token, publicKey } = await signedFit({ issuer: 'rejected-issuer' });
+    const logSpies = (['warn', 'error', 'log', 'info', 'debug'] as const)
+      .map(level => vi.spyOn(console, level).mockImplementation(() => {}));
+    try {
+      await expect(validateContextToken(token, APP_ID, async () => publicKey))
+        .rejects.toBeDefined();
 
-    expect(JSON.stringify(warn.mock.calls)).not.toContain('not-a-jwt');
-    expect(JSON.stringify(warn.mock.calls)).not.toContain(CLOUD_ID);
+      for (const argument of logSpies.flatMap(spy => spy.mock.calls.flat())) {
+        const loggedText = inspect(argument, { depth: null, showHidden: true });
+        for (const secret of [token, CLOUD_ID, INSTALLATION_ID, 'rejected-issuer']) {
+          expect(loggedText).not.toContain(secret);
+        }
+      }
+    } finally {
+      logSpies.forEach(spy => spy.mockRestore());
+    }
   });
 });
 

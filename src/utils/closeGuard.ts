@@ -37,66 +37,78 @@ export interface CloseGuardHandler {
   (): void | Promise<void>;
 }
 
-const handlers = new Map<symbol, CloseGuardHandler>();
-let dispatcherRegistered = false;
+// Forge documents one onClose callback, but does not promise that registering
+// another preserves the first. Keep one bridge callback for this iframe and
+// dispatch to every local subscriber (draft flush, cancellation telemetry,
+// etc.). Records are distinct even when callers pass the same function.
+const handlers = new Set<{ handler: CloseGuardHandler }>();
+let bridgeRegistration: 'idle' | 'pending' | 'registered' = 'idle';
 
-async function dispatchClose(): Promise<void> {
+function reportHandlerError(error: unknown): void {
+  console.error('[closeGuard] handler error:', error);
+}
+
+function dispatchClose(): Promise<void> {
   const pending: Promise<void>[] = [];
-
-  // Start every listener synchronously. A close can destroy this iframe at any
-  // time, so awaiting one listener before starting the next can lose outcomes.
-  for (const handler of handlers.values()) {
+  // Start every active callback synchronously. A slow or failed callback must
+  // not prevent a later subscriber from flushing its own state before teardown.
+  for (const record of Array.from(handlers)) {
+    // An earlier callback may have unmounted a later subscriber during this
+    // dispatch. A newly registered subscriber is absent from the snapshot.
+    if (!handlers.has(record)) continue;
     try {
-      const result = handler();
-      if (result && typeof (result as Promise<void>).then === 'function') {
-        pending.push(Promise.resolve(result).catch((e) => {
-          console.error('[closeGuard] handler error:', e);
-        }));
-      }
-    } catch (e) {
-      console.error('[closeGuard] handler error:', e);
+      const result = record.handler();
+      if (result) pending.push(Promise.resolve(result).catch(reportHandlerError));
+    } catch (error) {
+      reportHandlerError(error);
     }
   }
-
-  await Promise.all(pending);
+  // Preserve the bridge callback's wait contract while isolating failures.
+  return Promise.all(pending).then(() => undefined);
 }
 
-function registerDispatcher(): void {
-  if (dispatcherRegistered) return;
-  dispatcherRegistered = true;
-
-  try {
-    if (typeof (view as any).onClose === 'function') {
-      void (view as any).onClose(dispatchClose).catch((e: unknown) => {
-        dispatcherRegistered = false;
-        trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
-        console.warn('[closeGuard] view.onClose rejected, ignoring:', e);
-      });
-    } else {
-      dispatcherRegistered = false;
-      console.warn('[closeGuard] view.onClose unavailable — relying on per-keystroke draft only.');
-    }
-  } catch (e) {
-    dispatcherRegistered = false;
-    console.warn('[closeGuard] view.onClose threw, ignoring:', e);
-  }
+function reportRegistrationFailure(error: unknown): void {
+  bridgeRegistration = 'idle';
+  trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
+  console.warn('[closeGuard] view.onClose rejected, ignoring:', error);
 }
 
-export function setupCloseGuard(handler: CloseGuardHandler): () => void {
-  const subscription = Symbol('closeGuard');
-  handlers.set(subscription, handler);
+function registerBridgeCallback(): void {
+  if (bridgeRegistration !== 'idle') return;
 
-  // Forge retains only one onClose callback per iframe. Keep that callback for
-  // the view lifetime and fan out locally so independent editor concerns such
-  // as draft saving and close-outcome telemetry cannot replace each other.
+  // view.onClose returns a Promise<void>; the handler stays registered for
+  // the lifetime of the view. There is no documented unregister API, so the
+  // single bridge hook survives periods with zero local subscribers.
   //
   // Defensive guard: if @forge/bridge is older than 5.16 (or running in a
   // non-Forge sandbox), `view.onClose` may be undefined. We swallow the
   // failure so the caller's mount logic — including the per-keystroke draft
   // saver — still completes. The localStorage draft is the safety net.
-  registerDispatcher();
+  try {
+    if (typeof (view as any).onClose === 'function') {
+      bridgeRegistration = 'pending';
+      void Promise.resolve((view as any).onClose(dispatchClose)).then(
+        () => { bridgeRegistration = 'registered'; },
+        reportRegistrationFailure,
+      );
+    } else {
+      console.warn('[closeGuard] view.onClose unavailable — relying on per-keystroke draft only.');
+    }
+  } catch (e) {
+    bridgeRegistration = 'idle';
+    trackAnalyticsEvent('close_guard_rejected', { feature_area: 'system', surface: 'editor' });
+    console.warn('[closeGuard] view.onClose threw, ignoring:', e);
+  }
+}
+
+export function setupCloseGuard(handler: CloseGuardHandler): () => void {
+  const record = { handler };
+  handlers.add(record);
+  // A failed registration keeps all subscribers. A later explicit setup call
+  // retries once; no background retry loop can race the host's close.
+  registerBridgeCallback();
 
   return () => {
-    handlers.delete(subscription);
+    handlers.delete(record);
   };
 }

@@ -9,7 +9,7 @@
         :options="diagramOptions"
       />
     </div>
-    <div class="flex items-center gap-3 shrink-0 ml-auto">
+    <div class="editor-header-actions flex items-center gap-3 shrink-0 ml-auto">
       <button
         v-if="aiChatAvailable"
         class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-sm font-medium rounded-md transition-colors duration-200"
@@ -19,20 +19,22 @@
             : 'text-gray-500 hover:bg-violet-50 hover:text-violet-700'
         "
         data-testid="ai-chat-toggle"
+        aria-label="AI Chat"
+        title="AI Chat"
         @click="$emit('toggle-ai-chat')"
       >
         <SparklesIcon class="w-4 h-4" />
-        <span>AI Chat</span>
+        <span class="editor-action-label">AI Chat</span>
       </button>
-      <button v-if="diagramType !== DiagramType.Markdown" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+      <button v-if="diagramType !== DiagramType.Markdown" aria-label="Templates" title="Templates" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="openTemplateGallery()">
         <LightBulbIcon class="w-4 h-4" />
-        <span>Templates</span>
+        <span class="editor-action-label">Templates</span>
       </button>
-      <button class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+      <button aria-label="Help" title="Help" class="flex items-center gap-1.5 px-2.5 py-1 h-7 text-gray-500 text-sm font-medium rounded-md hover:text-gray-700 hover:bg-gray-100 transition-colors duration-200"
         @click="helpClick">
         <QuestionMarkCircleIcon class="w-4 h-4" />
-        <span>Help</span>
+        <span class="editor-action-label">Help</span>
       </button>
       <div class="h-5 w-px bg-gray-300"></div>
       <div class="relative group/save">
@@ -169,7 +171,11 @@ export default {
           feature_area: 'content', surface: 'editor', macro_type: 'markdown',
         });
         // Save user's tab preference to localStorage
-        localStorage.setItem('zenuml-preferred-diagram-type', value);
+        try {
+          localStorage.setItem('zenuml-preferred-diagram-type', value);
+        } catch (e) {
+          console.debug('[Header] could not save preferred diagram type', e);
+        }
       }
     },
     currentCode() {
@@ -230,6 +236,9 @@ export default {
       if (block) return PUBLISH_BLOCK_MESSAGES[block] || 'Publishing is unavailable for this diagram here.';
       return 'Add a diagram title to publish';
     },
+    // Hidden while AI chat is open: that panel carries its own Hide/Show code
+    // button for the same pane, and two controls for one pane in view at once
+    // reads as two different things.
     aiChatAvailable: function () {
       return this.aiChatEnabled && this.diagramType !== DiagramType.Graph && this.diagramType !== DiagramType.Markdown;
     },
@@ -363,7 +372,12 @@ export default {
     },
   },
   async mounted() {
-    this.aiChatEnabled = await isAiChatEnabled();
+    // Not awaited: the flag is a network round trip, and nothing below reads
+    // it. Awaiting it here pushed the preferred-type switch past that trip, so
+    // a new diagram rendered the Sequence placeholder first and forgeIndex
+    // labelled its macro_create_started / macro_viewed as `sequence`.
+    // isAiChatEnabled never rejects (a failed lookup resolves false).
+    isAiChatEnabled().then((enabled) => { this.aiChatEnabled = enabled; });
 
     // Load user's preferred diagram type from localStorage for new diagrams.
     //
@@ -376,7 +390,14 @@ export default {
     const isNewDiagram = this.$store.state.diagram.isNew;
     const typeWasRequested = !!this.$store.state.diagram.typeRequested;
     if (isNewDiagram && !typeWasRequested) {
-      const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
+      // Storage can throw (blocked site data); an uncaught throw here would
+      // reject mounted() before the draft saver and close guard are installed.
+      let savedDiagramType = null;
+      try {
+        savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
+      } catch (e) {
+        console.debug('[Header] could not read preferred diagram type', e);
+      }
       if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid || savedDiagramType === DiagramType.Markdown)) {
         this.updateDiagramType(savedDiagramType);
       }
@@ -555,18 +576,28 @@ export default {
 
 @media (max-width: 1280px) {
   .toolbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    height: auto;
-    min-height: 80px;
-    flex-shrink: 0;
-    gap: 4px 12px;
-    padding-top: 6px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
-  .notch {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-self: center;
+
+  .editor-header-actions {
+    gap: 6px;
+  }
+
+  .editor-action-label {
+    display: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .notch :deep([role="tab"]) {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .editor-header-actions > button {
+    padding-left: 6px;
+    padding-right: 6px;
   }
 }
 </style>

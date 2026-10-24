@@ -12,7 +12,7 @@
 // it can take 5+ minutes per case and isn't appropriate for every Playwright
 // run. CI invokes it explicitly when needed.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -41,7 +41,7 @@ function runCommand(cmd: string): { exitCode: number; output: string } {
   }
 }
 
-test.describe('Regression baseline', { tag: ['@fullscreen', '@viewer', '@sequence'] }, () => {
+test.describe('Regression baseline', { tag: ['@test:regression', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@viewer', '@sequence'] }, () => {
   test.skip(
     process.env.RUN_REGRESSION !== 'true',
     'Skipped unless RUN_REGRESSION=true (regression cases shell out to other suites — slow)',

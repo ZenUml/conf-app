@@ -80,7 +80,7 @@
 // skip on staging. The description text in test 2 carries an identifiable
 // marker for anyone auditing staging D1 rows later.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { insertMacro, insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';
@@ -94,7 +94,7 @@ import {
 import { openFullscreenViewer, viewerFrame } from '../../helpers/ViewerActionsHelper.js';
 import { frameWithTestId } from '../../helpers/byline.js';
 
-test.describe('Feedback reporting', { tag: ['@modal', '@editor', '@viewer', '@fullscreen', '@feedback'] }, () => {
+test.describe('Feedback reporting', { tag: ['@test:feedback-report', '@variant:lite', '@variant:full', '@variant:diagramly', '@modal', '@editor', '@viewer', '@fullscreen', '@feedback'] }, () => {
   test.skip(!testConfig.isForge, 'Feedback reporting is Forge-only');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');
   // File-wide, not just the backend-write test — see the file header for why.

@@ -84,21 +84,22 @@ CI=true APP=zenuml-lite@stg pnpm exec playwright test --grep @paywall
 ```
 
 CI uses the same mechanism to run less on a pull request: `scripts/e2e-select.mjs`
-maps the PR's changed files through `config/impact-map.mjs` to a `--grep`
-expression (`@smoke` is always in it), and the Lite E2E jobs run only the
-matching specs — their names carry "(selected)" when that happened. A shared
-file (`src/forgeIndex.ts`, `src/model/**`, `package.json`, anything under
-`tests/e2e-tests/` including the specs) or a file the map does not know makes
-the run unselective. `main` always runs the whole suite. Try it locally:
+keeps `@smoke` and any changed staged-project E2E spec as a deterministic floor, then Jev
+uses the public diff and the closed behavior taxonomy to widen the `--grep`
+expression. The Lite E2E jobs run that union and carry "(selected)" in their
+names. Shared runtime and harness files (`src/forgeIndex.ts`, `src/model/**`,
+`package.json`, fixtures, authentication, page objects, and Playwright
+configuration) or an unmapped file make the run unselective. `main` always
+runs the whole suite. Try it locally:
 
 ```bash
-node scripts/e2e-select.mjs src/components/Mermaid.vue         # → @editor|@mermaid|@smoke|@viewer
+node scripts/e2e-select.mjs src/components/Mermaid.vue         # → @smoke; Jev adds behavior categories in CI
 node scripts/e2e-select.mjs --base origin/main --head HEAD     # your branch's selection
 ```
 
-When you add a source area, add its glob to `impact-map.mjs`;
-`tests/unit/e2eSelect.spec.ts` checks that every glob still matches a tracked
-file and every tag exists.
+When you add a source area, add its descriptive glob to `impact-map.mjs` so
+Jev receives the relevant context. `tests/unit/e2eSelect.spec.ts` checks that
+every glob still matches a tracked file and every tag exists.
 
 ## Test Structure
 

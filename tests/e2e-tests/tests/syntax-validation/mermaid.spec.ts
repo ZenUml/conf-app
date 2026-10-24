@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
 
@@ -11,7 +11,7 @@ import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
  * - Validates error detection and error clearing for Mermaid diagrams
  */
 
-test.describe('Mermaid Syntax Error Detection', { tag: ['@editor', '@mermaid'] }, () => {
+test.describe('Mermaid Syntax Error Detection', { tag: ['@test:mermaid-syntax', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@mermaid'] }, () => {
   // Disable retries for this test suite
   //test.describe.configure({ retries: 0 });
 

@@ -1,5 +1,6 @@
 <template>
-  <generic-viewer :wide="autoResize===true" :hideHeader="hideHeader">
+  <mermaid-highlight-viewer v-if="diagramType === DiagramType.Mermaid && !hideHeader && !readOnly" :wide="autoResize === true" />
+  <generic-viewer v-else :wide="autoResize===true" :hideHeader="hideHeader">
     <markdown v-if="diagramType===DiagramType.Markdown" />
     <mermaid v-if="diagramType===DiagramType.Mermaid"></mermaid>
     <plant-uml v-if="diagramType===DiagramType.PlantUml"></plant-uml>
@@ -7,6 +8,7 @@
   </generic-viewer>
 </template>
 <script>
+import MermaidHighlightViewer from "@/components/Viewer/MermaidHighlightViewer.vue";
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import Sequence from "@/components/Sequence.vue";
 import Markdown from "@/components/Markdown.vue";
@@ -16,7 +18,7 @@ import { DiagramType } from "@/model/Diagram/Diagram";
 
 export default {
   name: "DiagramPortal",
-  components: {Markdown, Mermaid, PlantUml, Sequence, GenericViewer},
+  components: {MermaidHighlightViewer, Markdown, Mermaid, PlantUml, Sequence, GenericViewer},
   props: {
     autoResize: {
       type: Boolean,

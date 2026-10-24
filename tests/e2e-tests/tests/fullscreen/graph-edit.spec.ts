@@ -1,6 +1,6 @@
 // graph-edit:0..4 — Edit flow for an existing Graph (DrawIO) macro.
 
-import { test, expect, type FrameLocator } from '@playwright/test';
+import { test, expect, type FrameLocator } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,
@@ -19,7 +19,7 @@ import {
   GRAPH_DIRTY_MARKER,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Graph (DrawIO) — Edit flow', { tag: ['@fullscreen', '@graph'] }, () => {
+test.describe('Graph (DrawIO) — Edit flow', { tag: ['@test:graph-edit', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@graph'] }, () => {
   // Every test seeds its own page (`seed()` publishes a fresh macro) and reads
   // only that page's state, so there is nothing to share between them. Without
   // this, the root config's `fullyParallel: false` makes the whole file ONE

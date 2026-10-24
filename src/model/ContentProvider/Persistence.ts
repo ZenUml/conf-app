@@ -8,12 +8,14 @@ import { markCsatPending } from "@/utils/csat";
 import { syncCustomContent } from "@/services/CustomContent";
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { reportSaveRefusedLegacyLoadBlocked } from '@/utils/legacyContentPropertyTelemetry';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { buildSnapshot, uploadSnapshot, snapshotAttachmentName, snapshotSkipReason, snapshotFailureDetail } from '@/model/SnapshotAttachment';
 import { getEditorMutationSummary } from '@/utils/analytics/editorMutationTelemetry';
 import { markEditorSaved } from '@/utils/analytics/editorCloseOutcome';
+import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { toMacroType } from '@/utils/byline/pageDiagrams';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
@@ -147,6 +149,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         macro_type: macroType,
         operation_mode: "create",
         save_duration_ms,
+        ...getCreationFlowProps(),
         ...savedIdProps,
       });
     } else {
@@ -168,11 +171,17 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     // JSON snapshot, written at THIS save (write permission on the current
     // page is guaranteed here) alongside the existing PNG backup. Snapshot
     // failures must never fail the save — every step below is wrapped.
+    //
+    // Publish timing (snapshot_ms): the page-id lookup plus the upload. Set only
+    // once the upload is reached, so a save that took no snapshot reports none.
+    let snapshotStartedAt: number | undefined;
     try {
       const snapshot = buildSnapshot(diagram, savedId, customContent.version?.number);
       if (snapshot) {
+        const startedAt = performance.now();
         const pageId = await apWrapper._getCurrentPageId();
         if (pageId) {
+          snapshotStartedAt = startedAt;
           await uploadSnapshot(pageId, snapshot);
           trackAnalyticsEvent('snapshot_created', {
             feature_area: 'macro',
@@ -219,6 +228,9 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
           confluence_error_class,
         });
       }
+    } finally {
+      // Failures count too: a slow failed upload is still time the user waited.
+      if (snapshotStartedAt !== undefined) recordPublishStep('snapshot_ms', snapshotStartedAt);
     }
   }
 
@@ -226,7 +238,9 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   // editor, tearing down the iframe and killing any in-flight enumeration
   // (which for a large space takes ~10s). It runs at editor-open instead
   // (forgeIndex), where the editing session gives it time to complete.
+  const mirrorSyncStartedAt = performance.now();
   await syncCustomContent(customContent, diagram.diagramType, macroUuid);
+  recordPublishStep('mirror_sync_ms', mirrorSyncStartedAt);
 
   return String(customContent.id);
 }

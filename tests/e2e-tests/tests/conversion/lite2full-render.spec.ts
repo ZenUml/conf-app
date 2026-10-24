@@ -16,7 +16,7 @@
  * is a string the rendered diagram must contain.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -28,7 +28,7 @@ const SHOT_DIR = process.env.CONVERT_SHOT_DIR ?? path.join(process.cwd(), '..', 
 /** Macro chrome that renders whether or not the body loaded. */
 const CHROME = /(Untitled diagram|Test Diagram Sequence|Edit|Source|Copy for AI|Fullscreen|ZenUML\.com|\d+%)/g;
 
-test.describe('Lite->Full converted macro renders', { tag: ['@viewer', '@conversion'] }, () => {
+test.describe('Lite->Full converted macro renders', { tag: ['@test:lite2full-render', '@variant:full', '@viewer', '@conversion'] }, () => {
   test.use({ viewport: { width: 1400, height: 1000 } });
 
   test(`page ${PAGE_ID} shows diagram content, not an empty macro`, async ({ page }) => {

@@ -19,6 +19,16 @@ export enum DiagramType {
   Unknown = 'unknown'
 }
 
+/** Optional, producer-prepared Magic rendering stored with the Mermaid body. */
+export interface MagicArtifact {
+  /** Lowercase SHA-256 hex of the exact UTF-8 mermaidCode, without normalization. */
+  sourceHash: string;
+  svg: string;
+  rulesVersion: 'magic-v1';
+  outcome: 'validated';
+  generatedAt?: string;
+}
+
 export class Diagram {
   // id is used only for debugging and for display only. It is NOT saved in custom content or content property.
   id?: string; // custom content id or content property id or uuid
@@ -52,6 +62,7 @@ export class Diagram {
   title?: string = '';
   styles?: object = {};
   mermaidCode?: string = '';
+  magic?: MagicArtifact;
   // Undefined means the Markdown tab has never been opened; empty is intentional.
   markdownCode?: string;
   plantUmlCode?: string = '';

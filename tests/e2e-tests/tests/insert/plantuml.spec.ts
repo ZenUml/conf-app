@@ -1,5 +1,5 @@
-import { test } from '@playwright/test';
-import { testConfig } from '../../config/test-config.js';
+import { expect, test } from '../../fixtures/mixpanel-test.js';
+import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { createPageAndSetup, publishAndVerifyMacros, moveToPvt } from './insert-helpers.js';
 
 // Named for the tab it actually drives. This file was called mermaid.spec.ts
@@ -12,7 +12,7 @@ const macroType = 'mermaid' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Smoke Test - plantuml`, { tag: ['@editor', '@viewer', '@plantuml', '@smoke'] }, () => {
+test.describe(`Smoke Test - plantuml`, { tag: ['@test:plantuml', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@plantuml', '@smoke'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {
@@ -49,7 +49,9 @@ test.describe(`Smoke Test - plantuml`, { tag: ['@editor', '@viewer', '@plantuml'
     // assertMacroRendersDiagram compares the rendered box against the viewBox,
     // which is the property the 2026-09-07 fix was verified on.
     const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-plantuml', async (macroPage) => {
-      await macroPage.assertMacroRendersDiagram(macroPage.getSequenceMacroFrame());
+      const frame = macroPage.getSequenceMacroFrame();
+      await expect(frame.locator('.plantuml-render svg')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+      await macroPage.assertMacroRendersDiagram(frame);
     });
     if (pageId) createdPageIds.push(pageId);
   });

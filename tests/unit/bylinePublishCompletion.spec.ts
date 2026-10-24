@@ -70,6 +70,7 @@ describe.each([
     const handler = loadHandler(file, handlerName, {
       window: { diagram, specContent: 'info: {title: Test diagram}' }, store: { state: { diagram } },
       saveToPlatform, markPublishClicked: vi.fn(), notifyAiTitleSaved: vi.fn(),
+      recordPublishStep: vi.fn(), recordPublishFlag: vi.fn(),
       trackPublishCompleted: (props: any) => captured.push({ ...props, ...captureCreationAttemptProperties('macro_publish_completed', props) }),
       getEditJourneyId: () => undefined,
       isInserting, isConfiguring, decideWriteback, deriveWritebackSignals,

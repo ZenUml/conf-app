@@ -28,10 +28,7 @@ python3 $S whois <domain> --json   # machine-readable (self-documents data vinta
 
 ## What the card encodes (the traps baked in)
 
-- **State per app, not a binary.** `FREE` (Lite free rider) / `TRIAL — expires D (⚠ Nd left)` (active
-  evaluation) / `PAID $X paid_thru D` / `LAPSED` (was paying, coverage ended). A `$0` is NOT "not a
-  customer": it may be an active trial (whose billing outcome still needs verification) or a
-  churned payer.
+- **Purchase and settlement are independent.** Inspect raw transactions alongside the license. The current `whois` helper can label positive transaction amounts `PAID` without checking `paymentStatus`; its `PAID`, `paying` and lifetime totals are not independent payment confirmation. Verify raw Paid/Fully paid/Open status, source IDs and service periods in the Marketplace export/snapshot. A valid commercial order with Open status establishes purchase, while settlement stays unconfirmed. Do not describe that customer as unpaid or without an order.
 - **Lite → Layer B auto-checked.** Lite is free on the Marketplace (`$0` by design); real Lite paid
   status lives in the **Stripe/KV space-license** layer. `whois` shells `wrangler kv … --remote`
   (the `--remote` is baked in — without it wrangler v4 reads LOCAL state and returns a false empty)
@@ -57,7 +54,9 @@ reproducible reports, live for "is X paying right now". See `marketplace` for `s
 
 ## Report shape
 
-Give company/site, verified product/license/payment facts, contact roles and evidence gaps. `paying_any_layer` is nullable when the Lite payment layer is unchecked or failed. True means payment evidence exists, not that the current subscription is paid through today. Review transaction periods/refunds and active coverage separately.
+Give company/site, purchase evidence, verified product/license facts, source-reported payment status, contact roles and evidence gaps. Preserve transaction/line IDs, sale dates, amounts and coverage rather than quoting only a lifetime total. The helper's `paying_any_layer` can be unknown when Lite is unchecked, but a true result still requires raw Marketplace/Stripe verification before claiming payment. Review transaction periods/refunds and overlapping invoices separately; Open-only orders must not be described as “no transaction found”.
+
+For purchase/renewal opportunities, pass a matched valid non-zero order with effective commercial license to `customer-followup` as a commercial win, even if settlement is Open. Exclude refunds, cancelled/voided orders and free-only rows. A paused support or technical conversation is separate from this commercial fact.
 
 For a decision, pass the facts to `customer-followup`. This lookup does not grant permission for product changes, free extensions, outreach or scheduling. Contact role is not established by a technical-contact label. Full trial expiry alone is not a reason to chase purchasing.
 

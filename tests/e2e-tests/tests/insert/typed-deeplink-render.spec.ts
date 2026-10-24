@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
 import { pasteUntil, isMacro, typedDeeplinkUrl } from '../../helpers/embedDeeplink.js';
@@ -82,7 +82,7 @@ async function fetchPageCustomContentId(
   return String(id);
 }
 
-test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, { tag: ['@editor', '@viewer', '@graph', '@deeplink'] }, () => {
+test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, { tag: ['@test:typed-deeplink-render', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@graph', '@deeplink'] }, () => {
   test.skip(
     skip,
     testConfig.isLite

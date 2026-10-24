@@ -3,6 +3,11 @@ import { renderMarkdown } from './renderMarkdown';
 
 const render = vi.hoisted(() => vi.fn(async (id: string, source: string) => {
   if (source.includes('broken')) throw new Error('invalid diagram');
+  if (source.includes('untouched;')) {
+    // Shape of mermaid 11's real rejection for this customer's diagram: the
+    // message echoes the offending source line verbatim, markup included.
+    throw new Error("Parse error on line 2:\n... left untouched;<br/>next cap_end retrie\n-----------------------^\nExpecting 'NEWLINE', ',', 'TXT', got 'INVALID'");
+  }
   return { svg: `<svg id="${id}"><text>${source.trim()}</text></svg>` };
 }));
 vi.mock('@/utils/mermaid/loadMermaid', () => ({ loadMermaid: async () => ({ render }) }));
@@ -24,6 +29,20 @@ describe('Markdown documents', () => {
     expect(result.html).toContain('<svg');
     expect(result.html).toContain('Goodbye');
     expect(result.failedBlocks).toBe(1);
+  });
+  it('tells the author where a diagram failed to parse, without rendering the echoed source as HTML', async () => {
+    const diagram = 'sequenceDiagram\nNote over A,B: Files left untouched;<br/>next cap_end retries';
+    const result = await renderMarkdown(`\`\`\`mermaid\n${diagram}\n\`\`\``);
+    expect(result.html).toContain('Parse error on line 2:');
+    expect(result.html).toContain('left untouched;&lt;br/&gt;next cap_end retrie');
+    expect(result.html).not.toContain('untouched;<br/>');
+    expect(result.failedBlocks).toBe(1);
+  });
+  it('explains that a semicolon ends a sequence diagram statement when one caused the failure', async () => {
+    const sequence = await renderMarkdown('```mermaid\nsequenceDiagram\nNote over A,B: Files left untouched;<br/>next\n```');
+    expect(sequence.html).toContain('#59;');
+    const other = await renderMarkdown('```mermaid\nbroken\n```');
+    expect(other.html).not.toContain('#59;');
   });
   it('does not execute raw HTML or unsafe links, and preserves ordinary code fences', async () => {
     const result = await renderMarkdown('<script>alert(1)</script>\n\n[x](javascript:alert(1))\n\n```js\nconst x = 1;\n```');

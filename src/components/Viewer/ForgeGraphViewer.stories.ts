@@ -116,14 +116,14 @@ export const RealTwoPageExport: Story = {
     const canvas = within(canvasElement)
     await waitFor(() => {
       expect(canvasElement.textContent).toContain('ORDERS PAGE 1')
-      expect(canvasElement.textContent).toContain('1 / 2')
+      expect(canvasElement.textContent).toContain('1 of 2')
     }, { timeout: 15000 })
     await expect(canvas.getByRole('button', { name: 'Next page' })).toBeEnabled()
 
     canvas.getByRole('button', { name: 'Next page' }).click()
     await waitFor(() => {
       expect(canvasElement.textContent).toContain('FULFILMENT PAGE 2')
-      expect(canvasElement.textContent).toContain('2 / 2')
+      expect(canvasElement.textContent).toContain('2 of 2')
     })
     await expect(canvas.getByRole('button', { name: 'Previous page' })).toBeEnabled()
 
@@ -140,7 +140,7 @@ export const RealTwoPageExport: Story = {
     canvas.getByRole('button', { name: 'Previous page' }).click()
     await waitFor(() => {
       expect(canvasElement.textContent).toContain('ORDERS PAGE 1')
-      expect(canvasElement.textContent).toContain('1 / 2')
+      expect(canvasElement.textContent).toContain('1 of 2')
     })
     canvas.getByRole('button', { name: 'Export PNG' }).click()
     await waitFor(() => {
@@ -179,5 +179,44 @@ export const RealWideGraphExport: Story = {
       expect(preview.naturalWidth).toBe(1698)
       expect(preview.naturalHeight).toBe(88)
     }, { timeout: 15000 })
+  },
+}
+
+export const RealGraphPanZoom: Story = {
+  name: 'Real GraphViewer — pan and zoom',
+  render: () => ({
+    components: { ForgeGraphViewer },
+    setup() {
+      return useRealGraphFixture({ graphXml: WIDE_GRAPH, title: 'Wide Graph zoom', accountId: 'storybook-zoom-graph-user', contentId: 'storybook-zoom-graph-content' })
+    },
+    template: '<div style="width:900px;height:620px;margin:0 auto;background:#fff"><ForgeGraphViewer v-if="ready" :graph-xml="graphXml" /></div>',
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvasElement.textContent).toContain('FAR LEFT NODE')
+    }, { timeout: 15000 })
+
+    const container = canvasElement.querySelector<HTMLElement>('.graph-viewer-canvas')!
+    // mxGraph keeps the zoom on graph.view; the drawn SVG is its visible trace, so
+    // measure that rather than reaching into GraphViewer's internals.
+    const readScale = () => container.querySelector('svg')!.getBoundingClientRect().width
+
+    await expect(canvas.getByRole('toolbar', { name: 'Graph zoom controls' })).toBeVisible()
+    const before = readScale()
+    const beforeHeight = container.getBoundingClientRect().height
+
+    canvas.getByRole('button', { name: 'Zoom in' }).click()
+    await waitFor(() => {
+      expect(readScale()).toBeGreaterThan(before)
+    })
+    // The container must NOT grow with the zoom: that is what GraphViewer's own
+    // `zoomEnabled` toolbar would do, and it would push the page around.
+    expect(Math.round(container.getBoundingClientRect().height)).toBe(Math.round(beforeHeight))
+
+    canvas.getByRole('button', { name: 'Zoom out' }).click()
+    await waitFor(() => {
+      expect(readScale()).toBeLessThanOrEqual(before + 1)
+    })
   },
 }

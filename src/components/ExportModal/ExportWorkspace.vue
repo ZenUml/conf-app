@@ -40,7 +40,7 @@
       <div v-else-if="state.previewDataUrl.value" class="image-surface" :style="{ width: fit.width + 'px', height: fit.height + 'px', background: state.resolvedBgColor.value }">
         <img :src="state.previewDataUrl.value" alt="Diagram preview" @load="imageLoaded" draggable="false" />
         <div class="rendered-annotations" aria-hidden="true" v-html="overlaySvg" />
-        <svg ref="canvas" class="annotation-canvas" aria-label="Annotation canvas" tabindex="0" :viewBox="`0 0 600 ${viewHeight}`" :style="{ cursor: tool ? 'crosshair' : 'default', overflow: 'visible' }" @pointerdown="canvasDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerCancel">
+        <svg ref="canvas" class="annotation-canvas" aria-label="Annotation canvas" tabindex="0" :viewBox="`0 0 600 ${viewHeight}`" :style="{ cursor: tool ? 'crosshair' : 'default', overflow: 'visible' }" @pointerdown="canvasDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerCancel" @dblclick="canvasDblclick">
           <g v-for="item in state.annotations.items.value" :key="item.id" :data-annotation-id="item.id" role="button" tabindex="0" :aria-label="`${item.type}: ${item.text || 'annotation'}`" :style="{pointerEvents: tool ? 'none' : 'auto'}" @pointerdown.stop="selectItem(item, $event)" @dblclick.stop="editText(item)" @keydown.enter.stop="editText(item)">
             <line v-if="item.type === 'arrow'" :x1="item.position.x * 600" :y1="item.position.y * viewHeight" :x2="item.end.x * 600" :y2="item.end.y * viewHeight" stroke="transparent" stroke-width="16" />
             <rect v-else v-bind="bounds(item)" :fill="item.type === 'rectangle' ? 'none' : 'transparent'" :stroke="selected?.id === item.id ? '#2563eb' : 'transparent'" :stroke-width="item.type === 'rectangle' && selected?.id !== item.id ? 12 : 1" stroke-dasharray="4 3" />
@@ -291,6 +291,14 @@ function pointerCancel() {
   if (drag.mode === 'create') state.annotations.remove(drag.id);
   else state.annotations.update(drag.id, { position: drag.position, end: drag.end });
   drag = null;
+}
+// beginDrag() captures the pointer on this canvas, so the browser retargets the
+// click/dblclick that follows a press on an annotation to the <svg> and the
+// per-annotation @dblclick on its <g> never fires. The press already selected
+// the annotation, so the canvas-level handler edits that selection.
+function canvasDblclick() {
+  if (tool.value || editingId.value || !selected.value) return;
+  editText(selected.value);
 }
 function selectWatermark() {
   deselect();

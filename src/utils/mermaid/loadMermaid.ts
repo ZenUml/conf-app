@@ -77,7 +77,9 @@ export async function loadMermaid(deps: LoadMermaidDeps = {}): Promise<any> {
           throw new Error(`mermaid module at ${url} has no initialize()`);
         }
         instance.initialize({
-          startOnLoad: true,
+          // Every render is initiated explicitly. Auto-start also scans the
+          // document and can overlap our render queue with an untracked pass.
+          startOnLoad: false,
           theme: 'neutral',
         });
         // Register before sharing the instance with renderers and validators.

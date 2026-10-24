@@ -23,86 +23,30 @@
  *     omits cloudId (a KNOWN, unresolved false-lockout gap — NOT exercised by
  *     THIS test, since our two fixture pages use different contentIds).
  *
- * Uses TWO existing stable fixture pages (create-not-delete policy — see
- * CLAUDE.md), each already carrying a real ZenUML macro:
- *   - Page A: pageId=128811025, contentId=128483345 ("E2E test page", SD
- *     space — same fixture as agent-link-e2e.spec.ts).
- *   - Page B: pageId=146636830, contentId=147292161 ("Spotcheck-3 cross-space
- *     discovery fixture", a different/personal space — see
- *     spot-check-3-discovery.spec.ts's header for provenance; confirmed live
- *     via GET /wiki/api/v2/pages/146636830 to carry a real
- *     zenuml-sequence-macro-lite extension node bound to that contentId).
+ * Creates two independent pages and custom-content records for this test.
+ * Existing diagrams and sessions are never borrowed or revoked.
  *
- * Two-context-per-test pattern matches spot-check-2-lifecycle.spec.ts's
- * exclusivity test (test 6): `browser.newContext({ storageState:
- * AUTH_STATE_PATH })` per "user", not the default single `page` fixture.
- *
- * Selecting this suite requires a working candidate MCP handshake. Both edits
- * are restored in `finally`, so the run is non-destructive.
+ * Gated on the unreleased agent-link build: skips (not fails) when
+ * `/agent-link/mcp` isn't routed on conf-stg-lite — same skip pattern as
+ * agent-link-e2e.spec.ts. Both edits are restored in `finally`, so the run is
+ * non-destructive.
  *
  * Run: cd tests/e2e-tests && npx playwright test --project=agent-link agent-link-multi-page-crosstalk
  */
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { installMixpanelIsolation, test, expect, type Browser, type Page } from '../../fixtures/mixpanel-test.js';
 import {
+  AGENT_LINK_STG_BASE,
   agentLinkMcp,
   clickConnectToAgent,
-  connectAgentLink,
-  enableAgentLinkOverrides,
-  assertAgentLinkEndpointLive,
-  openMacroPage,
+  openIsolatedAgentLinkPage,
+  disconnectAgentLink,
+  waitForAgentLinkReady,
+  isAgentLinkEndpointLive,
   readPanelClass,
   readSessionToken,
   waitForRenderedMarker,
 } from '../../helpers/agentLink.js';
 import { AUTH_STATE_PATH } from '../../config/auth-state.js';
-
-const CLOUD_ID = 'c78e721e-957f-402c-9b70-1df2227c2739'; // lite-stg.atlassian.net
-
-const PAGE_A_ID = '128811025';
-const CONTENT_A_ID = '128483345';
-const PAGE_A_URL = `https://lite-stg.atlassian.net/wiki/pages/viewpage.action?pageId=${PAGE_A_ID}`;
-
-const PAGE_B_ID = '146636830';
-const CONTENT_B_ID = '147292161';
-const PAGE_B_URL = `https://lite-stg.atlassian.net/wiki/pages/viewpage.action?pageId=${PAGE_B_ID}`;
-
-/**
- * Reattach as the macro peer with `token` (accepted while the session is
- * 'suspended' — see AgentLinkSession.ts's peer-connect guard) and send
- * `{kind:'disconnect'}`, the same envelope the real UI's Disconnect button
- * sends, so the per-contentId mint-exclusivity claim releases immediately
- * instead of sitting on the full 10-min token TTL. Same mechanism as
- * spot-check-2*.spec.ts's forceReleaseLock — MUST be called AFTER the
- * owning browser context is closed: while it's still open the relay
- * considers the session ACTIVE and rejects a second macro-peer connect
- * outright (verified empirically, both here and in those specs).
- */
-async function forceReleaseLock(token: string, pageId: string, contentId: string): Promise<void> {
-  const wsUrl =
-    `wss://conf-stg-lite.zenuml.com/agent-link/channel?token=${encodeURIComponent(token)}` +
-    `&peer=macro&cloudId=${encodeURIComponent(CLOUD_ID)}&pageId=${encodeURIComponent(pageId)}` +
-    `&contentId=${encodeURIComponent(contentId)}`;
-  try {
-    const ws = new WebSocket(wsUrl);
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('ws open timeout')), 10000);
-      ws.addEventListener('open', () => {
-        clearTimeout(t);
-        resolve();
-      });
-      ws.addEventListener('error', (e) => {
-        clearTimeout(t);
-        reject(e);
-      });
-    });
-    ws.send(JSON.stringify({ kind: 'disconnect' }));
-    await new Promise((r) => setTimeout(r, 1200));
-    ws.close();
-  } catch {
-    // Best-effort cleanup only — a failure here just means the claim
-    // self-clears at its own TTL instead of releasing early.
-  }
-}
 
 /**
  * A `tools/call` JSON-RPC result is `{content: [{type:'text', text: <JSON
@@ -121,22 +65,10 @@ function mcpPayload(res: { result: any }): any {
       /* fall through */
     }
   }
-  return {};
+  return res.result ?? {};
 }
 
-/**
- * Build an APPEND-only edit: the marker line is added after the diagram's
- * existing content, never replacing it — a monotonic length increase that
- * can never trip the update_diagram guardrail's catastrophic-data-loss check
- * (see spot-check-2.spec.ts's "APPEND (monotonic length increase) — never
- * trips the data-loss guard" comment). Deliberately NOT a full-replace via
- * the shared helper's `markerDsl()`: this fixture's CURRENT bound diagram
- * turned out to be a large, unrelated "paywall warning banner" demo diagram
- * (left by a prior, unrelated spot-check run on this shared page — found
- * empirically when a full-replace with a tiny one-liner got silently
- * guardrail-rejected). Appending is robust regardless of how large the
- * fixture's current content happens to be.
- */
+/** Append a marker without replacing the fixture's existing diagram. */
 function appendMarkerEdit(originalDsl: string, diagramType: string, marker: string): string {
   const trimmed = originalDsl.trimEnd();
   const t = diagramType.toLowerCase();
@@ -175,7 +107,16 @@ async function renderedText(page: Page): Promise<string> {
   return texts.join('\n');
 }
 
-test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@viewer', '@fullscreen', '@ai'] }, () => {
+// lite only: see agent-link-e2e.spec.ts — the affordance under test renders on
+// lite-stg alone.
+test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@test:agent-link-multi-page-crosstalk', '@variant:lite', '@viewer', '@fullscreen', '@ai'] }, () => {
+  // The relay session UI is not offered in the headless-only first release
+  // (RELAY_SESSIONS_ENABLED=false in src/composables/agentLink/connectInstructions.ts),
+  // so there is no button to start a session. Flip that constant and run
+  // with AGENT_LINK_RELAY=1 to bring these back; the "Connect MCP — headless"
+  // describe in agent-link-e2e.spec.ts covers what ships.
+  test.skip(process.env.AGENT_LINK_RELAY !== '1', 'relay sessions are not offered in the headless-only release');
+
   test('two concurrent sessions on two different pages never leak edits across each other', async ({
     browser,
   }: {
@@ -183,17 +124,21 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
   }) => {
     test.setTimeout(150_000);
 
-    await assertAgentLinkEndpointLive();
+    test.skip(
+      !(await isAgentLinkEndpointLive()),
+      `agent-link not routed on ${AGENT_LINK_STG_BASE} (unreleased build or shared-alias clobber)`,
+    );
 
     const contextA = await browser.newContext({ storageState: AUTH_STATE_PATH });
+
+    await installMixpanelIsolation(contextA);
     const contextB = await browser.newContext({ storageState: AUTH_STATE_PATH });
+    await installMixpanelIsolation(contextB);
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
 
     let tokenA: string | null = null;
     let tokenB: string | null = null;
-    let mcpSessionIdA: string | null = null;
-    let mcpSessionIdB: string | null = null;
     let originalDslA = '';
     let originalDslB = '';
 
@@ -211,65 +156,49 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
       // something happens on either, which the concurrent update_diagram
       // calls below (with BOTH sessions already fully paired) exercise
       // directly. Matches the proven per-page timing in agent-link-e2e.spec.ts.
-      // `onToken` reports the token back to the OUTER tokenA/tokenB variables
-      // as soon as it's minted — i.e. BEFORE any of the later
-      // read_page/read_diagram assertions in this function can throw — so the
-      // `finally` block below can still force-release this page's per-
-      // contentId mint-exclusivity claim even if pairing/reading fails
-      // partway through (found necessary empirically: an assertion thrown
-      // from inside this function otherwise left the caller's `tokenA`/
-      // `tokenB` at their initial `null`, silently orphaning a live claim for
-      // up to the full 10-minute token TTL).
+      // Keep each token available to finally even if later assertions fail.
       async function connectAndPair(
         page: Page,
-        url: string,
         label: string,
         onToken: (token: string) => void,
-      ): Promise<{ token: string; mcpSessionId: string; dsl: string; diagramType: string }> {
-        await enableAgentLinkOverrides(page);
-        await openMacroPage(page, url);
+      ): Promise<{ token: string; dsl: string; diagramType: string }> {
+        await openIsolatedAgentLinkPage(page);
         expect(await clickConnectToAgent(page), `${label} renders "Connect to Agent"`).toBe(true);
-        await page.waitForTimeout(9000);
-
-        const token = await readSessionToken(page);
+        let token: string | null = null;
+        await expect.poll(async () => {
+          token = await readSessionToken(page);
+          return token;
+        }, { timeout: 20000 }).toBeTruthy();
         expect(token, `${label} mints a session token`).toBeTruthy();
         onToken(token!);
+        await waitForAgentLinkReady(token!);
 
-        // Pair a real MCP transport session with this page's one-time code:
-        // initialize + connect, then address every tool call by the returned
-        // Mcp-Session-Id. The bare token is the pairing credential, not a
-        // transport handle — passing it as an Mcp-Session-Id addresses a
-        // nonexistent transport and 404s before isolation is ever exercised.
-        const mcpSessionId = await connectAgentLink(token!);
-
-        const rp = await agentLinkMcp(mcpSessionId, 'read_page');
+        const rp = await agentLinkMcp(token!, 'read_page');
         expect(rp.status, `${label} read_page HTTP`).toBe(200);
 
         await expect
           .poll(() => readPanelClass(page), { timeout: 15000, message: `${label} border flips to connected` })
           .toContain('connected');
 
-        const rd = await agentLinkMcp(mcpSessionId, 'read_diagram');
+        const rd = await agentLinkMcp(token!, 'read_diagram');
         expect(rd.status, `${label} read_diagram HTTP`).toBe(200);
         const rdPayload = mcpPayload(rd);
         const dsl = String(rdPayload.dsl ?? rdPayload.code ?? '');
         expect(dsl, `${label} read_diagram returns current DSL`).not.toHaveLength(0);
         const diagramType = String(rdPayload.diagramType ?? 'sequence');
 
-        return { token: token!, mcpSessionId, dsl, diagramType };
+        return { token: token!, dsl, diagramType };
       }
 
-      const a = await connectAndPair(pageA, PAGE_A_URL, 'page A', (t) => {
+      const a = await connectAndPair(pageA, 'page A', (t) => {
         tokenA = t;
       });
       originalDslA = a.dsl;
-      mcpSessionIdA = a.mcpSessionId;
 
-      const b = await connectAndPair(pageB, PAGE_B_URL, 'page B', (t) => {
+      const b = await connectAndPair(pageB, 'page B', (t) => {
         tokenB = t;
       });
       originalDslB = b.dsl;
-      mcpSessionIdB = b.mcpSessionId;
 
       expect(tokenA, 'the two pages mint DIFFERENT tokens').not.toBe(tokenB);
       const diagramTypeA = a.diagramType;
@@ -292,11 +221,11 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
       const markerB = `AGENTX${suffix}B`;
 
       const [upA, upB] = await Promise.all([
-        agentLinkMcp(mcpSessionIdA!, 'update_diagram', {
+        agentLinkMcp(tokenA!, 'update_diagram', {
           dsl: appendMarkerEdit(originalDslA, diagramTypeA, markerA),
           summary: 'crosstalk-check A',
         }),
-        agentLinkMcp(mcpSessionIdB!, 'update_diagram', {
+        agentLinkMcp(tokenB!, 'update_diagram', {
           dsl: appendMarkerEdit(originalDslB, diagramTypeB, markerB),
           summary: 'crosstalk-check B',
         }),
@@ -328,25 +257,21 @@ test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@v
       expect(textOnB, "page B's DOM never shows page A's marker (no cross-talk)").not.toContain(markerA);
     } finally {
       // Non-destructive: restore both diagrams, matching agent-link-e2e.spec.ts's convention.
-      if (mcpSessionIdA && originalDslA) {
-        await agentLinkMcp(mcpSessionIdA, 'update_diagram', { dsl: originalDslA, summary: 'crosstalk-check restore A' }).catch(
+      if (tokenA && originalDslA) {
+        await agentLinkMcp(tokenA, 'update_diagram', { dsl: originalDslA, summary: 'crosstalk-check restore A' }).catch(
           () => {},
         );
       }
-      if (mcpSessionIdB && originalDslB) {
-        await agentLinkMcp(mcpSessionIdB, 'update_diagram', { dsl: originalDslB, summary: 'crosstalk-check restore B' }).catch(
+      if (tokenB && originalDslB) {
+        await agentLinkMcp(tokenB, 'update_diagram', { dsl: originalDslB, summary: 'crosstalk-check restore B' }).catch(
           () => {},
         );
       }
-      // Close both browser contexts BEFORE force-releasing (see
-      // forceReleaseLock's doc comment for why), then release each page's
-      // per-contentId mint-exclusivity claim so a re-run — or another spec
-      // sharing these fixtures — isn't 409'd for up to 10 minutes by a
-      // claim this run is done with.
+      // Release only the sessions owned by this test, then close both contexts.
+      if (tokenA) await disconnectAgentLink(pageA).catch(() => {});
+      if (tokenB) await disconnectAgentLink(pageB).catch(() => {});
       await contextA.close().catch(() => {});
       await contextB.close().catch(() => {});
-      if (tokenA) await forceReleaseLock(tokenA, PAGE_A_ID, CONTENT_A_ID);
-      if (tokenB) await forceReleaseLock(tokenB, PAGE_B_ID, CONTENT_B_ID);
     }
   });
 });

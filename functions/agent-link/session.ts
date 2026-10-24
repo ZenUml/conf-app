@@ -9,6 +9,7 @@
 import { sessionRegistry as registry } from './registrySingleton';
 import { IDLE_TTL_MS } from './sessionToken';
 import type { BoundContext } from './sessionToken';
+import { json } from '../OkResponse';
 
 interface Env {
   // Same cross-Worker binding channel.ts/mcp.ts/AgentLinkSession.ts use —
@@ -25,7 +26,7 @@ interface Env {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
@@ -40,7 +41,7 @@ const JSON_HEADERS = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 // builds.
 
 function jsonError(status: number, message: string): Response {
-  return new Response(JSON.stringify({ error: message }), { status, headers: JSON_HEADERS });
+  return json({ error: message }, { status, headers: JSON_HEADERS });
 }
 
 export async function onRequestOptions(): Promise<Response> {
@@ -123,35 +124,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }),
     { status: 200, headers: JSON_HEADERS },
   );
-};
-
-
-// The old channel may already be closed when Reconnect is clicked. Possession
-// of its short-lived code authorizes revocation; the target context and the
-// lock's token are both checked before anything can be released.
-export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
-  let body: Partial<BoundContext> & { token?: unknown };
-  try { body = await request.json(); } catch { return jsonError(400, 'Invalid JSON body'); }
-  const { token, cloudId, pageId, contentId } = body ?? {};
-  if (typeof token !== 'string' || !token || !cloudId || !pageId || !contentId) return jsonError(400, 'Missing session context');
-  if (env?.AGENT_LINK) {
-    const target = env.AGENT_LINK.get(env.AGENT_LINK.idFromName(token));
-    const revoked = await target.fetch('https://agent-link-do/revoke', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, cloudId, pageId, contentId }),
-    });
-    if (!revoked.ok && revoked.status !== 404) return jsonError(revoked.status, 'Unable to revoke session');
-    // Also handles a minted code whose Macro never bootstrapped its target DO.
-    const lock = env.AGENT_LINK.get(env.AGENT_LINK.idFromName(`content:${cloudId}:${contentId}`));
-    const released = await lock.fetch('https://agent-link-do/content-release', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
-    });
-    if (!released.ok) return jsonError(503, 'Unable to release session');
-  } else {
-    const record = registry.get(token);
-    if (record) {
-      if (record.boundContext.cloudId !== cloudId || record.boundContext.pageId !== pageId || record.boundContext.contentId !== contentId) return jsonError(403, 'Session context mismatch');
-      record.state = 'closed';
-    }
-  }
-  return new Response(JSON.stringify({ ok: true }), { headers: JSON_HEADERS });
 };

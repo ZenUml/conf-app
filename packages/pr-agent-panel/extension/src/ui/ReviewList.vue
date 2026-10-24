@@ -3,7 +3,8 @@
  * Left review list (Figma 184:5402). Rows arrive already sorted by the Hub
  * and only for PRs with a completed AI review; this component never re-sorts
  * and never shows a count. Search and the two filter chips narrow the rows
- * client-side; the ordinal keeps the Hub's rank.
+ * client-side; the ordinal keeps the Hub's rank. Merged PRs are hidden until
+ * the state filter is set to Merged.
  */
 import { computed, ref } from 'vue'
 import type { Priority, PrState, ReviewSummary } from '@zenuml/pr-panel-shared'
@@ -38,6 +39,9 @@ const rows = computed(() => {
     .filter(({ item }) => {
       if (priority.value && item.priority !== priority.value) return false
       if (prState.value && item.prState !== prState.value) return false
+      // A merged PR needs no more review: hidden unless the state filter asks for merged PRs,
+      // except the row of the PR open in this tab.
+      if (!prState.value && item.prState === 'merged' && item.prNumber !== props.currentPrNumber) return false
       if (!q) return true
       return (
         item.headline.toLowerCase().includes(q) ||

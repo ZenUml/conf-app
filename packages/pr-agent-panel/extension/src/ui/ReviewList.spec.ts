@@ -90,4 +90,18 @@ describe('ReviewList', () => {
     const w = mount(ReviewList, { props: { items: [], emptyText: 'The ZenUML Hub is not running.' } })
     expect(w.get('[data-testid="list-empty"]').text()).toBe('The ZenUML Hub is not running.')
   })
+
+  it('hides merged PRs unless the state filter asks for them, but keeps the open PR\'s own row', async () => {
+    const items = REVIEWS.map((r) => (r.prNumber === 684 || r.prNumber === 888 ? { ...r, prState: 'merged' as const } : r))
+    const numbers = (w: ReturnType<typeof mount>) => w.findAll('[data-testid="list-row"]').map((r) => meta(r).split(' ')[2])
+
+    const w = mount(ReviewList, { props: { items, currentPrNumber: 888 } })
+    expect(numbers(w)).toEqual(['#683', '#888', '#581'])
+
+    await w.setProps({ currentPrNumber: 581 })
+    expect(numbers(w)).toEqual(['#683', '#581'])
+
+    await w.get('[data-testid="filter-state"]').setValue('merged')
+    expect(numbers(w)).toEqual(['#684', '#888'])
+  })
 })

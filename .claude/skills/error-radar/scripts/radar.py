@@ -89,6 +89,11 @@ def auth_header():
     user, secret = os.environ.get("MIXPANEL_SA_USER"), os.environ.get("MIXPANEL_SA_SECRET")
     if user and secret:
         token = f"{user}:{secret}"
+    elif user or secret:
+        # Half a service account is a configuration mistake, not a cue to fall
+        # back to .env.mixpanel (whose FileNotFoundError hid this in CI).
+        missing = "MIXPANEL_SA_USER" if not user else "MIXPANEL_SA_SECRET"
+        raise SystemExit(f"{missing} is not set (the other half of the Mixpanel service account is).")
     else:
         api_secret = os.environ.get("MIXPANEL_API_SECRET")
         if not api_secret:

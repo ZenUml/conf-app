@@ -1272,6 +1272,20 @@ export type AnalyticsEventName =
   // performs: not-current -> this skip; `current` -> a real failure labelled
   // `app_no_access` (the app cannot see the page — #211), never a skip.
   | "attachment_upload_async_skipped"
+  // Confluence rate-limited the PNG attachment write: a 429 on the attachments
+  // GET, the data POST or the properties PUT. Production 2026-10-22/23 showed
+  // these as the whole non-JSON `attachment_upload_failed` bucket (an HTML
+  // "HTTP Status 429 – Too Many Requests" page on the attachments GET), mostly
+  // from one site whose page views each fire a backfill. The write is deferred
+  // (the next view after the cooldown retries), not failed, and starts a
+  // per-site cooldown. Properties: page_id, custom_content_id,
+  // attachment_name, http_status, failed_request, retry_after_source,
+  // retry_after_s, cooldown_ms.
+  | "attachment_upload_rate_limited"
+  // A view-time backfill skipped without sending any request because this
+  // site's rate-limit cooldown is still running. Properties: page_id,
+  // custom_content_id, cooldown_remaining_ms.
+  | "attachment_upload_deferred"
   // Daily macro-count inventory snapshots. These are emitted by the
   // Cloudflare snapshot service, not by the browser tracker. Registering them
   // here keeps the shared analytics vocabulary explicit before the scheduled
@@ -1618,7 +1632,43 @@ export type AnalyticsEventName =
   // action already covered by `advocacy_message_copied`).
   | "request_full_guide_shown"
   | "request_full_reason_copied"
-  | "request_full_atlassian_clicked";
+  | "request_full_atlassian_clicked"
+  // "Diagram locations" (conf-app#848): the screen behind "View diagram
+  // locations" on the Plan and usage page. It lists the site's stored
+  // diagrams with the page each one was created on (its owning page), read
+  // as the viewer so Confluence applies their permissions. Macro placements
+  // that embed a diagram stored on another page are not enumerated, so every
+  // count on these events is a count of stored diagrams, never of placements.
+  // `plan_usage_locations_shown` fires when the screen opens (`space_count` =
+  // spaces with a reported count, `macro_count` = the reported site total).
+  // `plan_usage_locations_loaded` fires per fetched batch (`page_index` 0 =
+  // the first), with `load_outcome`, `listed_count`, `hidden_count` (records
+  // whose page the viewer cannot read — omitted from the UI, counted here),
+  // `has_more` and `duration_ms`. `plan_usage_locations_load_failed` fires
+  // instead when a batch threw or Confluence answered a non-2xx the viewer
+  // cannot act on (`http_status`).
+  // `plan_usage_locations_filtered` fires on each search, space / type filter,
+  // clear, page or page-size change (`locations_filter`), with `listed_count`
+  // = matching rows after the change.
+  // `plan_usage_locations_page_clicked` fires when "Open page" opens a row's
+  // owning page (`macro_type` = the diagram on that row).
+  | "plan_usage_locations_shown"
+  | "plan_usage_locations_loaded"
+  | "plan_usage_locations_load_failed"
+  | "plan_usage_locations_filtered"
+  | "plan_usage_locations_page_clicked";
+
+/**
+ * How one Diagram-locations batch resolved. `ok` listed at least one row;
+ * `empty` found no stored diagram the viewer can list in that space;
+ * `forbidden` means Confluence refused the space or its custom content for
+ * this viewer (403 / 404), which is an answer, not a failure. Failures carry
+ * `failed` on plan_usage_locations_load_failed.
+ */
+export type DiagramLocationsLoadOutcome = "ok" | "empty" | "forbidden" | "failed";
+
+/** Which control changed the Diagram-locations result set. */
+export type DiagramLocationsFilter = "search" | "space" | "type" | "clear" | "page" | "page_size";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

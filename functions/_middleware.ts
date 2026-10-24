@@ -1,4 +1,6 @@
 import { oauthDiscoveryResponse } from "./agent-link/oauth/discovery";
+import { openaiAppsChallengeResponse } from "./agent-link/openaiAppsChallenge";
+import type { OpenAiAppsChallengeEnv } from "./agent-link/openaiAppsChallenge";
 import authenticate from "./utils/authenticate";
 import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
@@ -18,7 +20,7 @@ function serverErrorResponse(): Response {
   });
 }
 
-interface Env {
+interface Env extends OpenAiAppsChallengeEnv {
   SENTRY_DSN?: string;
 }
 
@@ -115,6 +117,10 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     // to be able to read them to find out how to authenticate.
     const discovery = oauthDiscoveryResponse(request.url);
     if (discovery) return discovery;
+
+    // ChatGPT's directory domain check, public for the same reason.
+    const openaiChallenge = openaiAppsChallengeResponse(request, env);
+    if (openaiChallenge) return openaiChallenge;
 
     const isDeeplinkTicket = isDeeplinkTicketPath(pathname);
     if (isDeeplinkTicket && request.method === 'OPTIONS') {

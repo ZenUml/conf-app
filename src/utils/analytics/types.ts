@@ -18,6 +18,8 @@ import type {
   MacroCountSource,
   PaywallPolicySource,
   DashboardFormatFilter,
+  DiagramLocationsLoadOutcome,
+  DiagramLocationsFilter,
   AgentLinkDisconnectReason,
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
@@ -575,6 +577,15 @@ export type AnalyticsProperties = {
   // ('page_read_failed', 'page_write_failed'). Absent for the others, which
   // never made a request that returned one.
   http_status?: number;
+  // Diagram locations (Plan and usage, plan_usage_locations_*). Counts and
+  // outcomes only: no page ids, page titles, search text or space keys, which
+  // are customer content. `page_index` counts fetched batches from 0.
+  load_outcome?: DiagramLocationsLoadOutcome;
+  locations_filter?: DiagramLocationsFilter;
+  listed_count?: number;
+  hidden_count?: number;
+  has_more?: boolean;
+  page_index?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser
@@ -1128,6 +1139,15 @@ export type AnalyticsProperties = {
   failed_request?: string;
   response_content_type?: string;
   response_title?: string;
+  // attachment_upload_rate_limited / attachment_upload_deferred. The cooldown
+  // after a 429 comes from the response's Retry-After header when the bridge
+  // passes one through ('header', with `retry_after_s`), else a fixed default
+  // ('default'); `cooldown_ms` is what was applied after clamping.
+  // `cooldown_remaining_ms` is how long a skipped view still had to wait.
+  retry_after_source?: 'header' | 'default';
+  retry_after_s?: number;
+  cooldown_ms?: number;
+  cooldown_remaining_ms?: number;
   // load_custom_content_v2_missing: why the custom content could not be
   // loaded. `load_status` is 'not_found' only for an all-404 NOT_FOUND
   // envelope (the case that triggers recovery), else 'other_error';

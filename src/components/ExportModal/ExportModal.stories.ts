@@ -19,8 +19,7 @@ const meta: Meta<typeof ExportModal> = {
           'whose root is a flex column — a 56px toolbar carrying the background, annotation tools and ' +
           'Copy / Download image actions, over a centred preview stage. Annotation properties appear in ' +
           'a floating panel over the preview, shown only while something is selected, not in a standing ' +
-          'sidebar; the left-pane / right-sidebar split belonged to ExportPreview.vue and ' +
-          'ExportSidebar.vue, which nothing mounts any more. The modal captures the diagram via ' +
+          'sidebar (the old left-pane / right-sidebar layout was removed). The modal captures the diagram via ' +
           'html-to-image when opened, then downloads a PNG. Use the `visible` prop to show/hide it.',
       },
     },
@@ -144,8 +143,8 @@ function withCaptureStage(
  * Place one annotation the way the canvas does: `add` creates it at a point and
  * selects it, `update` gives it its far end and text. Stories must go through
  * this rather than writing `state.note` / `state.callout` — those legacy fields
- * belong to the retired sidebar surface (ExportPreview/ExportSidebar), which
- * ExportModal no longer renders, so setting them produces a story that shows
+ * belong to the retired sidebar surface, which ExportModal no longer
+ * renders, so setting them produces a story that shows
  * nothing at all. Found in Codex acceptance of the note-placed story.
  */
 function place(

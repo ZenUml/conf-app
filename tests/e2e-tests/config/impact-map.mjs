@@ -113,7 +113,6 @@ export const IMPACT = [
   { glob: 'src/export.js', tags: ['@export', '@modal'] },
   { glob: 'src/lib/**', tags: ['@export'] },
   { glob: 'src/utils/pngMetadata.ts', tags: ['@export'] },
-  { glob: 'src/utils/shareCardImage.ts', tags: ['@export'] },
   { glob: 'src/services/debugBundle.ts', tags: ['@export'] },
   { glob: 'src/components/Byline/**', tags: ['@byline'] },
   { glob: 'src/components/Byline/UnplacedDiagramsBanner.vue', tags: ['@page-banner'] },

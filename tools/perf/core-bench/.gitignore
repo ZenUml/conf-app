@@ -1,0 +1,7 @@
+# Diagram corpora pulled from production D1 contain customer content.
+# Never commit them — see docs/policies/client-privacy.md.
+diagrams.json
+raw.json
+*.png
+*.html.snapshot
+node_modules/

@@ -8,16 +8,23 @@ import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextP
  *
  *   - TARGETING marker (`paywallWarning:<domain>:<space>`) — written ONLY by the
  *     macro iframe (useCustomerSuccessService) when a macro renders. Records the
- *     space's computed severity / macro count / paid status / CSS flag state.
- *   - DISMISSAL marker (`paywallBanner:<domain>:<space>`) — written ONLY by the
- *     page-banner iframe. Records show count + the last dismissal timestamp.
+ *     space's computed severity / macro count / paid status / effective paywall
+ *     state (legacy field name `customerSuccessServiceEnabled` — since the
+ *     lite-paywall-default-on change this is the EFFECTIVE decision, `true`
+ *     only when `paywallPolicySource` is 'default_on'; a domain/wildcard
+ *     exemption or a fail-open lookup both write `false`, same as the old
+ *     "not CSS-enrolled" case).
+ *   - IMPRESSION marker (`paywallBanner:<domain>:<space>`) — written ONLY by the
+ *     page-banner iframe. Records show count + the last impression timestamp.
+ *     The key stays the same so existing browser counters keep their history.
  *   - ACTIVITY marker (`paywallActivity:<domain>:<space>`) — written by editor
  *     save paths after a successful create/edit. Records the user's latest
  *     macro-authoring activity in this browser profile.
  *
  * Single-writer-per-key avoids the read-modify-write clobber two iframes would
- * otherwise hit on a shared key. The banner's visibility is decided purely from
- * these markers (no backend call), the same fast-exit discipline as CSAT.
+ * otherwise hit on a shared key. Visibility uses targeting and activity only;
+ * the impression marker supports analytics and never suppresses the banner.
+ * No backend call is needed, the same fast-exit discipline as CSAT.
  *
  * Scope deviation from the design doc (2026-06-02): keys are scoped by
  * `domain:space` only, NOT `domain:space:accountId`. The page-banner (read)
@@ -30,8 +37,6 @@ import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextP
  * (negligible for v1). Dropping it keeps the entire gate synchronous.
  */
 
-/** Snooze window for a dismissed warning banner. */
-export const WARNING_BANNER_SUPPRESSION_MS = 7 * 24 * 60 * 60 * 1000
 export const RECENT_MACRO_ACTIVITY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 export const PAYWALL_BANNER_MIN_MACRO_COUNT = 100
 
@@ -50,6 +55,8 @@ export interface TargetingMarker {
   severity: WarningSeverity
   macroCount: number
   spacePaid: boolean
+  /** Legacy field name; holds the EFFECTIVE Lite paywall-enabled boolean
+   * (see the module doc comment above), not a raw CSS flag read. */
   customerSuccessServiceEnabled: boolean
   updatedAt: string
 }
@@ -59,8 +66,7 @@ export interface MacroActivityMarker {
   activityType: MacroActivityType
 }
 
-export interface DismissalMarker {
-  dismissedAt: string | null
+export interface ImpressionMarker {
   lastShownAt: string | null
   showCount: number
 }
@@ -89,7 +95,7 @@ export function targetingMarkerKey(identity: WarningBannerIdentity): string {
   return ['paywallWarning', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
 }
 
-export function dismissalMarkerKey(identity: WarningBannerIdentity): string {
+export function impressionMarkerKey(identity: WarningBannerIdentity): string {
   return ['paywallBanner', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
 }
 
@@ -133,13 +139,12 @@ export function parseMacroActivityMarker(raw: string | null): MacroActivityMarke
   }
 }
 
-export function parseDismissalMarker(raw: string | null): DismissalMarker | null {
+export function parseImpressionMarker(raw: string | null): ImpressionMarker | null {
   if (!raw) return null
   try {
-    const p = JSON.parse(raw) as Partial<DismissalMarker>
+    const p = JSON.parse(raw) as Partial<ImpressionMarker>
     if (typeof p !== 'object' || p === null) return null
     return {
-      dismissedAt: typeof p.dismissedAt === 'string' ? p.dismissedAt : null,
       lastShownAt: typeof p.lastShownAt === 'string' ? p.lastShownAt : null,
       showCount:
         typeof p.showCount === 'number' && Number.isFinite(p.showCount) && p.showCount >= 0
@@ -195,91 +200,101 @@ export function markRecentMacroActivity(
   }
 }
 
-export function readDismissalMarker(identity: WarningBannerIdentity = deriveWarningBannerIdentity()): DismissalMarker | null {
+export function readImpressionMarker(identity: WarningBannerIdentity = deriveWarningBannerIdentity()): ImpressionMarker | null {
   try {
-    return parseDismissalMarker(localStorage.getItem(dismissalMarkerKey(identity)))
+    return parseImpressionMarker(localStorage.getItem(impressionMarkerKey(identity)))
   } catch {
     return null
   }
 }
 
 /** Best-effort write from the banner iframe. Never throws into the banner path. */
-function writeDismissalMarker(marker: DismissalMarker, identity: WarningBannerIdentity): void {
+function writeImpressionMarker(marker: ImpressionMarker, identity: WarningBannerIdentity): void {
   try {
-    localStorage.setItem(dismissalMarkerKey(identity), JSON.stringify(marker))
+    localStorage.setItem(impressionMarkerKey(identity), JSON.stringify(marker))
   } catch (e) {
-    console.warn('[paywall-banner] dismissal marker write failed', e)
+    console.warn('[paywall-banner] impression marker write failed', e)
   }
 }
 
+/** Which gate admitted the banner, and therefore which copy the user sees. */
+export type BannerAudience = 'editor' | 'space_admin'
+
+/** A user who is both an author and a space admin is the stronger audience:
+ * they can resolve the limit themselves, so they get the purchase copy rather
+ * than the "ask an admin" copy. */
+export function bannerAudience(isSpaceAdmin: boolean): BannerAudience {
+  return isSpaceAdmin ? 'space_admin' : 'editor'
+}
+
 /**
- * Pure visibility gate. Show iff: a targeting marker exists, the CSS feature is
- * enabled for the client, the space is unpaid and over the hard limit, the user
- * created/edited a macro recently, and the banner is not inside its snooze
- * window.
+ * Pure visibility gate. Show iff: a targeting marker exists, the effective Lite
+ * paywall policy is enabled for the client, the space is unpaid and over the
+ * hard limit, AND the user is a valid audience —
+ * either they created/edited a macro recently, or (Phase 5b) they are a space
+ * admin of this over-limit space.
+ *
+ * The recent-authorship requirement exists to avoid nagging passers-by. It has
+ * the side effect of excluding space admins who don't draw diagrams — the people
+ * on the page most able to resolve the limit. Measured 2026-07-28 over 60d across
+ * the 19 CSS tenants: the authorship gate reached 358 unique users (exact, that
+ * event is unsampled), while `space_admin_active` observed 5,021 unique admins
+ * already loading this very iframe and being told nothing — a 10%-sampled FLOOR,
+ * and one that also counts personal spaces, so treat it as evidence of a large
+ * gap rather than as a population estimate. `isSpaceAdmin` waives authorship, and
+ * nothing else; the over-limit/unpaid/policy gates below keep targeting narrow.
  */
 export function isWarningBannerVisible(
   targeting: TargetingMarker | null,
-  dismissal: DismissalMarker | null,
   activity: MacroActivityMarker | null,
-  now: number = Date.now()
+  now: number = Date.now(),
+  isSpaceAdmin = false
 ): boolean {
   if (!targeting) return false
   if (!targeting.customerSuccessServiceEnabled) return false
   if (targeting.spacePaid) return false
   if (targeting.macroCount <= PAYWALL_BANNER_MIN_MACRO_COUNT) return false
-  if (!activity?.lastActivityAt) return false
-  const activityMs = Date.parse(activity.lastActivityAt)
-  if (!Number.isFinite(activityMs) || now - activityMs > RECENT_MACRO_ACTIVITY_WINDOW_MS) return false
-  if (dismissal?.dismissedAt) {
-    const dismissedMs = Date.parse(dismissal.dismissedAt)
-    if (Number.isFinite(dismissedMs) && now - dismissedMs <= WARNING_BANNER_SUPPRESSION_MS) {
-      return false
-    }
+  if (!isSpaceAdmin) {
+    if (!activity?.lastActivityAt) return false
+    const activityMs = Date.parse(activity.lastActivityAt)
+    if (!Number.isFinite(activityMs) || now - activityMs > RECENT_MACRO_ACTIVITY_WINDOW_MS) return false
   }
   return true
 }
 
 /** localStorage-backed gate used by the forgeIndex fast-exit and the CSAT defer
- * check. Fail closed (no banner) on any storage error. */
+ * check. Fail closed (no banner) on any storage error.
+ *
+ * `isSpaceAdmin` is a parameter rather than a lookup so this module stays free
+ * of any dependency on spaceAdminProbe, which imports from here — the caller
+ * resolves it with `isCurrentUserSpaceAdmin()`. */
 export function shouldShowPaywallBanner(
   now: number = Date.now(),
-  identity: WarningBannerIdentity = deriveWarningBannerIdentity()
+  identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
+  isSpaceAdmin = false
 ): boolean {
-  try {
-    return isWarningBannerVisible(readTargetingMarker(identity), readDismissalMarker(identity), readMacroActivityMarker(identity), now)
-  } catch {
-    return false
-  }
+  // readTargetingMarker / readMacroActivityMarker each
+  // fail closed (catch internally, return null) and isWarningBannerVisible is
+  // pure — nothing here can throw, so no outer try/catch is needed.
+  return isWarningBannerVisible(
+    readTargetingMarker(identity),
+    readMacroActivityMarker(identity),
+    now,
+    isSpaceAdmin
+  )
 }
 
-/** Record an impression: bump showCount, stamp lastShownAt, preserve dismissedAt. */
+/** Record an impression: bump showCount and stamp lastShownAt. */
 export function recordBannerShown(
   identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
   now: Date = new Date()
-): DismissalMarker {
-  const current = readDismissalMarker(identity)
-  const next: DismissalMarker = {
-    dismissedAt: current?.dismissedAt ?? null,
+): ImpressionMarker {
+  const current = readImpressionMarker(identity)
+  const next: ImpressionMarker = {
     lastShownAt: now.toISOString(),
     showCount: (current?.showCount ?? 0) + 1,
   }
-  writeDismissalMarker(next, identity)
-  return next
-}
-
-/** Record a dismissal: stamp dismissedAt (starts the snooze), preserve counters. */
-export function recordBannerDismissed(
-  identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
-  now: Date = new Date()
-): DismissalMarker {
-  const current = readDismissalMarker(identity)
-  const next: DismissalMarker = {
-    dismissedAt: now.toISOString(),
-    lastShownAt: current?.lastShownAt ?? null,
-    showCount: current?.showCount ?? 0,
-  }
-  writeDismissalMarker(next, identity)
+  writeImpressionMarker(next, identity)
   return next
 }
 

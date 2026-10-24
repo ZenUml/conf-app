@@ -41,7 +41,7 @@ describe('analytics normalization', () => {
   it('normalizes mapped forge events into the canonical shape', () => {
     const event = normalizeMappedAnalyticsEvent(
       {
-        action: 'page_viewed',
+        action: 'page_updated',
         event_source: 'forge_trigger',
         user_account_id: 'user-2',
         client_domain: 'whimet4.atlassian.net',
@@ -56,7 +56,7 @@ describe('analytics normalization', () => {
     );
 
     expect(event.sourceType).toBe('forge');
-    expect(event.event).toBe('page_viewed');
+    expect(event.event).toBe('page_updated');
     expect(event.clientDomain).toBe('whimet4.atlassian.net');
     expect(event.contentId).toBe('page-1');
     expect(event.cloudId).toBe('cloud-1');

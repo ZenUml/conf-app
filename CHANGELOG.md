@@ -1,3 +1,6 @@
+## [2026-06-04] - Release
+- Triggered release pipeline for diagramly (retrigger — PR #216 draft was skipped by cancelled E2E shard)
+
 ## [2026-06-01] - Release
 - Triggered release pipeline for diagramly
 

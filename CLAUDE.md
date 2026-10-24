@@ -15,34 +15,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Project overview
 
-This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The `DiagramType` enum (`src/model/Diagram/Diagram.ts`) defines five first-class diagram types:
+This is a ZenUML Confluence Cloud Add-on (Forge app) that provides diagramming capabilities for Confluence users. The `DiagramType` enum (`src/model/Diagram/Diagram.ts`) defines seven user-facing diagram types (`Unknown` is only a sentinel fallback):
 
-- **Sequence** — ZenUML sequence diagrams (the namesake renderer)
-- **Mermaid** — multi-purpose Mermaid renderer
-- **PlantUml** — multi-purpose PlantUML renderer
-- **Graph** — DrawIO-powered graph diagrams
-- **OpenApi** — OpenAPI/Swagger specifications via swagger-ui
+Six of the seven (`Sequence`, `Mermaid`, `PlantUml`, `Graph`, `OpenApi`, `Embed`) are self-describing from the enum. The seventh carries variant rules that the enum does not state:
 
-The project is built as a full-stack application with:
+- **AsyncApi** — AsyncAPI specifications via the bundled AsyncAPI Studio build (`vendor/asyncapi-studio` submodule). Ships **only** in the asyncapi variant — the `zenuml-asyncapi-*` macros and `async-api-doc` custom content are stripped from lite/full/diagramly manifests (see `manifest.yml` comments and `.github/workflows/release.yml`)
 
-- **Frontend**: Vue 3 with TypeScript, Vite build system, Forge Custom UI
-- **Backend**: Cloudflare Workers with D1 database (accessed via Forge remotes)
-- **Deployment**: Cloudflare Pages + Forge CLI
-- **Platform**: Atlassian Forge (Connect runtime was removed; `app.connect` migration bridge in manifest.yml is kept for backward compatibility)
+Stack, build system, and deployment targets are stated in `package.json`, `wrangler.toml`, and `manifest.yml`. The one platform fact those files do not make obvious is under **Pure Forge — no Connect code** below.
 
 ### Product variants
 
-The add-on comes in three variants:
+The add-on comes in four variants:
 
 - **Full Version** (`PRODUCT_TYPE=full`) — All features enabled
 - **Lite Version** (`PRODUCT_TYPE=lite`) — Reduced feature set (free)
 - **Diagramly** (`PRODUCT_TYPE=diagramly`) — Diagramly-branded variant
+- **AsyncAPI** (`PRODUCT_TYPE=asyncapi`) — "AsyncAPI for Confluence" variant with its own Forge app identity (`APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6`, macro key `zenuml-asyncapi-macro`, custom content `async-api-doc` — see the `forge:*:asyncapi:*` scripts in `package.json`). **Not single-macro:** the manifest strip (`scripts/forge-wizard.mjs`, filter `test("zenuml-asyncapi|zenuml-openapi-macro") | not`) keeps the asyncapi macros **plus `zenuml-openapi-macro`** — AsyncAPI and OpenAPI are sibling API-spec formats, so this variant ships both API editors. Consequence: anything wired into the OpenAPI/swagger editor (`forge-swagger-editor.ts` → `SyntaxErrorBox` → **AI Repair**, gated by the `ai-repair-enabled` Forge flag) is reachable in the asyncapi app via the OpenAPI macro, even though the AsyncAPI Studio editor itself has no such wiring. Build: `pnpm build:asyncapi` (runs `build:studio` first). Staging site `asyncapi-stg.atlassian.net`; backend shares the Lite Cloudflare Pages project (`conf-stg-lite` staging / `conf-lite` prod per `release.yml`), with prod `BACKEND_API_BASE_URL=https://zenapi.zenuml.com`
 
 ### The Handbook (internal team site)
 
 The **Handbook** is our internal, team-only knowledge site — *not* customer-facing. It collects what the team needs day to day: developer reference, operations runbooks, pricing/growth strategy, and customer intelligence (profiles, investigations). Because it can contain client-sensitive data, it lives in the **`private/` submodule** (`ZenUml/conf-app-private`), never the public repo. (This replaces the older, narrower "dev site" framing.)
 
 ## Hard rules
+
+### Confluence UI changes require ordered visual validation
+
+For changes that affect the Confluence app UI, validate the same candidate in this order: **Storybook → Forge Tunnel → CI-deployed Staging**. Each stage must pass before starting the next. At every stage, record the tested branch/commit or deployed build and confirm where the visible UI is served from. Keep actual UI evidence (such as screenshots or snapshots) for the assertions. A blocked or skipped UI assertion is not a pass, and unit tests do not replace UI evidence.
+
+Pure documentation changes and changes with no UI impact are not applicable; state that and give the reason. Do not invent a Storybook check for a pure backend change. If a stage fails, fix the issue and repeat the affected stage; later acceptance must use the final candidate version. Staging checks start only after the candidate branch's CI deployment succeeds. Never deploy staging from a local shell; see the Forge deployment rule below.
+
+The **validate-branch** skill defines the execution order and distinguishes local readiness to push from completion of the full validation path. The **forge-tunnel** skill remains the source for tunnel setup, identity, and connection checks.
+
+### Confluence app UI design targets desktop
+
+For the Confluence app, design for the desktop surface. Do not create narrow/mobile layouts or separate narrow-screen artboards unless the user explicitly requests them.
 
 ### Never mark a UI spot check passed without UI evidence
 
@@ -60,11 +66,21 @@ Before writing code for any new feature, define the analytics events first. For 
 
 ### Pure Forge — no Connect code
 
-All three variants (lite, full, diagramly) are **Forge-only** in production. The Connect runtime is fully removed.
+All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in production. The Connect runtime is fully removed.
 
 **Only exception:** `manifest.yml` must keep the `app.connect` / Connect key / modules entries — Atlassian's Forge-from-Connect migration requires these to stay so that upgrade paths from legacy Connect installs still work. Don't remove those.
 
 For the full policy — banned APIs (`AP.*`, `xdm_e`, Connect hosts), `@forge/bridge` replacements, environment detection, DrawIO URL rules — see `docs/policies/forge-only.md` (create if absent when you need to capture a new decision).
+
+### Guest and anonymous viewers get no Forge user token
+
+Forge omits `x-forge-oauth-user` on `invokeRemote` for **unlicensed (guest)** and **anonymous** viewers: the token is "only sent for invocations that have a user in session", and Atlassian's [unlicensed-users guide](https://developer.atlassian.com/platform/forge/access-to-forge-apps-for-unlicensed-users/) says Confluence guests "can't make asUser calls" (open suggestion [ECO-1450](https://jira.atlassian.com/browse/ECO-1450)). The FIT carries no account-type claim, so the backend can only observe "user token absent". We have rendered macros for guests since ZEN-1170 (2026-05-22) and for anonymous visitors since `c7fb3658` (2026-10-06), so every backend endpoint that requires that header fails for them: `magic-writeback`, `forge-upload-attachment`, `forge-custom-content`, `metrics-cache/snapshot`, `api/diagram-impact`, `api/architecture-tokens/related`. Guests still save diagrams, because the frontend bridge (`requestConfluence`) runs as the guest.
+
+**Found 2026-10-08:** on one Lite customer site, guests (real accounts, each confined to one space) produced ~95% of all `magic_writeback_completed` `unavailable` outcomes — `magic-writeback.ts` answered their calls with 401 and the viewer recorded `client_exception`. Rules that follow:
+
+- **Frontend:** before any `callRemote` that needs the user token, gate on the viewer kind. Anonymous = no `accountId` in the Forge context. Guest = `isGuest: true` from `GET /wiki/rest/api/user/current` via the bridge (OpenAPI: "Whether the user is a guest user"; `isExternalCollaborator` is deprecated), cached per site+account in localStorage. `view.getContext()` documents no `accountType`, and the resolver-context `accountType` does not exist for a remote-only app.
+- **Backend:** a valid FIT without `x-forge-oauth-user` is a guest/anonymous invocation, not an auth failure — answer `403 { error: 'no_user_credential' }`, never 401, and never fall back to the app token to act for that viewer.
+- **Diagnosis:** `wrangler pages deployment tail <deployment-id> --project-name conf-lite --format json` shows each request's header set; a 401 with `x-forge-oauth-system` present and `x-forge-oauth-user` absent is this case. Do not read wall time as "which branch ran": the same D1-only path takes ~100 ms via SYD and ~480 ms via SIN/ICN/NRT (round trips to the MEL primary), which looks like a Confluence call and is not one.
 
 ### Client privacy — no client names in public files
 
@@ -74,9 +90,29 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 ### Never commit directly to `main`
 
-Always use a feature branch. Exception: `.md`-only changes may go directly to `main`.
+Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
 
-Don't create a worktree reflexively: `.md`-only edits go straight to `main` (worktree only if another session's changes block a clean `git checkout main`), and changes to git-ignored files only need no branch/worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full branching protocol (start-of-issue steps, worktree usage).
+**The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — the overlap scan, per-worktree setup cost, start-of-issue steps, cleanup.
+
+### Scan for overlapping work before starting a branch
+
+Before you create a branch or a worktree for any non-trivial change, check whether the work already
+exists — several sessions and the user work this repo in parallel:
+
+```bash
+git fetch --prune origin
+git branch -r --sort=-committerdate --format='%(committerdate:short)  %(refname:short)  %(contents:subject)' | head -30
+git worktree list
+gh pr list --state open --json number,title,headRefName,updatedAt   # container: mcp__github__list_pull_requests
+```
+
+Judge a candidate by `git diff --name-only origin/main...origin/<branch>`, not by its name. If an
+open PR already does it, **stop and report it** instead of opening a competing branch; if a branch
+holds partial work that is not yours, ask before building on it and never rebase or force-push it.
+In the remote agent container the clone may hold only `main` and your own branch, so `git branch -r`
+alone is not evidence — use the `mcp__github__*` tools.
+
+Full decision table: [docs/policies/git-workflow.md](docs/policies/git-workflow.md#before-starting-scan-for-overlapping-work).
 
 ### Never disrupt another session's working tree
 
@@ -92,46 +128,15 @@ The original directory stays untouched. When in doubt, ask before any destructiv
 
 ## Architecture
 
-### Frontend
-
-- **Entry Point**: Single Forge Custom UI entry (`index.html` + `src/forgeIndex.ts`)
-- **Forge Entry Points**: `src/forge-*.ts` files for different diagram types
-- **Core Components**:
-  - `Workspace.vue` — Main editor interface with split layout
-  - `Editor/Editor.vue` — Code editor with syntax highlighting
-  - `DiagramPortal.vue` — Diagram rendering portal
-  - `Header/Header.vue` — Navigation and actions
-  - `Viewer/` — Different viewers for each diagram type
-- **Forge Integration**: `@forge/bridge` for Confluence API access (`requestConfluence`, `invokeRemote`, `view`, `router`)
-
 ### Backend (Cloudflare Workers)
 
-- **Functions**: Located in `functions/` directory. **CRITICAL:** `public/_routes.json` is an explicit allowlist — any new function path must be added to its `include` array, otherwise Cloudflare Pages serves the path as a static SPA HTML fallback instead of routing it to the function. Symptom: `GET /your/path` returns 200 with `content-type: text/html` instead of running your code.
-- **Database**: D1 database with migrations in `functions/migrations/`
-- **Auth**: Forge invocation token (RS256) validated via `functions/utils/authenticate.ts`
-- **Key Endpoints**:
-  - `/forge-custom-content` — Custom content management (Forge OAuth)
-  - `/forge-installed` — Forge install/upgrade lifecycle handler
-  - `/forge-user-behavior` — Forge trigger event handler
-  - `/diagram-likes/` — Diagram like/unlike functionality
-  - `/attachment` — File attachment handling
-  - `/api/space-status` — License/payment status check
+Backend code is in `functions/`. See [functions/CLAUDE.md](functions/CLAUDE.md) — it holds the `public/_routes.json` allowlist gotcha, which makes a new function path return static HTML instead of running.
 
 ### Content management
 
-The app uses custom content (V2 API) for diagram persistence:
-
-- **CustomContentStorageProvider** — Stores data as Confluence custom content
-- **CompositeContentProvider** — Combines multiple providers with fallback chain
+The app uses custom content (V2 API) for diagram persistence.
 
 Confluence is the system of record for diagram content; D1/backend data may support telemetry or sync, but must not become required storage or recovery for user diagram bodies. Rendering and editing must not depend on our Cloudflare backend being available when Confluence storage is available.
-
-### Key models
-
-- **Diagram** — Core diagram model with content and metadata
-- **ContentProvider** — Abstract interface for data persistence
-- **ApWrapper2** — Forge API wrapper for Confluence operations
-- **forgeGlobal** — Runtime context (`@forge/bridge` view, context, environment detection)
 
 ## Local development
 
@@ -141,34 +146,19 @@ Confluence is the system of record for diagram content; D1/backend data may supp
 2. Set up D1 database bindings
 3. Configure environment variables in `wrangler.toml`
 
-### Build & test
+### Build, test & dev server
 
-```bash
-# Build full version
-pnpm build:full
+See `package.json` scripts — `build:full`, `build:lite`, `test:unit`, `test:e2e`,
+`start:local` (frontend only), `start:sit` (frontend + backend proxy), `wrangler:serve`.
 
-# Build lite version
-pnpm build:lite
-
-# Run unit tests
-pnpm test:unit
-
-# Run E2E tests
-pnpm test:e2e
-```
-
-### Dev server
-
-```bash
-# Start local development (frontend only)
-pnpm start:local
-
-# Start full development environment (frontend + backend proxy)
-pnpm start:sit
-
-# Serve built files via Wrangler
-pnpm wrangler:serve
-```
+Local servers use Portless rather than fixed public ports. After starting one,
+run `pnpm dev:url` for the frontend URL, `pnpm dev:api:url` for the backend URL,
+or `pnpm dev:routes` to inspect active routes. Agents must query these commands;
+do not guess a port or parse the server log. Linked git worktrees automatically
+receive a branch-derived hostname prefix, so the same commands remain valid when
+multiple worktrees run concurrently. The shared Portless proxy uses plain HTTP on
+the non-privileged port 1355 so agents can start it without sudo or certificate
+prompts; application processes still receive independent random internal ports.
 
 ### Database setup
 
@@ -182,16 +172,26 @@ wrangler d1 migrations apply zenuml-for-confluence --remote
 
 ## Operations
 
+### Agent container — what you can actually reach
+
+When running in the Claude Code remote container, **do not rediscover credentials by
+trial and error** — read [docs/reference/agent-container-credentials.md](docs/reference/agent-container-credentials.md).
+The short version:
+
+- `FORGE_EMAIL` + `FORGE_API_TOKEN` → Confluence REST v2 on all seven of our sites, **and** the Marketplace vendor export API. This is the credential for all Confluence content work.
+- `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` → D1 query, KV read, Pages. Prefer the **REST API** for one-offs; `wrangler` works too, but only after `pnpm install`.
+- `MIXPANEL_SA_USER` + `MIXPANEL_SA_SECRET` → project `3373228` query API.
+- `ATLASSIAN_USERNAME` / `ATLASSIAN_PASSWORD` / `ATLASSIAN_OTP` → robot account for **browser login only** (Playwright); these do not work as REST basic auth.
+- GitHub → the `mcp__github__*` tools. `GH_TOKEN` is the placeholder string `proxy-injected`, and a direct `api.github.com` call returns **`200` with an error body** — never read that status as success.
+- `forge` and `wrangler` are devDependencies — they exist only **after `pnpm install`** (the e2e workspace needs its own install). `forge` then authenticates from `FORGE_EMAIL`/`FORGE_API_TOKEN`, but its first run dies on a non-TTY analytics prompt; clear it with `forge settings set usage-analytics false` and `forge install list` works.
+
+Never echo a secret's value; prove access with a status code instead.
+
 ### Forge deployment
 
-```bash
-# Deploy to Forge staging
-pnpm forge:deploy:lite:staging
-pnpm forge:deploy:full:prod
+**Staging deployment rule:** staging is deployed only by the GitHub Actions CI/CD pipeline triggered by pushing the candidate branch. Do **not** run `pnpm forge:deploy:*:staging` from a local shell; use the pipeline run as the deployment authority and verify its completion before staging checks. Local Forge use is limited to development tunnels and read-only diagnostics.
 
-# Forge tunnel for local development
-pnpm forge:tunnel
-```
+See the `forge:deploy:*` scripts in `package.json`, one per variant and environment. For local tunnelling use the **forge-tunnel** skill.
 
 #### Forge CLI auth
 
@@ -201,37 +201,122 @@ If `forge whoami` says not logged in (or `forge login` fails on keychain), see [
 
 Lite / full / diagramly map to `conf-stg-lite`, `conf-stg-full`, `conf-lite`, `conf-full`. See [docs/ops/cloudflare-pages.md](docs/ops/cloudflare-pages.md) for the full table, CI sources, and `wrangler pages secret put` usage.
 
+`dist/` also carries a second, separately built page: the MCP Apps diagram view (`pnpm build:mcp-app` → `dist/mcp-app/`, run at the end of every `build:*`), served from Pages to MCP hosts such as claude.ai. Build, deploy and host constraints: [docs/features/mcp-app-view.md](docs/features/mcp-app-view.md).
+
+### Forge Functions usage & cost (GB-seconds)
+
+When a "Forge Functions usage" alert fires, use the **forge-functions-cost** skill — it holds the
+Developer-console ground-truth path and the billing subtleties (a `trigger`→`remote` forward bills as
+SYNC, not waived async).
+
+### Forge app versions — major vs minor (admin consent)
+
+A **major** version (requires **admin re-consent** on upgrade, rolls out only as admins approve) is caused **only** by: scope changes (add/swap/**remove**), new `dynamic` web triggers (or `static`→`dynamic`), and licensing/providers/remotes changes. See [Forge — App versions](https://developer.atlassian.com/platform/forge/versions/).
+
+**Egress / CSP / external-fetch URL changes are NOT major for our apps** — they auto-upgrade with no admin consent. Our variants (lite/full/diagramly/asyncapi) are all **Forge-from-Connect (Connect-migrated)** apps, and `manifest.yml` documents this exactly above the `permissions.external` block: *"Modifying content permissions CSP options, external permissions CSP options and URLs, or fetch permissions options and URLs does not require admin approval."* The retained Connect consent already covers the network permission, so adding an egress entry — **even a new scheme like `wss://*.zenuml.com`** — stays a **minor** bump. (Connect-migration exception; in a *pure* Forge app, adding egress WOULD force a major. The same principle covers Forge scopes that inherit an already-accepted Connect scope — see the note at the top of `permissions:` in `manifest.yml`.) **Evidence, 2026-07-11:** the agent-link release added `wss://*.zenuml.com` to `external.fetch.{backend,client}`; asyncapi deployed as **`10.7.0` (minor)** and all 8 prod installs auto-upgraded to `Latest` with no consent wall.
+
+Changing a `trigger` module's `events:` list (e.g. removing `avi:confluence:viewed:page`) is **NOT** on that list, and as long as `permissions.scopes` is untouched it is a **minor** version → **auto-upgrades to all installs, no admin consent**. Do not claim otherwise. The docs don't state event-list changes explicitly, so the zero-cost confirmation is the **`forge deploy` output**, which reports the deployed version (and any major-version change) at deploy time.
+
+**Remote storage declaration status, 2026-08-11:** PR #383 removed the Full/Diagramly/AsyncAPI `operations: storage` and `storage.inScopeEUD: true` strips from `scripts/forge-wizard.mjs`, but missed duplicate strips in `.github/workflows/staging-deploy.yml` and `.github/workflows/release.yml`. Its merge deployment therefore still removed the declaration before Forge deploy; the observed minor versions (`3.448.0`, `2.637.0`, and `5.127.0`) do **not** classify the intended change. PR #460 removes the remaining workflow strips. Before the first main-branch staging deployment containing #460, the version impact is **unknown**: the Forge remotes reference explicitly marks `inScopeEUD: false` → `true` as major, while these generated manifests previously omitted the field entirely. Treat that staging deploy output as the authoritative classification and do not release production until it is checked.
+
+### CI on PRs — a CANCELLED run next to a green one is NORMAL (don't investigate it)
+
+Every push to a PR branch fires the `Build, Test and Draft Release` workflow (`.github/workflows/build-test-deploy.yml`) **twice** — once on the `push` event and once on the `pull_request` (`synchronize`) event, both on the same head SHA. A `concurrency` group keyed on the bare branch name with `cancel-in-progress: true` (for non-default branches) **deliberately cancels one of the two as a duplicate** — usually the `push` run shows up `CANCELLED`. This is by design (the workflow comments say so), not a failure.
+
+So when checking a PR before merge:
+- `gh pr view <pr> --json mergeStateStatus` showing **`UNSTABLE`** with some `CANCELLED` contexts is **expected and mergeable** — it is not a real failure.
+- The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
+- `.md` / `docs/**` / `.claude/**` / `.cursor/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
+
+### Release order — diagramly → lite → full
+
+Production releases go **Diagramly first** (canary), then **Lite** for the same commit SHA, then **Full** no sooner than 24 hours after Lite; AsyncAPI is independent. Never offer Lite or Full as the first release step. Gates and scripts: the **release-app** skill, "Variants & gates".
+
+### Release pipeline time budget
+
+Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared PR file runs everything. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+
 ### Analytics & observability
 
 Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not** a macro view. Use Mixpanel `macro_viewed` (project ID `3373228`) for macro engagement.
 
-Full reference (event storage, `clientDomain` format, key sources, paywall events): [docs/analytics-reference.md](docs/analytics-reference.md). For query patterns, use the **conf-app** skill.
+Full reference (event storage, `clientDomain` format, key sources, paywall events): [docs/analytics/reference.md](docs/analytics/reference.md). For query patterns, use the **conf-app** skill.
+
+**Paywall mechanics** (metered soft-paywall, the "Continue editing (N)" counter, staging test spaces, how to skip it): use the **paywall** skill.
 
 **Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Tracking is not optional — it is part of the definition of done.
 
 ### Bug reports: User-First Trace
 
-Frame bug reports and incident write-ups with **User-First Trace**:
-
-1. **User journey** — start with what the user did, what they saw, what changed, and what outcome they experienced. Keep the end user as the skeleton of the report and the highest priority.
-2. **Runtime evidence** — layer in console errors, network calls, API responses, analytics events, timing, retries, page/draft state, and environment details.
-3. **Code path** — only after the user journey and runtime evidence are clear, explain the source code paths that produced the behavior.
-
-Use lower-level techniques such as State-Surface Framing inside this structure when relevant: identify where the data truth lives (published page, draft page, macro config, custom content, D1 mirror) and which UI/runtime surface is reading or writing it (page viewer, viewer modal, native macro config, page editor, fullscreen modal).
+Frame bug reports and incident write-ups user-journey first, then runtime evidence, then code path —
+see the **bug-report-framing** skill.
 
 ## Browser automation and Forge iframes
 
-Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Only Playwright can reliably access content inside them.
+Forge Custom UI apps render inside **sandboxed cross-origin iframes** (OOPIFs). Three tools reach inside them; the rest cannot.
 
-| Tool | Forge iframe access | Notes |
+**Default to `agent-browser`** for ad hoc Forge macro work (spot checks, PVT, UI inspection). Checked-in E2E specs stay on standalone `@playwright/test` — that is a test-runner choice, unrelated to the MCP server below.
+
+```bash
+agent-browser --session conf-app --restore=stg <command>
+```
+
+`--session conf-app --restore=stg` loads a saved login state from `~/.agent-browser/sessions/stg-conf-app.json` (robot1yanhui) and re-saves it after every run; the id.atlassian.com session is valid to 2026-10-09 as of 2026-09-30. Keep this session name fixed — every new session name leaves another cookie file. Without it every invocation starts on a blank profile and lands on the Atlassian login page. The SSO token covers any `*.atlassian.net` site the account belongs to; a site's first visit costs one redirect, then its cookie is cached.
+
+Identity to mechanism:
+
+| Identity | Mechanism | Use for |
 |---|---|---|
-| **Playwright** | ✅ Yes | Use `frameLocator()` |
-| **chrome-devtools-mcp** | ❌ No | Feature not implemented ([issue #703](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/703)) |
-| **browser-use** | ❌ No | `cross_origin_iframes` flag exists but fix was reverted |
-| **agent-browser** | ❌ No | Built on browser-use, same limitation |
-| **claude-in-chrome** | ❌ No | Cannot cross origin iframe boundary |
+| robot1yanhui@aol.com (non-admin test user) | `agent-browser --session conf-app --restore=stg` | conf-app staging checks, customer-like view |
+| support@zenuml.com (org admin) | `agent-browser --session <name> --profile ~/.agent-browser/profiles/atlassian`, after `~/.claude/skills/browser-check/scripts/atlassian-warmup.zsh <site>...` (subdomains, e.g. `zenuml lite-stg`; exit 0 = signed in) | admin pages, JSM support queue, AsyncAPI |
+| eagle.xiao@gmail.com (`FORGE_EMAIL`) | `agent-browser --profile "Profile 8"` | forge tunnel only |
 
-Always use Playwright for E2E tests that interact with Forge app UI.
+JS inside a cross-origin macro iframe: `agent-browser --session S frame --url <substring>` (or `frame @eNNN` from a snapshot ref), then `eval -b <base64>` / `eval "<js>"`, then `frame main` to return. `localStorage` set/get works in the iframe's origin. When several frames match one `--url`, `eval` runs in one of them — use a more specific substring or a snapshot ref. Read and click inside iframes with snapshot refs (`click @eNNN`); use `keyboard type` for real keystrokes (`fill` bypasses input events). Playwright MCP is the fallback when agent-browser fails, and is still required for file upload inside a Forge iframe (untested with agent-browser).
+
+| Tool | OOPIF snapshot | OOPIF `eval` | OOPIF console | snapshot token |
+|---|---|---|---|---|
+| **agent-browser** | ✅ | ✅ | ✅ | 9,048 |
+| **ego lite** (`ego-browser`) | ✅ | ✅ (`cdp` + `sessionId`) | ✅ (`Runtime.enable` + `drainEvents`) | 12,246 |
+| **Playwright MCP** | ✅ | ✅ (snapshot `ref` as `target`) | ✅ (`console-*.log`) | 17,914 |
+| **Kimi WebBridge** | ❌ | ❌ | ❌ | 17,888 |
+| chrome-devtools-mcp | ❌ | ❌ | ❌ | — |
+| browser-use | ❌ | ❌ | ❌ | — |
+| claude-in-chrome | ❌ | ❌ | ❌ | — |
+
+Measured 2026-08-16 on lite-stg page 211026061; token counts are one accessibility snapshot of the same page (`cl100k_base`). Wall-clock for a 3-step flow was 13.5–15.7 s for all three capable tools — no measurable speed difference.
+
+**Why agent-browser is the default, and it is not token cost.** Playwright MCP drives one Chrome extension relay with a single global pairing: every concurrent Claude Code session competes for it, the loser's calls hang for 120 s, and recovery needs `/mcp` → Reconnect, which only the user can run. Over 2026-08-10..16 that produced 27 timeouts, 14 `PROFILE_BUSY`, 19 `Target … has been closed`, and **14 forced user interventions**. agent-browser gives each session its own `user-data-dir`, so the failure mode does not exist. Token saving is a rounding error by comparison (~1% of daily spend).
+
+**Nested iframes work as of the 2026-08-17 patch** (`ab-src` `d2d8dbd`). A DrawIO editor inside a Forge macro OOPIF is two `frame` calls deep, and both `frame` and `eval` reach it. Take the ref from a snapshot in the *current* frame's context — `@e` refs are per-snapshot and per-frame, so re-read after every `frame` and every navigation:
+
+```bash
+A(){ agent-browser --session conf-app --restore=stg "$@"; }
+A frame "@e42"                      # layer 1: editor OOPIF
+A snapshot | grep Iframe            # re-read the ref HERE
+A frame "@e1"                       # layer 2: DrawIO
+A eval "typeof window.mxClient"     # -> "object"
+```
+
+Older builds fail two ways worth recognising: `frame @<ref>` reported `✓ Done` while `eval` silently stayed in the top frame (verify with `location.host` — it must be the `cdn.prod.atlassian-dev.net` host), and second-layer `eval` was rejected by the inner frame's CSP for lacking `unsafe-eval`. Both are fixed; the CSP one only ever affected same-origin nested frames.
+
+The DrawIO **instance** is a separate matter: the deployed build keeps its UI object in a closure, so `window.editorUi` does not exist and `graph-macro/SKILL.md`'s `editorUi.editor.graph.insertVertex(...)` fallback has no entry point. Reaching it in the current build is unsolved — use that skill's UI-click primary path.
+
+Kimi WebBridge cannot be used for Forge work at all: its snapshot omits OOPIF subtrees, and its `cdp` passthrough is `chrome.debugger`, which rejects `Target.getTargets` and `Target.attachToTarget` with `Not allowed`.
+
+**This section overrides any skill that still spells browser steps as `mcp__playwright__*` calls.** Their *logic* (which page, which selector, which assertion) is correct — translate the mechanics to agent-browser as you go:
+
+| Playwright MCP | agent-browser (prefix every call with `--session conf-app --restore=stg`) |
+|---|---|
+| `browser_navigate({url})` | `open <url>` |
+| `browser_snapshot()` | `snapshot` |
+| `browser_evaluate({function})` | `eval "<expr>"` |
+| `browser_click({target})` | `click "@<ref>"` |
+| `browser_type` / `browser_fill_form` | `fill "@<ref>" "<value>"` |
+| `browser_take_screenshot({filename})` | `screenshot <path>` |
+| `frameLocator()` / snapshot `ref` as `target` | `frame "@<ref>"`, then plain `eval` / `click` |
+| `browser_console_messages()` | `console` |
+
+Reach for Playwright MCP only when a skill needs something agent-browser lacks, or when agent-browser itself fails. Standalone `@playwright/test` under `tests/e2e-tests/` is unaffected by any of this.
 
 ## Agent skills
 
@@ -239,3 +324,5 @@ Always use Playwright for E2E tests that interact with Forge app UI.
 - **Issue tracker** — issues live as GitHub issues on `ZenUml/conf-app`; use the `gh` CLI for all operations.
 - **Triage labels** — five canonical roles, names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
 - **Domain docs** — single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
+- **Vendored skill set** — the 25 skills from [mattpocock/skills](https://github.com/mattpocock/skills) (`grill-me`, `grill-with-docs`, `tdd`, `code-review`, `implement`, `triage`, `to-spec`, `to-tickets`, `wayfinder`, …) are copied into `.claude/skills/` as editable files we own, not installed as the `mattpocock-skills` plugin — a plugin install is per-machine and would not reach the team or the remote agent containers. Vendored from upstream `6654f6b` (plugin v1.2.3); to refresh, re-copy from that repo rather than editing in place, or keep local edits deliberate. Do **not** also run `claude plugins install mattpocock-skills`: that would give every skill twice.
+- **`code-review` shadows the built-in** — `.claude/skills/code-review/` (Matt Pocock's two-axis Standards + Spec review) takes precedence over Claude Code's built-in `/code-review` in this repo. Rename the directory if you want the built-in back.

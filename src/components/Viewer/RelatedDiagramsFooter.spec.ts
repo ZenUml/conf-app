@@ -35,6 +35,11 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
 
 import { RelatedLookupError } from '@/services/ArchitectureTokens'
 import RelatedDiagramsFooter from './RelatedDiagramsFooter.vue'
+import {
+  _resetForTesting as resetThrottle,
+  confluenceThrottleRemainingMs,
+  noteConfluenceThrottled,
+} from '@/utils/confluenceThrottle'
 
 const actorRects: Record<string, DOMRect> = {
   MAN: { left: 500, right: 522, top: 40, bottom: 65, width: 22, height: 25 } as DOMRect,
@@ -923,6 +928,68 @@ describe('RelatedDiagramsFooter', () => {
       'related_diagrams_lookup_succeeded',
       expect.anything(),
     )
+  })
+
+  describe('HTTP status and Confluence rate limiting', () => {
+    const clearCooldown = () => {
+      localStorage.clear()
+      resetThrottle()
+    }
+    beforeEach(clearCooldown)
+    afterEach(clearCooldown)
+
+    it('records our backend\'s status when the call itself failed', async () => {
+      // callRemote's error for a non-2xx answer, e.g. a guest without a user token
+      getRelatedDiagrams.mockRejectedValueOnce(Object.assign(new Error('HTTP 403'), { status: 403 }))
+      mountFooter()
+      await flushPromises()
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'related_diagrams_lookup_failed',
+        expect.objectContaining({ error_kind: 'network', http_status: 403 }),
+      )
+    })
+
+    it('has no http_status for a timeout, which never got an answer', async () => {
+      getRelatedDiagrams.mockRejectedValueOnce(new RelatedLookupError('timeout'))
+      mountFooter()
+      await flushPromises()
+
+      const [, props] = trackAnalyticsEvent.mock.calls.find(([name]) => name === 'related_diagrams_lookup_failed')!
+      expect(props).not.toHaveProperty('http_status')
+    })
+
+    it('records the status Confluence gave the backend, and a 429 opens the site cooldown', async () => {
+      related.value = {
+        indexedAt: null,
+        contentVersion: null,
+        participants: [],
+        error_kind: 'confluence_unavailable',
+        confluence_http_status: 429,
+      }
+      mountFooter()
+      await flushPromises()
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'related_diagrams_lookup_failed',
+        expect.objectContaining({ error_kind: 'confluence_unavailable', confluence_http_status: 429 }),
+      )
+      expect(confluenceThrottleRemainingMs()).toBeGreaterThan(0)
+    })
+
+    it('makes no lookup while the site is in a 429 cooldown', async () => {
+      noteConfluenceThrottled('120')
+      related.value = twoParticipants
+      mountFooter()
+      await flushPromises()
+
+      expect(getRelatedDiagrams).not.toHaveBeenCalled()
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('confluence_background_request_deferred', expect.objectContaining({
+        request_endpoint: 'work:related_diagrams_lookup',
+        cooldown_remaining_ms: expect.any(Number),
+      }))
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('related_diagrams_lookup_failed', expect.anything())
+    })
   })
 
   it('carries the render-gate telemetry on related_token_indicators_shown when the gate ran', async () => {

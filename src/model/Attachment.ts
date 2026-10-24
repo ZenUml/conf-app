@@ -6,6 +6,7 @@ import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
 import {ForgeRequestError} from '@/utils/forgeRequestError';
+import { confluenceThrottleRemainingMs, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
 import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
@@ -1050,7 +1051,13 @@ async function createAttachmentIfContentChanged(
   // first view after the cooldown retries. The save-time write is a single
   // user action, so it always tries.
   const rateLimitSite = getCloudId() ?? 'unknown';
-  const cooldownRemainingMs = opts?.fromSave ? 0 : rateLimitCooldownRemainingMs(rateLimitSite);
+  // Also honour the shared site cooldown (utils/confluenceThrottle.ts), which
+  // any Confluence 429 opens — a save's, a snapshot read's, this backfill's —
+  // so the view-time backfill stands down whichever request was refused.
+  const cooldownRemainingMs = opts?.fromSave ? 0 : Math.max(
+    rateLimitCooldownRemainingMs(rateLimitSite),
+    confluenceThrottleRemainingMs(),
+  );
   if (cooldownRemainingMs > 0) {
     trackAnalyticsEvent('attachment_upload_deferred', {
       feature_area: 'macro', surface: 'viewer',
@@ -1244,6 +1251,10 @@ async function createAttachmentIfContentChanged(
         rateLimitSite,
         e instanceof ForgeRequestError ? e.retryAfter : undefined,
       );
+      // The data POST and properties PUT go straight to requestConfluence, so
+      // forgeRequest never saw this 429: open the shared site cooldown too, so
+      // the page's other optional work stands down with the backfill.
+      noteConfluenceThrottled(e instanceof ForgeRequestError ? e.retryAfter : undefined);
       if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
         'upload_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       trackAnalyticsEvent('attachment_upload_rate_limited', {

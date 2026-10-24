@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { _resetForTesting as resetConfluenceThrottle, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
 import { DiagramType } from './Diagram/Diagram';
 
 const { mockGetAttachmentsV2, mockRequestConfluence, mockCallRemote, mockTrack } = vi.hoisted(() => {
@@ -448,5 +449,40 @@ describe('snapshotSkipReason', () => {
     expect(snapshotSkipReason(new Error('snapshot upload transport error: Failed to fetch'))).toBeUndefined();
     expect(snapshotSkipReason(new Error('something else'))).toBeUndefined();
     expect(snapshotSkipReason(undefined)).toBeUndefined();
+  });
+});
+
+// Optional view-time work stands down while Confluence rate-limits the site
+// (utils/confluenceThrottle.ts), so the remaining budget goes to saves.
+describe('maybeBackfillSnapshot during a Confluence 429 cooldown', () => {
+  const diagram = { diagramType: DiagramType.Mermaid, mermaidCode: 'graph TD; A-->B' } as any;
+  const clearCooldown = () => {
+    localStorage.clear();
+    resetConfluenceThrottle();
+  };
+  beforeEach(() => {
+    clearCooldown();
+    mockTrack.mockReset();
+    mockGetAttachmentsV2.mockReset();
+    mockGetAttachmentsV2.mockResolvedValue([]);
+    mockCallRemote.mockReset();
+  });
+  afterEach(clearCooldown);
+
+  it('skips the viewer backfill without any request', async () => {
+    noteConfluenceThrottled('120');
+    await maybeBackfillSnapshot({ hostPageId: 'page-1', ccId: '12345', diagram, isDisplayMode: true });
+    expect(mockGetAttachmentsV2).not.toHaveBeenCalled();
+    expect(mockCallRemote).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalledWith('confluence_background_request_deferred', expect.objectContaining({
+      request_endpoint: 'work:snapshot_backfill',
+    }));
+  });
+
+  it('runs it when there is no cooldown', async () => {
+    mockCallRemote.mockResolvedValue({});
+    await maybeBackfillSnapshot({ hostPageId: 'page-1', ccId: '12345', diagram, isDisplayMode: true });
+    expect(mockGetAttachmentsV2).toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalledWith('confluence_background_request_deferred', expect.anything());
   });
 });

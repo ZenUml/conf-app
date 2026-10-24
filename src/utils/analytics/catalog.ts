@@ -1656,7 +1656,31 @@ export type AnalyticsEventName =
   | "plan_usage_locations_loaded"
   | "plan_usage_locations_load_failed"
   | "plan_usage_locations_filtered"
-  | "plan_usage_locations_page_clicked";
+  | "plan_usage_locations_page_clicked"
+  // Confluence rate limiting (HTTP 429), seen in the browser's requestConfluence
+  // traffic. One Lite tenant produced 198 of the fleet's 228 explicit 429s in
+  // 2026-10-18..24, in step with its hourly macro-view volume, and its users'
+  // saves failed on the same 429s (POST /wiki/api/v2/custom-content and the
+  // save's existence-check GET). Any 429 opens a per-site cooldown
+  // (utils/confluenceThrottle.ts) that optional background work honours, so a
+  // throttled site's remaining budget goes to saves; save-path requests retry
+  // with bounded backoff instead of failing on the first 429.
+  //
+  // One per 429 response. Properties: request_endpoint (templated, no ids),
+  // request_priority, http_status, retry_after_source, retry_after_s,
+  // cooldown_ms, will_retry.
+  | "confluence_request_throttled"
+  // A save-path (user-priority) request that got at least one 429, once it
+  // ends. retry_outcome 'recovered' = a retry got a non-429 answer;
+  // 'exhausted' = the attempt or wait budget ran out and the 429 went to the
+  // caller (which then records save_failed as before). Properties:
+  // request_endpoint, retry_outcome, retry_attempts, retry_wait_ms.
+  | "confluence_request_retried"
+  // Optional background work skipped without sending a request because this
+  // site's 429 cooldown is running. At most one per request_endpoint per macro
+  // iframe per cooldown, so it measures how much work stood down, not every
+  // skip. Properties: request_endpoint, cooldown_remaining_ms.
+  | "confluence_background_request_deferred";
 
 /**
  * How one Diagram-locations batch resolved. `ok` listed at least one row;

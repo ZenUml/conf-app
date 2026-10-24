@@ -422,6 +422,10 @@ export default defineConfig(({ command }) => ({
       // Scratch dir — sessions park ad-hoc Playwright specs here; a stray
       // *.spec.ts under tmp/ otherwise fails the whole run at collection.
       '**/tmp/**',
+      // The error-radar skill's JS tests use node:test and run under
+      // `node --test` in error-radar.yml; Vitest finds no suite in them and
+      // fails the whole run at collection.
+      '**/.claude/skills/error-radar/**/*.test.js',
       // Private customer-investigation contains ephemeral Playwright spot
       // checks. They are run with tests/e2e-tests' Playwright config, never
       // as root Vitest unit suites.

@@ -5,6 +5,9 @@ import { NULL_DIAGRAM } from '@/model/Diagram/Diagram'
 // every Lite gate decision — blocked OR not — carrying gate_fired +
 // macro_count_source, and is suppressed on non-Lite variants.
 
+const recoveryMount = vi.hoisted(() => vi.fn().mockResolvedValue('disabled'));
+vi.mock('./fullscreenRecoveryGate', () => ({ mountFullscreenRecovery: recoveryMount, observeOrdinaryFullscreenReady: vi.fn() }));
+
 const fakeCS = {
   initialize: vi.fn().mockResolvedValue(undefined),
   shouldBlockActions: { value: false },
@@ -13,6 +16,7 @@ const fakeCS = {
   cssEnabled: { value: true },
   paywallPolicySource: { value: 'default_on' as 'default_on' | 'exemption' | 'fail_open' },
   spacePaid: { value: false },
+  spacePaidStatusKnown: { value: false },
   spacePaidSource: { value: undefined as 'user_license' | 'space_license' | undefined },
   spaceKey: { value: 'OVERLIMIT' },
   upgradeUrl: { value: 'https://upgrade' },
@@ -83,9 +87,28 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     fakeCS.macrosCreated.value = 0
     fakeCS.macroCountSource.value = 'undefined'
     fakeCS.paywallPolicySource.value = 'default_on'
+    fakeCS.spacePaidStatusKnown.value = false
+    recoveryMount.mockResolvedValue('disabled')
     fakeCS.spacePaid.value = false
     fakeCS.spacePaidSource.value = undefined
   })
+
+  it.each([
+    [true, true, 'default_on', false],
+    [false, false, 'default_on', false],
+    [false, true, 'fail_open', false],
+    [false, true, 'default_on', true],
+    [false, true, 'exemption', true],
+  ] as const)('recovery entry paid=%s known=%s policy=%s permits lookup=%s', async (paid, known, policy, expected) => {
+    const forge = await import('@/model/globals/forgeGlobal');
+    vi.mocked(forge.isFullscreenMode).mockResolvedValue(true);
+    vi.mocked(forge.isEditorMode).mockResolvedValue(false);
+    fakeCS.spacePaid.value = paid; fakeCS.spacePaidStatusKnown.value = known; fakeCS.paywallPolicySource.value = policy;
+    const { gate } = await imports();
+    await gate.tryFullscreenViewerPaywall({ doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence' });
+    expect(recoveryMount).toHaveBeenCalledTimes(expected ? 1 : 0);
+    if (expected) expect(recoveryMount).toHaveBeenCalledWith(expect.objectContaining({ existingExemption: policy === 'exemption' }));
+  });
 
   it('fires with gate_fired=false + fail-open source on an ungated create mount', async () => {
     const { gate, trackUpgradeEvent, UpgradeEventName } = await imports()
@@ -243,6 +266,8 @@ describe('byline create surface', () => {
     fakeCS.shouldBlockActions.value = false
     fakeCS.macrosCreated.value = 0
     fakeCS.macroCountSource.value = 'undefined'
+    fakeCS.spacePaidStatusKnown.value = false
+    recoveryMount.mockResolvedValue('disabled')
     fakeCS.spacePaid.value = false
     fakeCS.spacePaidSource.value = undefined
     const globals = (await import('@/model/globals')).default

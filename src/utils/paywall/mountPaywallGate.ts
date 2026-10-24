@@ -1,3 +1,4 @@
+import { mountFullscreenRecovery, observeOrdinaryFullscreenReady } from './fullscreenRecoveryGate';
 import { setEditJourneyMeta } from '@/utils/journeyTracking';
 import { Component } from 'vue';
 import globals from '@/model/globals';
@@ -196,8 +197,16 @@ export async function tryFullscreenViewerPaywall(opts: {
     isEditor,
     customerSuccess.shouldBlockActions.value,
   );
+  // A paid viewer never needs a temporary grant. The separately configured
+  // Fullscreen pilot must not activate the editing/count paywall as a side effect.
+  const recovery = globals.apWrapper.isLite() && customerSuccess.spacePaidStatusKnown?.value
+    && !customerSuccess.spacePaid.value && customerSuccess.paywallPolicySource.value !== 'fail_open'
+    ? await mountFullscreenRecovery({ ...opts, existingExemption: customerSuccess.paywallPolicySource.value === 'exemption' })
+    : 'disabled';
+  if (recovery === 'handled') return true;
   trackGateEvaluated(customerSuccess, 'fullscreen_viewer', viewerBlocked);
   if (!viewerBlocked) {
+    observeOrdinaryFullscreenReady(recovery === 'unavailable' ? 'fail_open' : 'existing');
     return false;
   }
 

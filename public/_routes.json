@@ -41,7 +41,11 @@
     "/deeplink-ticket",
     "/activation-prepared",
     "/magic-writeback",
-    "/conversion/*"
+    "/conversion/*",
+    "/api/fullscreen-recovery",
+    "/api/support/fullscreen-recovery",
+    "/api/support/fullscreen-recovery-mail",
+    "/api/fullscreen-recovery-webhook"
   ],
   "exclude": []
 }

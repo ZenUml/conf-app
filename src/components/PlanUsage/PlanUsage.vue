@@ -4,6 +4,32 @@
       <h1>Plan and usage</h1>
       <p class="domain">{{ domain }}</p>
 
+      <section v-if="fullscreenSource" class="fullscreen-context" data-testid="plan-usage-fullscreen-context">
+        <p class="section-title">Your Fullscreen use</p>
+        <h2>Review Fullscreen options</h2>
+        <p v-if="fullscreenScenarios">You selected: {{ fullscreenScenarios }}.</p>
+        <p v-else>Review the plan and usage details below for your site.</p>
+        <p v-if="fullscreenLoading" role="status">Checking your Fullscreen request…</p>
+        <div v-else-if="fullscreenError" role="alert">
+          We could not check your Fullscreen request right now.
+          <button type="button" class="btn btn-neutral" @click="loadFullscreenSnapshot">Retry</button>
+        </div>
+        <template v-else-if="fullscreenSnapshot">
+          <p v-if="fullscreenSnapshot.state === 'pending_activation'">Your request {{ fullscreenSnapshot.request?.id }} is saved. Your 7 days begin when the diagram first opens successfully in Fullscreen.</p>
+          <p v-else-if="fullscreenSnapshot.state === 'active'">Your temporary Fullscreen access ends {{ fullscreenExpiry }}.</p>
+          <p v-else-if="fullscreenSnapshot.state === 'expired'">Your temporary Fullscreen access ended {{ fullscreenExpiry }}. You can continue the same request with support.</p>
+          <p v-else-if="fullscreenSnapshot.state === 'notice'">Fullscreen access will change on {{ fullscreenNoticeDate }}. You can still read diagrams on their pages.</p>
+          <p v-else-if="fullscreenSnapshot.state === 'disabled'">Fullscreen access is currently managed on the diagram page.</p>
+          <div class="actions">
+            <button v-if="fullscreenSnapshot.state === 'not_requested' || fullscreenSnapshot.request" type="button" class="btn btn-primary" data-testid="plan-usage-fullscreen-request" @click="openFullscreenRequest">
+              {{ fullscreenSnapshot.request ? 'View your Fullscreen request' : 'Contact support about Fullscreen' }}
+            </button>
+            <button v-if="diagramReturnPathValue" type="button" class="btn btn-neutral" data-testid="plan-usage-return-diagram" @click="returnToDiagram">Return to diagram</button>
+          </div>
+        </template>
+        <p v-if="!diagramReturnPathValue || returnUnavailable" class="muted" data-testid="plan-usage-return-help">To return to the diagram, open the Confluence page where you started.</p>
+      </section>
+
       <div v-if="loading" class="muted">Loading usage…</div>
       <div v-else-if="loadError" class="error">Could not load usage data. Try reloading.</div>
       <template v-else>
@@ -49,8 +75,11 @@
         <p v-else class="muted">No spaces are currently over the Lite limit.</p>
 
         <section class="upgrade-block">
-          <p class="section-title">Full covers every space on this site</p>
-          <p class="upgrade-copy">
+          <p class="section-title">{{ fullscreenSource ? 'Explore a plan for your Fullscreen use' : 'Full covers every space on this site' }}</p>
+          <p v-if="fullscreenSource" class="upgrade-copy">
+            Review the Full plan on Atlassian Marketplace and ask your team to confirm whether it fits your Fullscreen use.
+          </p>
+          <p v-else class="upgrade-copy">
             Full removes the per-space diagram limit. Estimated pricing and purchase are handled
             entirely by Atlassian Marketplace — this page does not process payment.
           </p>
@@ -73,6 +102,16 @@
       @back="view = 'usage'"
     />
 
+    <div v-else-if="view === 'fullscreen_request' && fullscreenSnapshot" class="fullscreen-request-view">
+      <button type="button" class="back-link" @click="view = 'usage'">← Plan and usage</button>
+      <FullscreenRecoveryGate :snapshot="fullscreenSnapshot" :initial-scenarios="fullscreenSource?.scenarios"
+        :context="fullscreenSource?.pageId ? { contentId: fullscreenSource.pageId } : undefined" surface="dashboard"
+        :initial-view="fullscreenRequestInitialView" open-label="Return to diagram"
+        @update:snapshot="fullscreenSnapshot = $event" @open-fullscreen="returnToDiagram"
+        @return-inline="returnToDiagram" @plan-usage="view = 'usage'" />
+      <p v-if="!diagramReturnPathValue || returnUnavailable" class="muted" data-testid="plan-usage-return-help">To return to the diagram, open the Confluence page where you started.</p>
+    </div>
+
     <template v-else>
       <div class="step-row">
         <button type="button" class="back-link" data-testid="request-full-back" @click="view = 'usage'">
@@ -82,8 +121,11 @@
         <span class="step-label">Step 2 of 2 · Request Full</span>
       </div>
 
-      <h1 class="request-title">Request Full for your team</h1>
-      <p class="request-intro">
+      <h1 class="request-title">{{ fullscreenSource ? 'Review Full for your Fullscreen use' : 'Request Full for your team' }}</h1>
+      <p v-if="fullscreenSource" class="request-intro">
+        Copy the reason below if your team wants to evaluate Full for this use. The Marketplace listing explains the current plan and purchase steps.
+      </p>
+      <p v-else class="request-intro">
         Full removes the diagram limit for every space on this site. Copy the reason below, then
         submit it through Atlassian's own request-to-install flow — an admin on your site handles
         approval and purchase from there. We do not receive a copy of what you submit to Atlassian.
@@ -122,12 +164,30 @@ import forgeGlobal, { openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { AnalyticsEventName } from '@/utils/analytics/catalog'
 import DiagramLocations from '@/components/PlanUsage/DiagramLocations.vue'
+import FullscreenRecoveryGate from '@/components/FullscreenRecovery/FullscreenRecoveryGate.vue'
+import { getFullscreenRecovery } from '@/apis/fullscreenRecovery'
+import { fullLocalDate, scenarioLabels } from '@/components/FullscreenRecovery/recoveryPresentation'
+import { diagramReturnPath, parseFullscreenSource } from './fullscreenSource'
+import type { RecoverySnapshot } from '../../../shared/fullscreenRecovery'
 import type { SpaceSummary } from '@/utils/planUsage/diagramLocations'
 
 const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
 
-type View = 'usage' | 'locations' | 'request_full'
+type View = 'usage' | 'locations' | 'request_full' | 'fullscreen_request'
 const view = ref<View>('usage')
+const fullscreenSource = ref(parseFullscreenSource(forgeGlobal.forgeContext?.extension?.location))
+const fullscreenSnapshot = ref<RecoverySnapshot | null>(null)
+const fullscreenLoading = ref(false)
+const fullscreenError = ref(false)
+const returnUnavailable = ref(false)
+const fullscreenRequestInitialView = ref<'request' | undefined>()
+const diagramReturnPathValue = computed(() => fullscreenSource.value ? diagramReturnPath(fullscreenSource.value) : null)
+const fullscreenScenarios = computed(() => {
+  const scenarios = fullscreenSnapshot.value?.request?.scenarios ?? fullscreenSource.value?.scenarios ?? []
+  return scenarios.map(code => scenarioLabels[code]).filter(Boolean).join(', ')
+})
+const fullscreenExpiry = computed(() => fullLocalDate(fullscreenSnapshot.value?.grant?.expiresAt) || 'an unavailable date')
+const fullscreenNoticeDate = computed(() => fullLocalDate(fullscreenSnapshot.value?.enforceAt) || 'a date to be confirmed')
 
 const domain = ref('')
 const loading = ref(true)
@@ -144,6 +204,13 @@ const copyState = ref<'default' | 'copied'>('default')
 const upgradeUrl = computed(() => `${BASE_UPGRADE_URL}?domain=${domain.value}`)
 
 const reasonText = computed(() => {
+  if (fullscreenSource.value) {
+    const use = fullscreenScenarios.value || 'Viewing diagrams in Fullscreen'
+    return [
+      `Our team uses ZenUML diagrams in Confluence. Our Fullscreen use: ${use}.`,
+      `Could you help us review whether ZenUML Full fits this use on our site?`,
+    ].join('\n')
+  }
   const spaceList = overLimitSpaces.value.length
     ? overLimitSpaces.value.map((s) => `${s.spaceKey} (${s.macroCount.toLocaleString()} diagrams)`).join(', ')
     : getSpaceKey() || 'this space'
@@ -155,6 +222,44 @@ const reasonText = computed(() => {
     `that limit. Could you approve installing/upgrading to Full for our site?`,
   ].join('\n')
 })
+
+async function loadFullscreenSnapshot() {
+  if (!fullscreenSource.value) return
+  fullscreenLoading.value = true
+  fullscreenError.value = false
+  try {
+    const snapshot = await getFullscreenRecovery()
+    if (snapshot.state === 'unavailable') throw new Error('recovery unavailable')
+    fullscreenSnapshot.value = snapshot
+  } catch {
+    fullscreenSnapshot.value = null
+    fullscreenError.value = true
+  } finally {
+    fullscreenLoading.value = false
+  }
+}
+
+function openFullscreenRequest() {
+  if (!fullscreenSnapshot.value) return
+  fullscreenRequestInitialView.value = fullscreenSnapshot.value.request ? 'request' : undefined
+  view.value = 'fullscreen_request'
+}
+
+async function returnToDiagram() {
+  const path = diagramReturnPathValue.value
+  if (!path) { returnUnavailable.value = true; view.value = 'usage'; return }
+  try {
+    if (forgeGlobal.isForge) {
+      const { router } = await import('@forge/bridge')
+      await router.navigate(path)
+    } else {
+      window.open(path, '_blank', 'noopener,noreferrer')
+    }
+  } catch {
+    returnUnavailable.value = true
+    view.value = 'usage'
+  }
+}
 
 async function loadUsage() {
   loading.value = true
@@ -184,7 +289,7 @@ async function loadUsage() {
 
 onMounted(async () => {
   domain.value = getClientDomain() || 'unknown_atlassian_domain'
-  await loadUsage()
+  await Promise.all([loadUsage(), loadFullscreenSnapshot()])
   trackAnalyticsPlanUsage('plan_usage_viewed')
 })
 
@@ -276,6 +381,13 @@ h1 { font-size: 20px; font-weight: 600; line-height: 1.3; margin: 0 0 4px; }
 .domain { font-size: 13px; color: #6B778C; margin: 0 0 24px; } /* --neutral-subtle */
 .muted { color: #6B778C; }
 .error { color: #CA3521; } /* --color-danger */
+.fullscreen-context { border-top: 1px solid #E5E7EB; border-bottom: 1px solid #E5E7EB; padding: 20px 0; margin-bottom: 24px; }
+.fullscreen-context h2 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+.fullscreen-context p { margin: 0 0 12px; }
+.fullscreen-context .actions { margin-top: 16px; }
+.fullscreen-request-view { padding-top: 8px; }
+.fullscreen-request-view .back-link { margin-bottom: 20px; }
+.fullscreen-request-view :deep(.recovery) { width: 100%; }
 
 .section-title {
   font-size: 11px;

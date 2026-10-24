@@ -49,6 +49,9 @@ vi.mock('@forge/api', () => ({
   },
 }));
 
+const { cacheGet, cacheSet } = vi.hoisted(() => ({ cacheGet: vi.fn(), cacheSet: vi.fn() }));
+vi.mock('@forge/kvs', () => ({ kvs: { get: cacheGet, set: cacheSet } }));
+
 import { handler, trackExportEvent } from '../../src/export.js';
 
 function mixpanelBodiesFromFetch(fetchMock: typeof fetch): unknown[] {
@@ -84,6 +87,9 @@ describe('Forge export resolver (src/export.js)', () => {
     // drop path has its own coverage in tests/unit/exportSampling.spec.ts.
     vi.spyOn(Math, 'random').mockReturnValue(0);
 
+    cacheGet.mockReset();
+    cacheSet.mockReset();
+    delete process.env.EXPORT_404_CACHE_ENABLED;
     asAppRequest.mockReset();
     asUserRequest.mockReset();
   });
@@ -93,6 +99,22 @@ describe('Forge export resolver (src/export.js)', () => {
     vi.restoreAllMocks();
     delete process.env.MIXPANEL_TOKEN;
     delete process.env.MIXPANEL_DISABLED;
+  });
+
+  it('returns the cached missing-image verdict without Confluence or telemetry calls', async () => {
+    cacheGet.mockResolvedValue(true);
+    const result = await handler({ context: { cloudId: 'cloud-example', content: { id: 'page-example' }, config: { customContentId: 'cc-example' } } });
+    expect(cacheGet).toHaveBeenCalledWith('export:nf:cloud-example:page-example:cc-example');
+    expect(JSON.stringify(result)).toContain('Diagram image not yet generated');
+    expect(asAppRequest).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('falls through to Confluence when the cache read fails', async () => {
+    cacheGet.mockRejectedValue(new Error('cache unavailable'));
+    asAppRequest.mockRejectedValue(new Error('attachments failure'));
+    await handler({ context: { cloudId: 'cloud-example', content: { id: 'page-example' }, config: { customContentId: 'cc-example' } } });
+    expect(asAppRequest).toHaveBeenCalled();
   });
 
   it('suppresses Forge export telemetry in the disabled staging environment while production still imports', async () => {
@@ -991,6 +1013,9 @@ describe('macro_export_* $insert_id (Mixpanel dedup key)', () => {
     // drop path has its own coverage in tests/unit/exportSampling.spec.ts.
     vi.spyOn(Math, 'random').mockReturnValue(0);
 
+    cacheGet.mockReset();
+    cacheSet.mockReset();
+    delete process.env.EXPORT_404_CACHE_ENABLED;
     asAppRequest.mockReset();
     asUserRequest.mockReset();
   });

@@ -89,6 +89,9 @@ importers:
       '@forge/bridge':
         specifier: ^5.16.0
         version: 5.16.0(@types/react@18.3.31)(react@18.3.1)
+      '@forge/kvs':
+        specifier: ^1.5.0
+        version: 1.6.5
       '@forge/resolver':
         specifier: ^1.6.13
         version: 1.7.1
@@ -1787,6 +1790,9 @@ packages:
   '@forge/api@6.4.3':
     resolution: {integrity: sha512-xwmJ+SWBur5LcxJ3dnN7Is4OidO4VV7lzPWkBhW73DtPQ8OLnMQqhi1W4dcQVeKwxDNoyVeoCDH+zdNg+3ZVrw==}
 
+  '@forge/api@7.2.2':
+    resolution: {integrity: sha512-q0TwkgzZqEbB1NNetQ9xRvNH6ICaX71QH884tduRzps+qnjuJYh0lJHKKxtwWMfZFdiILNRayhyAlvvuMskH3Q==}
+
   '@forge/auth@0.0.9':
     resolution: {integrity: sha512-3qZZNknFprzDkrXzBVKHqVD12r/b2K9cu/RJh9TP3QLiF18v7bdoD1fgZZbVavKJUmCNdQERk6NTVQLmmEszhg==}
 
@@ -1856,6 +1862,9 @@ packages:
       typescript:
         optional: true
 
+  '@forge/kvs@1.6.5':
+    resolution: {integrity: sha512-WLpXlfxF2LtVulj5SGANFQlF1SdvW/DfI+nLvGShZCIpyqo2EOUp3UjbK63JXErs+xTmcNGIMNSJnBAstS5bTQ==}
+
   '@forge/lint@6.2.1':
     resolution: {integrity: sha512-6ak4QvB9jjYueuEgMd3xSQV7JBv+x0UvemhyVXKxVaHPcmNVdnIU9IsBuTriVHn3Is33rFRlRfWjdtRcXoQrYw==}
     peerDependencies:
@@ -1869,6 +1878,9 @@ packages:
 
   '@forge/manifest@12.6.0':
     resolution: {integrity: sha512-htEjbrwgtXSrPQRDbzclNltY1JU435o4CdwxUoEin1MnmQo6Rxm6jaa/23h6jyW+FH1ViXTDwl0b8qxj8UsC8w==}
+
+  '@forge/manifest@12.9.0':
+    resolution: {integrity: sha512-7JZiXpAHa5SNSM4DsmaO1PfgZtHngKKwh1++RoYCS1QDuck1sJ2KXh3dq7FV+ajOKVtI54uyukUb7oYMGp7rPw==}
 
   '@forge/manifest@13.4.0':
     resolution: {integrity: sha512-AoumTqjK3/pZFyVdqcCFZVVjXRLokiyqAsUhS8nUN4ww2VuXdrNhrEweWt4R43n5NoO5tKoojUf68XCByozNCA==}
@@ -12486,6 +12498,15 @@ snapshots:
       '@forge/storage': 2.0.3
       headers-utils: 3.0.2
 
+  '@forge/api@7.2.2':
+    dependencies:
+      '@forge/auth': 0.0.9
+      '@forge/egress': 2.3.2
+      '@forge/i18n': 0.0.7
+      '@forge/manifest': 12.9.0
+      '@forge/storage': 2.0.3
+      headers-utils: 3.0.2
+
   '@forge/auth@0.0.9':
     dependencies:
       tslib: 2.8.1
@@ -12706,6 +12727,10 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
 
+  '@forge/kvs@1.6.5':
+    dependencies:
+      '@forge/api': 7.2.2
+
   '@forge/lint@6.2.1(@types/node@25.0.3)(cheerio@1.2.0)(typescript@5.9.3)':
     dependencies:
       '@atlassian/atlassian-openapi': 1.0.6
@@ -12740,6 +12765,18 @@ snapshots:
       yaml: 2.8.2
 
   '@forge/manifest@12.6.0':
+    dependencies:
+      '@forge/i18n': 0.0.7
+      '@sentry/node': 7.106.0
+      ajv: 8.20.0
+      ajv-formats: 2.1.1(ajv@8.20.0)
+      cheerio: 1.2.0
+      glob: 10.5.0
+      lodash: 4.18.1
+      mime-types: 2.1.35
+      yaml: 2.8.4
+
+  '@forge/manifest@12.9.0':
     dependencies:
       '@forge/i18n': 0.0.7
       '@sentry/node': 7.106.0

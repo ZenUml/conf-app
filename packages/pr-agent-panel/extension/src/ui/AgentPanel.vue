@@ -88,7 +88,7 @@ const taskLabel = computed(() => {
 })
 
 // ---- MetaSection.vue: the current PR (click to copy) + PR state badge
-const prLabel = computed(() => (props.pr ? `#${props.pr.number}${props.pr.title ? ` · ${props.pr.title}` : ''}` : ''))
+const prLabel = computed(() => (props.pr ? `#${props.pr.number}${props.pr.title ? `: ${props.pr.title}` : ''}` : ''))
 const STATE_BADGE: Record<PrState, { text: string; tone: string } | null> = {
   open: { text: 'Open', tone: 'success' },
   draft: { text: 'Draft', tone: 'neutral' },
@@ -406,15 +406,20 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
           </section>
 
           <!-- MetaSection.vue -->
-          <section class="tp-section tp-section-flat" data-testid="meta-row">
+          <section class="tp-section tp-section-flat tp-meta-section" data-testid="meta-row">
             <header class="tp-row tp-row-justify tp-gap-l tp-section-header">
               <span v-if="!pr" class="tp-meta-title-aux tp-ellipsis">No pull request</span>
               <div v-else class="tp-meta-title tp-row tp-shrink tp-gap-l">
                 <div
-                  class="tp-copyable tp-copyable-m tp-copyable-normal tp-ellipsis"
+                  class="tp-copyable tp-copyable-m tp-copyable-normal tp-pr-label"
                   :title="copied ? 'Copied' : `Click to copy: ${prLabel}`"
+                  role="button"
+                  tabindex="0"
+                  aria-label="Copy full PR title"
                   data-testid="pr-label"
                   @click="copyPr"
+                  @keydown.enter.prevent="copyPr"
+                  @keydown.space.prevent="copyPr"
                 >{{ prLabel }}</div>
                 <div v-if="stateBadge" class="tp-copyable tp-copyable-m tp-copyable-block">
                   <div class="tp-badge tp-badge-solid" :class="`tp-badge-${stateBadge.tone}`" :title="stateBadge.text">{{ stateBadge.text }}</div>

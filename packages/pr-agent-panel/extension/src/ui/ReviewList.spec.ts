@@ -93,7 +93,7 @@ describe('ReviewList', () => {
     expect(w.get('[data-testid="list-search"]').attributes('placeholder')).toBe('Search reviews')
     expect(w.get('[data-testid="filter-priority"] option').text()).toBe('All priorities ▾')
     expect(w.get('[data-testid="filter-state"] option').text()).toBe('All states ▾')
-    expect(w.get('[data-testid="list-caption"]').text()).toBe('AI reviews · 仅我的 PR · ready first')
+    expect(w.get('[data-testid="list-caption"]').text()).toBe('My authored PRsReady first')
     expect(w.text()).not.toMatch(/\d+\s*reviews?/i)
   })
 

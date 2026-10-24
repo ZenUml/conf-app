@@ -179,11 +179,11 @@ function open(item: ReviewSummary, index: number) {
           </label>
         </div>
       </div>
-      <div class="prl-caption" data-testid="list-caption">AI reviews · 仅我的 PR · ready first</div>
+      <div class="prl-caption" data-testid="list-caption"><span>My authored PRs</span><span>Ready first</span></div>
     </div>
 
     <section v-if="pinnedRows.length" class="prl-pinned" :class="{ 'prl-pinned-only': !ordinaryRows.length }" aria-label="P0 reviews" data-testid="pinned-reviews">
-      <div class="prl-pinned-caption">P0 · Highest priority</div>
+      <div class="prl-pinned-caption">P0 reviews</div>
       <ol class="prl-rows">
         <ReviewListRow
           v-for="{ item, index } in pinnedRows"
@@ -212,7 +212,7 @@ function open(item: ReviewSummary, index: number) {
     </div>
     <div v-if="ordinaryRows.length" class="prl-pagination" aria-label="Review pages" data-testid="list-pagination">
       <button type="button" aria-label="Previous review page" data-testid="page-prev" :disabled="pageIndex === 0" @click="setPage(pageIndex - 1)">‹</button>
-      <span data-testid="page-label">{{ shortRow ? 'Scroll row · ' : '' }}Page {{ pageIndex + 1 }} of {{ Math.max(1, pages.length) }}</span>
+      <span data-testid="page-label">Page {{ pageIndex + 1 }} of {{ Math.max(1, pages.length) }}</span>
       <button type="button" aria-label="Next review page" data-testid="page-next" :disabled="pageIndex >= pages.length - 1" @click="setPage(pageIndex + 1)">›</button>
     </div>
     <ol v-if="ordinaryRows.length" ref="measureEl" class="prl-rows prl-measure" aria-hidden="true" inert>

@@ -128,7 +128,7 @@ describe('AgentPanel layout states', () => {
     const w = mountPanel({ prefs: { ...PREFS, preferencesHidden: true } })
     expect(w.find('[data-testid="prefs-section"]').exists()).toBe(false)
     expect(w.get('[data-testid="prefs-button"]').classes()).not.toContain('tp-button-selected')
-    expect(w.get('[data-testid="pr-label"]').text()).toBe(`#888 · ${PR_888.title}`)
+    expect(w.get('[data-testid="pr-label"]').text()).toBe(`#888: ${PR_888.title}`)
     expect(w.find('[data-testid="review-section"]').exists()).toBe(true)
     expect(w.find('[data-testid="messages-section"]').exists()).toBe(true)
     w.unmount()

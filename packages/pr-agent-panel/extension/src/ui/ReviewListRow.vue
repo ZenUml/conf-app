@@ -62,7 +62,7 @@ function readinessOf() {
       <span v-if="readiness.readinessReason" class="prl-readiness-reason" :title="readiness.readinessReason">{{ readiness.readinessReason }}</span>
     </div>
     <p class="prl-title" :title="item.headline">{{ item.headline }}</p>
-    <p v-if="item.summary" class="prl-reason">{{ item.summary }}</p>
+    <p v-if="item.summary" class="prl-reason" :title="item.summary">{{ item.summary }}</p>
     <div v-if="item.tags.length" class="prl-tags">
       <span v-for="tag in item.tags" :key="tag">{{ tag }}</span>
     </div>

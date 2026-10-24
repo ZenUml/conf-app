@@ -85,6 +85,7 @@
   color: #57606a;
   font-size: 12px;
   font-weight: 500;
+  justify-content: space-between;
 }
 
 .prl-rows { list-style: none; margin: 0; padding: 0; }
@@ -122,10 +123,10 @@
   line-height: 18px;
 }
 
-.prl-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 18px; color: #1f2328; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prl-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 18px; color: #1f2328; overflow-wrap: anywhere; }
 .prl-readiness { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; line-height: 16px; }
 .prl-readiness-label { flex: 0 0 auto; font-weight: 700; }
-.prl-readiness-reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #57606a; }
+.prl-readiness-reason { min-width: 0; overflow-wrap: anywhere; color: #57606a; }
 .prl-readiness-ready .prl-readiness-label { color: #1a7f37; }
 .prl-readiness-blocked .prl-readiness-label { color: #cf222e; }
 .prl-readiness-unknown .prl-readiness-label { color: #57606a; }
@@ -134,10 +135,7 @@
   font-size: 12px;
   line-height: 16px;
   color: #57606a;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .prl-tags { display: flex; gap: 0 14px; flex-wrap: wrap; font-size: 12px; font-weight: 500; color: #57606a; }
 
@@ -183,4 +181,3 @@
 .prl-compact .prl-row { min-height: 88px; padding-top: 6px; padding-bottom: 6px; gap: 2px; }
 .prl-compact .prl-pinned-caption { height: 20px; }
 .prl-compact .prl-pinned .prl-row { min-height: 68px; }
-.prl-compact .prl-pinned .prl-reason, .prl-compact .prl-pinned .prl-tags { display: none; }

@@ -3,6 +3,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { measureCacheState, trackRenderTime } from "./trackRenderTime";
 import { trackAnalyticsEvent } from "./trackAnalyticsEvent";
+import { getRenderIdentity } from "./renderIdentity";
+import { setDiagramFontState, _resetDiagramFontStateForTesting } from "@/utils/fonts/diagramFontState";
 
 vi.mock("./trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -32,6 +34,11 @@ vi.mock("@/utils/prefetch/rendererPrefetch", () => ({
 
 import { isPrefetchDue } from "@/utils/prefetch/throttle";
 import { runRendererPrefetchIfDue } from "@/utils/prefetch/rendererPrefetch";
+import {
+  maybeGateViewerRender,
+  awaitGateBlocking,
+  _resetForTesting as _resetGateForTesting,
+} from "@/utils/renderGate/maybeGateViewerRender";
 
 const ORIGIN = location.origin;
 
@@ -192,6 +199,72 @@ describe("trackRenderTime", () => {
       })
     );
   });
+
+  it("adds diagram_font to sequence macro_viewed only once the font load was attempted", () => {
+    _resetDiagramFontStateForTesting();
+    trackRenderTime("sequence", true);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)![1]).not.toHaveProperty("diagram_font");
+
+    setDiagramFontState("fallback");
+    trackRenderTime("sequence", true);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)![1]).toMatchObject({ diagram_font: "fallback" });
+
+    setDiagramFontState("plex");
+    trackRenderTime("sequence", true);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)![1]).toMatchObject({ diagram_font: "plex" });
+
+    trackRenderTime("mermaid", true);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)![1]).not.toHaveProperty("diagram_font");
+    _resetDiagramFontStateForTesting();
+  });
+
+  it("stamps instance_nonce and time_origin on macro_viewed", () => {
+    trackRenderTime("mermaid", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)!;
+    expect(props).toEqual(expect.objectContaining(getRenderIdentity()));
+  });
+
+  it("keeps instance_nonce constant across emissions from one module instance", () => {
+    trackRenderTime("mermaid", true);
+    trackRenderTime("mermaid", true);
+
+    const [a, b] = vi.mocked(trackAnalyticsEvent).mock.calls.slice(-2).map((c) => c[1]);
+    expect(a.instance_nonce).toBe(b.instance_nonce);
+  });
+
+  it("merges viewport-gate telemetry into macro_viewed when the gate ran (#382)", async () => {
+    await maybeGateViewerRender({
+      getFlag: async () => true,
+      awaitTurn: async () => ({
+        outcome: "background",
+        deferredMs: 4321,
+        visibleAtBoot: false,
+      }),
+    });
+    // blocking is measured at the mount-site await, not from the gate's age
+    await awaitGateBlocking(Promise.resolve());
+    trackRenderTime("sequence", true);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        render_gate: "background",
+        render_deferred_ms: expect.any(Number),
+        visible_at_boot: false,
+      }),
+    );
+    _resetGateForTesting();
+  });
+
+  it("adds no gate properties when the gate never ran", () => {
+    trackRenderTime("sequence", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)!;
+    expect(props).not.toHaveProperty("render_gate");
+    expect(props).not.toHaveProperty("render_deferred_ms");
+    expect(props).not.toHaveProperty("visible_at_boot");
+  });
 });
 
 describe("scheduleRendererPrefetch (post-render hook)", () => {
@@ -236,5 +309,32 @@ describe("scheduleRendererPrefetch (post-render hook)", () => {
     trackRenderTime("graph", true);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(runRendererPrefetchIfDue).not.toHaveBeenCalled();
+  });
+});
+
+describe("trackRenderTime content_state (#113)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.__macroLoadStart = performance.now();
+  });
+
+  afterEach(() => {
+    delete (window as { __macroLoadStart?: number }).__macroLoadStart;
+  });
+
+  it("adds content_state to macro_viewed when the caller supplies one", () => {
+    trackRenderTime("sequence", true, "live_render", "none", "authored");
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ content_state: "authored" })
+    );
+  });
+
+  it("omits the key entirely when there is no verdict", () => {
+    trackRenderTime("sequence", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[0];
+    expect(props).not.toHaveProperty("content_state");
   });
 });

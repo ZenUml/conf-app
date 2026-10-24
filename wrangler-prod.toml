@@ -6,17 +6,40 @@ pages_build_output_dir = "dist"
 
 [vars]
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
-# JSM service account for /api/extension-request (token is the JSM_API_TOKEN secret, synced by wrangler-publish)
-JSM_API_EMAIL = "support@zenuml.com"
+EXPECTED_FORGE_ENVIRONMENT_TYPE = "PRODUCTION"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is injected into [vars] at deploy time by wrangler-publish
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_PROD
 
 [env.production.vars]
+# Public OAuth client id of the "ZenUML Agent Link" 3LO app (developer console
+# app a7f2a21d-a28c-4155-af0f-df365b5b94ef). The secret pairs with it via
+# `wrangler pages secret put ATLASSIAN_OAUTH_CLIENT_SECRET`.
+ATLASSIAN_OAUTH_CLIENT_ID = "f1Q7H7v2bf0ax9ThXvL8n3aewQENg6hp"
+# The redirect_uri sent to Atlassian. PINNED, not derived from the request
+# host: Atlassian requires a byte-for-byte match with a callback registered
+# on the console app, and a request arriving on any other host (127.0.0.1
+# where localhost is registered, a preview URL) would otherwise be bounced
+# to Atlassian's error page. Must stay in step with the console.
+#
+# conf-lite, NOT zenapi. zenapi.zenuml.com is the asyncapi-confluence-prod
+# Connect Worker, which proxies only /forge-* and /api/* through to this
+# backend: /agent-link/* answers 404 there (probed 2026-09-26). A callback on
+# that host would strand every user on a 404 after they had already consented
+# at Atlassian. zenapi was chosen when the console app was first registered,
+# from the live relay's reasoning about the Forge egress allowlist
+# (2026-07-08 live-agent-link design §13.1) — which is about where the MACRO
+# may open a WebSocket, not about where Pages Functions are served.
+#
+# Lite is the single prod host. conf-full is a separate Pages project on a
+# separate hostname, and an MCP token's audience is the origin it was issued
+# for, so a token minted here is correctly refused there. Serving headless
+# MCP from Full too would mean registering that callback as well and asking
+# users to authorize twice.
+ATLASSIAN_OAUTH_REDIRECT_URI = "https://conf-lite.zenuml.com/agent-link/oauth/callback"
 ENVIRONMENT = "production"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://diagramly.ai"
-ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf" # ZenUML Lite, Full and Diagramly
-# JSM service account for /api/extension-request (token is the JSM_API_TOKEN secret, synced by wrangler-publish)
-JSM_API_EMAIL = "support@zenuml.com"
+ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf,49017727-af19-4ab6-8d5a-7d28108936b6" # ZenUML Lite, Full, Diagramly and AsyncAPI
+EXPECTED_FORGE_ENVIRONMENT_TYPE = "PRODUCTION"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is injected into [vars] at deploy time by wrangler-publish
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_PROD
 
@@ -34,6 +57,12 @@ id = "ae1a9199a02e4f75b1cad07f0016aae0"
 binding = "EVENT_BUCKET"
 bucket_name = "atlassian-events"
 
+# Dedicated snapshot bucket: the shared EVENT_BUCKET expires every object after
+# 7 days, which cannot satisfy the 90-day macro-count diagnostic history.
+[[ env.production.r2_buckets ]]
+binding = "MACRO_COUNT_SNAPSHOT_BUCKET"
+bucket_name = "conf-macro-count-snapshots-prod"
+
 [[env.production.kv_namespaces]]
 binding = "confluence_plugin_features"
 id = "9531a58d3f5b47a6af77750240c09548"
@@ -42,6 +71,27 @@ id = "9531a58d3f5b47a6af77750240c09548"
 binding = "SPACE_LICENSE_KV"
 id = "8969e8528105403bb2d9adca9fc16567"
 
+# Embed deeplink preview images shared by the Lite and Full production Pages
+# projects. Tickets carry signed metadata in the URL; this namespace stores
+# only short-lived PNG blobs.
+[[env.production.kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "246ed3dd01654e428e468580b1f1f447"
+
+# Live Agent Link relay's Durable Object. Pages cannot host a DO class
+# internally, so this cross-Worker binding points at the standalone
+# `conf-agent-link-prod` Worker (workers/agent-link/) that actually defines
+# AgentLinkSession. See functions/agent-link/AgentLinkSession.ts's file
+# header and functions/agent-link/channel.ts's TODO(agent-link).
+# DISABLED until the companion Worker is actually deployed: `wrangler pages deploy`
+# fails validating a script_name binding to a Worker that does not exist yet.
+# Re-enable once workers/agent-link/ is deployed via CI (a Worker-deploy step
+# ordered BEFORE this Pages publish). channel.ts 501s gracefully meanwhile.
+# [[env.production.durable_objects.bindings]]
+# name = "AGENT_LINK"
+# class_name = "AgentLinkSession"
+# script_name = "conf-agent-link-prod"
+
 # Portal feature flags KV (production)
 [[env.production.kv_namespaces]]
 binding = "KV_FEATURE_FLAGS"
@@ -49,4 +99,12 @@ id = "fe9042cb20994651b0a2ef9e68f9037c"
 
 [env.production.ai]
 binding = "AI"
+
+# Agent Link headless OAuth — encrypted 3LO grant store (functions/agent-link/
+# oauth/tokenStore.ts). Refresh tokens are AES-GCM sealed with the
+# OAUTH_GRANT_SECRET Worker secret before they reach KV.
+# Namespace "agent-link-oauth-grants-prod" (created 2026-09-19).
+[[env.production.kv_namespaces]]
+binding = "OAUTH_GRANT_KV"
+id = "7e7ae5575605480ba812525cba374f19"
 

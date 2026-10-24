@@ -3,7 +3,7 @@ name: pvt-ai-repair
 description: >
   Focused production validation for the AI Repair flow in diagram editors: syntax error banner,
   AI Repair modal, asynchronous fix-diagram job polling, editable diff, Apply Code, and save/render
-  after applying the repair. Invoked by release-app Step 5.5 when AI repair, SyntaxErrorBox,
+  after applying the repair. Invoked by release-app Step 2.6 when AI repair, SyntaxErrorBox,
   GenerateService, diagramly fix-diagram, or validation/error-surface commits are detected.
   Triggers on "pvt-ai-repair", "test ai repair", "validate ai repair", "repair broken diagram".
 ---
@@ -23,7 +23,7 @@ Usage: `/pvt-ai-repair [lite] [full] [diagramly] [mermaid|sequence|plantuml|open
 ### Which product (variant) to test
 
 1. **Explicit flags** - Test only named variants, in order.
-2. **Infer from conversation** - Release tag, `/release-app` variant, Step 5.5 pass-through, branch/PR wording, or user wording -> test that product only when unspecified.
+2. **Infer from conversation** - Release tag, `/release-app` variant, Step 2.6 pass-through, branch/PR wording, or user wording -> test that product only when unspecified.
 3. **If still ambiguous** - Prefer **lite** for AI feature validation because Lite is where AI affordances are commonly exposed. If the conversation is clearly about another product but not explicit, ask once. Do **not** run all three automatically.
 
 Site: always production (`zenuml.atlassian.net`).
@@ -46,7 +46,7 @@ Use another macro only when the release delta requires it:
 
 - Logged into production.
 - The selected variant is installed and the selected macro is available.
-- AI Repair button is controlled by the feature flag currently read as `AI_TITLE` in `SyntaxErrorBox.vue`. If the button is missing, first verify `/api/features?features=AI_TITLE` / `feature-flags` for the tenant before failing the UI.
+- AI Repair is gated by the Forge feature flag `ai-repair-enabled`, read via the `@forge/bridge` client flag SDK (`src/apis/aiTitleFeatureFlag.ts`). If the button is missing, check the flag's **production** environment chip in the Developer Console before failing the UI — a rule showing "Everyone 100%" can still cover only dev/staging, returning `false` in prod. Do **not** query `/api/features` (that KV endpoint does not gate this feature).
 - Diagramly backend credentials must be configured in the production Cloudflare project. Backend failure from missing `DIAGRAMLY_API_KEY` or upstream Diagramly outage is a real **FAIL** for this PVT unless the release explicitly did not touch the backend and the incident is already known.
 - Use Playwright for Forge iframes. Browser tools that cannot cross sandboxed Forge iframes are not sufficient.
 
@@ -94,7 +94,7 @@ Expected:
 - The banner includes the **AI Repair** button.
 - The error text is meaningful enough to pass to the repair API.
 
-**Fail if:** no syntax error appears, the editor remains stuck, or the AI Repair button is missing while the `AI_TITLE` feature flag is enabled for the tenant.
+**Fail if:** no syntax error appears, the editor remains stuck, or the AI Repair button is missing while the `ai-repair-enabled` Forge flag is enabled for the production environment.
 
 ### 3. Start AI Repair and verify backend job creation
 

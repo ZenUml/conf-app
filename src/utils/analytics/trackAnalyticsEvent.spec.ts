@@ -1,11 +1,20 @@
 // src/utils/analytics/trackAnalyticsEvent.spec.ts
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import mixpanel from "mixpanel-browser";
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
-import { _awaitableTrackAnalyticsEvent, _resetForTesting } from "./trackAnalyticsEvent";
+import {
+  _awaitableTrackAnalyticsEvent,
+  _resetForTesting,
+  SESSION_REPLAY_CONFIG_TIMEOUT_MS,
+  trackAnalyticsEvent,
+  trackAnalyticsEventBeforeUnload,
+} from "./trackAnalyticsEvent";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
+import { normalizeProductType } from "./productType";
+import { isCurrentPageDemoPage } from "./demoPageStatus";
+import { EVENT_SAMPLE_RATES } from "./eventSampling";
 
 vi.mock("mixpanel-browser", () => ({
   default: {
@@ -13,11 +22,17 @@ vi.mock("mixpanel-browser", () => ({
     identify: vi.fn(),
     track: vi.fn(),
     register: vi.fn(),
+    start_session_recording: vi.fn(),
+    stop_session_recording: vi.fn(),
   },
 }));
 
 vi.mock("./sessionReplayFlags", () => ({
   getSessionReplayConfig: vi.fn(),
+}));
+
+vi.mock("./demoPageStatus", () => ({
+  isCurrentPageDemoPage: vi.fn(),
 }));
 
 vi.mock("@/model/globals/forgeGlobal", () => ({
@@ -43,10 +58,129 @@ const mockGlobals = {
   },
 };
 
+// Identity resolution (2026-07-26). Measured: 4 event names lose 17-100% of
+// their user attribution because they fire before the Forge context resolves
+// (ai_aide_route_accessed 100%, renderer_prefetch_* 35-37%,
+// legacy_content_property_load_failed 30%). The old code called
+// mixpanel.identify("unknown_user_account_id") — a constant SHARED BY EVERY
+// USER — which permanently pins those events to one bogus profile. Staying on
+// Mixpanel's own per-device anonymous id instead lets the later identify()
+// merge them into the right user, with no delay and no dropped events.
+describe("trackAnalyticsEvent — identity resolution", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    _resetForTesting();
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z"));
+    // @ts-ignore
+    window.globals = mockGlobals;
+    vi.mocked(forgeGlobal).isForge = true;
+    vi.mocked(forgeGlobal).forgeContext = { localId: "macro-abc" } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    } as any);
+  });
+
+  afterEach(() => vi.mocked(Date.now).mockRestore());
+
+  it("does NOT identify with the shared placeholder when the account id is unresolved", async () => {
+    // @ts-ignore — the context has not resolved yet
+    window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
+
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+
+    expect(mixpanel.identify).not.toHaveBeenCalled();
+    // ...and the event is still sent — never delayed, never dropped.
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "viewer_source_opened",
+      expect.any(Object)
+    );
+  });
+
+  it("labels the event with this build's product type, not a hard-coded default", async () => {
+    // @ts-ignore
+    window.globals = mockGlobals;
+
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    // Derived from the shared resolver rather than asserted as a literal, so an
+    // asyncapi build (PRODUCT_TYPE=asyncapi) is required to report 'asyncapi'
+    // instead of falling through to the 'full' default — issues #367, #416.
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "viewer_source_opened",
+      expect.objectContaining({
+        product_type: normalizeProductType(import.meta.env.PRODUCT_TYPE),
+      })
+    );
+  });
+
+  it("identifies once the account id resolves on a later event", async () => {
+    // @ts-ignore
+    window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    expect(mixpanel.identify).not.toHaveBeenCalled();
+
+    // @ts-ignore — context resolves between events
+    window.globals = mockGlobals;
+    await _awaitableTrackAnalyticsEvent("viewer_source_copied", {});
+
+    expect(mixpanel.identify).toHaveBeenCalledTimes(1);
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+  });
+
+  it("SWR: reuses the cached account id so the FIRST event of a later iframe is attributed", async () => {
+    // Iframe 1: context resolves, so the id is cached for this domain.
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+
+    // Iframe 2 (fresh module state, context not resolved yet) — the cache
+    // makes its very first event correctly attributed instead of anonymous.
+    _resetForTesting();
+    vi.clearAllMocks();
+    // @ts-ignore
+    window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
+
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+  });
+
+  it("SWR cache is domain-scoped — another tenant does not inherit the id", async () => {
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+
+    _resetForTesting();
+    vi.clearAllMocks();
+    vi.mocked(getClientDomain).mockReturnValue("other.atlassian.net");
+    // @ts-ignore
+    window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
+
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+
+    expect(mixpanel.identify).not.toHaveBeenCalled();
+  });
+
+  it("identifies exactly once across many events", async () => {
+    await _awaitableTrackAnalyticsEvent("viewer_source_opened", {});
+    await _awaitableTrackAnalyticsEvent("viewer_source_copied", {});
+    await _awaitableTrackAnalyticsEvent("fullscreen_opened", {});
+
+    expect(mixpanel.identify).toHaveBeenCalledTimes(1);
+    expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
+  });
+});
+
 describe("trackAnalyticsEvent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetForTesting();
+    // Existing policy assertions below describe the behavior restored after
+    // the October budget window, independent of the date the suite is run.
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z"));
     // @ts-ignore
     window.globals = mockGlobals;
     vi.mocked(forgeGlobal).isForge = true;
@@ -60,6 +194,288 @@ describe("trackAnalyticsEvent", () => {
     vi.mocked(getSessionReplayConfig).mockResolvedValue({
       percent: 0,
       source: "off",
+    });
+    vi.mocked(isCurrentPageDemoPage).mockResolvedValue(false);
+  });
+
+  afterEach(() => {
+    vi.mocked(Date.now).mockRestore();
+  });
+
+  describe("October 2026 Replay budget", () => {
+    beforeEach(() => {
+      vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-12T00:00:00Z"));
+    });
+
+    afterEach(() => {
+      if (vi.isMockFunction(Math.random)) vi.mocked(Math.random).mockRestore();
+    });
+
+    it.each([
+      "2026-09-30T23:59:59.999Z",
+      "2026-11-01T00:00:00.000Z",
+    ])("restores the targeted baseline outside the budget at %s", async (time) => {
+      vi.mocked(Date.now).mockReturnValue(Date.parse(time));
+      vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 100, source: "targeted" });
+      await _awaitableTrackAnalyticsEvent("macro_viewed", {
+        feature_area: "macro",
+        surface: "viewer",
+      });
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 100 }),
+      );
+      expect(mixpanel.register).toHaveBeenCalledWith({
+        session_replay_percent: 100,
+        session_replay_source: "targeted",
+      });
+    });
+
+    it.each([
+      {
+        name: "targeted Forge flag",
+        context: { moduleKey: "zenuml-sequence-macro" },
+        event: "macro_viewed" as const,
+        flag: { percent: 100, source: "targeted" as const },
+      },
+      {
+        name: "sampled Forge flag",
+        context: { moduleKey: "zenuml-sequence-macro" },
+        event: "macro_viewed" as const,
+        flag: { percent: 100, source: "sampled" as const },
+      },
+      {
+        name: "plan and usage override",
+        context: { moduleKey: "zenuml-plan-usage-page" },
+        event: "plan_usage_viewed" as const,
+        flag: { percent: 100, source: "targeted" as const },
+      },
+      {
+        name: "fullscreen override",
+        context: {
+          moduleKey: "zenuml-sequence-macro",
+          extension: { modal: { macroMode: "fullscreen" } },
+        },
+        event: "macro_viewed" as const,
+        flag: { percent: 100, source: "targeted" as const },
+      },
+    ])("keeps $name baseline off while tracking the event", async ({ context, event, flag }) => {
+      // A non-core event may be sampled in October; keep this occurrence so
+      // the assertion tests replay initialization and its payload.
+      vi.spyOn(Math, "random").mockReturnValue(0);
+      vi.mocked(forgeGlobal).forgeContext = {
+        localId: "macro-abc",
+        environmentType: "production",
+        ...context,
+      } as any;
+      vi.mocked(getSessionReplayConfig).mockResolvedValue(flag);
+
+      await _awaitableTrackAnalyticsEvent(event, {
+        feature_area: "macro",
+        surface: "viewer",
+      });
+
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      );
+      expect(mixpanel.register).toHaveBeenCalledWith({
+        session_replay_percent: 0,
+        session_replay_source: "off",
+      });
+      expect(getSessionReplayConfig).not.toHaveBeenCalled();
+      expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+      expect(mixpanel.track).toHaveBeenCalledWith(event, expect.any(Object));
+    });
+
+    it("uses one 1% authoring draw across create and edit events in an iframe", async () => {
+      const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.009).mockReturnValue(0.99);
+      await _awaitableTrackAnalyticsEvent("macro_create_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+      await _awaitableTrackAnalyticsEvent("macro_edit_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+
+      expect(random).toHaveBeenCalledOnce();
+      // The SDK start call is idempotent; existing authoring behavior calls it
+      // on both start events, while the sampling decision remains shared.
+      expect(mixpanel.start_session_recording).toHaveBeenCalledTimes(2);
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_create_started",
+        expect.objectContaining({
+          session_replay_source: "authoring",
+          session_replay_percent: 100,
+          session_replay_start_call_outcome: "returned",
+        }),
+      );
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_edit_started",
+        expect.objectContaining({
+          session_replay_source: "authoring",
+          session_replay_start_call_outcome: "returned",
+        }),
+      );
+    });
+
+    it("samples out authoring above 1% while still sending the event", async () => {
+      vi.spyOn(Math, "random").mockReturnValue(0.01);
+      await _awaitableTrackAnalyticsEvent("macro_create_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+
+      expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_create_started",
+        expect.objectContaining({ session_replay_start_call_outcome: "skipped_sampled" }),
+      );
+    });
+
+    it.each([
+      {
+        first: "2026-09-30T23:59:59.999Z",
+        second: "2026-10-01T00:00:00Z",
+        firstOutcome: "returned",
+        secondOutcome: "skipped_sampled",
+      },
+      {
+        first: "2026-10-31T23:59:59.999Z",
+        second: "2026-11-01T00:00:00Z",
+        firstOutcome: "skipped_sampled",
+        secondOutcome: "returned",
+      },
+    ])("reuses one authoring draw across the policy boundary $second", async ({ first, second, firstOutcome, secondOutcome }) => {
+      const random = vi.spyOn(Math, "random").mockReturnValue(0.3);
+      vi.mocked(Date.now).mockReturnValue(Date.parse(first));
+      await _awaitableTrackAnalyticsEvent("macro_create_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+      vi.mocked(Date.now).mockReturnValue(Date.parse(second));
+      await _awaitableTrackAnalyticsEvent("macro_edit_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+
+      expect(random).toHaveBeenCalledOnce();
+      expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+      expect(mixpanel.stop_session_recording).not.toHaveBeenCalled();
+      expect(mixpanel.track).toHaveBeenCalledWith("macro_create_started", expect.objectContaining({
+        session_replay_start_call_outcome: firstOutcome,
+      }));
+      expect(mixpanel.track).toHaveBeenCalledWith("macro_edit_started", expect.objectContaining({
+        session_replay_start_call_outcome: secondOutcome,
+      }));
+    });
+
+    it("keeps explicit feedback recording available with baseline replay off", async () => {
+      await _awaitableTrackAnalyticsEvent("feedback_report_opened", {
+        feature_area: "feedback",
+        surface: "viewer",
+      });
+
+      expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      );
+      expect(mixpanel.track).toHaveBeenLastCalledWith(
+        "feedback_report_opened",
+        expect.objectContaining({
+          session_replay_source: "feedback",
+          session_replay_percent: 100,
+          session_replay_start_call_outcome: "returned",
+        }),
+      );
+    });
+
+    it("emits October macro_viewed under its unchanged name and schema without a sample stamp", async () => {
+      const random = vi.spyOn(Math, "random").mockImplementation(() => {
+        throw new Error("macro_viewed must not draw an event sample");
+      });
+      await _awaitableTrackAnalyticsEvent("macro_viewed", {
+        feature_area: "macro",
+        surface: "viewer",
+        macro_type: "sequence",
+        entry_point: "page_view",
+      });
+      const call = vi.mocked(mixpanel.track).mock.calls.find((entry) => entry[0] === "macro_viewed");
+      expect(call).toBeTruthy();
+      expect(call![0]).toBe("macro_viewed");
+      expect(call![1]).toMatchObject({
+        feature_area: "macro",
+        surface: "viewer",
+        macro_type: "sequence",
+        entry_point: "page_view",
+      });
+      expect(call![1]).not.toHaveProperty("sample_rate");
+      expect(random).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("event sampling", () => {
+    it("emits October non-core events with the final absolute rate", async () => {
+      vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-12T00:00:00Z"));
+      const rnd = vi.spyOn(Math, "random").mockReturnValue(0.004);
+      await _awaitableTrackAnalyticsEvent("diagram_attribution_shown", {
+        feature_area: "diagram_impact",
+        surface: "viewer",
+      });
+      expect(rnd).toHaveBeenCalledOnce();
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "diagram_attribution_shown",
+        expect.objectContaining({ sample_rate: 0.005 }),
+      );
+      rnd.mockRestore();
+    });
+
+    it("drops a rate-0 event without initializing mixpanel", async () => {
+      // No production event is currently rate-0 (the last two — renderer
+      // prefetch's telemetry — were deleted 2026-09-02 along with their emit
+      // call sites), but the mechanism must still work for whichever event
+      // needs it next. Override a real AnalyticsEventName's rate rather than
+      // depending on today's config.
+      EVENT_SAMPLE_RATES.macro_viewed = 0;
+      try {
+        await _awaitableTrackAnalyticsEvent("macro_viewed", {
+          feature_area: "system",
+          surface: "viewer",
+        });
+        expect(mixpanel.track).not.toHaveBeenCalled();
+        // Dropped before _initMixpanel, so no Forge-bridge round trip is paid.
+        expect(mixpanel.init).not.toHaveBeenCalled();
+      } finally {
+        delete EVENT_SAMPLE_RATES.macro_viewed;
+      }
+    });
+
+    it("stamps sample_rate on a down-sampled event when kept", async () => {
+      const rnd = vi.spyOn(Math, "random").mockReturnValue(0.01); // < 0.1 → keep
+      await _awaitableTrackAnalyticsEvent("space_admin_active", {
+        feature_area: "upgrade",
+        surface: "page_banner",
+        is_space_admin: true,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "space_admin_active",
+        expect.objectContaining({ sample_rate: 0.1 }),
+      );
+      rnd.mockRestore();
+    });
+
+    it("does not stamp sample_rate on full-rate events", async () => {
+      await _awaitableTrackAnalyticsEvent("macro_save_succeeded", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+      const call = vi
+        .mocked(mixpanel.track)
+        .mock.calls.find((c) => c[0] === "macro_save_succeeded");
+      expect(call).toBeTruthy();
+      expect(call![1]).not.toHaveProperty("sample_rate");
     });
   });
 
@@ -208,6 +624,89 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  // #561: a macro placed by pasting a typed deeplink (byline paste-to-place) has
+  // no config at all; its id lives only in the autoConvert link. Reading config
+  // and modal only left every macro_viewed from such a macro with an empty
+  // custom_content_id, although the viewer rendered the diagram fine.
+  it("resolves custom_content_id from a pasted autoConvert deeplink when config has no id", async () => {
+    const cloudId = "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a";
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId,
+      extension: {
+        content: { id: "page-789" },
+        parameters: {
+          autoConvertLink: `https://confluence.zenuml.com/d/graph/${cloudId}/425987`,
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "graph",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        content_id: "425987",
+        custom_content_id: "425987",
+        attachment_name: "zenuml-425987.png",
+      })
+    );
+  });
+
+  it("does not take a custom_content_id from a pasted deeplink that belongs to another site", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId: "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a",
+      extension: {
+        parameters: {
+          autoConvertLink:
+            "https://confluence.zenuml.com/d/graph/11111111-2222-3333-4444-555555555555/425987",
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ custom_content_id: null })
+    );
+  });
+
+  it("keeps the saved config id ahead of a pasted deeplink", async () => {
+    const cloudId = "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a";
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId,
+      extension: {
+        config: { customContentId: "cc-456" },
+        parameters: {
+          autoConvertLink: `https://confluence.zenuml.com/d/graph/${cloudId}/425987`,
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ custom_content_id: "cc-456" })
+    );
+  });
+
   it("sets page_id, custom_content_id, attachment_name to null when forgeContext fields are missing", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: "macro-abc",
@@ -299,6 +798,96 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
+  it("always records the plan-usage page at 100% and skips the flag fetch", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-plan-usage-page",
+      environmentType: "production",
+    } as any;
+    // Even if the flag would say off, the plan-usage page short-circuits to 100.
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("plan_usage_viewed", {
+      feature_area: "upgrade",
+      surface: "dashboard",
+    });
+
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 100 })
+    );
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "plan_usage_page",
+    });
+  });
+
+  // Fullscreen is the deliberate-intent surface: a user who opened it is
+  // working on one diagram, so its sessions are worth watching in full. It is
+  // NOT distinguishable by moduleKey — the modal loads the same macro resource
+  // as the inline viewer — so the override keys on the modal context Forge
+  // passes through openModal (forgeIndex.ts's 'fullscreen' handler).
+  it("always records the fullscreen modal at 100% and skips the flag fetch", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+      extension: { modal: { macroMode: "fullscreen" } },
+    } as any;
+    // Even if the flag would say off, fullscreen short-circuits to 100.
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 100 })
+    );
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "fullscreen",
+    });
+  });
+
+  // The inline viewer is the same module with no modal context. It must stay on
+  // the Forge-flag rate — the override must not leak to every macro render.
+  it("leaves the inline viewer on the Forge flag rate", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: undefined,
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+      extension: {},
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(getSessionReplayConfig).toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ record_sessions_percent: 0 })
+    );
+  });
+
   it("takes record_sessions_percent from the Forge flag config in a macro context", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: undefined,
@@ -326,7 +915,7 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
-  it("records nothing when the flag config resolves off", async () => {
+  it("keeps viewer replay off when the flag config resolves off", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: undefined,
       moduleKey: "zenuml-sequence-macro",
@@ -346,6 +935,576 @@ describe("trackAnalyticsEvent", () => {
     expect(mixpanel.init).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ record_sessions_percent: 0 })
+    );
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "authoring");
+    expect(properties).not.toHaveProperty("session_replay_start_call_outcome");
+  });
+
+  // #707: the flag download is a bare Forge-bridge postMessage round trip with
+  // no timeout. A call that never settles used to leave the memoised init
+  // promise pending forever, so mixpanel.init never ran and every event for the
+  // iframe was dropped without a log line.
+  describe("session-replay config wait is bounded (#707)", () => {
+    const macroContext = () => {
+      vi.mocked(forgeGlobal).forgeContext = {
+        localId: undefined,
+        moduleKey: "zenuml-sequence-macro",
+        environmentType: "production",
+      } as any;
+    };
+    const viewerProps = {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    } as const;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      macroContext();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("registers the first retained track-to-init duration once for concurrent and later events", async () => {
+      let elapsed = 100;
+      const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+      let resolveConfig!: (v: { percent: number; source: "off" }) => void;
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise((resolve) => (resolveConfig = resolve)),
+      );
+      vi.mocked(mixpanel.init).mockImplementationOnce(() => { elapsed += 5; });
+      try {
+        const first = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        elapsed = 250;
+        const concurrent = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        elapsed = 350;
+        resolveConfig({ percent: 0, source: "off" });
+        await Promise.all([first, concurrent]);
+        elapsed = 900;
+        await _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        expect(mixpanel.register).toHaveBeenCalledWith({ analytics_init_ms: 255 });
+        expect(vi.mocked(mixpanel.register).mock.calls.filter(
+          ([props]) => "analytics_init_ms" in props,
+        )).toHaveLength(1);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("inits Mixpanel with replay off and still tracks when the config never settles", { timeout: 1000 }, async () => {
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise(() => {}),
+      );
+
+      const tracking = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+      await vi.advanceTimersByTimeAsync(SESSION_REPLAY_CONFIG_TIMEOUT_MS);
+      await tracking;
+
+      expect(mixpanel.init).toHaveBeenCalledTimes(1);
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      );
+      expect(mixpanel.register).toHaveBeenCalledWith({
+        session_replay_percent: 0,
+        session_replay_source: "timeout",
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_viewed",
+        expect.objectContaining({ macro_type: "sequence" }),
+      );
+    });
+
+    it("reports the degradation exactly once, after init, with the reason and the timeout", { timeout: 1000 }, async () => {
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise(() => {}),
+      );
+
+      const first = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+      const second = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+      await vi.advanceTimersByTimeAsync(SESSION_REPLAY_CONFIG_TIMEOUT_MS);
+      await Promise.all([first, second]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const degraded = vi
+        .mocked(mixpanel.track)
+        .mock.calls.filter(([name]) => name === "analytics_init_degraded");
+      expect(degraded).toHaveLength(1);
+      expect(degraded[0][1]).toEqual(
+        expect.objectContaining({
+          reason: "session_replay_config_timeout",
+          timeout_ms: SESSION_REPLAY_CONFIG_TIMEOUT_MS,
+        }),
+      );
+      // Sent AFTER init, so it actually leaves the iframe.
+      const initOrder = vi.mocked(mixpanel.init).mock.invocationCallOrder[0];
+      const degradedOrder = vi.mocked(mixpanel.track).mock.invocationCallOrder[
+        vi
+          .mocked(mixpanel.track)
+          .mock.calls.findIndex(([name]) => name === "analytics_init_degraded")
+      ];
+      expect(initOrder).toBeLessThan(degradedOrder);
+    });
+
+    it("does not wait the full timeout when the config resolves promptly, and applies it", async () => {
+      vi.mocked(getSessionReplayConfig).mockResolvedValue({
+        percent: 100,
+        source: "targeted",
+      });
+
+      await _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 100 }),
+      );
+      expect(
+        vi
+          .mocked(mixpanel.track)
+          .mock.calls.some(([name]) => name === "analytics_init_degraded"),
+      ).toBe(false);
+      // No dangling timer keeps the iframe or the test alive.
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("keeps replay off, reports nothing and leaves no timer when the config throws", async () => {
+      vi.mocked(getSessionReplayConfig).mockRejectedValue(new Error("bridge"));
+
+      await _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      );
+      expect(
+        vi
+          .mocked(mixpanel.track)
+          .mock.calls.some(([name]) => name === "analytics_init_degraded"),
+      ).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("does not re-init when the config finally resolves after the timeout", async () => {
+      let resolveConfig!: (v: { percent: number; source: "targeted" }) => void;
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise((resolve) => (resolveConfig = resolve)),
+      );
+
+      const tracking = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+      await vi.advanceTimersByTimeAsync(SESSION_REPLAY_CONFIG_TIMEOUT_MS);
+      await tracking;
+      resolveConfig({ percent: 100, source: "targeted" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(mixpanel.init).toHaveBeenCalledTimes(1);
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      );
+    });
+  });
+
+  it("starts replay before tracking an opened feedback report even when baseline replay is off", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-feedback",
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("feedback_report_opened", {
+      feature_area: "feedback",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(mixpanel.start_session_recording).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(mixpanel.track).mock.invocationCallOrder[0]);
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "feedback_report_opened",
+      expect.objectContaining({
+        macro_uuid: "macro-feedback",
+        session_replay_source: "feedback",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      })
+    );
+  });
+
+  it("still tracks feedback opening when replay startup throws", async () => {
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+    vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => {
+      throw new Error("recorder unavailable");
+    });
+
+    await _awaitableTrackAnalyticsEvent("feedback_report_opened", {
+      feature_area: "feedback",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "feedback_report_opened",
+      expect.objectContaining({
+        session_replay_start_call_outcome: "threw",
+      })
+    );
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "feedback");
+    expect(properties).not.toHaveProperty("session_replay_percent", 100);
+  });
+
+  it("forces replay when macro creation starts", async () => {
+    // Authoring replay is sampled; pin the draw inside the rate so this test
+    // asserts the recording path rather than the coin flip.
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "sequence",
+      entry_point: "page_editor",
+    });
+
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_create_started",
+        expect.objectContaining({
+          session_replay_source: "authoring",
+          session_replay_percent: 100,
+          session_replay_start_call_outcome: "returned",
+        })
+      );
+    });
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(mixpanel.start_session_recording).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(mixpanel.track).mock.invocationCallOrder[0]);
+    expect(mixpanel.register).toHaveBeenLastCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "authoring",
+    });
+  });
+
+  it("forces replay when macro editing starts", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    trackAnalyticsEvent("macro_edit_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "openapi",
+      entry_point: "macro_toolbar",
+    });
+
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_edit_started",
+        expect.objectContaining({
+          session_replay_source: "authoring",
+          session_replay_percent: 100,
+          session_replay_start_call_outcome: "returned",
+        })
+      );
+    });
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(mixpanel.register).toHaveBeenLastCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "authoring",
+    });
+  });
+
+  // Authoring replay is the dominant consumer of the 20k/month replay quota
+  // (13,905 of 17,743 distinct replays in the 30 days to 2026-09-07), so it is
+  // sampled rather than forced on every session. A session outside the sample
+  // must leave the Forge-flag cohort's decision alone — not merely skip the
+  // start call, but also avoid re-registering itself as `authoring`, which
+  // would misattribute a flag-driven recording.
+  it("leaves replay to the flag cohort when authoring is sampled out", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "sequence",
+      entry_point: "page_editor",
+    });
+
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_create_started",
+        expect.objectContaining({
+          session_replay_start_call_outcome: "skipped_sampled",
+        })
+      );
+    });
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+    expect(mixpanel.register).not.toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "authoring",
+    });
+  });
+
+  // One decision per iframe. A user who creates a macro and then edits another
+  // in the same session must get one whole recording or none — re-drawing per
+  // event would start the recorder partway through, which is worse than not
+  // recording at all for the save-failure investigations this exists for.
+  it("draws the authoring sample once per session, not per event", async () => {
+    const random = vi.spyOn(Math, "random");
+    // A second draw, if one happened, would fall outside the rate.
+    random.mockReturnValueOnce(0).mockReturnValue(0.99);
+
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "sequence",
+      entry_point: "page_editor",
+    });
+    await vi.waitFor(() => {
+      expect(mixpanel.start_session_recording).toHaveBeenCalled();
+    });
+
+    trackAnalyticsEvent("macro_edit_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "mermaid",
+      entry_point: "macro_toolbar",
+    });
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_edit_started",
+        expect.objectContaining({ session_replay_source: "authoring" })
+      );
+    });
+
+    expect(random).toHaveBeenCalledOnce();
+  });
+
+  it("sends an authoring start event when optional demo-page enrichment stalls", async () => {
+    // Pin the authoring sample so this asserts the stall handling, not the draw.
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.useFakeTimers();
+    try {
+      vi.mocked(forgeGlobal).forgeContext = {
+        localId: "macro-abc",
+        environmentType: "production",
+        extension: { content: { id: "page-789" } },
+      } as any;
+      vi.mocked(isCurrentPageDemoPage).mockImplementation(
+        () => new Promise<boolean>(() => {}),
+      );
+
+      const tracking = _awaitableTrackAnalyticsEvent("macro_edit_started", {
+        feature_area: "macro",
+        surface: "editor",
+        macro_type: "sequence",
+        entry_point: "macro_toolbar",
+      });
+
+      await vi.advanceTimersByTimeAsync(750);
+      await tracking;
+
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_edit_started",
+        expect.objectContaining({
+          session_replay_source: "authoring",
+          session_replay_percent: 100,
+        }),
+      );
+      const [, properties] = vi.mocked(mixpanel.track).mock.calls.at(-1)!;
+      expect(properties).not.toHaveProperty("is_demo_page");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still sends the authoring event when replay startup throws", async () => {
+    // The throw path only exists inside the sample.
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => {
+      throw new Error("recorder unavailable");
+    });
+
+    trackAnalyticsEvent("macro_create_started", {
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: "graph",
+      entry_point: "page_editor",
+    });
+
+    await vi.waitFor(() => {
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_create_started",
+        expect.objectContaining({
+          session_replay_start_call_outcome: "threw",
+        })
+      );
+    });
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "authoring");
+    expect(properties).not.toHaveProperty("session_replay_percent", 100);
+    expect(mixpanel.register).toHaveBeenLastCalledWith({
+      session_replay_percent: 0,
+      session_replay_source: "off",
+    });
+  });
+
+  // Registered ahead of implementation (catalog.ts's "Planned ahead of
+  // implementation" block, 2026-07-09) for Tracks F/G/C — no production call
+  // site exists yet. These smoke-test that the catalog.ts name + types.ts
+  // property additions actually compile against AnalyticsProperties and are
+  // accepted by the tracker at runtime, so the contract Track F/G/C build
+  // against is verified now rather than discovered broken later.
+  describe("planned agent_link_* events (F/G/C — no call site yet)", () => {
+    it("accepts agent_link_first_feedback with ms_since_op_received", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_first_feedback", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        ms_since_op_received: 120,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_first_feedback",
+        expect.objectContaining({ macro_type: "sequence", ms_since_op_received: 120 })
+      );
+    });
+
+    it("accepts agent_link_render_completed with render_ms/total_ms/render_outcome", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_render_completed", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "mermaid",
+        render_ms: 80,
+        total_ms: 950,
+        render_outcome: "rendered",
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_render_completed",
+        expect.objectContaining({ render_ms: 80, total_ms: 950, render_outcome: "rendered" })
+      );
+    });
+
+    it("accepts agent_link_session_suspended with reason", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_session_suspended", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        reason: "fullscreen_closed",
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_session_suspended",
+        expect.objectContaining({ reason: "fullscreen_closed" })
+      );
+    });
+
+    it("accepts agent_link_session_resumed with reason + resume_latency_ms", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_session_resumed", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        reason: "fullscreen_closed",
+        resume_latency_ms: 4200,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_session_resumed",
+        expect.objectContaining({ reason: "fullscreen_closed", resume_latency_ms: 4200 })
+      );
+    });
+
+    // #314 events-first commit: registered ahead of the FSM/composable fix so
+    // the fix's trackAnalyticsEvent call site (useAgentLinkSession.ts's
+    // handleExpired()) is built against a reviewed name/property contract.
+    it("accepts agent_link_session_expired with had_agent_connected/session_duration_ms/edits_count", async () => {
+      await _awaitableTrackAnalyticsEvent("agent_link_session_expired", {
+        feature_area: "agent_link",
+        surface: "fullscreen",
+        macro_type: "sequence",
+        had_agent_connected: true,
+        session_duration_ms: 600000,
+        edits_count: 3,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "agent_link_session_expired",
+        expect.objectContaining({
+          had_agent_connected: true,
+          session_duration_ms: 600000,
+          edits_count: 3,
+        })
+      );
+    });
+  });
+
+  // A caller that navigates immediately after tracking (the load-failed
+  // panel's "Try again" reloads the iframe) loses a plain XHR-transported
+  // event: production emitted 1 load_failed_retry_resolved and 0
+  // load_failed_retry_clicked on 2026-08-23, because the reload aborted the
+  // in-flight request. sendBeacon is the transport that survives unload.
+  describe("trackAnalyticsEventBeforeUnload", () => {
+    it("sends with the sendBeacon transport", async () => {
+      await trackAnalyticsEventBeforeUnload("load_failed_retry_clicked", {
+        feature_area: "macro",
+        surface: "viewer",
+        retry_attempt: 1,
+      });
+
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "load_failed_retry_clicked",
+        expect.objectContaining({ retry_attempt: 1 }),
+        { transport: "sendBeacon" }
+      );
+    });
+
+    it("resolves only after the event has been handed to mixpanel", async () => {
+      const order: string[] = [];
+      vi.mocked(mixpanel.track).mockImplementation(() => {
+        order.push("track");
+      });
+
+      await trackAnalyticsEventBeforeUnload("load_failed_retry_clicked", {
+        feature_area: "macro",
+        surface: "viewer",
+      });
+      order.push("await-resolved");
+
+      expect(order).toEqual(["track", "await-resolved"]);
+    });
+
+    it("does not throw when mixpanel.track throws", async () => {
+      vi.mocked(mixpanel.track).mockImplementation(() => {
+        throw new Error("mixpanel down");
+      });
+
+      await expect(
+        trackAnalyticsEventBeforeUnload("load_failed_retry_clicked", {
+          feature_area: "macro",
+          surface: "viewer",
+        })
+      ).resolves.not.toThrow();
+    });
+  });
+
+  it("keeps the default transport for ordinary events", async () => {
+    await _awaitableTrackAnalyticsEvent("upgrade_modal_shown", {
+      feature_area: "upgrade",
+      surface: "modal",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "upgrade_modal_shown",
+      expect.any(Object)
     );
   });
 

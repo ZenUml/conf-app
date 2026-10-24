@@ -9,7 +9,7 @@
 // — assert the dispatch RAN, but don't fail if the result is true. The
 // dirty-after-edit case (:6) is the firm signal.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,
@@ -24,9 +24,10 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('OpenAPI / Swagger — Create flow', () => {
+test.describe('OpenAPI / Swagger — Create flow', { tag: ['@test:openapi-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@fullscreen', '@openapi'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('openapi'), 'openapi not in profile');
 
@@ -91,11 +92,18 @@ test.describe('OpenAPI / Swagger — Create flow', () => {
     expect(typeof result).toBe('boolean');
   });
 
-  // openapi-create:6 — Close dirty.
-  test('openapi-create:6 — dirty editor: synthetic beforeunload is true', async ({ page }) => {
+  // openapi-create:6 — Close dirty. Asserts the draft, not beforeunload:
+  // src/utils/closeGuard.ts removed the beforeunload listener on purpose
+  // (a parent JS-destroying an iframe fires the event but suppresses the
+  // dialog, so `defaultPrevented` only ever proved a listener existed). The
+  // per-keystroke localStorage draft is what actually protects unsaved work.
+  test('openapi-create:6 — a dirty editor persists a recoverable draft', async ({ page }) => {
     await insertMacro(page, 'openapi');
     await dirtyEditor(page, 'openapi');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result).toBe(true);
+    // makeDebouncedDraftSaver runs 500ms after the last change.
+    await page.waitForTimeout(1500);
+    const draft = await readPersistedDraft(bridgeModalFrame(page));
+    expect(draft, 'an unsaved OpenAPI edit should leave a recoverable draft').not.toBeNull();
+    expect(draft!.code).toContain('Dirty Edit');
   });
 });

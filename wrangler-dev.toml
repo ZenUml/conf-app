@@ -5,13 +5,20 @@ name="confluence-plugin"
 pages_build_output_dir = "dist"
 
 [vars]
+# Public OAuth client id of the "ZenUML Agent Link" 3LO app (developer console
+# app a7f2a21d-a28c-4155-af0f-df365b5b94ef). The secret pairs with it via
+# `wrangler pages secret put ATLASSIAN_OAUTH_CLIENT_SECRET`.
+ATLASSIAN_OAUTH_CLIENT_ID = "f1Q7H7v2bf0ax9ThXvL8n3aewQENg6hp"
+# The redirect_uri sent to Atlassian. PINNED, not derived from the request
+# host: Atlassian requires a byte-for-byte match with a callback registered
+# on the console app, and a request arriving on any other host (127.0.0.1
+# where localhost is registered, a preview URL) would otherwise be bounced
+# to Atlassian's error page. Must stay in step with the console.
+ATLASSIAN_OAUTH_REDIRECT_URI = "http://localhost:8080/agent-link/oauth/callback"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ENVIRONMENT = "development"  # Set to "development" for local development
-# JSM service-account auth for /api/extension-request (creates ZEN-desk tickets).
-# JSM_API_EMAIL must be a ZEN service-desk agent (raiseOnBehalfOf requires agent
-# permission). JSM_API_TOKEN is a secret: `wrangler pages secret put JSM_API_TOKEN`
-# per Pages project — never put the token in this file.
-JSM_API_EMAIL = "support@zenuml.com"
+# Optional locally: EXPECTED_FORGE_ENVIRONMENT_TYPE=DEVELOPMENT. It is left
+# unset so personal Forge development environments can share this config.
 # PAGE_CAPTURE_ALLOWED_DOMAINS is intentionally not set in shared dev config.
 # For local wrangler pages dev: set via personal wrangler-{name}.toml or --var flag.
 # Unset = no allowlist = capture all sites (acceptable for local dev).
@@ -45,10 +52,18 @@ migrations_dir = "functions/migrations"
 binding = "EVENT_BUCKET"
 bucket_name = "atlassian-events"
 
+[[ env.production.r2_buckets ]]
+binding = "MACRO_COUNT_SNAPSHOT_BUCKET"
+bucket_name = "conf-macro-count-snapshots-dev"
+
 # for local development
 [[r2_buckets]]
 binding = "EVENT_BUCKET"
 bucket_name = "atlassian-events"
+
+[[r2_buckets]]
+binding = "MACRO_COUNT_SNAPSHOT_BUCKET"
+bucket_name = "conf-macro-count-snapshots-dev"
 
 # Feature flags KV namespace
 [[kv_namespaces]]
@@ -63,10 +78,20 @@ id = "9531a58d3f5b47a6af77750240c09548"
 binding = "SPACE_LICENSE_KV"
 id = "e56fcb64cca74e10aac68e1d57b6c05b"
 
+# Embed deeplink preview images — local dev reuses the STAGING namespace
+# (same STG-namespace precedent as SPACE_LICENSE_KV above).
+[[env.production.kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "55a29002d56e49f986abe122e8b2c947"
+
 # Local development KV binding
 [[kv_namespaces]]
 binding = "SPACE_LICENSE_KV"
 id = "e56fcb64cca74e10aac68e1d57b6c05b"
+
+[[kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "55a29002d56e49f986abe122e8b2c947"
 
 # Portal feature flags KV (shared with zenuml-portal staging)
 [[kv_namespaces]]
@@ -79,3 +104,20 @@ id = "fe9042cb20994651b0a2ef9e68f9037c"
 
 [ai]
 binding = "AI"
+
+# Agent Link headless OAuth — encrypted 3LO grant store (functions/agent-link/
+# oauth/tokenStore.ts). Refresh tokens are AES-GCM sealed with the
+# OAUTH_GRANT_SECRET Worker secret before they reach KV.
+# Local dev reuses the STAGING namespace "agent-link-oauth-grants-stg" (same precedent as DEEPLINK_KV above).
+[[env.production.kv_namespaces]]
+binding = "OAUTH_GRANT_KV"
+id = "bd0839878af744eb8057c8d094456dcb"
+
+# Agent Link headless OAuth — encrypted 3LO grant store (functions/agent-link/
+# oauth/tokenStore.ts). Refresh tokens are AES-GCM sealed with the
+# OAUTH_GRANT_SECRET Worker secret before they reach KV.
+# Local dev reuses the STAGING namespace "agent-link-oauth-grants-stg".
+[[kv_namespaces]]
+binding = "OAUTH_GRANT_KV"
+id = "bd0839878af744eb8057c8d094456dcb"
+

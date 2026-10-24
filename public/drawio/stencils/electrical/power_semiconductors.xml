@@ -185,8 +185,8 @@
 	</shape>
 	<shape aspect="variable" h="67" name="GTO SCR" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.55"/>
-			<constraint name="out" perimeter="0" x="1" y="0.55"/>
+			<constraint name="in" perimeter="0" x="0" y="0.5522"/>
+			<constraint name="out" perimeter="0" x="1" y="0.5522"/>
 		</connections>
 		<background>
 			<path>
@@ -223,8 +223,8 @@
 	</shape>
 	<shape aspect="variable" h="63.5" name="IGCT 1" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.525"/>
-			<constraint name="out" perimeter="0" x="1" y="0.525"/>
+			<constraint name="in" perimeter="0" x="0" y="0.5276"/>
+			<constraint name="out" perimeter="0" x="1" y="0.5276"/>
 		</connections>
 		<foreground>
 			<path>
@@ -257,8 +257,8 @@
 	</shape>
 	<shape aspect="variable" h="63.5" name="IGCT 2" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.525"/>
-			<constraint name="out" perimeter="0" x="1" y="0.525"/>
+			<constraint name="in" perimeter="0" x="0" y="0.5276"/>
+			<constraint name="out" perimeter="0" x="1" y="0.5276"/>
 		</connections>
 		<background>
 			<path>
@@ -328,9 +328,9 @@
 	</shape>
 	<shape aspect="variable" h="71" name="NPN IGBT 2" strokewidth="inherit" w="61.5">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.915"/>
+			<constraint name="in" perimeter="0" x="0" y="0.9155"/>
 			<constraint name="out1" perimeter="0" x="1" y="0"/>
-			<constraint name="out2" perimeter="0" x="1" y="0.99"/>
+			<constraint name="out2" perimeter="0" x="1" y="0.9859"/>
 		</connections>
 		<foreground>
 			<path>
@@ -404,8 +404,8 @@
 	</shape>
 	<shape aspect="variable" h="71" name="NPN IGBT 4" strokewidth="inherit" w="66.5">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.915"/>
-			<constraint name="out1" perimeter="0" x="0.925" y="0"/>
+			<constraint name="in" perimeter="0" x="0" y="0.9155"/>
+			<constraint name="out1" perimeter="0" x="0.9248" y="0"/>
 			<constraint name="out2" perimeter="0" x="0.925" y="0.99"/>
 		</connections>
 		<foreground>
@@ -480,7 +480,7 @@
 	</shape>
 	<shape aspect="variable" h="70" name="PNP IGBT 2" strokewidth="inherit" w="61.5">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.93"/>
+			<constraint name="in" perimeter="0" x="0" y="0.9286"/>
 			<constraint name="out1" perimeter="0" x="1" y="0"/>
 			<constraint name="out2" perimeter="0" x="1" y="1"/>
 		</connections>
@@ -556,9 +556,9 @@
 	</shape>
 	<shape aspect="variable" h="70" name="PNP IGBT 4" strokewidth="inherit" w="66.5">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.93"/>
-			<constraint name="out1" perimeter="0" x="0.925" y="0"/>
-			<constraint name="out2" perimeter="0" x="0.925" y="1"/>
+			<constraint name="in" perimeter="0" x="0" y="0.9286"/>
+			<constraint name="out1" perimeter="0" x="0.9248" y="0"/>
+			<constraint name="out2" perimeter="0" x="0.9248" y="1"/>
 		</connections>
 		<foreground>
 			<path>
@@ -596,8 +596,8 @@
 	</shape>
 	<shape aspect="variable" h="63.5" name="SCR 1" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.525"/>
-			<constraint name="out" perimeter="0" x="1" y="0.525"/>
+			<constraint name="in" perimeter="0" x="0" y="0.5276"/>
+			<constraint name="out" perimeter="0" x="1" y="0.5276"/>
 		</connections>
 		<background>
 			<path>
@@ -711,8 +711,8 @@
 	</shape>
 	<shape aspect="variable" h="70" name="Triac 2" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in" perimeter="0" x="0" y="0.43"/>
-			<constraint name="out" perimeter="0" x="1" y="0.43"/>
+			<constraint name="in" perimeter="0" x="0" y="0.4286"/>
+			<constraint name="out" perimeter="0" x="1" y="0.4286"/>
 		</connections>
 		<foreground>
 			<path>

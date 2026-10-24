@@ -25,7 +25,7 @@ Usage: `/pvt-syntax-repair [lite] [full] [diagramly] [mermaid|sequence|plantuml|
 ### Which product (variant) to test
 
 1. **Explicit flags** - Test only named variants, in order.
-2. **Infer from conversation** - Release tag, `/release-app` variant, Step 5.5 pass-through, branch/PR wording, or user wording -> test that product only when unspecified.
+2. **Infer from conversation** - Release tag, `/release-app` variant, Step 2.6 pass-through, branch/PR wording, or user wording -> test that product only when unspecified.
 3. **If still ambiguous** - Prefer **lite** for generic syntax-validation changes because Lite is commonly used for editor validation smoke. If the conversation is clearly about another product but not explicit, ask once. Do **not** run all three automatically.
 
 Site: always production (`zenuml.atlassian.net`).

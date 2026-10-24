@@ -119,8 +119,8 @@ describe('deferIfThrottled', () => {
     expect(first).toBeInstanceOf(ConfluenceThrottledError);
     expect(first).toMatchObject({ status: 429, deferred: true, endpoint: 'work:x', cooldownRemainingMs: 120_000 });
     expect(events('confluence_background_request_deferred')).toEqual([
-      { request_endpoint: 'work:x', cooldown_remaining_ms: 120_000 },
-      { request_endpoint: 'work:y', cooldown_remaining_ms: 115_000 },
+      { feature_area: 'confluence', surface: 'viewer', request_endpoint: 'work:x', cooldown_remaining_ms: 120_000 },
+      { feature_area: 'confluence', surface: 'viewer', request_endpoint: 'work:y', cooldown_remaining_ms: 115_000 },
     ]);
   });
 
@@ -186,6 +186,8 @@ describe('sendWithThrottleHandling', () => {
       will_retry: true,
     })]);
     expect(events('confluence_request_retried')).toEqual([{
+      feature_area: 'confluence',
+      surface: 'viewer',
       request_endpoint: 'POST /wiki/api/v2/custom-content',
       retry_outcome: 'recovered',
       retry_attempts: 1,

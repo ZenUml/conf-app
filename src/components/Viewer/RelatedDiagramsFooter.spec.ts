@@ -984,10 +984,10 @@ describe('RelatedDiagramsFooter', () => {
       await flushPromises()
 
       expect(getRelatedDiagrams).not.toHaveBeenCalled()
-      expect(trackAnalyticsEvent).toHaveBeenCalledWith('confluence_background_request_deferred', {
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('confluence_background_request_deferred', expect.objectContaining({
         request_endpoint: 'work:related_diagrams_lookup',
         cooldown_remaining_ms: expect.any(Number),
-      })
+      }))
       expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('related_diagrams_lookup_failed', expect.anything())
     })
   })

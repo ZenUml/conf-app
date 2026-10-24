@@ -32,6 +32,7 @@
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { templateUrl } from '@/utils/forgeRequestError';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { Surface } from '@/utils/analytics/catalog';
 
 export type RequestPriority = 'user' | 'background';
 
@@ -93,6 +94,16 @@ export class ConfluenceThrottledError extends Error {
     this.endpoint = endpoint;
     this.cooldownRemainingMs = cooldownRemainingMs;
   }
+}
+
+/**
+ * Where this iframe runs, from the Forge context. Not from the priority: a
+ * user-priority save also comes from the viewer's in-place rename.
+ */
+function currentSurface(): Surface {
+  const ext = forgeGlobal.forgeContext?.extension;
+  if (ext?.modal) return 'modal';
+  return ext?.macro?.isConfiguring || ext?.macro?.isInserting ? 'editor' : 'viewer';
 }
 
 function siteKey(): string {
@@ -192,6 +203,8 @@ export function deferIfThrottled(
   if ((reportedDeferrals.get(reportKey) ?? 0) < deadline - 1000) {
     reportedDeferrals.set(reportKey, deadline);
     trackAnalyticsEvent('confluence_background_request_deferred', {
+      feature_area: 'confluence',
+      surface: currentSurface(),
       request_endpoint: endpoint,
       cooldown_remaining_ms: remaining,
     });
@@ -256,6 +269,8 @@ export async function sendWithThrottleHandling(
       ? saveRetryDelayMs(retries, retryAfter, saveBudgetLeftMs(now()), now(), deps.random)
       : undefined;
     trackAnalyticsEvent('confluence_request_throttled', {
+      feature_area: 'confluence',
+      surface: currentSurface(),
       request_endpoint: endpoint,
       request_priority: request.priority ?? 'default',
       http_status: 429,
@@ -277,6 +292,8 @@ export async function sendWithThrottleHandling(
 
 function reportRetried(endpoint: string, outcome: 'recovered' | 'exhausted', retries: number, waitedMs: number) {
   trackAnalyticsEvent('confluence_request_retried', {
+    feature_area: 'confluence',
+    surface: currentSurface(),
     request_endpoint: endpoint,
     retry_outcome: outcome,
     retry_attempts: retries,

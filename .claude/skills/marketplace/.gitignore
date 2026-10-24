@@ -1,0 +1,6 @@
+# Local Marketplace snapshot built by `mp_report.py sync` — regenerable, may hold
+# client-sensitive license/transaction data; never commit.
+*.db
+scripts/*.db
+__pycache__/
+*.pyc

@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { createPageAndSetup, publishAndVerifyMacros, moveToPvt } from './insert-helpers.js';
 
@@ -6,7 +6,15 @@ const macroType = 'sequence' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Smoke Test - ${macroType}`, () => {
+// `@smoke` marks the SMOKE TIER (ADR-0006): one insert-and-render per shipped
+// macro type (sequence, mermaid, plantuml, openapi, graph), one edit
+// (edit-graph) and one embed paste (embed-deeplink-autoconvert). The production
+// release smoke in release.yml runs `--grep @smoke` and nothing else; staging
+// and the nightly smoke-test.yml run the whole suite. A new spec joins the tier
+// only if a release must not go out without it — every tagged test runs against
+// production on every release of every variant, so the tier's total runtime is
+// the release's tail.
+test.describe(`Smoke Test - ${macroType}`, { tag: ['@test:sequence', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@sequence', '@smoke'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {
@@ -32,7 +40,12 @@ test.describe(`Smoke Test - ${macroType}`, () => {
       console.log(`  ✓ Sequence macro inserted`);
     });
 
-    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-sequence');
+    // Default sequence content (Example.Sequence) renders "OrderController" as a
+    // participant. If the viewer shows the load-failed panel instead, this text
+    // won't appear and the test fails — catching the ZEN-1172 class of regression.
+    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-sequence', async (macroPage) => {
+      await macroPage.assertMacroContent(macroPage.getSequenceMacroFrame(), 'OrderController');
+    });
     if (pageId) createdPageIds.push(pageId);
   });
 });

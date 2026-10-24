@@ -1,4 +1,5 @@
 import {IConfluence} from "@/model/IConfluence";
+import {IApRequest} from "@/model/IApRequest";
 
 export interface IAp {
   confluence: IConfluence;

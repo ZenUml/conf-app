@@ -1,7 +1,7 @@
 <!--
   React OpenAPI/Swagger toolbar + SwaggerEditorBundle mount into this div (same as
-  rendering into #app on the non-paywall path). Used as PageEditorPaywallGate's
-  `editor` so the preview + modal sit on top of a real editor shell — Continue
+  rendering into #app on the non-paywall path). Used as PaywallGate's
+  `content` so the preview + modal sit on top of a real editor shell — Continue
   only dismisses the modal (see forge-graph-editor.ts pattern).
 -->
 <template>

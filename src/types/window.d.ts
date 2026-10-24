@@ -12,6 +12,7 @@ declare global {
     graphXml?: string;
     graph: any;
     Graph?: any;
+    GraphViewer?: any;
     setGraphStyle?: (styleUrl: string, graph: any) => void;
     setGraphXml?: (xml: string, graph: any) => void;
     updateGraph?: (xml: string) => void;
@@ -27,6 +28,9 @@ declare global {
 
     // Attachment guard (model/Attachment.ts)
     createAttachmentInProgress?: boolean;
+
+    // Render-time baseline: set as the very first inline script in index.html
+    __macroLoadStart?: number;
   }
 }
 

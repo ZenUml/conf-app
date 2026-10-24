@@ -35,11 +35,14 @@ vi.mock('@forge/bridge', () => ({
 }));
 
 import { mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createStore } from 'vuex';
 import Header from '@/components/Header/Header.vue';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import EventBus from '@/EventBus';
 import extendedStore from '@/model/store2/ExtendedStore';
+
+const mountedHeaders: Array<ReturnType<typeof mount>> = [];
 
 /** Build a fresh Vuex store with controlled initial state. */
 function makeStore(overrides: Record<string, any> = {}) {
@@ -61,8 +64,6 @@ function makeStore(overrides: Record<string, any> = {}) {
         ...overrides,
       } as any,
       error: null,
-      generating: false,
-      lastDiagramWasAI: false,
       onElementClick: () => {},
     } as any,
   });
@@ -71,22 +72,26 @@ function makeStore(overrides: Record<string, any> = {}) {
 /** Mount Header with the given store and await the mounted() hook fully. */
 async function mountHeader(store: ReturnType<typeof makeStore>) {
   const wrapper = mount(Header, { global: { plugins: [store] } });
+  mountedHeaders.push(wrapper);
   // mounted() is async (awaits primeCloudId + loadDraft); flush all microtasks.
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
   return wrapper;
 }
 
-/** The draft key used by draftStore for a new:sequence scope with cloudId test-cloud. */
-const DRAFT_KEY = 'zenuml.draft.test-cloud.new:sequence';
+/** The draft key used by draftStore for a new:diagram scope with cloudId test-cloud. */
+const DRAFT_KEY = 'zenuml.draft.test-cloud.new:diagram';
 
 beforeEach(() => {
   localStorage.clear();
-  capturedCloseHandlers.length = 0;
+  // closeGuard keeps one bridge callback for this iframe, even after all
+  // subscribers unmount. Keep the mock's callback across test cases too.
   vi.clearAllMocks();
 });
 
 afterEach(() => {
+  for (const wrapper of mountedHeaders) wrapper.unmount();
+  mountedHeaders.length = 0;
   vi.useRealTimers();
 });
 
@@ -136,7 +141,7 @@ describe('Test 2 — view.onClose triggers sync draft save', () => {
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
 
     // Invoke the handler that Header registered with view.onClose.
-    expect(capturedCloseHandlers.length).toBeGreaterThan(0);
+    expect(capturedCloseHandlers).toHaveLength(1);
     await capturedCloseHandlers[capturedCloseHandlers.length - 1]();
 
     const raw = localStorage.getItem(DRAFT_KEY);
@@ -167,7 +172,7 @@ describe('Test 3 — re-mount surfaces banner via draft-available event', () => 
     EventBus.$off('draft-available');
 
     expect(emitted).toHaveLength(1);
-    expect(emitted[0].scope).toBe('new:sequence');
+    expect(emitted[0].scope).toBe('new:diagram');
     expect(emitted[0].draft.code).toBe('A->B: restored code');
   });
 
@@ -192,6 +197,23 @@ describe('Test 3 — re-mount surfaces banner via draft-available event', () => 
     // And should have been cleared from storage.
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
   });
+
+  it('treats the ISO updatedAt written by Forge publish as the saved-version timestamp', async () => {
+    const savedAt = Date.now();
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({ code: 'stale', title: '', savedAt: savedAt - 60_000 }),
+    );
+
+    const emitted: any[] = [];
+    EventBus.$on('draft-available', (payload: any) => emitted.push(payload));
+
+    await mountHeader(makeStore({ updatedAt: new Date(savedAt).toISOString() }));
+
+    EventBus.$off('draft-available');
+    expect(emitted).toHaveLength(0);
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -212,7 +234,7 @@ describe('Test 4 — draft-restore dispatches updateCode2 + updateTitle and clea
 
     // Simulate user clicking "Restore" — EventBus carries scope+draft.
     EventBus.$emit('draft-restore', {
-      scope: 'new:sequence',
+      scope: 'new:diagram',
       draft: { code: 'A->B: draft code', title: 'Draft Title', savedAt },
     });
 
@@ -267,6 +289,19 @@ describe('Test 5 — saved event removes the draft from localStorage', () => {
     // clearDraft is async — allow microtasks to flush.
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
+
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it('does not let a pending debounced write resurrect the draft after publish', async () => {
+    const store = makeStore();
+    await mountHeader(store);
+    vi.useFakeTimers();
+
+    store.commit('updateCode2', 'A->B: published change');
+    await nextTick();
+    EventBus.$emit('saved');
+    await vi.runAllTimersAsync();
 
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
   });

@@ -9,8 +9,9 @@
  * Three decisions are load-bearing, all measured in the ADR's spike:
  *
  *  - viz-global.js (Graphviz as WebAssembly) is NOT loaded. Under a CSP without
- *    'wasm-unsafe-eval', which our Forge manifest does not grant, loading it
- *    turns class diagrams into PlantUML's "An error has occurred!" crash page.
+ *    'wasm-unsafe-eval' (the Full and Diagramly manifests grant neither that
+ *    nor 'unsafe-eval'; Lite grants 'unsafe-eval'), loading it turns class
+ *    diagrams into PlantUML's "An error has occurred!" crash page.
  *    Without it the engine lays out with Smetana, its built-in Java port of
  *    Graphviz, and class diagrams render under `script-src 'self'`.
  *  - PLANTUML_STDLIB_BASE is left unset, so `!include <C4/...>` is answered

@@ -66,7 +66,33 @@ Forge serves the macro under a strict CSP. Graphviz in this package is
 | without `viz-global.js` | `script-src 'self'` | **renders**, laid out by Smetana, PlantUML's built-in Java port of Graphviz |
 
 So the engine ships without `viz-global.js` and the manifest's CSP stays as it is.
-That is not yet verified inside a real Forge iframe; see the validation plan.
+The variants differ here: the Lite manifest edit grants `'unsafe-eval'` (for AsyncAPI
+Studio), which Chrome also accepts for WebAssembly, while Full and Diagramly grant
+neither. Leaving Graphviz out makes every variant take the same Smetana path.
+
+### In a real Forge iframe (2026-10-24)
+
+The owner waived the Forge Tunnel stage for this spike: the tunnel serves only the
+`FORGE_EMAIL` browser identity, which the agent container cannot sign in as. Instead,
+commit `c22dbc5` was deployed with `scripts/forge-wizard.mjs` (Lite manifest edits
+applied) to the `yanhui` development environment. Forge applied it as a minor
+version: the existing install reported "already at the latest version", with no
+consent prompt. The check ran as the robot account on a REST-created test page
+holding the class diagram above:
+
+| | Before opt-in | After `plantumlRenderer = 'local'` |
+|---|---|---|
+| iframe host | `*.cdn.prod.atlassian-dev.net` (deployed bundle) | same |
+| class diagram | drawn by plantuml.com | drawn by the local engine (Smetana layout) |
+| plantuml.com requests | 2 (validation + render) | **0** |
+| engine chunks loaded | none | `engine-*.js`, `plantuml-*.js` |
+| script / WebAssembly CSP violations from the macro | none | **none** |
+
+The only `unsafe-eval` notice in the console came from Confluence's own CDN on the
+host page, and it was there before the opt-in too. This run tested the Lite iframe
+CSP, which includes `'unsafe-eval'`. The stricter `script-src 'self'` case (Full and
+Diagramly) rests on the local test above: the engine renders there without
+Graphviz, and `plantuml.js` contains no `eval(` or `new Function`.
 
 Two more properties surfaced:
 
@@ -98,9 +124,8 @@ Two more properties surfaced:
 1. **Measure exposure.** On our own staging sites, scan PlantUML custom content for
    `!include`, `!theme`, sprites and large diagrams. Customer-content analysis
    belongs in `private/`.
-2. **Forge tunnel.** Opt in via localStorage in the macro iframe, then confirm with a
-   network capture that it renders under Forge's real CSP and sends nothing to
-   plantuml.com.
+2. **Forge iframe.** Done for Lite on 2026-10-24 (see above). Repeat on a Full or
+   Diagramly install before rolling out there, since their CSP has no `'unsafe-eval'`.
 3. **Visual comparison.** Render the staging corpus with both renderers and compare.
    The public server's PlantUML version is unknown, and Smetana and Graphviz lay out
    differently.
@@ -127,8 +152,8 @@ Two more properties surfaced:
   PlantUML there needs option B or the engine on a server-side canvas.
 - **Rendering differences.** Whether existing diagrams change visibly enough to
   matter. Step 3 answers it.
-- **Does a Forge iframe behave like the test page?** The CSP finding above comes from
-  a local header copy, not from Forge itself. Step 2 answers it.
+- **Full and Diagramly iframes.** Lite is confirmed in a real Forge iframe. The
+  stricter CSP of the other variants is covered only by the local header test so far.
 
 ## Consequences
 

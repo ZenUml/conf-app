@@ -252,6 +252,16 @@ describe('forge-upload-attachment', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects a payload with only the 4-byte PNG magic followed by garbage (#970)', async () => {
+    const fake = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6]).toString('base64');
+    const res = await onRequest({
+      request: makeRequest({ ...basePayload, pngBase64: fake }),
+      data: FORGE_DATA,
+    } as any);
+    expect((await readJson(res)).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects when the app system token header is absent', async () => {
     const req = makeRequest(basePayload, { 'x-forge-oauth-system': '' });
     const res = await onRequest({ request: req, data: FORGE_DATA } as any);

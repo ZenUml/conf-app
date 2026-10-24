@@ -522,6 +522,21 @@ export const handler = async (payload) => {
     }
 
     const attachment = attachmentsData.results[0];
+    // The v2 attachments list normally carries a top-level `_links.base`, but
+    // some tenants/proxies return a 200 body without it (the unexpected-shape
+    // case that crashed the upload path as `_links.base` TypeError until that
+    // path moved to V2). Guard the read so a missing `_links` surfaces as a
+    // tracked `macro_export_failed` instead of an opaque runtime TypeError.
+    const baseUrl = attachmentsData._links?.base;
+    if (!baseUrl) {
+      console.error(`Export: attachments response missing _links.base for ${attachmentName} on page ${pageId}`);
+      await trackExportEvent('macro_export_failed', {
+        ...joinKeyProps(ctx),
+        failure_reason: 'missing_links_base',
+        ...fallbackProps(fallbackInfo),
+      });
+      return createErrorDocument("Failed to resolve the diagram download link. Please reopen the Confluence page to regenerate the image, then export again.");
+    }
 
     // The export ADF must reference the PNG as a native Confluence media file,
     // never as an external URL — see createMediaDocument below. Without a
@@ -548,7 +563,7 @@ export const handler = async (payload) => {
     // the ADF-documented way to give a file node a natural size; see
     // fetchPngDimensions below for how those pixels are read without a full
     // download.
-    const dimensions = await fetchPngDimensions(attachmentsData._links.base, attachment.downloadLink, attachmentName, pageId, usedAsUser);
+    const dimensions = await fetchPngDimensions(baseUrl, attachment.downloadLink, attachmentName, pageId, usedAsUser);
 
     await trackExportEvent('macro_export_succeeded', {
       ...joinKeyProps(ctx),

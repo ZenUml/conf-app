@@ -101,7 +101,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'list_diagrams',
     description:
-      'List ZenUML diagrams on a site, most-recently-modified first. Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
+      'List ZenUML diagrams on a site, most-recently-modified first, each with its diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -292,6 +292,7 @@ interface CustomContentRow {
   version?: { createdAt?: unknown; number?: unknown };
   pageId?: unknown;
   spaceId?: unknown;
+  body?: { raw?: { value?: unknown } };
 }
 
 /** The site row for `cloudId`, or a refusal. Every write path starts here. */
@@ -577,11 +578,35 @@ function guardPageBody(current: string, next: string): { ok: true } | { ok: fals
   return { ok: true };
 }
 
+/**
+ * Is this the graph-only custom-content type? lite/full store graphs under
+ * their own `-graph` type and every other diagram type under the other one
+ * (customContentTypeFor here; DIAGRAM_TYPE_TO_CONTENT_KEY in ApWrapper2.ts).
+ * The reverse does not hold: older graphs sit under the sequence type too.
+ */
+function isGraphContentType(type: unknown): boolean {
+  return typeof type === 'string' && type.endsWith('-graph');
+}
+
+/**
+ * What kind of diagram a listed row is. The custom-content type cannot say:
+ * the sequence type holds mermaid, plantuml, OpenAPI and older graphs alike,
+ * and listing it as `type` led an agent to call a Mermaid flowchart a sequence
+ * diagram (zenuml-review, 2026-10-24). Graph-type rows are fetched without a
+ * body, so their (possibly large) XML never travels.
+ */
+function listedDiagramType(row: CustomContentRow): string | null {
+  if (isGraphContentType(row.type)) return 'graph';
+  const stored = parseStoredDiagram(row.body?.raw?.value).diagramType;
+  if (!stored) return null;
+  return canonicalDiagramType(stored) ?? stored;
+}
+
 function diagramRow(row: CustomContentRow) {
   return {
     contentId: typeof row.id === 'string' ? row.id : String(row.id ?? ''),
     title: typeof row.title === 'string' ? row.title : '',
-    type: typeof row.type === 'string' ? row.type : '',
+    diagramType: listedDiagramType(row),
     pageId: typeof row.pageId === 'string' ? row.pageId : undefined,
     modifiedAt: typeof row.version?.createdAt === 'string' ? row.version.createdAt : undefined,
   };
@@ -661,7 +686,8 @@ export async function callHeadlessTool(
       const rows: CustomContentRow[] = [];
       if (pageId) {
         // The page-scoped endpoint takes no type filter, so filter on the way out.
-        const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250`);
+        // Bodies come along for the diagram type; one page's worth is small.
+        const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250&body-format=raw`);
         if (res.status !== 200) {
           throw new HeadlessToolError('Confluence refused the listing.', 'upstream', { status: res.status });
         }
@@ -673,7 +699,8 @@ export async function callHeadlessTool(
           // Newest first at the source: the default is oldest first, and the
           // sort below only reorders what came back — so without this the tool
           // returned each type's OLDEST `limit` rows as "most recent".
-          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&${NEWEST_FIRST}`);
+          const body = isGraphContentType(type) ? '' : '&body-format=raw';
+          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&${NEWEST_FIRST}${body}`);
           // A 404 is Confluence saying this variant never wrote that type —
           // information, not a failure (the same rule macroIdentity applies).
           if (res.status === 404) continue;

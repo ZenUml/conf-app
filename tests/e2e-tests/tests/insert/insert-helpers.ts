@@ -2,6 +2,7 @@ import { Page, APIRequestContext, expect } from '@playwright/test';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
+import { expectVisibleOrFailOnLogin } from '../../helpers/authGuard.js';
 
 /**
  * Creates a child page in Confluence and types a smoke-test title.
@@ -26,8 +27,21 @@ export async function createPageAndSetup(page: Page, variantLabel: string): Prom
  * Publishes the current page, dismisses any spotlight modal,
  * verifies the expected number of macro iframes render, and takes a screenshot.
  * Returns the published page ID extracted from the URL.
+ *
+ * `verifyContent` (optional) is the ZEN-1172 gap-closer: iframe *visibility +
+ * count* alone passes even when the macro renders the "couldn't display a
+ * diagram" load-failed panel (the panel lives inside the same Forge iframe).
+ * Pass a callback that asserts the macro's actual rendered content *inside*
+ * the iframe (e.g. `macroPage.assertMacroContent(macroPage.getOpenApiMacroFrame(), '/users')`)
+ * so a broken viewer fails the test instead of slipping through green.
  */
-export async function publishAndVerifyMacros(page: Page, editorPage: ConfluenceEditorPage, macroCount: number, screenshotName: string): Promise<string> {
+export async function publishAndVerifyMacros(
+  page: Page,
+  editorPage: ConfluenceEditorPage,
+  macroCount: number,
+  screenshotName: string,
+  verifyContent?: (macroPage: MacroPage) => Promise<void>,
+): Promise<string> {
   await editorPage.publishPage();
   console.log(`  ✓ Page published`);
 
@@ -36,20 +50,35 @@ export async function publishAndVerifyMacros(page: Page, editorPage: ConfluenceE
 
   await expect(page.locator('#title-text')).toContainText('Smoke Test');
 
+  // Timing instrumentation. The prod release smoke runs immediately after a
+  // Forge deploy, so the first render fetches the Custom UI bundle + the lazy
+  // @zenuml/core chunk from a cold CDN. Logging frame-visible and content-verify
+  // durations makes a slow-but-correct cold render distinguishable from a real
+  // failure in CI — and gives the before/after signal for any warm-up step.
+  const frameStart = Date.now();
   if (testConfig.isForge || testConfig.isLite) {
     const forgeIframes = page.locator('[data-testid="ForgeExtensionContainer"] [data-testid="hosted-resources-iframe"]');
-    await expect(forgeIframes.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    await expectVisibleOrFailOnLogin(page, forgeIframes.first(), TIMEOUTS.FRAME_LOAD);
     await expect(forgeIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   } else {
     // Connect macro iframes have IDs like "{addonKey}__{macroKey}__{hash}".
     // Avoid using iframe.ap-iframe (class added by AC.js asynchronously)
     // or iframe[src*=domain] (src is the Cloudflare URL, not the Confluence domain).
     const connectIframes = page.locator(`iframe[id*="${testConfig.addonKey}"]`);
-    await expect(connectIframes.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    await expectVisibleOrFailOnLogin(page, connectIframes.first(), TIMEOUTS.FRAME_LOAD);
     await expect(connectIframes).toHaveCount(macroCount, { timeout: TIMEOUTS.FRAME_LOAD });
   }
 
-  console.log(`  ✓ ${macroCount} macro iframe(s) visible on published page`);
+  console.log(`  ✓ ${macroCount} macro iframe(s) visible on published page [frame_visible_ms=${Date.now() - frameStart}]`);
+
+  // ZEN-1172: assert the macro actually RENDERED its content, not just that an
+  // iframe exists. The load-failed panel renders inside the same iframe, so
+  // visibility+count is not enough to catch a broken viewer.
+  if (verifyContent) {
+    const verifyStart = Date.now();
+    await verifyContent(macroPage);
+    console.log(`  ✓ macro rendered content verified (inside iframe) [content_verify_ms=${Date.now() - verifyStart}]`);
+  }
 
   await page.screenshot({
     path: `${screenshotName}-${Date.now()}.png`,

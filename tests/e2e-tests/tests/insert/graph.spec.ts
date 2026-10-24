@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { createPageAndSetup, publishAndVerifyMacros, moveToPvt } from './insert-helpers.js';
 
@@ -6,7 +6,7 @@ const macroType = 'graph' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Smoke Test - ${macroType}`, () => {
+test.describe(`Smoke Test - ${macroType}`, { tag: ['@test:graph', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@graph', '@smoke'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {
@@ -32,7 +32,18 @@ test.describe(`Smoke Test - ${macroType}`, () => {
       console.log(`  ✓ Graph macro inserted`);
     });
 
-    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-graph');
+    // DrawIO renders an SVG canvas whose shapes carry no predictable text, so
+    // the assertion has to be geometric. It must not be "an SVG is visible":
+    // the frame also holds the viewer toolbar, whose icons are SVGs, so that
+    // check passes on the load-failed panel and on an empty canvas alike.
+    // assertMacroRendersDiagram measures the LARGEST SVG — the canvas, at
+    // 758x150 on lite-stg, against 16x16 icons — so a failed render leaves only
+    // icons behind and fails. DrawIO emits no viewBox, so the aspect-ratio half
+    // of that assertion is skipped here; the non-degenerate box is the part
+    // that does the work for this macro.
+    const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-graph', async (macroPage) => {
+      await macroPage.assertMacroRendersDiagram(macroPage.getGraphMacroFrame());
+    });
     if (pageId) createdPageIds.push(pageId);
   });
 });

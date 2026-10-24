@@ -1,25 +1,27 @@
 ---
 name: validate-branch
-description: Run local validation checks on the current branch before shipping. Use when the user says "validate", "check branch", "am I good", "run tests", "preflight", "is this ready", or wants to verify their branch passes all checks before pushing or creating a PR. Also use as a precondition check before invoking submit-branch or ship-branch.
+description: Run ordered local and staging validation on the current branch before shipping. Use when the user says "validate", "check branch", "am I good", "run tests", "preflight", "is this ready", or wants to verify their branch before pushing or creating a PR. Also use as a precondition check before invoking submit-branch or land-branch.
 ---
 
 # Validate Branch
 
-Verify the current branch passes all local checks. Run anytime before shipping, or just to check your work.
+Run local checks before shipping. For Confluence app UI changes, complete the visual stages in order: **Storybook → Forge Tunnel → CI-deployed Staging**. A successful earlier stage is required before starting the next. See the root `CLAUDE.md` hard rule for evidence and applicability requirements. This skill does not push branches or create PRs. When called as a precondition by `submit-branch` or `land-branch`, report local readiness after Storybook and Tunnel; the caller owns submission. Full validation can be reported only after CI deploys that candidate and its Staging UI checks pass. Do not invoke either caller skill from here.
 
-## Steps
+Run from the repository root. Stop at the first failure. Do not report complete validation when only local checks have passed.
 
-Run from the `conf-app` directory. Stop on first failure.
+## 1. Lint, unit tests, and build
 
-### 1. Lint
+Run these in order:
+
+**Lint**
 
 ```bash
 pnpm lint
 ```
 
-This lints all of `src/` (not just `.vue` files). If lint fails, report the errors and stop.
+This lints all of `src/`. If lint fails, report the errors and stop.
 
-### 2. Unit tests
+**Unit tests**
 
 ```bash
 pnpm test:unit
@@ -27,58 +29,45 @@ pnpm test:unit
 
 If tests fail, report the failing test names and stop.
 
-### 3. Build
+**Build**
 
-Build at least one variant to catch bundling and import errors:
+Build at least one variant:
 
 ```bash
 pnpm build:lite
 ```
 
-If working on a specific variant, build that one instead (`pnpm build:full`, `pnpm build:diagramly`). If lint and tests passed but build fails, it's usually a missing import or Vite config issue.
+For a variant-specific change, build that variant instead (`pnpm build:full`, `pnpm build:diagramly`, or the applicable variant build). If the build fails, report the error and stop.
 
-### 4. Feature smoke test (forge tunnel)
+## 2. Storybook
 
-After lint/unit/build pass, exercise the feature against a real Confluence site via forge tunnel. This is the only step that proves the user-visible behavior actually works.
+For UI changes, run the relevant story or component in Storybook before using a Forge tunnel. Start Storybook with `pnpm storybook`, then inspect the changed UI and its relevant states in the browser. Record the branch and commit tested, the Storybook story/URL, and keep screenshot or snapshot evidence for the assertions.
 
-**When to skip:** docs-only, test-only, build/CI config, or backend-only (`functions/`) changes that have no Custom UI surface. If unsure, run it.
+If the change has no relevant Storybook story, add a minimal representative story before continuing. If the UI genuinely cannot be represented in Storybook, mark this stage **BLOCKED** or **SKIPPED**, explain the reason and the smallest blocker, and stop the remaining UI validation stages. Do not substitute a later stage or another local check and continue. A pure backend or documentation change has no UI validation stages; state **N/A** with the reason.
 
-**How to run:**
+If Storybook fails, stop, fix the issue, and repeat the affected local checks and Storybook stage before continuing.
 
-1. **Identify what to test.** Read the changes (`git diff main...HEAD`, recent commits, plan file if present) and write down:
-   - The user-visible behavior the change affects (e.g. "clicking Edit when paywalled should open the editor paywall, not double-gate from viewer")
-   - 2–4 concrete interactions that exercise that behavior (button clicks, ESC key, form input)
-   - The expected outcome of each interaction
+## 3. Forge Tunnel
 
-2. **Bring up the tunnel.** Invoke the `forge-tunnel` skill — it handles build, deploy, install, and starting the tunnel. Wait until the tunnel logs `Listening for requests on local port`.
+After Storybook passes, verify the UI against a development Confluence site using the **forge-tunnel** skill. Follow that skill for setup, app variant, environment, tunnel identity, browser profile, and connection verification. Do not use `agent-browser --session conf-app --restore=stg` for the tunnel unless it is the identity required by the forge-tunnel workflow; tunnel visibility is identity-gated.
 
-3. **Drive a real Confluence page.** Use Playwright (the only browser tool that can reach into Forge cross-origin iframes — see `CLAUDE.md` Browser Automation table). Navigate to a page on the tunnel-connected site (per `.env.forge.local` `ATLASSIAN_SITE`) that hosts the relevant macro. Verify the version label in the macro toolbar matches the current branch (e.g. `claude/<branch>:<sha>`) — if it shows a deployed `vYYYY.MM…` tag instead, you're hitting the public site, not the tunnel.
+Use the **spot-check** skill to write the behavior, target, assertions, and expected outcomes before opening the browser. Record the branch and commit tested, target site, visible build/version, and UI source. Capture actual screenshots or snapshots for the assertions. If the expected local code is not visible, the stage fails. Fix the issue and repeat Storybook and Tunnel before moving on.
 
-4. **Exercise each interaction from step 1.** Take a screenshot after each one. Compare what you see to the expected outcome.
+## 4. CI-deployed Staging
 
-5. **Decide.** If every interaction matches the expectation, mark Step 4 PASS. If any diverges, mark FAIL and include the screenshot path + which assertion failed in the report. Don't try to "patch around" a divergence — fix the underlying code, then re-run from Step 1.
+After Storybook and Forge Tunnel pass and the candidate branch has been pushed through the authorized workflow, wait for its CI staging deployment to succeed. Never run `pnpm forge:deploy:*:staging` locally. Verify the successful deployment belongs to the candidate branch and commit, then test that deployed build on the relevant staging site.
 
-**Common gotchas:**
+Record the deployed build/commit, target site, visible version, and UI source. Capture actual screenshots or snapshots for the planned assertions. Green CI alone does not prove the manual UI scenarios passed. If staging deployment or UI validation fails, fix the issue and repeat the affected stage; later acceptance must use the final candidate version.
 
-- *Tunnel serves stale code.* `forge-tunnel` auto-serves `dist/` for frontend changes, but if you edited code without rebuilding, you'll see old behavior. Re-run `pnpm build:<variant>` and hard-refresh (Cmd+Shift+R).
-- *Wrong site.* If the macro version label shows a `v2026.…` tag, you're on a deployed site (e.g. `zenuml.atlassian.net`), not the tunnel target. Switch to the host in `.env.forge.local`.
-- *Paywall state not reproducible.* Some features only manifest at a specific macro count or with specific KV flags set. The `Preset:` dropdown in the macro toolbar (Bystander/Owner/etc.) lets you force a paywall variant on dev sites — use it to drive deterministic states.
-- *Iframe selectors don't resolve from the top frame.* Forge Custom UI lives in a cross-origin iframe; iterate `page.frames()` (or use `frameLocator`) when finding buttons inside the macro.
+## Reporting
 
-## Output
+Report two separate statuses:
 
-Report one of:
+- **Local readiness:** lint, unit tests, build, and applicable Storybook and Tunnel stages passed; the branch is ready to push for staging validation.
+- **Full validation:** the applicable ordered stages, including CI deployment and Staging UI checks, passed for the final candidate.
 
-- **PASS** — all 4 checks passed, branch is ready to push
-- **FAIL** — which check failed, the error output (or failing interaction + screenshot for Step 4), and a one-line suggestion
+For each applicable UI stage, include the tested branch/commit or deployed build, UI source/site, outcome, and evidence path or snapshot reference. Mark blocked assertions **BLOCKED** and omitted assertions **SKIPPED** with the reason; never mark either as PASS. A blocked or skipped Storybook stage stops Forge Tunnel and Staging validation. For docs-only or no-UI changes, mark UI validation **N/A** and explain why. Do not claim full validation when Staging has not been checked.
 
-If Step 4 was skipped, say so explicitly: "Step 4 skipped — backend-only change, no Custom UI surface."
+## CI coverage
 
-## What CI does beyond this
-
-After you push, CI runs lint/unit/build plus:
-- Deploys all 3 variants (lite, full, diagramly) to staging
-- Runs E2E tests against staging Confluence instances
-- On main only: creates draft releases for each variant
-
-The forge-tunnel smoke step in Step 4 catches Confluence-integration regressions earlier — before they burn 6+ minutes of CI time.
+After push, CI runs lint, unit/build checks and staging deployment/E2E coverage as configured by the workflow. A green CI run is evidence for those automated checks only; it does not replace the manual UI assertions above. The forge-tunnel stage catches Confluence integration issues before staging deployment.

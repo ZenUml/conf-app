@@ -1,58 +1,33 @@
 <template>
   <div id="forge-graph-viewer-embed">
-    <generic-viewer :hideHeader="hideHeader">
+    <!-- :wide="true" forces viewer-frame--wide (width:100%) so graph.fit() has
+         a fixed container to fit to. Without it, the fit-content frame wraps
+         to the SVG's natural width and the diagram still overflows. See
+         ZEN-1168 follow-up. -->
+    <generic-viewer :wide="true" :hideHeader="hideHeader">
       <div ref="graphContainer" style="width:100%;height:100%;"></div>
+      <!-- Multi-page navigation, rendered in GenericViewer's header (beside
+           the title in Fullscreen) and visible without hover. -->
+      <template v-if="pageCount > 1" #header-nav>
+        <GraphPageNav :current-page="currentPage" :page-count="pageCount" @go="goToPage" />
+      </template>
     </generic-viewer>
   </div>
 </template>
 
 <script>
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
+import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import { decompress } from '@/utils/compress';
 import { trackEvent } from '@/utils/window';
-
-// Load external DrawIO scripts dynamically
-function loadDrawIOScripts() {
-  return new Promise((resolve, reject) => {
-    const scripts = [
-      './drawio/js/sanitizer/purify.min.js',
-      './drawio/mxgraph/mxClient.js',
-      './drawio/js/grapheditor/Init.js',
-      './drawio/js/grapheditor/Graph.js',
-      './drawio/js/grapheditor/Shapes.js'
-    ];
-    
-    let loadedCount = 0;
-    
-    scripts.forEach((src, index) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = () => {
-        loadedCount++;
-        if (loadedCount === scripts.length) {
-          // Wait for window.Graph to be available
-          const checkGraph = () => {
-            if (window.Graph) {
-              console.log('ForgeGraphViewerEmbed: window.Graph is available:', window.Graph);
-              resolve();
-            } else {
-              console.log('ForgeGraphViewerEmbed: Waiting for window.Graph...');
-              setTimeout(checkGraph, 100);
-            }
-          };
-          checkGraph();
-        }
-      };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  });
-}
+import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { resolveGraphXml } from '@/utils/graph/boardDocument';
 
 export default {
   name: "ForgeGraphViewerEmbed",
   components: {
-    GenericViewer
+    GenericViewer,
+    GraphPageNav,
   },
   props: {
     doc: {
@@ -68,7 +43,10 @@ export default {
   data() {
     return {
       loading: true,
-      error: null
+      error: null,
+      graphViewer: null,
+      currentPage: 0,
+      pageCount: 0,
     }
   },
   async mounted() {
@@ -77,10 +55,7 @@ export default {
   methods: {
     async initializeGraph() {
       try {
-        // Load DrawIO scripts first
-        // await loadDrawIOScripts();
-        
-        // Now initialize the graph
+        await ensureDrawioViewerLoaded();
         this.initGraph();
       } catch (error) {
         console.error('Failed to load DrawIO scripts:', error);
@@ -90,56 +65,51 @@ export default {
     },
     
     initGraph() {
-      const setGraphStyle = (styleUrl, graph) => {
-        const req = mxUtils.load(styleUrl);
-        const root = req.getDocumentElement();
-        const dec = new mxCodec(root.ownerDocument);
-        dec.decode(root, graph.stylesheet);
-      }
+      // The embed host has no macro config, so the mode comes off the body
+      // (forge-graph-editor.ts writes it on every publish). Without this the
+      // embed rendered a Board macro's stale Diagram document, or reported
+      // "Missing graph data" for a macro authored in Board mode.
+      const body = this.doc?.value ?? this.doc;
+      let graphXml = this.graphXml || resolveGraphXml(body);
 
-      const setGraphXml = (data, graph) => {
-        const xmlDoc = mxUtils.parseXml(data);
-        const codec = new mxCodec(xmlDoc);
-        codec.decode(xmlDoc.documentElement, graph.getModel());
-      }
-
-      // Get the graph XML from props or document
-      let graphXml = this.graphXml || this.doc?.value?.graphXml || this.doc?.graphXml;
-      console.log('ForgeGraphViewerEmbed: original graphXml', graphXml);
-      
-      // Handle compressed diagrams
+      // Legacy compressed records — flag still controls decompression.
       if (this.doc?.compressed || this.doc?.value?.compressed) {
         trackEvent('compressed_field_viewer', 'load', 'warning');
         if (!graphXml?.startsWith('<mxGraphModel')) {
           graphXml = decompress(graphXml);
           trackEvent('compressed_content_viewer', 'load', 'warning');
-          console.log('ForgeGraphViewerEmbed: decompressed graphXml', graphXml);
         }
       }
-      
-      if (this.$refs.graphContainer && graphXml && window.Graph) {
-        try {
-          // @ts-ignore
-          const graph = new window.Graph(this.$refs.graphContainer);
-          graph.resizeContainer = true;
-          graph.setEnabled(false);
-          // @ts-ignore
-          setGraphStyle('./drawio/styles/default.xml', graph);
-          // @ts-ignore
-          setGraphXml(graphXml, graph);
-          
-          this.loading = false;
-          console.log('ForgeGraphViewerEmbed: Graph initialized successfully');
-        } catch (error) {
-          console.error('Failed to initialize graph:', error);
-          this.error = 'Failed to initialize graph';
-          this.loading = false;
-        }
-      } else {
-        console.error('Missing required data for graph initialization');
-        this.error = 'Missing graph data';
+
+      if (!this.$refs.graphContainer || !graphXml || !window.GraphViewer) {
+        this.error = !window.GraphViewer ? 'Graph viewer not loaded' : 'Missing graph data';
+        this.loading = false;
+        return;
+      }
+
+      try {
+        // GraphViewer accepts either <mxfile> (multi-page) or raw <mxGraphModel>
+        // (legacy single-page) via its Editor.extractGraphModel pipeline.
+        // No 'toolbar' config — page nav is rendered into the GenericViewer
+        // header via the #header-nav slot above.
+        const xmlNode = mxUtils.parseXml(graphXml).documentElement;
+        this.graphViewer = new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
+          'auto-fit': true,
+          'border': 10,
+        });
+        this.pageCount = this.graphViewer.diagrams?.length || 0;
+        this.currentPage = this.graphViewer.currentPage || 0;
+        this.loading = false;
+      } catch (error) {
+        console.error('Failed to initialize graph viewer:', error);
+        this.error = 'Failed to initialize graph';
         this.loading = false;
       }
+    },
+    goToPage(index) {
+      if (!this.graphViewer || index < 0 || index >= this.pageCount) return;
+      this.graphViewer.selectPage(index);
+      this.currentPage = index;
     }
   },
   watch: {
@@ -180,4 +150,5 @@ export default {
   font-size: 16px;
   color: #d32f2f;
 }
-</style> 
+
+</style>

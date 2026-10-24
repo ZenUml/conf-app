@@ -4,7 +4,7 @@ description: >
   Focused production validation for the Graph (DrawIO) macro: nested Forge + DrawIO iframes,
   title field, at least one shape on the canvas (required — avoids false PASS on empty diagrams),
   Publish from inner editor, and verified rendered geometry on the Confluence page. Invoked by
-  release-app Step 5.5 when graph/drawio-related commits are detected.
+  release-app Step 2.6 when graph/drawio-related commits are detected.
   Triggers on "pvt-drawio", "test drawio", "validate graph macro".
 ---
 
@@ -21,7 +21,7 @@ Usage: `/pvt-drawio [lite] [full] [diagramly]`
 1. **Explicit flags** — If the user names one or more of `lite`, `full`, `diagramly` on the command line, test **only** those, in order.
 2. **Infer from conversation** — If no flags were given, **decide from context** before running anything:
    - **Release thread:** e.g. `/release-app diagramly`, a published tag like `v….-lite`, or “we’re shipping Full” → test that variant only.
-   - **`release-app` Step 5.5:** When this skill is invoked from the release workflow, use the **same variant as that release** (e.g. releasing diagramly → `/pvt-drawio diagramly`).
+   - **`release-app` Step 2.6:** When this skill is invoked from the release workflow, use the **same variant as that release** (e.g. releasing diagramly → `/pvt-drawio diagramly`).
    - **User wording:** “Lite macro”, “Diagramly”, “Full Forge”, branch/PR names containing `lite`, `full`, `diagramly`.
 3. **If still ambiguous** — Ask one question: which variant: lite, full, or diagramly? **Do not** assume “test all three” or pick a random default.
 

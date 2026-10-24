@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2024, JGraph Holdings Ltd
+ * Copyright (c) 2006-2024, draw.io AG
  */
 //Add a closure to hide the class private variables without changing the code a lot
 (function()
@@ -41,7 +41,7 @@ DropboxClient.prototype.maxRetries = 4;
 
 DropboxClient.prototype.clientId = window.DRAWIO_DROPBOX_ID;
 
-DropboxClient.prototype.redirectUri = window.location.protocol + '//' + window.location.host + '/dropbox';
+DropboxClient.prototype.redirectUri = window.DRAWIO_SERVER_URL + 'dropbox';
 
 /**
  * Authorizes the client, gets the userId and calls <open>.
@@ -149,10 +149,17 @@ DropboxClient.prototype.authenticateStep2 = function(state, success, error)
 				{
 					if (req.getStatus() >= 200 && req.getStatus() <= 299)
 					{
-						_token = JSON.parse(req.getText()).access_token;
-						this.client.setAccessToken(_token);
-						this.setUser(null);
-						success();
+						try
+						{
+							_token = JSON.parse(req.getText()).access_token;
+							this.client.setAccessToken(_token);
+							this.setUser(null);
+							success();
+						}
+						catch (e)
+						{
+							error({message: mxResources.get('authFailed'), retry: auth});
+						}
 					}
 					else 
 					{
@@ -259,6 +266,18 @@ DropboxClient.prototype.authenticateStep2 = function(state, success, error)
 };
 
 /**
+ * Builds a user-facing message from a Dropbox SDK error. Terminated requests
+ * (network offline, blocked by CORS, page unload) reject without a status, which
+ * previously produced "Error undefined".
+ */
+DropboxClient.prototype.getErrorMessage = function(err)
+{
+	return (err != null && err.status != null) ?
+		mxResources.get('error') + ' ' + err.status :
+		mxResources.get('noResponse');
+};
+
+/**
  * Authorizes the client, gets the userId and calls <open>.
  */
 DropboxClient.prototype.executePromise = function(promiseFn, success, error)
@@ -319,7 +338,7 @@ DropboxClient.prototype.executePromise = function(promiseFn, success, error)
 			    	}
 		    		else
 		    		{
-		    			error({message: mxResources.get('error') + ' ' + err.status});
+		    			error({message: this.getErrorMessage(err)});
 		    		}
 		    	}
 		}));
@@ -370,7 +389,7 @@ DropboxClient.prototype.getFile = function(path, success, error, asLibrary)
 	var binary = /\.png$/i.test(path);
 
 	if (/^https:\/\//i.test(path) || /\.v(dx|sdx?)$/i.test(path) || /\.gliffy$/i.test(path) ||
-		 /\.pdf$/i.test(path) || (!this.ui.useCanvasForExport && binary))
+		 /\.pdf$/i.test(path) || (!Editor.useCanvasForExport && binary))
 	{
 		var fn = mxUtils.bind(this, function()
 		{
@@ -536,7 +555,7 @@ DropboxClient.prototype.readFile = function(arg, success, error, binary)
 			    	}
 		    		else
 		    		{
-		    			error({message: mxResources.get('error') + ' ' + err.status});
+		    			error({message: this.getErrorMessage(err)});
 		    		}
 		    	}
 		}));
@@ -784,7 +803,7 @@ DropboxClient.prototype.pickLibrary = function(fn)
 					this.ui.handleError(e);
 				});
 				
-				var tmp = files[0].link.indexOf(this.appPath);
+				var tmp = (files[0].link != null) ? files[0].link.indexOf(this.appPath) : -1;
 	
 				if (tmp > 0)
 				{
@@ -905,13 +924,13 @@ DropboxClient.prototype.pickFile = function(fn, readOnly)
 						var binary = /\.png$/i.test(files[0].name);
 						
 						if (/\.vsdx$/i.test(files[0].name) || /\.gliffy$/i.test(files[0].name) ||
-							(!this.ui.useCanvasForExport && binary))
+							(!Editor.useCanvasForExport && binary))
 						{
 							success(files[0].link);
 						}
 						else
 						{
-							var tmp = files[0].link.indexOf(this.appPath);
+							var tmp = (files[0].link != null) ? files[0].link.indexOf(this.appPath) : -1;
 
 							if (tmp > 0)
 							{

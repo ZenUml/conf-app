@@ -19,17 +19,23 @@ import { Locator, Page } from '@playwright/test';
  * contenteditable directly: ProseMirror takes keyboard input and keeps a
  * selection for the toolbar "+" insert without any pointer event, and the
  * panel itself is never touched, so no template gets applied.
+ *
+ * Returns true when the body was covered and had to be focused via the DOM.
  */
-export async function focusEditorBody(page: Page, editorEl: Locator): Promise<void> {
-  const reachable = await editorEl
-    .click({ trial: true, timeout: 2000 })
-    .then(() => true)
-    .catch(() => false);
-  if (reachable) {
+export async function focusEditorBody(page: Page, editorEl: Locator): Promise<boolean> {
+  if (await isPointerReachable(editorEl)) {
     await editorEl.click();
-    return;
+    return false;
   }
   console.log('  [debug] editor body covered (Rovo template panel?) — focusing it via the DOM');
   await editorEl.focus();
   await page.waitForTimeout(200);
+  return true;
+}
+
+export async function isPointerReachable(editorEl: Locator): Promise<boolean> {
+  return editorEl
+    .click({ trial: true, timeout: 2000 })
+    .then(() => true)
+    .catch(() => false);
 }

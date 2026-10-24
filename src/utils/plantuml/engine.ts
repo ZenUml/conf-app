@@ -31,6 +31,7 @@
  */
 import type { PlantUmlLocalFailureReason, PlantUmlUnresolvedInclude } from '@/utils/analytics/catalog';
 import { installPlantUmlStdlibLoader, rewriteHostedIncludes } from './stdlib';
+import { selectServerBlock } from './unwrap';
 
 export class PlantUmlLocalRenderError extends Error {
   constructor(
@@ -133,7 +134,14 @@ export function renderPlantUmlLocally(code: string): Promise<string> {
 
   const svg = (async () => {
     const [renderToString] = await Promise.all([loadEngine(), loadOptionalData(source)]);
-    const { source: engineSource, rewritten } = rewriteHostedIncludes(source);
+    // Draw the block the server would draw (unwrap.ts), then point GitHub C4
+    // includes at the hosted library (stdlib.ts). Several complete diagrams in
+    // one source are merged by the server in a way the engine cannot match.
+    const selected = selectServerBlock(source);
+    if (selected.multipleBlocks) {
+      throw new PlantUmlLocalRenderError('engine_error', 'Several diagrams in one source: the server draws them');
+    }
+    const { source: engineSource, rewritten } = rewriteHostedIncludes(selected.source);
     const raw = await new Promise<string>((resolve, reject) => {
       renderToString(engineSource.split('\n'), resolve, (message) =>
         reject(new PlantUmlLocalRenderError('engine_error', `PlantUML engine error: ${message}`, undefined, rewritten)));

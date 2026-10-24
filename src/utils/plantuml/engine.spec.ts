@@ -77,6 +77,19 @@ describe('renderPlantUmlLocally (ADR-0010)', () => {
     await expect(renderPlantUmlLocally('@startuml\nbad\n@enduml')).resolves.toBe(SYNTAX_SVG);
   });
 
+  it('draws the block the server would draw from a doubled header', async () => {
+    engineReturns(OK_SVG);
+    await renderPlantUmlLocally('@startuml\n@startuml\nA -> B\n@enduml');
+    expect(vi.mocked(renderToString).mock.calls[0][0]).toEqual(['', '@startuml', 'A -> B', '@enduml']);
+  });
+
+  it('hands several complete diagrams to the server without running the engine', async () => {
+    engineReturns(OK_SVG);
+    const err = await renderPlantUmlLocally('@startuml\nA -> B\n@enduml\n@startuml\nC -> D\n@enduml').catch((e) => e);
+    expect(err).toMatchObject({ reason: 'engine_error' });
+    expect(renderToString).not.toHaveBeenCalled();
+  });
+
   it('installs the stdlib loader before the engine runs', async () => {
     delete (globalThis as Record<string, unknown>).PLANTUML_STDLIB_LOADER;
     engineReturns(OK_SVG);

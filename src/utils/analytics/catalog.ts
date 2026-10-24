@@ -251,7 +251,9 @@ export type PlantUmlRenderer = "server" | "local" | "server_fallback";
 // syntax-error path reports it.
 //   load_failed  — the engine chunk did not load (network, CSP)
 //   include      — an !include / stdlib library the engine could not resolve
-//   engine_error — the engine crashed or called its error callback
+//   engine_error — the engine crashed or called its error callback, or the
+//                  source holds several complete diagrams, which the server
+//                  merges and the engine cannot
 export type PlantUmlLocalFailureReason = "load_failed" | "include" | "engine_error";
 
 // For a `include` failure (ADR-0010): what kind of include the engine could not

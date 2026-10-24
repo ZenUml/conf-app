@@ -1,6 +1,11 @@
+import { getDiagramFontState } from '@/utils/fonts/diagramFontState';
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
-import type { CacheState, MacroTypeValue, RenderMode, CacheSource } from './catalog';
+import type { CacheState, MacroTypeValue, RenderMode, CacheSource, ContentState } from './catalog';
 import { getTimings } from './renderPerf';
+import { getRenderIdentity } from './renderIdentity';
+import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
+import { isPrefetchDue } from '@/utils/prefetch/throttle';
+import type { PrefetchRenderer } from '@/utils/prefetch/rendererPrefetch';
 
 // Below this many summed wire bytes across same-origin scripts we treat the boot
 // as warm: a disk-cache hit reports transferSize 0 and a 304 revalidation only a
@@ -49,16 +54,22 @@ export function measureCacheState(): {
 // `cacheSource` records where a `cached_svg` render got its SVG so we can tell
 // the cache-hit path apart from live render in Mixpanel. Defaults to 'none',
 // which is the correct value for `live_render` (the existing 2-arg callers).
+//
+// `contentState` (#113) is the caller's classification of the body it just
+// rendered — see utils/analytics/contentState.ts. Omitted when the caller has
+// no verdict (e.g. the load failed), in which case the property is absent.
 export function trackRenderTime(
   macroType: MacroTypeValue,
   isDisplayMode: boolean,
   renderMode: RenderMode = 'live_render',
   cacheSource: CacheSource = 'none',
+  contentState?: ContentState,
 ): void {
   const t0 = window.__macroLoadStart;
   if (typeof t0 !== 'number') return;
   const duration_ms = Math.round(performance.now() - t0);
   const timings = getTimings();
+  const diagramFont = macroType === 'sequence' ? getDiagramFontState() : undefined;
   const { cacheState, transferBytes } = measureCacheState();
   // Dev-only: surface the phase breakdown locally (mirrors the POC harness).
   // Stripped from prod by the bundler's `import.meta.env.DEV` constant fold.
@@ -71,9 +82,48 @@ export function trackRenderTime(
     macro_type: macroType,
     render_mode: renderMode,
     cache_source: cacheSource,
+    ...(contentState !== undefined ? { content_state: contentState } : {}),
     duration_ms,
     cache_state: cacheState,
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
     ...timings,
+    ...getRenderIdentity(),
+    ...(diagramFont !== undefined ? { diagram_font: diagramFont } : {}),
+    // #382 viewport gate: {} on ungated renders, so nothing is added.
+    ...getGateTelemetry(),
   });
+
+  scheduleRendererPrefetch(macroType);
+}
+
+const PREFETCHABLE: readonly PrefetchRenderer[] = ['graph', 'mermaid', 'sequence', 'openapi'];
+
+// Macro-host half of the idle renderer prefetch (EAG-64): this iframe just
+// finished rendering and will stay alive, so at idle it warms the OTHER
+// renderer families' bundles (utils/prefetch/rendererPrefetch.ts). The render
+// path is untouched — the orchestrator chunk is only imported at idle, and
+// only when the cheap due-check says an attempt is possible (≤1 per deploy
+// per browser). `macro_viewed` for THIS render has already been measured and
+// sent above, so the extra resource fetches cannot skew its cache_state.
+function scheduleRendererPrefetch(macroType: MacroTypeValue): void {
+  try {
+    if (!isPrefetchDue()) return;
+    const idle = window.requestIdleCallback
+      ? (cb: () => void) => window.requestIdleCallback(cb, { timeout: 10_000 })
+      : (cb: () => void) => window.setTimeout(cb, 3_000);
+    idle(() => {
+      import('@/utils/prefetch/rendererPrefetch')
+        .then(({ runRendererPrefetchIfDue }) =>
+          runRendererPrefetchIfDue({
+            host: 'macro',
+            // This iframe's own family is already loaded; embed/plantuml hosts
+            // exclude nothing (embed can wrap any type, plantuml has no bundle).
+            excludeRenderers: PREFETCHABLE.filter((r) => r === macroType),
+          }),
+        )
+        .catch(() => undefined);
+    });
+  } catch {
+    // Prefetch is an optimization — never let it surface to the render path.
+  }
 }

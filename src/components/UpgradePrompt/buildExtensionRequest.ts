@@ -14,10 +14,40 @@ export interface ExtensionRequestContext {
   appVersion: string
 }
 
-export const DEFAULT_EXTENSION_REQUEST_URL = 'https://zenuml.atlassian.net/servicedesk/customer/portals'
+// Deep link to the "ZenUML Upgrade or Extension Request" form (request type 9)
+// on the ZEN service desk. The portal is open: anonymous customers can view and
+// submit with just an email. JSM prefills summary/description/custom fields from
+// URL query params, but drops them if the user navigates within the portal
+// first — hence linking straight to the create form, not the portal home.
+export const DEFAULT_EXTENSION_REQUEST_URL =
+  'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/9'
+
+// Options of the "Plan you're interested in" field (customfield_10070):
+// 10012 = Enterprise Bundle ($299/year per space)
+// 10038 = Upgrade via Atlassian Marketplace
+// 10037 = Temporary editing extension only (free — no payment)
+export const EXTENSION_PLAN_FIELD_ID = 'customfield_10070'
+export const EXTENSION_PLAN_OPTION_FREE_EXTENSION = '10037'
 
 export function extensionRequestUrl(): string {
   return import.meta.env.VITE_EXTENSION_REQUEST_URL || DEFAULT_EXTENSION_REQUEST_URL
+}
+
+/**
+ * Prefilled service-desk URL: instance URL into the "Confluence Instance URL"
+ * field (summary), the full structured context into "Space(s) to Upgrade"
+ * (description), and the free-extension plan option pre-selected.
+ */
+export function buildExtensionRequestUrl(ctx: ExtensionRequestContext): string {
+  const instanceUrl = ctx.clientDomain.includes('.')
+    ? `https://${ctx.clientDomain}`
+    : `https://${ctx.clientDomain}.atlassian.net`
+  const params = new URLSearchParams({
+    summary: instanceUrl,
+    description: buildExtensionRequestMessage(ctx),
+    [EXTENSION_PLAN_FIELD_ID]: EXTENSION_PLAN_OPTION_FREE_EXTENSION,
+  })
+  return `${extensionRequestUrl()}?${params.toString()}`
 }
 
 export function buildExtensionRequestContext(args: {

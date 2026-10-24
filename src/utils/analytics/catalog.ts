@@ -2,30 +2,125 @@
 
 export type FeatureArea =
   | "macro"
+  | "macro_count"
   | "ai"
   | "upgrade"
   | "content"
   | "confluence"
   | "feedback"
-  | "system";
+  | "system"
+  | "agent_link"
+  // The confluence:contentBylineItem entry point under the page title. Its own
+  // area because it is an activation surface, not part of a macro's lifecycle:
+  // it renders on every page, including pages with no diagram at all.
+  | "byline"
+  // The confluence:homepageFeed card in the right panel of the Confluence
+  // Home page. Its own area for the same reason as "byline" above: it is an
+  // activation surface disconnected from any macro's lifecycle, rendered on
+  // the Home page rather than on a page carrying a diagram.
+  | "homepage_feed"
+  | "diagram_impact"
+  // Architecture Tokens: "also appears in other diagrams" context for Mermaid
+  // sequence participants. Read-only in Phase 1; index built offline.
+  | "architecture_tokens"
+  // The "What's new" release-notes strip in the shared page-banner host. Its
+  // own area because, like "byline", it renders on any page — including pages
+  // with no diagram — and measures announcement reach, not a macro lifecycle.
+  | "whats_new";
+
+/** Whether an Architecture Tokens lookup found index rows for the current diagram. */
+export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
+
+/** Magic's finite failure vocabulary; never send source, SVG, or hashes. */
+export type MagicFailureReason =
+  | "missing_artifact"
+  | "invalid_artifact"
+  | "stale_source"
+  | "unsafe_svg"
+  | "render_failed"
+  | "source_changed";
 
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
+  | "markdown"
   | "graph"
   | "openapi"
+  | "asyncapi"
   | "embed"
   | "plantuml"
   | "none";
 
+/** Target kind traced by the planned Mermaid highlight viewer interaction. */
+export type HighlightTargetType = "node" | "edge" | "group";
+
+/** Explicit answer to the planned Mermaid highlight feedback prompt. */
+export type HighlightFeedback = "like" | "dislike";
+
+/** Bounded follow-up reason shown after a Mermaid highlight dislike. */
+export type HighlightFeedbackReason =
+  | "unclear"
+  | "distracting"
+  | "not_useful"
+  | "other";
+
+/**
+ * Surface variant that displayed the Mermaid highlight feedback prompt.
+ * `sidebar` is the retired 260px side card (shipped to 2026-10-10);
+ * `canvas_pill` is the auto-dismissing pill floating at the canvas bottom.
+ */
+export type HighlightFeedbackVariant = "footer" | "toolbar" | "sidebar" | "canvas_pill";
+
+/** Prompt step at which planned Mermaid highlight feedback was dismissed. */
+export type HighlightDismissStage = "question" | "reason";
+
+/**
+ * Why a Mermaid highlight pill closed without an answer. Feedback pill:
+ * `close` is the × button, `timeout` is its 10 s auto-dismiss. First-use
+ * hint ("Highlighting connections"): `close` is ×, `turn_off` is its
+ * "Turn off" button, which also disables highlights.
+ */
+export type HighlightDismissCause = "close" | "timeout" | "turn_off";
+
 export type Surface =
+  // conf-app#368: on macro_viewed, `viewer`-vs-`editor` comes from
+  // ApWrapper2.isDisplayMode(). Builds before 2026-07-19 stamped the native
+  // macro-config surface (insert / edit-params dialog) as `viewer`, so
+  // historical "viewer" render volumes include ~3% authoring-session renders
+  // (no custom_content_id, inflated duration_ms from long-lived editor
+  // iframes). Segment by app_version when comparing across the fix.
   | "viewer"
   | "editor"
   | "modal"
   | "page_banner"
   | "dashboard"
+  | "get_started"
   | "route"
-  | "forge_trigger";
+  // Byline activation nudge. MUST be passed explicitly on every activation_*/
+  // byline_* event: the dialog runs in a contentBylineItem iframe where
+  // ApWrapper2.isDisplayMode() returns true (no extension.modal/.macro), so an
+  // inferred surface would mislabel byline activity as `viewer` — the exact
+  // #368 misclassification (see MEMORY project_368_surface_misclassification).
+  | "byline"
+  | "forge_trigger"
+  | "scheduled_job"
+  // Vendor-operated actions launched from the ZenUML JSM agent view. This is
+  // deliberately separate from `route`: it measures a support workflow, not
+  // customer traffic to a Pages endpoint.
+  | "support_automation"
+  // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
+  // the small-macro `viewer` surface that hosts the initial Connect button.
+  | "fullscreen"
+  | "png_export"
+  // The contentBylineItem modal. Confluence boots this iframe only when the
+  // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
+  // the variants that ship it), so every event carrying this surface is a
+  // deliberate user action — there are no byline impressions to filter out.
+  | "byline"
+  // Not a UI surface: the iframe's own analytics bootstrap (_initMixpanel).
+  // Used by analytics_init_degraded, which fires before any surface is known.
+  // Segment by the `module_key` property to see which iframe degraded.
+  | "iframe_bootstrap";
 
 export type EntryPoint =
   | "page_view"
@@ -34,14 +129,92 @@ export type EntryPoint =
   | "get_started"
   | "viewer_notice"
   | "ai_prompt"
+  | "ai_repair"
   | "dashboard"
   | "route"
   | "forge_trigger"
+  | "byline"
+  // fullscreen_opened fired by the Export PNG button rather than by a user who
+  // wanted Fullscreen. Without it these opens are indistinguishable from
+  // deliberate ones and inflate Fullscreen engagement by one per export.
+  | "export"
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
 
+// Which surface started a create. Carried on macro_create_started,
+// macro_create_succeeded and macro_create_cancelled (never on edit events) so
+// the onboarding funnel can be split by where the author came from, which
+// `entry_point` cannot do: every editor-hosted create records
+// `entry_point: page_editor`, whether the user inserted a macro or clicked
+// "Add a diagram" in the byline.
+//
+// - page_editor  the ordinary insert-macro / slash-menu / macro-toolbar path
+//                (also the default when nothing else is carried)
+// - byline_view  Lite/Full byline opened while the host page is being viewed
+// - byline_editor byline opened while the host page is in the editor
+// - dashboard    the My API Documents dashboard's "Create" menu
+// - homepage     reserved: the homepage feed card has no create action today
+// - unknown      an origin value was carried but is not one of these
+//
+// Separate from EntryPoint on purpose: entry_point semantics (and every
+// existing breakdown that uses them) stay untouched.
+export const CREATION_ORIGINS = [
+  "page_editor",
+  "byline_view",
+  "byline_editor",
+  "homepage",
+  "dashboard",
+  "unknown",
+] as const;
+export type CreationOrigin = (typeof CREATION_ORIGINS)[number];
+
+// How an authoring session ended. Emitted by journeyTracking.endEditJourney on
+// macro_authoring_ended — the terminal event that makes the create funnel add
+// up. `saved` is the explicit save path, `cancelled` an explicit close/discard,
+// `window_close` the unload fallback for editors with no explicit cancel hook
+// (graph, embed) and for browser-level teardown anywhere.
+export type AuthoringOutcome = "saved" | "cancelled" | "window_close";
+
+// Text-editor mutation telemetry. Replacement scope describes how much of the
+// editable OLD document a user transaction covered; content delta describes
+// how different the resulting text is. Keeping the two axes separate avoids
+// treating a whole-document paste with a tiny textual change as a local edit.
+export type EditorReplaceScope = "full" | "near_full";
+export type EditorInputMethod =
+  | "paste"
+  | "typing"
+  | "delete"
+  | "drop"
+  | "undo"
+  | "redo"
+  | "unknown";
+export type ContentDeltaBucket = "none" | "tiny" | "small" | "medium" | "large";
+export type CopySource = "copy_for_ai" | "view_source";
+
+// Format slice selected on the dual-format ("My API Documents") dashboard's
+// tab / Format filter. "all" shows both AsyncAPI and OpenAPI docs.
+export type DashboardFormatFilter = "all" | "asyncapi" | "openapi";
+
 export type RenderMode = "live_render" | "cached_svg";
+
+// Viewport render gate (#382): how a gated viewer render was released.
+// Property is ABSENT on ungated renders (flag off / editor / fullscreen /
+// non-sequence-family) — see utils/renderGate/viewportGate.ts.
+export type RenderGateOutcome =
+  | "immediate"
+  | "scrolled_in"
+  | "background"
+  | "failopen";
+
+// Viewport gate depth (#382): what the gate held back for this render.
+//   load   — the default: content fetch (and SWR revalidate) waited for the
+//            viewport turn too, so an offscreen mount costs ~bundle boot +
+//            context until released
+//   render — paint-only gating (fetch ran immediately); reachable only via
+//            the zenuml.gateMode localStorage diagnostic override
+// Absent whenever render_gate is absent.
+export type RenderGateMode = "render" | "load";
 
 // Browser cache state at macro render time, derived from Resource Timing
 // transferSize of the macro's same-origin JS bundle:
@@ -52,61 +225,1614 @@ export type RenderMode = "live_render" | "cached_svg";
 // inferring cache state from duration magnitude. See trackRenderTime.ts.
 export type CacheState = "cold" | "warm" | "unknown";
 
+// What the macro body looked like when `macro_viewed` fired (#113 wipe detection):
+//   empty    — the type-specific body field is null / undefined / whitespace-only
+//   default  — the body equals the bundled starter content for that type
+//   authored — anything else (also: types with no known body field)
+// A custom_content_id that was once `authored` and is now `empty` is a
+// high-confidence wipe. See utils/analytics/contentState.ts.
+export type ContentState = "default" | "authored" | "empty";
+
 // Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
 // `cc_body` = SVG co-stored in the custom-content body (Phase 2);
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
 export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
 
-export type FeedbackValue = "good" | "partial" | "bad";
+// Where the diagram CONTENT (the macro's doc) came from on this render — distinct
+// from cache_source, which is about the rendered SVG.
+//   fetch     — loaded over the network this view (first view / cache miss)
+//   swr_cache — served from the id-keyed content cache BEFORE the fetch (a revisit
+//               fast path), with a background revalidate that re-renders on change
+// Absent when no content fetch was involved (legacy/new macros, or macro types not
+// yet wired for the content cache). See utils/renderCache/contentCacheStore.ts.
+export type ContentSource = "fetch" | "swr_cache";
+
+// Where the macro count used by the Lite paywall gate came from, and — when the
+// count is unusable — WHY. Rides on `paywall_gate_evaluated.macro_count_source`.
+// This is the dispositive dimension for the #302 fail-open leak: the gate is
+// `macrosCreated >= 100`, but `macrosCreated` defaults to 0, so a `undefined`
+// (read failed) or `zero` (under-return) source means the gate silently does not
+// fire on a genuinely over-limit space. `kv` = served from the KV cache (may be
+// stale-low); `collect` = fresh space enumeration; `mock` = localStorage override.
+export type MacroCountSource = "kv" | "collect" | "undefined" | "zero" | "mock";
+
+// Which policy produced the Lite paywall's effective enabled/disabled state
+// for this `paywall_gate_evaluated` decision (lite-paywall-default-on):
+//   default_on — the backend explicitly returned `PAYWALL_EXEMPT: false`;
+//                 Lite's paywall is on, per the fixed default policy.
+//   exemption  — the backend explicitly returned `PAYWALL_EXEMPT: true`
+//                 (a domain or the wildcard `"*"` entry in PAYWALL_EXEMPTIONS).
+//   fail_open  — the `PAYWALL_EXEMPT` property was absent (missing/unreadable/
+//                 malformed KV, or the lookup was never made) — an unavailable
+//                 decision, not evidence the tenant is safe to restrict.
+export type PaywallPolicySource = "default_on" | "exemption" | "fail_open";
+
+// Onboarding funnel: how a starter surface (template gallery / starter-shown
+// event) came to be visible. 'auto_first_open' = the editor opened it itself
+// on a brand-new blank macro; 'manual' = the user asked for it (Templates
+// button). Shared by editor_starter_shown's `trigger` and
+// editor_template_gallery_opened's `template_gallery_trigger` so the two
+// surfaces stay comparable on the same axis.
+export type GalleryOpenTrigger = "auto_first_open" | "manual";
+
+// Which control the user reached for to hide/show the editor's left code
+// panel. 'panel_button' is the toggle pinned to the panel's bottom-left
+// corner — one button that both hides and shows, so it is not two values;
+// 'gutter_drag' is the split gutter dragged to the far left until the pane
+// snapped shut. Both live at the panel's edge: the toolbar carries no control
+// for this pane at all.
+// Kept on one event (editor_code_panel_toggled) rather than split per control,
+// because the question is "how often is the panel hidden", with "by which
+// affordance" as a breakdown. Which direction a given event went is
+// `interaction_state`, never the trigger — a drag only ever closes the panel,
+// so pairing the two values into a funnel would be lopsided by construction.
+export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
+
+// Effective Session Replay policy stamped on analytics events. `authoring`
+// means a sampled macro create/edit start requested recording independently of
+// the Forge flag cohort. See macro_create_started / macro_edit_started below.
+// `plan_usage_page` is the same kind of hardcoded override, in the opposite
+// direction from the page-banner's hardcoded 0% — see _initMixpanel in
+// trackAnalyticsEvent.ts. `fullscreen` is a third of that kind: the modal is
+// the deliberate-intent viewer surface, and it cannot be expressed as a Forge
+// flag because the cohort system buckets by install/account, not by surface.
+// `feedback` records the explicit start requested by the Feedback trigger.
+// `timeout` means the Forge flag download did not settle within
+// SESSION_REPLAY_CONFIG_TIMEOUT_MS (#707) so replay was forced off; `off` is
+// reserved for "the flag/policy said off".
+export type SessionReplayEventSource =
+  | "targeted"
+  | "sampled"
+  | "authoring"
+  | "plan_usage_page"
+  | "fullscreen"
+  | "feedback"
+  | "timeout"
+  | "off";
+
+// `start_session_recording()` is a void SDK call whose recorder work continues
+// asynchronously. `returned` records only that the call did not synchronously
+// throw; it is not proof that a replay was uploaded. `$mp_replay_id` on a later
+// event is the outcome evidence. `skipped_sampled` means the call was never
+// made for this event: authoring replay is sampled, and this event was outside
+// the current sample. It does not prove that a recorder is inactive (an earlier
+// event or an SDK-resumed recording may already have started one). Its share
+// of authoring events is the live measurement of the sampling rate.
+export type SessionReplayStartCallOutcome =
+  | "returned"
+  | "threw"
+  | "skipped_sampled";
+
+/**
+ * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.
+ * `bare_not_found`      — `"title":"Not Found"`, detail null: the permission-
+ *                          masked refusal (verified 2026-08-30 on lite-stg).
+ * `container_not_found` — `"title":"Unable to find container content…"`: the
+ *                          page id does not resolve for this caller (bogus id,
+ *                          or another user's unpublished draft).
+ * `other`               — any other 404 NOT_FOUND title.
+ */
+export type CreateNotFoundShape = "bare_not_found" | "container_not_found" | "other";
+
+/** Outcome of the operations probe behind save_failed_diagnosed. */
+export type SaveFailureProbeStatus = "ok" | "page_unreachable" | "failed";
+
+/** How an optional screenshot was added to an in-product support request. */
+export type FeedbackCaptureMethod = "current_view" | "upload";
+
+/** Why an opened feedback dialog closed without a successful submission. */
+export type FeedbackDismissReason = "close_button" | "cancel_button" | "escape";
+
+/** Observable outcome when the saved report hands off to public support. */
+export type FeedbackHandoffOutcome = "opened" | "blocked" | "failed";
+
+/** Which slash-command creation guide the viewer's Create button opened. */
+export type CreateGuideVariant = "zenuml" | "graph" | "api";
+
+/**
+ * How the creation guide modal closed. `button` / `escape` come from the guide's own
+ * controls (via view.close payload); `host` is any Confluence-side close (blanket click,
+ * Escape while focus is on Confluence's dialog element) that reaches onClose without one.
+ */
+export type CreateGuideCloseMethod = "button" | "escape" | "host";
 
 export type AnalyticsEventName =
+  // Markdown: debounced document render starts/completes in editor or viewer.
+  // Properties: feature_area=content, macro_type=markdown, source_length,
+  // markdown_mermaid_blocks, markdown_failed_blocks. Never include source.
+  | "markdown_render_requested"
+  | "markdown_render_succeeded"
+  | "markdown_render_failed"
+  // First transition from Mermaid seeds an untouched Markdown buffer.
+  // Existing macro_type_changed tracks every tab selection; normal macro
+  // create/edit/publish lifecycle events track persistence outcomes.
+  | "markdown_seeded_from_mermaid"
+  // macro_viewed: sequence renders also carry diagram_font=plex|fallback (hosted IBM Plex Sans loaded before first render).
   | "macro_viewed"
+  // Both authoring-start events apply the same iframe-level replay sample before
+  // the event is sent. Editor entries must emit the event from the iframe that owns the
+  // interaction; the replay policy itself stays centralized here.
   | "macro_create_started"
   | "macro_create_succeeded"
-  | "macro_edit_opened"
+  | "macro_edit_started"
+  // Editor iframe closed without a successful save, for the create and the
+  // edit lifecycle respectively. Emitted from utils/analytics/editorCloseOutcome
+  // on `view.onClose` (the Atlassian modal X — the only close control the
+  // Forge editors have; the in-app exit button no longer exists) and from the
+  // explicit discard dialog where one remains. `close_source` says which.
+  // Before 2026-09-11 macro_edit_cancelled fired only from the discard dialog
+  // of the text editors, which no control reaches, so it recorded 0 events
+  // for 12 weeks while ~17% of customer edit sessions never saved.
+  // Idempotent per iframe; markEditorSaved() suppresses it after a save.
+  | "macro_create_cancelled"
   | "macro_edit_cancelled"
   | "macro_save_succeeded"
   | "macro_save_failed"
+  // Fired once per failed CREATE whose Confluence answer was a 404 NOT_FOUND
+  // envelope, AFTER a read-only probe of the caller's own operations on the
+  // host page (`GET /api/v2/pages/{pageId}?include-operations=true`; the v1
+  // `?expand=operations` route answers 410 Gone through Forge's
+  // requestConfluence proxy, which is why every probe before 2026-09-11
+  // reported page_unreachable). The bare
+  // `"title":"Not Found"` shape is a permission-masked refusal: on 2026-08-30
+  // (lite-stg, four permission sets) a user holding "Add pages" but not "Add
+  // attachments" got exactly that shape on POST /api/v2/custom-content while
+  // PUT still succeeded, and the `operations` list carried
+  // `create/<our custom-content type>` only alongside `create/attachment`.
+  // A page that exists only as a never-published draft answers the plain GET
+  // with 404 although POST /api/v2/custom-content under it succeeds (lite-stg
+  // 2026-09-11), so a 404 is retried once with `get-draft=true` before the
+  // page is called unreachable; `page_status` then reads `draft`. The legacy `save_failed` event keeps the raw error; this
+  // event records WHY (`error_shape`, `can_create_cc_type`,
+  // `can_create_attachment`, `can_create_page`, `page_reachable`,
+  // `probe_http_status`) so the cause is read off the event instead of
+  // inferred. One probe per failure; never fired on success.
+  | "save_failed_diagnosed"
+  // Terminal event for ONE authoring session, emitted exactly once per
+  // startEditJourney. This is the event the create funnel was missing: before
+  // it, an attempt that did not save produced no event at all, so
+  // macro_create_started had no denominator-completing counterpart and ~89% of
+  // non-completions were unattributable (measured 2026-08-18..31: 640 failed
+  // non-byline attempts, median 5s to last activity, only ~11% carrying any
+  // error signal).
+  //
+  // Reconciliation invariant this exists to enable:
+  //   macro_create_started ~= macro_authoring_ended{authoring_outcome=*}
+  // A persistent gap between the two means an editor lost its terminal hook —
+  // which is exactly how the pre-existing gap went unnoticed.
+  //
+  // `authoring_outcome` says how it ended, `authoring_duration_ms` how long it
+  // lived, and `journey_id` ties it to the start event for that same session
+  // (it also survives the viewer -> dialog iframe handoff via
+  // continueEditJourney, so a dialog edit is one journey, not two).
+  //
+  // `had_input` / `time_to_first_input_ms` / `input_event_count` separate "the
+  // editor opened and nothing was typed" from "the user authored and gave up".
+  // They are present only where the editor-mutation session runs (the
+  // sequence/mermaid/plantuml CodeMirror editor); graph/openapi/embed have no
+  // input hook yet, so ABSENT means "not instrumented", never "no input".
+  | "macro_authoring_ended"
+  // Fires when the shared DSL editor's selected type tab changes. `from` and
+  // `to` capture the observed UI action; `macro_type` repeats the destination
+  // for existing type breakdowns. This is an action signal, not proof of a
+  // successful render or publish.
+  | "macro_type_changed"
+  // Fires when a PlantUML paste carried its own @startuml/@enduml markers and the
+  // editor rewrote it to fit the pinned scaffold (conf-app#632). `diagrams_pasted`
+  // counts the @startuml blocks found; `paste_truncated` is true when more than one
+  // was present and only the first was kept, because the macro renders a single
+  // diagram and merging them silently produced a picture the author never wrote.
+  | "plantuml_paste_normalized"
+  // Fires the instant the editor begins its redirect after a Publish/Save —
+  // i.e. immediately before view.submit() / view.close(). Carries
+  // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
+  // WIDER window than macro_save_succeeded's `save_duration_ms` (which is only
+  // the persistence round-trip inside saveToPlatform): it additionally covers
+  // the post-save work — snapshot upload, D1 mirror sync, the save-time
+  // attachment race, and the writeback context lookup. Only the graph, openapi
+  // and embed editors still add a fixed 500 ms setTimeout before the redirect;
+  // the sequence family (forgeIndex.ts) and asyncapi do not. Emitted from all
+  // 5 save flows (sequence/mermaid/plantuml via forgeIndex, graph, openapi,
+  // asyncapi, embed).
+  //
+  // Per-step properties say WHERE that wait goes: `snapshot_ms`,
+  // `mirror_sync_ms` (every flow that saves through saveToPlatform) and
+  // `attachment_capture_ms`, `attachment_ack_ms`, `attachment_timed_out`,
+  // `writeback_context_ms` (sequence family only). A step that did not run is
+  // absent, never 0. Definitions: types.ts, next to `publish_duration_ms`.
+  // See utils/analytics/publishTiming.ts.
+  | "macro_publish_completed"
+  // Embed re-target attempted from a non-submittable surface (e.g. the
+  // view-mode Edit modal). view.submit() throws "view is not submittable"
+  // there, so the embed's document reference cannot be changed — the user
+  // must re-target from the page editor. Tracks how often users hit this.
+  | "embed_retarget_blocked"
+  // A pasted confluence.zenuml.com deeplink autoconverted into an embed
+  // macro. `detected` is the per-viewer-init denominator; exactly one of
+  // `target_resolved`, `failed`, or `cross_tenant_rejected` follows. Because the
+  // autoConvertLink persists in ADF, these measure render attempts rather
+  // than unique paste actions.
+  | "embed_autoconvert_detected"
+  // The deeplink's cloudId doesn't match the pasting site's — rejected
+  // fail-soft rather than fetching cross-tenant.
+  | "embed_autoconvert_cross_tenant_rejected"
+  // A same-tenant autoConvert link resolved to an existing custom-content
+  // document. This is a data-resolution signal, not proof that the diagram
+  // painted successfully; macro_viewed remains the rendered-view signal.
+  | "embed_autoconvert_target_resolved"
+  // An autoConvert link could not be resolved. `failure_reason` distinguishes
+  // parser/matcher drift (`invalid_url`) from missing custom content
+  // (`target_missing`). Cross-tenant rejection keeps its dedicated event.
+  | "embed_autoconvert_failed"
+  // AsyncAPI dashboard: user clicked a document card's "Page:" reference to
+  // open the Confluence page hosting the doc. Tracks dashboard → page nav.
+  | "asyncapi_dashboard_page_opened"
+  // Dual-format dashboard: user switched the format tab / Format filter
+  // (All / AsyncAPI / OpenAPI). Tracks how the mixed AsyncAPI+OpenAPI document
+  // list is being sliced; the chosen value rides on `format_filter`.
+  | "dashboard_format_filtered"
+  // Dual-format dashboard: user picked a format from the "Create New API"
+  // split-button menu (AsyncAPI vs OpenAPI) — the funnel entry BEFORE the
+  // editor's own macro_create_started fires. `macro_type` carries the choice.
+  | "dashboard_create_selected"
+  // conf-app#435: these three carry `macro_type` (reusing the property already
+  // registered below, not a new one — see the field's doc comment in
+  // src/utils/analytics/types.ts) so per-diagram-type export failure rates are
+  // a direct query, not a join against `custom_content_id` history. Emitted
+  // from the Forge backend (src/export.js, src/asyncapi-export.js), which
+  // posts to Mixpanel /import directly rather than through
+  // trackAnalyticsEvent/AnalyticsProperties — this union documents the shape,
+  // it doesn't enforce it there.
   | "macro_export_requested"
   | "macro_export_succeeded"
   | "macro_export_failed"
-  | "ai_generation_requested"
-  | "ai_generation_succeeded"
-  | "ai_generation_failed"
+  // A PNG was absent and a fresh page property explained why. This is a
+  // rendered text placeholder, never a successful media export.
+  | "macro_export_placeholder_shown"
+  // Persisted PNG lifecycle changes and best-effort property failures.
+  | "png_export_state_changed"
+  | "png_export_state_persistence_failed"
+  // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
+  // (background + note/arrow/callout/watermark overlays), tracked separately
+  // from the generic macro_export_* triple above (unused by any call site as
+  // of this registration). opened = modal shown; succeeded = PNG delivered
+  // via download or clipboard (`method`), with the `background` value and
+  // has_note/has_arrow/has_callout/has_watermark overlay flags; failed = an
+  // export attempt failed before delivery (`failure_reason`); dismissed =
+  // modal closed with no successful export in that open session.
+  // Intent, as opposed to the outcome flags on export_png_succeeded: a user
+  // who picks a tool and exports without the annotation is otherwise
+  // indistinguishable from one who never wanted it. Needed to read whether
+  // annotation is unused because nobody wants it or because the dialog was
+  // too small to operate (see ExportModal.vue's inline variant).
+  | "export_annotation_tool_clicked"
+  // Export workspace: created after placement/nonempty text, changed after a
+  // completed move/resize/style/text edit (never pointer-move or each keystroke),
+  // deleted on explicit removal. No annotation text or coordinates are tracked.
+  | "export_annotation_created"
+  | "export_annotation_changed"
+  | "export_annotation_deleted"
+  // Restored when reopening the same diagram during the current page visit.
+  | "export_annotations_restored"
+  | "export_png_opened"
+  | "export_png_succeeded"
+  | "export_png_failed"
+  | "export_png_dismissed"
+  // Renamed 2026-09-08 from `ai_generation_*`: these three are the AI *title*
+  // generator in useAutoTitle.ts (97% fire automatically on editor init), not a
+  // text->diagram feature. Data before the first release carrying this commit
+  // lives under the old names — see the mixpanel skill's rename table.
+  | "ai_title_generation_requested"
+  | "ai_title_generation_succeeded"
+  | "ai_title_generation_failed"
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
-  | "ai_editor_opened"
-  | "ai_feedback_submitted"
+  // AI entry-point impressions. Fire on each hidden -> visible transition of
+  // the editor button (not on component re-renders), with macro_type so the
+  // denominator can be compared directly with the existing click/request
+  // events below.
+  | "ai_chat_button_shown"
+  | "ai_chat_opened"
+  | "ai_chat_closed"
+  | "ai_chat_suggestion_selected"
+  // Model attribution: prompt_submitted records the exact model requested from
+  // conf-app; no_change / change_applied / prompt_failed / prompt_cancelled
+  // repeat it so every terminal outcome can be grouped without joining client
+  // events. Never attach prompt or diagram text.
+  | "ai_chat_prompt_submitted"
+  // Ordinary chat only: the backend exhausted its validation attempts with an
+  // unchanged diagram and completed the request as a benign no-change result.
+  // Syntax repair keeps its fail-closed error path and never emits this event.
+  | "ai_chat_no_change"
+  | "ai_chat_change_applied"
+  | "ai_chat_prompt_failed"
+  | "ai_chat_prompt_cancelled"
+  | "ai_chat_code_visibility_toggled"
+  | "ai_chat_syntax_issue_shown"
+  | "ai_chat_syntax_repair_requested"
+  | "ai_chat_diff_toggled"
+  | "ai_chat_history_opened"
+  | "ai_chat_history_load_succeeded"
+  | "ai_chat_history_load_failed"
+  | "ai_chat_version_restore_requested"
+  | "ai_chat_version_restored"
+  | "ai_chat_change_undone"
+  | "ai_chat_version_restore_failed"
+  // AI Repair CTA impression. SEMANTICS CHANGED 2026-09-07: the button is now
+  // armed only after the store error has stood unchanged for
+  // AI_REPAIR_ARM_DELAY_MS (src/components/aiRepairArming.ts), on top of the
+  // editor's own validation debounce. So one event means "the author stopped
+  // typing and sat on a syntax error", i.e. a plausible stuck moment. Before
+  // that date the gate was a bare `!!error`, and because Editor.vue clears the
+  // error on every keystroke, the event fired once per typing pause — a single
+  // editing session could emit six of them in twenty seconds. Do not compare
+  // counts across the release that carries this change without accounting for
+  // it, and re-date this note if the arm delay is ever retuned.
+  | "ai_repair_button_shown"
+  // AI Repair performance lifecycle. requested fires immediately before the
+  // start request and carries poll_interval_ms + timeout_budget_ms plus the
+  // requested ai_model / reasoning_disabled overrides when supplied. A
+  // user-triggered retry repeats requested with retry_after_failure=true; that
+  // retry's ai_model is the stronger fallback selected by conf-app. succeeded /
+  // failed close the same user-perceived interval with duration_ms, poll_count,
+  // and any backend timing/attempt/config metadata returned by job-status.
+  // backend_duration_ms covers the whole Diagramly worker interval, while
+  // backend_llm_duration_ms sums only its LLM calls across repair attempts.
+  // failed additionally carries failure_phase; never attach diagram code,
+  // error source text, or a job id to these events.
+  | "ai_repair_requested"
+  | "ai_repair_succeeded"
+  | "ai_repair_failed"
+  | "ai_repair_applied"
+  | "ai_repair_dismissed"
+  // Fullscreen Mermaid Magic: requested on manual click or automatic default,
+  // succeeded only after the prepared SVG is visible, failed on validation or
+  // render rejection, restored on an explicit Original click. All use
+  // feature_area=ai, surface=fullscreen|viewer, macro_type=mermaid;
+  // magic_availability_checked counts one current source/artifact assessment,
+  // including absent/stale artifacts, without treating those as user-facing
+  // errors. magic_default_resolved records the initial view decision. Both
+  // exclude obsolete async attempts. magic_activation distinguishes automatic
+  // from manual show requests. No source, SVG, hashes, or comment text.
+  // Since the staged viewer header (2026-10) the same events also fire from
+  // the INLINE macro's single "Refined" toggle and its layout survey strip:
+  // `surface` is then `viewer` instead of `fullscreen`, so the two funnels
+  // stay comparable on one set of names. Inline never reports the
+  // absent-artifact assessment (an inline view of a plain Mermaid diagram is
+  // not a Magic assessment; it would add an event to every Mermaid page view).
+  // Automatic reviewed-artifact writeback, requested after a missing/stale
+  // Confluence artifact; completed records a finite outcome.
+  // Fullscreen: `requested` on every attempt and `completed` for every outcome
+  // (surface=fullscreen). Inline (since 2026-10, so staged layouts reach
+  // inline-only viewers): the request runs at most once per diagram+source
+  // per browser per 24h, `requested` never fires (~10k inline Mermaid views a
+  // day), and `completed` fires only for a non-`miss` outcome (surface=viewer).
+  // Properties: feature_area=ai, surface=fullscreen|viewer, macro_type=mermaid,
+  // magic_writeback_outcome and duration_ms. Never source, SVG, hashes or errors.
+  // magic_writeback_reason (only when outcome=unavailable): backend codes
+  // read_<status>, artifact_invalid, lease_lost, put_<status>, put_mismatch,
+  // confirm_<status>, confirm_mismatch, exception; client codes unknown,
+  // remote_<status> (callRemote threw HTTP <status>), client_exception, and
+  // no_user_credential (the backend answered 403: Forge sent no user token).
+  // magic_writeback_skipped: the viewer did NOT call the backend because the
+  // viewer is a guest or an anonymous visitor. Forge omits the user token on
+  // invokeRemote for them, so the call could only fail. Trigger: the first
+  // writeback attempt for a diagram+source in an iframe (inline or Fullscreen),
+  // after the usual eligibility checks and before any request. It shares the
+  // inline 24h per-browser claim with the request path, so inline it fires at
+  // most once per diagram+source per browser per 24h (Fullscreen: once per
+  // iframe), and it fires neither `requested` nor `completed`. Properties: feature_area=ai,
+  // surface=fullscreen|viewer, macro_type=mermaid, magic_writeback_reason =
+  // guest_viewer | anonymous_viewer. Never source, SVG, hashes, ids or errors.
+  | "magic_writeback_requested"
+  | "magic_writeback_completed"
+  | "magic_writeback_skipped"
+  | "magic_availability_checked"
+  | "magic_default_resolved"
+  | "magic_view_requested"
+  | "magic_view_succeeded"
+  | "magic_view_failed"
+  | "magic_view_restored"
+  | "magic_preference_changed"
+  | "magic_layout_feedback_prompt_shown"
+  | "magic_layout_feedback_submitted"
+  | "magic_layout_feedback_updated"
   | "upgrade_modal_shown"
   | "paywall_triggered"
   | "paywall_blocked_create"
+  // Lite paywall on an EDIT (as opposed to paywall_blocked_create, the
+  // create-time block). Emitted by mountPaywallGate.ts. paywall_continued_editing
+  // is its counterpart: the user hit "Continue editing" instead of being
+  // blocked. Both were live and documented in UpgradeEventName /
+  // trackUpgradeEvent before being registered here.
+  | "paywall_blocked_edit"
   | "upgrade_modal_dismissed"
-  | "upgrade_feature_enabled"
   | "paywall_continue_used"
+  | "paywall_continued_editing"
   | "paywall_attempts_exhausted"
+  // Fires once per Lite paywall gate evaluation (editor + fullscreen-viewer
+  // mount), whether or not the gate fired. Direct instrumentation for the #302
+  // fail-open leak: `gate_fired` + `macro_count` + `macro_count_source` let us
+  // measure how often an over-limit space slips through because the count read
+  // failed / under-returned, and split the cause (KV stale-low vs collect fail).
+  // `space_paid_scope` additionally splits a paid gate by user-level vs
+  // space-level extension grant. See utils/paywall/mountPaywallGate.ts.
+  | "paywall_gate_evaluated"
   | "paywall_banner_shown"
   | "paywall_banner_dismissed"
+  // Phase 5b: the space-admin-only purchase CTA on the page banner. A space
+  // admin can buy an Enterprise Bundle ($299/space/yr, Stripe) WITHOUT a
+  // Confluence site admin — the Marketplace upgrade path needs a site admin,
+  // which a space admin is not. This is the only event that measures whether
+  // admin-targeted copy produces a purchase intent rather than another relay
+  // hop. Distinct from `extension_request_clicked` (asks US for more free
+  // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
+  | "paywall_bundle_cta_clicked"
+  // The Marketplace (Full plan) rail. Separate event from the bundle rail
+  // because they need different people: Marketplace requires a Confluence SITE
+  // admin, the bundle requires nobody. Splitting them is how we find out which
+  // wall a tenant is actually stuck behind.
+  //
+  // Restores measurement deleted in 05b5287f (2026-05-12), which removed the
+  // pricing UI *and* its `upgrade_cta_clicked` emitter together. Any analysis
+  // reading that event's 0 as "nobody wants to buy" is reading an absent
+  // emitter — buy-intent has been unmeasurable since, not measured as zero.
+  | "paywall_marketplace_cta_clicked"
+  // Footer "Why do I need to upgrade?" link in the paywall modal. Until
+  // 2026-08-10 this was a bare target="_blank" anchor, silently dropped by the
+  // Forge iframe sandbox (no allow-popups) — zero effect on click AND zero
+  // telemetry, so the four months of no clicks are an absent emitter, not
+  // absent interest. Low-intent signal vs the two purchase rails: it measures
+  // "wants to understand the pricing story", not "ready to pay".
+  | "paywall_learn_more_clicked"
   | "space_admin_active"
   | "advocacy_message_copied"
   | "advocacy_draft_preview_clicked"
   | "extension_request_clicked"
-  | "content_sync_requested"
-  | "content_sync_succeeded"
-  | "content_sync_failed"
-  | "custom_content_loaded"
-  | "confluence_page_viewed"
-  | "confluence_page_updated"
+  // JSM "Apply Extension" lifecycle. requested fires after the dedicated
+  // automation secret is authenticated and the command shape is accepted;
+  // succeeded fires only after the requester-scoped SPACE_LICENSE_KV record
+  // is read back active; failed closes every authenticated attempt that did
+  // not reach that state. Backend-emitted through Mixpanel /import. Never add
+  // the Jira ticket key, raw JSM description, or customer reply to telemetry.
+  | "extension_action_requested"
+  | "extension_action_succeeded"
+  | "extension_action_failed"
   | "csat_displayed"
   | "csat_submitted"
   | "csat_dismissed"
+  // Lite/Full targeted survey funnel. The server selects the recipient from a
+  // verified Forge identity; events contain campaign metadata only, never the
+  // target, selected answer, or free text.
+  | "targeted_survey_shown"
+  | "targeted_survey_claim_requested"
+  | "targeted_survey_claim_failed"
+  | "targeted_survey_opened"
+  | "targeted_survey_dismissed"
+  | "targeted_survey_submit_requested"
+  | "targeted_survey_submitted"
+  | "targeted_survey_submit_failed"
   | "feedback_link_clicked"
-  | "feature_flags_fetch_failed"
-  | "attachment_create_failed"
-  | "custom_content_update_failed"
+  // In-product feedback funnel. feedback_report_opened fires as the surface
+  // trigger opens the dialog, after requesting Session Replay, and carries
+  // session_replay_source=feedback plus the synchronous SDK call outcome.
+  // Events before feedback_report_submit_requested
+  // contain interaction context only: never description, screenshot bytes,
+  // diagram source, or any other draft report content. The report payload is
+  // allowed to leave the iframe only after the user explicitly presses Send.
+  | "feedback_report_opened"
+  | "feedback_report_capture_requested"
+  | "feedback_report_capture_succeeded"
+  | "feedback_report_capture_failed"
+  | "feedback_report_capture_removed"
+  | "feedback_report_submit_requested"
+  | "feedback_report_submit_succeeded"
+  | "feedback_report_submit_failed"
+  | "feedback_report_handoff_requested"
+  | "feedback_report_handoff_opened"
+  | "feedback_report_handoff_blocked"
+  | "feedback_report_dismissed"
   | "graph_editor_init_empty"
+  // Graph (DrawIO) Diagram/Board chrome switch. Same mxfile, two DrawIO
+  // chromes: `diagram` is the existing Atlas/standard embed; `board` is
+  // DrawIO Sketch (`ui=sketch&sketch=1`). requested fires on a click that
+  // intends to change mode (same-mode clicks are a no-op and emit nothing);
+  // succeeded fires only after the iframe has reloaded, the previous mxfile
+  // has been re-loaded, and the switch control is operable; failed fires
+  // instead of succeeded on capture/reload/restore/init errors.
+  | "graph_editor_mode_switch_requested"
+  | "graph_editor_mode_switch_succeeded"
+  // A Board macro whose independent document is missing, empty or malformed.
+  // GenericViewer's load_failed_shown cannot separate this from a 404.
+  | "graph_board_document_invalid"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // Diagram viewport (pan/zoom) controls in fullscreen, normal viewer, and editor
+  // preview. `macro_type` says which renderer was being zoomed, `viewport_input`
+  // which control did it.
+  //
+  // Still one event per act of intent, never per callback: a toolbar click is
+  // one, and a whole Ctrl/Cmd + scroll gesture is one (createGestureGate closes
+  // for the rest of the gesture), so the two are directly comparable and neither
+  // produces the high-frequency stream that kept wheel out of this event
+  // originally. Pan and pinch remain unemitted -- they have no discrete moment
+  // to attach to.
+  //
+  // Two changes worth knowing when reading a report across them:
+  //   2026-09-11 renamed from `mermaid_viewport_control_used`, which shipped
+  //     with the mermaid-only viewport and carries ~2 days of data. The property
+  //     shape was unchanged, so a report spanning it unions both names.
+  //   2026-09-13 wheel gestures started firing it, alongside the new
+  //     `viewport_input` property. Volume steps up on that date for reasons that
+  //     are not a behaviour change; filter `viewport_input == "toolbar"` for a
+  //     series comparable with what came before (older events carry no
+  //     `viewport_input` at all, so treat absent as toolbar).
+  // Header fit controls: one click on Fit height / Fit width fires this event
+  // after the ready renderer applies the requested axis fit. Properties:
+  // viewport_action=fit_height|fit_width, viewport_input=toolbar,
+  // viewport_control_location=header, viewport_outcome=applied; macro_type and
+  // surface identify the actual renderer and viewer/fullscreen host. Header
+  // zoom clicks use zoom_in|zoom_out with the same location/outcome. Disabled
+  // (not ready) controls do not emit. Existing editor/wheel events are retained.
+  | "viewport_control_used"
+  // Shown when a reader wheels over a diagram WITHOUT the Ctrl/Cmd modifier on a
+  // surface where a plain wheel has nowhere to go (fullscreen and the editor
+  // preview both set `overflow: hidden`), so the gesture did nothing and the
+  // overlay tells them the modifier. Not fired on the page viewer, where a plain
+  // wheel correctly scrolls the Confluence page.
+  //
+  // This is the discovery half of the wheel gate: `viewport_control_used`
+  // counts people who already know how to zoom, and this counts people who
+  // tried and could not. A hint count that stays high per user is the signal
+  // that the affordance is not landing. Fires at most twice per viewer instance
+  // (createZoomHintTrigger) — someone who has been told twice and keeps
+  // wheeling is scrolling, not searching for the zoom.
+  | "viewport_zoom_hint_shown"
+  // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
+  // (including users without edit permission). Opened from the hover toolbar on
+  // text-DSL types only (sequence / mermaid / plantuml).
+  | "viewer_source_opened"
+  | "viewer_source_copied"
+  // Inline title rename from the viewer's top edge (no editor modal). Gated by
+  // the same predicate as the Edit button plus the click-time same-page
+  // duplicate guard (utils/guardEditClick.ts). started = the title entered
+  // edit mode; succeeded = the custom-content PUT landed (carries
+  // save_duration_ms, the fresh GET + PUT round-trip); failed = the guard
+  // refused, the PUT threw, or the returned id did not match
+  // (`failure_reason`); cancelled = edit mode left without a write
+  // (`rename_exit_reason`: escape / unchanged / empty — a blank title on
+  // Enter is refused inline and keeps editing, so it fires nothing; `empty`
+  // is a blank title on blur, where the previous title simply stands).
+  // A rename writes a new custom-content version but is deliberately NOT a
+  // macro_save_succeeded: that event is the edit-volume signal for dashboards
+  // and rides on saveToPlatform (snapshot upload, CSAT, surface: editor), none
+  // of which a title-only write goes through. D1 CustomContentVersion recency
+  // still registers the rename. First rollout offers the control on the
+  // sequence and Mermaid macros only, so macro_type is `sequence` or
+  // `mermaid` until it widens.
+  | "viewer_rename_started"
+  | "viewer_rename_succeeded"
+  | "viewer_rename_failed"
+  | "viewer_rename_cancelled"
+  // Planned ahead of the Mermaid highlighting implementation. Every event
+  // uses feature_area=macro, surface=viewer or fullscreen,
+  // and macro_type=mermaid. Do not send
+  // source, node/edge IDs or text, diagram IDs, free text, or customer data.
+  // `used` fires once per diagram render session after meaningful node/edge tracing,
+  // never for pointermove. `feedback_shown` fires only when the prompt is
+  // actually visible. `feedback_answered` is an explicit like/dislike click;
+  // `feedback_reason_selected` is an optional bounded reason after dislike.
+  // `feedback_dismissed` records a prompt close/skip and its optional stage;
+  // `preference_changed` records the explicit highlighter on/off choice and
+  // is separate from liking the interaction.
+  | "mermaid_highlight_used"
+  | "mermaid_highlight_feedback_shown"
+  | "mermaid_highlight_feedback_answered"
+  | "mermaid_highlight_feedback_reason_selected"
+  | "mermaid_highlight_feedback_dismissed"
+  | "mermaid_highlight_preference_changed"
+  // First-use hint at the canvas bottom-left ("Highlighting connections ·
+  // Turn off"), design "Viewer Header Highlight Analysis" option 1e. `shown`
+  // fires on the first highlight use per device (localStorage-gated, so at
+  // most once per browser); `dismissed` carries highlight_dismiss_cause
+  // (`close` = ×, `turn_off` = the button, which also records
+  // preference_changed with action_location=canvas_hint).
+  | "mermaid_highlight_hint_shown"
+  | "mermaid_highlight_hint_dismissed"
+  // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
+  // instance; menu_opened fires on every closed -> open transition.
+  | "copy_for_ai_impression"
+  | "copy_for_ai_menu_opened"
+  // Viewer header "More" (⋯) menu, closed -> open. feature_area=macro,
+  // surface=viewer|fullscreen, macro_type, and on the inline macro
+  // `header_stage` (0-3) — the collapse stage the header was in, because at
+  // stage 3 Source and Copy for AI are reachable only through this menu.
+  | "viewer_more_menu_opened"
+  // "Copy for AI" demand-test button in the viewer top-actions row (alongside
+  // View Source): a split button — a one-click primary segment (job:
+  // 'generic') plus a chevron menu of five job-framed entry points (explain /
+  // update / implement / audit / tests) that only vary the copied preamble
+  // (buildCopyForAiPrompt.ts), never the DSL+page payload itself. Fires once
+  // per click, primary or menu item, with `job` recording which one. `outcome`
+  // distinguishes a full copy (diagram + surrounding page context) from the
+  // diagram-only fallback (page context unavailable) and an outright
+  // clipboard-write failure.
+  | "copy_for_ai_clicked"
+  // Viewer "Create" slash-command guide. The top-actions Create button opens an
+  // untitled Forge medium modal that loops a silent video of: Edit the page ->
+  // place the caret -> type "/" + macro name -> pick the macro. impression fires
+  // once per eligible viewer instance (button rendered); opened on click;
+  // closed when the modal closes, with how and how long it was watched;
+  // open_failed when the Forge bridge rejects openModal.
+  | "create_guide_impression"
+  | "create_guide_opened"
+  | "create_guide_closed"
+  | "create_guide_open_failed"
+  // Every accepted, user-attributed CodeMirror transaction that replaces at
+  // least 95% of the editable OLD document. This is an operation signal; a
+  // saved outcome is established separately by macro_save_succeeded carrying
+  // the same journey_id and the edit-session summary properties.
+  | "editor_global_replace_observed"
+  // Bottom-pill "Copy diagram link" action (task 6, docs/superpowers/sdd/
+  // 2026-07-26-embed-deeplink-productization): mints and copies the bare
+  // embed deeplink (https://<host>/d/<cloudId>/<contentId>) for the diagram
+  // being viewed — the supply side of the autoConvert paste->embed flow.
+  // `link_source` records which affordance minted it: `viewer_pill` (the
+  // bottom pill, before 2026-10), `header_more_menu` (the inline header ⋯
+  // menu that replaced it) or `fullscreen_header` (Fullscreen's header
+  // "Diagram link" button).
+  // Fires once per click, in a finally block, after the terminal outcome is
+  // known — same convention as `copy_for_ai_clicked`. `outcome` distinguishes
+  // a successful clipboard write from a clipboard-write failure from the
+  // three "couldn't even mint a link" paths (missing host/contentId, or an
+  // unresolvable cloudId), which used to fire this event identically to
+  // success.
+  | "deeplink_copied"
+  // Editor staleness hint (docs/superpowers/specs/
+  // 2026-07-18-job-b-editor-staleness-hint-design.md). Shown on inline
+  // page-editor renders when the host page drifted >=5 versions past the
+  // diagram's last update. Job B shell / author-conversion core: the north
+  // star is a non-author's first macro_save_succeeded after a hint click.
+  | "staleness_hint_shown"
+  | "staleness_hint_clicked"
+  | "staleness_hint_dismissed"
+  // User-cohort targeting pipeline (docs/superpowers/plans/
+  // 2026-07-18-user-cohort-targeting-pipeline.md). The macro iframe refreshes
+  // the current user's cohort membership from /api/user-cohorts (KV-backed,
+  // offline-computed) and persists it as a localStorage marker for synchronous
+  // reads by other iframes (page banner, upgrade modal). `refreshed` fires on
+  // a successful fetch (including an empty cohort list); `refresh_failed` on
+  // network/auth/malformed-response errors.
+  | "cohorts_refreshed"
+  | "cohorts_refresh_failed"
+  // Lite byline activation, Phase 1 (docs/superpowers/specs/
+  // 2026-07-25-lite-byline-activation-design.md). The whole point of Phase 1 is
+  // to measure whether a contentBylineItem earns clicks in OUR app: the same
+  // module has been opened 39 times in 3.5 months on Diagramly and never on
+  // Full, so `byline_opened` IS the experiment's readout, not supporting
+  // telemetry. Every event here is user-initiated — Confluence boots the byline
+  // iframe on click only.
+  // Fires exactly ONCE per modal open, even though the emit sits after the
+  // listing resolves (it needs diagram_count to be the readout at all). The
+  // retry button re-runs the same loader, so an unguarded emit counted a retry
+  // as a second open — an inflation only users who hit a load failure could
+  // produce, biasing the primary metric toward the failure population.
+  | "byline_opened"
+  // A retried listing, so the retry rate is measurable without it landing in
+  // byline_opened. `result` = 'recovered' | 'failed'.
+  | "byline_list_retried"
+  // A listed diagram was acted on from the modal (jump / open fullscreen).
+  | "byline_diagram_opened"
+  // The diagram's DSL was copied to the clipboard from a card. Deliberately NOT
+  // byline_diagram_opened: "the index helped me find and open a diagram" and "I
+  // grabbed the source text" are different intents, and folding them together
+  // makes index engagement read higher than the behaviour it describes.
+  | "byline_diagram_source_copied"
+  // "Add a diagram" clicked. Splits from byline_editor_deeplinked so an
+  // intent-to-create that fails to route is still visible.
+  | "byline_create_clicked"
+  // The modal routed the user to the page editor (router.navigate). Phase 1's
+  // create path ends here: the macro itself is inserted with the editor's own
+  // insert menu. North star = a first-ever macro_create_succeeded by an
+  // accountId within 30 minutes of this event.
+  | "byline_editor_deeplinked"
+  // Modal closed with no diagram opened and no create click — the "looked and
+  // left" outcome. `dwell_ms` separates a misfire from a real evaluation.
+  | "byline_dismissed"
+  // Thumbnail resolution finished. Separate from byline_opened because
+  // thumbnails load AFTER the list paints (they must never delay the Phase 1
+  // readout), so the coverage number simply does not exist yet when
+  // byline_opened fires. `thumbnail_count` vs `diagram_count` is the coverage
+  // ratio that decides whether the visual index earns its requests.
+  | "byline_thumbnails_loaded"
+  // The page's published ADF was scanned to find which listed diagrams no macro
+  // references. `unplaced_count` vs `diagram_count` measures the one failure
+  // mode the whole create→paste handoff has: a diagram saved from the byline
+  // that the user never pasted. It is already counted against the Lite
+  // 100-macro limit at that point, so a rising ratio is both a UX failure and a
+  // quota cost. Emitted once per open, after the list paints — the scan is a
+  // full-page ADF GET and must never delay it.
+  | "byline_unplaced_scanned"
+  // The byline editor produced a saved diagram, and (when a cloudId is
+  // available) a deeplink to place it. This is the conversion the picker exists
+  // for: unlike byline_create_clicked it cannot fire on intent alone — a custom
+  // content exists by the time it does.
+  | "byline_diagram_created"
+  // The byline editor closed without saving. Splits abandonment from failure,
+  // which byline_create_clicked alone cannot distinguish.
+  | "byline_create_cancelled"
+  // "Done" was pressed on the post-create panel while the host page was in the
+  // editor, and the app asked Confluence to close the byline view. Forge
+  // documents view.close() as a *request* with no module restrictions stated,
+  // but says nothing about contentBylineItem specifically — `result`
+  // ('closed' | 'unsupported' | 'failed') is how we find out whether a byline
+  // item can dismiss itself, rather than assuming it.
+  | "byline_view_close_requested"
+  // ---- Unplaced-diagram page banner (byline surface, page_banner surface) ----
+  //
+  // The byline already labels a diagram "not on this page" (BylineDiagrams.vue,
+  // `isUnplaced`), but Confluence boots the byline iframe only on CLICK — 5
+  // opens against 39,197 macro views — so the label reaches almost nobody. The
+  // page banner mounts on every page load, which is where the fact has to be
+  // said. Fired from UnplacedDiagramsBanner.vue.
+  //
+  // Two gates admit a load. The dedicated `zenuml-unplaced-banner` module is
+  // gated by Confluence itself on a content property, so its iframe is never
+  // created on a page with nothing to say; the shared page-banner host gates
+  // its fallback synchronously off the localStorage marker. Either way the
+  // ~99.9% of page loads with no record pay nothing.
+  //
+  // `unplaced_banner_evaluated` fires on every load past those gates, and it is
+  // the denominator that makes their cost measurable. `result` covers every
+  // path out, so that claim actually holds:
+  //   'unplaced'          — the banner shows.
+  //   'all_placed'        — the record was stale (the user pasted the link
+  //                         since), so we paid one ADF read and showed nothing.
+  //   'scan_failed'       — the page ADF could not be read; we show nothing
+  //                         rather than claim what we cannot prove.
+  //   'record_unreadable' — the gate fired but the record did not read back
+  //                         (forbidden, malformed, already emptied).
+  //   'property_covers_page' — FALLBACK path only: a content property exists (or
+  //                         could not be ruled out), so the gated module is
+  //                         carrying this page's notice and the fallback stood
+  //                         down rather than stack a second banner. Distinct
+  //                         from 'record_unreadable', which means we had
+  //                         nothing to say; here we had something and someone
+  //                         else is saying it.
+  //   'expired'           — nobody has re-confirmed the record in 30 days, so
+  //                         we stop buying an ADF read for it.
+  //   'shows_exhausted'   — this browser has been told about this record the
+  //                         maximum number of times.
+  //   'page_mismatch'     — the fallback record names a different page than the
+  //                         one it was read on, so it says nothing. Any hit
+  //                         here is a bug: the record reached the wrong page.
+  //   'dismissed_quiet'   — this user dismissed the notice within the quiet
+  //                         window, so the load stood down before reading the
+  //                         record at all.
+  //   'dismissed_version' — this user dismissed the notice for exactly this
+  //                         record version; a new diagram re-arms it.
+  //   'yielded'           — a higher-priority banner has the page's one banner
+  //                         slot; `suppressed_by` names it. Two Confluence
+  //                         modules mean two iframes, so this notice stands
+  //                         down rather than stack (utils/banners/priority.ts).
+  //
+  // The two 'dismissed_*' results are what separates "the gate never fires" from
+  // "it fires and everyone has already said no" — the question that otherwise
+  // needs a browser and the user's own localStorage to answer.
+  //
+  // A rising 'all_placed' share is the signal that the record's write/retire
+  // cycle is leaking, not that users are ignoring the banner. A rising
+  // 'record_unreadable' share means the gate and the reader disagree — most
+  // likely a permission the writer holds and the reader does not. A high
+  // 'yielded' share is how we tell "nobody sees this notice" apart from
+  // "nobody has unplaced diagrams".
+  | "unplaced_banner_evaluated"
+  // The banner is committed to displaying. Split from _evaluated because only
+  // this one is an impression: it is the denominator for the copy and dismiss
+  // rates, and `unplaced_count` on it is the verified count (post-scan), not
+  // the marker's possibly-stale one.
+  | "unplaced_banner_shown"
+  // The user dismissed the banner. Dismissal is scoped to the marker version it
+  // was shown for, so a NEW unplaced diagram re-arms the banner rather than
+  // being silenced by an old dismissal — which means this event counts
+  // "not now, for these diagrams", never "never again".
+  | "unplaced_banner_dismissed"
+  // The byline recorded (or cleared) the page's unplaced set as a Confluence
+  // CONTENT PROPERTY — the shared, cross-user store the banner's
+  // `displayConditions` gate reads server-side.
+  //
+  // This event exists to measure the one assumption the property design rests
+  // on: that the byline user can actually write a page property. The write runs
+  // as the USER (requestConfluence), and a user who can create custom content
+  // on a page cannot be assumed to hold edit permission on the page itself.
+  // `result` = 'written' | 'deleted' | 'unchanged' | 'forbidden' | 'failed'.
+  // Also emitted by the BANNER when it retires a record it proved stale, so a
+  // reader who lacks delete permission is visible instead of leaving every
+  // later reader to pay the same ADF read forever.
+  // A material 'forbidden' share means the cross-user path is not reaching the
+  // people who need it and the localStorage fallback is carrying the feature —
+  // which is exactly what `unplaced_source` on the banner events reports from
+  // the other end.
+  | "unplaced_property_write"
+  // "What's new" page banner (src/components/WhatsNew/WhatsNewBanner.vue).
+  // Audience: browsers that have rendered one of our macros on this site
+  // (src/utils/whatsNew/state.ts), for at most WHATS_NEW_MAX_SHOWS loads per
+  // release and only inside the release's display window. Every event carries
+  // `whats_new_release_id`.
+  //
+  // `whats_new_banner_evaluated` fires once per mount — i.e. only on loads the
+  // host's synchronous gate already admitted, never on the ~all page loads it
+  // turned away. `result` covers every path out:
+  //   'shown'            — the strip is on screen.
+  //   'yielded_unplaced' — the page carries the unplaced-diagram content
+  //                        property (or the read could not rule it out), so
+  //                        the separately gated unplaced banner owns the page
+  //                        and this one stands down rather than stack.
+  //   'failed'           — mount threw; the iframe closed showing nothing.
+  // A high 'yielded_unplaced' share means the announcement is losing its slot,
+  // not that nobody is eligible.
+  | "whats_new_banner_evaluated"
+  // The strip is committed to displaying — the impression. Denominator for
+  // expand and dismiss rates. `whats_new_show_count` is which impression of
+  // this release this was for this browser (1..WHATS_NEW_MAX_SHOWS).
+  | "whats_new_banner_shown"
+  // The user opened the inline list ("See what's new"). The engagement signal:
+  // shown → expanded is the headline conversion for the feature.
+  | "whats_new_banner_expanded"
+  // The user dismissed the strip. Retires THIS release for this browser; the
+  // next release re-arms it. `whats_new_expanded` separates "read, then closed"
+  // from "closed without reading".
+  | "whats_new_banner_dismissed"
+  // A per-item "Learn more" link was opened. `whats_new_item_id` names the item,
+  // which is how we learn which announced feature actually draws interest.
+  | "whats_new_link_clicked"
+  // One-click place: the app writes the macro into the page ADF itself, instead
+  // of handing over a link for the user to paste. THE conversion event for this
+  // whole feature — every other event here measures noticing, and this one
+  // measures the thing actually getting fixed. Read against
+  // `advocacy_message_copied` (ui_component 'byline_unplaced_link' /
+  // 'page_banner_unplaced_link'), which is the same intent taking the four-step
+  // route: copy, open the editor, paste, publish.
+  //
+  // `result`:
+  //   'added'           — a new page version carries the macro.
+  //   'already_present' — the page already referenced it (someone else placed
+  //                       it, or a double click); nothing was written.
+  //   'forbidden'       — the user cannot edit this page. Expected, not a bug:
+  //                       the notice reaches every reader, and a reader is not
+  //                       always an author. The UI falls back to the link.
+  //   'conflict'        — the page changed under us twice; we do not force.
+  //   'failed'          — anything else. `failure_reason` says which, because
+  //                       one bucket covering six causes cannot be acted on:
+  //                       a Confluence 5xx, a page shape we cannot parse and a
+  //                       macro key we refused to guess need different fixes.
+  //
+  // `failure_reason` narrows 'forbidden' and 'failed' to the step that produced
+  // them. `http_status` carries the response code where there was one.
+  //   'read_forbidden'        — the page GET was refused. Rarer and stranger
+  //                             than the write case: this user cannot even READ
+  //                             a page they are looking at.
+  //   'write_forbidden'       — the page PUT was refused. The expected refusal:
+  //                             the notice reaches every reader, and a reader is
+  //                             not always an author.
+  //   'unresolved_macro_key'  — appId/envId or the macro key could not be
+  //                             resolved, so no safe extensionKey exists. We
+  //                             refuse rather than render an unknown extension
+  //                             on a customer's page. Any volume here is a
+  //                             platform change and this feature is dead until
+  //                             it is fixed.
+  //   'page_read_failed'      — the GET was not ok, with `http_status`.
+  //   'page_body_missing'     — no ADF body or no usable version number.
+  //   'page_body_unparsable'  — the body did not parse as a doc with content.
+  //   'page_write_failed'     — the PUT was not ok, with `http_status`.
+  //   'threw'                 — an exception, already logged to the console.
+  //
+  // A material 'forbidden' share means the banner is reaching the wrong
+  // audience and the button should be gated rather than offered-then-refused.
+  | "diagram_added_to_page"
+  // The macro that was just placed pulled the reloaded page to itself and
+  // flashed a ring around the diagram. Fired by the MACRO, not by the surface
+  // that placed it: the two are different iframes and only the macro knows it
+  // rendered.
+  //
+  // It is the second half of `diagram_added_to_page` (result 'added') and only
+  // means anything read against it. A gap between the two is the reveal being
+  // requested and never claimed — the macro never booted, the reload never
+  // happened, or the request went stale — which is invisible from the placing
+  // side, because that iframe is gone by then. `reveal_age_ms` says how long
+  // the round trip took; a value near the TTL is a page slow enough that the
+  // next one would have missed it.
+  | "diagram_revealed"
+  // Two independent producers, disambiguated by `failure_stage` (reliability
+  // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
+  // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-
+  //   side syntax validation (mermaid/plantuml/sequence) or, for PlantUML
+  //   only, its own fetch failure (audit §2.1 — PlantUML's fetch-failure
+  //   class is a separate, still-open investigation, audit §12 item 3).
+  // - 'render_crash': trackViewerRenderCrash() — a genuine exception from the
+  //   render pipeline itself (mermaid.js, zenuml.render, GraphViewer,
+  //   SwaggerUIBundle) that previously produced a silent blank/broken macro
+  //   with `console.error` as the only signal. Before this, Mermaid+Sequence
+  //   (81% of view volume) had no way to distinguish "never rendered" from
+  //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
+  //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
-  | "close_guard_rejected";
+  // #707: Mixpanel init had to proceed without an input it normally waits for,
+  // so the iframe's events leave with a degraded configuration instead of not at
+  // all. Fired once per iframe, AFTER mixpanel.init, from the bootstrap in
+  // trackAnalyticsEvent.ts. Properties: feature_area=system,
+  // surface=iframe_bootstrap, module_key, reason, timeout_ms.
+  // reason='session_replay_config_timeout': the Forge feature-flag download
+  // (FeatureFlags.initialize, a bare bridge postMessage with no timeout of its
+  // own) did not settle within SESSION_REPLAY_CONFIG_TIMEOUT_MS; Mixpanel
+  // initialised with replay off and that iframe's replay stays off.
+  | "analytics_init_degraded"
+  // Hidden-Mermaid wait (#706). Since PR #695 the viewer waits, with no deadline,
+  // for an SVG text layout when mermaid.render() throws `svg element not in
+  // render tree` (collapsed expand, background tab, display:none ancestor), and
+  // a hidden macro and a silently broken one looked the same in Mixpanel (a
+  // boot with neither macro_viewed nor viewer_load_failed). Three outcomes of
+  // that wait, none of which retries or blanks the diagram:
+  // - viewer_render_deferred: ONE heartbeat per wait, emitted when the wait
+  //   passes 10 s. Props: macro_type=mermaid, surface, reason='no_layout',
+  //   waited_ms (time actually waited at emit), plus render_gate /
+  //   visible_at_boot when the viewport gate recorded them.
+  // - viewer_render_abandoned: the wait was cancelled before it resolved
+  //   (unmount, diagram cleared or replaced). Same props; waited_ms is the
+  //   total wait. Sent with sendBeacon (trackAnalyticsEventBeforeUnload)
+  //   because the cancel usually coincides with iframe teardown.
+  // - success: macro_viewed carries layout_wait_ms (types.ts), the same shape as
+  //   render_deferred_ms; a retry that fails still goes out as viewer_load_failed.
+  | "viewer_render_deferred"
+  | "viewer_render_abandoned"
+  // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
+  // `retry()` is a bare location.reload(), so the click and its result sit in
+  // two different page lifetimes: the click event is emitted before the reload,
+  // and the resolution event after it, matched through a sessionStorage marker
+  // (utils/loadFailedRetry.ts) keyed on the macro's localId. Without the pair
+  // there is no way to tell a transient content-fetch failure (recovers on
+  // reload) from a permanently unavailable diagram — both render the same
+  // terminal panel, and 2026-08-18..22 telemetry could only count impressions
+  // (391 external, 128 macros) with no recovery rate attached.
+  | "load_failed_retry_clicked"
+  | "load_failed_retry_resolved"
+  // Diagram source snapshot attachments (resilience for cross-page copies /
+  // deleted source pages — see docs/superpowers/plans/2026-07-18-diagram-source-snapshot-attachments.md)
+  | "snapshot_created"
+  | "snapshot_create_failed"
+  // Emitted when a snapshot write did NOT happen for an EXPECTED, by-design
+  // reason rather than a genuine error — the write path is best-effort and must
+  // "degrade silently" (see the plan). Splitting these out of
+  // snapshot_create_failed keeps that event a real error signal: a plain viewer
+  // with no attachment-write permission (`no_write_permission`, 401/403 from the
+  // app-auth upload) and a save onto a not-yet-published draft page
+  // (`page_not_published`, 404 — the same benign condition the PNG backup
+  // recovers from) are the two normal outcomes, not failures. `snapshot_skip_reason`
+  // carries which one. Genuine transport / 5xx errors still emit
+  // snapshot_create_failed.
+  | "snapshot_backfill_skipped"
+  | "snapshot_fallback_rendered"
+  // Diagram attribution and audience impact (Phase 1): the read-only footer
+  // and its three-second continuous-visibility registration flow.
+  | "diagram_attribution_shown"
+  | "diagram_audience_registration_succeeded"
+  | "diagram_audience_registration_failed"
+  // Architecture Tokens Phase 1 (viewer footer + lifeline popover). No label
+  // text, page id, or tenant vocabulary on any of these.
+  | "related_diagrams_lookup_succeeded"
+  | "related_diagrams_lookup_failed"
+  | "related_token_indicators_shown"
+  | "related_diagram_popover_opened"
+  | "related_diagram_link_clicked"
+  // Save-time PNG backup upload, async mode (#392). The frontend hands the PNG
+  // to /forge-upload-attachment with `async: true`, gets an ack after
+  // validation, emits `attachment_upload_queued` and returns — the real
+  // Confluence write finishes server-side in `waitUntil`, after the editor
+  // iframe is gone. These two are that write's terminal outcome, emitted by
+  // the Cloudflare function (not the browser tracker), so the save path stops
+  // being a blind channel: before this, ~34% of all upload attempts had no
+  // success/failure signal at all. `attachment_upload_queued` remains the
+  // denominator; every queued event should be followed by exactly one of
+  // these. `failure_stage` splits WHERE the server-side write died
+  // (read_check / upload / properties_put / handler_error).
+  | "attachment_upload_async_succeeded"
+  | "attachment_upload_async_failed"
+  // The async counterpart of `attachment_upload_skipped`: the save-time write
+  // 404'd because the host page is not published yet, which is the SAME benign
+  // condition the sync path already records as a skip rather than an error.
+  // Without this the identical situation was a `skipped` on one path and a
+  // `_failed` on the other — recreating, on the path that carries ~34% of all
+  // attempts, exactly the mislabeling #392 exists to remove (verified on
+  // lite-stg: 14 async failures, all http 404, zero successes).
+  //
+  // A 404 is only benign when the page really is unpublished, so the two are
+  // told apart by `content_status`, read from the page GET the upload already
+  // performs: not-current -> this skip; `current` -> a real failure labelled
+  // `app_no_access` (the app cannot see the page — #211), never a skip.
+  | "attachment_upload_async_skipped"
+  // Confluence rate-limited the PNG attachment write: a 429 on the attachments
+  // GET, the data POST or the properties PUT. Production 2026-10-22/23 showed
+  // these as the whole non-JSON `attachment_upload_failed` bucket (an HTML
+  // "HTTP Status 429 – Too Many Requests" page on the attachments GET), mostly
+  // from one site whose page views each fire a backfill. The write is deferred
+  // (the next view after the cooldown retries), not failed, and starts a
+  // per-site cooldown. Properties: page_id, custom_content_id,
+  // attachment_name, http_status, failed_request, retry_after_source,
+  // retry_after_s, cooldown_ms.
+  | "attachment_upload_rate_limited"
+  // A view-time backfill skipped without sending any request because this
+  // site's rate-limit cooldown is still running. Properties: page_id,
+  // custom_content_id, cooldown_remaining_ms.
+  | "attachment_upload_deferred"
+  // Daily macro-count inventory snapshots. These are emitted by the
+  // Cloudflare snapshot service, not by the browser tracker. Registering them
+  // here keeps the shared analytics vocabulary explicit before the scheduled
+  // job is wired (docs/superpowers/specs/
+  // 2026-07-18-daily-macro-count-snapshots-design.md).
+  | "macro_count_snapshot_completed"
+  | "macro_count_space_changed"
+  | "macro_count_snapshot_failed"
+  // Lite->Full macro conversion (vendor-operated queue, phase 1). Emitted by
+  // the Cloudflare conversion service, not the browser tracker — same
+  // contract as the macro-count snapshot events above. Lifecycle: a job is
+  // enqueued by the vendor admin script, claimed by the Full app's scheduled
+  // function, then each page either converts or fails; `completed` closes the
+  // job with totals. `macro_skipped` is per-macro (embed macros and unknown
+  // keys are skipped by design in v1, and the skip is the signal that tells
+  // us when phase-2 embed support becomes worth building).
+  | "macro_convert_job_claimed"
+  | "macro_convert_job_completed"
+  | "close_guard_rejected"
+  // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
+  // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —
+  // these four decide whether the feature earns its keep. `shown` is the
+  // denominator; `restored` / `discarded` / `dismissed` are the user's three
+  // exits (✕ leaves the draft in localStorage, Discard deletes it).
+  | "draft_banner_shown"
+  | "draft_restored"
+  | "draft_discarded"
+  | "draft_banner_dismissed"
+  // In-viewer Edit gate for same-page shared-id macros (view-fork silent
+  // orphan: view-editing a macro whose customContentId is shared by N>1
+  // macros on the page forks a new CC on save, but the in-viewer modal cannot
+  // write the new id back into the macro config — writebackGate.ts / #170 —
+  // so the edit lands in a CC nothing references). Evaluated on every viewer
+  // Edit click that carries a customContentId; `edit_dup_gate_outcome`:
+  // 'blocked' = duplicates found, modal NOT opened, user steered to the page
+  // editor; 'passed' = unique reference, modal opened; 'scan_failed' = the
+  // ADF count scan errored, fail-open (modal opened; the editor-side backstop
+  // below still guards Publish).
+  // Also produced by every inline title rename commit (utils/renameDiagramTitle.ts
+  // runs the same guardEditClick), so this is gate volume, not Edit-click volume.
+  | "edit_dup_gate_evaluated"
+  // The editor-side backstop caught what the click gate let through (its
+  // fail-open path, the staleness-hint CTA on an inline page-editor render,
+  // or any other non-submittable entry): the modal editor loaded a doc
+  // flagged isCopy in a surface where view.submit({config}) cannot persist,
+  // so Publish is disabled with an explanatory tooltip instead of silently
+  // minting an unreferenced CC. `copy_reason` says which copy flavor.
+  | "editor_publish_blocked_fork_unlinkable"
+  // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md
+  // §10). Funnel: connect_clicked → session_created → agent_connected →
+  // edit_applied → disconnected; setup_shown measures first-time connector
+  // friction; edit_failed is the real failure signal.
+  | "agent_link_connect_clicked"
+  | "agent_link_session_created"
+  | "agent_link_setup_shown"
+  | "agent_link_agent_connected"
+  | "agent_link_page_read"
+  | "agent_link_edit_applied"
+  | "agent_link_edit_failed"
+  | "agent_link_disconnected"
+  // Planned ahead of implementation (2026-07-09 charter §6/§7/§4-C — project
+  // rule: events before features). Not fired by any code yet; registered so
+  // Tracks F (thinking-state UX), G (session lifecycle), and C (update_diagram
+  // guardrails) can wire trackAnalyticsEvent calls directly against a
+  // reviewed name/property contract instead of inventing one mid-feature.
+  //
+  // F — perceived-latency pair, both keyed to the same in-flight op:
+  // first_feedback = the instant the render surface shows the "AI thinking"
+  // state (an op was received); render_completed = that same op's terminal
+  // outcome (rendered, or not). `ms_since_op_received` on first_feedback is
+  // the perceived-latency number (op receipt -> visible feedback); render_completed's
+  // `total_ms` is op receipt -> terminal outcome (superset of `render_ms`,
+  // which is view-layer render time only — see `render_ms` below).
+  | "agent_link_first_feedback"
+  | "agent_link_render_completed"
+  // G — session lifecycle beyond the terminal agent_link_disconnected:
+  // suspended = the link survives an implicit drop (Fullscreen closed via X,
+  // or an unexpected ws close) instead of tearing down, staying resumable by
+  // token within TTL; resumed = a suspended session was reattached. A
+  // suspended session that never resumes before TTL still ends in
+  // agent_link_disconnected(reason: 'timeout') — these two are the states in
+  // between, not a replacement for the terminal event.
+  | "agent_link_session_suspended"
+  | "agent_link_session_resumed"
+  // #314 — the client-side TTL watchdog fires this the instant `expiresAt`
+  // (the 10-min idle window, sliding — spec 2026-07-13 §3) lapses, from ANY still-live state (waiting/
+  // timeout/connected/suspended). Distinct from agent_link_disconnected: no
+  // explicit user action or wire disconnect envelope caused this — the token
+  // simply died server-side and the client noticed on its own clock.
+  // `had_agent_connected` distinguishes "an agent was actually paired and
+  // lost its session" from "nobody ever paired before the token lapsed".
+  | "agent_link_session_expired"
+  // PR1 sliding TTL (spec 2026-07-13 §7): fired by the relay owner when a
+  // status envelope moves the deadline forward — throttled client-side to at
+  // most one per minute, NOT one per op.
+  | "agent_link_session_extended"
+  // U — discovery tool surface (search_diagrams / list_diagrams, plus
+  // read_diagram gaining a by-contentId mode). The trust boundary requires the
+  // user to SEE everything the agent did, so every discovery op is both an
+  // activity-feed row AND tracked here (design §3 "activity feed", scenarios
+  // S3/S4/S5). `diagram_read` fires for the bound read AND a discovered-hit
+  // read — `by_content_id` discriminates. `search_performed` / `list_performed`
+  // carry the recall size (`hits`) so the read-side eval (charter §6 Track E:
+  // "did the right diagram surface") has a volume signal; the raw query is
+  // never sent — only `query_len` (privacy).
+  | "agent_link_diagram_read"
+  | "agent_link_search_performed"
+  | "agent_link_list_performed"
+  // V — headless macro-identity resolution (design
+  // 2026-09-19-headless-diagram-mcp-design.md §6). Emitted by the BACKEND, not
+  // the macro: a headless create has no iframe to report from. `_resolved`
+  // carries `macro_key_source` so a cache-hit rate is readable; `_unresolved`
+  // carries the refusal in `reason` (AgentLinkIdentityFailure). The refusal is
+  // the load-bearing one — a site we cannot identify is a site where creating
+  // a macro would publish a broken extension, so the resolver declines and
+  // this event is the only record that a user hit that wall.
+  | "agent_link_identity_resolved"
+  | "agent_link_identity_unresolved"
+  // W — headless authorization (design §5/§11 Phase 3). Backend-emitted like
+  // the identity pair above. `_authorized` fires once per completed consent,
+  // carrying how many Atlassian sites the grant reaches (`site_count`);
+  // `_refresh_failed` fires when a rotating refresh token no longer works,
+  // which is the signal that a user must re-consent and the only warning we
+  // get before every headless call for them starts failing; `_revoked` fires
+  // when a grant is dropped, whether the user asked or a refresh died.
+  // Emitted from oauth/headlessMcp.ts (refresh path, tokenStore.getAccessToken)
+  // and oauth/callback.ts ('reauthorized'). `_refresh_failed` carries the
+  // Atlassian GrantFailure code in `reason` (invalid_grant | invalid_client);
+  // transient failures (5xx, network) are not reported. There is no
+  // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
+  | "agent_link_oauth_authorized"
+  | "agent_link_oauth_refresh_failed"
+  // OUR MCP authorization-server refresh endpoint (oauth/authServer.ts), not
+  // the upstream Atlassian grant refresh above. One event per inbound refresh
+  // request at its terminal result; oauth_request_id correlates a replayed
+  // inbound request with the original response without exposing credentials.
+  // See docs/analytics/oauth-refresh-retry.md.
+  | "agent_link_oauth_token_refresh_completed"
+  | "agent_link_oauth_revoked"
+  // `_authorize_routed` fires once per MCP /authorize request and says where
+  // it went (`oauth_route`, AgentLinkOAuthRoute): to Atlassian, straight to our
+  // consent screen, or straight to a code. The last two exist only because the
+  // signed returning-user cookie let /authorize skip the Atlassian hop; when it
+  // did not, `reason` (AgentLinkOAuthAtlassianReason) says why. The
+  // 'atlassian' share is the number of consent screens we still cost a
+  // returning user.
+  | "agent_link_oauth_authorize_routed"
+  // X — MCP Apps (io.modelcontextprotocol/ui). Backend-emitted. The extension is
+  // bilateral: a host that did not declare it never sees `_meta.ui`, and a tool
+  // result then renders as plain text, which looks like a broken view but is
+  // not. `_view_requested` is the only proof the host actually fetched the view
+  // — without it we cannot tell "host does not support apps" from "host support
+  // negotiated but the iframe never rendered", which is a real open bug
+  // upstream (modelcontextprotocol/ext-apps#671). Both carry `oauth_client_id`
+  // and `oauth_client_name` (the DCR registration's client_name), because a
+  // view fetch has no clientInfo of its own; `_failed` also carries `detail`
+  // (≤120 chars: the URI asked for, or the guard's message). Without those the
+  // 2026-09-29 burst of eight failures could only be attributed by hand.
+  | "agent_link_app_view_requested"
+  | "agent_link_app_view_failed"
+  // One per MCP initialize. Carries what the CLIENT advertised, which is the
+  // only way to tell "the host never offered MCP Apps" apart from "it offered
+  // them and did not render" — the view-fetch events cover the second case
+  // only, and on 2026-10-03 a Desktop session rendered nothing while never
+  // fetching the view, which neither existing event could explain. Carries
+  // `oauth_client_id`, the key the view events share, so a handshake can be
+  // joined to the view fetch it did or did not lead to.
+  | "agent_link_mcp_initialized"
+  // OUR refresh-token chain (one per MCP sign-in) revoked by the token
+  // endpoint, distinct from `_revoked` above, which is about the upstream
+  // Atlassian grant. Fires when a used refresh token is presented again
+  // (`reason: 'refresh_reused'`, OAuth 2.1 §4.3.1 reuse detection) or a
+  // refresh token arrives under another client_id (`'client_mismatch'`).
+  // Either means the token may be in two hands, so every refresh and access
+  // token issued from that sign-in stops working. Volume here is a security
+  // signal, or a client that refreshes concurrently.
+  | "agent_link_oauth_chain_revoked"
+  // X — headless writes (design §7/§10). Backend-emitted, for the same reason
+  // as the pair above. `_created` carries the AddToPageResult-shaped outcome
+  // in `result` and, in `paywall_gate`, which branch of the §9.1 Lite gate
+  // decided it. That property is the load-bearing one: the gate fails OPEN
+  // when the space's macro count is unknown (the #302 shape, matching what the
+  // frontend does), so 'count_unknown' volume is the only measure of how often
+  // the limit is skipped rather than applied — the number the decision to fail
+  // closed, or not, has to be made on. `_updated` has no gate (updating an
+  // existing diagram consumes no limit, §9.1) and instead carries
+  // `guardrail_rejected`, so the write guard's refusal rate is readable on the
+  // headless path the way it already is on the relay. A successful `_updated`
+  // also carries `title_changed` (#789): true when the call renamed the
+  // diagram, false for a plain source edit. Both carry the target
+  // site in `cloud_id` (from the tool's `cloudId` argument), so outcomes and
+  // gate branches can be split per customer without joining on
+  // agent_link_mcp_tool_called.
+  | "agent_link_diagram_created"
+  | "agent_link_diagram_updated"
+  // Y — headless PAGE writes, as distinct from the diagram writes above. A
+  // page is not a macro, so no §9.1 paywall gate applies and `paywall_gate`
+  // is absent here. What these carry instead is `guardrail_rejected`: a page
+  // body is replaced wholesale, so the accident worth counting is an agent
+  // truncating somebody's page. `result` uses the same AgentLinkWriteResult
+  // vocabulary, so page and diagram writes share one conflict/success
+  // breakdown. Like X, these carry the target site in `cloud_id`.
+  | "agent_link_page_created"
+  | "agent_link_page_updated"
+  // Z — "Connect MCP" dialog (inline macro viewer; replaces the Copy for AI
+  // button when the agent-link flag is on). The first release offers the
+  // headless MCP only (`mcp_mode: 'headless'`): no relay session is minted, so
+  // the dialog carries setup instructions and a prompt naming this diagram.
+  // opened = the button (or More menu item) click that shows the dialog;
+  // copied = a Copy click on the setup command or the prompt
+  // (`mcp_copy_target`, `outcome` copied | clipboard_failed); closed = the
+  // dialog dismissed, with `dwell_ms`. Whether the agent then connected is
+  // counted server-side by the headless OAuth and tool events.
+  // shown = the denominator for opened: the button was rendered for a viewer,
+  // with where it sat (`mcp_button_placement`) and whether it was visible at
+  // rest or only on hover (`mcp_button_reveal`, also on opened). At most one
+  // per viewer per UTC day (localStorage), not one per macro: a per-instance
+  // impression is what made copy_for_ai_impression 19% of billable volume.
+  // The Confluence Home page card offers the same setup inline: its opens,
+  // copies and closes carry `mcp_button_placement: 'homepage_feed'` and
+  // `surface: 'route'`, and its prompt names no diagram.
+  | "agent_link_mcp_button_shown"
+  | "agent_link_mcp_dialog_opened"
+  | "agent_link_mcp_dialog_copied"
+  | "agent_link_mcp_dialog_closed"
+  // AA — headless MCP tool usage. Backend-emitted (oauth/headlessMcp.ts),
+  // like the W/X/Y blocks above. `_tool_called` fires once per authenticated
+  // `tools/call`, for EVERY tool — reads included, which nothing else counts
+  // on the headless path (X/Y cover only the four writes, and the relay's
+  // per-tool events come from the macro, which a headless call has none of).
+  // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
+  // for list_sites / get_status, which take none), how the call ended in
+  // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
+  // and server-side latency in `duration_ms`. The write events stay
+  // separate: they carry write-specific properties (paywall_gate, result) this
+  // one does not, and the same `cloud_id`. `_initialized` fires on each `initialize` handshake and carries
+  // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
+  // `mcp_client_version`), so usage can be split by agent (Claude Code,
+  // Cursor, …). Tool arguments and results are never sent.
+  | "agent_link_mcp_tool_called"
+  | "agent_link_mcp_initialized"
+  | "activation_nudge_clicked"
+  | "activation_served"
+  // Should be ~impossible by construction (the pipeline stamps the property only
+  // after caching the result). Any volume here is a preparation-pipeline bug.
+  | "activation_cache_miss"
+  | "activation_diagram_edited"
+  | "activation_completed"
+  | "activation_nudge_dismissed"
+  // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
+  // for diagram creation is at the macro editor, before the user has typed
+  // anything — the gallery replaces the old external "Examples" link
+  // (Header.vue templateClick, which sent the user away to zenuml.com/
+  // mermaid.js.org/plantuml.com docs) with 6-10 curated, one-click,
+  // in-product templates per text-DSL macro type (sequence/mermaid/plantuml).
+  // `editor_template_gallery_opened` is the denominator; `editor_template_applied`
+  // (keyed by `template_id`) is the per-template pull signal the JTBD's
+  // success metric needs ("editor_template_applied share of new creates").
+  // AI text->diagram entry from the same issue is explicitly OUT OF SCOPE
+  // here (deferred 2026-08-03) — its ai_title_generation_* events already exist
+  // above and are reused, not redefined, when that lands.
+  | "editor_template_gallery_opened"
+  | "editor_template_applied"
+  // Onboarding funnel — starter-template surface visibility (companion to
+  // the #334 gallery above, distinct denominator). Fires when the starter
+  // surface becomes visible on an EMPTY new macro. `trigger` ('auto_first_open'
+  // | 'manual') distinguishes an editor that opened the surface itself on a
+  // brand-new blank macro from a user who asked for it via the Templates
+  // button. Today only the `manual` path has a producer (Header.vue's
+  // openTemplateGallery, alongside editor_template_gallery_opened) — no
+  // auto-open-on-empty-macro surface exists yet, so `trigger: 'auto_first_open'`
+  // is reserved for when one is built.
+  | "editor_starter_shown"
+  // Editor code-panel collapse (the left source pane of the text-DSL editor:
+  // sequence / mermaid / plantuml / markdown). The user hides the code to give
+  // the diagram preview the full width, and shows it again to edit. Fires once
+  // per user-initiated toggle, from any of the panel's collapse controls;
+  // `interaction_state` carries the state the panel moved INTO ('hidden' on
+  // collapse, 'shown' on expand), so collapse rate is a groupBy rather than a
+  // diff of two event names, and `code_panel_trigger` carries which control
+  // did it (toolbar button / panel footer button / dragging the gutter shut). The AI-chat panel's own code toggle keeps its
+  // existing `ai_chat_code_visibility_toggled` event — same underlying pane,
+  // but a different surface and a different question ("does AI chat need the
+  // code visible?"), so the two are not merged.
+  | "editor_code_panel_toggled"
+  // Onboarding funnel — "second diagram" prompt (registered ahead of its
+  // producer: this task only registers the event names + properties so the
+  // catalog/types are ready; no call site exists yet in this codebase. A
+  // later task wires the actual prompt UI and emits these). `shown` is the
+  // denominator; `clicked` is the accept action.
+  | "macro_second_diagram_prompt_shown"
+  | "macro_second_diagram_prompt_clicked"
+  // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
+  // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
+  // the detection rule). `shown` is the denominator, fired once per becoming-
+  // visible transition (not on every keystroke while it stays visible);
+  // `switch_clicked` = the user accepted the correction and the editor moved
+  // their source into the PlantUML tab; `dismissed` = the user closed the
+  // hint without switching. Editor-only: the hint's action (switch macro
+  // type) only exists on the editor's type-switcher surface, so it is not
+  // shown in the read-only viewer.
+  | "foreign_dialect_hint_shown"
+  | "foreign_dialect_hint_switch_clicked"
+  | "foreign_dialect_hint_dismissed"
+  // Confluence Home page "Create a diagram" card (confluence:homepageFeed —
+  // see manifest.yml). The only onboarding surface a non-admin end user
+  // encounters without first inserting a macro; the pre-existing
+  // confluence:globalSettings "Get Started" page reaches only site admins.
+  // `homepage_feed_viewed` fires once per mount (the card only exists while
+  // its Home-page section is expanded); `homepage_feed_action_clicked` fires
+  // on the quick-start button. `homepage_feed_diagram_opened` fires when a
+  // recent-diagram row sends the user to the page that diagram lives on —
+  // the one event that measures whether this card returns people to their
+  // work, as opposed to merely being rendered. It carries `macro_type` (via
+  // `toMacroType`, never the raw stored `diagramType`) so the row's type is
+  // comparable with every other create/view surface.
+  // `homepage_feed_example_expanded` fires when an example row is opened in
+  // place. It is the funnel signal for the recognition half of the card: which
+  // diagram type someone with none of their own wants to look at. Carries
+  // `macro_type` so it lines up with the create events for the same type.
+  | "homepage_feed_viewed"
+  | "homepage_feed_action_clicked"
+  | "homepage_feed_diagram_opened"
+  | "homepage_feed_example_expanded"
+  // Plan and usage (site-level, Lite paywall redesign phase 2). `plan_usage_viewed`
+  // fires once per mount, carrying `is_site_admin` so the funnel splits by
+  // whether the viewer sees the admin pricing/purchase block or the
+  // usage-only view. `plan_usage_request_full_clicked` fires when either
+  // audience opens the Request-Full guidance page from here (the entry point
+  // named in the spec: banner -> Plan and usage -> "申请 Full").
+  | "plan_usage_viewed"
+  | "plan_usage_request_full_clicked"
+  // Admin's direct purchase entry point on the Plan and usage page itself
+  // (distinct from the Request-Full flow, which is the non-admin/ask-someone
+  // path). Reuses the same upgradeUrl as the existing paywall CTAs.
+  | "plan_usage_purchase_clicked"
+  // Request-Full guidance page funnel (spec: 展示 / 复制 / 跳转 — a jump does
+  // NOT mean the native Atlassian request was actually submitted; there is no
+  // public API to read that result back, so `request_full_atlassian_clicked`
+  // is the funnel's last measurable step, not a submission event).
+  // `request_full_reason_copied` fires on the user-facing reason-text copy
+  // action (the text a REQUESTER pastes into Atlassian's native flow — never
+  // the admin-facing purchase-reference text, which is a separate copy
+  // action already covered by `advocacy_message_copied`).
+  | "request_full_guide_shown"
+  | "request_full_reason_copied"
+  | "request_full_atlassian_clicked"
+  // "Diagram locations" (conf-app#848): the screen behind "View diagram
+  // locations" on the Plan and usage page. It lists the site's stored
+  // diagrams with the page each one was created on (its owning page), read
+  // as the viewer so Confluence applies their permissions. Macro placements
+  // that embed a diagram stored on another page are not enumerated, so every
+  // count on these events is a count of stored diagrams, never of placements.
+  // `plan_usage_locations_shown` fires when the screen opens (`space_count` =
+  // spaces with a reported count, `macro_count` = the reported site total).
+  // `plan_usage_locations_loaded` fires per fetched batch (`page_index` 0 =
+  // the first), with `load_outcome`, `listed_count`, `hidden_count` (records
+  // whose page the viewer cannot read — omitted from the UI, counted here),
+  // `has_more` and `duration_ms`. `plan_usage_locations_load_failed` fires
+  // instead when a batch threw or Confluence answered a non-2xx the viewer
+  // cannot act on (`http_status`).
+  // `plan_usage_locations_filtered` fires on each search, space / type filter,
+  // clear, page or page-size change (`locations_filter`), with `listed_count`
+  // = matching rows after the change.
+  // `plan_usage_locations_page_clicked` fires when "Open page" opens a row's
+  // owning page (`macro_type` = the diagram on that row).
+  | "plan_usage_locations_shown"
+  | "plan_usage_locations_loaded"
+  | "plan_usage_locations_load_failed"
+  | "plan_usage_locations_filtered"
+  | "plan_usage_locations_page_clicked";
+
+/**
+ * How one Diagram-locations batch resolved. `ok` listed at least one row;
+ * `empty` found no stored diagram the viewer can list in that space;
+ * `forbidden` means Confluence refused the space or its custom content for
+ * this viewer (403 / 404), which is an answer, not a failure. Failures carry
+ * `failed` on plan_usage_locations_load_failed.
+ */
+export type DiagramLocationsLoadOutcome = "ok" | "empty" | "forbidden" | "failed";
+
+/** Which control changed the Diagram-locations result set. */
+export type DiagramLocationsFilter = "search" | "space" | "type" | "clear" | "page" | "page_size";
+
+// How an activation run completed. 'copy_link' = the primary path (mint a deeplink
+// and paste it into any page, #360's missing producer); 'draft_page' = the
+// stall-breaker secondary that creates a page carrying the diagram.
+export type ActivationPath = "copy_link" | "draft_page";
+
+// Why an agent_link session ended (agent_link_disconnected). 'user' = explicit
+// Disconnect click; 'timeout' = token/session TTL; 'idle' = no activity for the
+// idle window; 'tab_close' = macro connection dropped (tab close/navigation).
+export type AgentLinkDisconnectReason = "user" | "timeout" | "idle" | "tab_close";
+
+// Why a session finally expired under the sliding-TTL policy (spec
+// 2026-07-13 §3): 'idle' = 10-min idle window lapsed; 'absolute_cap' = the
+// 60-min hard cap bounded an otherwise-active session.
+export type AgentLinkExpiryCause = "idle" | "absolute_cap";
+
+// Terminal outcome of an agent_link render (agent_link_render_completed) —
+// the signal the F-track "thinking state" UI clears on. 'rendered' = the new
+// complete diagram painted (success); 'failed' = the op errored/persist
+// failed; 'timeout' = the render-safety backstop fired (no terminal signal
+// within RENDER_SAFETY_TIMEOUT_MS, e.g. a dropped WS) and the shimmer was
+// force-cleared. WHY a 'failed' op failed is carried by agent_link_edit_failed
+// for the same op; this field only says how the render surface ended up.
+// (agent_link_guardrail_rejected was deleted 2026-09-02 — never emitted.)
+export type AgentLinkRenderOutcome = "rendered" | "failed" | "timeout";
+
+// Why Track C's update_diagram guardrail rejected an op BEFORE persisting.
+// Its dedicated event (agent_link_guardrail_rejected) was deleted 2026-09-02 as
+// never-emitted; the type survives because it still widens the shared `reason`
+// union in types.ts. 'parse_error' = the DSL didn't parse in the
+// real parser (ZenUML/Mermaid/best-effort PlantUML — see charter §4-C);
+// 'data_loss' = it parsed but the semantic round-trip diff showed the output
+// dropping content present in the input (participant/message count collapse);
+// 'other' = any other pre-persist guardrail rejection not covered above.
+export type AgentLinkGuardrailRejectReason = "parse_error" | "data_loss" | "other";
+
+// Why an agent_link session moved to/from 'suspended' (agent_link_session_suspended
+// / agent_link_session_resumed — charter §7.2). 'fullscreen_closed' = the
+// Fullscreen iframe closed via the browser/X control rather than the explicit
+// Disconnect button; 'ws_drop' = the relay socket closed unexpectedly (not
+// closedByCaller — see relayClient.ts) without an explicit disconnect;
+// 'explicit' = the user re-opened Fullscreen deliberately after a suspend (or
+// otherwise explicitly triggered the resume), as opposed to an automatic
+// reconnect. A session suspended and never resumed within TTL still ends in
+// agent_link_disconnected(reason: 'timeout') — that terminal event is separate.
+export type AgentLinkSessionSuspendReason = "fullscreen_closed" | "ws_drop" | "explicit";
+
+// How a discovery `list_diagrams` was scoped (agent_link_list_performed).
+// 'page' = a single page's diagrams, 'space' = one space, 'site' = the whole
+// estate (no space/page filter). Search (agent_link_search_performed) is always
+// site-wide by design, so it has no scope field.
+export type AgentLinkListScope = "page" | "space" | "site";
+
+// Where a resolved headless macro identity came from (agent_link_identity_resolved).
+// 'cached' = reused a previously resolved identity for this cloudId; 'discovered'
+// = lifted fresh from an existing macro node on the site. A low 'discovered'
+// share means the cache is doing its job; a rising one means it is not.
+export type AgentLinkMacroKeySource = "cached" | "discovered";
+
+// Why the resolver refused to hand back an identity (agent_link_identity_unresolved).
+// 'no_macro_on_site' = the site has no ZenUML custom content to lift a key from,
+// so the variant and environment cannot be proven — the expected outcome on a
+// brand-new tenant, and a refusal rather than a guess by design.
+// 'no_extension_node' = custom content exists but none of the sampled pages holds
+// a Forge macro node from that app — orphaned content, or pages carrying only
+// legacy Connect-format macros, which record no appId/environmentId.
+// 'app_id_mismatch' = the lifted extensionKey names an appId that is not the one
+// the custom-content type implies; the two disagreeing means something is wrong
+// with our assumptions, not with the page, so we refuse rather than pick one.
+// 'probe_failed' = a Confluence call failed; retryable, unlike the three above.
+// Why an Atlassian grant ended (agent_link_oauth_revoked). 'user' = asked for
+// it; 'refresh_rejected' = the rotating refresh token was refused, so the grant
+// is dead whether the user knows it or not; 'reauthorized' = superseded by a
+// fresh consent for the same user.
+// Why the MCP Apps view could not be served (agent_link_app_view_failed).
+// 'unknown_uri' = a ui:// URI we do not publish; 'fetch_failed' = the built
+// view asset did not come back from our own origin, which means the deploy is
+// incomplete rather than the host misbehaving.
+export type AgentLinkAppViewFailure = "unknown_uri" | "fetch_failed";
+
+export type AgentLinkOAuthRevokeReason = "user" | "refresh_rejected" | "reauthorized";
+
+// Where an MCP /authorize request was sent (agent_link_oauth_authorize_routed).
+// 'atlassian' = the full trip through Atlassian's 3LO screen; 'consent' = a
+// recognised user with a live grant, sent straight to our per-client consent
+// screen; 'issued' = recognised, live grant, and this client already approved,
+// so a code was issued with no screen at all.
+export type AgentLinkOAuthRoute = "atlassian" | "consent" | "issued";
+
+// Why an MCP /authorize request still went to Atlassian. 'no_cookie' = first
+// visit in this browser, or the cookie expired; 'invalid_cookie' = present but
+// its signature did not verify; 'no_grant' = recognised, but no grant is stored
+// (never seeded, or deleted); 'reauthorize_required' = the stored grant's
+// refresh token was refused; 'refresh_failed' = Atlassian errored transiently
+// while refreshing; 'forced' = the request carried prompt=login (switch account
+// or site).
+export type AgentLinkOAuthAtlassianReason =
+  | "no_cookie"
+  | "invalid_cookie"
+  | "no_grant"
+  | "reauthorize_required"
+  | "refresh_failed"
+  | "forced";
+
+// Why the token endpoint revoked a refresh-token chain
+// (agent_link_oauth_chain_revoked), carried in the shared `reason` field.
+export type AgentLinkOAuthChainRevokeReason = "refresh_reused" | "client_mismatch";
+
+// Terminal result of one MCP refresh-token request. This is our OAuth token
+// endpoint lifecycle, separate from refreshing the stored Atlassian grant.
+export type AgentLinkOAuthTokenRefreshOutcome = "rotated" | "retried" | "rejected" | "unavailable";
+
+// The outcome of a headless write (agent_link_diagram_created / _updated).
+// Mirrors AddToPageResult so the headless and byline paths are comparable:
+// 'already_present' is a SUCCESS (an agent retried; nothing was duplicated)
+// and 'conflict' is a deliberate refusal (a human edited the page first and
+// we never force-publish).
+export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "updated";
+
+// Which block of the Connect MCP dialog a Copy click targeted
+// (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
+// command, or the prompt naming this diagram for the agent.
+export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
+
+// Where the Connect MCP entry sat: the macro's own header button, the More
+// (⋯) menu, where header collapse stage 3 moves it, or the Confluence Home
+// page card (confluence:homepageFeed), which has no diagram to name. Home-page
+// rows carry it on agent_link_mcp_dialog_opened/_copied/_closed; the card's
+// denominator is homepage_feed_viewed, not agent_link_mcp_button_shown.
+export type AgentLinkMcpButtonPlacement = "toolbar" | "more_menu" | "homepage_feed";
+
+// How the button showed: 'hover' = only on hover or focus, like the other
+// inline header actions; 'always' = visible at rest (Fullscreen headers).
+export type AgentLinkMcpButtonReveal = "always" | "hover";
+
+// How a Connect MCP dialog connects the agent: 'headless' = the agent signs
+// in with OAuth and edits through Confluence directly (the only mode offered
+// in the first release); 'relay' = a macro-minted session over the live relay.
+export type AgentLinkMcpMode = "headless" | "relay";
+
+// How one headless `tools/call` ended (agent_link_mcp_tool_called).
+// 'success' = the tool returned a result; 'tool_error' = the tool refused with
+// a HeadlessToolError (its code rides `reason`); 'scope_denied' = the token
+// lacks the diagram.read / diagram.write scope the tool needs;
+// 'unknown_tool' = no such tool (`mcp_tool` is then 'unknown', never the
+// client's string); 'exception' = an unexpected throw (a 500).
+export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception";
+
+// Which branch of the §9.1 Lite paywall gate decided a headless create.
+// 'paid' = a live space or user licence, or a non-Lite variant, so the limit
+// does not apply; 'under_limit' = counted and below the limit;
+// 'over_limit' = counted at or past the limit and ALLOWED, because the limit no
+// longer blocks (the UI block was retired in 2026-09 and headless create
+// matches it); 'count_unknown' = the space's macro count could not be read,
+// and the create was allowed. 'limit_reached' = counted and refused; no longer
+// emitted, kept so historical events still type-check in queries.
+export type AgentLinkPaywallGate = "paid" | "under_limit" | "over_limit" | "limit_reached" | "count_unknown";
+
+export type AgentLinkIdentityFailure =
+  | "no_macro_on_site"
+  | "no_extension_node"
+  | "app_id_mismatch"
+  | "probe_failed";
+
+// Graph (DrawIO) editor chrome. `diagram` is Atlas/standard; `board` is
+// Sketch. Unknown persisted values must normalize to `diagram`.
+export type GraphEditorModeValue = "diagram" | "board";

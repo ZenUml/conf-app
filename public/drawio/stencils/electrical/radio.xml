@@ -212,8 +212,8 @@
 </shape>
 <shape aspect="variable" h="69.78" name="Loop Antenna" strokewidth="inherit" w="64.08">
     <connections>
-        <constraint name="in" perimeter="0" x="0.342" y="1"/>
-        <constraint name="out" perimeter="0" x="0.658" y="1"/>
+        <constraint name="in" perimeter="0" x="0.344" y="1"/>
+        <constraint name="out" perimeter="0" x="0.656" y="1"/>
     </connections>
     <foreground>
         <path>

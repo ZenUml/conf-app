@@ -1,3 +1,7 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 (function()
 {
 	// Adds MSCAE shapes
@@ -442,9 +446,9 @@
 					r * 0.5, r * 0.38, '', 'Company Portal', null, null, this.getTagsForStencil(gn, 'company portal', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'computer_inventory',
 					r * 0.5, r * 0.45, '', 'Computer Inventory', null, null, this.getTagsForStencil(gn, 'computer inventory', dt).join(' ')),
-			this.createVertexTemplateEntry(s + 'conditional_access_exchange',
+			this.createVertexTemplateEntry(s + 'conditional_access_exchange;',
 					r * 0.49, r * 0.5, '', 'Conditional Access (Exchange)', null, null, this.getTagsForStencil(gn, 'conditional access exchange', dt).join(' ')),
-			this.createVertexTemplateEntry(s + 'conditional_access_sharepoint',
+			this.createVertexTemplateEntry(s + 'conditional_access_sharepoint;',
 					r * 0.44, r * 0.5, '', 'Conditional Access (Sharepoint)', null, null, this.getTagsForStencil(gn, 'conditional access sharepoint', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'connector',
 					r * 0.5, r * 0.17, '', 'Connector', null, null, this.getTagsForStencil(gn, 'connector', dt).join(' ')),
@@ -605,7 +609,7 @@
 					r * 0.44, r * 0.5, '', 'Distribution Point', null, null, this.getTagsForStencil(gn, 'distribution point', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'management_point',
 					r * 0.48, r * 0.5, '', 'Management Point', null, null, this.getTagsForStencil(gn, 'management point', dt).join(' ')),
-			this.createVertexTemplateEntry(s + 'primary_site',
+			this.createVertexTemplateEntry(s + 'primary_site;',
 					r * 0.38, r * 0.5, '', 'Primary Site', null, null, this.getTagsForStencil(gn, 'primary site', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'roles',
 					r * 0.42, r * 0.5, '', 'Roles', null, null, this.getTagsForStencil(gn, 'roles', dt).join(' ')),

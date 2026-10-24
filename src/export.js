@@ -405,7 +405,7 @@ export const handler = async (payload) => {
         ...joinKeyProps(ctx),
         failure_reason: 'missing_custom_content_id',
       });
-      return createErrorDocument("Diagram content not available for export");
+      return createErrorDocument("Diagram content not available for export. The diagram may need to be re-inserted on the page.");
     }
 
     let response = await api.asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}/attachments?filename=${attachmentName}`);
@@ -456,7 +456,10 @@ export const handler = async (payload) => {
         http_status: response.status,
         ...fallbackProps(fallbackInfo),
       });
-      return createErrorDocument(`Failed to fetch attachments: ${response.status}`);
+      const userMessage = (response.status === 401 || response.status === 403)
+        ? "Couldn't access the diagram image (permission denied). Sign in to Confluence with an account that has access to this page, then try again."
+        : `Couldn't fetch the diagram image (HTTP ${response.status}). Please try the export again, or contact support if this keeps happening.`;
+      return createErrorDocument(userMessage);
     }
 
     const attachmentsData = await response.json();
@@ -518,7 +521,10 @@ export const handler = async (payload) => {
           ...joinKeyProps(ctx), png_export_state: 'missing', surface: 'backend',
         });
       }
-      return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");
+      return createErrorDocument(
+        "Diagram image not available for export. " +
+        "Ask someone with edit access to open this page in Confluence so the image can be saved, then try again."
+      );
     }
 
     const attachment = attachmentsData.results[0];

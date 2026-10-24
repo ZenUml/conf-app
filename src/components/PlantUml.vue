@@ -29,6 +29,8 @@ Bob --&gt; Alice: Hi there!
 <script>
 import { plantumlEncode } from '@/utils/plantuml/encode';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
+import { plantUmlRenderer } from '@/utils/plantuml/renderer';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { normalizePlantUmlSvg, readPlantUmlSvgSize } from '@/utils/plantuml/normalizeSvg';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import globals from '@/model/globals';
@@ -125,6 +127,34 @@ export default {
     },
   },
   methods: {
+    /**
+     * ADR-0010 spike: draw with the in-browser engine, so the source never
+     * leaves the iframe. Its SVG has a plain viewBox plus width/height; the
+     * same normaliser keeps it proportional in the frame.
+     */
+    async renderLocally(code) {
+      const { renderPlantUmlLocally, PlantUmlLocalRenderError } = await import('@/utils/plantuml/engine')
+        .catch((err) => {
+          trackAnalyticsEvent('plantuml_local_render_failed', this.localFailureProps('load_failed'));
+          throw err;
+        });
+      try {
+        return normalizePlantUmlSvg(await renderPlantUmlLocally(code));
+      } catch (err) {
+        const reason = err instanceof PlantUmlLocalRenderError ? err.reason : 'engine_error';
+        trackAnalyticsEvent('plantuml_local_render_failed', this.localFailureProps(reason));
+        throw err;
+      }
+    },
+    localFailureProps(reason) {
+      return {
+        feature_area: 'macro',
+        surface: this.isDisplayMode ? 'viewer' : 'editor',
+        macro_type: 'plantuml',
+        plantuml_renderer: 'local',
+        plantuml_failure_reason: reason,
+      };
+    },
     /** Re-bind the pan/zoom viewport after a new server SVG lands. */
     async initializeViewport() {
       await this.$nextTick();
@@ -167,7 +197,9 @@ export default {
         // Phase 0b: render_ms = PlantUML server round trip (recorded once).
         // Note this excludes the 500ms mount debounce, which lands in the
         // unattributed remainder — itself a finding for Phase 1.
+        const renderer = plantUmlRenderer();
         this.svg = await renderPerf.time('render', async () => {
+          if (renderer === 'local') return this.renderLocally(code);
           const encoded = plantumlEncode(code);
           const response = await fetch(`${PLANTUML_SERVER}${encoded}`);
           if (!response.ok) {
@@ -182,6 +214,7 @@ export default {
           trackRenderTime(
             'plantuml', this.isDisplayMode, 'live_render', 'none',
             viewContentState(this.$store.state.diagram, DiagramType.PlantUml),
+            renderer,
           );
         }
       } catch (err) {

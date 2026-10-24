@@ -1,5 +1,6 @@
 import { SyntaxValidationResult } from '../validate/types';
 import { plantumlEncode } from './encode';
+import { plantUmlRenderer } from './renderer';
 
 const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml';
 
@@ -65,10 +66,13 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
   // Validate using PlantUML server (SVG endpoint)
   // The SVG output contains error information in the rendered image
   try {
-    const encoded = plantumlEncode(trimmed);
-    const svgUrl = `${PLANTUML_SERVER}/svg/${encoded}`;
-    
-    const response = await fetch(svgUrl);
+    // ADR-0010 spike: the in-browser engine draws syntax errors with the same
+    // markers as the server, so only the source of the SVG changes. An engine
+    // failure (include, crash) throws into the catch below and passes as
+    // valid: the viewer's render reports it, from the shared engine run.
+    const response = plantUmlRenderer() === 'local'
+      ? await renderLocally(trimmed)
+      : await fetch(`${PLANTUML_SERVER}/svg/${plantumlEncode(trimmed)}`);
     
     // PlantUML returns 400 for syntax errors, but still includes SVG with error details
     // So we need to read the response body even for 400 status
@@ -127,6 +131,13 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
     validationCache.set(code, { result: fallbackResult, timestamp: Date.now() });
     return fallbackResult;
   }
+}
+
+/** The local engine's SVG, shaped like the fetch Response the server path reads. */
+async function renderLocally(code: string): Promise<Pick<Response, 'ok' | 'status' | 'text'>> {
+  const { renderPlantUmlLocally } = await import('./engine');
+  const svg = await renderPlantUmlLocally(code);
+  return { ok: true, status: 200, text: async () => svg };
 }
 
 /**

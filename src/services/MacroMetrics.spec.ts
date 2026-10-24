@@ -62,6 +62,8 @@ describe('MacroMetrics', () => {
           graph: 1,
           openapi: 1,
           mermaid: 1,
+          plantuml: 0,
+          asyncapi: 0,
           unknown: 0,
           isLite: false,
           lastUpdated: new Date().toISOString()
@@ -71,9 +73,11 @@ describe('MacroMetrics', () => {
 
         const result = await macroMetrics.getMacroMetrics();
 
-        expect(result).toEqual(cachedMetrics);
+        // getMacroMetrics tags KV hits with source:'kv' for the paywall gate's
+        // macro_count_source telemetry (#302).
+        expect(result).toEqual({ ...cachedMetrics, source: 'kv' });
         expect(callRemote).toHaveBeenCalledWith(
-          `/metrics-cache/query?domain=${mockDomain}&space=${mockSpace}&addonKey=com.zenuml.confluence-addon-lite`,
+          `/metrics-cache/query?contract=2&domain=${mockDomain}&space=${mockSpace}&addonKey=com.zenuml.confluence-addon-lite`,
           'GET'
         );
         expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
@@ -89,6 +93,16 @@ describe('MacroMetrics', () => {
         await macroMetrics.getMacroMetrics();
 
         expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalled();
+      });
+
+      it('does not collect when a snapshot-managed space is absent from KV', async () => {
+        (callRemote as any).mockResolvedValueOnce({ mode: 'snapshot', metrics: null });
+
+        const result = await macroMetrics.getMacroMetrics();
+
+        expect(result).toBeUndefined();
+        expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+        expect(mockApWrapper.requestPaginatedDataUntil).not.toHaveBeenCalled();
       });
 
       it('should collect new metrics if KV read fails', async () => {
@@ -116,6 +130,10 @@ describe('MacroMetrics', () => {
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Graph }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.OpenApi }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Mermaid }) } } },
+            // Lite ships the AsyncAPI macro under the shared
+            // zenuml-content-sequence type (ADR-0005 Option A) — it must land
+            // in its own bucket, not in `unknown` alongside corrupt bodies.
+            { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.AsyncApi }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: 'Unknown' }) } } }
           ]
         };
@@ -129,14 +147,16 @@ describe('MacroMetrics', () => {
 
         expect(result).toEqual({
           space: mockSpace,
-          total: 6,
+          total: 7,
           sequence: 2,
           graph: 1,
           openapi: 1,
           mermaid: 1,
           plantuml: 0,
+          asyncapi: 1,
           unknown: 1,
-          isLite: false
+          isLite: false,
+          source: 'collect'
         });
       });
 
@@ -159,8 +179,10 @@ describe('MacroMetrics', () => {
           openapi: 0,
           mermaid: 0,
           plantuml: 0,
+          asyncapi: 0,
           unknown: 0,
-          isLite: false
+          isLite: false,
+          source: 'collect'
         });
       });
     });
@@ -217,6 +239,16 @@ describe('MacroMetrics', () => {
   });
 
   describe('reportMacroMetrics', () => {
+    it('does not enumerate or write in snapshot-managed mode', async () => {
+      (callRemote as any).mockResolvedValueOnce({ mode: 'snapshot', metrics: null });
+
+      await macroMetrics.reportMacroMetrics();
+
+      expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+      expect(mockApWrapper.requestPaginatedDataUntil).not.toHaveBeenCalled();
+      expect(callRemote).toHaveBeenCalledTimes(1);
+    });
+
     it('should collect metrics in Forge mode', async () => {
       const forgeGlobal = await import('@/model/globals/forgeGlobal');
       (forgeGlobal.default as any).isForge = true;
@@ -301,7 +333,7 @@ describe('MacroMetrics', () => {
     it('should log [metrics:kv:read] hit on cache hit', async () => {
       const cachedMetrics: IMacroMetrics = {
         space: mockSpace, total: 5, sequence: 2, graph: 1,
-        openapi: 1, mermaid: 1, plantuml: 0, unknown: 0,
+        openapi: 1, mermaid: 1, plantuml: 0, asyncapi: 0, unknown: 0,
         isLite: false, lastUpdated: new Date().toISOString()
       };
       (callRemote as any).mockResolvedValueOnce(cachedMetrics);
@@ -475,8 +507,10 @@ describe('MacroMetrics', () => {
         consumer({ results: [] });
         return Promise.resolve({});
       });
-      // the KV update POST rejects
-      (callRemote as any).mockRejectedValueOnce(new Error('KV write failed'));
+      // mode check succeeds, then the KV update POST rejects
+      (callRemote as any)
+        .mockResolvedValueOnce({ mode: 'legacy', metrics: null })
+        .mockRejectedValueOnce(new Error('KV write failed'));
 
       await macroMetrics.reportMacroMetrics();
 

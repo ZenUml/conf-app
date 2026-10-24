@@ -1,6 +1,7 @@
 
 import React from 'react';
-import ReactDOM from 'react-dom';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import AiAide from "@/components/react/AiAide";
 import { trackEvent } from '@/utils/window';
 
@@ -15,8 +16,11 @@ export async function handleAiAideRoute() {
   }
 
   try {
-    // Render the React component into the app container. Guard errors to avoid breaking the page.
-    ReactDOM.render(React.createElement(AiAide as any, {}), container);
+    // Keep the legacy mount's synchronous error boundary: this route records
+    // initial render failures instead of letting them escape the async root.
+    flushSync(() => {
+      createRoot(container).render(React.createElement(AiAide as any, {}));
+    });
   } catch (e) {
     console.error('Error rendering AiAide component:', e);
     trackEvent(JSON.stringify(e), 'ai_aide_render_error', 'error', { error: (e && (e as any).message) || String(e) });

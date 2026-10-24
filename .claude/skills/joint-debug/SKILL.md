@@ -1,188 +1,228 @@
-# Joint Debug Skill
+---
+name: joint-debug
+description: Enable, launch, monitor, troubleshoot, and stop the local joint-debug environment across conf-app, its Cloudflare Worker, ngrok, Forge tunnel, and diagramly.ai. Use for requests mentioning joint-debug, join-debug, combined local AI Repair testing, starting or monitoring the five-service stack, or closing that stack.
+---
 
-## Overview
-This skill enables/disables the local development environment for joint debugging across three projects:
-1. **confluence-plugin-cloud** (this project)
-2. **worker** (Cloudflare Workers backend)
-3. **diagramly** (AI backend service)
+# Joint Debug
 
-**What it does:**
-- Modifies configuration files with marked changes
-- Generates commands for users to manually run in their own terminals
-- Does NOT automatically start any services
+Run a local five-service stack:
 
-All modifications use comment markers `// [JOINT-DEBUG-START]` and `// [JOINT-DEBUG-END]` for easy toggling.
+1. Diagramly AI service on `http://localhost:3000`
+2. Cloudflare Pages Worker on `http://localhost:8789`
+3. ngrok forwarding the configured HTTPS domain to port `8789`
+4. conf-app frontend on `http://127.0.0.1:8080`
+5. Forge tunnel
 
-## Prerequisites
-- All three projects cloned locally
-- ngrok installed and configured
-- pnpm installed
-- All dependencies installed
-- Code already deployed to required environments
-- `wrangler.toml` configured with ngrok variables in `[vars]` section:
-  - `NGROK_AUTHTOKEN` - ngrok authentication token
-  - `NGROK_DOMAIN` - ngrok domain
+## Guardrails
 
-## Commands
+- Preserve unrelated working-tree and staged changes.
+- Never print the ngrok token or database password.
+- Keep `'/diagramly'` in `functions/_middleware.ts` `AUTHENTICATED_PATHS`. AI routes require verified Forge JWT data in `data.forgeContext`.
+- Keep AI Repair visibility on its existing feature-flag/runtime path. Never force `isAiRepairEnabled` or `shouldShowAiRepair` to `true`.
+- Use a local PostgreSQL database for Diagramly. Do not point local joint-debug at staging or production.
+- Do not claim a service is ready until its log or health endpoint proves readiness.
 
-### Enable Joint Debug Mode
-When user says "enable joint debug" or "start joint debug":
+## Enable configuration
 
-**What it does:**
-- Modifies configuration files with marked changes
-- Generates command for user to manually run the startup script
-- Does NOT automatically execute the script
+1. Inspect `git status`, staged and unstaged diffs. Joint-debug must not edit tracked application source to configure local endpoints.
+2. Obtain the full Diagramly checkout path. Discover likely sibling checkouts first; ask only when multiple plausible paths remain.
+3. Verify `wrangler.toml` contains `NGROK_AUTHTOKEN` and `NGROK_DOMAIN` without displaying the token. Validate the domain as a hostname; the frontend override must be an HTTPS origin with no path.
+4. Use `VITE_JOINT_DEBUG_REMOTE_BASE_URL=https://<NGROK_DOMAIN>` on the Vite process. `forgeGlobal.ts` uses it only for a `DEVELOPMENT` Forge context in Vite dev mode, including the AsyncAPI variant. Do not change `DEVELOPMENT_*` constants.
+5. Pass `--binding=DIAGRAMLY_BACKEND_API_BASE_URL=http://127.0.0.1:3000` to `pnpm wrangler:serve:raw`. This overrides the local Worker binding without changing the ignored `wrangler.toml`.
+6. Check the ignored `.env.forge`/`.env.forge.local` configuration: it must select the Diagramly development app. Put `BACKEND_API_BASE_URL=https://<NGROK_DOMAIN>` in `.env.forge.local` for the variant-aware deploy below. Set `JOINT_DEBUG_BACKEND_API_BASE_URL=https://<NGROK_DOMAIN>` on the Forge tunnel command; `scripts/forgex` applies it after loading those files. The frontend override and deployed `connect` remote must match exactly. These ignored settings are local configuration; do not edit tracked application source to switch URLs.
+7. Do not change middleware authentication or AI Repair feature flags to make the stack work. If runtime evidence identifies a product bug there, handle it as a separate source fix.
+8. Run `git diff --check` and inspect the final diff before launching services. A normal joint-debug setup has no tracked source diff.
 
-**Steps:**
-1. **Verify `wrangler.toml` has required variables**
-   - Check that `[vars]` section contains:
-     - `NGROK_AUTHTOKEN`
-     - `NGROK_DOMAIN`
-   - If missing, inform user to add them manually
+## Prepare the Diagramly local database
 
-2. **Ask user for diagramly project path**
-   - Prompt: "Please provide the full path to your diagramly project directory"
-   - Example: `/Users/username/Documents/projects/diagramly-worktree`
-   - Store this path for use in the startup script
+First inspect `packages/database/prisma/schema.prisma`; Diagramly uses PostgreSQL-specific migrations and cannot be switched to SQLite as a startup-only change.
 
-3. **Modify `src/model/globals/forgeGlobal.ts`**
-   - Find the `REMOTE_BASE_URL_MAP` object
-   - Comment out original values and add joint debug versions with markers:
-   ```typescript
-   // [JOINT-DEBUG-START]
-   DEVELOPMENT_LITE: '<NGROK_DOMAIN_value>',  // Use NGROK_DOMAIN value from wrangler.toml
-   DEVELOPMENT_FULL: '<NGROK_DOMAIN_value>',  // Use NGROK_DOMAIN value from wrangler.toml
-   // [JOINT-DEBUG-END]
-   // DEVELOPMENT_LITE: 'localhost:8789',  // [JOINT-DEBUG-ORIGINAL]
-   // DEVELOPMENT_FULL: 'localhost:8789',  // [JOINT-DEBUG-ORIGINAL]
+1. Reuse an existing `DATABASE_URL` only when its hostname is `localhost` or `127.0.0.1`.
+2. Check ports and existing containers before starting anything. Never stop an unknown PostgreSQL, Supabase, or user-owned container.
+3. If no suitable local PostgreSQL exists, create a dedicated `diagramly-postgres` PostgreSQL 16 container. Prefer host port `5432`; use `5433` or another free port when occupied.
+
+   ```bash
+   docker run -d --name diagramly-postgres \
+     -e POSTGRES_USER=test_user \
+     -e POSTGRES_PASSWORD=test_pass \
+     -e POSTGRES_DB=diagramly_test \
+     -p 127.0.0.1:<free-port>:5432 \
+     postgres:16
    ```
 
-   **Implementation**: Parse `wrangler.toml` to get the `NGROK_DOMAIN` value and use it here.
+4. Initialize the empty local database from the Diagramly root:
 
-4. **Modify `wrangler.toml` - DIAGRAMLY_BACKEND_API_BASE_URL**
-   - Comment out original value and add joint debug version:
-   ```toml
-   # [JOINT-DEBUG-START]
-   DIAGRAMLY_BACKEND_API_BASE_URL = "http://localhost:3000"
-   # [JOINT-DEBUG-END]
-   # DIAGRAMLY_BACKEND_API_BASE_URL = "https://production-url.com"  # [JOINT-DEBUG-ORIGINAL]
+   ```bash
+   DATABASE_URL='<local-url>' \
+     pnpm --filter database exec prisma db push \
+       --skip-generate --schema prisma/schema.prisma
    ```
 
-5. **Modify `functions/_middleware.ts`**
-   - Find `AUTHENTICATED_PATHS` array
-   - Comment out the line containing `/diagramly`:
-   ```typescript
-   const AUTHENTICATED_PATHS = [
-     '/forge-custom-content',
-     '/forge-installed',
-     // '/diagramly',  // [JOINT-DEBUG-DISABLED]
-   ];
-   ```
+5. Keep the chosen URL as a runtime override; do not rewrite Diagramly `.env` unless the user explicitly asks.
+6. After Diagramly starts, require `GET http://127.0.0.1:3000/api/health?deep=1` to report `db: "up"`.
 
-6. **Modify `src/components/SyntaxErrorBox.vue`**
-   - Find the `isAiRepairEnabled` computed property
-   - Make it return `true` directly:
-   ```typescript
-   // Computed property to determine if AI repair is enabled
-   const isAiRepairEnabled = computed(() => {
-     // [JOINT-DEBUG-START]
-     return true;
-     // [JOINT-DEBUG-END]
-     // return aiRepairFeatureEnabled.value;  // [JOINT-DEBUG-ORIGINAL]
-   });
-   ```
+The repository's `.env.test.example` local defaults are suitable for a dedicated test database. Treat any remote, staging, or production database URL as a configuration error for this workflow.
 
-7. **Provide script execution instructions to user**
+## Before launch
 
-   Parse `wrangler.toml` to extract `NGROK_AUTHTOKEN` and `NGROK_DOMAIN` values, then display instructions:
+Verify the selected Forge environment is a development environment. The installed app's deployed `connect` remote must already use `https://<NGROK_DOMAIN>`. A `forge tunnel` process variable changes manifest parsing locally, but does not update the deployed manifest; changing the remote hostname requires a development deployment. If the deployed remote differs, ask the user before running the variant-aware Diagramly build → deploy → upgrade flow (requires `yq`):
 
-   **Output to user:**
-   ```
-   ✅ Joint debug mode enabled!
-
-   Configuration files updated with [JOINT-DEBUG] markers.
-
-   To start all services, run this command in your terminal:
-
-   ./.claude/skills/joint-debug/launch-debug-services.sh \
-     "<NGROK_AUTHTOKEN_from_wrangler.toml>" \
-     "<NGROK_DOMAIN_from_wrangler.toml>" \
-     "/path/to/diagramly-worktree"
-
-   This will open 5 terminal windows:
-     1. Diagramly AI Service (port 3000)
-     2. Cloudflare Worker (port 8789)
-     3. ngrok Tunnel
-     4. Confluence Plugin Frontend (port 8000)
-     5. Forge Tunnel
-
-   Expected services:
-     - Diagramly:  http://localhost:3000
-     - Worker:     http://localhost:8789
-     - Frontend:   http://localhost:8000
-     - ngrok:      https://<NGROK_DOMAIN>
-     - Forge:      Tunnel active
-   ```
-
-**Implementation Notes**:
-- Parse `wrangler.toml` to extract `NGROK_AUTHTOKEN` and `NGROK_DOMAIN` values
-- **Ask user for diagramly project path** before generating the command
-- **Display the command** with actual values substituted for user to copy and run
-- Do NOT automatically execute the script
-- User will manually run the script in their terminal or commands
-
-### Disable Joint Debug Mode
-When user says "disable joint debug" or "stop joint debug":
-
-**What it does:**
-- Reverts all configuration file changes
-- Does NOT stop any services (user manages services manually)
-- Does NOT modify the startup script (it's parameter-based)
-
-**Steps:**
-
-1. **Revert `src/model/globals/forgeGlobal.ts`**
-   - Remove lines between `// [JOINT-DEBUG-START]` and `// [JOINT-DEBUG-END]`
-   - Uncomment lines marked with `// [JOINT-DEBUG-ORIGINAL]`
-
-2. **Revert `wrangler.toml`**
-   - Remove lines between `# [JOINT-DEBUG-START]` and `# [JOINT-DEBUG-END]`
-   - Uncomment lines marked with `# [JOINT-DEBUG-ORIGINAL]`
-
-3. **Revert `functions/_middleware.ts`**
-   - Uncomment lines marked with `// [JOINT-DEBUG-DISABLED]`
-
-4. **Revert `src/components/SyntaxErrorBox.vue`**
-   - Remove lines between `// [JOINT-DEBUG-START]` and `// [JOINT-DEBUG-END]`
-   - Uncomment lines marked with `// [JOINT-DEBUG-ORIGINAL]`
-
-**Note**: User should manually stop any running services in their terminals if needed (Ctrl+C in each terminal window).
-
-## Implementation Notes
-
-### Marker Pattern
-- Use `// [JOINT-DEBUG-START]` and `// [JOINT-DEBUG-END]` to wrap new code
-- Use `// [JOINT-DEBUG-ORIGINAL]` to mark commented-out original code
-- Use `// [JOINT-DEBUG-DISABLED]` to mark temporarily disabled code
-
-### Search Pattern
-To find all joint debug modifications:
 ```bash
-grep -r "JOINT-DEBUG" src/ functions/ wrangler.toml
+pnpm forge-wizard --app diagramly --env development --site '<test-site>.atlassian.net' --tunnel no
 ```
 
-## Terminal Layout
-When user runs the script, it will automatically open 5 terminal windows:
-1. **Terminal 1: diagramly** - AI backend (port 3000) - Monitor AI service logs and API requests
-2. **Terminal 2: worker** - Cloudflare Workers (port 8789) - Watch for runtime errors and function invocations
-3. **Terminal 3: worker-ngrok** - ngrok tunnel - Observe tunnel status and HTTP traffic
-4. **Terminal 4: confluence-plugin-cloud** - Frontend (port 8000) - Track build status and hot reload
-5. **Terminal 5: forge-tunnel** - Forge tunnel (required) - Monitor Forge remote invocations
+The wizard builds the Diagramly variant, removes its unused DrawIO asset tree, strips modules belonging to other variants from a temporary manifest, deploys, upgrades the installation, and restores the original manifest. The simpler `forge:upgrade:diagramly:dev` script does not strip the manifest and can hit macro-key conflicts on a shared site. If the user declines a required deployment, do not claim Forge remote requests can reach this local Worker. Backend-only checks can still continue if useful.
 
-**Important**: User manually runs the script, which then automatically opens all terminal windows. Users can observe logs and debug issues in real-time in each window.
+## Launch mode
 
-## Troubleshooting
-- If ngrok URL changes, update `NGROK_DOMAIN` in `wrangler.toml` [vars] section
-- Ensure ports 3000, 8000, 8789 are available
-- Check diagramly is responding before starting full stack
-- If markers are missing, the files haven't been set up for joint debug yet
+Choose based on the user's request.
+
+### Frontend mode invariants
+
+- Treat `pnpm start:local` as a standalone Lite frontend. It runs Vite in
+  `serve` mode and intentionally aliases `@forge/bridge` to
+  `src/stubs/forge-bridge.ts`.
+- Treat `pnpm start:sit` as local D1 migration + Wrangler + `start:local`. It
+  still uses the Forge bridge stub, and it also starts its own Worker. Never
+  substitute it for the separately managed Worker + frontend in this stack.
+- Start a frontend consumed by Forge tunnel with `FORGE_TUNNEL=1`; this is the
+  explicit signal in `vite.config.mjs` that retains the real
+  `@forge/bridge` package.
+- Set `PRODUCT_TYPE=diagramly` on the Vite command itself. Do not rely on a
+  parent environment variable when a nested package script sets
+  `PRODUCT_TYPE=lite` explicitly.
+- Expect the Confluence iframe source to use `http://localhost:8000`: Forge
+  tunnel owns that proxy origin and forwards Custom UI assets to Vite on
+  `127.0.0.1:8080`. Seeing port `8000` is not evidence of a failure.
+
+Before UI testing, inspect the transformed frontend module without printing
+secrets:
+
+```bash
+curl -fsS http://127.0.0.1:8080/src/model/globals/forgeGlobal.ts \
+  | rg 'node_modules/.vite/deps/@forge_bridge|src/stubs/forge-bridge|PRODUCT_TYPE'
+```
+
+Require the real `@forge_bridge` dependency, no `src/stubs/forge-bridge` import,
+and `PRODUCT_TYPE: "diagramly"`. If a real Forge iframe reports
+`Forge context missing extension`, check these invariants first. Do not weaken
+the context guard or manufacture a Forge context in application code.
+
+### Macro identity versus local build identity
+
+An existing Forge macro stores its module key, configuration, and content; it
+does not pin a copy of the frontend bundle used when the macro was created.
+Every view or edit loads the app resource again. While a Forge tunnel is
+active, an existing macro can therefore execute the bundle currently served by
+the local Vite process.
+
+- Treat `context.moduleKey` as the macro identity. For example, a key ending in
+  `-lite` is a Lite macro.
+- Treat `import.meta.env.PRODUCT_TYPE` as the local bundle identity only. Never
+  use it to decide which Forge macro or app owns persisted content.
+- If a Lite `moduleKey` executes a bundle compiled with
+  `PRODUCT_TYPE=diagramly`, diagnose a tunnel/Vite variant mismatch. The macro
+  has not been converted and its saved content has not changed.
+- Running the variant-aware Diagramly deployment above upgrades the Diagramly development
+  installation; it does not convert existing Lite macros. Verify that the
+  active tunnel, the macro's `moduleKey`, and the Vite `PRODUCT_TYPE` match the
+  variant being tested before investigating feature flags or UI visibility.
+- To test a Diagramly-only feature, use a Diagramly macro. Do not treat a Lite
+  macro that happens to receive the Diagramly local bundle as a Diagramly macro.
+
+### Codex-managed monitoring
+
+When the user asks Codex to start, own, monitor, or automatically diagnose the stack, do not run the AppleScript helper. Launch five long-running managed PTY sessions and retain every session ID:
+
+```bash
+# Diagramly checkout
+DATABASE_URL='<local-url>' pnpm dev
+
+# conf-app checkout; keep `dist` as the Pages asset directory so Wrangler does
+# not scan the repository root and node_modules.
+PORT=8789 HOST=127.0.0.1 pnpm wrangler:serve:raw --binding=DIAGRAMLY_BACKEND_API_BASE_URL=http://127.0.0.1:3000
+ngrok http --authtoken '<token>' --url '<domain>' 8789
+VITE_JOINT_DEBUG_REMOTE_BASE_URL='https://<domain>' FORGE_TUNNEL=1 VERSION=latest PRODUCT_TYPE=diagramly pnpm exec vite dev --port 8080 --host 127.0.0.1
+JOINT_DEBUG_BACKEND_API_BASE_URL='https://<domain>' pnpm forge:tunnel
+```
+
+If a sandboxed launch fails with `EPERM`, file-log permission errors, or port-binding errors, rerun that service with the required elevated permission. Do not launch `pnpm start:sit`: it starts another Worker and collides with the separately managed Worker.
+
+Require these readiness signals:
+
+- Diagramly: Next.js `Ready` on port `3000`, mock OpenAI server on `9000`, and deep health `db: "up"`.
+- Worker: `Ready on http://localhost:8789`.
+- ngrok: local API on `4040` shows the configured public URL forwarding to `8789`.
+- Frontend: Vite `ready` on `127.0.0.1:8080`.
+- Forge: tunnel reports its development environment and listens for requests.
+
+### User-managed Terminal windows
+
+When the user explicitly wants separate macOS Terminal windows, run:
+
+```bash
+./.claude/skills/joint-debug/launch-debug-services.sh \
+  '<NGROK_AUTHTOKEN>' \
+  '<NGROK_DOMAIN>' \
+  '<DIAGRAMLY_PATH>'
+```
+
+The fourth argument is optional. When omitted, the helper lets Diagramly's `pnpm dev` load
+`DATABASE_URL` from its default `.env`; the helper still verifies that it targets localhost. Pass
+`'<LOCAL_DATABASE_URL>'` as the fourth argument only when an explicit local override is needed.
+
+The helper requires macOS permission to send Apple Events to Terminal. If it reports error `-1743`, stop and tell the user to grant Automation permission or switch to Codex-managed PTYs. Never accept its success banner without checking that the expected ports are listening.
+
+## Monitor and repair
+
+While the user tests:
+
+1. Poll all five PTY sessions after each action and retain new output.
+2. Correlate requests with ngrok metadata, Worker logs, Forge logs, and Diagramly logs. Avoid dumping authorization headers or request bodies containing secrets.
+3. Trace the user-visible error through runtime evidence before editing code.
+4. Apply the smallest evidence-backed fix, run focused tests, and confirm the affected service hot-reloads or restarts.
+5. Ask the user to retry only after the stack returns to ready state.
+
+For an AI Repair acceptance test on a real Confluence draft:
+
+1. Reuse the user's existing logged-in browser tab; do not open another browser.
+2. Use Playwright because Forge Custom UI is a sandboxed cross-origin iframe.
+3. Insert the Diagramly development OpenAPI macro and enter deliberately invalid
+   YAML, for example `title Sample API` instead of `title: Sample API`.
+4. Require visible parser-error evidence, open AI Repair, wait for the repaired
+   diff, apply it, and wait for the stale parser error to disappear.
+5. Require the editor to contain the repaired code and the preview to render.
+6. Corroborate the UI with ngrok metadata showing successful
+   `/diagramly/fix-diagram` and `/diagramly/job-status` responses. Print only
+   timestamps, methods, paths, and status codes.
+7. Save the macro to the page draft only when the user authorized insertion.
+   Do not click Confluence's page-level Publish action unless separately asked.
+
+Do not mark the check passed from unit tests alone. Preserve a screenshot,
+snapshot, or network intercept that proves the final UI state.
+
+Known signatures:
+
+- `Missing accountId in Forge context`: `/diagramly` bypassed authentication. Restore it in `AUTHENTICATED_PATHS`; do not fall back to client-supplied identity.
+- Diagramly returns `401 Unauthorized`: inspect Diagramly logs before changing API keys. API-key auth may be masking a Prisma connection failure. Confirm deep health and the local `DATABASE_URL`.
+- Prisma points at `diagramly-db-stg.postgres.database.azure.com`: the local configuration is stale; use the dedicated local PostgreSQL database.
+- Wrangler `EMFILE` or `listen EPERM`: relaunch outside the sandbox; do not change application code.
+- Wrangler `/diagramly/job-status` fails with `Network connection lost` after earlier
+  polls returned `200`, while Diagramly later logs the job as completed: do not
+  diagnose this as an AI/model failure. Read
+  [references/wrangler-network-connection-lost.md](references/wrangler-network-connection-lost.md)
+  and follow its evidence, restart, and deployment-boundary guidance.
+- Forge lint errors followed by `Listening for requests`: an old Forge CLI may reject newer manifest schema while the tunnel still works. Do not edit `manifest.yml` without separate evidence.
+- Diagramly Node `>=24` warning followed by Next.js `Ready`: record the warning but treat it as non-blocking for that run.
+- Mixpanel `before_register` errors together with Vite's
+  `VITE_MIXPANEL_TOKEN is empty` warning mean local analytics is unconfigured;
+  report dropped local events separately from AI Repair transport health.
+
+## Stop and clean up
+
+1. Send Ctrl+C to every managed service session and confirm exit.
+2. Stop `diagramly-postgres` only if this workflow created or started it. Never stop unrelated Docker/Supabase containers.
+3. Vite, Worker, and Forge remote overrides disappear when their processes exit; no source or local config cleanup is needed.
+4. Do not change middleware authentication or AI Repair feature flags during cleanup.
+5. Inspect both `git diff` and `git diff --cached`; preserve all unrelated edits.
+6. Confirm expected ports are no longer listening and run `git diff --check`.

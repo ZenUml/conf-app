@@ -66,6 +66,7 @@ import {
   type PendingAuthorization,
   type RegisteredClient,
 } from './asStore';
+import { readCookie, setCookie } from './cookies';
 import { canonicalizeResource } from './protectedResource';
 import { isValidChallenge, verifyPkce } from './pkce';
 import type { RefreshLedger } from './refreshLedger';
@@ -318,17 +319,7 @@ export const CONSENT_COOKIE_TTL_SECONDS = 10 * 60;
  * clears it, by design, before redirecting.
  */
 export function consentCookie(pendingId: string, requestUrl: URL, maxAge = CONSENT_COOKIE_TTL_SECONDS): string {
-  const secure = requestUrl.protocol === 'https:' ? '; Secure' : '';
-  // Lax, not Strict — the same reason atlassianLeg's state cookie is Lax. The
-  // request that must carry this cookie is the redirect into /consent, and
-  // that redirect is part of a navigation that STARTED cross-site, at
-  // Atlassian. Strict withholds the cookie there, so the consent screen saw
-  // no cookie and refused every real user (observed on staging 2026-09-26).
-  //
-  // Lax still does the job it was added for: it is withheld from a
-  // cross-site POST, which is the shape a CSRF against the consent form
-  // takes. The GET it now allows only renders the page.
-  return `${CONSENT_COOKIE}=${pendingId}; Path=${CONSENT_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
+  return setCookie(CONSENT_COOKIE, pendingId, { path: CONSENT_PATH, maxAge, requestUrl });
 }
 
 /**
@@ -386,14 +377,8 @@ export function switchAccountUrl(origin: string, pending: PendingAuthorization):
   return url.toString();
 }
 
-export function readCookie(header: string | null, name: string): string | null {
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const [k, ...rest] = part.trim().split('=');
-    if (k === name) return rest.join('=');
-  }
-  return null;
-}
+// Re-exported so existing importers keep working; the implementation is cookies.ts.
+export { readCookie };
 
 /** Does this request carry the consent cookie for `pendingId`? */
 export function consentCookieMatches(request: Request, pendingId: string): boolean {

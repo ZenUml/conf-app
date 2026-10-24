@@ -10,9 +10,10 @@ import { PLANTUML_RENDERER_STORAGE_KEY } from '@/utils/plantuml/renderer'
 setup((app) => app.use(store))
 
 /**
- * ADR-0010 spike: PlantUML drawn by the real @plantuml/core engine in this
- * browser. Unlike the other PlantUML stories nothing is canned: any request to
- * plantuml.com is refused and recorded, and each play asserts there was none.
+ * ADR-0010: PlantUML drawn by the real @plantuml/core engine in this browser.
+ * Unlike the other PlantUML stories nothing is canned: any request to
+ * plantuml.com is recorded, and refused unless the story stands in for the
+ * server to show the fallback. Each play asserts which requests happened.
  */
 const meta: Meta = {
   title: 'Editor/Diagram/PlantUmlLocalRenderer',
@@ -24,7 +25,7 @@ type Story = StoryObj<typeof meta>
 
 const serverCalls: string[] = []
 
-function localRendererStory(code: string) {
+function localRendererStory(code: string, serverSvg?: string) {
   return () => ({
     components: { PlantUml, SyntaxErrorBox },
     setup() {
@@ -35,6 +36,7 @@ function localRendererStory(code: string) {
         const url = String(input instanceof Request ? input.url : input)
         if (url.includes('plantuml.com')) {
           serverCalls.push(url)
+          if (serverSvg) return Promise.resolve(new Response(serverSvg, { status: 200, headers: { 'Content-Type': 'image/svg+xml' } }))
           return Promise.reject(new TypeError('plantuml.com is blocked in this story'))
         }
         return originalFetch(input, init)
@@ -79,12 +81,19 @@ export const SyntaxError: Story = {
   },
 }
 
-/** Known gap until the stdlib is self-hosted: an !include library fails visibly. */
-export const IncludeUnavailable: Story = {
-  render: localRendererStory('@startuml\n!include <C4/C4_Context>\nPerson(user, "User")\n@enduml'),
+/** Stands in for plantuml.com's answer to the C4 diagram below. */
+const SERVER_C4_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="160px" height="60px" viewBox="0 0 160 60"><rect x="5" y="5" width="150" height="50" fill="#08427B"/><text x="20" y="35" fill="#FFFFFF">User (server)</text></svg>'
+
+/**
+ * Known gap until the stdlib is self-hosted: the engine cannot resolve the
+ * !include, so this one diagram falls back to the server, which draws it.
+ */
+export const IncludeFallsBackToServer: Story = {
+  render: localRendererStory('@startuml\n!include <C4/C4_Context>\nPerson(user, "User")\n@enduml', SERVER_C4_SVG),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByText(/!include library/)).toBeTruthy(), { timeout: 30000 })
-    await expect(serverCalls).toEqual([])
+    await waitFor(() => expect(canvasElement.querySelector('.plantuml-render svg')).not.toBeNull(), { timeout: 30000 })
+    await expect(canvasElement.querySelector('.plantuml-render svg')!.textContent).toContain('User (server)')
+    await expect(serverCalls.length).toBeGreaterThan(0)
+    await expect(serverCalls.every((url) => url.startsWith('https://www.plantuml.com/plantuml/svg/'))).toBe(true)
   },
 }

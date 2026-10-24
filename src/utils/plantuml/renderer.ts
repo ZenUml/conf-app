@@ -1,19 +1,41 @@
-import type { PlantUmlRenderer } from '@/utils/analytics/catalog';
+import { isPlantUmlLocalRendererEnabled } from '@/apis/aiTitleFeatureFlag';
 
 /**
- * Which engine draws PlantUML for this viewer (ADR-0010).
+ * Which engine this viewer asks first for PlantUML (ADR-0010): `local`, the
+ * in-browser engine, or `server`, www.plantuml.com. A `local` choice still
+ * falls back to the server for a diagram the engine cannot draw.
  *
- * Spike gate: `server` for everyone, `local` only for a browser that opted in
- * with `localStorage.plantumlRenderer = 'local'` in the macro iframe's origin
- * (the same trick as `zenumlDebug`, see the check-version skill). A Forge
- * feature flag replaces this before any customer sees the local engine.
+ * The Forge flag `plantuml-local-renderer-enabled` decides, per site. A browser
+ * can override it either way with `localStorage.plantumlRenderer` in the macro
+ * iframe's origin (`local` or `server`), for testing without touching the flag.
  */
+export type PlantUmlEngineChoice = 'server' | 'local';
+
 export const PLANTUML_RENDERER_STORAGE_KEY = 'plantumlRenderer';
 
-export function plantUmlRenderer(): PlantUmlRenderer {
+function storedOverride(): PlantUmlEngineChoice | null {
   try {
-    return localStorage.getItem(PLANTUML_RENDERER_STORAGE_KEY) === 'local' ? 'local' : 'server';
+    const value = localStorage.getItem(PLANTUML_RENDERER_STORAGE_KEY);
+    return value === 'local' || value === 'server' ? value : null;
   } catch {
-    return 'server'; // storage blocked: keep today's behaviour
+    return null; // storage blocked: let the flag decide
   }
+}
+
+// One flag lookup per iframe: validation and render both ask, on every edit.
+let flagChoice: Promise<PlantUmlEngineChoice> | null = null;
+
+export function plantUmlRenderer(): Promise<PlantUmlEngineChoice> {
+  const override = storedOverride();
+  if (override) return Promise.resolve(override);
+  flagChoice ??= isPlantUmlLocalRendererEnabled().then(
+    (enabled): PlantUmlEngineChoice => (enabled ? 'local' : 'server'),
+    (): PlantUmlEngineChoice => 'server',
+  );
+  return flagChoice;
+}
+
+/** Test hook: forget the cached flag answer. */
+export function resetPlantUmlRendererForTests(): void {
+  flagChoice = null;
 }

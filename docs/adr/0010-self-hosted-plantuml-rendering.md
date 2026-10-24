@@ -1,6 +1,6 @@
 # ADR-0010: Render PlantUML in the viewer's browser, not at plantuml.com
 
-**Status**: Proposed. Spike merged behind a per-browser opt-in, default unchanged.
+**Status**: Proposed. Spike behind the Forge flag `plantuml-local-renderer-enabled` (off), with server fallback; default unchanged.
 **Date**: 2026-10-24
 **Related**: [ADR-0004](0004-export-server-side-render-feasibility.md) (server-side export), `src/components/PlantUml.vue`, `src/utils/plantuml/`, `src/mcp-app-view.ts`, `manifest.yml` `permissions.external.fetch.client`, PRs #930 and #951 (open, same files)
 
@@ -40,9 +40,24 @@ path. Keep `ALLOW_PLANTUML_INCLUDE` off.
 
 ## Decision (proposed)
 
-A, as the only renderer for the macro, the editor linter and export. B is kept
-only as a fallback for the two places a browser engine cannot reach (see
-"Open questions"), and only if those places prove to need it.
+A, as the first renderer for the macro, the editor linter and export, **with
+plantuml.com as a per-diagram fallback** while the engine has known gaps. The
+owner chose this over a hard switch on 2026-10-24.
+
+- **Fallback.** When the engine cannot draw a diagram (an unresolved `!include`,
+  a crash, a chunk that will not load), that one diagram is validated and drawn
+  by plantuml.com exactly as today. Nothing a viewer could see before breaks.
+  The privacy gain is partial until the gaps close: a fallback diagram's source
+  still leaves the browser, and `macro_viewed.plantuml_renderer =
+  server_fallback` counts how often.
+- **Gate.** The Forge flag `plantuml-local-renderer-enabled` (default off,
+  fail-closed) chooses the engine per site. `localStorage.plantumlRenderer`
+  (`local` / `server`) in the macro iframe overrides it per browser, for testing.
+- The fallback does not cover layout differences between Smetana and Graphviz,
+  which still need rollout step 3 before a site is switched on.
+
+B is kept only for the two places a browser engine cannot reach (see "Open
+questions"), and only if those places prove to need it.
 
 ## Evidence from the spike (2026-10-24)
 
@@ -109,15 +124,18 @@ Two more properties surfaced:
 - `utils/plantuml/engine.ts`: lazy engine load, optional data on demand, one shared
   run for validation plus render, and a classifier for the two error pages the engine
   draws as a "successful" SVG (`engine_error`, `include`).
-- `utils/plantuml/renderer.ts`: the gate. `server` unless the macro iframe's origin
-  has `localStorage.plantumlRenderer = 'local'`. No customer is affected.
-- `PlantUml.vue` and `validate.ts`: one branch each on the gate. Export (3) and
-  the MCP view (4) are untouched.
+- `utils/plantuml/renderer.ts`: the gate. The Forge flag
+  `plantuml-local-renderer-enabled` (one lookup per iframe, `server` on any
+  error), overridable per browser by `localStorage.plantumlRenderer`. The flag
+  is off, so no customer is affected.
+- `PlantUml.vue` and `validate.ts`: try the engine, fall back to the server for a
+  diagram it cannot draw. Export (3) and the MCP view (4) are untouched.
 - Analytics, added before the code: `macro_viewed.plantuml_renderer`
-  (`server | local`) and `plantuml_local_render_failed` with
+  (`server | local | server_fallback`) and `plantuml_local_render_failed` with
   `plantuml_failure_reason` (`load_failed | include | engine_error`).
-- Storybook: `Editor/Diagram/PlantUmlLocalRenderer`, which refuses any
-  plantuml.com request and asserts there was none.
+- Storybook: `Editor/Diagram/PlantUmlLocalRenderer`. Sequence, class and syntax-error
+  stories refuse any plantuml.com request; the include story stands in for the
+  server and shows the fallback drawing.
 
 ## Rollout plan
 
@@ -132,10 +150,10 @@ Two more properties surfaced:
 4. **Self-host the stdlib** (C4, AWS, …) under our own static assets and set
    `PLANTUML_STDLIB_BASE`. Local-file `!include` needs a `PLANTUML_FILE_LOADER`, or
    stays unsupported as it is today.
-5. **Replace the localStorage gate with a Forge feature flag**, then roll out by
-   site: diagramly, then lite, then full. Gate each widening on
-   `plantuml_local_render_failed` against `macro_viewed` with
-   `plantuml_renderer = local`.
+5. **Roll out the Forge flag** by site: diagramly, then lite, then full. The flag
+   must first be created in the Developer Console for each app (forge-feature-flag
+   skill). Gate each widening on `macro_viewed` split by `plantuml_renderer`
+   (`local` vs `server_fallback`) and on `plantuml_local_render_failed` reasons.
 6. **Export.** Rasterise the local SVG on a canvas instead of fetching
    `/plantuml/png/`. The "html-to-image cannot decode the server SVG" failure in
    `fetchPng.ts` needs re-testing: the local SVG has no external references.
@@ -157,8 +175,9 @@ Two more properties surfaced:
 
 ## Consequences
 
-- When the rollout completes, no PlantUML source leaves the viewer's browser. One
-  sub-processor and one egress entry go away.
+- When the rollout completes and the fallback is no longer needed, no PlantUML
+  source leaves the viewer's browser. One sub-processor and one egress entry go
+  away. Until then, `server_fallback` views still send their source.
 - PlantUML renders when plantuml.com is down or slow, and no longer pays a network
   round trip. The first render pays a 1.1 MB chunk download instead, cached afterwards.
 - We own an engine upgrade cadence (Dependabot) instead of inheriting the public

@@ -5,11 +5,14 @@ import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { renderPlantUmlLocally, PlantUmlLocalRenderError } from '@/utils/plantuml/engine';
-import { PLANTUML_RENDERER_STORAGE_KEY } from '@/utils/plantuml/renderer';
+import { PLANTUML_RENDERER_STORAGE_KEY, resetPlantUmlRendererForTests } from '@/utils/plantuml/renderer';
+import { isPlantUmlLocalRendererEnabled } from '@/apis/aiTitleFeatureFlag';
 
-// ADR-0010 spike: the opted-in viewer draws with the in-browser engine and
-// never contacts plantuml.com. The engine itself needs a real canvas, so it is
-// mocked here; Storybook and the Forge tunnel exercise the real one.
+// ADR-0010: with the local renderer chosen, the viewer draws with the
+// in-browser engine and never contacts plantuml.com, unless the engine cannot
+// draw the diagram, in which case it falls back to the server. The engine
+// itself needs a real canvas, so it is mocked here; Storybook and a real Forge
+// iframe exercise the real one.
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
 vi.mock('@/model/globals', () => ({
@@ -28,6 +31,7 @@ vi.mock('lodash', async (importOriginal) => {
       Object.assign((...args: unknown[]) => fn(...args), { cancel: () => {} }),
   };
 });
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({ isPlantUmlLocalRendererEnabled: vi.fn(() => Promise.resolve(false)) }));
 vi.mock('@/utils/plantuml/engine', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/plantuml/engine')>();
   return { ...actual, renderPlantUmlLocally: vi.fn() };
@@ -55,6 +59,7 @@ describe('PlantUml local renderer (ADR-0010)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetPlantUmlRendererForTests();
     localStorage.setItem(PLANTUML_RENDERER_STORAGE_KEY, 'local');
     vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 106, height: 148 } as DOMRect);
     window.fetch = vi.fn(() => Promise.reject(new Error('no network in local mode'))) as typeof fetch;
@@ -82,14 +87,22 @@ describe('PlantUml local renderer (ADR-0010)', () => {
     expect(props).toMatchObject({ macro_type: 'plantuml', plantuml_renderer: 'local' });
   });
 
-  it('shows the failure and reports its reason when the engine cannot draw the diagram', async () => {
+  it('falls back to the server when the engine cannot draw the diagram, and says so', async () => {
     vi.mocked(renderPlantUmlLocally).mockRejectedValue(
       new PlantUmlLocalRenderError('include', 'This diagram uses an !include library that is not available yet'));
+    window.fetch = vi.fn(() => Promise.resolve(new Response(LOCAL_SVG, { status: 200 }))) as typeof fetch;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const wrapper = mount(PlantUml, { global: { plugins: [store] } });
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('!include library'));
-    expect(window.fetch).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(wrapper.find('.plantuml-render svg').exists()).toBe(true));
+    expect(wrapper.text()).not.toContain('Failed to render');
+    expect(String(vi.mocked(window.fetch).mock.calls[0][0])).toContain('www.plantuml.com/plantuml/svg/');
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, viewed] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(viewed).toMatchObject({ macro_type: 'plantuml', plantuml_renderer: 'server_fallback' });
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('plantuml_local_render_failed', {
       feature_area: 'macro',
       surface: 'viewer',
@@ -99,7 +112,19 @@ describe('PlantUml local renderer (ADR-0010)', () => {
     });
   });
 
-  it('keeps the server renderer when the viewer has not opted in', async () => {
+  it('uses the engine when the Forge flag is on, without any localStorage opt-in', async () => {
+    localStorage.removeItem(PLANTUML_RENDERER_STORAGE_KEY);
+    vi.mocked(isPlantUmlLocalRendererEnabled).mockResolvedValueOnce(true);
+    vi.mocked(renderPlantUmlLocally).mockResolvedValue(LOCAL_SVG);
+
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(wrapper.find('.plantuml-render svg').exists()).toBe(true));
+    expect(renderPlantUmlLocally).toHaveBeenCalled();
+    expect(window.fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the server renderer when the flag is off and the viewer has not opted in', async () => {
     localStorage.removeItem(PLANTUML_RENDERER_STORAGE_KEY);
     window.fetch = vi.fn(() => Promise.resolve(new Response(LOCAL_SVG, { status: 200 }))) as typeof fetch;
 

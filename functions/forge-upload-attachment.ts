@@ -4,7 +4,7 @@ import { requireForgeUserToken } from "./utils/forgeUserToken";
 import { mixpanelTrack } from "./service/mixpanelService";
 import { getAtlassianInstanceClientDomain } from "./utils/dbUtils";
 import type { D1Database } from "@cloudflare/workers-types";
-import { writePngState } from "../src/lib/pngExportState.js";
+import { describePngStateFailure, writePngState } from "../src/lib/pngExportState.js";
 
 // ---------------------------------------------------------------------------
 // Attachment-upload fallback (issue #166)
@@ -555,23 +555,28 @@ export const onRequest = async ({
           ...(value ? { body: JSON.stringify(value) } : {}),
         });
         try {
-          const propertyFailures: Array<{ operation: string; reason: string }> = [];
+          const propertyFailures: Array<{ operation: string; error: unknown }> = [];
           const changed = await writePngState(requestProperty, {
             pageId: String(pageId), customContentId, state, attemptId: pngAttemptId,
             startedAt: Date.now(), contentHash: String(hash),
             ...(r.ok ? { attachmentId: r.attachmentId } : {}),
           }, (operation: string, error: unknown) => {
             console.warn(`forge-upload-attachment: PNG state ${operation} failed`, error);
-            propertyFailures.push({ operation, reason: error instanceof Error ? error.message.slice(0, 40) : 'unknown' });
+            propertyFailures.push({ operation, error });
           });
           if (env?.MIXPANEL_TOKEN) {
             for (const failure of propertyFailures) {
+              // The app token gets a 404 from the properties endpoint whenever
+              // the app's own upload could not reach the page (a draft, or an
+              // app without permission there): an expected skip, not a fault.
+              const { outcome, ...described } = describePngStateFailure(failure.operation, failure.error);
               await mixpanelTrack({
-                event: 'png_export_state_persistence_failed', feature_area: 'macro', surface: 'backend',
+                event: outcome === 'skipped' ? 'png_export_state_persistence_skipped' : 'png_export_state_persistence_failed',
+                feature_area: 'macro', surface: 'backend',
                 page_id: String(pageId), custom_content_id: customContentId,
                 cloud_id: data.forgeContext?.cloudId, user_account_id: data.forgeContext?.accountId,
                 attachment_name: String(attachmentName),
-                png_export_property_operation: failure.operation, failure_reason: failure.reason,
+                png_export_property_operation: failure.operation, ...described,
               }, env.MIXPANEL_TOKEN, env);
             }
             if (changed) await mixpanelTrack({

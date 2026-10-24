@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { pngStateKey, readPngState, writePngState } from '../../src/lib/pngExportState.js';
+import { describePngStateFailure, pngStateKey, readPngState, writePngState } from '../../src/lib/pngExportState.js';
 
 const now = Date.parse('2026-10-19T00:00:00Z');
 const input = (pageId = '1', customContentId = '10', attemptId = 'attempt-a', state = 'generating') => ({
@@ -120,5 +120,94 @@ describe('PNG export page state', () => {
     expect(Date.now() - start).toBeLessThan(2200);
     expect(request).toHaveBeenCalledTimes(1);
     expect(failures).toHaveBeenCalledWith('read', expect.any(Error));
+  });
+
+  it('lets two concurrent export missing-writes converge without reporting the loser', async () => {
+    const { records, request } = store();
+    // Both export calls read "absent" before either POST lands, as two
+    // simultaneous export invocations for one macro do in production.
+    const gate = { pending: 2, release: () => {} };
+    const released = new Promise<void>(r => { gate.release = r; });
+    const racing = vi.fn(async (url: string, method: string, body?: any) => {
+      if (method === 'POST' && gate.pending > 0) {
+        gate.pending--;
+        if (gate.pending === 0) gate.release(); else await released;
+      }
+      return request(url, method, body);
+    });
+    const failures = vi.fn();
+    const missing = (attemptId: string) => writePngState(racing, {
+      pageId: '1', customContentId: '10', state: 'missing', attemptId, startedAt: now,
+      startAttempt: true, expectedVersion: null,
+    }, failures, now);
+    const results = await Promise.all([missing('export-a'), missing('export-b')]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(failures).not.toHaveBeenCalled();
+    expect(records.get(pngStateKey('10'))?.value.state).toBe('missing');
+  });
+
+  it('keeps re-deciding through repeated conflicts until the write lands', async () => {
+    const { request } = store();
+    await writePngState(request, input(), undefined, now);
+    let conflicts = 2;
+    const conflicted = vi.fn(async (url: string, method: string, body?: any) => {
+      if (method === 'PUT' && conflicts > 0) { conflicts--; return new Response('', { status: 409 }); }
+      return request(url, method, body);
+    });
+    const failures = vi.fn();
+    expect(await writePngState(conflicted, input('1', '10', 'attempt-a', 'ready'), failures, now + 1)).toBe(true);
+    expect(failures).not.toHaveBeenCalled();
+    expect((await readPngState(request, '1', '10', undefined, now + 1)).value.state).toBe('ready');
+  });
+
+  it('drops a worker terminal result quietly when a viewer started a newer attempt mid-race', async () => {
+    const { request } = store();
+    await writePngState(request, input(), undefined, now);
+    let raced = false;
+    // The viewer's new start lands between the worker's read and its PUT.
+    const worker = vi.fn(async (url: string, method: string, body?: any) => {
+      if (method === 'PUT' && !raced) {
+        raced = true;
+        await writePngState(request, { ...input('1', '10', 'viewer-b'), startedAt: now + 1 }, undefined, now + 1);
+      }
+      return request(url, method, body);
+    });
+    const failures = vi.fn();
+    expect(await writePngState(worker, input('1', '10', 'attempt-a', 'ready'), failures, now + 2)).toBe(false);
+    expect(failures).not.toHaveBeenCalled();
+    expect((await readPngState(request, '1', '10', undefined, now + 2)).value.attemptId).toBe('viewer-b');
+  });
+
+  it('reports a conflict that never converges with its full reason and status', async () => {
+    const { request } = store();
+    await writePngState(request, input(), undefined, now);
+    const always = vi.fn(async (url: string, method: string, body?: any) =>
+      method === 'PUT' ? new Response('', { status: 409 }) : request(url, method, body));
+    const failures = vi.fn();
+    expect(await writePngState(always, input('1', '10', 'attempt-a', 'ready'), failures, now + 1)).toBe(false);
+    expect(failures).toHaveBeenCalledTimes(1);
+    const [operation, error] = failures.mock.calls[0];
+    expect(describePngStateFailure(operation, error)).toEqual({ outcome: 'failed', failure_reason: 'put_http_409', http_status: 409 });
+  });
+
+  it('classifies a 404 page as a skip on read and create, and keeps other reasons whole', async () => {
+    const failures = vi.fn();
+    const missingPage = vi.fn().mockResolvedValue(new Response('', { status: 404 }));
+    expect(await writePngState(missingPage, input(), failures, now)).toBe(false);
+    expect(missingPage).toHaveBeenCalledTimes(1);
+    expect(describePngStateFailure(...failures.mock.calls[0] as [string, unknown])).toEqual({
+      outcome: 'skipped', failure_reason: 'read_http_404', http_status: 404, png_export_skip_reason: 'page_unavailable',
+    });
+
+    const createFailures = vi.fn();
+    const readableNotWritable = vi.fn(async (_url: string, method: string) => method === 'GET'
+      ? new Response(JSON.stringify({ results: [] }), { status: 200 }) : new Response('', { status: 404 }));
+    expect(await writePngState(readableNotWritable, input(), createFailures, now)).toBe(false);
+    expect(describePngStateFailure(...createFailures.mock.calls[0] as [string, unknown]).outcome).toBe('skipped');
+
+    expect(describePngStateFailure('update', new Error('put_http_404')).outcome).toBe('failed');
+    expect(describePngStateFailure('update', new Error('property_timeout'))).toEqual({ outcome: 'failed', failure_reason: 'property_timeout' });
+    expect(describePngStateFailure('read', new Error('Cannot send on a destroyed connection')).failure_reason)
+      .toBe('Cannot send on a destroyed connection');
   });
 });

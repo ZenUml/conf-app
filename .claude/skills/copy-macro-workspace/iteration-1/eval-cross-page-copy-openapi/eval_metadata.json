@@ -1,0 +1,14 @@
+{
+  "eval_id": 0,
+  "eval_name": "cross-page-copy-openapi",
+  "prompt": "Verify the cross-page-copy writeback fix on lite-stg.atlassian.net using source page 164004 and the openapi macro. The browser session is already authenticated. Use the copy-macro skill. Save the final test report and captured evidence to the workspace.",
+  "assertions": [
+    {"text": "A1: Copy page has its own child custom contents (one per source macro)"},
+    {"text": "A2 (evidence): Pre-edit macro storage refs point at source CC ids"},
+    {"text": "A3 (headline): Post-edit, the edited macro's storage ref points at a CC owned by the copy page"},
+    {"text": "A4: New CC pageId equals copy page id"},
+    {"text": "A5: New CC body.id set to its own id"},
+    {"text": "A6: Macro renders after reload (iframe height > 100px)"},
+    {"text": "Cleanup: copy page deleted; source page untouched (491523 and 589832 still exist)"}
+  ]
+}

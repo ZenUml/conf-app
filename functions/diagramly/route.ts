@@ -7,8 +7,8 @@ import { resolveDiagramlyIdentity, type DiagramlyIdentity } from "./context";
 export type DiagramlyRunContext = DiagramlyIdentity & { env: any };
 
 /**
- * The one route shell for the Diagramly AI endpoints: POST only, JSON body
- * (400 when it does not parse), verified Forge identity, `OkResponse` for the
+ * The one route shell for the Diagramly AI endpoints: POST only, verified Forge
+ * identity, JSON body (400 when it does not parse), `OkResponse` for the
  * result, one log format and one 500 body.
  *
  * - `parse` checks the fields and returns the typed body, or a `Response`
@@ -37,17 +37,19 @@ export function diagramlyRoute<B>(
       return response(405, "Method not allowed");
     }
 
-    let raw: unknown;
     try {
-      raw = await request.json();
-    } catch {
-      return response(400, "Invalid JSON body");
-    }
-
-    try {
+      // Identity before the body, as every handler did: an unauthenticated
+      // caller gets the auth answer whatever it sent.
       const identity = resolveDiagramlyIdentity(data);
       if (identity instanceof Response) {
         return identity;
+      }
+
+      let raw: unknown;
+      try {
+        raw = await request.json();
+      } catch {
+        return response(400, "Invalid JSON body");
       }
 
       const body = opts.parse(raw);

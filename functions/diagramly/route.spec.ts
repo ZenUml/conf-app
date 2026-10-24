@@ -76,6 +76,15 @@ describe("diagramly routes share one shell", () => {
       expect(run).not.toHaveBeenCalled();
     });
 
+    it("checks identity before the body: missing identity + bad JSON gets the identity answer", async () => {
+      const run = vi.fn();
+      const route: any = diagramlyRoute("t", { parse: (b) => b, run });
+      const res = await call(route, post("{not json"), { forgeContext: {} });
+      expect(res.status).toBe(400);
+      expect(await res.json()).not.toEqual({ error: "Invalid JSON body" });
+      expect(run).not.toHaveBeenCalled();
+    });
+
     it("returns a Response from parse as is", async () => {
       const run = vi.fn();
       const route: any = diagramlyRoute("t", {

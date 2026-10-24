@@ -230,12 +230,21 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
      here. The run found two divergences from plantuml.com, and both are fixed
      (`utils/plantuml/unwrap.ts`):
 
-     | Outcome | First run | After the fixes |
-     |---|---|---|
-     | drawn by the engine | 3,448 (84.6%) | **4,023 (98.7%)** |
-     | syntax error shown | 547 (13.4%) | **9 (0.2%)** |
-     | include fallback | 68 | 27 (15 non-C4 URLs, 12 unhosted libraries) |
-     | engine-error fallback | 12 | 16 (10 too large, 6 engine faults) |
+     | Outcome | First run | After fix 1 | After fixes 1 and 2 |
+     |---|---|---|---|
+     | drawn by the engine | 3,448 (84.6%) | 4,000 (98.2%) | **4,023 (98.7%)** |
+     | syntax error shown | 547 (13.4%) | 32 (0.8%) | **9 (0.2%)** |
+     | include fallback | 68 | 27 | 27 (15 non-C4 URLs, 12 unhosted libraries) |
+     | engine-error fallback | 12 | 16 | 16 (10 too large, 6 engine faults) |
+
+     In every run, across all 4,075 diagrams, the page logged no CSP violation
+     under `script-src 'self'` and made no request outside itself. This is the
+     strongest evidence so far that the engine works under the Full and
+     Diagramly policy, which has no `'unsafe-eval'`. A real Diagramly iframe
+     (step 2) is still checked before that flag goes on in production. With the
+     fallback, a viewer would see the 43 include and engine-error diagrams drawn
+     by plantuml.com as today. Only the 9 syntax errors could look different
+     from today.
 
      1. *Nested sources* (a doubled `@startuml` header from the paste bug fixed in
         conf-app#632, or `@startuml` around `@startgantt` / `@startjson` /
@@ -251,10 +260,13 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
      p90 110 ms, p99 716 ms. The 9 remaining syntax errors (6 share one line
      shape) may also be errors on plantuml.com; that cannot be told without
      sending them there.
-   - **Production corpus, both renderers: not run.** Comparing layouts on a
-     sample of the roughly 1,000 Graphviz-layout diagrams would send that sample's
-     source to plantuml.com, as viewers' browsers already do on every view. It
-     needs the owner's decision. Outputs from customer content stay out of this
+   - **Production corpus, both renderers: skipped by the owner (2026-10-24).**
+     Comparing layouts on a sample of the roughly 1,000 Graphviz-layout diagrams
+     would have sent that sample's source to plantuml.com. The owner chose to
+     roll out on Diagramly first instead, and to judge layout differences on the
+     canary through `macro_viewed` and feedback. The synthetic corpus already
+     shows the expected kind of difference (a different but valid layout for
+     class-like diagrams). Outputs from customer content stay out of this
      public repo.
 4. **Self-host the stdlib.** **C4 done (2026-10-24).** `utils/plantuml/stdlib.ts`
    sets `PLANTUML_STDLIB_LOADER` and serves C4-PlantUML 2.14.0 (MIT) as data from a
@@ -277,7 +289,10 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    `plantuml_include_rewritten` marks these renders on `macro_viewed` and on
    failures. **Still open:** tupadr3, azure and aws (8 diagrams), which are
    optional. Other local-file and URL includes stay on the fallback.
-5. **Roll out the Forge flag** by site: diagramly, then lite, then full. The flag
+5. **Roll out the Forge flag** by site: diagramly, then lite, then full. The
+   owner chose Diagramly as the first production site on 2026-10-24, after the
+   engine-only production run. Diagramly holds 346 of the 4,060 diagrams, all on
+   one site (see Production exposure). The flag
    must first be created in the Developer Console for each app (forge-feature-flag
    skill). Gate each widening on `macro_viewed` split by `plantuml_renderer`
    (`local` vs `server_fallback`) and on `plantuml_local_render_failed` reasons.
@@ -296,7 +311,9 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
 - **Server-side export (ADR-0004)** has no browser. If that work goes ahead,
   PlantUML there needs option B or the engine on a server-side canvas.
 - **Rendering differences.** Whether existing diagrams change visibly enough to
-  matter. Step 3 answers it.
+  matter. Step 3 settles correctness: 98.7% of production diagrams draw, and the
+  rest fall back. It does not settle layout on Graphviz-layout diagrams, because
+  the two-renderer run was skipped. The Diagramly canary answers that.
 - **Full and Diagramly iframes.** Lite is confirmed in a real Forge iframe. The
   stricter CSP of the other variants is covered only by the local header test so far.
 

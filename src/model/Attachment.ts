@@ -6,7 +6,7 @@ import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
 import {ForgeRequestError} from '@/utils/forgeRequestError';
-import { deferIfThrottled } from '@/utils/confluenceThrottle';
+import { confluenceThrottleRemainingMs, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
 import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
@@ -1004,14 +1004,6 @@ async function createAttachmentIfContentChanged(
     return;
   }
 
-  // The view-time backfill is optional work: while Confluence is rate-limiting
-  // this site (any request's 429, utils/confluenceThrottle.ts) it stands down
-  // so the remaining budget goes to saves. The next view after the cooldown
-  // writes the PNG. The save-time write is the user's own action and runs.
-  if (!opts?.fromSave && deferIfThrottled('work:png_backfill')) {
-    return;
-  }
-
   // The guard above used to do double duty. It read only
   // `extension.config.customContentId`, which is unset in a dashboard modal
   // ("My API Documents" → View/Edit — the surface forge-swagger-editor calls
@@ -1059,7 +1051,13 @@ async function createAttachmentIfContentChanged(
   // first view after the cooldown retries. The save-time write is a single
   // user action, so it always tries.
   const rateLimitSite = getCloudId() ?? 'unknown';
-  const cooldownRemainingMs = opts?.fromSave ? 0 : rateLimitCooldownRemainingMs(rateLimitSite);
+  // Also honour the shared site cooldown (utils/confluenceThrottle.ts), which
+  // any Confluence 429 opens — a save's, a snapshot read's, this backfill's —
+  // so the view-time backfill stands down whichever request was refused.
+  const cooldownRemainingMs = opts?.fromSave ? 0 : Math.max(
+    rateLimitCooldownRemainingMs(rateLimitSite),
+    confluenceThrottleRemainingMs(),
+  );
   if (cooldownRemainingMs > 0) {
     trackAnalyticsEvent('attachment_upload_deferred', {
       feature_area: 'macro', surface: 'viewer',
@@ -1253,6 +1251,10 @@ async function createAttachmentIfContentChanged(
         rateLimitSite,
         e instanceof ForgeRequestError ? e.retryAfter : undefined,
       );
+      // The data POST and properties PUT go straight to requestConfluence, so
+      // forgeRequest never saw this 429: open the shared site cooldown too, so
+      // the page's other optional work stands down with the backfill.
+      noteConfluenceThrottled(e instanceof ForgeRequestError ? e.retryAfter : undefined);
       if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
         'upload_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       trackAnalyticsEvent('attachment_upload_rate_limited', {

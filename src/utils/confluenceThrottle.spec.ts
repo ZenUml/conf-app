@@ -255,7 +255,9 @@ describe('sendWithThrottleHandling', () => {
       const response = await sendWithThrottleHandling(send, { method: 'GET', url: '/wiki/api/v2/pages/1/attachments', priority }, { sleep });
       expect(response.status).toBe(429);
       expect(send).toHaveBeenCalledTimes(1);
-      expect(confluenceThrottleRemainingMs()).toBe(DEFAULT_COOLDOWN_MS);
+      // real clock: a millisecond may pass between opening and reading it
+      expect(confluenceThrottleRemainingMs()).toBeGreaterThan(DEFAULT_COOLDOWN_MS - 1000);
+      expect(confluenceThrottleRemainingMs()).toBeLessThanOrEqual(DEFAULT_COOLDOWN_MS);
     }
     expect(sleep).not.toHaveBeenCalled();
     expect(events('confluence_request_throttled').map((p: any) => p.request_priority)).toEqual(['default', 'background']);

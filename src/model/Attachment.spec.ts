@@ -86,7 +86,7 @@ import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/r
 import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
 import forgeGlobal from '@/model/globals/forgeGlobal';
-import { _resetForTesting as resetConfluenceThrottle, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
+import { _resetForTesting as resetConfluenceThrottle, confluenceThrottleRemainingMs, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
 
 describe('Attachment', () => {
   describe('Markdown preview capture', () => {
@@ -120,6 +120,7 @@ describe('Attachment', () => {
     // A 429 test leaves a site cooldown behind; never let it defer later tests.
     localStorage.clear();
     resetRateLimitCooldown();
+    resetConfluenceThrottle();
     // Setup default mocks for Forge
     mockGetContext.mockResolvedValue({
       extension: { config: { customContentId: 'test-uuid' } }
@@ -1948,14 +1949,17 @@ describe('Attachment', () => {
     beforeEach(clearCooldown);
     afterEach(clearCooldown);
 
-    it('skips the view-time backfill without any request', async () => {
-      noteConfluenceThrottled('120');
+    it('skips the view-time backfill without any request when another request was refused', async () => {
+      noteConfluenceThrottled('120'); // e.g. a save's or a snapshot read's 429
 
       await createAttachmentIfContentChanged('test content');
 
       expect(mockApWrapper.getAttachmentsV2).not.toHaveBeenCalled();
       expect(mockRequestConfluence).not.toHaveBeenCalled();
       expect((window as any).createAttachmentInProgress).toBeFalsy();
+      const deferred = mockTrackAnalyticsEvent.mock.calls.find(([name]) => name === 'attachment_upload_deferred');
+      // the shared 120 s cooldown, less the milliseconds that passed since it opened
+      expect(deferred?.[1].cooldown_remaining_ms).toBeGreaterThan(119_000);
     });
 
     it('still runs the save-time write', async () => {
@@ -1966,6 +1970,16 @@ describe('Attachment', () => {
       await createAttachmentIfContentChanged('test content', undefined, { customContentId: 'test-uuid', fromSave: true });
 
       expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
+    });
+
+    it('a 429 on the direct data POST opens the shared cooldown too', async () => {
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({ ok: false, status: 429, text: vi.fn().mockResolvedValue('Too Many Requests') });
+
+      await createAttachmentIfContentChanged('test content');
+
+      expect(confluenceThrottleRemainingMs()).toBeGreaterThan(0);
     });
 
     it('runs the view-time backfill again once the cooldown is over', async () => {

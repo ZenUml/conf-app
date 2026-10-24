@@ -16,6 +16,7 @@ import type {
   CacheSource,
   PlantUmlRenderer,
   PlantUmlLocalFailureReason,
+  PlantUmlUnresolvedInclude,
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
@@ -315,6 +316,7 @@ export type AnalyticsProperties = {
   // ADR-0010 self-hosted PlantUML rendering
   plantuml_renderer?: PlantUmlRenderer;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
+  plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
 
   // AI
   prompt_length?: number;

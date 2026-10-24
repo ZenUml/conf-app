@@ -254,6 +254,12 @@ export type PlantUmlRenderer = "server" | "local" | "server_fallback";
 //   engine_error — the engine crashed or called its error callback
 export type PlantUmlLocalFailureReason = "load_failed" | "include" | "engine_error";
 
+// For a `include` failure (ADR-0010): what kind of include the engine could not
+// resolve. `stdlib` = a `<lib/...>` library we do not host yet; `url` = an
+// `!include https://...` (the engine has no network access); `local` = a file
+// path. Never carries the library name, URL or path.
+export type PlantUmlUnresolvedInclude = "stdlib" | "url" | "local";
+
 // Where the diagram CONTENT (the macro's doc) came from on this render — distinct
 // from cache_source, which is about the rendered SVG.
 //   fetch     — loaded over the network this view (first view / cache miss)
@@ -464,6 +470,8 @@ export type AnalyticsEventName =
   // `plantuml_failure_reason` says why; `surface` says viewer or editor.
   // Never carries the source. Read against macro_viewed with
   // plantuml_renderer=local vs server_fallback before widening the rollout.
+  // For reason=include, `plantuml_unresolved_include` says which kind of
+  // include still needs the server (stdlib / url / local).
   | "plantuml_local_render_failed"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries

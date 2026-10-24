@@ -1,13 +1,15 @@
 import globals from "@/model/globals";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from './model/globals/forgeGlobal';
 import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
+import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
 import { decompress } from "@/utils/compress";
-import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
-import ApWrapper2 from "@/model/ApWrapper2";
-import MacroUtil from "@/model/MacroUtil";
+import { EMPTY_GRAPH } from "@/utils/graph/emptyGraph";
 import { trackEvent } from "@/utils/window";
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
+import { markEditorAuthoringStarted } from "@/utils/analytics/editorCloseOutcome";
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
@@ -15,21 +17,26 @@ import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue"
 installRestoreDraftBanner();
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
-import { showCloseWithoutSavingDialog } from './utils/modalService';
 import EventBus from "./EventBus";
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import { isValidCustomContentId } from '@/utils/customContentId';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import {
   reportLegacyContentPropertyRestored,
   reportLegacyContentPropertyLoadFailed,
   reportLegacyContentPropertyValueUnexpected,
   reportLegacyContentPropertyMacroRepaired,
 } from '@/utils/legacyContentPropertyTelemetry';
-
-// Track editor session start time
-const editorStartTime = Date.now();
+import { resolveGraphEditorMode } from "@/utils/graph/boardDocument";
+import {
+  GRAPH_EDITOR_MODE_CONFIG_KEY,
+  getGraphEditorMode,
+  setGraphEditorMode,
+} from "@/utils/graph/graphEditorMode";
+import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
 // Captured at editor open from extension.config.uuid. On Connect-era macros
 // this is a pre-existing identifier we forward back through view.submit so the
@@ -44,21 +51,33 @@ let originalConfigUuid: string | undefined;
 let originalCustomContentId: string | undefined;
 let recoveryPageId: string | undefined;
 
-const EMPTY_GRAPH = `<mxfile>
-  <diagram name="Page-1">
-    <mxGraphModel dx="1434" dy="540" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-      </root>
-    </mxGraphModel>
-  </diagram>
-</mxfile>`;
+// Returns true when the save was accepted and the redirect (view.submit /
+// close) is scheduled — the caller keeps the "Publishing…" overlay up until the
+// modal closes. Returns false on any error path that leaves the editor open, so
+// the caller can clear the overlay and let the user retry.
+type GraphEditorSavePayload = {
+  graphXml: string;
+  boardGraphXml?: string;
+  pngBlob?: Blob | null;
+};
 
-async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null) {
+async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolean> {
+  // The editor sends both independent documents on every publish, so a mode
+  // switch cannot overwrite Diagram content with Board XML.
+  const { graphXml, boardGraphXml, pngBlob } = payload;
+  // Start the publish-latency clock at the save-handler entry (≈ the DrawIO
+  // Publish click that postMessages here). Stopped at the redirect below.
+  markPublishClicked();
   const diagram = {
     ...window.diagram,
     graphXml,
+    ...(boardGraphXml !== undefined ? { boardGraphXml } : {}),
+    // Record the published mode on the BODY as well as the macro config.
+    // Config is unreachable from the embed host, the export snapshot and
+    // getDiagramData(), and "boardGraphXml when non-empty" is not a usable
+    // substitute — a publish writes both documents, so a Diagram macro whose
+    // owner once drew on the Board would resolve to the Board document.
+    graphEditorMode: getGraphEditorMode(),
     diagramType: DiagramType.Graph,
     source: DataSource.CustomContent
   };
@@ -82,16 +101,22 @@ async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null) {
         message: 'Legacy diagram content failed to load — saving is disabled to prevent data loss. Please refresh the page or contact support.',
         duration: 8000,
       });
-      return;
+      return false;
     }
     console.error('saveGraphAndExit failed', error);
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+      error_code: (error as any)?.code,
+      error_shape: (error as any)?.errorShape,
     });
-    toast({ message: 'Failed to save. Please try again.', duration: 5000 });
+    // A create-time 404 is probed once (save_failed_diagnosed) so the toast can
+    // name a missing space permission instead of inviting a retry that cannot
+    // succeed — see model/saveFailureDiagnosis.ts.
+    const message = await diagnoseSaveFailure(error, { surface: 'editor', macro_type: 'graph' }, globals.apWrapper);
+    toast({ message, duration: message === GENERIC_SAVE_FAILED_MESSAGE ? 5000 : 12000 });
     // Do NOT end journey, do NOT close — keep editor open so the user can retry.
-    return;
+    return false;
   }
 
   // End journey on save
@@ -114,7 +139,7 @@ async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null) {
     try {
       const createAttachmentIfContentChanged = (await import('@/model/Attachment')).default;
       await Promise.race([
-        createAttachmentIfContentChanged(graphXml ?? '', 'graph', {
+        createAttachmentIfContentChanged((getGraphEditorMode() === 'board' ? boardGraphXml : graphXml) ?? '', 'graph', {
           customContentId: String(id),
           fromSave: true,
           renderedPng: pngBlob,
@@ -130,44 +155,43 @@ async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null) {
     }
   }
 
-  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
-  // recovered sibling id. Only fires in surfaces where view.submit({config})
-  // actually persists (insert / isConfiguring). See forgeIndex.ts for the
-  // full rationale on viewer-launched modal contexts being a no-op.
-  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
-  // ZEN-1170 Defect 1: legacy-content-property migration. When the editor
-  // mounted a doc loaded from the legacy page content property, the macro
-  // XML still has uuid only (no customContentId). originalCustomContentId
-  // is therefore undefined, so macroNeedsRepair above is false. Detect this
-  // case via window.diagram.source so the same writeback block migrates the
-  // macro XML to a CC-backed shape on first save.
-  const legacyMacroNeedsRepair = !originalCustomContentId
-    && (window.diagram?.source === DataSource.ContentProperty
-        || window.diagram?.source === DataSource.ContentPropertyOld
-        // PR #139 same-page recovery: my findLegacyCustomContentByUuid
-        // fallback may resolve a CC on the SAME page (rare — Connect-era
-        // macro on its original page where the CC was migrated). In that
-        // case save updates the recovered CC in place (id unchanged ⇒
-        // idChanged is false), so without this writeback the macro params
-        // would stay uuid-only and every future view would re-trigger the
-        // tenant-wide title search. Cross-page recovery (the common case)
-        // already triggers writeback via the idChanged path (isCopy=true
-        // forks to a new CC), so this only kicks in for same-page hits.
-        || (window.diagram?.source === DataSource.CustomContent
-            && !!(window.diagram as any)?.recoveredFromOrphan));
+  // Capture derivation inputs now — window.diagram may move under the
+  // deferred writeback below.
+  const derivationInput = {
+    sourceId,
+    newId: id,
+    originalCustomContentId,
+    docSource: window.diagram?.source,
+    recoveredFromOrphan: !!(window.diagram as any)?.recoveredFromOrphan,
+  };
 
   setTimeout(async () => {
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
-    const repairWillPersist = inserting || configuring;
-    const attemptRepair = repairWillPersist && macroNeedsRepair;
-    const attemptLegacyMigration = repairWillPersist && legacyMacroNeedsRepair && !!id;
-    const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = inserting || idChanged || attemptRepair || attemptLegacyMigration;
+    const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback(
+      deriveWritebackSignals({ ...derivationInput, inserting, configuring })
+    );
+    // Redirect starts now (view.submit / view.close below). Stop the clock.
+    trackPublishCompleted({
+      macro_type: 'graph',
+      operation_mode: inserting ? 'create' : 'edit',
+      content_id: String(id),
+      custom_content_id: String(id),
+    });
     try {
-      if (needsWriteback) {
+      if (needsWriteback && !isValidCustomContentId(id)) {
+        // conf-app#320 defense-in-depth: never write a garbage customContentId
+        // into the macro config. saveToPlatform should have thrown already;
+        // close without persisting the bad id rather than orphaning the macro.
+        trackEvent('save_failed', 'writeback_skipped_invalid_id', 'error', {
+          new_custom_content_id: String(id),
+          macro_type: 'graph',
+        });
+        await (await getView()).close();
+      } else if (needsWriteback) {
         await (await getView()).submit({config: {
           customContentId: id,
           updatedAt: new Date().toISOString(),
+          [GRAPH_EDITOR_MODE_CONFIG_KEY]: getGraphEditorMode(),
           ...(originalConfigUuid && { uuid: originalConfigUuid }),
         }});
         if (attemptRepair && originalCustomContentId) {
@@ -176,6 +200,16 @@ async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null) {
         if (attemptLegacyMigration && originalConfigUuid) {
           reportLegacyContentPropertyMacroRepaired('graph', originalConfigUuid, id, { pageId: recoveryPageId });
         }
+      } else if (configuring) {
+        // Normal re-save of an existing graph does not change customContentId,
+        // so needsWriteback is false. Still submit so Diagram/Board chrome
+        // persists on the macro config.
+        await (await getView()).submit({config: {
+          customContentId: id,
+          updatedAt: new Date().toISOString(),
+          [GRAPH_EDITOR_MODE_CONFIG_KEY]: getGraphEditorMode(),
+          ...(originalConfigUuid && { uuid: originalConfigUuid }),
+        }});
       } else {
         await (await getView()).close();
       }
@@ -193,57 +227,9 @@ async function saveGraphAndExit(graphXml: string, pngBlob?: Blob | null) {
       });
     }
   }, 500);
-}
-
-async function exit() {
-  const codeChanged = window.diagram?.graphXml !== window.graphXml;
-  
-  // Prepare event data
-  const isNewGraph = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Graph;
-  const elapsedTimeMs = Date.now() - editorStartTime;
-  
-  const eventProps = {
-    had_changes: codeChanged,
-    source: 'graph_editor',
-    elapsed_time_ms: elapsedTimeMs,
-    code_length: store.state.diagram.graphXml?.length || 0,
-    journey_id: getEditJourneyId(),
-    session_id: getOrCreateSession(),
-  };
-  
-  if (codeChanged) {
-    // Show custom modal dialog for Forge
-    const result = await showCloseWithoutSavingDialog();
-    
-    if (result === 'discard') {
-      // User confirmed exit - track exit event
-      const exitEventAction = isNewGraph ? 'create_macro_exit' : 'edit_macro_exit';
-      trackEvent('', exitEventAction, DiagramType.Graph, eventProps);
-      
-      // End journey on exit
-      if (getEditJourneyId()) {
-        endEditJourney('cancelled');
-      }
-      
-      await (await getView()).close();
-    } else {
-      // User cancelled exit (chose to keep editing) - track cancelled event
-      const cancelledEventAction = isNewGraph ? 'create_macro_exit_cancelled' : 'edit_macro_exit_cancelled';
-      trackEvent('', cancelledEventAction, DiagramType.Graph, eventProps);
-      // Do NOT end journey - user continues editing
-    }
-  } else {
-    // No changes - immediate exit
-    const exitEventAction = isNewGraph ? 'create_macro_exit' : 'edit_macro_exit';
-    trackEvent('', exitEventAction, DiagramType.Graph, eventProps);
-    
-    // End journey on exit
-    if (getEditJourneyId()) {
-      endEditJourney('window_close');
-    }
-    
-    await (await getView()).close();
-  }
+  // saveToPlatform succeeded and the redirect is queued — tell the caller to
+  // hold the "Publishing…" overlay until the modal closes.
+  return true;
 }
 
 async function initializeMacro() {
@@ -274,7 +260,16 @@ async function initializeMacro() {
   
   // Ensure session is initialized
   getOrCreateSession();
-  const customContentId = context.extension?.config?.customContentId;
+  // See forge-graph-viewer: a pasted graph macro carries its id only in the
+  // autoConvert link, so the editor must resolve it the same way or it opens
+  // a new blank diagram instead of the linked one.
+  const customContentId = resolveEffectiveCustomContentId(context);
+  // The journey started before this resolved, so tell it what kind of session
+  // it is now that we know. Drives macro_authoring_ended's operation_mode.
+  setEditJourneyMeta({
+    macroType: 'graph',
+    operationMode: customContentId ? 'edit' : 'create',
+  });
   originalCustomContentId = customContentId;
   recoveryPageId = context.extension?.content?.id;
 
@@ -290,7 +285,6 @@ async function initializeMacro() {
   let legacyLoadBlocked = false;
   if (customContentId) {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
-    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
@@ -298,9 +292,10 @@ async function initializeMacro() {
       reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
-      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
     }
   }
 
@@ -404,7 +399,6 @@ async function initializeMacro() {
 
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
-  console.log('loadDiagram - window.diagram', window.diagram);
 
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {
@@ -419,8 +413,36 @@ async function initializeMacro() {
     // @ts-ignore
     window.graphXml = graphXml;
   }
+  // Resolve the surface the SAME way the viewer, the embed host and the export
+  // snapshot do: the body first, macro config only as the fallback.
+  //
+  // Config alone is wrong here because it goes stale. writebackGate.ts gates the
+  // whole writeback behind `inserting || configuring`, and the in-viewer Edit
+  // modal — the Edit button on the page, the common way to reopen a macro — has
+  // both false, so saveGraphAndExit ends at `view.close()` and never submits a
+  // config. (It cannot: view.submit throws "this resource's view is not
+  // submittable" on that surface, which is why the gate exists.) The config
+  // therefore records the mode from the last insert/configure publish and never
+  // moves again, while every later publish updates the body.
+  //
+  // Reported 2026-08-26: opening a Board macro gave the Diagram editor. Observed
+  // on production the same day in the mirror direction — a macro whose viewer
+  // rendered the Diagram document opened its editor in Board, because config
+  // still held `board` from the first publish.
+  const graphEditorMode = resolveGraphEditorMode(
+    doc,
+    context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY],
+  );
+  setGraphEditorMode(graphEditorMode);
 
-  const contentProps = { graphXml, saveGraphAndExit, doc, customContentId };
+  const contentProps = {
+    graphXml,
+    boardGraphXml: doc?.boardGraphXml,
+    saveGraphAndExit,
+    doc,
+    customContentId,
+    graphEditorMode,
+  };
   const paywalled = await tryPageEditorPaywall({
     doc: doc ?? NULL_DIAGRAM,
     content: ForgeGraphEditor,
@@ -432,13 +454,20 @@ async function initializeMacro() {
     mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphEditor, contentProps);
   }
 
-  const isNew = await MacroUtil.isCreateNew();
-  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_opened', {
+  // conf-app: MacroUtil.isCreateNew() reads only extension.config.customContentId
+  // (ApWrapper2.getMacroData), so an existing macro opened from the modal
+  // surface reported as a CREATE. Measured 2026-08-06..09-04: 58 graph and 37
+  // openapi "creates" ended in macro_save_succeeded, versus 1 for the DSL
+  // editor, which has always used the fuller resolver below.
+  const isNew = !customContentId;
+  markEditorAuthoringStarted();
+  trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'graph',
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(isNew && getCreationFlowProps()),
   });
 }
 
-export default initializeMacro(); 
+export default initializeMacro();

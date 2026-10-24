@@ -1,120 +1,24 @@
 ---
 name: extend-space-license
-description: >
-  Fulfil a Lite paywall lockout / "temporary editing extension" request — grant a
-  temporary space license that lifts the Lite per-space 100-macro limit for ONE
-  space, then draft the customer reply. Use whenever a customer (via the JSM
-  extension-request flow or direct email) asks to re-open editing on a space that
-  hit the diagram limit, or when handed a request with a client domain + space key
-  + macro count. It resolves the cloudId, verifies the exact space key, writes the
-  SPACE_LICENSE_KV record, verifies it, computes the Full-plan upgrade price, and
-  drafts the reply from the canonical template. Triggers on "extend", "extension
-  request", "temporary editing extension", "grant a space license", "re-open
-  editing", "paywall lockout", "lift the limit for <space>", "request: temporary
-  Lite editing extension". For the reply template + sent log see the handbook page
-  paywall/extension-request-replies.md; for per-space macro counts use macro-count.
+description: Execute an authorised temporary Lite editing grant for an exact customer site, space and optionally user, verify the remote KV result, and provide grant facts for a reply. Use for temporary editing extension or space-license requests; customer communication policy belongs to customer-followup.
 ---
 
-# extend-space-license
+# Temporary license execution
 
-Grants a **temporary space license** (`spacePaidStatus=true`) for one space and
-drafts the customer reply. This is the operational counterpart to the handbook
-runbook `paywall/extension-request-replies.md` (the customer-facing reply template + sent log) — keep that page the source of truth for the reply wording.
+Use the user's current or standing authorisation for the exact scope and duration. A request to investigate usage is not permission to grant access. Do not re-confirm an already authorised grant. Default scope is the requesting user; do not expand to a whole space merely because several people use it.
 
-## ⚠ This mutates production KV
-
-The grant writes to the prod `SPACE_LICENSE_KV` namespace. That's a
-deploy-discipline action — **only run the live grant with an explicit go-ahead.**
-Use `--dry-run` to preview the exact record and commands first. The customer-facing
-reply, pricing, and verification are all safe to prepare anytime.
-
-## Quick start
-
-Run from the conf-app project root:
+Before writing, verify cloudId, exact case-sensitive space key, requester account ID, current grant and prior promises. List remote keys and inspect values; failed reads are unknown, not no previous grant. Historical grant counts must refer to the actual scope/team, not be attributed to a first-time requester.
 
 ```bash
-# Preview everything (no writes) — cloudId, space check, record, drafted reply:
-python3 .claude/skills/extend-space-license/scripts/grant_extension.py \
-  --domain <tenant> --space <SPACE_KEY> --users <N> --dry-run
-
-# Grant for real (14-day extension) + draft the reply:
-python3 .claude/skills/extend-space-license/scripts/grant_extension.py \
-  --domain <tenant> --space <SPACE_KEY> --users <N>
+python3 .claude/skills/extend-space-license/scripts/grant_extension.py --domain example-tenant --space ENG --user example-account --days 7 --dry-run --no-reply
 ```
 
-Flags: `--days N` (default 14) · `--users N` (site tier → fills the Full-plan
-price in the reply) · `--activated-by` · `--no-reply` · `--dry-run`.
+For an authorised execution use the same verified arguments without `--dry-run`. `--days` defaults to seven in the script, but honour the actual authorised duration. Space-wide grants omit `--user` only when authorised. `--activated-by` identifies the authorised actor. Verify the returned scope, status and expiry, not only command success. Read back after an ambiguous response before retrying.
 
-## What it does (and why each step matters)
+This writes access, not a payment. KV `spacePaidStatus` can represent a manual comp. Record grant scope/expiry separately from Marketplace license and transaction status, and preserve any existing paid entitlement.
 
-1. **Resolve cloudId** — `https://<tenant>.atlassian.net/_edge/tenant_info` →
-   `cloudId`. This is the authoritative Forge-context cloudId that `space-status.ts`
-   compares against. Never guess it.
-2. **Verify the space key** — checks the key exists in metrics KV and reports its
-   macro count. The space key is **case-sensitive and exact**; a typo, a wrong
-   case, or a key truncated by a form field (a dropped trailing char) grants nothing.
-   The script warns if the key isn't found (and lists the real keys) or if the
-   space is under 100 macros (i.e. may not actually need an extension).
-3. **Write the license record** — `license:<cloudId>:<spaceKey>` to
-   `SPACE_LICENSE_KV` (prod ns `8969e8528105403bb2d9adca9fc16567`), upserting so an
-   existing record keeps its `createdAt`. Shape mirrors `SpaceLicenseRecord`
-   (`functions/api/space-license.ts`): `status:"active"`,
-   `activatedBy:"support:temp-14d-extension"`, `expiresAt:"<+14d>T23:59:59Z"`.
-4. **Update `license-index`** — read-modify-write append `{cloudId, spaceKey}`
-   (index is only for the admin GET listing, not enforcement).
-5. **Verify read-back** — confirms `status:active`.
+Use `--no-reply` with `customer-followup`, which drafts a concise role-appropriate response and performs only already authorised communication. The legacy script reply is a technical preview, not automatically approved customer text. A feedback offer or future extension is a separate commitment; honour promises actually made, do not silently create one from a default template.
 
-**Enforcement** (`functions/api/space-status.ts`): returns `isPaid:true` iff
-`status==='active'` AND `expiresAt` is in the future. Response is cached
-`max-age=300`, so a grant applies client-side **within ~5 min** (and
-`spacePaidStatus` is fetched once per session — an open editor needs a refresh).
+Full pricing delegates to the Marketplace shared live implementation. `scripts/outbound_contact.py` is retired: it previously created support tickets on behalf of technical contacts and selected pricing by reseller presence. Use `customer-followup` to choose recipient, offer and authorised channel. No automatic contact follows a grant.
 
-## Pricing for the reply
-
-- **Full plan** (org-wide) — ARR tier model (`docs/pricing-model.yml`), where
-  `n` = the site user tier from the Marketplace license:
-  `n<=10 ? 40 : (min(n,100)*.44 + (min(n,250)-100)*.33 + (min(n,1000)-250)*.11 + max(0,n-1000)*.05) * 10`.
-  Pass `--users N` and the script fills it in.
-- **Enterprise Space Bundle** (per-space) — flat **$299/space/year**.
-
-Fetch the tier (needs Marketplace creds — explicit go-ahead) from the license
-report:
-
-```bash
-# loads FORGE_EMAIL / FORGE_API_TOKEN from .env.forge.local
-curl -s -u "$FORGE_EMAIL:$FORGE_API_TOKEN" \
-  "https://marketplace.atlassian.com/rest/2/vendors/1215266/reporting/licenses?text=<tenant>" \
-  | python3 -c "import sys,json; [print(i.get('tier')) for i in json.load(sys.stdin).get('licenses',[])]"
-```
-
-## Manual fallback (if the script can't run)
-
-```bash
-NS=8969e8528105403bb2d9adca9fc16567
-CLOUD=$(curl -s https://<tenant>.atlassian.net/_edge/tenant_info | python3 -c "import sys,json;print(json.load(sys.stdin)['cloudId'])")
-# write record to /tmp/rec.json mirroring SpaceLicenseRecord, then:
-npx wrangler kv key put "license:$CLOUD:<SPACE>" --path /tmp/rec.json --namespace-id=$NS --remote
-# read-modify-write "license-index" to append {cloudId, spaceKey}
-npx wrangler kv key get "license:$CLOUD:<SPACE>" --namespace-id=$NS --remote   # verify
-```
-
-## After granting
-
-1. **Log it** — append a dated entry to the handbook page
-   `paywall/extension-request-replies.md` "Sent log" (tenant, space, site size,
-   Full-plan price, whether it's a repeat request → conversion signal).
-2. **Verify it's honored** (no customer UI access → use Mixpanel as the real
-   outcome signal): split the space's events at the grant timestamp — **0 blocking
-   events after** (`paywall_triggered` / `paywall_blocked_create` /
-   `paywall_attempts_exhausted`) + `macro_save_succeeded`/`macro_create_succeeded`
-   continuing = working. Filter `client_domain` + `confluence_space`. Gotcha:
-   `paywall_banner_shown` (warning, ≥85 macros) can persist for days because
-   `spacePaidStatus` is fetched once per session — a residual banner with 0
-   blocking events is cosmetic, not a failure.
-
-## Related
-
-- `macro-count` skill — per-space macro counts (used here to verify the space key).
-- `metrics` skill — single-space KV freshness diagnosis.
-- Handbook: `paywall/extension-request-replies.md` (reply template + sent log),
-  `paywall/runbook.md` (paywall rollout runbook).
+Record verified operations in the customer activity log and any relevant private Handbook runbook. Include source links and dates; a save failure in the tracker is not a reason to repeat the grant.

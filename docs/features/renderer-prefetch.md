@@ -14,8 +14,8 @@ bundle is ~4.2MB across 5 files — by far the largest cold-load cost.
 ## How it works
 
 Core: `src/utils/prefetch/` — `rendererPrefetch.ts` (orchestrator),
-`throttle.ts` (deploy-keyed done-key + best-effort lock), `flags.ts` (kill
-switch), `prefetchAssets.ts` (`<link rel="prefetch">` injection + hashed-chunk
+`throttle.ts` (deploy-keyed done-key + best-effort lock),
+`prefetchAssets.ts` (`<link rel="prefetch">` injection + hashed-chunk
 manifest fetch).
 
 ### Hosts
@@ -23,7 +23,7 @@ manifest fetch).
 | Host | Where wired | When it runs |
 |---|---|---|
 | `macro` | `trackRenderTime.ts` — after `macro_viewed` is emitted | `requestIdleCallback` after a macro render settles; warms the OTHER renderer families (the calling iframe's own family is excluded) |
-| `banner` | `forgeIndex.ts` — `zenuml-page-banner` `'none'` fast-path | Only when the cheap sync due-check passes (≤1 per deploy per browser); holds `view.close()` up to the 8s deadline (+2s straggler grace, 10s worst case); the flag fetch and the Mermaid import-warm share that budget. This is the only surface that covers **macro-free** pages. |
+| `banner` | `forgeIndex.ts` — `zenuml-page-banner` `'none'` fast-path | Only when the cheap sync due-check passes (≤1 per deploy per browser); holds `view.close()` up to the 8s deadline (+2s straggler grace, 10s worst case); the Mermaid import-warm shares that budget. This is the only surface that covers **macro-free** pages. |
 
 The banner fast-path stays byte-cheap on the ~99.9% of loads where the
 prefetch is not due: two localStorage reads, then `view.close()` as before.
@@ -57,44 +57,34 @@ module treats it as "no manifest" (only DrawIO + Mermaid are warmed locally).
 - `<link rel="prefetch">` is deliberate (not preload): low priority,
   browser-discretionary, never competes with the page's own resources.
 
-### Kill switch / rollout
+### Kill switch / rollout — RETIRED 2026-07-25
 
-**Forge feature flags**, evaluated with the `@forge/bridge` client-side
-`FeatureFlags` SDK (bridge ≥ 5.15; we ship 5.16). `initialize()` downloads
-the flag configuration once through the Forge bridge, then `checkFlag()`
-evaluates locally and synchronously — no Forge Function invocation (zero
-GB-seconds) and no dependency on our Cloudflare backend. (Do NOT use the
-quickstart's `invoke('getFlagValue')` pattern — that routes through a Forge
-Function resolver and bills GB-seconds. Also not `FeatureService.ts`, which
-fetches the CDN origin and is dormant.)
+**There is no feature flag any more.** Prefetch is unconditional on every
+variant. `renderer-prefetch` / `renderer-prefetch-banner` ran at Everyone/100%
+in production on lite and diagramly from June 2026; the gate and
+`utils/prefetch/flags.ts` were deleted, and the Console flags are deleted once
+that release ships (deleting them earlier would have switched prefetch off,
+since `checkFlag`'s default is `false`).
 
-- `renderer-prefetch` — master, gates the macro host
-- `renderer-prefetch-banner` — banner host (requires master too)
+Two consequences worth stating plainly:
 
-Flags are created and toggled in the **Developer Console** (App → Feature
-flags), per app — lite, full, and diagramly are separate Forge apps, so the
-two flags must be created in each. ID type: `installContext` (targets a
-specific Confluence site). Targeting supports specific sites, percentage
-rollouts, and per-environment (development/staging/production) configs;
-toggles apply without redeploy.
-
-Fail-closed: missing flags, init errors, and the standalone (non-Forge) dev
-server all evaluate to off (`checkFlag` default `false`). Flag-off attempts
-are NOT marked done, so a later flag flip still warms. No client-side
-memoization — the once-per-deploy throttle already bounds evaluation volume,
-and each due attempt reads fresh config, so a Console kill applies to the
-next attempt immediately.
-
-Rollout: ship dark (flags don't exist = off) → create both flags in each
-app's Developer Console, target canary sites (or a small percentage) in the
-target environment → watch monitoring (below) → raise to 100%. Kill: toggle
-the flag off in the Console.
+- **full and asyncapi never had these flags**, so they never prefetched.
+  Retiring the gate turns prefetch on there for the first time, without a
+  staged rollout — an accepted decision, not an oversight.
+- **Disabling now requires a release.** The remaining runtime brakes are the
+  `readGuards` checks (saveData, 2g/slow-2g, hidden tab, `deviceMemory` < 4 for
+  the Mermaid import-warm) and the once-per-deploy throttle. If prefetch has to
+  come back under a switch, re-add a flag module (see
+  `utils/renderGate/flags.ts` for the current pattern) — and use the
+  `@forge/bridge` client-side `FeatureFlags` SDK, NOT the quickstart's
+  `invoke('getFlagValue')` pattern, which routes through a Forge Function
+  resolver and bills GB-seconds.
 
 ### Analytics
 
 `renderer_prefetch_started` / `renderer_prefetch_completed` (catalog.ts),
 fired ONLY on an actual attempt (≤1 per deploy per browser — bounded volume,
-never page-view scale; flag-off and throttled loads emit nothing).
+never page-view scale; throttled loads emit nothing).
 Properties: `prefetch_host`, `prefetch_renderers`, `prefetch_outcome`
 (completed/partial/failed/timed_out), `prefetch_assets_count`, `prefetch_failed_count`,
 `prefetch_duration_ms`, `effective_type`, `save_data`. Purely client-side
@@ -138,7 +128,10 @@ development environment only):
   UI `getContext()` has NO `installContext` field — the install ARI must be
   constructed from `cloudId` and passed as an attribute (see flags.ts).
 
-Production/staging remain dark (flags scoped to the development environment).
+That verification ran with the flags scoped to `development`; production and
+staging were dark at the time. Superseded — prefetch reached 100% in
+production on lite/diagramly in June 2026 and is unconditional on all four
+variants since the gate was retired (2026-07-25).
 
 ### Gate definitions (for re-verification after major changes)
 
@@ -146,17 +139,17 @@ Production/staging remain dark (flags scoped to the development environment).
   `Cache-Control`/`Age` of `<cdn-host>/<bundle-hash>/drawio/js/viewer-static.min.js`.
   If assets are `no-store`/`no-cache`, prefetch warms nothing and cache_state
   will not shift — stop and rethink.
-- **Cross-iframe warm flip**: forge tunnel on lite-dev with the flags
-  enabled for the `development` environment in the Developer Console:
+- **Cross-iframe warm flip**: forge tunnel on lite-dev (no flag to enable —
+  prefetch is unconditional; clear the done-key to make it due):
   render a non-graph macro, then open a Graph page;
   DevTools should show `viewer-static.min.js` served from cache
   (transferSize≈0) and `macro_viewed.cache_state=warm`.
-- **Banner empty-slot check (gates `renderer-prefetch-banner` only)**: with
-  the banner flag on and the due-key cleared, confirm the held-open banner
-  (≤10s worst case) does not show a visible empty slot / layout shift vs immediate close
-  (the ~150px flicker documented in [page-banner.md](page-banner.md)). If it
-  flickers, leave the banner flag off — the macro host still covers
-  macro-page browsing.
+- **Banner empty-slot check**: with the due-key cleared, confirm the held-open
+  banner (≤10s worst case) does not show a visible empty slot / layout shift
+  vs immediate close (the ~150px flicker documented in
+  [page-banner.md](page-banner.md)). This used to be gated by
+  `renderer-prefetch-banner`; with that flag retired, a flicker regression can
+  only be switched off by a release, so treat this gate as release-blocking.
 
 ## Local verification
 

@@ -8,6 +8,7 @@ import uuidv4 from '@/utils/uuid';
 import Button from '@atlaskit/button';
 import { diagramlyChat } from '@/services/GenerateService';
 import { CloseButton } from './CloseButton';
+import { closeAiAide } from './closeAiAide';
 
 const Page = styled.div`
   display: flex;
@@ -144,8 +145,7 @@ const FormDefaultExample = () => {
 
   const handleExit = React.useCallback(async () => {
     try {
-      const { view } = await import('@forge/bridge');
-      await view.submit();
+      await closeAiAide();
     } catch (e) {
       console.error('Failed to close AI aide', e);
     }

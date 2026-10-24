@@ -88,6 +88,6 @@ describe('ForgeGraphEditor — DrawIO PNG export glue (graph save-time backup)',
     await flushPromises();
 
     expect((window as any).ensureTitle).toHaveBeenCalled();
-    expect(saveGraphAndExit).toHaveBeenCalledWith('<mxfile>saved</mxfile>', blob);
+    expect(saveGraphAndExit).toHaveBeenCalledWith({ graphXml: '<mxfile>saved</mxfile>', boardGraphXml: '', pngBlob: blob });
   });
 });

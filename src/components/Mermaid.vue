@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="mermaid-root" :class="{ 'mermaid-root--editor': !isDisplayMode }">
     <div v-if="!mermaidCode" class="flex flex-col items-center justify-center py-16 px-8 text-center select-none">
       <div class="text-4xl mb-3">🌿</div>
       <div class="text-sm font-semibold text-emerald-700 mb-1">Start with Mermaid</div>
@@ -8,78 +8,328 @@
     Alice-&gt;&gt;John: Hello John!
     John--&gt;&gt;Alice: Hi Alice!</pre>
     </div>
-    <div v-else class="flex justify-center" v-html="svg"></div>
+    <DiagramViewport
+      v-else
+      ref="viewport"
+      macro-type="mermaid"
+      label="Mermaid"
+      content-class="mermaid-diagram flex justify-center"
+      :html="svg"
+    />
   </div>
 </template>
 
 <script>
-import { loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { renderMermaid } from '@/utils/mermaid/renderMermaid'
+import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
+import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { isLoadedEmptyBody, viewContentState } from '@/utils/analytics/contentState';
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent';
+import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
+import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
+import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
+import { attachMermaidHighlights } from '../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
+
+// A wait for a measurable layout that outlasts this reports one
+// viewer_render_deferred, so a hidden macro is told apart from a broken one (#706).
+const LAYOUT_WAIT_HEARTBEAT_MS = 10_000;
 
 export default {
   name: "Mermaid",
+  components: { DiagramViewport },
+  props: {
+    relationshipHighlights: { type: Boolean, default: false },
+    readOnly: { type: Boolean, default: false },
+  },
+  emits: ['highlight-ready', 'highlight-used'],
   data() {
     return {
       svg: null,
-      renderId: null
+      captureMode: false,
+      highlightController: null,
+      highlightCleanup: null,
+      currentFlowchartModel: null,
+      renderGeneration: 0,
+      layoutWaitController: null,
     }
   },
   computed: {
     mermaidCode() {
-      return this.$store.state.diagram.diagramType === DiagramType.Mermaid && this.$store.state.diagram.mermaidCode;
+      const { diagramType, mermaidCode } = this.$store.state.diagram;
+      if (diagramType !== DiagramType.Mermaid || !mermaidCode) return false;
+      // A body of only blank lines or U+00A0 is "no diagram", not a diagram
+      // mermaid can be asked to parse: it throws "No diagram type detected".
+      return normalizeMermaidWhitespace(mermaidCode).trim() ? mermaidCode : false;
     },
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
     },
+    highlightSurfaceAllowed() {
+      // Export-entry renders are photographed at native size, never interactive.
+      return this.isDisplayMode && !this.readOnly && !this.captureMode
+        && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport !== true;
+    },
   },
   async mounted() {
-    if (!this.mermaidCode) return;
-    // Phase 0b: render_ms = loadMermaid + mermaid.render — exactly what an SVG
-    // cache (Lever D) would skip. Only the initial mount render is timed
-    // (renderPerf records once); the watch-driven re-render below is not.
-    this.svg = await renderPerf.time('render', () => this.render(this.mermaidCode));
-    trackRenderTime('mermaid', this.isDisplayMode);
-    // Type may have switched during the async render — the gated computed
-    // would then be `false` and the store diagramType stale. Skip; the new
-    // type's component emits its own diagramLoaded.
-    if (this.mermaidCode) {
-      EventBus.$emit('diagramLoaded', this.mermaidCode, DiagramType.Mermaid);
+    const code = this.mermaidCode;
+    if (!code) {
+      // #113: an empty body is the wipe signal. Report the view, with the
+      // verdict, without attempting a render. A shell that never loaded has no
+      // verdict (isLoadedEmptyBody) and stays silent.
+      if (isLoadedEmptyBody(this.$store.state.diagram, DiagramType.Mermaid)) {
+        trackRenderTime('mermaid', this.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      return;
+    }
+    const applied = await this.renderAndApply(code, true);
+    if (applied) {
+      trackRenderTime(
+        'mermaid', this.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.$store.state.diagram, DiagramType.Mermaid),
+      );
+      EventBus.$emit('diagramLoaded', code, DiagramType.Mermaid);
     }
     await globals.apWrapper.initializeContext();
   },
-  updated() {
-    // Don't use updated() to render, because it will cause infinite loop.
+  beforeUnmount() {
+    // An already queued render may finish after this component is gone.
+    this.renderGeneration++;
+    this.clearHighlights();
+    this.layoutWaitController?.abort();
+    this.layoutWaitController = null;
   },
   watch: {
+    readOnly() {
+      this.clearHighlights();
+      if (this.relationshipHighlights && this.highlightSurfaceAllowed && this.mermaidCode) this.renderAndApply(this.mermaidCode);
+    },
+    relationshipHighlights() {
+      this.clearHighlights();
+      if (this.relationshipHighlights && this.highlightSurfaceAllowed) {
+        if (this.currentFlowchartModel) this.installHighlights();
+        else if (this.mermaidCode) this.renderAndApply(this.mermaidCode);
+      }
+    },
+    isDisplayMode() {
+      this.clearHighlights();
+      if (this.relationshipHighlights && this.highlightSurfaceAllowed && this.mermaidCode) this.renderAndApply(this.mermaidCode);
+    },
     async mermaidCode(newVal) {
       if (!newVal) {
+        this.renderGeneration++;
+        this.layoutWaitController?.abort();
+        this.layoutWaitController = null;
+        this.clearHighlights();
+        this.currentFlowchartModel = null;
         this.svg = null;
       } else {
-        this.svg = await this.render(this.mermaidCode);
+        await this.renderAndApply(newVal);
       }
     }
   },
   methods: {
-    async render(code) {
-      // Generate a unique ID to avoid conflicts
-      this.renderId = `mermaid-${crypto.randomUUID()}`;
+    /** Synchronous capture boundary: call before ExportModal starts cloning DOM. */
+    setCaptureMode(active) {
+      this.captureMode = !!active;
+      this.clearHighlights();
+      if (!this.captureMode && this.relationshipHighlights && this.highlightSurfaceAllowed) {
+        if (this.currentFlowchartModel) this.installHighlights();
+        else if (this.mermaidCode) this.renderAndApply(this.mermaidCode);
+      }
+    },
+    clearHighlights() {
+      this.highlightCleanup?.();
+      this.highlightCleanup = null;
+      this.highlightController?.destroy();
+      this.highlightController = null;
+      this.$emit('highlight-ready', false);
+    },
+    installHighlights() {
+      if (!this.relationshipHighlights || !this.highlightSurfaceAllowed || !this.currentFlowchartModel) return;
+      const svg = this.$refs.viewport?.$el?.querySelector('svg');
+      if (!svg) return;
       try {
-        const mermaid = await loadMermaid();
-        // Use the unique ID to render, avoiding creating extra elements in the body
-        const { svg } = await mermaid.render(this.renderId, code);
-        return svg;
+        this.highlightController = attachMermaidHighlights(svg, this.currentFlowchartModel);
+        // Every distinct target is one use (the feedback pill waits for the
+        // third); a hover that turns into a click on the same target is one use.
+        let reported = null, timer = null, hovered = null;
+        const target = event => {
+          const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
+          if (!el || !svg.contains(el)) return null;
+          return { el, kind: el.hasAttribute('data-hit-group') || el.hasAttribute('data-group')
+            ? 'group' : el.hasAttribute('data-hit-node') || el.hasAttribute('data-node') ? 'node' : 'edge' };
+        };
+        const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
+        const report = item => {
+          if (!item || item.el === reported) return;
+          reported = item.el;
+          cancel();
+          this.$emit('highlight-used', { kind: item.kind });
+        };
+        const over = event => {
+          const item = target(event);
+          if (!item || hovered === item.el) return;
+          cancel(); hovered = item.el;
+          timer = setTimeout(() => report(item), 700);
+        };
+        const out = event => {
+          if (hovered && hovered.contains(event.target) && !hovered.contains(event.relatedTarget)) cancel();
+        };
+        const select = event => report(target(event));
+        const listeners = [['pointerover', over], ['pointerout', out], ['pointerleave', cancel], ['click', select], ['focusin', select]];
+        for (const [name, handler] of listeners) svg.addEventListener(name, handler);
+        this.highlightCleanup = () => { cancel(); for (const [name, handler] of listeners) svg.removeEventListener(name, handler); };
+        this.$emit('highlight-ready', true);
+      } catch {
+        // Relationship highlighting is optional. Keep the real rendered diagram.
+        this.clearHighlights();
+      }
+    },
+    /** Re-bind the pan/zoom viewport after the slotted SVG changes. */
+    initializeViewport() {
+      return this.$refs.viewport?.attach();
+    },
+    async renderAndApply(code, measureInitialAttempt = false) {
+      this.clearHighlights();
+      this.layoutWaitController?.abort();
+      const layoutWaitController = new AbortController();
+      this.layoutWaitController = layoutWaitController;
+      const generation = ++this.renderGeneration;
+      let svg;
+      try {
+        svg = await this.render(code, measureInitialAttempt, layoutWaitController.signal);
+      } finally {
+        if (this.layoutWaitController === layoutWaitController) {
+          this.layoutWaitController = null;
+        }
+      }
+      // Latest request wins. This also prevents a queued result from writing
+      // into a component that changed diagram type or was unmounted.
+      if (!svg || generation !== this.renderGeneration || this.mermaidCode !== code) {
+        return false;
+      }
+      this.currentFlowchartModel = typeof svg === 'string' ? null : svg.flowchartModel;
+      this.svg = typeof svg === 'string' ? svg : svg.svg;
+      await this.$nextTick();
+      if (generation !== this.renderGeneration || this.mermaidCode !== code) {
+        return false;
+      }
+      await this.initializeViewport();
+      if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
+      this.installHighlights();
+      return true;
+    },
+    async runMermaid(code) {
+      const renderId = `mermaid-${crypto.randomUUID()}`;
+      // Bodies stored before the save-time normalisation still carry pasted
+      // U+00A0, which mermaid's Langium grammars refuse. Normalising here is
+      // what makes those diagrams render again without a data migration.
+      const source = normalizeMermaidWhitespace(code);
+      const captureFlowchartModel = this.relationshipHighlights && this.highlightSurfaceAllowed;
+      const { svg, flowchartModel } = captureFlowchartModel
+        ? await renderMermaid(renderId, source, { captureFlowchartModel: true })
+        : await renderMermaid(renderId, source);
+      // A `useMaxWidth: false` diagram carries a fixed height that our flex
+      // wrapper cannot shrink, which letterboxes the drawing. See
+      // normalizeSvgSizing for the measurement.
+      const normalized = normalizeSvgSizing(svg);
+      return captureFlowchartModel ? { svg: normalized, flowchartModel } : normalized;
+    },
+    reportCrash(error) {
+      console.error('mermaid render error', error);
+      // reliability-audit-2026-08-06 §3/§12.1: a mermaid.js exception used to
+      // be console.error-only and the blank result was recorded as a successful
+      // macro_viewed. This path runs only after any safe retry is exhausted;
+      // mounted() now records macro_viewed only when an SVG was actually applied.
+      trackViewerRenderCrash('mermaid', this.isDisplayMode, error);
+    },
+    isTransientRenderError(error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      return message.includes('svg element not in render tree')
+        || /matrix (?:is )?(?:not |non[- ]?)invertible/i.test(message);
+    },
+    // The wait itself is awaitSvgTextLayout, unchanged. Around it: one
+    // viewer_render_deferred past 10 s, viewer_render_abandoned if it is
+    // cancelled, and the elapsed time recorded for macro_viewed's
+    // layout_wait_ms when it succeeds (#706).
+    async awaitLayoutWithTelemetry(signal) {
+      const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const startedAt = now();
+      // render_gate / visible_at_boot exist only when the viewport gate ran.
+      const { render_gate, visible_at_boot } = getGateTelemetry();
+      const base = {
+        feature_area: 'macro',
+        surface: this.isDisplayMode ? 'viewer' : 'editor',
+        macro_type: 'mermaid',
+        reason: 'no_layout',
+        ...(render_gate !== undefined ? { render_gate } : {}),
+        ...(visible_at_boot !== undefined ? { visible_at_boot } : {}),
+      };
+      const waited = () => Math.round(now() - startedAt);
+      const heartbeat = setTimeout(
+        () => trackAnalyticsEvent('viewer_render_deferred', { ...base, waited_ms: waited() }),
+        LAYOUT_WAIT_HEARTBEAT_MS,
+      );
+      let measurable;
+      try {
+        measurable = await awaitSvgTextLayout({ signal });
+      } finally {
+        clearTimeout(heartbeat);
+      }
+      if (measurable && !signal?.aborted) {
+        renderPerf.markLayoutWait(waited());
+      } else {
+        // sendBeacon: the cancel usually coincides with the iframe going away,
+        // which aborts the default XHR transport.
+        void trackAnalyticsEventBeforeUnload('viewer_render_abandoned', { ...base, waited_ms: waited() });
+      }
+      return measurable;
+    },
+    async render(code, measureInitialAttempt = false, signal) {
+      const firstAttempt = () => measureInitialAttempt
+        ? renderPerf.time('render', () => this.runMermaid(code))
+        : this.runMermaid(code);
+      try {
+        return await firstAttempt();
       } catch (error) {
-        console.error('mermaid render error', error);
-        if (this.renderId) {
-          const tempElement = document.getElementById(`d${this.renderId}`);
-          tempElement?.remove();
+        if (signal?.aborted) return;
+        // Parser and module-load failures are deterministic here. Waiting for
+        // layout cannot change them, so preserve the original failure signal.
+        if (!this.isTransientRenderError(error)) {
+          this.reportCrash(error);
+          return;
+        }
+        // Mermaid's own failure condition is a 0 x 0 SVG text getBBox(), not
+        // merely a missing body rect. Wait until that exact measurement works.
+        // There is deliberately no ten-second deadline: a collapsed or
+        // virtualised Confluence macro can stay hidden longer, and PR #691's
+        // timed retry produced the same guaranteed failure a second time.
+        const measurable = await this.awaitLayoutWithTelemetry(signal);
+        if (!measurable || signal?.aborted) return;
+        try {
+          return await this.runMermaid(code);
+        } catch (retryError) {
+          if (signal?.aborted) return;
+          this.reportCrash(retryError);
         }
       }
     }
   }
 }
 </script>
+
+<style scoped>
+/* The editor preview is a fixed-height pane (Workspace.vue makes the column a
+   flex box). This is the first link of the chain that lets DiagramViewport fill
+   it instead of collapsing to the diagram's height. */
+.mermaid-root--editor {
+  height: 100%;
+  min-height: 0;
+}
+</style>

@@ -7,57 +7,35 @@ import globals from '@/model/globals';
 import OpenApiViewer from "@/components/Viewer/OpenApiViewer.vue";
 import EventBus from './EventBus'
 import { getContext as initForgeContext, openModal } from './model/globals/forgeGlobal';
-import { Diagram } from "@/model/Diagram/Diagram";
-import { reportOrphanObserved } from '@/utils/orphanTelemetry';
-import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import type { Diagram } from "@/model/Diagram/Diagram";
+import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
+import { openDocument } from '@/utils/documentOpening/openDocument';
+// resolveOpenApiId carries the pasted-deeplink fallback this file used to do
+// inline — see openApiTarget.ts.
+import { buildOpenApiViewerTarget, resolveOpenApiId } from '@/utils/documentOpening/targets/openApiTarget';
+import { mapOpenErrorToLoadError } from '@/utils/viewerLoadOutcome';
+// Still needed by the `edit` handler below, which forwards the macro's id into
+// the editor modal — that path is not part of the openDocument refactor.
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { guardEditClick } from '@/utils/guardEditClick';
 
-async function loadDiagram(): Promise<Diagram | undefined> {
+async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
-  let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
   const pageId = context.extension?.content?.id;
-  if(!customContentId) {
-  } else {
-    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
-    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
-    doc = loaded.customContent?.value;
-    if (loaded.recoveredFromOrphanId && doc) {
-      doc.recoveredFromOrphan = true;
-      doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
-      reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, {
-        recoveryUsed: true,
-        recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
-      });
-    } else if (!doc) {
-      reportOrphanObserved(pageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
-    }
+  const outcome = await openDocument({
+    policy: 'read',
+    context,
+    pageId,
+    target: buildOpenApiViewerTarget(),
+  });
+  if (outcome.kind === 'failed') {
+    // Pipeline OpenError → store-level DiagramLoadError at this boundary, so
+    // the recovery panel (GenericViewer, store.viewerLoadState) and the
+    // openDocument pipeline keep their own vocabularies without a third one.
+    return { doc: undefined, loadError: mapOpenErrorToLoadError(outcome.error) };
   }
-
-  // ZEN-1170 Defect 1 sibling: cross-page-paste recovery via uuid → CC title.
-  // OpenAPI macros never used content properties (no Defect 1 path here),
-  // but the Connect-era {uuid, updatedAt}-only param shape exists for them
-  // too, and copy-pasting such a macro leaves the destination with no
-  // customContentId. Find the surviving CC by exact-title CQL search.
-  if (!doc) {
-    const storageUuid = context.extension?.config?.uuid;
-    if (storageUuid) {
-      const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
-      if (recovered?.value) {
-        doc = recovered.value;
-        doc.recoveredFromOrphan = true;
-        trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
-          surface: 'viewer',
-          macro_type: 'openapi',
-          recovered_id: String(recovered.id ?? ''),
-          is_copy: doc.isCopy ? 'true' : 'false',
-          ...(pageId && { page_id: pageId }),
-        });
-      }
-    }
-  }
-
-  return doc;
+  return { doc: outcome.document.doc, loadError: null, attribution: outcome.document.attribution };
 }
 
 function afterLoad(doc: Diagram | undefined) {
@@ -83,6 +61,10 @@ async function initializeMacro() {
     content: OpenApiViewer,
     loadDiagram,
     afterLoad,
+    // Same resolver the TargetSpec above uses (config, falling back to the
+    // dashboard modal's carried id) — this also doubles as the SWR cache key,
+    // so it must resolve the SAME id `loadDiagram`'s openDocument() call does.
+    resolveContentId: (context) => resolveOpenApiId(context)?.contentId,
     onError: (error) => {
       console.error('Error loading OpenAPI viewer', error);
     },
@@ -98,11 +80,17 @@ EventBus.$on('edit', async () => {
   // sequence-editor pattern in forgeIndex.ts). Without this, viewer-launched
   // edits arrive at forge-swagger-editor.ts with no customContentId and are
   // mistakenly treated as new-macro sessions.
-  const customContentId = ctx.extension?.config?.customContentId;
+  // Resolved (not a raw config read) so a pasted macro forwards its real id
+  // instead of opening the editor as a new-macro session.
+  const customContentId = resolveEffectiveCustomContentId(ctx);
+  // Same-page duplicate gate — see forge-graph-viewer.ts. Memoized, so the
+  // shared forgeIndex listener firing on this same click costs no extra GET.
+  if (!(await guardEditClick({ customContentId, macroType: 'openapi' }))) return;
+
+
   await openModal({
     resource: 'main',
-    onClose: (payload: any) => {
-      console.log('onClose called with', payload);
+    onClose: () => {
       location.reload();
     },
     size: 'fullscreen',

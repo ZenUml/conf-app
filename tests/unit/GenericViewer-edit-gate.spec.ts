@@ -47,11 +47,6 @@ vi.mock('@/utils/upgradeTracking', () => ({
 
 vi.mock('@/utils/window', () => ({ trackEvent: vi.fn(), getUrlParam: vi.fn() }))
 
-vi.mock('@/services/DiagramLikes', () => ({
-  toggleDiagramLike: vi.fn(() => Promise.resolve([])),
-  getDiagramLikes: vi.fn(() => Promise.resolve([])),
-}))
-
 vi.mock('@/composables/useCustomerSuccessService', () => {
   return {
     useCustomerSuccessService: vi.fn(() => ({
@@ -76,7 +71,7 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     store.state.diagram.isCopy = false
   })
 
-  it('fires EventBus edit immediately even when shouldBlockActions is true', async () => {
+  it('fires EventBus edit exactly once without a viewer paywall when shouldBlockActions is true', async () => {
     const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
     await wrapper.vm.$nextTick()
 
@@ -86,6 +81,7 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     vm.edit()
 
     expect(editSpy).toHaveBeenCalledWith('edit')
+    expect(editSpy).toHaveBeenCalledTimes(1)
     // viewer has no viewer-level paywall state at all — showUpgradeModal is gone
     expect(vm.showUpgradeModal).toBeUndefined()
   })
@@ -102,20 +98,6 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     expect(vm.openUpgradeModal).toBeUndefined()
     expect(vm.showUpgradeModal).toBeUndefined()
     expect(vm.onContinueEditing).toBeUndefined()
-  })
-
-  it('viewer edit() always fires EventBus without any paywall interception', async () => {
-    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
-    await wrapper.vm.$nextTick()
-
-    const editSpy = vi.spyOn(EventBus, '$emit')
-    const vm = wrapper.vm as any
-
-    vm.edit()
-
-    // Direct EventBus emission, no modal state changes
-    expect(editSpy).toHaveBeenCalledWith('edit')
-    expect(editSpy).toHaveBeenCalledTimes(1)
   })
 
   it('Edit button is shown but disabled with cross-page tooltip when isCopy=true copyReason=cross-page', async () => {
@@ -140,12 +122,17 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     await wrapper.vm.$nextTick()
 
     const vm = wrapper.vm as any
-    expect(vm.editDisabledReason).toContain('multiple copies')
+    // CustomContentStorageProvider.save() forks a copy into a new,
+    // independent custom-content record rather than updating the shared
+    // original in place — editing a same-page copy does NOT affect the
+    // other copies, so the tooltip must say that, not the reverse.
+    expect(vm.editDisabledReason).toContain('independent diagram')
+    expect(vm.editDisabledReason).not.toContain('affect all of them')
 
     const btn = wrapper.find('button[aria-label="Edit"]')
     expect(btn.exists()).toBe(true)
     expect(btn.attributes('disabled')).toBeDefined()
-    expect(btn.attributes('title')).toContain('multiple copies')
+    expect(btn.attributes('title')).toContain('independent diagram')
   })
 
   it('Edit button is shown and enabled when isCopy=false', async () => {
@@ -159,5 +146,28 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     const btn = wrapper.find('button[aria-label="Edit"]')
     expect(btn.exists()).toBe(true)
     expect(btn.attributes('disabled')).toBeUndefined()
+  })
+
+  it('hideEdit=true removes the Edit pencil entirely (embed reference — edit at source)', async () => {
+    // The AsyncAPI embed macro renders a reference to a document owned
+    // elsewhere; it must not offer an inline Edit affordance in view mode.
+    store.state.diagram.isCopy = false
+    const wrapper = mount(GenericViewer, {
+      props: { hideEdit: true },
+      global: { plugins: [store] },
+    })
+    await wrapper.vm.$nextTick()
+
+    const vm = wrapper.vm as any
+    expect(vm.showEdit).toBe(false)
+    expect(wrapper.find('button[aria-label="Edit"]').exists()).toBe(false)
+  })
+
+  it('hideEdit defaults to false so non-embed viewers keep their Edit pencil', async () => {
+    store.state.diagram.isCopy = false
+    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('button[aria-label="Edit"]').exists()).toBe(true)
   })
 })

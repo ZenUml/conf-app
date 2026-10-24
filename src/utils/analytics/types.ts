@@ -1144,6 +1144,15 @@ export type AnalyticsProperties = {
   failed_request?: string;
   response_content_type?: string;
   response_title?: string;
+  // attachment_upload_rate_limited / attachment_upload_deferred. The cooldown
+  // after a 429 comes from the response's Retry-After header when the bridge
+  // passes one through ('header', with `retry_after_s`), else a fixed default
+  // ('default'); `cooldown_ms` is what was applied after clamping.
+  // `cooldown_remaining_ms` is how long a skipped view still had to wait.
+  retry_after_source?: 'header' | 'default';
+  retry_after_s?: number;
+  cooldown_ms?: number;
+  cooldown_remaining_ms?: number;
   // load_custom_content_v2_missing: why the custom content could not be
   // loaded. `load_status` is 'not_found' only for an all-404 NOT_FOUND
   // envelope (the case that triggers recovery), else 'other_error';

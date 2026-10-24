@@ -223,13 +223,38 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
      a different but valid layout. Edge routing differs, and one defect showed: a
      class-diagram note's connector is drawn across another class instead of
      around it.
-   - **Production corpus: not run.** Two parts remain, both needing the owner's
-     decision because they take customer diagram source out of D1 into a working
-     environment. (a) Engine only, nothing sent anywhere: draw all 4,060 diagrams
-     locally and count clean draws, syntax errors, fallbacks and crashes. (b)
-     Both renderers on a sample of the roughly 1,000 Graphviz-layout diagrams,
-     which sends that sample's source to plantuml.com, as viewers' browsers
-     already do on every view. Outputs from customer content stay out of this
+   - **Production corpus, engine only (2026-10-24, approved by the owner).** All
+     4,075 production PlantUML sources were drawn by the engine in headless Chromium
+     under `script-src 'self'`, with nothing sent anywhere. The sources sat in an
+     ephemeral working directory under anonymous IDs, and only counts are recorded
+     here. The run found two divergences from plantuml.com, and both are fixed
+     (`utils/plantuml/unwrap.ts`):
+
+     | Outcome | First run | After the fixes |
+     |---|---|---|
+     | drawn by the engine | 3,448 (84.6%) | **4,023 (98.7%)** |
+     | syntax error shown | 547 (13.4%) | **9 (0.2%)** |
+     | include fallback | 68 | 27 (15 non-C4 URLs, 12 unhosted libraries) |
+     | engine-error fallback | 12 | 16 (10 too large, 6 engine faults) |
+
+     1. *Nested sources* (a doubled `@startuml` header from the paste bug fixed in
+        conf-app#632, or `@startuml` around `@startgantt` / `@startjson` /
+        `@startmindmap`): 571 sources, which plantuml.com draws. `selectServerBlock`
+        applies the rule every measured shape follows: a `@start…` line abandons
+        anything open, and the server draws the block an `@end…` completes. Sources
+        with several complete blocks, which the server merges, go to the server.
+     2. *Backslash line continuation*, which plantuml.com joins before parsing:
+        `joinContinuationLines` does the same.
+
+     Both rules were checked against plantuml.com on synthetic sources only. All
+     105 GitHub C4 URL includes now render locally. Engine time: p50 26 ms,
+     p90 110 ms, p99 716 ms. The 9 remaining syntax errors (6 share one line
+     shape) may also be errors on plantuml.com; that cannot be told without
+     sending them there.
+   - **Production corpus, both renderers: not run.** Comparing layouts on a
+     sample of the roughly 1,000 Graphviz-layout diagrams would send that sample's
+     source to plantuml.com, as viewers' browsers already do on every view. It
+     needs the owner's decision. Outputs from customer content stay out of this
      public repo.
 4. **Self-host the stdlib.** **C4 done (2026-10-24).** `utils/plantuml/stdlib.ts`
    sets `PLANTUML_STDLIB_LOADER` and serves C4-PlantUML 2.14.0 (MIT) as data from a

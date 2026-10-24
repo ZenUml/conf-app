@@ -43,6 +43,9 @@ const emit = defineEmits<{
 }>()
 
 const LOGO_D = pathAt(0)
+/** The panel stays short: only the 5 newest messages, newest first (the store keeps the rest). */
+const MAX_VISIBLE_MESSAGES = 5
+const visibleMessages = computed(() => props.messages.slice(-MAX_VISIBLE_MESSAGES).reverse())
 const minimized = computed(() => props.prefs.panelCollapsed)
 const prefOpen = computed(() => !props.prefs.preferencesHidden)
 
@@ -453,8 +456,9 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
               <div class="tp-section-content tp-messages">
                 <div v-if="messages.length" class="tp-message-list" role="log" aria-live="polite">
                   <div
-                    v-for="m in messages"
+                    v-for="m in visibleMessages"
                     :key="m.id"
+                    :title="m.text"
                     class="tp-message"
                     :class="`tp-message-${m.role}`"
                     data-testid="message"

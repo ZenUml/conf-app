@@ -179,12 +179,12 @@
 .tp-review-meta { color: var(--color-text-secondary); gap: 6px; flex-wrap: wrap; }
 .tp-review-empty { color: var(--color-text-secondary); padding-bottom: 4px; }
 .tp-messages { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; }
-.tp-message-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
-.tp-message { line-height: 16px; white-space: pre-wrap; word-break: break-word; user-select: text; }
+.tp-message-list { display: flex; flex-direction: column; gap: 6px; }
+.tp-message { line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 .tp-message-agent { color: var(--color-text); }
 .tp-message-progress { color: var(--color-text-secondary); }
-.tp-message-user { align-self: flex-end; max-width: 90%; padding: 4px 8px; border-radius: var(--radius-medium); background: var(--color-bg-secondary); color: var(--color-text); }
-.tp-message-status { display: block; margin-top: 2px; font-size: 12px; color: var(--color-text-tertiary); text-align: right; }
+.tp-message-user { align-self: flex-end; max-width: 90%; min-width: 0; padding: 4px 8px; border-radius: var(--radius-medium); background: var(--color-bg-secondary); color: var(--color-text); }
+.tp-message-status { margin-left: 6px; font-size: 12px; color: var(--color-text-tertiary); text-align: right; }
 .tp-message-compose { display: flex; align-items: flex-end; gap: var(--spacer-1); }
 .tp-message-input { flex: 1 1 auto; min-width: 0; height: 28px; max-height: 96px; resize: none; margin: 0; padding: 5px 7px; border: 1px solid var(--color-border); border-radius: var(--radius-medium);
   background: var(--color-bg); color: var(--color-text); font: inherit; font-size: 12px; line-height: 18px; outline: none; user-select: text; cursor: text; overflow-y: auto; }

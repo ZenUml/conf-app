@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_MESSAGE_LENGTH } from '@zenuml/pr-panel-shared'
+import { readFileSync } from 'node:fs'
 import { mount } from '@vue/test-utils'
 import AgentPanel from './AgentPanel.vue'
 import { MESSAGES, PR_888, PREFS, REVIEWS, TASK_DONE, TASK_WORKING } from '../preview/fixtures'
@@ -169,12 +170,31 @@ describe('AgentPanel sections', () => {
     const w = mountPanel({ messages: MESSAGES })
     const rows = w.findAll('[data-testid="message"]')
     expect(rows).toHaveLength(4)
-    expect(rows[1]!.classes()).toContain('tp-message-agent')
-    expect(w.findAll('[data-testid="message-status"]').map((s) => s.text())).toEqual(['queued', 'delivered'])
+    expect(rows.map((r) => r.classes().find((c) => c.startsWith('tp-message-')))).toEqual(
+      [...MESSAGES].reverse().map((m) => `tp-message-${m.role}`),
+    )
+    expect(w.findAll('[data-testid="message-status"]').map((s) => s.text())).toEqual(['delivered', 'queued'])
     w.unmount()
     const waiting = mountPanel({ messages: [{ id: 'u', role: 'user', text: 'hi', status: 'queued', waitingForAgent: true }] })
     expect(waiting.get('[data-testid="message-status"]').text()).toBe("queued, delivered on the agent's next turn")
     waiting.unmount()
+  })
+
+  it('shows only the last 5 messages, newest first, one line each', () => {
+    const many = Array.from({ length: 7 }, (_, n) => ({ id: `m${n + 1}`, role: 'agent' as const, text: `message ${n + 1}` }))
+    const w = mountPanel({ messages: many })
+    const rows = w.findAll('[data-testid="message"]')
+    expect(rows.map((r) => r.text())).toEqual(['message 7', 'message 6', 'message 5', 'message 4', 'message 3'])
+    expect(rows[0]!.attributes('title')).toBe('message 7')
+    w.unmount()
+  })
+
+  it('styles each message as one ellipsised line', () => {
+    const css = readFileSync('src/ui/panel.css', 'utf8')
+    const body = css.match(/\.tp-message\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(body).toMatch(/white-space:\s*nowrap/)
+    expect(body).toMatch(/text-overflow:\s*ellipsis/)
+    expect(body).toMatch(/overflow:\s*hidden/)
   })
 
   it('Send emits the trimmed text and clears the box; Enter sends, empty text does not', async () => {

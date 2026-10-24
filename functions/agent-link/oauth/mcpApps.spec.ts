@@ -1,0 +1,258 @@
+import { describe, it, expect } from 'vitest';
+import {
+  UI_EXTENSION_ID,
+  UI_MIME_TYPE,
+  DIAGRAM_VIEW_URI,
+  DIAGRAM_VIEW_ASSET_PATH,
+  VIEW_TOOLS,
+  RENDERABLE_TYPES,
+  isRenderableType,
+  uiCapability,
+  uiMeta,
+  uiCsp,
+  withUiMeta,
+  uiResourceList,
+  uiResourceMeta,
+  readUiResource,
+  withAbsoluteAssetUrls,
+} from './mcpApps';
+
+const ORIGIN = 'https://zenapi.zenuml.com';
+const VIEW_HTML =
+  '<!doctype html><html><head><meta name="mcp-app" content="zenuml-diagram"></head>' +
+  '<body><div id="app"></div><script type="module" src="/assets/mcp-app-view-abc123.js"></script></body></html>';
+
+/**
+ * What Cloudflare Pages actually serves for an unknown path: the app's own
+ * shell, with a 200 and plenty of script tags. The first version of this
+ * fixture was a script-free fragment, which is why the guard that only looked
+ * for "<script" passed a real deploy and served the Forge app as the view.
+ */
+const SPA_SHELL =
+  '<!DOCTYPE html><html lang="en"><head>' +
+  '<script>window.__macroLoadStart = performance.now();</script>' +
+  '<title>ZenUML Forge Addon</title></head>' +
+  '<body><div id="app"></div><script type="module" src="./assets/index-BopBvdfd.js"></script></body></html>';
+
+function ok(body: string): Response {
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/html' } });
+}
+
+describe('spec identifiers', () => {
+  // These are the three strings a host matches on. A typo in any of them is a
+  // silent non-render, so they are asserted literally rather than referenced.
+  it('uses the extension id, MIME type and URI scheme the spec mandates', () => {
+    expect(UI_EXTENSION_ID).toBe('io.modelcontextprotocol/ui');
+    expect(UI_MIME_TYPE).toBe('text/html;profile=mcp-app');
+    expect(DIAGRAM_VIEW_URI.startsWith('ui://')).toBe(true);
+  });
+
+  it('declares the capability in the shape initialize expects', () => {
+    expect(uiCapability()).toEqual({
+      'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+    });
+  });
+
+  it('advertises the resource with the app MIME type, not plain text/html', () => {
+    const [entry] = uiResourceList(ORIGIN);
+    expect(entry.uri).toBe(DIAGRAM_VIEW_URI);
+    expect(entry.mimeType).toBe(UI_MIME_TYPE);
+  });
+});
+
+describe('withUiMeta', () => {
+  const tools = [
+    { name: 'list_sites' },
+    { name: 'read_diagram' },
+    { name: 'update_diagram' },
+    { name: 'create_diagram' },
+    { name: 'list_diagrams' },
+    { name: 'get_status' },
+  ];
+
+  it('attaches the view only to the tools that have one', () => {
+    const out = withUiMeta(tools, ORIGIN);
+    const withView = out.filter((t) => '_meta' in t).map((t) => t.name);
+    expect(withView.sort()).toEqual(['create_diagram', 'read_diagram', 'update_diagram']);
+    expect([...VIEW_TOOLS].sort()).toEqual(withView.sort());
+  });
+
+  it('leaves list_diagrams alone — a table is already the right shape', () => {
+    const listed = withUiMeta(tools, ORIGIN).find((t) => t.name === 'list_diagrams');
+    expect(listed).not.toHaveProperty('_meta');
+  });
+
+  it('points _meta.ui at the view', () => {
+    const read = withUiMeta(tools, ORIGIN).find((t) => t.name === 'read_diagram') as
+      { _meta: { ui: { resourceUri: string } } };
+    expect(read._meta.ui.resourceUri).toBe(DIAGRAM_VIEW_URI);
+    // The csp does NOT belong here — see the 'csp placement' block. This test
+    // used to assert it on the tool, which is how the real bug passed review.
+  });
+
+  it('grants no network reach beyond our own origin (DrawIO stencil XHRs)', () => {
+    const csp = uiCsp(ORIGIN) as { connectDomains: string[]; frameDomains: string[] };
+    expect(csp.connectDomains).toEqual([ORIGIN]);
+    expect(csp.frameDomains).toEqual([]);
+  });
+
+  it('does not mutate the tools it was given', () => {
+    const original = [{ name: 'read_diagram' }];
+    withUiMeta(original, ORIGIN);
+    expect(original[0]).not.toHaveProperty('_meta');
+  });
+
+  it('carries each deploy its own origin, so staging never advertises prod', () => {
+    const [stg] = uiResourceList('https://conf-stg-lite.zenuml.com') as
+      Array<{ _meta: { ui: { csp: { resourceDomains: string[] } } } }>;
+    expect(stg._meta.ui.csp.resourceDomains).toEqual(['https://conf-stg-lite.zenuml.com', 'https://www.plantuml.com']);
+  });
+});
+
+describe('isRenderableType', () => {
+  it('accepts the types this view draws, in the stored casing too', () => {
+    expect([...RENDERABLE_TYPES].sort()).toEqual(['graph', 'mermaid', 'openapi', 'plantuml', 'sequence']);
+    expect(isRenderableType('sequence')).toBe(true);
+    expect(isRenderableType('Mermaid')).toBe(true);
+    expect(isRenderableType('PlantUml')).toBe(true);
+    expect(isRenderableType('graph')).toBe(true);
+    expect(isRenderableType('OpenAPI')).toBe(true);
+  });
+
+  it('rejects the types that need a renderer this view does not bundle', () => {
+    for (const t of ['AsyncAPI', 'embed', 'markdown', '', undefined, 42]) {
+      expect(isRenderableType(t)).toBe(false);
+    }
+  });
+});
+
+describe('withAbsoluteAssetUrls', () => {
+  const VIEW_URL = `${ORIGIN}${DIAGRAM_VIEW_ASSET_PATH}`;
+
+  // Regression for claude.ai, 2026-10-16: an injected <base> is refused by its
+  // sandbox's own base-uri directive, so every relative asset resolved against
+  // *.claudemcpcontent.com and no view code ran. The URLs themselves must be
+  // absolute.
+  it('makes the real built markup absolute on our origin, with no <base>', () => {
+    const built = '<!doctype html><html lang="en"><head><meta charset="utf-8" />'
+      + '<script type="module" crossorigin src="./assets/view-CWgFJfD1.js"></script>'
+      + '<link rel="modulepreload" crossorigin href="./assets/runtime-C4mxaqyl.js">'
+      + '</head><body><div id="app"></div></body></html>';
+    const out = withAbsoluteAssetUrls(built, VIEW_URL);
+    expect(out).toContain(`src="${ORIGIN}/mcp-app/assets/view-CWgFJfD1.js"`);
+    expect(out).toContain(`href="${ORIGIN}/mcp-app/assets/runtime-C4mxaqyl.js"`);
+    expect(out).not.toMatch(/<base\s/i);
+  });
+
+  it('resolves root-relative references against our origin too', () => {
+    expect(withAbsoluteAssetUrls('<script src="/mcp-app/assets/a.js"></script>', VIEW_URL))
+      .toBe(`<script src="${ORIGIN}/mcp-app/assets/a.js"></script>`);
+  });
+
+  it('leaves absolute, protocol-relative, data and fragment URLs alone', () => {
+    const html = '<img src="https://www.plantuml.com/x"><a href="#top"></a>'
+      + '<img src="data:image/png;base64,AA"><script src="//cdn.example.com/a.js"></script>';
+    expect(withAbsoluteAssetUrls(html, VIEW_URL)).toBe(html);
+  });
+
+  it('declares no base-uri allowance, since there is no <base> to allow', () => {
+    expect(uiCsp(ORIGIN)).not.toHaveProperty('baseUriDomains');
+  });
+});
+describe('readUiResource', () => {
+  it('serves the built view as the resource body', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(VIEW_HTML));
+    expect(res.ok).toBe(true);
+    expect(res.ok && res.contents[0]).toEqual({
+      uri: DIAGRAM_VIEW_URI,
+      mimeType: UI_MIME_TYPE,
+      text: withAbsoluteAssetUrls(VIEW_HTML, `${ORIGIN}${DIAGRAM_VIEW_ASSET_PATH}`),
+      _meta: uiResourceMeta(ORIGIN),
+    });
+  });
+
+  it('fetches the asset from the requesting origin', async () => {
+    const seen: string[] = [];
+    await readUiResource(DIAGRAM_VIEW_URI, 'https://conf-stg-lite.zenuml.com', async (u) => {
+      seen.push(u);
+      return ok(VIEW_HTML);
+    });
+    expect(seen).toEqual([`https://conf-stg-lite.zenuml.com${DIAGRAM_VIEW_ASSET_PATH}`]);
+  });
+
+  it('refuses a URI it does not publish', async () => {
+    const res = await readUiResource('ui://somebody-else/view', ORIGIN, async () => ok(VIEW_HTML));
+    expect(res).toMatchObject({ ok: false, reason: 'unknown_uri' });
+  });
+
+  it('refuses a non-string URI without calling out', async () => {
+    let called = false;
+    const res = await readUiResource(undefined, ORIGIN, async () => {
+      called = true;
+      return ok(VIEW_HTML);
+    });
+    expect(res).toMatchObject({ ok: false, reason: 'unknown_uri' });
+    expect(called).toBe(false);
+  });
+
+  it('reports fetch_failed on a non-2xx asset', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => new Response('', { status: 404 }));
+    expect(res).toMatchObject({ ok: false, reason: 'fetch_failed' });
+  });
+
+  it('reports fetch_failed when Pages answers with the SPA shell instead of the view', async () => {
+    // Observed on staging 2026-09-29: the entry is not in the build, Pages
+    // answers /mcp-app/view.html with the app shell and a 200, and the host
+    // was handed the Forge app as the diagram view — reported as success.
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(SPA_SHELL));
+    expect(res).toMatchObject({ ok: false, reason: 'fetch_failed' });
+    expect(res.ok === false && res.detail).toMatch(/mcp-app\/view\.html/);
+  });
+
+  it('refuses html that merely looks like a page — only the marker counts', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () =>
+      ok('<!doctype html><html><body><div id="app"></div><script src="/assets/anything.js"></script></body></html>'));
+    expect(res).toMatchObject({ ok: false, reason: 'fetch_failed' });
+  });
+
+  it('accepts the built view, which carries the marker', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(VIEW_HTML));
+    expect(res.ok).toBe(true);
+  });
+
+  it('reports fetch_failed rather than throwing when the fetch itself dies', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => {
+      throw new Error('ECONNRESET');
+    });
+    expect(res).toMatchObject({ ok: false, reason: 'fetch_failed', detail: 'ECONNRESET' });
+  });
+});
+
+/**
+ * Where the csp is attached. This is not a style question: the host enforces
+ * the csp it finds on the UI RESOURCE, and applies a restrictive default when
+ * there is none. We had it on the tool, so the default applied, script-src was
+ * 'self' (the frame, not us), our bundle was refused, and the view rendered
+ * empty with nothing logged — Claude Desktop, 2026-10-03.
+ */
+describe('csp placement', () => {
+  it('puts the csp on the resources/list entry', () => {
+    const [entry] = uiResourceList(ORIGIN) as Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }>;
+    expect(entry._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN, 'https://www.plantuml.com']);
+  });
+
+  it('puts the csp on the resources/read contents, which is the one enforced', async () => {
+    const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(VIEW_HTML));
+    expect(res.ok).toBe(true);
+    const contents = (res as { contents: Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }> }).contents;
+    expect(contents[0]._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN, 'https://www.plantuml.com']);
+  });
+
+  it('keeps the tool meta to the association only', () => {
+    const meta = uiMeta(ORIGIN) as { ui: Record<string, unknown> };
+    expect(meta.ui.resourceUri).toBe(DIAGRAM_VIEW_URI);
+    // csp here is ignored by the host; asserting its absence keeps it from
+    // creeping back and looking like it works.
+    expect(meta.ui.csp).toBeUndefined();
+  });
+});

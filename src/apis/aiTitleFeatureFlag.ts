@@ -6,6 +6,7 @@ const AI_CHAT_REPAIR_FLAG_ID = 'ai-chat-repair-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
+const CREATE_GUIDE_FLAG_ID = 'create-guide-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -141,6 +142,22 @@ export async function isArchitectureTokensEnabled(): Promise<boolean> {
 
   const client = await getFeatureFlagsClient()
   return client.checkFlag(ARCHITECTURE_TOKENS_FLAG_ID, false)
+}
+
+/**
+ * Viewer "Create" button that opens the slash-command creation guide
+ * (src/features/createGuide). Fail-closed: a missing flag or a lookup error hides it.
+ */
+export async function isCreateGuideEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return false
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(CREATE_GUIDE_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load Create guide feature flag:', error)
+    return false
+  }
 }
 
 export function resetFeatureFlagsForTests(): void {

@@ -36,11 +36,12 @@
           <p class="font-medium text-gray-800">AI Repair couldn't finish</p>
           <p class="mt-2 max-w-lg text-sm">{{ repairError }}</p>
           <button
+            v-if="!hasRetried"
             class="mt-5 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition-colors"
             data-testid="ai-repair-retry"
             @click="triggerAiRepair"
           >
-            Try again
+            Try a stronger fix
           </button>
         </div>
 
@@ -175,7 +176,7 @@
 
       <div class="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
         <button @click="closeDialog" class="px-5 py-2 rounded-md text-gray-600 hover:bg-gray-100 hover:text-gray-800 transition-all font-medium text-sm">
-          Discard
+          {{ repairError && hasRetried ? 'Continue editing' : 'Discard' }}
         </button>
         <button
           @click="applyRepair"
@@ -195,8 +196,12 @@ import * as Diff from 'diff';
 import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService";
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
-
-const AI_REPAIR_MODEL_STORAGE_KEY = 'ai_repair_model';
+import {
+  AI_REPAIR_MODEL_STORAGE_KEY,
+  AI_REPAIR_RETRY_MODEL,
+  DEFAULT_AI_REPAIR_MODEL,
+  resolveConfiguredAiModel,
+} from '@/utils/aiModelConfig';
 
 const props = defineProps({
   showDialog: Boolean,
@@ -205,7 +210,7 @@ const props = defineProps({
   error: [String, Object],
   model: {
     type: String,
-    default: 'openai/gpt-5.6-luna',
+    default: DEFAULT_AI_REPAIR_MODEL,
   },
   disableReasoning: {
     type: Boolean,
@@ -239,6 +244,7 @@ interface DiffRow {
 
 const repairResult = ref<string | null>(null);
 const repairError = ref<string | null>(null);
+const hasRetried = ref(false);
 const diffRows = ref<DiffRow[]>([]);
 
 const leftScrollRef = ref<HTMLElement | null>(null);
@@ -487,8 +493,8 @@ let repairStartedAt = 0;
 let pollCount = 0;
 const wasApplied = ref(false);
 const POLL_INTERVAL_MS = 1000;
-// The backend allows 100 seconds so a large full-document repair can finish all
-// validation attempts. Keep enough client-side headroom to receive the terminal
+// The backend allows 100 seconds for a large full-document repair attempt.
+// Keep enough client-side headroom to receive the terminal
 // Job update instead of replacing it with a polling timeout.
 const REPAIR_TIMEOUT_BUDGET_MS = 120_000;
 const macroType = computed(
@@ -535,18 +541,16 @@ const backendAnalytics = (status?: RepairJobStatus) => {
 };
 
 let activeRepairModel = props.model;
+let activeRetryAfterFailure = false;
 
-const resolveRepairModel = () => {
-  try {
-    return window.localStorage.getItem(AI_REPAIR_MODEL_STORAGE_KEY)?.trim() || props.model;
-  } catch {
-    // localStorage may be unavailable in restrictive iframe/browser contexts.
-    return props.model;
-  }
-};
+const resolveRepairModel = () => resolveConfiguredAiModel(
+  AI_REPAIR_MODEL_STORAGE_KEY,
+  props.model,
+);
 
 const requestedConfigAnalytics = () => ({
   ...(typeof activeRepairModel === 'string' ? { ai_model: activeRepairModel } : {}),
+  retry_after_failure: activeRetryAfterFailure,
   ...(typeof props.disableReasoning === 'boolean'
     ? { reasoning_disabled: props.disableReasoning }
     : {}),
@@ -564,9 +568,11 @@ const failRepair = (
   console.error('[AIRepair] Repair error:', displayMessage);
   repairResult.value = null;
   diffRows.value = [];
-  repairError.value = failurePhase === 'timeout'
-    ? 'The repair ran out of time before producing a valid result. You can try again or continue editing manually.'
-    : displayMessage;
+  repairError.value = hasRetried.value
+    ? "We still couldn't repair this code. Please continue editing manually."
+    : failurePhase === 'timeout'
+      ? 'The repair ran out of time before producing a valid result. You can try again or continue editing manually.'
+      : displayMessage;
   repairStatus.value = `Error: ${displayMessage}`;
   trackAnalyticsEvent('ai_repair_failed', {
     feature_area: 'ai',
@@ -585,13 +591,19 @@ const failRepair = (
 };
 
 const triggerAiRepair = async () => {
+  if (hasRetried.value) return;
+
   stopPolling();
   const generation = pollingGeneration;
+  activeRetryAfterFailure = repairError.value !== null;
+  hasRetried.value = activeRetryAfterFailure;
   repairError.value = null;
   repairResult.value = null;
   diffRows.value = [];
   currentJobId.value = null;
-  activeRepairModel = resolveRepairModel();
+  activeRepairModel = activeRetryAfterFailure
+    ? AI_REPAIR_RETRY_MODEL
+    : resolveRepairModel();
   repairStartedAt = Date.now();
   pollCount = 0;
   const deadlineMs = repairStartedAt + REPAIR_TIMEOUT_BUDGET_MS;
@@ -676,6 +688,7 @@ const startPolling = (jobId: string, generation: number, deadlineMs: number) => 
           poll_interval_ms: POLL_INTERVAL_MS,
           timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
           poll_count: pollCount,
+          ...requestedConfigAnalytics(),
           ...backendAnalytics(status),
         });
         stopPolling();
@@ -746,7 +759,11 @@ watch(repairResult, () => {
   }
 });
 
-watch([() => props.originalCode, () => props.showDialog], ([_code, show]) => {
+watch([() => props.originalCode, () => props.showDialog], ([_code, show], [_previousCode, wasShown]) => {
+  if (show && !wasShown) {
+    hasRetried.value = false;
+    repairError.value = null;
+  }
   if (show && !repairResult.value) triggerAiRepair();
 });
 

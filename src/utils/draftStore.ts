@@ -19,6 +19,9 @@ export interface Draft {
   title: string;
   savedAt: number;
   graphEditorMode?: 'diagram' | 'board';
+  diagramType?: string;
+  /** Independent buffers in the shared text editor. */
+  buffers?: Record<string, string>;
 }
 
 export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;

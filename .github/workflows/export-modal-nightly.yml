@@ -1,0 +1,145 @@
+name: Export modal validation
+
+# Runs the Export PNG Playwright suite (tests/export-modal, `pnpm test:export-modal`)
+# against the standalone Vite dev server. It needs no Confluence site, no Forge app,
+# no secrets and no OTP, so it costs one runner.
+#
+# Every code PR gets this independent check, including drafts. Keeping the suite
+# in its own job avoids holding the build/unit gate or staging deployment behind
+# a browser test timeout (the original #649 failure mode).
+#
+# Scheduled workflows only run from the default branch, so the nightly starts firing
+# once this file is on main. The suite is only green with the #649 fix in place
+# (PR #840); do not merge this ahead of it.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**']
+  schedule:
+    # 04:17 UTC. smoke-test.yml runs at 02:00 and daily-regression.yml at 03:00 (both
+    # use the shared robot account / staging), e2e-flake-ranking.yml at 03:00 on
+    # Mondays. 04:17 stays clear of all of them and off the :00/:30 marks, where
+    # GitHub delays scheduled runs the most.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+# A manual dispatch replaces a stale run of the same workflow instead of queueing
+# behind it. Not the `conf-app-staging` group: this suite never touches staging.
+concurrency:
+  group: export-modal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  export-modal:
+    name: "Export modal (standalone dev server)"
+    runs-on: ubuntu-latest
+    # The suite takes about 5.5 min once dependencies are in. 20 min leaves room for a
+    # cold pnpm store and a cold Playwright browser download.
+    timeout-minutes: 20
+    env:
+      CI: true
+      # One place for the port: the server, the readiness probe and LOCAL_DEV_URL
+      # below all read it.
+      DEV_PORT: "8080"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      # No asyncapi-studio submodule: `vite dev` does not copy the Studio (that only
+      # happens on `vite build`), same as the preview-e2e job in pr-validation.yml.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      # @playwright/test is a root devDependency, so the browser version follows the
+      # root lockfile (not tests/e2e-tests/pnpm-lock.yaml, which the other workflows
+      # key on). Distinct key prefix so the two caches never share a version.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-export-modal-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run the Export PNG suite against a local Vite dev server
+        # Server mechanism: THIS step starts Vite; Playwright's own `webServer`
+        # block (tests/export-modal/playwright.config.ts) does not start a second
+        # one. That block has `reuseExistingServer: true` and its `url` is
+        # LOCAL_DEV_URL, which is already answering 200 by the time Playwright
+        # starts, so it reuses ours.
+        #
+        # Why Vite directly and not `pnpm start:local`: that script wraps Vite in
+        # portless, which allocates a dynamic `conf-app.localhost:1355` hostname
+        # and resolves the base URL through `pnpm dev:url`. Without LOCAL_DEV_URL
+        # the config falls back to `pnpm dev:url`, which prints a URL even when
+        # nothing is listening, so a dead server would surface as 85 connection
+        # failures. pr-validation.yml's preview-e2e job already uses this pattern:
+        # PORT set makes Vite's `strictPort` true, so a busy port fails loudly.
+        #
+        # The readiness loop is the only fail-fast: 45 x 2 s = 90 s, then the Vite
+        # log is printed and the step fails. The trap stops Vite when the step ends
+        # (a background process from an earlier step is not guaranteed to survive
+        # into the next one). Vite is started as `node node_modules/vite/bin/vite.js`,
+        # not through `pnpm exec` or the .bin shim. The `vite.js` launcher re-spawns
+        # itself, and the child is what holds the port, so the trap SIGKILLs the child
+        # first and then the launcher (a local dry run left the child listening after a
+        # plain `kill $PID`).
+        # The loop also checks the Vite PID is alive: with strictPort, a busy port
+        # makes Vite exit, and a different server answering 200 there must not pass
+        # for ours. The Playwright report and test-results land in the repo root
+        # (default output dirs), not under tests/export-modal.
+        #
+        # Network: four tests in the PlantUML describe block fetch
+        # /plantuml/png/<encoded> from plantuml.com, exactly as the macro does.
+        # GitHub-hosted runners allow that egress; a self-hosted or egress-filtered
+        # runner would fail those four.
+        #
+        # Mixpanel stays isolated without an env var: tests/export-modal/mixpanel-test.ts
+        # installs the route-level isolation as an auto fixture.
+        #
+        # --global-timeout is 10 min against the ~5.5 min expected run (the step
+        # fails instead of hanging until the 20 min job limit).
+        run: |
+          PORT="$DEV_PORT" HOST=127.0.0.1 VERSION=latest PRODUCT_TYPE=lite \
+            node node_modules/vite/bin/vite.js dev > "$RUNNER_TEMP/vite-dev.log" 2>&1 &
+          VITE_PID=$!
+          trap 'pkill -9 -P "$VITE_PID" 2>/dev/null || true; kill -9 "$VITE_PID" 2>/dev/null || true' EXIT
+          export LOCAL_DEV_URL="http://127.0.0.1:${DEV_PORT}"
+          for i in $(seq 1 45); do
+            if ! kill -0 "$VITE_PID" 2>/dev/null; then
+              echo "Vite exited before it became reachable (port $DEV_PORT busy?). Its log:"
+              cat "$RUNNER_TEMP/vite-dev.log"
+              exit 1
+            fi
+            if curl -sf -o /dev/null "$LOCAL_DEV_URL/"; then
+              echo "Vite dev server answered 200 at $LOCAL_DEV_URL after $((i * 2)) s"
+              break
+            fi
+            if [ "$i" -eq 45 ]; then
+              echo "Vite dev server never became reachable at $LOCAL_DEV_URL within 90 s. Its log:"
+              cat "$RUNNER_TEMP/vite-dev.log"
+              exit 1
+            fi
+            sleep 2
+          done
+          pnpm test:export-modal --global-timeout=600000 --reporter=line,html
+      - name: Upload Playwright report and failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: export-modal-report
+          path: |
+            playwright-report/
+            test-results/
+            ${{ runner.temp }}/vite-dev.log
+          if-no-files-found: ignore
+          retention-days: 7

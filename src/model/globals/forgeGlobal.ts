@@ -70,6 +70,18 @@ export function resolveZenumlRemoteBaseUrl(
   environmentType: string,
   flags: { isAsyncApi?: boolean; isLite?: boolean; isDiagramly?: boolean },
 ): string | undefined {
+  // A Forge tunnel can point its declared remote at a local ngrok endpoint.
+  // Vite injects this only for the local dev server; deployed bundles keep the
+  // normal per-variant mapping below.
+  const localOverride = import.meta.env.DEV && import.meta.env.VITE_JOINT_DEBUG_REMOTE_BASE_URL;
+  if (environmentType === 'DEVELOPMENT' && localOverride) {
+    const url = new URL(localOverride);
+    if (url.protocol !== 'https:' || url.username || url.password ||
+        url.pathname !== '/' || url.search || url.hash) {
+      throw new Error('VITE_JOINT_DEBUG_REMOTE_BASE_URL must be an HTTPS origin');
+    }
+    return url.origin;
+  }
   const key = `${environmentType}_${remoteUrlVariant(flags)}` as keyof typeof REMOTE_BASE_URL_MAP;
   return REMOTE_BASE_URL_MAP[key];
 }
@@ -222,12 +234,26 @@ export async function isFullscreenMode() {
   return context.extension.modal?.macroMode === 'fullscreen';
 }
 
+/**
+ * True when this fullscreen modal was opened by the Export PNG button rather
+ * than by someone asking for Fullscreen. Set in the `fullscreen` EventBus
+ * handler's modal context (forgeIndex.ts).
+ */
+export async function isExportEntry() {
+  const context = await getContext();
+  return context.extension.modal?.openExport === true;
+}
+
 // Pass `size: 'fullscreen'` to fill the viewport (100vw × 100vh, no Confluence chrome).
 // GA'd Apr 28 2026 (FRGE-557 / CHANGE-3163). Atlassian-enforced header (~50px, app icon + title + X) is unavoidable.
 export async function openModal(_options: any) {
   const { Modal } = await import("@forge/bridge");
   const modal = new Modal(_options);
-  modal.open();
+  // Return the open() result. It is a promise in the bridge, and dropping it
+  // detached both its rejection and its completion — a caller that awaits
+  // openModal() to guard against a double open was released before the bridge
+  // had opened anything (conf-app export-in-fullscreen review, round 1).
+  return modal.open();
 }
 
 export async function isInserting() {

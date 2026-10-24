@@ -93,6 +93,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
       reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     }
     if (doc && autoconvertProps) {
@@ -107,7 +108,7 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
           failure_reason: 'target_missing',
         });
       }
-      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(pageId, customContentId, 'embed', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       loadError = mapCustomContentLoadError(loaded);
     }
   }

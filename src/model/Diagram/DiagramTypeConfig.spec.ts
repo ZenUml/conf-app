@@ -112,7 +112,7 @@ describe('DiagramTypeConfig', () => {
   describe('getEditorDiagramOptions', () => {
     it('returns Sequence, Mermaid, and PlantUML options', () => {
       const options = getEditorDiagramOptions();
-      expect(options).toHaveLength(3);
+      expect(options).toHaveLength(4);
       expect(options[0]).toEqual({ value: DiagramType.Sequence, label: 'Sequence' });
       expect(options[1]).toEqual({ value: DiagramType.Mermaid, label: 'Mermaid' });
       expect(options[2]).toEqual({ value: DiagramType.PlantUml, label: 'PlantUML' });

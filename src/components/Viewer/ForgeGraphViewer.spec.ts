@@ -20,7 +20,7 @@ vi.mock('@/model/globals', () => ({
 vi.mock('@/components/Viewer/GenericViewer.vue', () => ({
   default: {
     name: 'GenericViewer',
-    template: '<div class="generic-viewer"><slot /></div>',
+    template: '<div class="generic-viewer"><div class="header-nav-slot"><slot name="header-nav" /></div><slot /></div>',
   },
 }));
 
@@ -28,6 +28,17 @@ const macroViewedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
 const viewerLoadFailedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
+
+/**
+ * VTU's `trigger` cannot set `ctrlKey` — it is getter-only on MouseEvent — so
+ * the modifier cases dispatch a real WheelEvent. Returns it, so a test can also
+ * assert whether the page's scroll was taken away.
+ */
+function wheel(element: Element, init: WheelEventInit): WheelEvent {
+  const event = new WheelEvent('wheel', { cancelable: true, bubbles: true, ...init });
+  element.dispatchEvent(event);
+  return event;
+}
 
 const VALID_XML = '<mxGraphModel><root></root></mxGraphModel>';
 
@@ -44,6 +55,37 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
     };
     // @ts-ignore — DrawIO globals, loaded at runtime by loadDrawioViewer.ts.
     window.mxUtils = { parseXml: vi.fn(() => ({ documentElement: {} })) };
+  });
+
+  it('reports a whitespace body once when DrawIO rejects it, preserving render-failure telemetry (#113)', async () => {
+    store.state.diagram.graphXml = ' \n\t ';
+    // @ts-ignore — DrawIO globals
+    window.mxUtils.parseXml = vi.fn(() => { throw new Error('bad xml'); });
+    // @ts-ignore — DrawIO globals
+    window.GraphViewer = vi.fn();
+    mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(viewerLoadFailedCalls()).toHaveLength(1));
+    expect(window.mxUtils.parseXml).toHaveBeenCalledWith(' \n\t ');
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+  });
+
+  it('fits Graph axes from the current scaled bounds and centres the same graph', () => {
+    const scaleAndTranslate = vi.fn();
+    // @ts-ignore — GraphViewer global
+    window.GraphViewer = vi.fn(() => ({ diagrams: [], graph: {
+      getGraphBounds: () => ({ x: 60, y: 80, width: 1000, height: 400 }),
+      view: { scale: 2, translate: { x: 10, y: 20 }, scaleAndTranslate },
+    } }));
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    const container = wrapper.get('.graph-viewer-canvas').element;
+    Object.defineProperties(container, {
+      clientWidth: { value: 800 }, clientHeight: { value: 300 },
+    });
+    wrapper.vm.fitAxis('height');
+    expect(scaleAndTranslate).toHaveBeenLastCalledWith(1.5, expect.closeTo(-3.333333, 4), -20);
+    wrapper.vm.fitAxis('width');
+    expect(scaleAndTranslate).toHaveBeenLastCalledWith(1.6, -20, -26.25);
   });
 
   it('fires viewer_load_failed AND does not fire macro_viewed when GraphViewer construction throws — audit §4: neither used to fire', async () => {
@@ -102,5 +144,281 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       expect(macroViewedCalls()).toHaveLength(1);
     });
     expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  // #113: an empty body is the wipe signal, so the empty branch still reports
+  // the view with the verdict and does not construct a GraphViewer.
+  it('emits one macro_viewed with content_state=empty for a loaded empty body and does not render (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '' };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+    // @ts-ignore
+    expect(window.GraphViewer).not.toHaveBeenCalled();
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it('emits no macro_viewed for an empty body that never loaded (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  // bootstrapForgeViewer mounts the NULL_DIAGRAM shell (graphXml '') and the
+  // document arrives later. A wiped body is '' too, so effectiveGraphXml never
+  // changes ('' -> '') and its watcher alone would never re-enter renderViewer.
+  it('reports content_state=empty once when a wiped document arrives after the shell mounted (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    expect(macroViewedCalls()).toHaveLength(0);
+
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '' };
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+    // @ts-ignore
+    expect(window.GraphViewer).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('classifies a non-empty body as before (one event, authored) (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+
+    mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(macroViewedCalls()).toHaveLength(1));
+    expect(macroViewedCalls()[0][1]).toMatchObject({ content_state: 'authored' });
+  });
+
+  it('publishes the rendered graph box for export framing', async () => {
+    // GraphViewer's canvas intentionally remains 100% wide in fullscreen;
+    // captureCrop uses these dimensions to retain the graph's own bounds.
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({
+      graph: {
+        getGraphBounds: () => ({ width: 200, height: 120 }),
+        // graphBounds are already view-scaled CSS pixels in mxGraphView.
+        view: { scale: 0.5 },
+        border: 10,
+      },
+      diagrams: [{}],
+      currentPage: 0,
+    }));
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(wrapper.find('.graph-viewer-canvas').attributes()).toMatchObject({
+      'data-diagram-capture-root': '',
+      'data-capture-box-width': '220',
+      'data-capture-box-height': '140',
+    }));
+  });
+
+  describe('pan and zoom controls', () => {
+    const graphStub = () => ({
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+      setPanning: vi.fn(),
+      panningHandler: { useLeftButtonForPanning: false, ignoreCell: false },
+      getGraphBounds: () => ({ width: 200, height: 120 }),
+      view: { scale: 1 },
+      border: 10,
+    });
+
+    afterEach(() => {
+      delete (window as { forgeGlobal?: unknown }).forgeGlobal;
+    });
+
+    it('drives mxGraph\'s own zoom from the shared toolbar', async () => {
+      const graph = graphStub();
+      // @ts-ignore
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => {
+        expect(wrapper.find('[aria-label="Zoom in"]').exists()).toBe(true);
+      });
+      expect(wrapper.get('[role="toolbar"]').attributes('aria-label')).toBe('Graph zoom controls');
+
+      await wrapper.get('[aria-label="Zoom in"]').trigger('click');
+      await wrapper.get('[aria-label="Zoom out"]').trigger('click');
+
+      // Not svg-pan-zoom: GraphViewer owns its layout, so zooming goes through
+      // the same mxGraph calls DrawIO's own toolbar makes.
+      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+      expect(graph.zoomOut).toHaveBeenCalledTimes(1);
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', {
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'graph',
+        viewport_action: 'zoom_in',
+        viewport_input: 'toolbar',
+      });
+    });
+
+    it('turns on drag-to-pan once the graph is rendered', async () => {
+      const graph = graphStub();
+      // @ts-ignore
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+      await vi.waitFor(() => {
+        expect(graph.setPanning).toHaveBeenCalledWith(true);
+      });
+      expect(graph.panningHandler.useLeftButtonForPanning).toBe(true);
+    });
+
+    it('zooms on Ctrl/Cmd + wheel, the way the other three viewports do', async () => {
+      const graph = graphStub();
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+      const canvas = wrapper.get('.graph-viewer-canvas');
+
+      wheel(canvas.element, { deltaY: -100, ctrlKey: true });
+      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+
+      wheel(canvas.element, { deltaY: 100, ctrlKey: true });
+      expect(graph.zoomOut).toHaveBeenCalledTimes(1);
+
+      // macOS holds Cmd, and a trackpad pinch arrives as a ctrlKey wheel.
+      wheel(canvas.element, { deltaY: -100, metaKey: true });
+      expect(graph.zoomIn).toHaveBeenCalledTimes(2);
+    });
+
+    it('leaves a plain wheel to the page rather than zooming', async () => {
+      const graph = graphStub();
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+
+      // The page viewer's Forge iframe is sized to the diagram, so a tall graph
+      // covers the reading area: taking the wheel there traps the reader.
+      const event = wheel(wrapper.get('.graph-viewer-canvas').element, { deltaY: -400 });
+
+      expect(graph.zoomIn).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('spends a trackpad\'s small deltas one zoom step at a time', async () => {
+      const graph = graphStub();
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+      const canvas = wrapper.get('.graph-viewer-canvas');
+
+      // A two-finger swipe is a stream of these; one step per notch-worth, not
+      // one per event, or the diagram rockets through the zoom range.
+      for (let i = 0; i < 9; i += 1) {
+        wheel(canvas.element, { deltaY: -10, ctrlKey: true });
+      }
+      expect(graph.zoomIn).not.toHaveBeenCalled();
+
+      wheel(canvas.element, { deltaY: -10, ctrlKey: true });
+      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not stack wheel listeners when the diagram re-renders', async () => {
+      const graph = graphStub();
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+
+      // container.innerHTML is cleared on re-render but the container element
+      // itself survives, so a listener bound per render would multiply the step.
+      store.state.diagram = { ...store.state.diagram, graphXml: '<mxGraphModel><root/></mxGraphModel>' };
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalledTimes(2));
+
+      wheel(wrapper.get('.graph-viewer-canvas').element, { deltaY: -100, ctrlKey: true });
+      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the controls off the Export PNG surface', async () => {
+      (window as { forgeGlobal?: unknown }).forgeGlobal = {
+        forgeContext: { extension: { modal: { macroMode: 'fullscreen', openExport: true } } },
+      };
+      // @ts-ignore
+      window.GraphViewer = vi.fn(() => ({ graph: graphStub(), diagrams: [{}], currentPage: 0 }));
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+      await vi.waitFor(() => expect(macroViewedCalls()).toHaveLength(1));
+      // A zoom would change the bounds updateCaptureBox reports to the capture.
+      expect(wrapper.find('[role="toolbar"]').exists()).toBe(false);
+    });
+
+    it('hides the controls when the render crashed', async () => {
+      // @ts-ignore
+      window.GraphViewer = vi.fn(() => {
+        throw new Error('drawio init boom');
+      });
+
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+      await vi.waitFor(() => expect(viewerLoadFailedCalls()).toHaveLength(1));
+      expect(wrapper.find('[role="toolbar"]').exists()).toBe(false);
+    });
+  });
+
+});
+
+// Staged header (2026-10): multi-page navigation moved from the bottom pill's
+// prefix slot into GenericViewer's header (#header-nav), always visible.
+describe('ForgeGraphViewer page navigation', () => {
+  beforeEach(() => {
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: VALID_XML };
+    // @ts-ignore
+    window.mxUtils = { parseXml: vi.fn(() => ({ documentElement: {} })) };
+    // @ts-ignore — never resolves a viewer; the test drives pageCount directly.
+    window.GraphViewer = vi.fn(() => { throw new Error('not under test'); });
+  });
+
+  it('renders prev / "N of M" / next into the header nav slot only for multi-page diagrams', async () => {
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    const nav = () => wrapper.find('.header-nav-slot');
+    expect(nav().find('button').exists()).toBe(false);
+
+    const selectPage = vi.fn();
+    (wrapper.vm as any).graphViewer = { selectPage, graph: null };
+    (wrapper.vm as any).pageCount = 3;
+    await wrapper.vm.$nextTick();
+
+    const prev = nav().find('button[aria-label="Previous page"]');
+    const next = nav().find('button[aria-label="Next page"]');
+    expect(prev.classes()).toContain('viewer-page-nav-btn');
+    expect(prev.attributes('disabled')).toBeDefined();
+    expect(nav().find('.viewer-page-nav-label').text()).toBe('1 of 3');
+
+    await next.trigger('click');
+    expect(selectPage).toHaveBeenCalledWith(1);
+    expect(nav().find('.viewer-page-nav-label').text()).toBe('2 of 3');
+    expect(wrapper.find('.viewer-pill-btn').exists()).toBe(false);
   });
 });

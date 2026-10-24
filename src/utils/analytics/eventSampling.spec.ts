@@ -1,11 +1,106 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   sampleRateFor,
   decideSample,
   EVENT_SAMPLE_RATES,
+  OCTOBER_REDUCED_EVENTS,
+  OCTOBER_RETAINED_EVENTS,
+  OCTOBER_STOP_EVENTS,
 } from "./eventSampling";
 
 describe("eventSampling", () => {
+  beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z")));
+  afterEach(() => vi.mocked(Date.now).mockRestore());
+
+  describe("October 2026 event budget", () => {
+    const october = Date.parse("2026-10-12T00:00:00Z");
+    const before = Date.parse("2026-09-30T23:59:59.999Z");
+    const after = Date.parse("2026-11-01T00:00:00Z");
+
+    it("keeps macro_viewed at full rate across September, October, and November", () => {
+      for (const time of [before, october, after]) {
+        expect(sampleRateFor("macro_viewed", time)).toBe(1);
+        expect(decideSample("macro_viewed", () => { throw new Error("RNG must not run"); }, time))
+          .toEqual({ keep: true, rate: 1 });
+      }
+    });
+
+    it("stops the seven named diagnostics only during the UTC budget window", () => {
+      for (const name of [
+        "cohorts_refreshed", "copy_for_ai_impression", "editor_global_replace_observed",
+        "report_macro_metrics", "snapshot_backfill_skipped", "viewport_control_used",
+        "whats_new_banner_evaluated",
+      ]) {
+        expect(sampleRateFor(name, october)).toBe(0);
+        expect(sampleRateFor(name, before)).toBe(name === "copy_for_ai_impression" || name === "report_macro_metrics" ? 0.1 : 1);
+        expect(sampleRateFor(name, after)).toBe(name === "copy_for_ai_impression" || name === "report_macro_metrics" ? 0.1 : 1);
+      }
+    });
+
+    it("retains core funnels, failures, and feedback/survey events", () => {
+      for (const name of [
+        "macro_viewed", "macro_create_started", "macro_save_succeeded", "paywall_gate_evaluated",
+        "snapshot_created", "ai_chat_prompt_failed", "attachment_upload_failed",
+        "feedback_report_opened", "targeted_survey_shown", "csat_displayed",
+        "magic_writeback_completed", "agent_link_mcp_tool_called",
+      ]) expect(sampleRateFor(name, october)).toBe(sampleRateFor(name, after));
+    });
+
+    it("keeps the complete paid conversion and Request Full funnel at current rates", () => {
+      const names = [
+        "paywall_banner_dismissed", "paywall_banner_shown", "paywall_bundle_cta_clicked",
+        "paywall_gate_evaluated", "paywall_triggered", "paywall_continue_used",
+        "paywall_continued_editing", "paywall_blocked_create", "paywall_blocked_edit",
+        "paywall_attempts_exhausted",
+        "paywall_marketplace_cta_clicked", "paywall_learn_more_clicked",
+        "upgrade_modal_shown", "upgrade_modal_dismissed",
+        "plan_usage_viewed", "plan_usage_purchase_clicked", "plan_usage_request_full_clicked",
+        "request_full_reason_copied", "request_full_atlassian_clicked", "request_full_guide_shown",
+      ];
+      for (const name of names) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(sampleRateFor(name, after));
+      }
+    });
+
+    it("reduces only listed success/info events to one tenth of their existing arrival rate", () => {
+      expect(sampleRateFor("copy_for_ai_clicked", october)).toBe(1);
+      expect(sampleRateFor("copy_for_ai_menu_opened", october)).toBe(0.1);
+      expect(sampleRateFor("diagram_attribution_shown", october)).toBe(0.005);
+      expect(sampleRateFor("space_admin_active", october)).toBe(0.01);
+      expect(sampleRateFor("convert_to_png", october)).toBe(0.01);
+      expect(sampleRateFor("analytics_dashboard_export", october)).toBe(0.1);
+      expect(sampleRateFor("create_attachmentmermaid", october)).toBe(0.01);
+      expect(sampleRateFor("create_attachmentmermaid", after)).toBe(0.1);
+      expect(sampleRateFor("new_unregistered_product_event", october)).toBe(1);
+    });
+
+    it("draws once against the final absolute rate", () => {
+      expect(decideSample("diagram_attribution_shown", () => 0.004, october)).toEqual({ keep: true, rate: 0.005 });
+      expect(decideSample("diagram_attribution_shown", () => 0.005, october)).toEqual({ keep: false, rate: 0.005 });
+      expect(decideSample("report_macro_metrics", () => 0, october)).toEqual({ keep: false, rate: 0 });
+    });
+
+    it("keeps the reviewed classes disjoint and paired success signals together", () => {
+      for (const name of OCTOBER_RETAINED_EVENTS) {
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(OCTOBER_STOP_EVENTS.has(name)).toBe(false);
+      }
+      for (const name of OCTOBER_REDUCED_EVENTS) {
+        expect(OCTOBER_STOP_EVENTS.has(name)).toBe(false);
+        expect(name).not.toMatch(/fail|error|reject|unavailable|blocked|invalid|missing|unresolved|refused|feedback|survey|csat/);
+      }
+      for (const name of [
+        "diagram_attribution_shown", "diagram_audience_registration_succeeded",
+        "related_diagrams_lookup_succeeded", "related_token_indicators_shown",
+        "whats_new_banner_shown",
+      ]) {
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(true);
+        expect(sampleRateFor(name, october)).toBeCloseTo(sampleRateFor(name, after) / 10);
+      }
+    });
+  });
   describe("sampleRateFor", () => {
     it("defaults unknown events to 1 (always emit)", () => {
       expect(sampleRateFor("macro_viewed")).toBe(1);

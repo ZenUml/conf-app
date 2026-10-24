@@ -18,16 +18,17 @@ import { buildOpenApiEditorTarget } from '@/utils/documentOpening/targets/openAp
 import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
 import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
 import globals from "@/model/globals";
-import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from '@/utils/window';
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
+import { markEditorAuthoringStarted, registerEditorCloseTracking, trackEditorClosedWithoutSave } from "@/utils/analytics/editorCloseOutcome";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus';
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { createApp } from 'vue';
 import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
@@ -44,7 +45,10 @@ import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShel
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import {
   buildOpenApiSaveDiagram,
+  captureOpenApiEditorBaseline,
   createOpenApiEditorState,
+  hasOpenApiEditorChanges,
+  type OpenApiEditorBaseline,
 } from '@/model/OpenApi/OpenApiEditorState';
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 
@@ -87,6 +91,13 @@ const editorStartTime = Date.now();
 
 let swaggerReactMounted = false;
 let openApiDocumentHydrated = false;
+let isNewOpenApi = true;
+let editorBaseline: OpenApiEditorBaseline | undefined;
+
+function hadEditorChanges(): boolean {
+  return editorBaseline !== undefined
+    && hasOpenApiEditorChanges(editorBaseline, window.specContent, window.diagram);
+}
 
 function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
   if (!mountEl) {
@@ -262,14 +273,13 @@ async function saveOpenApiAndExit() {
 }
 
 async function exit() {
-  const codeChanged = window.diagram?.code !== window.specContent;
+  const hadChanges = hadEditorChanges();
   
   // Prepare event data
-  const isNewOpenApi = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.OpenApi;
   const elapsedTimeMs = Date.now() - editorStartTime;
   
   const eventProps = {
-    had_changes: codeChanged,
+    had_changes: hadChanges,
     source: 'swagger_editor',
     elapsed_time_ms: elapsedTimeMs,
     code_length: store.state.diagram.code?.length || 0,
@@ -277,7 +287,7 @@ async function exit() {
     session_id: getOrCreateSession(),
   };
   
-  if (codeChanged) {
+  if (hadChanges) {
     // Show custom modal dialog for Forge
     const result = await showCloseWithoutSavingDialog();
     
@@ -285,6 +295,7 @@ async function exit() {
       // User confirmed exit - track exit event
       const exitEventAction = isNewOpenApi ? 'create_macro_exit' : 'edit_macro_exit';
       trackEvent('', exitEventAction, DiagramType.OpenApi, eventProps);
+      await trackEditorClosedWithoutSave('discard_dialog');
       
       // End journey on exit
       if (getEditJourneyId()) {
@@ -354,6 +365,13 @@ async function initializeMacro() {
   const configContentId = context.extension?.config?.customContentId;
   const modalContentId = context.extension?.modal?.customContentId;
   const customContentId = resolveEffectiveCustomContentId(context);
+  isNewOpenApi = !customContentId;
+  // The journey started before this resolved, so tell it what kind of session
+  // it is now that we know. Drives macro_authoring_ended's operation_mode.
+  setEditJourneyMeta({
+    macroType: 'openapi',
+    operationMode: customContentId ? 'edit' : 'create',
+  });
   isDashboardEdit = !configContentId && !!modalContentId;
   // Passed to openDocument() below as `pageId`; the resolved id/recovery
   // origin it feeds back is captured into `capturedOrigin`, not this const.
@@ -429,6 +447,9 @@ async function initializeMacro() {
     // (and the OpenAPI type) into Vuex so SyntaxErrorBox/AIRepair does not read
     // an empty code value from the Unknown sentinel diagram.
     const editorDiagram = createOpenApiEditorState(doc);
+    // Store plain strings before Vuex, Swagger's spec listeners, and React's
+    // title synchronization can mutate this same diagram object.
+    editorBaseline = captureOpenApiEditorBaseline(editorDiagram);
     store.state.diagram = editorDiagram;
 
     // Header title edits and saveOpenApiAndExit both use window.diagram. New
@@ -477,13 +498,19 @@ async function initializeMacro() {
     }
 
     // Track begin event (create or edit)
-    const isNew = await MacroUtil.isCreateNew();
-    if (isNew) {
+    // conf-app: MacroUtil.isCreateNew() reads only extension.config.customContentId
+    // (ApWrapper2.getMacroData), so an existing macro opened from the modal
+    // surface reported as a CREATE. Measured 2026-08-06..09-04: 58 graph and 37
+    // openapi "creates" ended in macro_save_succeeded, versus 1 for the DSL
+    // editor, which has always used the fuller resolver below.
+    markEditorAuthoringStarted();
+    if (isNewOpenApi) {
       trackAnalyticsEvent('macro_create_started', {
         feature_area: 'macro',
         surface: 'editor',
         macro_type: 'openapi',
         entry_point: 'page_editor',
+        ...getCreationFlowProps(),
       });
     } else {
       trackAnalyticsEvent('macro_edit_started', {
@@ -493,6 +520,13 @@ async function initializeMacro() {
         entry_point: 'macro_toolbar',
       });
     }
+    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled)
+    // on the Atlassian modal X; exit() below covers the in-editor discard.
+    registerEditorCloseTracking({
+      getMacroType: () => 'openapi',
+      operationMode: isNewOpenApi ? 'create' : 'edit',
+      hadChanges: hadEditorChanges,
+    });
 
     // Trigger initial validation after a short delay to ensure everything is set up
     setTimeout(() => {

@@ -1,4 +1,4 @@
-import { addDiagramToPage, reloadHostPage } from '@/utils/byline/addToPage'
+import { addDiagramToPage, reloadHostPage, type AddToPageFailure } from '@/utils/byline/addToPage'
 import { cancelReveal, requestReveal } from '@/utils/byline/revealDiagram'
 
 /**
@@ -20,6 +20,14 @@ export interface PlaceOutcome {
   result: 'added' | 'already_present' | 'forbidden' | 'conflict' | 'failed'
   /** Macros on the page after the write, when the write got far enough to count. */
   pageMacroCount?: number
+  /**
+   * Which step produced a 'forbidden' or 'failed', for the readout — not for
+   * the UI, which has nothing different to say about a 502 than about an
+   * unparsable body. See AddToPageFailure.
+   */
+  reason?: AddToPageFailure
+  /** The response code, where the reason came from an HTTP call. */
+  status?: number
   /** The page's stored ADF now carries the macro (a new version was published). */
   placed: boolean
   /**
@@ -59,10 +67,12 @@ export async function placeDiagram(
   diagram: { id: string; diagramType: string },
   onPlaced?: () => void | Promise<void>,
 ): Promise<PlaceOutcome> {
-  const { result, pageMacroCount } = await addDiagramToPage(pageId, diagram)
+  const { result, pageMacroCount, reason, status } = await addDiagramToPage(pageId, diagram)
   const outcome: PlaceOutcome = {
     result,
     pageMacroCount,
+    ...(reason === undefined ? {} : { reason }),
+    ...(status === undefined ? {} : { status }),
     placed: result === 'added' || result === 'already_present',
     refused: result === 'forbidden',
     message: MESSAGES[result] ?? null,

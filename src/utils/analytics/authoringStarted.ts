@@ -1,5 +1,6 @@
 import type { EntryPoint, MacroTypeValue } from './catalog'
 import { trackAnalyticsEvent } from './trackAnalyticsEvent'
+import { getCreationFlowProps } from './creationFlow'
 
 type AuthoringStartedInput = {
   macroType: MacroTypeValue
@@ -25,6 +26,7 @@ export function trackAuthoringStarted({
     macro_type: macroType,
     entry_point: entryPoint,
     operation_mode: isEdit ? 'edit' : 'create',
+    ...(!isEdit && getCreationFlowProps()),
     ...(customContentId && { custom_content_id: customContentId }),
   })
 }

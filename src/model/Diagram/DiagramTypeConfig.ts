@@ -26,6 +26,14 @@ const CONFIGS: Partial<Record<DiagramType, DiagramTypeConfig>> = {
     metricField: 'mermaid',
     rendersInDiagramPortal: true,
   },
+  [DiagramType.Markdown]: {
+    dataField: 'markdownCode',
+    storeUpdateAction: 'updateMarkdownCode',
+    templateUrl: '',
+    label: 'Markdown',
+    metricField: 'markdown',
+    rendersInDiagramPortal: true,
+  },
   [DiagramType.PlantUml]: {
     dataField: 'plantUmlCode',
     storeUpdateAction: 'updatePlantUmlCode',
@@ -79,6 +87,9 @@ export function getDiagramData(o: any): string {
     case DiagramType.Mermaid:
       body = o.mermaidCode || '';
       break;
+    case DiagramType.Markdown:
+      body = o.markdownCode || '';
+      break;
     case DiagramType.PlantUml:
       body = o.plantUmlCode || '';
       break;
@@ -102,7 +113,7 @@ export function getStoreUpdateAction(type: DiagramType): string {
 }
 
 export function getEditorDiagramOptions(): Array<{ value: DiagramType; label: string }> {
-  return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml]
+  return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown]
     .filter(type => CONFIGS[type])
     .map(type => ({ value: type, label: CONFIGS[type]!.label }));
 }

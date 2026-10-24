@@ -39,10 +39,32 @@ export type AddToPageResult =
   | 'conflict'
   | 'failed'
 
+/**
+ * Which step produced a 'forbidden' or 'failed'.
+ *
+ * `result` is what the UI branches on; this is what the readout needs. Without
+ * it 'failed' is one bucket over six unrelated causes — a Confluence 5xx, a page
+ * shape we cannot parse, a macro key we refused to guess — which need different
+ * fixes and cannot be told apart after the fact.
+ */
+export type AddToPageFailure =
+  | 'read_forbidden'
+  | 'write_forbidden'
+  | 'unresolved_macro_key'
+  | 'page_read_failed'
+  | 'page_body_missing'
+  | 'page_body_unparsable'
+  | 'page_write_failed'
+  | 'threw'
+
 export interface AddToPageOutcome {
   result: AddToPageResult
   /** Macros the page already carried, for the paywall/limit read. */
   pageMacroCount?: number
+  /** Set on 'forbidden' and 'failed'; absent on every other result. */
+  reason?: AddToPageFailure
+  /** The response code, where the reason came from an HTTP call. */
+  status?: number
 }
 
 /**
@@ -59,9 +81,9 @@ export interface AddToPageOutcome {
  * the forge:deploy:* scripts in package.json). Hardcoding one of those here
  * would emit an extensionKey no variant but Lite could render — the exact
  * failure this file's header records from the lite→full conversion, where a
- * malformed key rendered as an unknown extension on a customer's page. Only
- * Lite ships the byline today, so the fallback preserves today's behaviour
- * while the env var decides when that changes.
+ * malformed key rendered as an unknown extension on a customer's page. The
+ * fallback is right for Lite and Full, the byline variants whose text-DSL
+ * macro is zenuml-sequence-macro; the AsyncAPI app offers no text-DSL tile.
  */
 const SEQUENCE_MACRO_KEY = import.meta.env.SEQUENCE_MACRO_KEY || 'zenuml-sequence-macro'
 
@@ -71,10 +93,12 @@ const MACRO_KEY_BY_DIAGRAM_TYPE: Record<string, string> = {
   [DiagramType.PlantUml]: SEQUENCE_MACRO_KEY,
   [DiagramType.Graph]: 'zenuml-graph-macro',
   [DiagramType.OpenApi]: 'zenuml-openapi-macro',
-  // No AsyncApi entry: the asyncapi variant strips zenuml-byline-diagrams
-  // (scripts/forge-wizard.mjs), which is the only thing that offers this
-  // action, so the key could never be used and having it here only suggests
-  // otherwise to the next reader.
+  // Explicit, never via SEQUENCE_MACRO_KEY: that is a Vite build-time define
+  // the asyncapi build does not set (only the forge:deploy:* scripts do), so
+  // it would resolve to zenuml-sequence-macro there. This key matches
+  // `zenuml-asyncapi-macro${LITE_KEY_SUFFIX}` in the manifest on Lite and on
+  // the AsyncAPI app; Full strips the macro and offers no AsyncAPI tile.
+  [DiagramType.AsyncApi]: 'zenuml-asyncapi-macro',
 }
 
 /** Fold case, like pageDiagrams.lookup: stored types spell OpenAPI/openapi. */
@@ -211,19 +235,19 @@ export async function addDiagramToPage(
   // Refuse rather than write a key we are not sure of: a malformed extensionKey
   // renders as an unknown extension, which is worse on a customer's page than
   // the link we would otherwise offer.
-  if (!identity || !macroKey) return { result: 'failed' }
+  if (!identity || !macroKey) return { result: 'failed', reason: 'unresolved_macro_key' }
 
   try {
     const read = await request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}?body-format=atlas_doc_format`, 'GET')
-    if (read.status === 403) return { result: 'forbidden' }
-    if (!read.ok) return { result: 'failed' }
+    if (read.status === 403) return { result: 'forbidden', reason: 'read_forbidden', status: 403 }
+    if (!read.ok) return { result: 'failed', reason: 'page_read_failed', status: read.status }
     const page = await read.json()
     const raw = page?.body?.atlas_doc_format?.value
     const version = Number(page?.version?.number)
-    if (!raw || !Number.isFinite(version)) return { result: 'failed' }
+    if (!raw || !Number.isFinite(version)) return { result: 'failed', reason: 'page_body_missing' }
 
     const adf = JSON.parse(raw)
-    if (!Array.isArray(adf?.content)) return { result: 'failed' }
+    if (!Array.isArray(adf?.content)) return { result: 'failed', reason: 'page_body_unparsable' }
     const pageMacroCount = countExtensions(adf)
     // Someone else placed it, or this is a second click on the same button.
     if (referencesCustomContent(adf, diagram.id)) {
@@ -239,18 +263,22 @@ export async function addDiagramToPage(
       version: { number: version + 1, message: 'Added a ZenUML diagram from the byline' },
       body: { representation: 'atlas_doc_format', value: JSON.stringify(adf) },
     })
-    if (write.status === 403) return { result: 'forbidden', pageMacroCount }
+    if (write.status === 403) {
+      return { result: 'forbidden', pageMacroCount, reason: 'write_forbidden', status: 403 }
+    }
     // The page moved under us. Re-read and try once — never force, because the
     // version we would overwrite is somebody's edit.
     if (write.status === 409) {
       if (attempt > 0) return { result: 'conflict', pageMacroCount }
       return addDiagramToPage(pageId, diagram, attempt + 1)
     }
-    if (!write.ok) return { result: 'failed', pageMacroCount }
+    if (!write.ok) {
+      return { result: 'failed', pageMacroCount, reason: 'page_write_failed', status: write.status }
+    }
     return { result: 'added', pageMacroCount }
   } catch (e) {
     console.error('[add-to-page] failed', e)
-    return { result: 'failed' }
+    return { result: 'failed', reason: 'threw' }
   }
 }
 

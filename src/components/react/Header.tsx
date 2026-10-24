@@ -10,6 +10,7 @@ import { getOpenApiTitleField } from '@/model/OpenApi/OpenApiEditorState';
 import OpenApiTitleInput from '@/components/react/OpenApiTitleInput';
 import store from '@/model/store2';
 import { isAiChatEnabled } from '@/apis/aiTitleFeatureFlag';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 // Docs link for the OpenAPI editor's Help button — mirrors the URL the Vue
 // header uses (components/Header/Header.vue). Opened via openUrl() because a
@@ -38,6 +39,7 @@ const Component = ({
   const originalSpec = useRef<string | null>(null);
   const onRestoreRef = useRef<((p: any) => void) | null>(null);
   const savingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aiChatWasVisibleRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +50,18 @@ const Component = ({
       cancelled = true;
     };
   }, []);
+
+  const aiChatVisible = aiChatEnabled && !!onToggleAiChat;
+  useEffect(() => {
+    if (aiChatVisible && !aiChatWasVisibleRef.current) {
+      trackAnalyticsEvent("ai_chat_button_shown", {
+        feature_area: "ai",
+        surface: "editor",
+        macro_type: "openapi",
+      });
+    }
+    aiChatWasVisibleRef.current = aiChatVisible;
+  }, [aiChatVisible]);
 
   // Show the spinner immediately on Publish — the async save chain
   // (saveToPlatform → view.submit) takes seconds with no other feedback, and
@@ -265,7 +279,7 @@ const Component = ({
         onTitleChange={changeTitle}
       />
       <div className="flex items-center">
-        {aiChatEnabled && onToggleAiChat && (
+        {aiChatVisible && (
           <button
             type="button"
             className={`mx-1 flex items-center gap-1.5 rounded px-2 py-1 text-sm font-semibold transition-colors ${

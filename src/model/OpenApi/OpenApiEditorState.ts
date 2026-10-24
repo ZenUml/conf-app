@@ -32,6 +32,42 @@ export function getOpenApiTitleField(document: unknown): string | undefined {
   return typeof title === 'string' ? title : undefined;
 }
 
+export interface OpenApiEditorBaseline {
+  readonly code: string;
+  readonly title: string;
+}
+
+/**
+ * Capture primitive values before Swagger and the React Header mutate the
+ * shared diagram. The Header reads every YAML document's explicit info.title,
+ * preserving empty strings and whitespace; if there is no string title it
+ * leaves the loaded diagram title alone.
+ */
+export function captureOpenApiEditorBaseline(diagram: Diagram): OpenApiEditorBaseline {
+  const code = diagram.code ?? '';
+  let title = diagram.title ?? '';
+
+  try {
+    yaml.loadAll(code, (document) => {
+      const parsedTitle = getOpenApiTitleField(document);
+      if (parsedTitle !== undefined) title = parsedTitle;
+    });
+  } catch {
+    // Invalid source leaves the Header's current title unchanged.
+  }
+
+  return { code, title };
+}
+
+export function hasOpenApiEditorChanges(
+  baseline: OpenApiEditorBaseline,
+  currentSpec: string | undefined,
+  currentDiagram: Diagram | undefined,
+): boolean {
+  return (currentSpec ?? currentDiagram?.code ?? '') !== baseline.code
+    || (currentDiagram?.title ?? '') !== baseline.title;
+}
+
 export function extractOpenApiTitle(spec: string | undefined): string | undefined {
   if (!spec) return undefined;
 

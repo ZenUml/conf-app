@@ -62,6 +62,8 @@ describe('MacroMetrics', () => {
           graph: 1,
           openapi: 1,
           mermaid: 1,
+          plantuml: 0,
+          asyncapi: 0,
           unknown: 0,
           isLite: false,
           lastUpdated: new Date().toISOString()
@@ -128,6 +130,10 @@ describe('MacroMetrics', () => {
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Graph }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.OpenApi }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Mermaid }) } } },
+            // Lite ships the AsyncAPI macro under the shared
+            // zenuml-content-sequence type (ADR-0005 Option A) — it must land
+            // in its own bucket, not in `unknown` alongside corrupt bodies.
+            { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.AsyncApi }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: 'Unknown' }) } } }
           ]
         };
@@ -141,12 +147,13 @@ describe('MacroMetrics', () => {
 
         expect(result).toEqual({
           space: mockSpace,
-          total: 6,
+          total: 7,
           sequence: 2,
           graph: 1,
           openapi: 1,
           mermaid: 1,
           plantuml: 0,
+          asyncapi: 1,
           unknown: 1,
           isLite: false,
           source: 'collect'
@@ -172,6 +179,7 @@ describe('MacroMetrics', () => {
           openapi: 0,
           mermaid: 0,
           plantuml: 0,
+          asyncapi: 0,
           unknown: 0,
           isLite: false,
           source: 'collect'
@@ -325,7 +333,7 @@ describe('MacroMetrics', () => {
     it('should log [metrics:kv:read] hit on cache hit', async () => {
       const cachedMetrics: IMacroMetrics = {
         space: mockSpace, total: 5, sequence: 2, graph: 1,
-        openapi: 1, mermaid: 1, plantuml: 0, unknown: 0,
+        openapi: 1, mermaid: 1, plantuml: 0, asyncapi: 0, unknown: 0,
         isLite: false, lastUpdated: new Date().toISOString()
       };
       (callRemote as any).mockResolvedValueOnce(cachedMetrics);

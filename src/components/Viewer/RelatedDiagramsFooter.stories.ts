@@ -19,14 +19,16 @@ import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
  * contacted.
  */
 
+// relatedTotal is part of the API contract (RelatedParticipant): the pill shows it and the popover's closing line is derived from it.
 const RELATED_RESPONSE = {
   indexedAt: '2026-08-27T00:00:00.000Z',
   contentVersion: 4,
   participants: [
-    { actorId: 'WEB', rawLabel: 'Web App', related: [] },
+    { actorId: 'WEB', rawLabel: 'Web App', relatedTotal: 0, related: [] },
     {
       actorId: 'PA',
       rawLabel: 'Partner App',
+      relatedTotal: 4,
       related: [
         {
           contentId: 'related-101',
@@ -61,6 +63,7 @@ const RELATED_RESPONSE = {
     {
       actorId: 'PAY',
       rawLabel: 'Payments API',
+      relatedTotal: 4,
       related: [
         {
           contentId: 'related-201',
@@ -95,6 +98,7 @@ const RELATED_RESPONSE = {
     {
       actorId: 'LEDGER',
       rawLabel: 'Ledger Service',
+      relatedTotal: 2,
       related: [
         {
           contentId: 'related-301',
@@ -115,6 +119,7 @@ const RELATED_RESPONSE = {
     {
       actorId: 'NOTIF',
       rawLabel: 'Notification Service',
+      relatedTotal: 1,
       related: [
         {
           contentId: 'related-401',
@@ -128,6 +133,7 @@ const RELATED_RESPONSE = {
     {
       actorId: 'DB',
       rawLabel: 'Orders DB',
+      relatedTotal: 2,
       related: [
         {
           contentId: 'related-501',
@@ -145,7 +151,7 @@ const RELATED_RESPONSE = {
         },
       ],
     },
-    { actorId: 'OPS', rawLabel: 'Ops', related: [] },
+    { actorId: 'OPS', rawLabel: 'Ops', relatedTotal: 0, related: [] },
   ],
 }
 
@@ -262,7 +268,7 @@ function renderStory(args: Args) {
 }
 
 const meta: Meta<typeof RelatedDiagramsFooter> = {
-  title: 'Viewer/Related diagrams footer',
+  title: 'Viewer/RelatedDiagramsFooter',
   component: RelatedDiagramsFooter,
   parameters: { layout: 'fullscreen' },
   decorators: [
@@ -310,9 +316,10 @@ export const LookupResultFooter: Story = {
   ],
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText(/5 of 7 participants also appear in other diagrams/),
-    ).toBeVisible()
+    // The count sits in its own <span>, so match on the footer's full text.
+    const footer = await canvas.findByTestId('related-diagrams-footer')
+    await expect(footer).toBeVisible()
+    await expect(footer).toHaveTextContent('5 of 7 participants also appear in other diagrams')
     const pills = await canvas.findAllByTestId('related-diagrams-pill')
     expect(pills).toHaveLength(5)
     pills.forEach((pill: HTMLElement) => expect(pill).not.toBeVisible())
@@ -329,7 +336,7 @@ export const HoverPill: Story = {
   ],
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/5 of 7 participants/)
+    await canvas.findByTestId('related-diagrams-footer')
     const actor = canvasElement.querySelector<SVGRectElement>('rect.actor-top[name="PA"]')!
     await userEvent.hover(actor)
     const partnerPill = canvasElement.querySelector<HTMLButtonElement>(
@@ -342,7 +349,7 @@ export const HoverPill: Story = {
   },
 }
 
-/** A circle click opens the list of positions: the current page first, then pages that open. */
+/** A pill click opens the list of positions in a popover teleported to <body>: the current page's own row first, then the pages that open. */
 export const PopoverOpen: Story = {
   decorators: [
     () => {
@@ -352,7 +359,8 @@ export const PopoverOpen: Story = {
   ],
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/5 of 7 participants/)
+    const body = within(document.body)
+    await canvas.findByTestId('related-diagrams-footer')
     const actor = canvasElement.querySelector<SVGRectElement>('rect.actor-top[name="PA"]')!
     await userEvent.hover(actor)
     const partnerPill = canvasElement.querySelector<HTMLButtonElement>(
@@ -360,12 +368,12 @@ export const PopoverOpen: Story = {
     )!
     await waitFor(() => expect(partnerPill).toBeVisible())
     await userEvent.click(partnerPill)
-    const dialog = await canvas.findByRole('dialog', { name: 'Also appears in' })
+    const dialog = await body.findByRole('dialog', { name: 'Also appears in' })
     expect(dialog).toHaveTextContent('Another diagram on this page')
     expect(dialog).toHaveTextContent('Checkout — order flow')
-    expect(dialog).not.toHaveTextContent('as PartnerApp')
-    expect(dialog).not.toHaveTextContent('Same name, not proof of the same object')
-    expect(canvas.queryByTestId('related-diagrams-here')).toBeVisible()
+    expect(dialog).toHaveTextContent('Refund handling')
+    expect(dialog).toHaveTextContent('Partner onboarding')
+    expect(body.getByTestId('related-diagrams-here')).toBeVisible()
     expect(partnerPill).toHaveAttribute('aria-expanded', 'true')
     expect(canvas.getByTestId('related-diagrams-highlight')).toBeVisible()
   },
@@ -382,7 +390,8 @@ export const Fullscreen: Story = {
   ],
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/5 of 7 participants/)
+    const body = within(document.body)
+    await canvas.findByTestId('related-diagrams-footer')
     const actor = canvasElement.querySelector<SVGRectElement>('rect.actor-top[name="PAY"]')!
     await userEvent.hover(actor)
     const paymentsPill = canvasElement.querySelector<HTMLButtonElement>(
@@ -390,7 +399,7 @@ export const Fullscreen: Story = {
     )!
     await waitFor(() => expect(paymentsPill).toBeVisible())
     await userEvent.click(paymentsPill)
-    expect(await canvas.findByRole('dialog')).toHaveTextContent('Payment authorization')
+    expect(await body.findByRole('dialog')).toHaveTextContent('Payment authorization')
     expect(paymentsPill).toHaveTextContent('4')
   },
 }

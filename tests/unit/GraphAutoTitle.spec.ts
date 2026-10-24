@@ -3,11 +3,9 @@
 // extractGraphText) don't cover: currentXml → extractGraphText → useAutoTitle →
 // DrawIoHeader UI + the window.ensureTitle publish-path.
 //
-// Runs in the vitest/jsdom harness with the AI_TITLE flag mocked ON (mirrors
-// the standalone-dev `mockAiTitleEnabled` default), so it needs neither a Forge
-// site nor the live feature flag. Drives the real DrawIoExtension + DrawIoHeader
-// components; only the flag, the /ai-generate-title backend, toast and analytics
-// are mocked at the boundary.
+// Runs in the vitest/jsdom harness without a Forge site. Drives the real
+// DrawIoExtension + DrawIoHeader components; only the /ai-generate-title
+// backend, toast and analytics are mocked at the boundary.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
@@ -22,17 +20,13 @@ vi.mock('@/model/store2', async () => {
   return { default: { state, dispatch } }
 })
 vi.mock('@/apis/aiGenerateTitle', () => ({ default: vi.fn() }))
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({
-  isAiTitleEnabled: vi.fn().mockResolvedValue(true),
-  resetAiTitleFlagForTests: vi.fn(),
-}))
+vi.mock('@/apis/aiTitleFeatureFlag', () => ({ resetFeatureFlagsForTests: vi.fn() }))
 vi.mock('@/utils/toast', () => ({ toast: vi.fn() }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
 import DrawIoExtension from '@/components/DrawIoExtension/DrawIoExtension.vue'
 import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import { isAiTitleEnabled } from '@/apis/aiTitleFeatureFlag'
 import { useAutoTitle, TYPEWRITER_MS_PER_CHAR, SPARK_FADEOUT_MS } from '@/composables/useAutoTitle'
 
 const SPARK = 'button[title="Generate title with AI"]'
@@ -79,13 +73,12 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     vi.mocked(store.dispatch as any).mockClear()
     ;(store as any).state.diagram.title = ''
     vi.mocked(aiGenerateTitle).mockReset().mockResolvedValue(okRes(TITLE))
-    vi.mocked(isAiTitleEnabled).mockResolvedValue(true)
     ;(window as any).graphXml = undefined
     vi.useFakeTimers()
   })
   afterEach(() => vi.useRealTimers())
 
-  it('renders the AI spark button when the flag is enabled', async () => {
+  it('renders the AI spark button', async () => {
     const wrapper = mountGraphTitle(EMPTY_GRAPH)
     await flushPromises()
     expect(wrapper.find(SPARK).exists()).toBe(true)
@@ -113,16 +106,9 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     expect(header.element.querySelector('div')?.classList.contains('w-72')).toBe(true)
   })
 
-  it('hides the spark button when the flag is disabled', async () => {
-    vi.mocked(isAiTitleEnabled).mockResolvedValueOnce(false)
-    const wrapper = mountGraphTitle(EMPTY_GRAPH)
-    await flushPromises()
-    expect(wrapper.find(SPARK).exists()).toBe(false)
-  })
-
   it('auto-generates a title from shape labels and commits it to the store', async () => {
     const wrapper = mountGraphTitle(LABELLED_XML)
-    await flushPromises() // onMounted: initFlag + schedule debounced auto-generate
+    await flushPromises() // onMounted: schedule debounced auto-generate
     await vi.advanceTimersByTimeAsync(1500) // debounce elapses → generate('init')
     await runGeneration()
 

@@ -10,6 +10,7 @@ vi.mock('@/services/GenerateService', () => mocks)
 
 import { DiagramType } from '@/model/Diagram/Diagram'
 import {
+  AI_CHAT_SESSION_TIMEOUT_MS,
   getAIChatFailureTelemetry,
   runAIChatSession,
 } from './AIChatSessionService'
@@ -113,6 +114,71 @@ describe('runAIChatSession', () => {
     })
   })
 
+  it('returns a benign no-change result without requiring a persisted version', async () => {
+    const stages: string[] = []
+    mocks.getDiagramlyJobStatus.mockResolvedValue({
+      id: 'job-1',
+      status: 'COMPLETED',
+      progress: 100,
+      message: 'No changes needed',
+      output: {
+        diagramCode: 'A -> B',
+        noChange: true,
+        repairAttempts: 3,
+        durationMs: 2400,
+        llmDurationMs: 2100,
+      },
+    })
+
+    await expect(
+      runAIChatSession({
+        diagramId: 'diagram-1',
+        diagramCode: 'A -> B',
+        diagramType: DiagramType.Sequence,
+        prompt: 'Optimize it',
+        onStage: (stage) => stages.push(stage),
+      }),
+    ).resolves.toEqual({
+      diagramId: 'diagram-1',
+      diagramCreated: false,
+      updatedCode: 'A -> B',
+      noChange: true,
+      jobId: 'job-1',
+      pollCount: 1,
+      repairAttempts: 3,
+      backendDurationMs: 2400,
+      backendLlmDurationMs: 2100,
+    })
+    expect(stages).toEqual(['queued'])
+  })
+
+  it('keeps a no-change syntax repair on the failure path', async () => {
+    mocks.getDiagramlyJobStatus.mockResolvedValue({
+      id: 'job-1',
+      status: 'COMPLETED',
+      progress: 100,
+      message: 'No changes needed',
+      output: {
+        diagramCode: 'A -> B)',
+        noChange: true,
+      },
+    })
+
+    await expect(
+      runAIChatSession({
+        diagramId: 'diagram-1',
+        diagramCode: 'A -> B)',
+        diagramType: DiagramType.Sequence,
+        prompt: 'Fix the syntax issue',
+        errorMessage: 'Unexpected token',
+      }),
+    ).rejects.toMatchObject({
+      failurePhase: 'server',
+      failureReason: 'job_failed',
+      pollCount: 1,
+    })
+  })
+
   it.each([
     ['FAILED', 'Model unavailable', 'job_failed'],
     ['CANCELLED', 'Request cancelled', 'job_cancelled'],
@@ -187,6 +253,10 @@ describe('runAIChatSession', () => {
       pollCount: 1,
     })
     expect(mocks.getDiagramlyJobStatus).toHaveBeenCalledOnce()
+  })
+
+  it('keeps polling beyond the provider\'s two-minute request budget', () => {
+    expect(AI_CHAT_SESSION_TIMEOUT_MS).toBeGreaterThan(120_000)
   })
 
   it('classifies diagram preparation request and response failures', async () => {

@@ -1,4 +1,21 @@
-export type MacroType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid';
+/**
+ * Macro types that can be created through the REST API, and therefore have a
+ * fixture page in the render suite. `utils/page-registry.ts` (which page id) and
+ * `utils/page-creator.ts` (which emoji) are both keyed on exactly this set.
+ */
+export type RenderMacroType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid';
+
+/**
+ * Every macro an app profile can claim to ship.
+ *
+ * Derived from RenderMacroType rather than re-listed, so the two can never drift
+ * — which is exactly how adding 'asyncapi' broke things: page-registry.ts kept
+ * its OWN hardcoded copy of the five, `macro-test.ts` aliased this type to it,
+ * and widening one made the assignment fail. AsyncAPI is UI-only (no API-created
+ * fixture: Studio owns the document), so it belongs here and NOT in
+ * RenderMacroType.
+ */
+export type MacroType = RenderMacroType | 'asyncapi';
 
 /** Same axis as `PRODUCT_TYPE` in Vite / `scripts/forge-wizard.mjs` (`lite` | `full` | `diagramly` | `asyncapi`). */
 export type ProductType = 'lite' | 'full' | 'diagramly' | 'asyncapi';
@@ -59,6 +76,21 @@ export interface AppProfile {
 
 const ALL_MACROS: MacroType[] = ['sequence', 'graph', 'openapi', 'embed', 'mermaid'];
 const NO_EMBED: MacroType[] = ['sequence', 'graph', 'openapi', 'mermaid'];
+// Lite ships the AsyncAPI macro (ADR-0005 Option A); full/diagramly/zenuml
+// strip it, so it is NOT in ALL_MACROS. Deliberately absent from `renderMacros`
+// too: the render suite builds its pages through the API, and no API-created
+// AsyncAPI fixture exists — the macro's coverage is UI-driven (tests/asyncapi/,
+// tests/insert/byline-asyncapi.spec.ts).
+//
+// Safe to widen this axis because nothing ITERATES it: every consumer is an
+// `.includes(...)` skip guard, so adding a member enables only the specs that
+// name it.
+//
+// Applied to the STAGING and DEV Lite profiles only. `zenuml-lite@prod` stays on
+// ALL_MACROS until the release carrying the AsyncAPI macro ships — a prod run
+// would otherwise look for a macro that install does not have and fail for the
+// wrong reason. Move it over in the same change that releases Lite.
+const LITE_MACROS: MacroType[] = [...ALL_MACROS, 'asyncapi'];
 
 export const APP_PROFILES: Record<string, AppProfile> = {
   'zenuml-lite@stg': {
@@ -70,7 +102,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: true,
     productType: 'lite',
     isForge: true,
-    macros: ALL_MACROS,
+    macros: LITE_MACROS,
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',
@@ -87,7 +119,7 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: true,
     productType: 'lite',
     isForge: true,
-    macros: ALL_MACROS,
+    macros: LITE_MACROS,
     renderMacros: ALL_MACROS,
     addonKey: 'com.zenuml.confluence-addon-lite',
     sequenceMacroKey: 'zenuml-sequence-macro-lite',
@@ -129,12 +161,8 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     customContentKey: 'gpt-custom-content-key',
     appLabel: 'Diagramly for Confluence',
   },
-  // Single-purpose AsyncAPI variant. Doesn't ship the ZenUML/Mermaid/Graph/
-  // OpenAPI macro family, so the `macros` axis is empty — tests that loop
-  // ALL_MACROS skip automatically via testConfig.macros.includes(...). The
-  // current asyncapi e2e is a single space-page-loads smoke (see
-  // tests/asyncapi/), and it discovers the space at runtime, so the
-  // `spaceKey` here is only a fallback for future expansion.
+  // AsyncAPI ships both AsyncAPI Studio and the OpenAPI macro/editor.
+  // Parentless staging fixtures provision a parent in an accessible test space.
   'asyncapi@stg': {
     id: 'asyncapi@stg',
     domain: 'asyncapi-stg.atlassian.net',
@@ -144,8 +172,8 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: false,
     productType: 'asyncapi',
     isForge: true,
-    macros: [],
-    renderMacros: [],
+    macros: ['openapi'],
+    renderMacros: ['openapi'],
     addonKey: 'my-api',
     sequenceMacroKey: 'zenuml-asyncapi-macro',
     customContentKey: 'async-api-doc',

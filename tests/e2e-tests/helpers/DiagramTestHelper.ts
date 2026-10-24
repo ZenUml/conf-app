@@ -61,32 +61,6 @@ export class DiagramTestHelper {
 
   // ── Feature Flag Management ──
 
-  /**
-   * Enable AI Repair feature by mocking the feature flags API
-   */
-  async enableAiRepair(): Promise<void> {
-    await this.page.route('**/feature-flags?**', async (route: any) => {
-      const url = new URL(route.request().url());
-      const features = url.searchParams.get('features')?.split(',') || [];
-      
-      const response: Record<string, { enabled: boolean; reason: string }> = {};
-      features.forEach(feature => {
-        if (feature === 'AI_TITLE') {
-          response[feature] = { enabled: true, reason: 'TEST_OVERRIDE' };
-        } else {
-          response[feature] = { enabled: false, reason: 'DEFAULT' };
-        }
-      });
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(response)
-      });
-    });
-    console.log('✓ AI Repair feature enabled for testing');
-  }
-
   // ── Code Editor Interactions ──
 
   /**
@@ -214,50 +188,4 @@ export class DiagramTestHelper {
 
   // ── AI Repair Feature ──
 
-  /**
-   * Verify AI Repair button is visible and enabled
-   */
-  async verifyAiRepairButtonVisible(): Promise<void> {
-    const frame = this.editorPage.getMacroEditorFrame();
-    const aiRepairButton = frame.getByRole('button', { name: /ai repair/i });
-    await expect(aiRepairButton).toBeVisible({ timeout: 5000 });
-    await expect(aiRepairButton).toBeEnabled();
-    console.log('✓ AI Repair button is visible and enabled');
-  }
-
-  /**
-   * Open the AI Repair dialog and wait for diff view to load
-   */
-  async openAiRepairDialog(repairTimeout=15000): Promise<void> {
-    const frame = this.editorPage.getMacroEditorFrame();
-    
-    const aiRepairButton = frame.getByRole('button', { name: /ai repair/i });
-    await aiRepairButton.click();
-    console.log('✓ AI Repair button clicked');
-    
-    // Wait for AI Repair dialog content to appear
-    const aiRepairDialog = frame.getByTestId('ai-repair-dialog-content');
-    await expect(aiRepairDialog).toBeVisible({ timeout: 10000 });
-    console.log('✓ AI Repair dialog visible');
-
-    // Verify diff view sections appear (wait for API to return)
-    const originalSection = frame.getByText('Original');
-    const repairedSection = frame.getByText(/Repaired \(Editable\)/);
-    await expect(originalSection).toBeVisible({ timeout: repairTimeout });
-    await expect(repairedSection).toBeVisible({ timeout: repairTimeout });
-
-    console.log('✓ AI Repair dialog opened with diff view');
-  }
-
-  /**
-   * Apply the AI repair by clicking the Apply Code button
-   */
-  async applyAiRepair(): Promise<void> {
-    const frame = this.editorPage.getMacroEditorFrame();
-    const applyButton = frame.getByRole('button', { name: /apply code/i });
-    await expect(applyButton).toBeEnabled({ timeout: 5000 });
-    await applyButton.click();
-    await this.page.waitForTimeout(2000);
-    console.log('✓ AI repair applied');
-  }
 }

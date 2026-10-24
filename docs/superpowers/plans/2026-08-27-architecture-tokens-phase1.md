@@ -53,7 +53,7 @@ Test commands: `pnpm vitest --run <path>`; lint `pnpm exec eslint <paths>`; type
 - Test: `src/utils/analytics/catalog.architectureTokens.spec.ts`
 
 **Interfaces:**
-- Produces: `FeatureArea` includes `"architecture_tokens"`; `AnalyticsEventName` includes `related_diagrams_lookup_succeeded`, `related_diagrams_lookup_failed`, `related_diagrams_shown`, `related_diagram_popover_opened`, `related_diagram_link_clicked`; `AnalyticsProperties` gains the optional fields below.
+- Produces: `FeatureArea` includes `"architecture_tokens"`; `AnalyticsEventName` includes `related_diagrams_lookup_succeeded`, `related_diagrams_lookup_failed`, `related_token_indicators_shown`, `related_diagram_popover_opened`, `related_diagram_link_clicked`; `AnalyticsProperties` gains the optional fields below.
 
 - [ ] **Step 1: Write the failing test** (a compile-time check that the names exist, executed by vitest)
 
@@ -68,7 +68,7 @@ describe('architecture_tokens analytics contract', () => {
     const names: AnalyticsEventName[] = [
       'related_diagrams_lookup_succeeded',
       'related_diagrams_lookup_failed',
-      'related_diagrams_shown',
+      'related_token_indicators_shown',
       'related_diagram_popover_opened',
       'related_diagram_link_clicked',
     ];
@@ -108,7 +108,7 @@ Expected: FAIL — vitest's esbuild transform does not type-check, so add a type
   // text, page id, or tenant vocabulary on any of these.
   | "related_diagrams_lookup_succeeded"
   | "related_diagrams_lookup_failed"
-  | "related_diagrams_shown"
+  | "related_token_indicators_shown"
   | "related_diagram_popover_opened"
   | "related_diagram_link_clicked"
 ```
@@ -1064,7 +1064,7 @@ describe('RelatedDiagramsFooter', () => {
     expect(pill(h, 'U')).toBeNull();          // no related pages → no pill
     expect(pill(h, 'RENAMED')).toBeNull();    // not in the current SVG → dropped from counts and pills
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('related_diagrams_lookup_succeeded', expect.objectContaining({ feature_area: 'architecture_tokens', surface: 'viewer', macro_type: 'mermaid', participant_count: 2, participants_with_related: 1, related_pages_total: 2, index_age_days: 3 }));
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('related_diagrams_shown', expect.objectContaining({ participants_with_related: 1 }));
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('related_token_indicators_shown', expect.objectContaining({ participants_with_related: 1 }));
   });
 
   it('renders nothing and fires only lookup_succeeded when no participant has related pages', async () => {
@@ -1300,7 +1300,7 @@ async function load() {
   indexedAt.value = res.indexedAt;
   trackAnalyticsEvent('related_diagrams_lookup_succeeded', { ...base(), ...counts(), duration_ms: Math.round(performance.now() - started) });
   if (withRelated.value.length) {
-    trackAnalyticsEvent('related_diagrams_shown', { ...base(), ...counts() });
+    trackAnalyticsEvent('related_token_indicators_shown', { ...base(), ...counts() });
     layoutPills();
     window.addEventListener('resize', layoutPills);
     document.addEventListener('keydown', onKey);
@@ -1500,7 +1500,7 @@ node --experimental-strip-types tools/architecture-tokens/read-corpus.mjs --spac
 Then, with the forge-tunnel skill (`--profile "Profile 8"`), open a lite-dev page holding two sequence diagrams that share a participant label, and capture:
 1. screenshot of the footer line under the diagram;
 2. screenshot of the popover after hovering the shared lifeline;
-3. the five events from the iframe's Mixpanel `/track/` POSTs (pattern in `.claude/skills/forge-feature-flag/SKILL.md`, *Runtime verification*): `related_diagrams_lookup_succeeded`, `related_diagrams_shown`, `related_diagram_popover_opened`, `related_diagram_link_clicked`, and `related_diagrams_lookup_failed` (force it once by pointing `customContentId` at a non-numeric id in DevTools).
+3. the five events from the iframe's Mixpanel `/track/` POSTs (pattern in `.claude/skills/forge-feature-flag/SKILL.md`, *Runtime verification*): `related_diagrams_lookup_succeeded`, `related_token_indicators_shown`, `related_diagram_popover_opened`, `related_diagram_link_clicked`, and `related_diagrams_lookup_failed` (force it once by pointing `customContentId` at a non-numeric id in DevTools).
 Save all under `$ARCHTOK_DIR/verification/`. A page with a `flowchart` must show nothing.
 
 - [ ] **Step 4: Commit docs, then open the PR**
@@ -1513,7 +1513,7 @@ Then `/submit-branch`. PR title: `feat(viewer): "also appears in other diagrams"
 
 - [ ] **Step 5: After merge → release → verify in production**
 
-Release Lite (`/release-app lite`), then: upload the tenant index to `conf-zenuml-prod` (Task 4 step 4, real run), then confirm from Mixpanel within a day: `related_diagrams_lookup_succeeded` events with the released `app_version` and the pilot tenant's `client_domain`; `related_diagrams_shown` > 0. No page on the pilot site can be opened by us — Mixpanel is the runtime evidence.
+Release Lite (`/release-app lite`), then: upload the tenant index to `conf-zenuml-prod` (Task 4 step 4, real run), then confirm from Mixpanel within a day: `related_diagrams_lookup_succeeded` events with the released `app_version` and the pilot tenant's `client_domain`; `related_token_indicators_shown` > 0. No page on the pilot site can be opened by us — Mixpanel is the runtime evidence.
 
 ---
 

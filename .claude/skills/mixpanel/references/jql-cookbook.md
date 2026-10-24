@@ -26,10 +26,10 @@ Manual auth, if you ever hand-roll it: `Authorization: Basic base64("{API_Secret
 
 ## Patterns (current event names + canonical exclude)
 
-Internal/staging exclusion in JQL is a `contains` check against the canonical set (see SKILL.md):
+Internal/staging exclusion in JQL is a `contains` check. Before running the example, append the customer-specific entries from [`private/operations/internal-analytics-domain-exclusions.md`](../../../../private/operations/internal-analytics-domain-exclusions.md); tenant identifiers belong only in that private reference. The public baseline is:
 
 ```javascript
-var INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"];
+var INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "lite-prod", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"];
 function isInternal(d) {
   if (!d) return true;                       // drop blank client_domain too
   for (var i = 0; i < INTERNAL.length; i++) if (d.indexOf(INTERNAL[i]) !== -1) return true;

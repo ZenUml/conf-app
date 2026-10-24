@@ -10,6 +10,7 @@ export enum DataSource {
 export enum DiagramType {
   Sequence = 'sequence',
   Mermaid = 'mermaid',
+  Markdown = 'markdown',
   PlantUml = 'plantuml',
   Graph = 'graph',
   OpenApi = 'OpenAPI',
@@ -18,31 +19,14 @@ export enum DiagramType {
   Unknown = 'unknown'
 }
 
-export function getDiagramData(o: any): string{
-  let body;
-  switch (o.diagramType) {
-    case DiagramType.Sequence:
-    case DiagramType.OpenApi:
-    case DiagramType.AsyncApi:
-      body = o.code || '';
-      break;
-    case DiagramType.Mermaid:
-      body = o.mermaidCode || '';
-      break;
-    case DiagramType.PlantUml:
-      body = o.plantUmlCode || '';
-      break;
-    case DiagramType.Graph:
-      // A Board macro's body is boardGraphXml. Reading graphXml here made
-      // Board-only edits invisible to every drift/staleness comparison built
-      // on getDiagramData. Legacy Board records (no boardGraphXml field at
-      // all) still resolve to graphXml.
-      body = (o.graphEditorMode === 'board' && o.boardGraphXml !== undefined
-        ? o.boardGraphXml
-        : o.graphXml) || '';
-      break;
-  }
-  return body || '';
+/** Optional, producer-prepared Magic rendering stored with the Mermaid body. */
+export interface MagicArtifact {
+  /** Lowercase SHA-256 hex of the exact UTF-8 mermaidCode, without normalization. */
+  sourceHash: string;
+  svg: string;
+  rulesVersion: 'magic-v1';
+  outcome: 'validated';
+  generatedAt?: string;
 }
 
 export class Diagram {
@@ -78,6 +62,9 @@ export class Diagram {
   title?: string = '';
   styles?: object = {};
   mermaidCode?: string = '';
+  magic?: MagicArtifact;
+  // Undefined means the Markdown tab has never been opened; empty is intentional.
+  markdownCode?: string;
   plantUmlCode?: string = '';
   graphXml?: string = '';
   /**
@@ -133,10 +120,6 @@ export class Diagram {
     errorCode?: string;
     errorClass?: 'thrown' | 'structured' | 'malformed';
   } = undefined;
-
-  public getCoreData?(): string {
-    return getDiagramData(this);
-  }
 }
 
 const NULL_DIAGRAM = {
@@ -149,7 +132,6 @@ const NULL_DIAGRAM = {
   plantUmlCode: '',
   graphXml: '',
   source: DataSource.Unknown,
-  payload: undefined,
 } as Diagram;
 
 export {NULL_DIAGRAM};

@@ -101,3 +101,28 @@ output/playwright
 .container-service-assets/local-account
 
 Profile 8
+
+# Agent-tool local state — per-machine, not shared.
+.grok/
+.od-skills/
+/.claude/settings.local.json.bak-doctor
+
+# agent-browser snapshot / screenshot scratch left at the repo root by
+# spot checks and repros. Anything worth keeping moves under docs/.
+/*-dialog.yml
+/*-done.yml
+/*-snap.md
+/scroll-*.yml
+/scroll-*.md
+/repro-*.yml
+/repro-*.jpeg
+/pl.yml
+/promos.yml
+/cf-traffic.jpeg
+
+.forge/tunnel-output
+# Concrete CI selection measurements
+tests/e2e-tests/selection-metrics.json
+tests/e2e-tests/test-plan.json
+
+.agents/skills

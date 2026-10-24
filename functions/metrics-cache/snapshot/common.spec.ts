@@ -3,11 +3,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   HttpError,
+  assertCounts,
   authenticateMetricsRequest,
   claimKey,
   isSnapshotEnrolled,
   latestPointerKey,
   tenantSnapshotPrefix,
+  type MacroCounts,
   type SnapshotEnv,
 } from './common';
 import type { ForgeRequestContext } from '../../utils/authenticate';
@@ -108,6 +110,50 @@ describe('snapshot authenticated context', () => {
     });
     await expect(isSnapshotEnrolled(testEnv, context)).resolves.toBe(true);
     expect(testEnv.KV_FEATURE_FLAGS.get).toHaveBeenCalledWith('CUSTOMER_SUCCESS_SERVICE');
+  });
+});
+
+describe('macro count validation', () => {
+  const counts = (over: Partial<MacroCounts> = {}): MacroCounts => ({
+    total: 3,
+    sequence: 1,
+    graph: 1,
+    openapi: 0,
+    mermaid: 0,
+    plantuml: 0,
+    asyncapi: 1,
+    unknown: 0,
+    ...over,
+  });
+
+  it('accepts a payload carrying every bucket', () => {
+    expect(() => assertCounts(counts())).not.toThrow();
+  });
+
+  // The backend deploys ahead of the Forge app and installs upgrade on their
+  // own schedule, so a client predating the asyncapi bucket keeps posting
+  // without it. Rejecting those would 400 the whole snapshot commit.
+  it('reads a bucket an older client omits as 0 instead of failing the invariant', () => {
+    const legacy = counts({ total: 2, asyncapi: undefined as unknown as number });
+    expect(() => assertCounts(legacy)).not.toThrow();
+  });
+
+  // Chunk payloads are integrity-checked against a client-computed sha256 of
+  // the exact bytes sent, so validation must not write defaults back into the
+  // payload — re-serializing a mutated object would fail that check.
+  it('does not mutate the payload it validates', () => {
+    const legacy = counts({ total: 2, asyncapi: undefined as unknown as number });
+    const before = JSON.stringify(legacy);
+    assertCounts(legacy);
+    expect(JSON.stringify(legacy)).toBe(before);
+  });
+
+  it('still rejects a genuine total-vs-buckets mismatch', () => {
+    expect(() => assertCounts(counts({ total: 99 }))).toThrow(HttpError);
+  });
+
+  it('still rejects a negative bucket', () => {
+    expect(() => assertCounts(counts({ graph: -1, total: 1 }))).toThrow(HttpError);
   });
 });
 

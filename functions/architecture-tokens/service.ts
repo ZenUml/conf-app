@@ -15,13 +15,14 @@ export interface RelatedPage {
 export interface RelatedParticipant {
   actorId: string;
   rawLabel: string;
-  /** At most PAGES_SHOWN, nearest first. */
+  /** At most PAGES_SHOWN distinct pages, nearest first; one page can hold several diagrams. */
   related: RelatedPage[];
   /** Every page the index holds for this name; the circle shows this, `related` is a slice. */
   relatedTotal: number;
 }
 
 export interface RelatedResponse {
+  lookup_outcome?: 'indexed' | 'index_miss';
   indexedAt: string | null;
   contentVersion: number | null;
   participants: RelatedParticipant[];
@@ -40,6 +41,7 @@ export type PageResolver = (pageIds: string[]) => Promise<ConfluencePageInfo[]>;
 export interface LiveContent {
   version: number;
   pageId: string;
+  spaceId?: string;
 }
 
 export type ContentResolver = (contentIds: string[]) => Promise<Map<string, LiveContent>>;
@@ -115,12 +117,7 @@ function byActor(rows: OccurrenceRow[]): Map<string, OccurrenceRow> {
  * over-general name visible, which is what a person needs before giving it a real name.
  */
 export const PAGES_SHOWN = 5;
-/**
- * Candidates fetched per participant before the permission filter runs. The filter drops
- * pages the reader cannot open, so asking for exactly PAGES_SHOWN would leave short lists.
- */
-const CANDIDATE_DEPTH = PAGES_SHOWN * 4;
-/** Ceiling on one lookup's CQL work; CQL_BATCH ids per request. */
+/** Ceiling on one lookup's live-version and CQL work. */
 const PAGE_BUDGET = 300;
 
 /**
@@ -154,23 +151,122 @@ export function pageTotalsByKey(candidates: OccurrenceRow[]): Map<string, number
 }
 
 /**
- * Only the nearest CANDIDATE_DEPTH pages per key reach Confluence: a name on 139 pages
- * would otherwise cost 34 CQL round trips and miss the viewer's 8s budget.
+ * Choose at most `limit` distinct ids while giving every key another candidate in each
+ * round. With one key this can backfill through the whole lookup budget; with fifteen it
+ * gives each key twenty attempts. Rows stay in the original nearest-first order.
+ */
+function roundRobinIds(
+  candidates: OccurrenceRow[],
+  idOf: (candidate: OccurrenceRow) => string,
+  limit: number,
+): string[] {
+  const idsByKey = new Map<string, string[]>();
+  const seenByKey = new Map<string, Set<string>>();
+  for (const candidate of candidates) {
+    let ids = idsByKey.get(candidate.comparisonKey);
+    let seen = seenByKey.get(candidate.comparisonKey);
+    if (!ids || !seen) {
+      idsByKey.set(candidate.comparisonKey, (ids = []));
+      seenByKey.set(candidate.comparisonKey, (seen = new Set()));
+    }
+    const id = idOf(candidate);
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+
+  const selected: string[] = [];
+  const selectedSet = new Set<string>();
+  const positions = new Map<string, number>();
+  let progressed = true;
+  while (selected.length < limit && progressed) {
+    progressed = false;
+    for (const [key, ids] of idsByKey) {
+      let position = positions.get(key) ?? 0;
+      while (position < ids.length && selectedSet.has(ids[position])) position += 1;
+      positions.set(key, position);
+      if (position >= ids.length) continue;
+      const id = ids[position];
+      positions.set(key, position + 1);
+      selectedSet.add(id);
+      selected.push(id);
+      progressed = true;
+      if (selected.length >= limit) break;
+    }
+  }
+  return selected;
+}
+
+/**
+ * At most PAGE_BUDGET diagrams have their live version read. Every occurrence row for a
+ * selected diagram stays, so the label returned for it is not changed by the budget.
+ * Cover a distinct indexed page for every key before spending remaining slots on extra
+ * diagrams from an already-covered page; otherwise duplicate pageIds can consume a key's
+ * whole share before later page positions have a chance to pass the live filters.
+ */
+function budgetedCandidates(candidates: OccurrenceRow[]): OccurrenceRow[] {
+  const pagesByKey = new Map<string, Array<{ contentIds: string[]; seen: Set<string> }>>();
+  const pageGroupsByKey = new Map<string, Map<string, { contentIds: string[]; seen: Set<string> }>>();
+  for (const candidate of candidates) {
+    let pages = pagesByKey.get(candidate.comparisonKey);
+    let groups = pageGroupsByKey.get(candidate.comparisonKey);
+    if (!pages || !groups) {
+      pagesByKey.set(candidate.comparisonKey, (pages = []));
+      pageGroupsByKey.set(candidate.comparisonKey, (groups = new Map()));
+    }
+    let group = groups.get(candidate.pageId);
+    if (!group) {
+      group = { contentIds: [], seen: new Set() };
+      groups.set(candidate.pageId, group);
+      pages.push(group);
+    }
+    if (!group.seen.has(candidate.contentId)) {
+      group.seen.add(candidate.contentId);
+      group.contentIds.push(candidate.contentId);
+    }
+  }
+
+  const selectedIds: string[] = [];
+  const selected = new Set<string>();
+  const pagePositions = new Map<string, number>();
+  let visitedPage = true;
+  while (selectedIds.length < PAGE_BUDGET && visitedPage) {
+    visitedPage = false;
+    for (const [key, pages] of pagesByKey) {
+      const position = pagePositions.get(key) ?? 0;
+      if (position >= pages.length) continue;
+      visitedPage = true;
+      pagePositions.set(key, position + 1);
+      const id = pages[position].contentIds.find((contentId) => !selected.has(contentId));
+      if (id) {
+        selected.add(id);
+        selectedIds.push(id);
+      }
+      if (selectedIds.length >= PAGE_BUDGET) break;
+    }
+  }
+
+  if (selectedIds.length < PAGE_BUDGET) {
+    const remaining = candidates.filter((candidate) => !selected.has(candidate.contentId));
+    for (const id of roundRobinIds(
+      remaining,
+      (candidate) => candidate.contentId,
+      PAGE_BUDGET - selectedIds.length,
+    )) {
+      selected.add(id);
+      selectedIds.push(id);
+    }
+  }
+  return candidates.filter((candidate) => selected.has(candidate.contentId));
+}
+
+/**
+ * Only PAGE_BUDGET distinct live pages reach the as-user permission filter. The per-key
+ * share is selected before this call, but the five-page slice is taken only after it.
  */
 function budgetedPageIds(candidates: OccurrenceRow[]): string[] {
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  const perKey = new Map<string, number>();
-  for (const candidate of candidates) {
-    if (seen.has(candidate.pageId)) continue;
-    const taken = perKey.get(candidate.comparisonKey) ?? 0;
-    if (taken >= CANDIDATE_DEPTH) continue;
-    perKey.set(candidate.comparisonKey, taken + 1);
-    seen.add(candidate.pageId);
-    ids.push(candidate.pageId);
-    if (ids.length >= PAGE_BUDGET) break;
-  }
-  return ids;
+  return roundRobinIds(candidates, (candidate) => candidate.pageId, PAGE_BUDGET);
 }
 
 /**
@@ -204,14 +300,20 @@ export function confluenceContentResolver(
       if (!response.ok) throw new Error(`confluence custom-content ${response.status}`);
 
       const body = await response.json() as {
-        results?: Array<{ id?: string; pageId?: string; version?: { number?: number } }>;
+        results?: Array<{
+          id?: string;
+          pageId?: string;
+          spaceId?: string;
+          version?: { number?: number };
+        }>;
       };
       for (const result of body.results ?? []) {
         const id = String(result?.id ?? '');
         const version = Number(result?.version?.number);
         const pageId = String(result?.pageId ?? '');
+        const spaceId = String(result?.spaceId ?? '');
         if (!id || !Number.isFinite(version) || !pageId) continue;
-        out.set(id, { version, pageId });
+        out.set(id, { version, pageId, ...(spaceId && { spaceId }) });
       }
     }
     return out;
@@ -228,7 +330,12 @@ export async function relatedDiagrams(
 ): Promise<RelatedResponse> {
   const own = await occurrencesForContent(db, cloudId, contentId);
   if (own.length === 0) {
-    return { indexedAt: null, contentVersion: null, participants: [] };
+    return {
+      lookup_outcome: 'index_miss',
+      indexedAt: null,
+      contentVersion: null,
+      participants: [],
+    };
   }
 
   const indexedAt = own[0].indexedAt;
@@ -241,13 +348,16 @@ export async function relatedDiagrams(
     ownPageId,
   );
 
-  // One batched read covers this diagram and every candidate: a row whose live version
-  // differs from the indexed one describes a diagram that has changed since, so it is
-  // dropped rather than shown. The response also carries where each diagram sits now,
-  // which is the page the reader should open.
+  // A bounded read covers this diagram and the nearest candidates: a row whose live
+  // version differs from the indexed one describes a diagram that has changed since, so it
+  // is dropped rather than shown. The response also carries where each diagram sits now,
+  // which is the page the reader should open. The budget is shared across keys, and the
+  // display slice is taken only after version and permission filtering so invalid nearer
+  // candidates can be backfilled.
+  const nearest = budgetedCandidates(candidates);
   let live: Map<string, LiveContent>;
   try {
-    live = await resolveContent([contentId, ...new Set(candidates.map((c) => c.contentId))]);
+    live = await resolveContent([contentId, ...new Set(nearest.map((c) => c.contentId))]);
   } catch {
     return { indexedAt, contentVersion, participants: [], error_kind: 'confluence_unavailable' };
   }
@@ -262,10 +372,20 @@ export async function relatedDiagrams(
     return { indexedAt, contentVersion, participants: [], error_kind: 'stale_index' };
   }
 
-  const current = candidates.filter((candidate) => {
-    const now = live.get(candidate.contentId);
-    return now !== undefined && now.version === candidate.contentVersion;
-  });
+  const current = usableCandidates(
+    nearest
+      .filter((candidate) => {
+        const now = live.get(candidate.contentId);
+        return now !== undefined && now.version === candidate.contentVersion;
+      })
+      .map((candidate) => ({
+        ...candidate,
+        pageId: live.get(candidate.contentId)!.pageId,
+        spaceId: live.get(candidate.contentId)!.spaceId ?? candidate.spaceId,
+      })),
+    self.spaceId ?? own[0].spaceId,
+    ownPageId ?? self.pageId,
+  );
   const pageIds = budgetedPageIds(current.map((candidate) => ({
     ...candidate,
     pageId: live.get(candidate.contentId)!.pageId,
@@ -285,12 +405,13 @@ export async function relatedDiagrams(
 
   const participants: RelatedParticipant[] = [];
   for (const [actorId, occurrence] of byActor(own)) {
-    const seen = new Set<string>();
+    const seenContent = new Set<string>();
+    const includedPages = new Set<string>();
     const related: RelatedPage[] = [];
     for (const candidate of current) {
       if (
         candidate.comparisonKey !== occurrence.comparisonKey
-        || seen.has(candidate.contentId)
+        || seenContent.has(candidate.contentId)
       ) {
         continue;
       }
@@ -299,8 +420,9 @@ export async function relatedDiagrams(
       const page = pages.get(pageId);
       if (!page) continue;
 
-      if (related.length >= PAGES_SHOWN) break;
-      seen.add(candidate.contentId);
+      if (!includedPages.has(pageId) && includedPages.size >= PAGES_SHOWN) continue;
+      includedPages.add(pageId);
+      seenContent.add(candidate.contentId);
       related.push({
         contentId: candidate.contentId,
         pageId,
@@ -317,5 +439,5 @@ export async function relatedDiagrams(
     });
   }
 
-  return { indexedAt, contentVersion, participants };
+  return { lookup_outcome: 'indexed', indexedAt, contentVersion, participants };
 }

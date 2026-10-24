@@ -47,14 +47,6 @@ function setupForge() {
   forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.example.com'
 }
 
-function setAiEnabled(enabled: boolean) {
-  if (enabled) {
-    localStorage.removeItem('mockAiTitleEnabled')
-  } else {
-    localStorage.setItem('mockAiTitleEnabled', 'false')
-  }
-}
-
 function setupStore({ title = '' }: { title?: string } = {}) {
   store.commit('updateDiagramType', DiagramType.Graph)
   store.commit('updateTitle', title)
@@ -71,7 +63,7 @@ const overlayShell = {
 }
 
 const meta: Meta<typeof DrawIoExtension> = {
-  title: 'Editors/DrawIoExtension',
+  title: 'Editor/Graph/DrawIoExtension',
   component: DrawIoExtension,
   parameters: {
     layout: 'padded',
@@ -98,11 +90,10 @@ const meta: Meta<typeof DrawIoExtension> = {
 
 export default meta
 
-/** AI feature flag OFF — no spark button rendered. */
+/** Empty Graph editor: no title yet. The spark button is always available (the ai-title rollout flag is gone). */
 export const Default: Story = {
   decorators: [
     () => {
-      setAiEnabled(false)
       setupStore()
       return overlayShell
     },
@@ -113,19 +104,7 @@ export const Default: Story = {
 export const WithTitle: Story = {
   decorators: [
     () => {
-      setAiEnabled(false)
       setupStore({ title: 'Order Flow' })
-      return overlayShell
-    },
-  ],
-}
-
-/** AI feature flag ON with labelled shapes in currentXml. */
-export const AIEnabled: Story = {
-  decorators: [
-    () => {
-      setAiEnabled(true)
-      setupStore()
       return overlayShell
     },
   ],
@@ -135,7 +114,6 @@ export const AIEnabled: Story = {
 export const Generating: Story = {
   decorators: [
     () => {
-      setAiEnabled(true)
       setupStore()
       mockFetch('Order Flow', 60_000)
       return overlayShell
@@ -153,7 +131,6 @@ export const Generating: Story = {
 export const Suggested: Story = {
   decorators: [
     () => {
-      setAiEnabled(true)
       setupStore()
       mockFetch('Order Flow', 0)
       return overlayShell
@@ -178,7 +155,6 @@ export const Suggested: Story = {
 export const TitleError: Story = {
   decorators: [
     () => {
-      setAiEnabled(false)
       setupStore()
       return overlayShell
     },

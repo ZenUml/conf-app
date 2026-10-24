@@ -2,7 +2,9 @@ import { response, OkResponse } from "./OkResponse";
 import { getCustomContentFromConfluenceForForge } from "./utils/confluenceUtils";
 import { upsertAtlassianInstance } from "./utils/dbUtils";
 import { captureError } from "./utils/sentry";
+import { indexDiagramOnSave } from "./architecture-tokens/indexOnSave";
 import type { ForgeRequestData } from "./utils/authenticate";
+import { requireForgeUserToken } from "./utils/forgeUserToken";
 
 export interface Env {
   DB: D1Database;
@@ -22,10 +24,8 @@ export const onRequest = async ({
   data: ForgeRequestData;
 }) => {
   // Input validation — return parseable 4xx JSON, never throw into a generic 500.
-  const forgeOAuthUser = request.headers.get('x-forge-oauth-user');
-  if (!forgeOAuthUser) {
-    return response(400, 'Missing x-forge-oauth-user header - not a valid Forge request');
-  }
+  const forgeOAuthUser = requireForgeUserToken(request);
+  if (forgeOAuthUser instanceof Response) return forgeOAuthUser;
 
   let body: any;
   try {
@@ -67,6 +67,18 @@ export const onRequest = async ({
     // Update ForgeInstallation with clientDomain if provided
     if (body.clientDomain) {
       await updateForgeInstallationClientDomain(env, forgeAppId, apiBaseUrl, body.clientDomain);
+    }
+
+    // Keep this diagram's architecture-token rows at the version just saved.
+    // Deliberately outside the outer catch: the index is derived from content
+    // Confluence already owns, so a failure here must not turn a successful
+    // save into a 500. indexDiagramOnSave never throws; it reports instead.
+    const indexResult = await indexDiagramOnSave(
+      env.DB, cloudIdFrom(apiBaseUrl), customContent,
+    );
+    if (!indexResult.indexed && indexResult.reason === 'write_failed') {
+      console.error('architecture-tokens: index write failed', indexResult.detail);
+      captureError(new Error(`architecture-tokens index write failed: ${indexResult.detail}`));
     }
 
     return OkResponse();

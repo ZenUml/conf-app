@@ -8,7 +8,6 @@ sequence/mermaid/plantuml together (they share the load path).
 
 ```
 index.html:4   window.__macroLoadStart = performance.now()            ← t0
-index.html:8-9 dom-to-image.min.js, md5.js          (classic, blocking)
 index.html:59  drawio/js/viewer-static.min.js       (classic, blocking)  ┐ DrawIO
 index.html:68-70 shapes mxBasic/mxAWS3D/mxAWS4       (classic, blocking)  │ parse
 index.html:71-135 stencil registry setup            (classic, blocking)  ┘ cost

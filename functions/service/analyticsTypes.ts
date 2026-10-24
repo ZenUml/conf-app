@@ -20,32 +20,21 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "macro_export_requested",
   "macro_export_succeeded",
   "macro_export_failed",
-  "ai_generation_requested",
-  "ai_generation_succeeded",
-  "ai_generation_failed",
-  "ai_editor_opened",
-  "ai_feedback_submitted",
+  "ai_title_generation_requested",
+  "ai_title_generation_succeeded",
+  "ai_title_generation_failed",
   "upgrade_modal_shown",
   "upgrade_action_blocked",
   "upgrade_modal_dismissed",
   "upgrade_prompt_hovered",
-  "content_sync_requested",
-  "content_sync_succeeded",
-  "content_sync_failed",
-  "custom_content_loaded",
-  "confluence_page_viewed",
-  "confluence_page_updated",
   "csat_submitted",
   "feedback_link_clicked",
-  "feature_flags_fetch_failed",
-  "attachment_create_failed",
   // Terminal outcome of the async (save-time) PNG backup write, emitted by
   // functions/forge-upload-attachment.ts from inside waitUntil. See the
   // matching block in src/utils/analytics/catalog.ts (#392).
   "attachment_upload_async_succeeded",
   "attachment_upload_async_failed",
   "attachment_upload_async_skipped",
-  "custom_content_update_failed",
   "macro_count_snapshot_completed",
   "macro_count_space_changed",
   "macro_count_snapshot_failed",
@@ -62,21 +51,46 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "extension_action_requested",
   "extension_action_succeeded",
   "extension_action_failed",
+  // Headless macro-identity resolution — backend-emitted, unlike every other
+  // agent_link_* event (those come from the macro, which a headless call has
+  // none of). See 2026-09-19-headless-diagram-mcp-design.md §6/§10.
+  "agent_link_identity_resolved",
+  "agent_link_identity_unresolved",
+  "agent_link_oauth_authorized",
+  "agent_link_oauth_refresh_failed",
+  "agent_link_oauth_token_refresh_completed",
+  "agent_link_oauth_revoked",
+  "agent_link_oauth_authorize_routed",
+  "agent_link_app_view_requested",
+  "agent_link_app_view_failed",
+  "agent_link_mcp_initialized",
+  // Our refresh-token chain revoked on reuse or a client mismatch
+  // (oauth/authServer.ts handleToken).
+  "agent_link_oauth_chain_revoked",
+  // Headless writes (design §10). `agent_link_diagram_created` carries the
+  // paywall gate's decision in `paywall_gate` — the only way to see how often
+  // the Lite limit is actually consulted rather than skipped on an unknown
+  // count, which is §9.1's fail-open path and the open question it leaves.
+  "agent_link_diagram_created",
+  "agent_link_diagram_updated",
+  // Headless PAGE writes. No paywall gate — a page is not a macro — so these
+  // carry the write guard's verdict instead.
+  "agent_link_page_created",
+  "agent_link_page_updated",
+  // Headless MCP usage: one event per authenticated tools/call (every tool,
+  // reads included) and one per initialize handshake (which client).
+  "agent_link_mcp_tool_called",
+  "agent_link_mcp_initialized",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];
 
-export const CANONICAL_EVENT_NAMES: ReadonlySet<string> = new Set(CANONICAL_EVENT_NAME_LIST);
-
-export type TrackCanonicalRequest = {
-  transport_version: 2;
-  event: AnalyticsEventName;
-  properties: Record<string, string | number | boolean | null | undefined>;
-  addon_key: string;
-  version: string;
-};
-
-export type TrackLegacyRequest = {
+// The transport_version: 2 "canonical" shape (TrackCanonicalRequest) and its
+// isCanonicalRequest() discriminator were deleted 2026-09-02: nothing ever
+// sent transport_version: 2 to /track (the frontend's canonical emit path is
+// trackAnalyticsEvent -> Mixpanel directly, not this legacy endpoint). This
+// is now just the one shape /track has ever actually received.
+export type TrackRequest = {
   transport_version?: 1;
   action: string;
   event_category?: string;
@@ -87,9 +101,3 @@ export type TrackLegacyRequest = {
   version: string;
   [key: string]: string | number | boolean | null | undefined;
 };
-
-export type TrackRequest = TrackCanonicalRequest | TrackLegacyRequest;
-
-export function isCanonicalRequest(body: TrackRequest): body is TrackCanonicalRequest {
-  return (body as TrackCanonicalRequest).transport_version === 2;
-}

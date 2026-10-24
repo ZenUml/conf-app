@@ -1,14 +1,15 @@
 import globals from "@/model/globals";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from './model/globals/forgeGlobal';
 import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
+import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
 import { decompress } from "@/utils/compress";
-import defaultContentProvider from "@/model/ContentProvider/CompositeContentProvider";
-import ApWrapper2 from "@/model/ApWrapper2";
-import MacroUtil from "@/model/MacroUtil";
+import { EMPTY_GRAPH } from "@/utils/graph/emptyGraph";
 import { trackEvent } from "@/utils/window";
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
+import { markEditorAuthoringStarted } from "@/utils/analytics/editorCloseOutcome";
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
@@ -16,9 +17,8 @@ import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue"
 installRestoreDraftBanner();
 import { Diagram, DiagramType, DataSource, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
-import { showCloseWithoutSavingDialog } from './utils/modalService';
 import EventBus from "./EventBus";
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
@@ -38,9 +38,6 @@ import {
 } from "@/utils/graph/graphEditorMode";
 import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
-// Track editor session start time
-const editorStartTime = Date.now();
-
 // Captured at editor open from extension.config.uuid. On Connect-era macros
 // this is a pre-existing identifier we forward back through view.submit so the
 // replace-semantics of {config: …} doesn't wipe the historical breadcrumb.
@@ -53,17 +50,6 @@ let originalConfigUuid: string | undefined;
 // the macro XML via view.submit({config:...}).
 let originalCustomContentId: string | undefined;
 let recoveryPageId: string | undefined;
-
-const EMPTY_GRAPH = `<mxfile>
-  <diagram name="Page-1">
-    <mxGraphModel dx="1434" dy="540" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-      </root>
-    </mxGraphModel>
-  </diagram>
-</mxfile>`;
 
 // Returns true when the save was accepted and the redirect (view.submit /
 // close) is scheduled — the caller keeps the "Publishing…" overlay up until the
@@ -120,8 +106,14 @@ async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolea
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+      error_code: (error as any)?.code,
+      error_shape: (error as any)?.errorShape,
     });
-    toast({ message: 'Failed to save. Please try again.', duration: 5000 });
+    // A create-time 404 is probed once (save_failed_diagnosed) so the toast can
+    // name a missing space permission instead of inviting a retry that cannot
+    // succeed — see model/saveFailureDiagnosis.ts.
+    const message = await diagnoseSaveFailure(error, { surface: 'editor', macro_type: 'graph' }, globals.apWrapper);
+    toast({ message, duration: message === GENERIC_SAVE_FAILED_MESSAGE ? 5000 : 12000 });
     // Do NOT end journey, do NOT close — keep editor open so the user can retry.
     return false;
   }
@@ -208,57 +200,6 @@ async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolea
   return true;
 }
 
-async function exit() {
-  const codeChanged = window.diagram?.graphXml !== window.graphXml;
-  
-  // Prepare event data
-  const isNewGraph = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Graph;
-  const elapsedTimeMs = Date.now() - editorStartTime;
-  
-  const eventProps = {
-    had_changes: codeChanged,
-    source: 'graph_editor',
-    elapsed_time_ms: elapsedTimeMs,
-    code_length: store.state.diagram.graphXml?.length || 0,
-    journey_id: getEditJourneyId(),
-    session_id: getOrCreateSession(),
-  };
-  
-  if (codeChanged) {
-    // Show custom modal dialog for Forge
-    const result = await showCloseWithoutSavingDialog();
-    
-    if (result === 'discard') {
-      // User confirmed exit - track exit event
-      const exitEventAction = isNewGraph ? 'create_macro_exit' : 'edit_macro_exit';
-      trackEvent('', exitEventAction, DiagramType.Graph, eventProps);
-      
-      // End journey on exit
-      if (getEditJourneyId()) {
-        endEditJourney('cancelled');
-      }
-      
-      await (await getView()).close();
-    } else {
-      // User cancelled exit (chose to keep editing) - track cancelled event
-      const cancelledEventAction = isNewGraph ? 'create_macro_exit_cancelled' : 'edit_macro_exit_cancelled';
-      trackEvent('', cancelledEventAction, DiagramType.Graph, eventProps);
-      // Do NOT end journey - user continues editing
-    }
-  } else {
-    // No changes - immediate exit
-    const exitEventAction = isNewGraph ? 'create_macro_exit' : 'edit_macro_exit';
-    trackEvent('', exitEventAction, DiagramType.Graph, eventProps);
-    
-    // End journey on exit
-    if (getEditJourneyId()) {
-      endEditJourney('window_close');
-    }
-    
-    await (await getView()).close();
-  }
-}
-
 async function initializeMacro() {
   const context = await initForgeContext();
 
@@ -291,6 +232,12 @@ async function initializeMacro() {
   // autoConvert link, so the editor must resolve it the same way or it opens
   // a new blank diagram instead of the linked one.
   const customContentId = resolveEffectiveCustomContentId(context);
+  // The journey started before this resolved, so tell it what kind of session
+  // it is now that we know. Drives macro_authoring_ended's operation_mode.
+  setEditJourneyMeta({
+    macroType: 'graph',
+    operationMode: customContentId ? 'edit' : 'create',
+  });
   originalCustomContentId = customContentId;
   recoveryPageId = context.extension?.content?.id;
 
@@ -306,7 +253,6 @@ async function initializeMacro() {
   let legacyLoadBlocked = false;
   if (customContentId) {
     const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
-    console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
@@ -314,9 +260,10 @@ async function initializeMacro() {
       reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
-      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
     }
   }
 
@@ -420,7 +367,6 @@ async function initializeMacro() {
 
   store.state.diagram = doc ?? NULL_DIAGRAM;
   window.diagram = doc ?? NULL_DIAGRAM;
-  console.log('loadDiagram - window.diagram', window.diagram);
 
   let graphXml = doc?.graphXml;
   if (doc?.compressed) {
@@ -476,12 +422,19 @@ async function initializeMacro() {
     mountRoot(doc ?? NULL_DIAGRAM, ForgeGraphEditor, contentProps);
   }
 
-  const isNew = await MacroUtil.isCreateNew();
+  // conf-app: MacroUtil.isCreateNew() reads only extension.config.customContentId
+  // (ApWrapper2.getMacroData), so an existing macro opened from the modal
+  // surface reported as a CREATE. Measured 2026-08-06..09-04: 58 graph and 37
+  // openapi "creates" ended in macro_save_succeeded, versus 1 for the DSL
+  // editor, which has always used the fuller resolver below.
+  const isNew = !customContentId;
+  markEditorAuthoringStarted();
   trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'graph',
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(isNew && getCreationFlowProps()),
   });
 }
 

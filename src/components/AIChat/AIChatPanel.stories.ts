@@ -48,12 +48,13 @@ const errorMessages: AIChatMessage[] = [
   {
     id: 'story-assistant-error',
     role: 'assistant',
+    tone: 'error',
     text: 'AI Chat could not apply the change: The generated diagram was not valid.',
   },
 ]
 
 const meta: Meta<typeof AIChatPanel> = {
-  title: 'AI Chat/AIChatPanel',
+  title: 'Editor/Diagram/AIChatPanel',
   component: AIChatPanel,
   tags: ['autodocs'],
   args: {

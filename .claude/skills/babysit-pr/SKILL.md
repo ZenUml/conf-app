@@ -46,7 +46,7 @@ After finding the PR, check `isDraft`. This affects which jobs are expected to r
 | **Draft** | `Build and Unit Test`, `Deploy: Lite` | `E2E: Lite` (and Full/Diagramly variants — those skip on any feature branch) |
 | **Ready for Review** | `Build`, `Deploy: Lite`, `E2E: Lite` | Full/Diagramly variants only |
 
-When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, which is the designed behaviour, not a failure. If the user expected E2E to run, suggest marking the PR Ready for Review (`gh pr ready <PR>`) or running `/ship-branch`.
+When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, which is the designed behaviour, not a failure. If the user expected E2E to run, suggest marking the PR Ready for Review (`gh pr ready <PR>`) or running `/land-branch`.
 
 ## Step 2: Check CI Status
 
@@ -148,10 +148,14 @@ git fetch origin && git checkout <PR_BRANCH> && git pull origin <PR_BRANCH>
 
 #### E2E Test Failure
 
-E2E tests run against live Confluence staging instances, which makes them inherently more flaky than local tests. Distinguish between:
+E2E tests run against live Confluence staging instances, which makes them inherently more flaky than local tests.
+
+> **Which re-run: `--failed` is for PR runs only.** A `main` run (`Build, Test and Draft Release`) must be re-run whole: `gh run rerun <RUN_ID> --repo ZenUml/conf-app` with no flag, which is also what the *Run recovery* workflow does. `Source and version` uploads `main-root-options-<attempt>`, and a failed-jobs-only re-run does not execute that job again, so every phase the rerun starts fails at `Verify root ownership` with `no artifact matches any of the names or patterns provided` for `main-root-options-2` (main run 38745939051, attempt 2, child run 38748851591). On a PR run the matching artifact is the Jev proposal `test-selection-<run>-<attempt>`; its downloads (`pr-validation.yml` `select` job, `e2e-test.yml` `plan` job) are `continue-on-error`, so nothing there blocks `--failed`. Whether a rerun without that proposal selects a different E2E set was not checked; this is read from the workflow files, not observed in a run. See `docs/ops/pipeline-graphs.md`.
+
+Distinguish between:
 
 - **Deterministic failure** (same test fails consistently, error points to a code bug): Fix the code, not the test. You cannot reproduce these locally easily since they need a deployed staging app + Confluence auth.
-- **Flaky failure** (test passed before, no code changes in test area): Re-run the failed jobs:
+- **Flaky failure** (test passed before, no code changes in test area): Re-run the failed jobs (PR run; a `main` run is re-run whole, see above):
   ```bash
   gh run rerun <RUN_ID> --repo ZenUml/conf-app --failed
   ```
@@ -166,7 +170,7 @@ Common E2E failure patterns:
 
 **`page.goto: Timeout ... exceeded` is infra, not code.** The navigation itself never completed, so nothing the app does inside the macro iframe can be the cause — do not go looking for a code culprit. Confirmed pattern (2026-07-26): three retries all timing out identically at `page.goto`, *different shards* failing across two runs of near-identical code, and a shard that was green on the PR's own run going red on main. Re-run and move on.
 
-1. **Re-run the failed jobs**:
+1. **Re-run the failed jobs** (PR run; a `main` run is re-run whole, see the re-run rule above):
    ```bash
    gh run rerun <RUN_ID> --repo ZenUml/conf-app --failed
    ```
@@ -178,7 +182,7 @@ Common E2E failure patterns:
 
 #### Infra/Runner
 
-1. **Re-run the failed job**:
+1. **Re-run the failed job** (PR run; a `main` run is re-run whole, see the re-run rule above):
    ```bash
    gh run rerun <RUN_ID> --repo ZenUml/conf-app --failed
    ```

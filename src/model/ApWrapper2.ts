@@ -22,6 +22,7 @@ import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { isUsablePageId } from '@/utils/pageId';
 import { classifyCreateNotFound, parseContentOperations, SaveFailureDiagnosis } from '@/model/saveFailureDiagnosis';
 
 export enum VersionType {
@@ -42,15 +43,19 @@ const ASYNCAPI_CUSTOM_CONTENT_TYPES = ['async-api-doc'];
 // for two types the variant never writes, so every diagram-discovery caller came
 // back empty on Diagramly: the homepage feed card rendered only example rows and
 // Agent Link's search_diagrams / list_diagrams listed nothing (#524, observed on
-// production 2026-08-21). getMacroContentTypes() carries the same branch — the
-// two must stay in lockstep.
+// production 2026-08-21).
+//
+// customContentTypesForVariant() is the ONLY place that decides which types a
+// variant queries. Every type list sent to Confluence — the search CQL clause,
+// getMacroContentTypes(), findLegacyCustomContentByUuid() — must derive from it;
+// a call site that names CUSTOM_CONTENT_TYPES directly asks AsyncAPI for types it
+// never registered and gets 400 "Unsupported value for type" (#403).
 const DIAGRAMLY_CUSTOM_CONTENT_TYPES = ['gpt-custom-content-key'];
 function customContentTypesForVariant(): string[] {
   if (forgeGlobal.isAsyncApi) return ASYNCAPI_CUSTOM_CONTENT_TYPES;
   if (forgeGlobal.isDiagramly) return DIAGRAMLY_CUSTOM_CONTENT_TYPES;
   return CUSTOM_CONTENT_TYPES;
 }
-const SEARCH_CUSTOM_CONTENT_LIMIT: number = 1000;
 
 // One raw candidate hit for the Agent Link discovery tools (search_diagrams /
 // list_diagrams — see searchDiagramsForge). Assembled from a v1 CQL search
@@ -122,6 +127,29 @@ export interface LoadCustomContentOpts {
   // guards the save-fork path. Omitted/'full' preserves the blocking scan
   // for every other caller.
   copyCheckMode?: 'full' | 'cross-page-only';
+}
+
+/**
+ * Classify a v2 custom-content `{ errors: [...] }` envelope. Strict 404
+ * detection: every error in the array must be a true 404 (status === 404 AND
+ * code === 'NOT_FOUND'). A mixed array — or a single error with mismatched
+ * status/code — must be treated as 'other_error' so recovery does not trigger
+ * and the write path does not fall through to create on transient failures.
+ */
+function classifyCustomContentErrors(errors: any[]): {
+  status: 'not_found' | 'other_error';
+  httpStatus?: number;
+  errorCode?: string;
+} {
+  const allStrictNotFound = errors.every(
+    (err: any) => err?.status === 404 && err?.code === 'NOT_FOUND',
+  );
+  const firstError = errors[0] ?? {};
+  return {
+    status: allStrictNotFound ? 'not_found' : 'other_error',
+    httpStatus: typeof firstError.status === 'number' ? firstError.status : undefined,
+    errorCode: firstError.code != null ? String(firstError.code) : undefined,
+  };
 }
 
 export default class ApWrapper2 {
@@ -266,10 +294,7 @@ export default class ApWrapper2 {
   // Fully-qualified custom-content types for the diagram macros, used to
   // enumerate/count a space's macros via the V2 space custom-content endpoint.
   getMacroContentTypes(): string[] {
-    if (forgeGlobal.isDiagramly) {
-      return [this.customContentType('gpt-custom-content-key')];
-    }
-    return CUSTOM_CONTENT_TYPES.map((type) => this.customContentType(type));
+    return customContentTypesForVariant().map((type) => this.customContentType(type));
   }
 
   async createCustomContentV2(content: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -299,8 +324,12 @@ export default class ApWrapper2 {
     // extension.content, so pageId is undefined and the POST fails 400.
     // Fall back to spaceId from forgeContext.extension.space when no page
     // is in scope.
+    //
+    // conf-app#523: an unpublished (draft) page reports its id as the sentinel
+    // "0", which is truthy but is not a parent Confluence can resolve (404
+    // "parent page 0 not found"). Treat it like "no page" and use the space.
     const pageId = await this._getCurrentPageId();
-    if (pageId) {
+    if (isUsablePageId(pageId)) {
       data.pageId = pageId;
     } else {
       const space = await this.getCurrentSpace();
@@ -311,7 +340,7 @@ export default class ApWrapper2 {
       }
     }
 
-    const response = await this.makeRequest('/api/v2/custom-content', 'POST', data);
+    const response = await this.request('/api/v2/custom-content', 'POST', data);
     return this.assertSavedCustomContent(response, 'create');
   }
 
@@ -341,12 +370,12 @@ export default class ApWrapper2 {
       if (!pageId) return { probe_status: 'failed' };
       const ccType = this.getCustomContentType();
       const encodedPageId = encodeURIComponent(pageId);
-      const body = await this.makeRequest(`/api/v2/pages/${encodedPageId}?include-operations=true`);
+      const body = await this.request(`/api/v2/pages/${encodedPageId}?include-operations=true`);
       const diagnosis = parseContentOperations(body, ccType);
       if (diagnosis.probe_status !== 'page_unreachable' || diagnosis.probe_http_status !== 404) {
         return diagnosis;
       }
-      const draftBody = await this.makeRequest(`/api/v2/pages/${encodedPageId}?include-operations=true&get-draft=true`);
+      const draftBody = await this.request(`/api/v2/pages/${encodedPageId}?include-operations=true&get-draft=true`);
       return parseContentOperations(draftBody, ccType);
     } catch (e) {
       console.warn('diagnoseCreateNotFound: probe failed', (e as Error)?.message ?? e);
@@ -485,17 +514,17 @@ export default class ApWrapper2 {
     });
 
     try {
-      const response = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(newVersionNumber));
+      const response = await this.request(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(newVersionNumber));
       const saved = this.assertSavedCustomContent(response, 'update');
       trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
       return saved;
     } catch (error) {
       if (this.isVersionConflict(error)) {
         trackEvent('save_conflict_retry', 'save_conflict_retry', 'info', { content_id: String(content.id) });
-        const fresh = await this.makeRequest(`/api/v2/custom-content/${content.id}?body-format=raw`);
+        const fresh = await this.request(`/api/v2/custom-content/${content.id}?body-format=raw`);
         const freshVersion = (fresh?.version?.number || 0) + 1;
         try {
-          const retryResponse = await this.makeRequest(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(freshVersion));
+          const retryResponse = await this.request(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(freshVersion));
           const savedRetry = this.assertSavedCustomContent(retryResponse, 'update');
           trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
           return savedRetry;
@@ -510,7 +539,7 @@ export default class ApWrapper2 {
   }
 
   async getCustomContentByIdV2(id: string, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
-    const customContent = await this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`);
+    const customContent = await this.request(`/api/v2/custom-content/${id}?body-format=raw`);
     return this.parseCustomContentByIdV2Response(id, customContent, opts);
   }
 
@@ -550,7 +579,7 @@ export default class ApWrapper2 {
     let rawResponse: any;
     try {
       rawResponse = await renderPerf.time('cc_fetch', () =>
-        this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`));
+        this.request(`/api/v2/custom-content/${id}?body-format=raw`));
     } catch (e: any) {
       const httpStatus =
         typeof e?.status === 'number' ? e.status
@@ -567,30 +596,29 @@ export default class ApWrapper2 {
     }
     const errors = rawResponse?.errors;
     if (Array.isArray(errors) && errors.length > 0) {
-      // Strict 404 detection: every error in the array must be a true 404
-      // (status === 404 AND code === 'NOT_FOUND'). A mixed array — or a
-      // single error with mismatched status/code — must be treated as
-      // 'other_error' so recovery does not trigger and the write path
-      // does not fall through to create on transient failures.
-      const allStrictNotFound = errors.every(
-        (err: any) => err?.status === 404 && err?.code === 'NOT_FOUND',
-      );
-      const status: 'not_found' | 'other_error' = allStrictNotFound ? 'not_found' : 'other_error';
+      const { status, httpStatus, errorCode } = classifyCustomContentErrors(errors);
       // Telemetry for non-success shapes preserved from the legacy parsing path.
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
-      const firstError = errors[0] ?? {};
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: status,
+        error_class: 'structured',
+        http_status: httpStatus,
+        error_code: errorCode,
+      });
       return {
         customContent: undefined,
         status,
         errorDetail: JSON.stringify(errors),
-        httpStatus: typeof firstError.status === 'number' ? firstError.status : undefined,
-        errorCode: firstError.code != null ? String(firstError.code) : undefined,
+        httpStatus,
+        errorCode,
         errorClass: 'structured',
       };
     }
     if (!rawResponse?.body?.raw?.value) {
       // Truthy response but no parseable body — unexpected shape, not a 404.
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'malformed',
+      });
       return {
         customContent: undefined,
         status: 'other_error',
@@ -615,7 +643,16 @@ export default class ApWrapper2 {
     // NULL_DIAGRAM / fallback paths instead of vanishing.
     const rawValue = customContent?.body?.raw?.value;
     if (!rawValue || customContent?.errors) {
-      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning');
+      const errors = customContent?.errors;
+      const structured = Array.isArray(errors) && errors.length > 0;
+      const { status, httpStatus, errorCode } = structured
+        ? classifyCustomContentErrors(errors)
+        : { status: 'other_error' as const, httpStatus: undefined, errorCode: undefined };
+      trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
+        load_status: status,
+        error_class: structured ? 'structured' : 'malformed',
+        ...(structured ? { http_status: httpStatus, error_code: errorCode } : {}),
+      });
       return undefined;
     }
     let diagram = JSON.parse(rawValue);
@@ -751,7 +788,7 @@ export default class ApWrapper2 {
     try {
       const responses = await Promise.all(
         typesToProbe.map(t =>
-          this.makeRequest(`/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`),
+          this.request(`/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`),
         ),
       );
       const errored = responses.find(r => r?.errors);
@@ -821,7 +858,7 @@ export default class ApWrapper2 {
     // itself can never reject here — no outer try/catch needed.
     return await Promise.all(
       types.map(t =>
-        this.makeRequest(
+        this.request(
           `/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(t)}&body-format=raw&limit=${limit}`,
         ).catch(e => ({ errors: [{ title: e?.message ? String(e.message) : String(e) }] })),
       ),
@@ -909,6 +946,7 @@ export default class ApWrapper2 {
       recoveredFromOrphanId: customContentId,
       probeResult,
       directFetchStatus: 'not_found',
+      ...directDiagnostics,
     };
   }
 
@@ -936,9 +974,7 @@ export default class ApWrapper2 {
   // in-memory sort by version.createdAt picks the most recent.
   async findLegacyCustomContentByUuid(uuid: string): Promise<ICustomContentV2 | undefined> {
     if (!uuid) return undefined;
-    const types = forgeGlobal.isDiagramly
-      ? ['gpt-custom-content-key']
-      : CUSTOM_CONTENT_TYPES;
+    const types = customContentTypesForVariant();
     try {
       // Use CQL exact-title search. The V2 `/api/v2/custom-content?title=...`
       // query param is silently IGNORED by the platform — verified 2026-05-27
@@ -961,7 +997,7 @@ export default class ApWrapper2 {
       // case 2026-05-25 had 27 CCs sharing one uuid). Tolerate per-id
       // failures so one 403 doesn't poison the whole recovery.
       const bodies = await Promise.all(ids.map((id: string) =>
-        this.makeRequest(`/api/v2/custom-content/${id}?body-format=raw`).catch(() => undefined),
+        this.request(`/api/v2/custom-content/${id}?body-format=raw`).catch(() => undefined),
       ));
 
       let best: any | undefined;
@@ -1036,7 +1072,7 @@ export default class ApWrapper2 {
   private async getCustomContentRawV2(id: string, query: string = 'body-format=raw'): Promise<ICustomContentResponseBodyV2 | undefined> {
     const url = `/api/v2/custom-content/${id}?${query}`;
     try {
-      const response = await this.makeRequest(url);
+      const response = await this.request(url);
       const customContent = response as ICustomContentResponseBodyV2;
       return customContent;
     } catch (e) {
@@ -1052,11 +1088,7 @@ export default class ApWrapper2 {
     return typesClause(customContentTypesForVariant());
   }
 
-  async searchCustomContent(_maxItems: number = SEARCH_CUSTOM_CONTENT_LIMIT): Promise<Array<ICustomContent>> {
-    return await this.searchCustomContentForge(250);
-  }
-
-  async searchCustomContentForge(maxItems: number = 250): Promise<Array<ICustomContent>> {
+  async searchCustomContent(maxItems: number = 250): Promise<Array<ICustomContent>> {
     try {
       // Use the new Forge API to search custom content. Scope by the
       // variant's registered types — otherwise the v2 endpoint returns
@@ -1103,11 +1135,11 @@ export default class ApWrapper2 {
       // macro. Bulk-check parent-page liveness and keep only the live ones.
       const live = await this.filterOrphanedByParentPage(results);
 
-      trackEvent(`found ${live.length} content in Forge mode`, 'searchCustomContentForge', 'info');
+      trackEvent(`found ${live.length} content in Forge mode`, 'searchCustomContent', 'info');
       return live;
     } catch (e) {
-      console.error('searchCustomContentForge', e);
-      trackEvent(JSON.stringify(e), 'searchCustomContentForge', 'error');
+      console.error('searchCustomContent', e);
+      trackEvent(JSON.stringify(e), 'searchCustomContent', 'error');
       return [] as Array<ICustomContent>;
     }
   }
@@ -1130,11 +1162,11 @@ export default class ApWrapper2 {
     try {
       for (let i = 0; i < pageIds.length; i += 250) {
         const qs = pageIds.slice(i, i + 250).map(id => `id=${encodeURIComponent(id)}`).join('&');
-        const resp: any = await this.makeRequest(`/api/v2/pages?${qs}&limit=250`);
+        const resp: any = await this.request(`/api/v2/pages?${qs}&limit=250`);
         (resp?.results || []).forEach((p: any) => { if (p?.id) livePageIds.add(String(p.id)); });
       }
     } catch (e) {
-      console.warn('searchCustomContentForge: parent-page liveness check failed; returning unfiltered', e);
+      console.warn('searchCustomContent: parent-page liveness check failed; returning unfiltered', e);
       return items;
     }
     return keepLiveParentPageContent(items as Array<ICustomContent & { pageId?: string }>, livePageIds);
@@ -1289,10 +1321,6 @@ export default class ApWrapper2 {
   }
 
   async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
-    return await this.searchPagedCustomContentForge(pageSize, keyword, onlyMine, docType, ids);
-  }
-
-  async searchPagedCustomContentForge(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
     const params = new URLSearchParams();
     customContentTypesForVariant().forEach(type => {
       params.append('type', this.customContentType(type));
@@ -1309,10 +1337,10 @@ export default class ApWrapper2 {
     }
 
     const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
-    return await this.searchPagedCustomContentForgeByUrl(searchUrl);
+    return await this.searchPagedCustomContentByUrl(searchUrl);
   }
 
-  async searchPagedCustomContentForgeByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
+  async searchPagedCustomContentByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
     try {
       const response = await forgeRequest(searchUrl);
       
@@ -1363,20 +1391,16 @@ export default class ApWrapper2 {
         _links: response._links
       };
 
-      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentForgeByUrl', 'info');
+      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentByUrl', 'info');
       return searchResults;
     } catch (e) {
-      console.error('searchPagedCustomContentForgeByUrl', e);
-      trackEvent(JSON.stringify(e), 'searchPagedCustomContentForgeByUrl', 'error');
+      console.error('searchPagedCustomContentByUrl', e);
+      trackEvent(JSON.stringify(e), 'searchPagedCustomContentByUrl', 'error');
       return {
         size: 0,
         results: []
       };
     }
-  }
-
-  async searchPagedCustomContentByUrl(searchUrl: string): Promise<SearchResults> {
-    return await this.searchPagedCustomContentForgeByUrl(searchUrl);
   }
 
   async saveCustomContentV2(customContentId: string, value: Diagram): Promise<ICustomContentResponseBodyV2> {
@@ -1502,7 +1526,7 @@ export default class ApWrapper2 {
     queryParameters = queryParameters || {};
     const param = Object.keys(queryParameters).reduce((acc, i) => `${acc}${acc ? '&' : ''}${i}=${queryParameters[i]}`, '');
     const url = `/api/v2/pages/${pageId}/attachments${param ? `?${param}` : ''}`;
-    const response = await this.makeRequest(url);
+    const response = await this.request(url);
     const base = await this._getBaseUrl();
     return response?.results && response?.results.map((a: any) => Object.assign(a, {
       _links: {
@@ -1556,19 +1580,13 @@ export default class ApWrapper2 {
   }
 
   /**
-   * Common request method that handles both forge and connect modes
+   * Issue a Confluence REST request through Forge.
    * @param url The API endpoint URL (without /wiki prefix)
-   * @param method HTTP method (GET, POST, PUT, etc.)
+   * @param type HTTP method (GET, POST, PUT, etc.)
    * @param data Request body data (optional)
-   * @param parseFunction Optional custom parsing function for connect mode
-   * @returns Parsed response data
    */
-  private async makeRequest(url: string, method: string = 'GET', data: any = undefined): Promise<any> {
-    return await forgeRequest(`/wiki${url}`, method, data);
-  }
-
   async request(url: string, type: string = 'GET', data: any = undefined): Promise<any> {
-    return this.makeRequest(url, type, data);
+    return await forgeRequest(`/wiki${url}`, type, data);
   }
 
   async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {
@@ -1599,7 +1617,7 @@ export default class ApWrapper2 {
       // Using the V2 API as specified in the documentation
       // https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-custom-content/#api-custom-content-id-get
       const url = `/api/v2/custom-content/${contentId}/versions?body-format=raw&limit=100`;
-      const data = await this.makeRequest(url);
+      const data = await this.request(url);
       const versions = data.results || [];
 
       console.log(`%cFound ${versions.length} versions for content ID: ${contentId}`, 'color: #4B5563; font-size: 14px; font-weight: bold;');
@@ -1628,7 +1646,7 @@ export default class ApWrapper2 {
         // Fetch the specific version content
         try {
           const versionContentUrl = `/api/v2/custom-content/${contentId}?version=${version.number}&body-format=raw`;
-          const versionData = await this.makeRequest(versionContentUrl);
+          const versionData = await this.request(versionContentUrl);
           if (versionData.body?.raw?.value) {
             const diagramData = JSON.parse(versionData.body.raw.value);
 

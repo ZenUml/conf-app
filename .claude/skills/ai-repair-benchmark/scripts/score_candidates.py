@@ -229,11 +229,25 @@ def main() -> int:
     records: list[dict[str, Any]] = []
     for result_path in args.results:
         records.extend(read_jsonl(Path(result_path).resolve()))
+    candidates = [
+        Path(record["candidatePath"]).read_text(encoding="utf-8")
+        if record.get("candidatePath") and Path(record["candidatePath"]).exists()
+        else ""
+        for record in records
+    ]
+    no_ops = [
+        bool(candidate) and normalized(candidate) == normalized(original)
+        for candidate in candidates
+    ]
     language_key = str(manifest["languageKey"])
     parsed = (
         {}
         if language_key == "LANG_PLANTUML"
-        else node_validation(records, language_key, Path(args.diagramly_path).resolve())
+        else node_validation(
+            [record for record, no_op in zip(records, no_ops) if not no_op],
+            language_key,
+            Path(args.diagramly_path).resolve(),
+        )
     )
     original_identifiers = identifiers(original)
     required_anchors = [str(item) for item in manifest.get("requiredAnchors", [])]
@@ -241,12 +255,8 @@ def main() -> int:
     output_path = Path(args.output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as output:
-        for record in records:
+        for record, candidate, no_op in zip(records, candidates, no_ops):
             candidate_path_value = record.get("candidatePath")
-            candidate = ""
-            if candidate_path_value and Path(candidate_path_value).exists():
-                candidate = Path(candidate_path_value).read_text(encoding="utf-8")
-            no_op = bool(candidate) and normalized(candidate) == normalized(original)
             candidate_identifiers = identifiers(candidate)
             missing_identifiers = sorted(original_identifiers - candidate_identifiers)
             retention = (
@@ -259,7 +269,13 @@ def main() -> int:
                 anchor for anchor in required_anchors if anchor not in candidate
             ]
 
-            if not candidate:
+            if no_op:
+                syntax_valid, syntax_error, validation_skipped = (
+                    None,
+                    "Unchanged candidate",
+                    True,
+                )
+            elif not candidate:
                 syntax_valid, syntax_error, validation_skipped = (
                     False,
                     "Empty candidate",
@@ -276,7 +292,10 @@ def main() -> int:
                 syntax_valid = None if validation_skipped else syntax_error is None
 
             hard_pass = bool(candidate) and not no_op and syntax_valid is True
-            if validation_skipped:
+            if no_op:
+                quality = "FAIL"
+                repair_status = "FAIL"
+            elif validation_skipped:
                 quality = "UNVERIFIED"
                 repair_status = "SKIPPED"
             elif not hard_pass:

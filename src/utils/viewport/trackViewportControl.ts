@@ -16,9 +16,10 @@ export type ViewportInput = 'toolbar' | 'wheel';
  */
 export function trackViewportControl(options: {
   macroType: string;
-  viewportAction: 'zoom_in' | 'zoom_out';
+  viewportAction: 'zoom_in' | 'zoom_out' | 'fit_height' | 'fit_width';
   viewportInput: ViewportInput;
   isDisplayMode: boolean;
+  controlLocation?: 'header' | 'canvas';
 }): void {
   trackAnalyticsEvent('viewport_control_used', {
     feature_area: 'macro',
@@ -26,5 +27,9 @@ export function trackViewportControl(options: {
     macro_type: options.macroType,
     viewport_action: options.viewportAction,
     viewport_input: options.viewportInput,
+    ...(options.controlLocation ? {
+      viewport_control_location: options.controlLocation,
+      viewport_outcome: 'applied' as const,
+    } : {}),
   });
 }

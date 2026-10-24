@@ -17,18 +17,26 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MODELS = [
-    "openai/gpt-5.6-luna",
-    "deepseek/deepseek-v4-flash",
-    "google/gemini-2.5-flash",
-]
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
+MODEL_CONFIG_PATH = Path(__file__).resolve().parents[4] / "src/utils/aiModelConfig.ts"
+
+
+def configured_default_model() -> str:
+    source = MODEL_CONFIG_PATH.read_text(encoding="utf-8")
+    match = re.search(
+        r"export\s+const\s+DEFAULT_AI_REPAIR_MODEL\s*=\s*(['\"])([^'\"]+)\1",
+        source,
+    )
+    if not match:
+        raise SystemExit(f"Cannot read DEFAULT_AI_REPAIR_MODEL from {MODEL_CONFIG_PATH}")
+    return match.group(2)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--model", help="Model to validate; defaults to the sole manifest model or product default")
     parser.add_argument("--base-url", default="http://127.0.0.1:3000")
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--poll-interval", type=float, default=1.0)
@@ -84,10 +92,29 @@ def main() -> int:
     dsl = manifest_relative(manifest_path, manifest["dslPath"]).read_text(
         encoding="utf-8"
     )
-    models = list(manifest.get("models") or DEFAULT_MODELS)
+    default_model = configured_default_model()
+    manifest_models = manifest.get("models")
+    if manifest_models is not None:
+        if not isinstance(manifest_models, list) or not manifest_models or any(
+            not isinstance(model, str) or not model for model in manifest_models
+        ):
+            raise SystemExit("manifest models must be a non-empty list of model names")
+    if args.model and manifest_models and args.model not in manifest_models:
+        raise SystemExit("--model must be listed in manifest models")
+    if args.model:
+        model = args.model
+    elif manifest_models:
+        if len(manifest_models) != 1:
+            raise SystemExit("L3 validates one model per run; pass --model")
+        model = manifest_models[0]
+    else:
+        model = default_model
+    models = [model]
     reasoning_specified = "reasoningDisabled" in manifest
+    if reasoning_specified and not isinstance(manifest["reasoningDisabled"], bool):
+        raise SystemExit("manifest reasoningDisabled must be a boolean")
     reasoning_disabled = (
-        bool(manifest["reasoningDisabled"]) if reasoning_specified else None
+        manifest["reasoningDisabled"] if reasoning_specified else True
     )
     base_url = args.base_url.rstrip("/")
     host = urllib.parse.urlparse(base_url).hostname
@@ -124,14 +151,14 @@ def main() -> int:
     api_key = os.environ.get("DIAGRAMLY_API_KEY")
     if not api_key:
         raise SystemExit("DIAGRAMLY_API_KEY is required")
-    external_id = f"ai-repair-benchmark-{sha256(dsl)[:12]}"
+    external_id = f"ai-repair-case-validation-{sha256(dsl)[:12]}"
     external_team_id = str(
-        manifest.get("externalTeamId") or f"ai-repair-benchmark-team-{sha256(dsl)[:12]}"
+        manifest.get("externalTeamId") or f"ai-repair-case-validation-team-{sha256(dsl)[:12]}"
     )
     headers = {
         "x-api-key": api_key,
         "x-external-id": external_id,
-        "x-external-name": "AI Repair Benchmark Local",
+        "x-external-name": "AI Repair Case Validation Local",
         "x-team-id": external_team_id,
     }
 
@@ -139,6 +166,7 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     results_path = output_dir / "results.jsonl"
     run_id = output_dir.parent.name
+    configuration_mismatch = False
     with results_path.open("w", encoding="utf-8") as results_file:
         for sequence, (trial, model) in enumerate(plan, start=1):
             started = time.perf_counter()
@@ -170,8 +198,7 @@ def main() -> int:
                     "command": manifest.get("command") or "",
                     "model": model,
                 }
-                if reasoning_specified:
-                    payload["disableReasoning"] = reasoning_disabled
+                payload["disableReasoning"] = reasoning_disabled
                 start_response = request_json(
                     "POST",
                     f"{base_url}/api/chat/modify-async",
@@ -225,10 +252,17 @@ def main() -> int:
                         "llmMs": output.get("llmDurationMs"),
                         "repairAttempts": output.get("repairAttempts"),
                         "reasoningDisabled": output.get("reasoningDisabled"),
+                        "reasoningConfigurationStatus": (
+                            "MATCH"
+                            if output.get("reasoningDisabled") == reasoning_disabled
+                            else "MISMATCH"
+                        ),
                         "candidatePath": str(candidate_path) if candidate else None,
                         "error": status.get("error"),
                     }
                 )
+                if record["reasoningConfigurationStatus"] == "MISMATCH":
+                    configuration_mismatch = True
             except Exception as error:  # noqa: BLE001 - preserve each trial failure
                 record.update(
                     {
@@ -252,7 +286,7 @@ def main() -> int:
                     ensure_ascii=False,
                 )
             )
-    return 0
+    return 1 if configuration_mismatch else 0
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
-# 方法与命令
+# L1/L2 Methodology and Commands
 
 ## Run manifest
 
-在 `/tmp/ai-repair-benchmark/<run-id>/manifest.json` 保存：
+Save the following to `/tmp/ai-repair-benchmark/<run-id>/manifest.json`:
 
 ```json
 {
@@ -12,11 +12,7 @@
   "languageKey": "LANG_MERMAID",
   "subTypeKey": "GENERAL",
   "command": "Please fix the reported error and change nothing else.",
-  "models": [
-    "openai/gpt-5.6-luna",
-    "deepseek/deepseek-v4-flash",
-    "google/gemini-2.5-flash"
-  ],
+  "models": ["openai/gpt-5.6-luna", "anthropic/claude-sonnet-5"],
   "requiredAnchors": [],
   "temperature": 0.2,
   "maxTokens": 10000,
@@ -24,13 +20,11 @@
 }
 ```
 
-不要把 DSL 内容复制进 manifest。报告使用文件 SHA-256、字符数和行数标识输入。
+Do not copy the DSL contents into the manifest. Record both repository HEADs, working-tree status, prompt hash, model parameters, trial count, and seed. Do not merge results produced with different prompt or code versions. For model-only comparisons, `temperature`, `maxTokens`, and `reasoningDisabled` may be omitted. For an unset `AI_DISABLE_REASONING`, the runner follows the default in Diagramly `ai-config.ts`: reasoning is enabled only when explicitly set to `false`; otherwise `reasoningDisabled: true`. **When validating the product AI Repair or AI Chat path, the derived L1/L2 manifest must explicitly include the same `reasoningDisabled` boolean used by L3/L4.** AI Repair reads `resolveRepairAIOptions` (currently defaults to `true`); AI Chat reads explicit overrides in the versioned worker and the provider defaults in `ai-config.ts` (currently defaults to `true`). Check L1/L2 model-call records, L3 requests and job output, and L4 UI requests and target-environment configuration. Results with mismatched settings cannot be compared across layers or counted as a full-path PASS. Keep effective parameters fixed within each comparison group.
 
-`temperature`、`maxTokens`、`reasoningDisabled` 都可省略：L1/L2 会继承 Diagramly `.env` 的 `AI_TEMPERATURE`、`AI_MAX_TOKENS`、`AI_DISABLE_REASONING`；L3/L4 不显式覆盖 reasoning。若 manifest 指定 `reasoningDisabled`，四层必须保持相同设置。
+## Generate the L2 prompt
 
-## 生成 L2 Prompt
-
-从 Diagramly checkout 运行，并加载与本地服务相同的 `.env`，使 `AI_PROMPT_CACHE` 行为一致：
+Run from the Diagramly checkout, loading the same `.env` as the local service:
 
 ```bash
 pnpm exec dotenv -c -- pnpm exec tsx --tsconfig scripts/tsconfig.json \
@@ -40,82 +34,52 @@ pnpm exec dotenv -c -- pnpm exec tsx --tsconfig scripts/tsconfig.json \
   --diagramly-path "$PWD"
 ```
 
-输出含 messages、prompt hash、Diagramly commit、Prompt/预处理 hook 源文件 hash和 cache-control 设置。L2 必须使用这个输出；Prompt 生成失败时不允许退回手写近似版本。
+The output includes the actual messages, prompt hash, Diagramly commit, hashes of prompt/preprocessing hook source files, and cache-control settings. If generation fails, do not fall back to a hand-written approximation of the prompt.
 
-## L1/L2 模型矩阵
+## One model call for one layer
 
-在 Diagramly checkout 中用 `.env` 注入 OpenRouter 配置，但不要打印变量值：
+First use the same command with `--dry-run` to check the plan. Run the following from the Diagramly checkout. The example calls Luna once; change `--model` and use a separate output directory to test other models. Score each call before making the next model request. A real call sends the full DSL to OpenRouter and does not print the key.
 
 ```bash
 pnpm exec dotenv -c -- uv run \
   ../conf-app/.claude/skills/ai-repair-benchmark/scripts/run_openrouter_matrix.py \
   --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
-  --mode raw \
-  --trials 3 \
-  --output-dir /tmp/ai-repair-benchmark/<run-id>/l1
+  --mode raw --model openai/gpt-5.6-luna --trials 1 \
+  --output-dir /tmp/ai-repair-benchmark/<run-id>/l1-luna
 
 pnpm exec dotenv -c -- uv run \
   ../conf-app/.claude/skills/ai-repair-benchmark/scripts/run_openrouter_matrix.py \
   --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
   --mode diagramly \
   --messages /tmp/ai-repair-benchmark/<run-id>/diagramly-messages.json \
-  --trials 3 \
-  --output-dir /tmp/ai-repair-benchmark/<run-id>/l2
+  --model openai/gpt-5.6-luna --trials 1 \
+  --output-dir /tmp/ai-repair-benchmark/<run-id>/l2-luna
 ```
 
-先用 `--dry-run` 检查路径、模型和计划。实际调用会发送完整 DSL 到 OpenRouter。
-
-若只修改了响应提取逻辑，用原命令加 `--reparse-only` 从保存的 `response-*.json` 离线重建候选；不得为解析器修正重复付费调用模型。
-
-runner 中断后用原命令加 `--resume`，按已存在的 record id 跳过完成项并追加剩余计划。中断中的请求需先写成 `INTERRUPTED` 记录，不能悄悄重跑并覆盖。
-
-## 验证候选
-
-L3 完成后一次验证 L1/L2/L3 的全部候选：
+Immediately after each command, run the scoring command below, pointing `--results` and `--output` to that call's directory:
 
 ```bash
 uv run .claude/skills/ai-repair-benchmark/scripts/score_candidates.py \
   --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
-  --results /tmp/ai-repair-benchmark/<run-id>/l1/results.jsonl \
-  --results /tmp/ai-repair-benchmark/<run-id>/l2/results.jsonl \
-  --results /tmp/ai-repair-benchmark/<run-id>/l3/results.jsonl \
+  --results /tmp/ai-repair-benchmark/<run-id>/l1-luna/results.jsonl \
   --diagramly-path ../diagramly.ai \
-  --output /tmp/ai-repair-benchmark/<run-id>/scored-l123.jsonl
+  --output /tmp/ai-repair-benchmark/<run-id>/l1-luna/scored.jsonl
 ```
 
-## 结果 schema
+`repairStatus: PASS` from the scoring script means only that its deterministic syntax check passed. Before aggregation, check actual rendering for the applicable language and inspect `missingRequiredAnchors`. The deterministic Node parser result for Mermaid does not replace Mermaid parse/render in a browser. Write the observed render result to `renderValid` in the trial record and preserve evidence in `evidencePaths`. If this field is missing, the aggregator marks the record `UNVERIFIED/SKIPPED`; do not call it a complete repair PASS.
 
-每次 trial 至少含：
+Allow only one model request per trial. Record network failures separately; do not silently retry in the client. If only response extraction logic needs repair, use `--reparse-only` to rebuild candidates offline from saved response JSON without another paid call. After an interruption, use `--resume`, retaining interruption records and not overwriting existing results. Record the actual provider, generation id, prompt/completion/reasoning/cache tokens, and cost provenance; report cache hits separately in raw latency analysis.
 
-```text
-runId, layer, model, trial, status, wallMs, llmMs, pollCount,
-promptTokens, completionTokens, reasoningTokens, cachedTokens, totalTokens,
-costUsd, costProvenance, generationId, provider,
-syntaxValid, renderValid, noOp, identifierRetention, changedLineRatio,
-qualityGrade, error, candidatePath, evidencePaths
-```
+## Aggregate
 
-原始模型回复可保存在 run 目录供排查。默认的本地/私有报告必须展示本次输入 DSL 全文，便于确认比较对象；包含客户 DSL 的报告不得进入公开仓库或公开分享。
-
-## 汇总
-
-把 L1/L2/L3 scored JSONL 和按 UI 证据整理的 L4 results.jsonl 一起传入：
+Pass the scored JSONL files from the L1/L2 runs; do not pass L3/L4 files:
 
 ```bash
 uv run .claude/skills/ai-repair-benchmark/scripts/summarize_benchmark.py \
   --manifest /tmp/ai-repair-benchmark/<run-id>/manifest.json \
-  --input /tmp/ai-repair-benchmark/<run-id>/scored-l123.jsonl \
-  --input /tmp/ai-repair-benchmark/<run-id>/l4/results.jsonl \
+  --input /tmp/ai-repair-benchmark/<run-id>/l1-luna/scored.jsonl \
+  --input /tmp/ai-repair-benchmark/<run-id>/l2-luna/scored.jsonl \
   --html /tmp/ai-repair-benchmark/<run-id>/report.html
 ```
 
-汇总阶段只交付这个自包含 HTML，不另外生成 Markdown 或 CSV。报告默认从 manifest 的 `dslPath` 读取并嵌入完整 DSL，同时显示类型、真实解析错误、行数、字符数和 SHA-256。只有用户明确要求生成公开/脱敏版本时才加 `--redact-dsl`；不得用脱敏报告替换用户要求的 full-code 报告。
-
-## 可比性规则
-
-- L1 与 L2 固定同一模型参数。`reasoningDisabled` 未指定时，L1/L2 继承 `AI_DISABLE_REASONING`，L3/L4 沿用应用默认；指定时四层使用同一值，并在 L4 证据中确认请求 payload。
-- 每个 trial 只允许一次模型请求，不在客户端偷偷重试。网络失败单独记录。
-- 模型顺序每轮打乱，避免把时间段抖动固定给同一个模型。
-- 缓存 token 和 provider 必须记录。缓存命中是实际系统表现，但在模型原始速度分析中单列。
-- Prompt 或代码 commit 不同的 run 不直接合并。
-- p95 在样本量小于 5 时仍可显示，但必须同时显示 n，不能据此下稳定性结论。
+Add each other model's scored file as another `--input`. Local/private reports show the full input DSL, diagram type, real error, line count, character count, and SHA-256 by default. Add `--redact-dsl` only when the user explicitly requests a public/redacted report. State n for each group; p95 does not indicate stable performance when n is small.

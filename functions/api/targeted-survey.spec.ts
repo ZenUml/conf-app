@@ -133,6 +133,23 @@ describe('targeted survey revision lease', () => {
     expect(await (await malformed.run('GET')).json()).toEqual({ survey: null });
   });
 
+  it('answers every status as JSON with Cache-Control: no-store', async () => {
+    const api = harness();
+    const ok = await api.run('GET');
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('cache-control')).toBe('no-store');
+    expect(ok.headers.get('content-type')).toBe('application/json');
+    const rejected = await api.run('POST', identity, null as any);
+    expect(rejected.status).toBe(400);
+    expect(rejected.headers.get('cache-control')).toBe('no-store');
+    expect(rejected.headers.get('content-type')).toBe('application/json');
+    const unavailable = harness();
+    unavailable.setDbUnavailable();
+    const failed = await unavailable.run('GET');
+    expect(failed.status).toBe(503);
+    expect(failed.headers.get('cache-control')).toBe('no-store');
+  });
+
   it('rejects malformed JSON objects without writing a response', async () => {
     const api = harness();
     expect((await api.run('POST', identity, null as any)).status).toBe(400);

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { aggregateRegression } from './regression-results.mjs';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,17 +47,53 @@ export function freshRegressionCoverage(run, jobs, sha, now) {
       && (job.run_attempt === undefined || Number(job.run_attempt) === Number(run.run_attempt));
   });
 }
+const execFileAsync = promisify(execFile);
+const ghAsync = async args => (await execFileAsync('gh', args, { encoding: 'utf8', timeout: 60000, maxBuffer: 20 * 1024 * 1024 })).stdout;
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 60000, maxBuffer: 20 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
-export async function fetchRuns(api, workflow, repo) {
-  const runs = [];
-  for (let page = 1; page <= 100; page++) {
-    const response = await api(`repos/${repo}/actions/workflows/${workflow}/runs?branch=main&per_page=100&page=${page}`);
+const PAGE_SIZE = 100, MAX_PAGES = 100, MAX_IN_FLIGHT = 6;
+// Page 1 reveals total_count; pages 2..N are then requested together (at most MAX_IN_FLIGHT at once) and joined in page order,
+// so callers see exactly the array the former one-page-at-a-time loop produced.
+//
+// GitHub caps a filtered listing: "This endpoint will return up to 1,000 results for each search when using the following
+// parameters: actor, branch, check_suite_id, created, event, head_sha, status."
+// (https://docs.github.com/en/rest/actions/workflow-runs, "List workflow runs for a workflow"). Unbounded, branch=main would
+// eventually exceed 1,000 runs and fail as an incomplete inventory, so only the last BASELINE_WINDOW_DAYS days are listed.
+// `gh api` passes the path verbatim, hence ">=" is sent percent-encoded.
+export const BASELINE_WINDOW_DAYS = 60;
+export async function fetchRuns(api, workflow, repo, { now = new Date() } = {}) {
+  const since = new Date(new Date(now).getTime() - BASELINE_WINDOW_DAYS * 86400000).toISOString().slice(0, 10);
+  const fetchPage = async page => {
+    const response = await api(`repos/${repo}/actions/workflows/${workflow}/runs?branch=main&created=%3E%3D${since}&per_page=${PAGE_SIZE}&page=${page}`);
     if (!Array.isArray(response.workflow_runs) || !Number.isInteger(response.total_count)) throw new Error('Invalid workflow run inventory');
-    runs.push(...response.workflow_runs);
-    if (runs.length >= response.total_count) return runs;
-    if (response.workflow_runs.length < 100) throw new Error('Incomplete workflow run inventory');
+    return response;
+  };
+  const first = await fetchPage(1);
+  const runs = [...first.workflow_runs];
+  if (runs.length >= first.total_count) return runs;
+  if (first.workflow_runs.length < PAGE_SIZE) throw new Error('Incomplete workflow run inventory');
+  const pageCount = Math.ceil(first.total_count / PAGE_SIZE);
+  if (pageCount > MAX_PAGES) throw new Error('Workflow run inventory exceeds safe pagination limit');
+  const rest = new Array(pageCount - 1);
+  // Runs deleted during the fetch lower total_count; the smallest value seen is the target, as the sequential loop's early return was.
+  let minTotal = first.total_count, next = 2, aborted = false;
+  const worker = async () => {
+    while (!aborted && next <= pageCount) {
+      const page = next++;
+      try {
+        const response = await fetchPage(page);
+        minTotal = Math.min(minTotal, response.total_count);
+        rest[page - 2] = response.workflow_runs;
+      } catch (error) { aborted = true; throw error; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(MAX_IN_FLIGHT, pageCount - 1) }, worker));
+  for (const pageRuns of rest) {
+    if (runs.length >= minTotal) return runs;
+    if (pageRuns.length < PAGE_SIZE && runs.length + pageRuns.length < minTotal) throw new Error('Incomplete workflow run inventory');
+    runs.push(...pageRuns);
   }
-  throw new Error('Workflow run inventory exceeds safe pagination limit');
+  if (runs.length < minTotal) throw new Error('Incomplete workflow run inventory');
+  return runs;
 }
 const ancestry = (base, head) => {
   if (!SHA.test(base) || !SHA.test(head)) throw new Error('Invalid ancestry SHA');
@@ -76,7 +113,7 @@ async function main() {
   const sourceSha = process.env.SOURCE_SHA;
   if (!SHA.test(sourceSha || '')) throw new Error('SOURCE_SHA must be a full commit SHA');
   const repo = process.env.GITHUB_REPOSITORY || 'ZenUml/conf-app';
-  const api = endpoint => JSON.parse(gh(['api', endpoint]));
+  const api = async endpoint => JSON.parse(await ghAsync(['api', endpoint]));
   let output;
   try {
     const runs = await fetchRuns(api, mode === '--baseline' ? 'build-test-deploy.yml' : 'daily-regression.yml', repo);

@@ -6,16 +6,20 @@ import type {
   MacroTypeValue,
   Surface,
   EntryPoint,
+  CreationOrigin,
   OperationMode,
   RenderMode,
   RenderGateMode,
   RenderGateOutcome,
   CacheState,
+  ContentState,
   CacheSource,
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
   DashboardFormatFilter,
+  DiagramLocationsLoadOutcome,
+  DiagramLocationsFilter,
   AgentLinkDisconnectReason,
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
@@ -25,10 +29,15 @@ import type {
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
   AgentLinkOAuthRevokeReason,
+  AgentLinkOAuthRoute,
+  AgentLinkOAuthAtlassianReason,
+  AgentLinkAppViewFailure,
   AgentLinkOAuthChainRevokeReason,
   AgentLinkOAuthTokenRefreshOutcome,
   AgentLinkPaywallGate,
   AgentLinkWriteResult,
+  AgentLinkMcpButtonPlacement,
+  AgentLinkMcpButtonReveal,
   AgentLinkMcpCopyTarget,
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
@@ -113,12 +122,25 @@ export type AnalyticsProperties = {
   magic_layout_preference?: 'magic' | 'original' | 'no_preference';
   // Diagram viewport pan/zoom. This is the user's explicit control intent, not
   // every intermediate wheel, drag, or pinch callback.
-  viewport_action?: "zoom_in" | "zoom_out";
+  viewport_action?: "zoom_in" | "zoom_out" | "fit_height" | "fit_width";
+  /** Header relocation is distinct from the existing floating editor toolbar. */
+  viewport_control_location?: "header" | "canvas";
+  /** Fit/zoom was applied by a ready renderer; disabled controls emit nothing. */
+  viewport_outcome?: "applied";
   // Which control the reader used to zoom. `wheel` is one whole Ctrl/Cmd +
   // scroll gesture, not one per step, so a wheel zoom and a button click cost
   // the same one event and the two are directly comparable.
   viewport_input?: "toolbar" | "wheel";
   entry_point?: EntryPoint;
+  // Create funnel only (macro_create_started / macro_create_succeeded /
+  // macro_create_cancelled). `creation_origin` names the surface that started
+  // the create (see CreationOrigin). `creation_flow_id` is generated once per
+  // editor iframe, the first time a create event is emitted, and shared by that
+  // iframe's start, success and cancel events; it is the join key for one
+  // creation. It is not `macro_uuid` (absent for a byline create: there is no
+  // macro yet) and not `journey_id` (only on macro_authoring_ended).
+  creation_origin?: CreationOrigin;
+  creation_flow_id?: string;
   confluence_space?: string;
   macro_uuid?: string;
   // Lifecycle
@@ -150,6 +172,15 @@ export type AnalyticsProperties = {
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
+  // Milliseconds from the first retained track call to Mixpanel init completion.
+  // Registered once per iframe as a super-property (#707).
+  analytics_init_ms?: number;
+  // analytics_init_degraded (#707): the Forge moduleKey of the iframe whose
+  // Mixpanel init degraded, the closed-vocabulary `reason` (shared `reason`
+  // field below; today only 'session_replay_config_timeout') and the timeout
+  // that elapsed, in ms.
+  module_key?: string;
+  timeout_ms?: number;
   // Format slice chosen on the dual-format "My API Documents" dashboard
   // (dashboard_format_filtered). "all" = both AsyncAPI and OpenAPI shown.
   format_filter?: DashboardFormatFilter;
@@ -160,6 +191,12 @@ export type AnalyticsProperties = {
   // AI Chat failure events use only closed-vocabulary categories here. Never
   // attach the raw backend error, prompt, diagram code, or job id.
   failure_reason?: string;
+  /** PNG export lifecycle stored in a Confluence page content property. */
+  png_export_state?: 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready' | 'missing';
+  /** Bounded reason for a rendered export text placeholder. */
+  png_export_placeholder_reason?: 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'missing';
+  /** Property operation whose failure did not interrupt saving or export. */
+  png_export_property_operation?: 'read' | 'create' | 'update';
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
   // _failed), plus the benign ordinary-chat ai_chat_no_change outcome.
   // `duration_ms` below is click-to-visible-result wall time;
@@ -540,6 +577,15 @@ export type AnalyticsProperties = {
   // ('page_read_failed', 'page_write_failed'). Absent for the others, which
   // never made a request that returned one.
   http_status?: number;
+  // Diagram locations (Plan and usage, plan_usage_locations_*). Counts and
+  // outcomes only: no page ids, page titles, search text or space keys, which
+  // are customer content. `page_index` counts fetched batches from 0.
+  load_outcome?: DiagramLocationsLoadOutcome;
+  locations_filter?: DiagramLocationsFilter;
+  listed_count?: number;
+  hidden_count?: number;
+  has_more?: boolean;
+  page_index?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser
@@ -683,7 +729,8 @@ export type AnalyticsProperties = {
   // (mermaid_highlight_preference_changed only).
   action_location?: 'header_more_menu' | 'fullscreen_header' | 'canvas_hint';
   // viewer_more_menu_opened: the inline header's collapse stage when the More
-  // menu opened. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
+  // menu opened, and agent_link_mcp_button_shown: the stage when the button
+  // was shown. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
   // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.
   header_stage?: 0 | 1 | 2 | 3;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
@@ -754,6 +801,8 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
+  // #113: body classification at render time (default starter / authored / empty). Wipe detection.
+  content_state?: ContentState;
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.
@@ -779,10 +828,52 @@ export type AnalyticsProperties = {
   // User-perceived publish latency, in ms: the interval from the Publish/Save
   // click (save-handler entry, synchronous with the click) to the editor's
   // redirect (view.submit() / view.close()). Rides on macro_publish_completed.
-  // Superset of save_duration_ms — additionally covers the ~500ms pre-submit
-  // delay, the save-time attachment race, and the macro-config writeback. See
-  // utils/analytics/publishTiming.ts.
+  // Superset of save_duration_ms — additionally covers the post-save work
+  // (snapshot upload, D1 mirror sync, save-time attachment race, writeback
+  // context lookup). Only the graph, openapi and embed editors still add a
+  // fixed 500 ms setTimeout before the redirect; the sequence family
+  // (forgeIndex.ts) and asyncapi do not. See utils/analytics/publishTiming.ts.
   publish_duration_ms?: number;
+  // Per-step breakdown of publish_duration_ms (macro_publish_completed only).
+  // Each is the wall time of ONE awaited step on the close path, in ms. A step
+  // that did not run in this publish is ABSENT, never 0 — a missing key means
+  // "skipped", a 0 means "ran and was instant". snapshot_ms, mirror_sync_ms,
+  // attachment_ack_ms and writeback_context_ms run one after another and never
+  // overlap; attachment_capture_ms is a slice INSIDE attachment_ack_ms. They do
+  // not sum to publish_duration_ms: save_duration_ms (above) and untimed glue
+  // make up the remainder.
+  //   snapshot_ms           — diagram-source snapshot upload after the save
+  //                           (Persistence.ts): the page-id lookup plus the
+  //                           upload, also when the upload fails. Absent when
+  //                           no upload was attempted (no snapshot built, or no
+  //                           page id).
+  //   mirror_sync_ms        — the awaited D1 mirror sync (syncCustomContent)
+  //                           that ends saveToPlatform (Persistence.ts).
+  //   attachment_capture_ms — save-time PNG backup: time spent producing the
+  //                           PNG (DOM capture plus source-metadata injection;
+  //                           model/Attachment.ts). Absent when no PNG was
+  //                           produced. Sequence family only.
+  //   attachment_ack_ms     — save-time PNG backup: race entry until the race
+  //                           settled — the existing-attachment lookup, the
+  //                           capture above, the backend ack, an error, or the
+  //                           6000 ms cap. attachment_ack_ms minus
+  //                           attachment_capture_ms is therefore lookup + ack.
+  //                           Sequence family only (forgeIndex.ts).
+  //   attachment_timed_out  — true when the 6000 ms cap won that race; false
+  //                           when the backup settled first (success or error).
+  //   writeback_context_ms  — the isInserting()/isConfiguring() awaits that
+  //                           run before the redirect (forgeIndex.ts). Named
+  //                           writeback_context_ms, NOT context_ms: renderPerf
+  //                           already emits `context_ms` (getContext() latency)
+  //                           on macro_viewed, and save-latency and
+  //                           render-latency never share a property name (see
+  //                           save_duration_ms above).
+  snapshot_ms?: number;
+  mirror_sync_ms?: number;
+  attachment_capture_ms?: number;
+  attachment_ack_ms?: number;
+  attachment_timed_out?: boolean;
+  writeback_context_ms?: number;
   // P1.3 fetch split (children of fetch_ms — NOT part of measured_sum_ms):
   // custom-content GET vs full-page-ADF copy-scan. See renderPerf.ts.
   custom_content_fetch_ms?: number;
@@ -807,6 +898,14 @@ export type AnalyticsProperties = {
   // duration_ms includes exactly this much gate-induced delay — subtracting
   // it (or splitting by render_gate) is legitimate.
   render_deferred_ms?: number;
+  // Hidden-Mermaid wait (#706). `layout_wait_ms` (on macro_viewed): wall time the
+  // viewer waited for a measurable SVG text layout after mermaid.render() threw
+  // `svg element not in render tree`; absent when no wait happened. Unlike
+  // render_deferred_ms it is not gate-induced, but duration_ms includes it, so
+  // subtract it (or exclude present values) in percentile work. `waited_ms` (on
+  // viewer_render_deferred / viewer_render_abandoned): the wait so far / in total.
+  layout_wait_ms?: number;
+  waited_ms?: number;
   // Strict (no-margin) top-level-viewport intersection at first observation.
   // The direct client-side measure of "was this macro on screen at boot".
   visible_at_boot?: boolean;
@@ -840,6 +939,8 @@ export type AnalyticsProperties = {
     | AgentLinkSessionSuspendReason
     | AgentLinkIdentityFailure
     | AgentLinkOAuthRevokeReason
+    | AgentLinkAppViewFailure
+    | AgentLinkOAuthAtlassianReason
     | AgentLinkOAuthChainRevokeReason;
   session_duration_ms?: number;
   edits_count?: number;
@@ -898,6 +999,10 @@ export type AnalyticsProperties = {
   // (agent_link_oauth_revoked) or an AgentLinkOAuthChainRevokeReason
   // (agent_link_oauth_chain_revoked).
   site_count?: number;
+  // Where an MCP /authorize was routed (agent_link_oauth_authorize_routed).
+  // When it is 'atlassian', the shared `reason` field carries an
+  // AgentLinkOAuthAtlassianReason.
+  oauth_route?: AgentLinkOAuthRoute;
   // The MCP authorization server's own refresh endpoint, separate from the
   // upstream Atlassian grant refresh. One terminal event per inbound request.
   oauth_refresh_outcome?: AgentLinkOAuthTokenRefreshOutcome;
@@ -908,21 +1013,34 @@ export type AnalyticsProperties = {
   // `paywall_gate` is which branch of the §9.1 Lite gate decided a create,
   // including 'count_unknown' for its fail-open path; `guardrail_rejected`
   // marks an update the write guard refused (parse error or data loss) rather
-  // than one that reached Confluence.
+  // than one that reached Confluence. The target site rides the shared
+  // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // agent_link_diagram_updated only: true when the call renamed the diagram
+  // (a non-blank `title` that differs from the stored one, #789).
+  title_changed?: boolean;
   // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
   // dialog connects the agent (headless only, for now); `mcp_copy_target` says
   // which block a Copy click targeted. The copy outcome rides the shared
   // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
   mcp_mode?: AgentLinkMcpMode;
   mcp_copy_target?: AgentLinkMcpCopyTarget;
+  // agent_link_mcp_button_shown (and `mcp_button_reveal` on _dialog_opened):
+  // where the button sat and whether it was visible at rest. Inline shown
+  // events also carry `header_stage`.
+  mcp_button_placement?: AgentLinkMcpButtonPlacement;
+  mcp_button_reveal?: AgentLinkMcpButtonReveal;
   // AA — headless MCP tool usage (agent_link_mcp_tool_called /
   // _initialized). `mcp_tool` is the tool name from the server's own list
   // ('unknown' for anything else); `mcp_tool_outcome` is how the call ended;
   // latency rides `duration_ms`; the target site rides `cloud_id` (only when
   // the argument is UUID-shaped — anything else is client free text). `mcp_client_name` / `mcp_client_version` are
-  // the client's MCP `clientInfo`, trimmed to 64 chars.
+  // the client's MCP `clientInfo`, trimmed to 64 chars. On a successful
+  // read_diagram / create_diagram the diagram's type rides the shared
+  // `macro_type` (closed vocabulary; omitted when unknown, and always on
+  // update_diagram, whose result carries no type), so MCP Apps view usage can
+  // be split by type.
   mcp_tool?: string;
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;
   mcp_client_name?: string;
@@ -985,6 +1103,16 @@ export type AnalyticsProperties = {
   // (401/403) that triggered the fallback.
   via_app_fallback?: boolean;
   fallback_from_status?: number;
+  // `attachment_upload_succeeded` only: the create POST 400'd with v1's "Cannot
+  // add a new attachment with same file name" (the v2 existence gate missed an
+  // attachment v1 already holds — visibility lag or a concurrent upload from
+  // another iframe, #75) and the upload then landed as a new version. Absent on
+  // every ordinary create/update.
+  recovered_from?: 'same_name_400';
+  // `attachment_upload_succeeded` with `recovered_from: 'same_name_400'` only:
+  // the v1 re-read showed another writer had already stored this upload's
+  // metaKey (racing iframes), so no new version was POSTed.
+  skipped_duplicate?: boolean;
   // Low-cardinality Confluence exception class parsed out of the error
   // envelope — PermissionException / NotFoundException / BadRequestException.
   // The raw `error_message` is capped at 200 chars and the envelope prefix
@@ -1001,6 +1129,45 @@ export type AnalyticsProperties = {
   // field, which is the ambiguity #398 was filed about and the reason #435
   // chose `macro_type: 'none'` over omission.
   confluence_error_class?: string;
+  // attachment_upload_failed, only when `forgeRequest` threw ForgeRequestError:
+  // a non-JSON body (an HTML error/login page instead of JSON) or, for callers
+  // that opt in, a JSON body with a non-2xx status (e.g. the properties PUT).
+  // `failed_request` is the templated call that got it, e.g.
+  // `GET /wiki/api/v2/pages/{id}/attachments` vs the properties PUT;
+  // `response_content_type` / `response_title` say what the page was ('none'
+  // when absent). The status itself rides on `http_status`.
+  failed_request?: string;
+  response_content_type?: string;
+  response_title?: string;
+  // attachment_upload_rate_limited / attachment_upload_deferred. The cooldown
+  // after a 429 comes from the response's Retry-After header when the bridge
+  // passes one through ('header', with `retry_after_s`), else a fixed default
+  // ('default'); `cooldown_ms` is what was applied after clamping.
+  // `cooldown_remaining_ms` is how long a skipped view still had to wait.
+  retry_after_source?: 'header' | 'default';
+  retry_after_s?: number;
+  cooldown_ms?: number;
+  cooldown_remaining_ms?: number;
+  // load_custom_content_v2_missing: why the custom content could not be
+  // loaded. `load_status` is 'not_found' only for an all-404 NOT_FOUND
+  // envelope (the case that triggers recovery), else 'other_error';
+  // `error_class` is 'structured' for a Confluence `{ errors: [...] }` body
+  // and 'malformed' for a body with no `body.raw.value`. `http_status` /
+  // `error_code` come from the first structured error.
+  load_status?: 'not_found' | 'other_error';
+  error_class?: 'structured' | 'malformed';
+  // customcontent_orphan_observed: the by-id GET (the "direct fetch") that ran
+  // before any probe. Without these, `recoverable: 'probe_skipped_no_probe_result'`
+  // could not say whether the fetch hit a 403, a 5xx, a thrown request or a
+  // malformed body — they all collapsed to "no probe result" (#148).
+  // `direct_fetch_status` mirrors fetchCustomContentByIdV2WithStatus;
+  // `direct_fetch_http_status` / `direct_fetch_error_code` come from the first
+  // structured Confluence error (absent for thrown/malformed);
+  // `direct_fetch_error_class` is 'thrown' | 'structured' | 'malformed'.
+  direct_fetch_status?: 'ok' | 'not_found' | 'other_error';
+  direct_fetch_http_status?: number;
+  direct_fetch_error_code?: string;
+  direct_fetch_error_class?: 'thrown' | 'structured' | 'malformed';
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

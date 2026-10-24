@@ -58,13 +58,13 @@ export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
       {
         id: 'connect-mcp',
         title: 'Connect MCP',
-        body: 'Select the new Connect MCP button (the sparkles icon) on a sequence, Mermaid or PlantUML diagram, on the page or in fullscreen, to add the ZenUML MCP server to Claude Code, Codex, Cursor or another MCP client. You sign in with Atlassian once, and the agent acts as you.',
+        body: 'Select the new Connect MCP button (the MCP icon) on a sequence, Mermaid or PlantUML diagram, on the page or in fullscreen, to add the ZenUML MCP server to Claude Code, Codex, Cursor or another MCP client. You sign in with Atlassian once, and the agent acts as you.',
         url: 'https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/mcp-server/',
       },
       {
         id: 'mcp-read-edit',
         title: 'Your agent reads and edits diagrams',
-        body: 'The agent can find, read, create and update diagrams and pages without a browser tab. Each edit publishes a new version, so page history can revert it.',
+        body: 'The agent can find, read, create and update diagrams and pages without a browser tab. A page edit publishes a new page version that page history can revert. A diagram edit saves a new version of the diagram, so to undo one, ask your agent to put the previous source back.',
       },
     ],
   },

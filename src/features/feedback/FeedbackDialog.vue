@@ -33,6 +33,7 @@
 
     <form v-else class="feedback-form" @submit.prevent="send">
       <div class="feedback-body">
+        <p v-if="context.surface === 'viewer'" id="feedback-recipient-note" class="recipient-note" data-testid="feedback-recipient-note">This goes to the ZenUML team, not the page author.</p>
         <div class="writing-surface">
           <label class="sr-only" for="feedback-description">Describe your feedback</label>
           <textarea
@@ -42,6 +43,7 @@
             rows="10"
             maxlength="10000"
             placeholder="What would you like us to know?"
+            :aria-describedby="context.surface === 'viewer' ? 'feedback-recipient-note' : undefined"
             autofocus
             @keydown.enter="onTextareaEnter"
           />
@@ -282,6 +284,7 @@ function startHandoffCountdown() {
 .icon-button:hover { background: #f3f4f6; color: #374151; }.icon-button:focus-visible { outline: 0; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #2563eb; }.icon-button svg { width: 16px; height: 16px; }
 .feedback-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .feedback-body { padding: 20px; display: flex; flex-direction: column; gap: 18px; flex: 1; min-height: 0; overflow-y: auto; }
+.recipient-note { margin: 0 0 -8px; color: #6b778c; font-size: 12px; }
 .writing-surface { flex: 0 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; transition: border-color 200ms ease; }
 textarea { display: block; width: 100%; height: 238px; resize: none; box-sizing: border-box; border: 0; border-radius: 7px; padding: 14px 16px; background: transparent; font: 400 14px/19.6px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: inherit; white-space: pre-wrap; }
 .writing-surface:focus-within { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }

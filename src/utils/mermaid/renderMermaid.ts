@@ -11,7 +11,7 @@ export interface MermaidFlowchartModel {
   type: string;
   nodes: { id: string; domId: string }[];
   edges: { id: string; source: string; target: string }[];
-  groups: { id: string }[];
+  groups: { id: string; nodes: string[] }[];
 }
 
 // Mermaid owns shared parser/renderer state and inserts a temporary `d${id}`

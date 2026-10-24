@@ -136,6 +136,26 @@ describe('addToPage — placing a diagram without the four-step detour', () => {
       expect(adf.content[1].attrs.parameters.guestParams.customContentId).toBe(DIAGRAM.id)
     })
 
+    // The AsyncAPI macro is mapped explicitly, not through SEQUENCE_MACRO_KEY,
+    // which the asyncapi Vite build does not set.
+    it('places an AsyncAPI diagram as the AsyncAPI macro, suffixed per variant', async () => {
+      const ASYNC = { id: '42', diagramType: DiagramType.AsyncApi }
+      const keyWritten = async () => {
+        requestConfluence.mockReset()
+        requestConfluence.mockResolvedValueOnce(pageWith([], 3)).mockResolvedValueOnce(res(200, {}))
+        expect(await addDiagramToPage('page-1', ASYNC)).toMatchObject({ result: 'added' })
+        return JSON.parse(JSON.parse(put()![1].body).body.value).content[0].attrs.extensionKey
+      }
+      try {
+        vi.stubEnv('PRODUCT_TYPE', 'asyncapi')
+        expect(await keyWritten()).toBe(`${APP}/${ENV}/static/zenuml-asyncapi-macro`)
+        vi.stubEnv('PRODUCT_TYPE', 'lite')
+        expect(await keyWritten()).toBe(`${APP}/${ENV}/static/zenuml-asyncapi-macro-lite`)
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
     it('writes nothing when the page already renders the diagram', async () => {
       requestConfluence.mockResolvedValueOnce(pageWith([macroNode(DIAGRAM.id)]))
 

@@ -120,5 +120,62 @@ class UnknownApp(unittest.TestCase):
         self.assertIn("nope", err.getvalue())
 
 
+class RadarGracePeriod(unittest.TestCase):
+    """Regression (2026-10-17): an annual Diagramly renewal whose paid coverage ended 10-15
+    showed in MISSED as "2 days late, $911 at risk", but its license was active, inGracePeriod=Yes,
+    maintenanceEndDate 11-14. A license in grace has not missed anything yet; it belongs in its
+    own IN GRACE section with the grace deadline, kept out of the MISSED total."""
+    ASOF = "2026-10-17"
+
+    def lic(self, cid, grace, mend, status="active"):
+        return {"cloudId": cid, "addonKey": DIA, "cloudSiteHostname": f"{cid}.atlassian.net",
+                "inGracePeriod": grace, "maintenanceEndDate": mend, "status": status,
+                "tier": "300 Users", "appEntitlementNumber": f"E-{cid}"}
+
+    def tx(self, cid, mend, amt):
+        return {"cloudId": cid, "addonKey": DIA, "customerDetails": {"company": cid},
+                "purchaseDetails": {"vendorAmount": amt, "saleDate": "2025-10-31",
+                                    "billingPeriod": "Annual", "maintenanceEndDate": mend,
+                                    "tier": "300 Users"}}
+
+    def run_radar(self, lics, txs):
+        data = {"licenses": lics, "sales/transactions": txs}
+        orig = mp_report.export
+        mp_report.export = lambda kind, *_, **__: data[kind]
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                mp_report.cmd_radar(argparse.Namespace(asof=self.ASOF, days=7, json=True), None)
+        finally:
+            mp_report.export = orig
+        import json
+        return json.loads(out.getvalue())
+
+    def test_grace_license_goes_to_in_grace_not_missed(self):
+        r = self.run_radar([self.lic("gracey", "Yes", "2026-11-14")],
+                           [self.tx("gracey", "2026-10-15", 911.33)])
+        self.assertEqual(r["missed"]["count"], 0)
+        self.assertEqual(r["missed"]["total"], 0)
+        self.assertEqual(r["in_grace"]["count"], 1)
+        self.assertEqual(r["in_grace"]["total"], 911.33)
+        row = r["in_grace"]["rows"][0]
+        self.assertEqual(row["paid_thru"], "2026-10-15")
+        self.assertEqual(row["grace_until"], "2026-11-14")
+        self.assertEqual(row["days_left"], 28)
+
+    def test_grace_older_than_window_still_listed(self):
+        # paid coverage ended 20 days ago, grace still open: the renewal is still pending
+        r = self.run_radar([self.lic("old", "Yes", "2026-10-27")],
+                           [self.tx("old", "2026-09-27", 100.0)])
+        self.assertEqual(r["in_grace"]["count"], 1)
+        self.assertEqual(r["missed"]["count"], 0)
+
+    def test_lapsed_without_grace_stays_missed(self):
+        r = self.run_radar([self.lic("gone", "No", "2026-10-15")],
+                           [self.tx("gone", "2026-10-15", 43.5)])
+        self.assertEqual(r["missed"]["count"], 1)
+        self.assertEqual(r["in_grace"]["count"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

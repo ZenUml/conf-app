@@ -66,9 +66,10 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Runs beside `parent`, not after it: it only reads the producer runs and
+  # their provenance artifacts, and every draft still needs both jobs to succeed.
   provenance:
     name: Resolve variant draft eligibility
-    needs: parent
     runs-on: ubuntu-latest
     outputs:
       lite: ${{ steps.eligibility.outputs.lite }}
@@ -135,7 +136,7 @@ jobs:
 
   draft-release-lite:
     name: "Draft: Lite"
-    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.outputs.lite == 'true' }}
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.result == 'success' && needs.provenance.outputs.lite == 'true' }}
     needs: [parent, provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -144,12 +145,8 @@ jobs:
       contents: write
       pull-requests: write
       repository-projects: write
+    # No checkout: the draft needs only the downloaded bundle, and `commit:` pins the tag.
     steps:
-      - name: Fetch Sources
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source-sha }}
-
       - name: Export Properties
         id: properties
         shell: bash
@@ -182,7 +179,7 @@ jobs:
 
   draft-release-full:
     name: "Draft: Full"
-    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.result == 'success' && needs.provenance.outputs.full == 'true' }}
     needs: [parent, provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -191,12 +188,8 @@ jobs:
       contents: write
       pull-requests: write
       repository-projects: write
+    # No checkout: the draft needs only the downloaded bundle, and `commit:` pins the tag.
     steps:
-      - name: Fetch Sources
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source-sha }}
-
       - name: Export Properties
         id: properties
         shell: bash
@@ -227,7 +220,7 @@ jobs:
 
   draft-release-diagramly:
     name: "Draft: Diagramly"
-    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.outputs.diagramly == 'true' }}
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.result == 'success' && needs.provenance.outputs.diagramly == 'true' }}
     needs: [parent, provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -236,12 +229,8 @@ jobs:
       contents: write
       pull-requests: write
       repository-projects: write
+    # No checkout: the draft needs only the downloaded bundle, and `commit:` pins the tag.
     steps:
-      - name: Fetch Sources
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source-sha }}
-
       - name: Export Properties
         id: properties
         shell: bash
@@ -272,7 +261,7 @@ jobs:
 
   draft-release-asyncapi:
     name: "Draft: AsyncAPI"
-    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.outputs.asyncapi == 'true' }}
+    if: ${{ !cancelled() && needs.parent.result == 'success' && needs.parent.outputs.gate-allowed == 'true' && needs.provenance.result == 'success' && needs.provenance.outputs.asyncapi == 'true' }}
     needs: [parent, provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -281,12 +270,8 @@ jobs:
       contents: write
       pull-requests: write
       repository-projects: write
+    # No checkout: the draft needs only the downloaded bundle, and `commit:` pins the tag.
     steps:
-      - name: Fetch Sources
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source-sha }}
-
       - name: Export Properties
         id: properties
         shell: bash

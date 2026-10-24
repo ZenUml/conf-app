@@ -34,7 +34,7 @@ jobs:
       - name: Unit tests
         run: |
           python3 -m unittest discover -s .claude/skills/error-radar/scripts -p 'test_*.py'
-          node --test .claude/skills/error-radar/scripts/signature.test.js
+          node --test .claude/skills/error-radar/scripts/signature_test.js
       # The username is not sensitive and may be a repository secret or a
       # variable. The service-account secret and the webhook must be
       # secrets: GitHub prints variables verbatim in the step's env block,

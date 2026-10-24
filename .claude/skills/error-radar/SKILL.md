@@ -58,7 +58,7 @@ on 10-19. Re-run the backtest after changing a constant:
 S=.claude/skills/error-radar/scripts
 python3 $S/radar.py --backtest 2026-09-20 2026-10-19 --save-data /tmp/radar.json   # queries Mixpanel once
 python3 $S/radar.py --input /tmp/radar.json --backtest 2026-09-20 2026-10-19        # offline re-runs
-python3 -m unittest discover -s $S -p 'test_*.py' && node --test $S/signature.test.js
+python3 -m unittest discover -s $S -p 'test_*.py' && node --test $S/signature_test.js
 ```
 
 ## Running it

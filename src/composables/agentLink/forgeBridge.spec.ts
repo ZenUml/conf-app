@@ -35,6 +35,7 @@ vi.mock('@/model/page/AtlasPage', () => ({
   AtlasPage: vi.fn().mockImplementation(() => ({
     getPageId: vi.fn().mockResolvedValue(PAGE_ID),
     countMacros: vi.fn().mockResolvedValue(1),
+    countMacrosOrUnknown: vi.fn().mockResolvedValue(1),
   })),
 }))
 

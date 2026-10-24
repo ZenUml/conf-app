@@ -38,6 +38,20 @@ describe('ViewSourcePanel', () => {
     expect(wrapper.find('[data-testid="view-source-meta"]').text()).toBe('1 line · read-only')
   })
 
+  it('does not use fullscreen sizing by default', () => {
+    const wrapper = mount(ViewSourcePanel, {
+      props: { visible: true, source: 'x', dslLabel: 'ZenUML' },
+    })
+    expect(wrapper.find('[data-testid="view-source-panel"]').classes()).not.toContain('view-source-panel--fullscreen')
+  })
+
+  it('applies fullscreen sizing class when fullscreen prop is true', () => {
+    const wrapper = mount(ViewSourcePanel, {
+      props: { visible: true, source: 'x', dslLabel: 'ZenUML', fullscreen: true },
+    })
+    expect(wrapper.find('[data-testid="view-source-panel"]').classes()).toContain('view-source-panel--fullscreen')
+  })
+
   it('emits close when the X button is clicked', async () => {
     const wrapper = mount(ViewSourcePanel, {
       props: { visible: true, source: 'x', dslLabel: 'PlantUML' },

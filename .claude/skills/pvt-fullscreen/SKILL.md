@@ -27,8 +27,8 @@ Space/parent for creating scratch pages: **ZEN** / parent **`247136259`** (`Test
 
 ## Prerequisites
 
-- Logged into production Confluence in the browser session (Playwright MCP or headed runner).
-- **Forge iframe only:** interact via `page.locator('[data-testid="hosted-resources-iframe"]').contentFrame()` or frame walk — see `CLAUDE.md` / `smoke-test` skill.
+- Logged into production Confluence in the browser session (agent-browser, Playwright MCP fallback, or headed runner).
+- **Forge iframe only:** interact via agent-browser `frame @ref` / `frame --url`, then `eval` / `click` (Playwright fallback: `page.locator('[data-testid="hosted-resources-iframe"]').contentFrame()` or frame walk) — see `CLAUDE.md` / `smoke-test` skill.
 - A **published** page that already contains a diagram macro for the target variant (sequence or mermaid is fine). Alternatively create one page via `/smoke-test on zenuml <variant> mermaid` first.
 
 ## Confluence page title (when creating a scratch page)

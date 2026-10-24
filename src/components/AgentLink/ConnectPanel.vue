@@ -203,10 +203,8 @@ import AgentStatusHeader from './AgentStatusHeader.vue'
 import SessionTtl from './SessionTtl.vue'
 import RailActions from './RailActions.vue'
 import SessionNotice from './SessionNotice.vue'
+import { buildConnectPrompt, mcpAddCommand } from '@/composables/agentLink/connectInstructions'
 
-// The MCP command from the design doc (§9 / relay host decision §14.3 —
-// zenapi.zenuml.com to avoid a new egress host / re-consent).
-const MCP_ADD_COMMAND = 'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
 
 const props = withDefaults(
   defineProps<{
@@ -263,20 +261,13 @@ const SetupInstructions = defineComponent({
         h(
           'pre',
           { class: 'agent-link-panel__command', 'data-testid': 'agent-link-setup-command' },
-          MCP_ADD_COMMAND
+          mcpAddCommand()
         ),
       ])
   },
 })
 
-const promptText = computed(() => {
-  const sessionToken = props.token ?? ''
-  return [
-    'Connect to my ZenUML diagram via the conf-agent MCP.',
-    `session: ${sessionToken}`,
-    '# reads this page · edits this diagram · 10 min idle / 60 min max',
-  ].join('\n')
-})
+const promptText = computed(() => buildConnectPrompt(props.token))
 
 type CopyState = 'default' | 'copied' | 'failed'
 const copyState = ref<CopyState>('default')
@@ -335,13 +326,15 @@ interface FeedRow {
   icon: string
 }
 
-function classifyRow(entry: AgentLinkActivityEntry): FeedRow {
+function classifyRow(entry: AgentLinkActivityEntry, isCurrentWork: boolean): FeedRow {
   const s = entry.summary
   if (s.startsWith('⚠')) return { ...entry, kind: 'normal', tone: 'err', icon: ICONS.error }
   if (s === 'Connection paused') return { ...entry, kind: 'normal', tone: 'warn', icon: ICONS.pause }
   if (s.startsWith('Reconnected')) return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.resume }
-  // In-flight "updating" cue (ends with an ellipsis) → spinning work icon.
-  if (s.includes('updating') || s.endsWith('…')) {
+  // A working icon represents the current task only. The feed deliberately
+  // retains prior "updating" rows as history, so inferring animation from the
+  // row text alone leaves a spinner running after the task has settled.
+  if (isCurrentWork && (s.includes('updating') || s.endsWith('…'))) {
     return { ...entry, kind: 'inflight', tone: 'work', icon: ICONS.spin }
   }
   // Track U discovery rows (read/search/list — composable's readDiagramFeedSummary/
@@ -352,7 +345,11 @@ function classifyRow(entry: AgentLinkActivityEntry): FeedRow {
   return { ...entry, kind: 'normal', tone: 'ok', icon: ICONS.check }
 }
 
-const feedRows = computed<FeedRow[]>(() => props.activityFeed.map(classifyRow))
+const feedRows = computed<FeedRow[]>(() =>
+  props.activityFeed.map((entry, index) =>
+    classifyRow(entry, props.thinking === 'thinking' && index === props.activityFeed.length - 1)
+  )
+)
 
 // --- Thinking elapsed hint ("· 6s" after a few seconds) ----------------------
 const ELAPSED_HINT_AFTER_SECONDS = 3

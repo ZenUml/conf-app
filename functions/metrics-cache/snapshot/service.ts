@@ -1,3 +1,4 @@
+import { json } from '../../OkResponse';
 import {
   CLAIM_STALE_MS,
   COUNT_FIELDS,
@@ -7,9 +8,12 @@ import {
   assertCounts,
   authenticateMetricsRequest,
   claimKey,
+  countBucket,
+  countsEqual,
+  normalizeCounts,
   errorResponse,
   isSnapshotEnrolled,
-  jsonResponse,
+  NO_STORE_HEADERS,
   latestPointerKey,
   metricsKvKey,
   readJsonObject,
@@ -179,7 +183,7 @@ function scheduleAnalytics(
   events: Parameters<typeof mixpanelImportServiceEvents>[0],
 ): void {
   if (!env.MIXPANEL_TOKEN || events.length === 0) return;
-  const delivery = mixpanelImportServiceEvents(events, env.MIXPANEL_TOKEN).catch((error) => {
+  const delivery = mixpanelImportServiceEvents(events, env.MIXPANEL_TOKEN, { runtime: env }).catch((error) => {
     console.warn('[macro-count:snapshot] Mixpanel delivery failed', {
       reason: error instanceof Error ? error.name : 'unknown_error',
       eventCount: events.length,
@@ -197,13 +201,16 @@ function emptyCounts(): MacroCounts {
     openapi: 0,
     mermaid: 0,
     plantuml: 0,
+    asyncapi: 0,
     unknown: 0,
   };
 }
 
 function addCounts(target: MacroCounts, source: MacroCounts): void {
   target.total += source.total;
-  for (const field of COUNT_FIELDS) target[field] += source[field];
+  // countBucket, not source[field]: a client predating a bucket omits it, and
+  // `+= undefined` would poison the whole aggregate with NaN.
+  for (const field of COUNT_FIELDS) target[field] += countBucket(source, field);
 }
 
 function indexSuffix(index: number): string {
@@ -360,7 +367,7 @@ export async function handleClaim(
       forgeContext: data?.forgeContext,
     });
     if (!(await isSnapshotEnrolled(env, context))) {
-      return jsonResponse({ eligible: false } satisfies ClaimResponse);
+      return json({ eligible: false } satisfies ClaimResponse, { headers: NO_STORE_HEADERS });
     }
 
     const capturedAt = nowIso();
@@ -389,21 +396,21 @@ export async function handleClaim(
       const existing = await loadClaimObject(env, context, capturedAt);
       if (!existing) throw new HttpError(409, 'Daily claim changed concurrently');
       if (existing.claim.state === 'completed') {
-        return jsonResponse({
+        return json({
           eligible: true,
           duplicate: true,
           completed: true,
           runId: existing.claim.runId,
           capturedAt: existing.claim.capturedAt,
-        } satisfies ClaimResponse);
+        } satisfies ClaimResponse, { headers: NO_STORE_HEADERS });
       }
       if (existing.claim.state === 'running' && !isStale(existing.claim)) {
-        return jsonResponse({
+        return json({
           eligible: true,
           duplicate: true,
           runId: existing.claim.runId,
           capturedAt: existing.claim.capturedAt,
-        } satisfies ClaimResponse);
+        } satisfies ClaimResponse, { headers: NO_STORE_HEADERS });
       }
       if (existing.claim.state !== 'failed' && !isStale(existing.claim)) {
         throw new HttpError(409, 'Daily claim cannot be replaced');
@@ -422,12 +429,12 @@ export async function handleClaim(
       `${runPrefix(claim)}/manifest.json`,
       initialRunManifest(claim),
     );
-    return jsonResponse({
+    return json({
       eligible: true,
       claimed: true,
       runId,
       capturedAt,
-    } satisfies ClaimResponse, 201);
+    } satisfies ClaimResponse, { status: 201, headers: NO_STORE_HEADERS });
   } catch (error) {
     return errorResponse(error);
   }
@@ -629,7 +636,7 @@ export async function handleChunk(
     const actualHash = await sha256Hex(serialized);
     const key = chunkKey(body, claim);
     await putImmutableVerified(env, key, serialized, actualHash);
-    return jsonResponse({ success: true, key, sha256: actualHash, rowCount }, 201);
+    return json({ success: true, key, sha256: actualHash, rowCount }, { status: 201, headers: NO_STORE_HEADERS });
   } catch (error) {
     return errorResponse(error);
   }
@@ -669,7 +676,7 @@ async function verifySpace(
   const manifest = await readJsonObject<SpaceManifest>(env.MACRO_COUNT_SNAPSHOT_BUCKET, key);
   if (!manifest) throw new HttpError(409, 'Space manifest is missing');
   assertStoredSpaceManifest(manifest, claim, aggregate.spaceId);
-  if (manifest.spaceKey !== aggregate.spaceKey || JSON.stringify(manifest.metrics) !== JSON.stringify(aggregate.metrics)) {
+  if (manifest.spaceKey !== aggregate.spaceKey || !countsEqual(manifest.metrics, aggregate.metrics)) {
     throw new HttpError(409, 'Aggregate and space manifest disagree');
   }
   for (const ref of manifest.contentChunks) {
@@ -689,13 +696,16 @@ async function verifySpace(
 function changedMetrics(previous: SpaceMetrics | undefined, current: MacroCounts): boolean {
   if (!previous) return true;
   return previous.total !== current.total
-    || COUNT_FIELDS.some((field) => previous[field] !== current[field]);
+    || COUNT_FIELDS.some((field) => (previous[field] ?? 0) !== countBucket(current, field));
 }
 
 function compatibleSpace(spaceKey: string, counts: MacroCounts, capturedAt: string): SpaceMetrics {
   return {
     space: spaceKey,
-    ...counts,
+    // normalizeCounts, not `...counts`: this object is PERSISTED (not re-hashed),
+    // so an old client's absent bucket becomes an explicit 0 rather than a
+    // missing key downstream consumers must guard.
+    ...normalizeCounts(counts),
     isLite: true,
     lastUpdated: capturedAt,
   };
@@ -727,7 +737,7 @@ export async function handleCommit(
       if (latest?.runId !== claim.runId || latest.state !== 'completed') {
         throw new HttpError(409, 'Completed claim has no completed latest pointer');
       }
-      return jsonResponse({ success: true, runId: claim.runId, idempotent: true });
+      return json({ success: true, runId: claim.runId, idempotent: true }, { headers: NO_STORE_HEADERS });
     }
 
     if (!Array.isArray(body.expectedTypes) || !Array.isArray(body.completedTypes)) {
@@ -772,7 +782,7 @@ export async function handleCommit(
         verifiedContentChunks += manifest.contentChunks.length;
       }
     }
-    if (JSON.stringify(verifiedCounts) !== JSON.stringify(body.aggregateMetrics)) {
+    if (!countsEqual(verifiedCounts, body.aggregateMetrics)) {
       throw new HttpError(409, 'Verified aggregate counts disagree with commit');
     }
     const verifiedChunkCount = verifiedContentChunks + rows.length + body.aggregateChunks.length;
@@ -907,14 +917,14 @@ export async function handleCommit(
       })),
     ]);
 
-    return jsonResponse({
+    return json({
       success: true,
       runId: claim.runId,
       spaceCount,
       contentCount,
       changedSpaceCount: changedSpaces.length,
       zeroedSpaceCount: changedSpaces.filter((space) => space.reason === 'zeroed').length,
-    });
+    }, { headers: NO_STORE_HEADERS });
   } catch (error) {
     return errorResponse(error);
   }
@@ -993,7 +1003,7 @@ export async function handleFail(
       processedSpaces: safeRowCount(body.processedSpaces ?? 0),
       chunkCount: safeRowCount(body.chunkCount ?? 0),
     })]);
-    return jsonResponse({ success: true, runId: active.claim.runId });
+    return json({ success: true, runId: active.claim.runId }, { headers: NO_STORE_HEADERS });
   } catch (error) {
     return errorResponse(error);
   }

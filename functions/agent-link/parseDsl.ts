@@ -10,10 +10,8 @@
 //
 // Feasibility was proven empirically before this was written — see
 // /Users/.../evidence/C0-parser-spike.md. Verdicts reused here verbatim:
-//   - ZenUML  -> `@zenuml/core@4.x/parser` `validate()` — native in workerd,
-//               real ANTLR errors with line/col. (Pulled in via the
-//               `@zenuml/core-parser` npm alias so the Vue app renderer can
-//               stay on the 3.x line it's proven against; see package.json.)
+//   - ZenUML  -> `@zenuml/core/parser` `validate()` — native in workerd,
+//               real ANTLR errors with line/col.
 //   - Mermaid -> `mermaid` core `.parse()` behind an idempotent linkedom DOM
 //               shim (mermaid needs `document`/`DOMPurify`); covers every
 //               mermaid diagram type (flowchart/sequence/class/pie/…).
@@ -130,8 +128,7 @@ interface ZenumlParseResult {
 }
 
 async function parseZenuml(dsl: string): Promise<ParseDslResult> {
-  // Aliased to keep the app renderer on @zenuml/core@3.x (see package.json).
-  const { validate } = (await import('@zenuml/core-parser/parser')) as {
+  const { validate } = (await import('@zenuml/core/parser')) as {
     validate(code: string): ZenumlParseResult;
   };
   const r = validate(dsl);

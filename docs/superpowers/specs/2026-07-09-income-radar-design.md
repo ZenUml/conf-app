@@ -21,7 +21,7 @@ radar centred on today.
 
 Atlassian Marketplace vendor reporting (vendor `1215266`): **licenses** joined
 to **sales transactions** on `cloudId`. All of this is already fetched, joined,
-and de-trapped by `.claude/skills/marketplace-audit/scripts/mp_report.py`
+and de-trapped by `.claude/skills/marketplace/scripts/mp_report.py`
 (bulk-export endpoint, 50-row page-cap fix, cloudId join, billing-period truth,
 `--local` SQLite snapshot). The radar **reuses that engine** — it does not
 re-implement fetching.

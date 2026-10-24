@@ -384,3 +384,99 @@ git push -u origin spike/embed-autoconvert-deeplink
 - Analytics (register in `src/utils/analytics/catalog.ts` + `types.ts` as the productization branch's first commit): `embed_autoconvert_rendered`, `embed_autoconvert_foreign_site`, `deeplink_copied` — with `source`, `macro_type`, `match` properties.
 - Lite quota semantics: does an embed-by-paste count toward the 100-macro space limit? Decide before GA.
 - Roll out matcher to full/diagramly/asyncapi manifests (asyncapi also has `zenuml-asyncapi-embed-macro`, `manifest.yml:265`).
+
+---
+
+## Follow-on spike: paste-to-CREATE (`/new/<type>`) — 2026-08-01
+
+Same mechanism, different job. The embed spike converted a link to an
+**existing** diagram; this converts a link into a **new, empty** diagram of a
+chosen type, so the Lite byline type picker can place a macro at the user's
+cursor. Nothing else can: there is no API that inserts a macro into the editor
+from another iframe, and Atlassian's own guidance for programmatic-feeling
+insertion is paste-autoconvert.
+
+**Built (branch `claude/byline-lite-app-growth-dx2r3s`, deployed to lite-stg by CI):**
+
+- `manifest.yml` — `autoConvert.matchers` on the three creation macros:
+  sequence family (`/new/sequence`, `/new/mermaid`, `/new/plantuml`),
+  `zenuml-openapi-macro` (`/new/openapi`), `zenuml-graph-macro` (`/new/graph`).
+  Literal patterns, https only — the manifest reference allows a fully literal
+  URL and requires a separate matcher per protocol.
+- `src/utils/newDiagramLink.ts` — build/parse the link, plus
+  `readAutoConvertLink()`, which reads **three** candidate context paths
+  (`extension.config`, `extension`, `extension.parameters`) precisely because
+  the exact one is what this spike has to confirm; reading a single guessed path
+  and getting it wrong would be indistinguishable from "autoConvert never
+  fired". 13 unit tests.
+- `src/forgeIndex.ts` — seeds a blank macro's `diagramType` from the link,
+  gated on `!doc && !customContentId` so an existing diagram's own type always
+  wins.
+- `BylineDiagrams.vue` — a type tile copies the link before routing to the
+  editor, and the hero copy now says what actually happens rather than
+  promising the macro is pre-placed.
+
+**Findings (paste executed on lite-stg, 2026-08-01):**
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Does `/new/<type>` convert into the right macro? | **YES** — pasting `https://confluence.zenuml.com/new/mermaid` produced a ZenUML macro in the editor | user paste on lite-stg |
+| Does `autoConvertLink` reach the iframe, and at which path? | **YES**, and `readAutoConvertLink`'s first candidate is sufficient — the link parsed and seeded on the paths that reached the seeding code | Mixpanel `new_diagram_link_seeded`: `graph` ×2, `OpenAPI` ×1 on lite-stg |
+| Does the seeded type stick? | **NO for the sequence family, YES for graph/openapi** — `/new/mermaid` opened as a sequence diagram. Cause: the seeding guard tested `!doc`, but forgeIndex assigns the sequence family a placeholder doc (diagramType Sequence, example bodies pre-filled) *before* that point, so the guard was already false for exactly the family this feature targets. graph/openapi leave `doc` undefined and seeded correctly. | absence of a `mermaid` row in the same Mixpanel query is the discriminator |
+
+Fixed by gating on `!customContentId` (a macro with nothing stored) instead of
+`!doc`, and by flipping the placeholder's `diagramType` rather than replacing
+the doc — the placeholder already carries the mermaid/plantuml example bodies
+and the `isNew` flag. The guard now lives in a unit-tested
+`applyNewDiagramLink()` rather than inline in forgeIndex, since the guard is
+what was wrong.
+
+**Second round (lite-stg page 185926781, 2026-08-01) — routing is right, binding is not.**
+
+Ground truth read straight from the REST API rather than the UI:
+
+| Evidence | Result |
+|---|---|
+| ADF extension nodes on the page | `/new/sequence` → `zenuml-sequence-macro-lite`, `/new/mermaid` → `zenuml-sequence-macro-lite`, `/new/graph` → `zenuml-graph-macro-lite` — **autoConvert routes every URL to the correct macro** |
+| `autoConvertLink` in the ADF | present on all three, with `hasBeenAutoConverted: true`, under the node's `parameters` |
+| `customContentId` in the ADF | **absent on all three** |
+| Custom content children of the page | three contents, all `diagramType: 'graph'` with real `graphXml`, all version 1, created 10:12:42 / 10:13:02 / 10:13:15 |
+
+So three saves of one pasted graph macro produced three orphaned contents and a
+macro still bound to none of them. (The byline modal listing three GRAPH cards
+was therefore correct — it was faithfully showing what is stored. The sequence
+and mermaid macros were never saved, so they have no content to list. Note the
+Forge save path stores every type under `zenuml-content-sequence`; the
+`zenuml-content-graph` type is Connect-era only.)
+
+**Root cause:** `decideWriteback` fired `view.submit` only when `inserting ||
+idChanged || repair || legacyMigration`. A pasted macro is none of those on its
+first save — Forge does not report `inserting` for a node that autoConvert put
+in the ADF, and `idChanged` needs a previous id. So the new customContentId was
+never written into the macro, and the next save created another content.
+
+**Fixed** by adding a `firstBind` case (`!hasSourceId && hasId`) to the gate,
+still behind `repairWillPersist` so the #170 non-submittable-surface rule is
+untouched. A `writeback_unbound_first_save` event now records `inserting` /
+`configuring` whenever a save produces an id it cannot bind — if the pasted
+macro's editor turns out to be a non-submittable surface, that event will say so
+without needing a browser.
+
+**Still to confirm on the next paste:**
+
+1. `/new/mermaid` and `/new/plantuml` now open in the right type.
+1b. A pasted macro's first save now binds its content — the macro renders after
+    save, and a second save updates in place instead of creating a new content.
+    Watch for `writeback_unbound_first_save` in Mixpanel; if it appears, the
+    editor surface is non-submittable and needs a different fix.
+2. Conversion inside a **Live Doc** (the embed spike proved it for its own pattern).
+3. Does the converted macro open its editor directly, or insert a placeholder
+   the user must then click?
+4. Version bump stays **minor** (the embed matcher deploy was 16.118.0). Confirm
+   from `forge deploy` output.
+
+**Do not merge to `main` on the strength of the code alone** — this is spike
+scope. Two productization questions are already open from the embed spike and
+apply here unchanged: whether a pasted macro counts toward the Lite 100-macro
+limit, and how the paywall gate applies to a create path that never passes
+through our editor's save flow.

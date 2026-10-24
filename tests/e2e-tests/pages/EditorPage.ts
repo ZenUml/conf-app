@@ -5,6 +5,7 @@ import { dismissPaywallGate } from '../helpers/paywallGate.js';
 import { dismissStarterGalleryIfPresent } from '../helpers/starterGallery.js';
 import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
 import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
+import { focusEditorBody } from '../helpers/editorFocus.js';
 
 export class ConfluenceEditorPage {
   constructor(private page: Page) {}
@@ -196,10 +197,11 @@ export class ConfluenceEditorPage {
   async clickInsertElements(): Promise<void> {
     const t0 = Date.now();
 
-    // Click the editor body first to ensure focus is in the content area
+    // Put focus in the content area first. Not a bare click: a new page can show
+    // a Rovo template panel over the empty body that intercepts the pointer.
     const editorEl = this.editorBody();
     await editorEl.waitFor({ state: 'visible', timeout: 10000 });
-    await editorEl.click();
+    await focusEditorBody(this.page, editorEl);
     await this.page.waitForTimeout(300);
 
     // ── Strategy 1: Toolbar "+" insert button (most reliable, opens full browser) ──
@@ -224,7 +226,7 @@ export class ConfluenceEditorPage {
       const at0 = Date.now();
 
       // Ensure editor body has focus
-      await editorEl.click();
+      await focusEditorBody(this.page, editorEl);
       await this.page.waitForTimeout(200);
 
       console.log(`  [debug] clickInsertElements[${attempt}]: typing "/" to open slash menu`);

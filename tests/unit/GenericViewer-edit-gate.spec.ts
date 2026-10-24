@@ -47,11 +47,6 @@ vi.mock('@/utils/upgradeTracking', () => ({
 
 vi.mock('@/utils/window', () => ({ trackEvent: vi.fn(), getUrlParam: vi.fn() }))
 
-vi.mock('@/services/DiagramLikes', () => ({
-  toggleDiagramLike: vi.fn(() => Promise.resolve([])),
-  getDiagramLikes: vi.fn(() => Promise.resolve([])),
-}))
-
 vi.mock('@/composables/useCustomerSuccessService', () => {
   return {
     useCustomerSuccessService: vi.fn(() => ({
@@ -76,7 +71,7 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     store.state.diagram.isCopy = false
   })
 
-  it('fires EventBus edit immediately even when shouldBlockActions is true', async () => {
+  it('fires EventBus edit exactly once without a viewer paywall when shouldBlockActions is true', async () => {
     const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
     await wrapper.vm.$nextTick()
 
@@ -86,6 +81,7 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     vm.edit()
 
     expect(editSpy).toHaveBeenCalledWith('edit')
+    expect(editSpy).toHaveBeenCalledTimes(1)
     // viewer has no viewer-level paywall state at all — showUpgradeModal is gone
     expect(vm.showUpgradeModal).toBeUndefined()
   })
@@ -102,20 +98,6 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     expect(vm.openUpgradeModal).toBeUndefined()
     expect(vm.showUpgradeModal).toBeUndefined()
     expect(vm.onContinueEditing).toBeUndefined()
-  })
-
-  it('viewer edit() always fires EventBus without any paywall interception', async () => {
-    const wrapper = mount(GenericViewer, { global: { plugins: [store] } })
-    await wrapper.vm.$nextTick()
-
-    const editSpy = vi.spyOn(EventBus, '$emit')
-    const vm = wrapper.vm as any
-
-    vm.edit()
-
-    // Direct EventBus emission, no modal state changes
-    expect(editSpy).toHaveBeenCalledWith('edit')
-    expect(editSpy).toHaveBeenCalledTimes(1)
   })
 
   it('Edit button is shown but disabled with cross-page tooltip when isCopy=true copyReason=cross-page', async () => {

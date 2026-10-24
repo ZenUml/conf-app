@@ -15,16 +15,18 @@ Auth: FORGE_EMAIL / FORGE_API_TOKEN (Basic auth). Loaded from the environment, o
 
 All subcommands accept --json for machine-readable output.
 """
-import argparse, base64, datetime, gzip, json, os, re, sqlite3, subprocess, sys, urllib.request, urllib.error
+import argparse, base64, datetime, gzip, json, os, re, sqlite3, subprocess, sys, tempfile, urllib.request, urllib.error
 from collections import defaultdict
 
 VENDOR = "1215266"
 BASE = "https://marketplace.atlassian.com"
-APPS = {
-    "full": "com.zenuml.confluence-addon",
-    "lite": "com.zenuml.confluence-addon-lite",
-}
-ZENUML_KEYS = set(APPS.values())
+# Shared registry; legacy Marketplace aliases retain the four conf-app products.
+_REGISTRY = os.path.join(os.path.dirname(__file__), "..", "..", "customer-data", "products.json")
+with open(_REGISTRY) as _registry_file:
+    APPS = {p["key"]: p["marketplace_key"] for p in json.load(_registry_file)["products"] if p["conf_app"]}
+ADDON_KEYS = set(APPS.values())
+BOTH_KEYS = {APPS["full"], APPS["lite"]}     # `--app both` = the two ZenUML-branded apps only
+APP_MODES = ("both", "all")                   # vendor-wide fetch, filtered client-side
 
 
 # ----- credentials -------------------------------------------------------------
@@ -80,19 +82,40 @@ def export(kind, auth, **filters):
     return data
 
 
+def check_app(app):
+    """Validate a --app value and return it unchanged; ValueError for anything unrecognised.
+    Accepted: an alias in APPS, 'both' / 'all', a known addonKey, or an explicit com.* key.
+    Before 2026-09-02 an unknown value fell through addon_filter/keep_addon to the ALL-apps
+    result while the header still printed app=<value>: `revenue --app gptdock-confluence`
+    (and `--app my-api`, neither of which starts with com.) reported the vendor-wide
+    164 payers / $134k as Diagramly's. Reject up front instead."""
+    if app in APPS or app in APP_MODES or app in ADDON_KEYS or app.startswith("com."):
+        return app
+    accepted = ", ".join(list(APPS) + list(APP_MODES) + sorted(ADDON_KEYS))
+    raise ValueError(f"unknown --app {app!r}; accepted: {accepted}, or an explicit com.* addon key")
+
+
+def _app_arg(value):
+    """argparse `type=` wrapper so a bad --app dies as a usage error, before any fetch."""
+    try: return check_app(value)
+    except ValueError as e: raise argparse.ArgumentTypeError(str(e))
+
+
 def addon_filter(app):
     """Return the addon= filter value, or None to fetch the whole vendor (then filter client-side)."""
+    check_app(app)
     if app in APPS: return APPS[app]
-    if app.startswith("com."): return app           # explicit addon key
-    return None                                      # 'both' / 'all'
+    if app in APP_MODES: return None                 # 'both' / 'all'
+    return app                                       # explicit addon key
 
 
 def keep_addon(rec, app):
+    check_app(app)
     k = rec.get("addonKey", "")
     if app in APPS: return k == APPS[app]
-    if app.startswith("com."): return k == app
-    if app == "both": return k in ZENUML_KEYS
-    return True                                      # 'all'
+    if app == "both": return k in BOTH_KEYS
+    if app == "all": return True
+    return k == app                                  # explicit addon key
 
 
 # ----- transaction aggregation -------------------------------------------------
@@ -169,8 +192,7 @@ def company_of(rec):
 # stale billing as current. Payoff is batch / analytics / cross-source joins (cloudId is
 # the key to Mixpanel + D1), not single-lookup speed. Stores raw JSON so `export()` can
 # hand downstream commands the exact same dicts (raw-passthrough).
-APP_KEYS_ALL = ["com.zenuml.confluence-addon", "com.zenuml.confluence-addon-lite",
-                "gptdock-confluence", "my-api"]  # my-api = AsyncAPI for Confluence (a 3rd revenue app)
+APP_KEYS_ALL = list(APPS.values())                    # every app `sync` snapshots = every --app alias
 LOCAL = {"db": None}
 
 
@@ -181,8 +203,11 @@ def _default_db():
 def _local_export(kind, filters):
     table = "transactions" if kind.startswith("sales") else "licenses"
     con = sqlite3.connect(LOCAL["db"])
-    rows = [json.loads(r[0]) for r in con.execute(f"SELECT raw FROM {table}")]
-    con.close()
+    try:
+        _require_complete_snapshot(con)
+        rows = [json.loads(r[0]) for r in con.execute(f"SELECT raw FROM {table}")]
+    finally:
+        con.close()
     if filters.get("addon"):
         rows = [r for r in rows if r.get("addonKey") == filters["addon"]]
     if filters.get("text"):                              # mimic the API's broad text filter
@@ -192,34 +217,60 @@ def _local_export(kind, filters):
 
 
 def cmd_sync(args, auth):
-    path = args.db or _default_db()
-    con = sqlite3.connect(path)
-    con.executescript(
-        "DROP TABLE IF EXISTS licenses; DROP TABLE IF EXISTS transactions; DROP TABLE IF EXISTS sync_meta;"
-        "CREATE TABLE licenses(addonKey TEXT, cloudId TEXT, raw TEXT);"
-        "CREATE TABLE transactions(addonKey TEXT, cloudId TEXT, raw TEXT);"
-        "CREATE TABLE sync_meta(synced_at TEXT, apps TEXT, license_rows INT, tx_rows INT);")
-    nlic = ntx = 0
-    for app in APP_KEYS_ALL:                              # runs LIVE (LOCAL['db'] is None during sync)
-        for r in export("licenses", auth, addon=app):
-            con.execute("INSERT INTO licenses VALUES(?,?,?)",
-                        (r.get("addonKey"), r.get("cloudId"), json.dumps(r, default=str))); nlic += 1
-        for t in export("sales/transactions", auth, addon=app):
-            con.execute("INSERT INTO transactions VALUES(?,?,?)",
-                        (t.get("addonKey"), t.get("cloudId"), json.dumps(t, default=str))); ntx += 1
-    con.executescript("CREATE INDEX ix_l ON licenses(addonKey); CREATE INDEX ix_t ON transactions(addonKey);")
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
-    con.execute("INSERT INTO sync_meta VALUES(?,?,?,?)", (now, ",".join(APP_KEYS_ALL), nlic, ntx))
-    con.commit(); con.close()
+    path = os.path.abspath(args.db or _default_db())
+    # Publish only a complete refresh. Network failures must preserve the last
+    # successful evidence and its timestamp, including during an initial sync.
+    fd, pending = tempfile.mkstemp(prefix=".marketplace-refresh-", suffix=".db",
+                                   dir=os.path.dirname(path))
+    os.close(fd)
+    con = None
+    try:
+        con = sqlite3.connect(pending)
+        con.executescript(
+            "CREATE TABLE licenses(addonKey TEXT, cloudId TEXT, raw TEXT);"
+            "CREATE TABLE transactions(addonKey TEXT, cloudId TEXT, raw TEXT);"
+            "CREATE TABLE sync_meta(synced_at TEXT, apps TEXT, license_rows INT, tx_rows INT);")
+        nlic = ntx = 0
+        for app in APP_KEYS_ALL:
+            for r in export("licenses", auth, addon=app):
+                con.execute("INSERT INTO licenses VALUES(?,?,?)",
+                            (r.get("addonKey"), r.get("cloudId"), json.dumps(r, default=str)))
+                nlic += 1
+            for t in export("sales/transactions", auth, addon=app):
+                con.execute("INSERT INTO transactions VALUES(?,?,?)",
+                            (t.get("addonKey"), t.get("cloudId"), json.dumps(t, default=str)))
+                ntx += 1
+        con.executescript("CREATE INDEX ix_l ON licenses(addonKey); CREATE INDEX ix_t ON transactions(addonKey);")
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+        con.execute("INSERT INTO sync_meta VALUES(?,?,?,?)", (now, ",".join(APP_KEYS_ALL), nlic, ntx))
+        con.commit()
+        con.close()
+        con = None
+        os.replace(pending, path)
+    finally:
+        if con is not None:
+            con.close()
+        if os.path.exists(pending):
+            os.unlink(pending)
     print(f"synced {nlic} licenses + {ntx} transactions -> {path}  @ {now}")
+
+
+def _require_complete_snapshot(con):
+    try:
+        row = con.execute("SELECT synced_at FROM sync_meta ORDER BY synced_at DESC LIMIT 1").fetchone()
+    except sqlite3.DatabaseError as exc:
+        raise RuntimeError("Local snapshot is incomplete; run a successful sync before using it") from exc
+    if not row:
+        raise RuntimeError("Local snapshot is incomplete; run a successful sync before using it")
+    return row
 
 
 def _snapshot_age_note(db):
     con = sqlite3.connect(db)
-    row = con.execute("SELECT synced_at FROM sync_meta ORDER BY synced_at DESC LIMIT 1").fetchone()
-    con.close()
-    if not row:
-        return "[local snapshot: unknown age]"
+    try:
+        row = _require_complete_snapshot(con)
+    finally:
+        con.close()
     try:
         dt = datetime.datetime.fromisoformat(row[0])
         hrs = (datetime.datetime.now(datetime.timezone.utc) - dt).total_seconds() / 3600
@@ -317,7 +368,7 @@ def cmd_radar(args, auth):
     lic = export("licenses", auth, addon=None)       # all vendor apps; scoped to payers below
     txs = export("sales/transactions", auth, addon=None)
     agg = aggregate_tx_by_app(txs)                   # keyed by (cloudId, addonKey) — no cross-app double count
-    incoming, missed, seen = [], [], set()
+    incoming, missed, in_grace, seen = [], [], [], set()
     for r in lic:
         cid = r.get("cloudId"); app_key = r.get("addonKey"); host = r.get("cloudSiteHostname") or ""
         if host.split(".")[0] in INTERNAL_HOSTS: continue
@@ -340,15 +391,26 @@ def cmd_radar(args, auth):
                 "entitlement": r.get("appEntitlementNumber"),
                 "app": APP_LABEL.get(app_key, app_key),
                 "billing": billing_of(a), "amount": amount, "tier": r.get("tier"), "flags": flags}
-        if today <= paid_thru <= fwd_end:
+        # Paid coverage ended but the license is still in its grace period: the renewal is
+        # pending, not missed. Listed regardless of the look-back window until grace closes
+        # (2026-10-17: an annual renewal in grace read as "2 days late, $911 at risk").
+        grace_until = pdate(r.get("maintenanceEndDate"))
+        if (paid_thru < today and r.get("inGracePeriod") == "Yes"
+                and grace_until and grace_until >= today):
+            in_grace.append({**base, "flags": ",".join(f for f in flags.split(",") if f != "grace") or "-",
+                             "paid_thru": str(paid_thru), "grace_until": str(grace_until),
+                             "days_left": (grace_until - today).days})
+        elif today <= paid_thru <= fwd_end:
             incoming.append({**base, "due": str(paid_thru)})
         elif back_start <= paid_thru < today:
             missed.append({**base, "paid_thru": str(paid_thru), "days_late": (today - paid_thru).days})
     incoming.sort(key=lambda x: (x["due"], -x["amount"]))
     missed.sort(key=lambda x: -x["amount"])
+    in_grace.sort(key=lambda x: (x["grace_until"], -x["amount"]))
     inc_total = round(sum(x["amount"] for x in incoming), 2)
     inc_at_risk = round(sum(x["amount"] for x in incoming if x["flags"] != "-"), 2)
     miss_total = round(sum(x["amount"] for x in missed), 2)
+    grace_total = round(sum(x["amount"] for x in in_grace), 2)
     # Evaluations (trials) are a conversion signal, NOT income ($0) — kept out of the totals
     # above and shown separately: trials about to expire (convert now) or that just lapsed.
     # `converted` = this (tenant, app) already has a paid transaction. Lite excluded (free).
@@ -376,6 +438,7 @@ def cmd_radar(args, auth):
                           "incoming": {"total": inc_total, "at_risk": inc_at_risk,
                                        "count": len(incoming), "rows": incoming},
                           "missed": {"total": miss_total, "count": len(missed), "rows": missed},
+                          "in_grace": {"total": grace_total, "count": len(in_grace), "rows": in_grace},
                           "evaluations": {"expiring": {"count": len(evals_soon), "rows": evals_soon},
                                           "expired": {"count": len(evals_expired), "rows": evals_expired}}},
                          indent=2, default=str))
@@ -386,6 +449,8 @@ def cmd_radar(args, auth):
     _print_table(incoming, ["due", "app", "billing", "amount", "flags", "tier", "company", "host", "entitlement"])
     print(f"\nMISSED (past {n}d): {len(missed)} renewals overdue, ~ ${miss_total:,.2f} at risk")
     _print_table(missed, ["paid_thru", "days_late", "app", "billing", "amount", "flags", "company", "host", "entitlement"])
+    print(f"\nIN GRACE: {len(in_grace)} renewals pending (paid coverage ended, license still active), ~ ${grace_total:,.2f}")
+    _print_table(in_grace, ["grace_until", "days_left", "paid_thru", "app", "billing", "amount", "flags", "company", "host", "entitlement"])
     print("\nnote: dates are customer-renewal timing (a proxy for income); Atlassian disburses on its")
     print("own monthly cycle. A lapse in the last 1-2 days may be settlement lag, not a true miss —")
     print("read the grace / no-payment-method flags.")
@@ -525,35 +590,45 @@ def _fuzzy_hosts(domain, auth):
 
 
 def _kv_run(*a):
-    return subprocess.run(["npx", "--yes", "wrangler", "kv", *a, "--namespace-id", SPACE_LICENSE_KV_NS,
-                           "--remote"], capture_output=True, text=True, timeout=40).stdout
+    result = subprocess.run(["npx", "--yes", "wrangler", "kv", *a, "--namespace-id", SPACE_LICENSE_KV_NS,
+                             "--remote"], capture_output=True, text=True, timeout=40)
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError("Remote license query failed or returned no readable response")
+    return result.stdout
 
 
 def _kv_space_licenses(cloud_id):
-    """Layer-B space-licenses for a cloudId -> [ {space, kind, activatedBy, expiresAt, status} ] or
-    None if unchecked. `--remote` is REQUIRED (wrangler v4 defaults to LOCAL state -> a false empty).
-    Reads each VALUE and classifies **PAID** vs **COMPED** by the presence of `paymentReference`
-    (the Stripe webhook stores `session.id` there; comped/manual grants via extend-space-license
-    write none). Key existence alone over-reports paying: space-status.ts marks ANY active+future
-    license `isPaid`, so a comped 14-day extension (vin3s) otherwise looked 'PAYING'. NB: as of this
-    writing every prod space-license is comped/manual — there are zero Stripe-paid ones."""
+    """Successful list -> records (possibly UNKNOWN values); failed list -> None.
+
+    Empty is only a successfully read JSON list. User IDs may themselves contain
+    colons; split the scope once after the verified cloud-id prefix.
+    """
+    prefix = f"license:{cloud_id}:"
     try:
-        keys = json.loads(_kv_run("key", "list", "--prefix", f"license:{cloud_id}") or "[]")
+        keys = json.loads(_kv_run("key", "list", "--prefix", prefix))
+        if not isinstance(keys, list) or any(not isinstance(k, dict) or not isinstance(k.get("name"), str)
+                                              or not k["name"].startswith(prefix) for k in keys):
+            return None
     except Exception:
         return None
     out = []
     for k in keys:
-        name = k.get("name", "")
+        name = k["name"]
+        space, sep, user = name[len(prefix):].partition(":")
+        record = {"space": space or None, "scope": "user" if sep else "space",
+                  "userAccountId": user if sep else None, "kind": "UNKNOWN",
+                  "read_status": "failed", "activatedBy": None, "paymentReference": None,
+                  "expiresAt": None, "status": None}
         try:
-            rec = json.loads(_kv_run("key", "get", name) or "{}")
+            rec = json.loads(_kv_run("key", "get", name))
+            if not isinstance(rec, dict) or not rec.get("status") or not space or (sep and not user):
+                raise ValueError("Unrecognised license scope or value")
+            record.update(kind="PAID" if rec.get("paymentReference") else "COMPED", read_status="ok",
+                          activatedBy=rec.get("activatedBy"), paymentReference=rec.get("paymentReference"),
+                          expiresAt=rec.get("expiresAt"), status=rec.get("status"))
         except Exception:
-            rec = {}
-        paid = bool(rec.get("paymentReference"))          # Stripe webhook stores session.id here; a
-        out.append({"space": name.split(":")[-1],          # comped/manual grant has none -> not revenue
-                    "kind": "PAID" if paid else "COMPED",
-                    "activatedBy": str(rec.get("activatedBy") or "") or None,
-                    "paymentReference": rec.get("paymentReference"),
-                    "expiresAt": rec.get("expiresAt"), "status": rec.get("status")})
+            pass  # Preserve unknown; never invent a free/comped license from a failed read.
+        out.append(record)
     return out
 
 
@@ -627,7 +702,10 @@ def cmd_whois(args, auth):
         "domain": domain, "cloudIds": cids, "apps": apps,
         "layer_b_space_licenses": (layer_b if kv_checked else None),
         "any_paying_marketplace": any(x["paying"] for x in apps),
-        "paying_any_layer": any(x["paying"] for x in apps) or b_paying,
+        "paying_any_layer": (True if any(x["paying"] for x in apps) or b_paying else
+                             None if has_lite and (not kv_checked or not layer_b or any(v is None for v in layer_b.values())
+                                                    or any(s["kind"] == "UNKNOWN" for s in b_records)) else False),
+        "payment_interpretation": "Evidence of historical payments; not proof of current paid coverage",
         "total_lifetime_vendor": round(sum(x["lifetime_vendor"] for x in apps), 2),
         "suggestions": (suggest or None),
     }
@@ -653,7 +731,7 @@ def cmd_whois(args, auth):
         if x["app"] == "Lite" and kv_checked:
             lb = layer_b.get(x["cloudId"])
             if lb is None:
-                line += "   [Layer B: unchecked]"
+                line += "   [Layer B: query failed / unknown]"
             elif not lb:
                 line += "   [Layer B: none]"
             else:
@@ -662,8 +740,9 @@ def cmd_whois(args, auth):
                          + (f" via {s['activatedBy']}" if s.get("activatedBy") else "") for s in lb]
                 line += "   [Layer B: " + "; ".join(parts) + "]"
         print(line)
-    verdict = ("PAYING" if out["paying_any_layer"]
-               else "not paying (comped access only)" if b_comped else "not paying")
+    verdict = ("PAYMENT RECORD FOUND" if out["paying_any_layer"]
+               else "payment evidence incomplete / unknown" if out["paying_any_layer"] is None
+               else "no payment record found (comped access present)" if b_comped else "no payment record found")
     extra = (", +Layer B PAID" if b_paying else
              ", comped Layer-B grant (=$0 revenue)" if b_comped else "")
     print(f"  VERDICT : {verdict}  (marketplace ${out['total_lifetime_vendor']:,.2f}{extra})")
@@ -695,7 +774,8 @@ def main():
     ap = argparse.ArgumentParser(description="ZenUML Marketplace vendor reporting audit.")
     ap.add_argument("--env", default=None, help="path to .env.forge.local (default: auto-discover)")
     ap.add_argument("--json", action="store_true", help="machine-readable JSON output")
-    ap.add_argument("--app", default="full", help="full | lite | both | all | <addonKey> (default: full)")
+    ap.add_argument("--app", default="full", type=_app_arg,
+                    help="full | lite | diagramly | asyncapi | both (full+lite) | all | <addonKey> (default: full)")
     ap.add_argument("--local", action="store_true", help="read from the local SQLite snapshot (run `sync` first)")
     ap.add_argument("--db", default=None, help="SQLite snapshot path (default: alongside the script)")
 
@@ -705,7 +785,7 @@ def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--env", default=argparse.SUPPRESS)
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
-    common.add_argument("--app", default=argparse.SUPPRESS)
+    common.add_argument("--app", default=argparse.SUPPRESS, type=_app_arg)
     common.add_argument("--local", action="store_true", default=argparse.SUPPRESS)
     common.add_argument("--db", default=argparse.SUPPRESS)
 

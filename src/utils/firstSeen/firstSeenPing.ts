@@ -2,7 +2,6 @@ import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
 import { callRemote } from '@/utils/requestUtil'
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 /**
  * M1 first-seen ping (onboarding spec Phase 1,
@@ -146,7 +145,6 @@ export async function maybeSendFirstSeenPing(now: number = Date.now()): Promise<
     const accountId = forgeGlobal.forgeContext?.accountId
     if (!accountId) return // census rule: no identity → no POST, no marker, no stamp; retry next load
 
-    const cloudId = forgeGlobal.forgeContext?.cloudId
     writeAttemptStamp(now)
 
     const response = await callRemote('/forge-user-behavior', 'POST', {
@@ -157,15 +155,6 @@ export async function maybeSendFirstSeenPing(now: number = Date.now()): Promise<
 
     const disabled = !!(response && (response as { disabled?: boolean }).disabled)
     writeFirstSeenMarker(now, accountId, disabled)
-
-    if (!disabled) {
-      trackAnalyticsEvent('app_first_seen', {
-        feature_area: 'system',
-        surface: 'page_banner',
-        cloud_id: cloudId || 'unknown_cloud_id',
-        account_id: accountId,
-      })
-    }
   } catch (e) {
     // Swallow: never throw into the page-banner hot path. The attempt stamp
     // (written before the POST) provides the 10-minute backoff; no marker is

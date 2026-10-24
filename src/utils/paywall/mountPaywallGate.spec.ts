@@ -207,6 +207,28 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     })
     expect(gateEvalCall(trackUpgradeEvent, UpgradeEventName.PAYWALL_GATE_EVALUATED)).toBeUndefined()
   })
+
+  it('hands a blocked page editor continuation callback to PaywallGate', async () => {
+    fakeCS.shouldBlockActions.value = true
+    fakeCS.macrosCreated.value = 150
+    const onContinueEditing = vi.fn()
+    const { gate } = await imports()
+
+    const fired = await gate.tryPageEditorPaywall({
+      doc: NULL_DIAGRAM,
+      content: StubContent,
+      macroKind: 'sequence',
+      customContentId: undefined,
+      // Added by the fix: this must remain dormant until an explicit
+      // PaywallGate `continue-editing` event, never run merely because the
+      // editor mounted behind the modal.
+      onContinueEditing,
+    })
+
+    expect(fired).toBe(true)
+    const [, , props] = vi.mocked(await import('@/mount-root')).mountRoot.mock.calls.at(-1)!
+    expect(props.onContinueEditing).toBe(onContinueEditing)
+  })
 })
 
 // The byline's "Add a diagram" opens the ORDINARY editor

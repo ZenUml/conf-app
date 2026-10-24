@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Sequence from '@/components/Sequence.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { getDiagramFontState, _resetDiagramFontStateForTesting } from '@/utils/fonts/diagramFontState';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import Example from '@/utils/sequence/Example';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -30,10 +32,13 @@ const ZenUmlCtor = vi.hoisted(() =>
     vi.fn(function ZenUml() {
       return zenumlInstance;
     }),
-    { version: 'test' },
+    { version: 'test', setDiagramFontUrl: vi.fn() },
   ),
 );
 vi.mock('@zenuml/core', () => ({ default: ZenUmlCtor }));
+
+vi.mock('@zenuml/core/fonts/IBMPlexSans-Regular-Latin1.woff2?url', () => ({ default: '/assets/plex.woff2' }));
+vi.mock('@zenuml/core/fonts/MS-Sans-Serif.ttf?url', () => ({ default: '/assets/mssans.ttf' }));
 
 const viewerLoadFailedCalls = () =>
   vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'viewer_load_failed');
@@ -43,12 +48,43 @@ describe('Sequence render-failure telemetry', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetDiagramFontStateForTesting();
     zenumlInstance.render.mockReset().mockResolvedValue(undefined);
     store.state.diagram = {
       ...NULL_DIAGRAM,
       diagramType: DiagramType.Sequence,
       code: 'A.method()',
     };
+  });
+
+  it.each([
+    ['authored', 'A.method()', 'authored'],
+    ['empty (blank)', '  \n', 'empty'],
+    ['empty (wiped to "")', '', 'empty'],
+  ])('macro_viewed carries content_state for a %s body (#113)', async (_label, code, expected) => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code };
+
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ macro_type: 'sequence', content_state: expected });
+  });
+
+  it('macro_viewed reports content_state=default for the bundled sequence example (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: Example.Sequence };
+
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ content_state: 'default' });
   });
 
   it('fires viewer_load_failed when zenuml.render() throws on initial mount', async () => {
@@ -89,6 +125,28 @@ describe('Sequence render-failure telemetry', () => {
     });
   });
 
+  // Core awaits the font inside render(), but the URLs must be configured first.
+  it('configures both diagram font URLs before the first zenuml.render()', async () => {
+    const setUrl = vi.mocked(ZenUmlCtor.setDiagramFontUrl);
+    setUrl.mockClear();
+    zenumlInstance.render.mockImplementation(() => {
+      expect(setUrl).toHaveBeenCalledWith('/assets/plex.woff2');
+      expect(setUrl).toHaveBeenCalledWith('/assets/mssans.ttf', 'MS Sans Serif');
+      return Promise.resolve();
+    });
+
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(zenumlInstance.render).toHaveBeenCalledTimes(1));
+    expect(setUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it("records diagram font state from document.fonts after the render ('fallback' in jsdom)", async () => {
+    mount(Sequence, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(getDiagramFontState()).toBe('fallback'));
+  });
+
   it('does not fire viewer_load_failed on a clean render', async () => {
     mount(Sequence, { global: { plugins: [store] } });
 
@@ -121,6 +179,37 @@ describe('Sequence render-failure telemetry', () => {
     await vi.waitFor(() => expect(zenumlInstance.render).toHaveBeenCalledTimes(1));
     const [renderedCode] = zenumlInstance.render.mock.calls[0];
     expect(renderedCode).toBe(plantUmlLookingSource);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+});
+
+// 2026-09-01 replay (v2026.08.310610-lite): the user picked a Mermaid starter
+// template while the ZenUML core chunk was still loading. Sequence.vue then
+// ran `new ZenUml(this.$refs.zenuml)` against an unmounted component — the
+// ref is null, React's createRoot throws #299, and viewer_load_failed fires
+// for a macro that was never going to be a sequence diagram (36 events / 22
+// users in the 30 days to 2026-09-08). Unmounting during the chunk load must
+// be a silent no-op.
+describe('Sequence unmounted while ZenUML core is still loading', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    zenumlInstance.render.mockReset().mockResolvedValue(undefined);
+    store.state.diagram = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Sequence,
+      code: 'A.method()',
+    };
+  });
+
+  it('neither constructs ZenUML nor fires viewer_load_failed when unmounted before the chunk resolves', async () => {
+    const wrapper = mount(Sequence, { global: { plugins: [store] } });
+    // Unmount synchronously: `await loadZenUml()` has not resolved yet.
+    wrapper.unmount();
+    // Let the dynamic import and any follow-up microtasks settle.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(ZenUmlCtor).not.toHaveBeenCalled();
+    expect(zenumlInstance.render).not.toHaveBeenCalled();
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
 });

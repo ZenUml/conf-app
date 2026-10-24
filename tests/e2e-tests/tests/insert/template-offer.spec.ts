@@ -43,7 +43,7 @@ async function findTemplateAdminSpace(page: Page): Promise<EditorPageTarget> {
   };
 }
 
-test.describe(`Space template offer - ${testConfig.productType}`, () => {
+test.describe(`Space template offer - ${testConfig.productType}`, { tag: ['@test:template-offer', '@variant:lite', '@page-banner', '@sequence'] }, () => {
   test.skip(!testConfig.isForge, "pageBanner is Forge-only");
   test.skip(!testConfig.isLite, "template offer ships on Lite only");
   test.skip(

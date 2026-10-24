@@ -35,6 +35,18 @@ describe("_middleware", () => {
     expect(authenticate).toHaveBeenCalledTimes(2);
   });
 
+  it("authenticates the in-product feedback persistence endpoint", async () => {
+    const next = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    await authMiddleware({
+      request: new Request("https://example.test/api/feedback-report", { method: "POST" }),
+      next,
+      env: {},
+      data: {},
+    } as never);
+    expect(AUTHENTICATED_PATHS).toContain("/api/feedback-report");
+    expect(authenticate).toHaveBeenCalledOnce();
+  });
+
   it("redacts /d and /i request URLs before logging (client-privacy policy)", () => {
     expect(redactedRequestUrlForLogging("https://conf-lite.zenuml.com/d/bc8bb5b3-09d2-4932-b68c-9b56fab8e34a/425987?t=abc.def"))
       .toBe("https://conf-lite.zenuml.com/d [redacted]");
@@ -45,6 +57,31 @@ describe("_middleware", () => {
   it("logs other paths verbatim (unchanged behavior)", () => {
     const url = "https://conf-lite.zenuml.com/diagramly/chat";
     expect(redactedRequestUrlForLogging(url)).toBe(url);
+  });
+
+  it("redacts credential query parameters wherever they appear", () => {
+    // The OAuth callback: Atlassian's authorization code, written to
+    // Cloudflare logs verbatim until 2026-09-26.
+    const callback = redactedRequestUrlForLogging(
+      "https://conf-stg-lite.zenuml.com/agent-link/oauth/callback?state=abc123&code=eyJraWQiOiJBVVRI",
+    );
+    expect(callback).not.toContain("eyJraWQiOiJBVVRI");
+    expect(callback).not.toContain("abc123");
+    expect(callback).toContain("/agent-link/oauth/callback");
+
+    // The consent hop: this id alone used to complete an authorization.
+    expect(
+      redactedRequestUrlForLogging("https://conf-stg-lite.zenuml.com/agent-link/oauth/consent?auth=pending-abc"),
+    ).not.toContain("pending-abc");
+
+    // The relay still accepts a session token in the query string.
+    expect(
+      redactedRequestUrlForLogging("https://conf-lite.zenuml.com/agent-link/mcp?token=CL-7F3K-Q9M2"),
+    ).not.toContain("CL-7F3K-Q9M2");
+
+    // A URL carrying none of them is untouched.
+    const plain = "https://conf-lite.zenuml.com/agent-link/oauth/register?x=1";
+    expect(redactedRequestUrlForLogging(plain)).toBe(plain);
   });
 
   it("answers deeplink-ticket CORS preflight without requiring a Forge token", async () => {

@@ -1,5 +1,8 @@
 
-import api, { route } from '@forge/api';
+import api, { route, routeFromAbsolute } from '@forge/api';
+import { readPngDimensions } from './lib/pngDimensions.js';
+import { decideExportSample } from './lib/exportSampling.js';
+import { readPngState, writePngState } from './lib/pngExportState.js';
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -32,6 +35,7 @@ import api, { route } from '@forge/api';
 const DIAGRAM_TYPE_TO_MACRO_TYPE = {
   sequence: 'sequence',
   mermaid: 'mermaid',
+  markdown: 'markdown',
   plantuml: 'plantuml',
   graph: 'graph',
   OpenAPI: 'openapi',
@@ -141,6 +145,55 @@ export function extractExportContext(payload) {
   return { format, cloudId, clientDomain, spaceKey, accountId, pageId, customContentId, attachmentName, macroType: 'none' };
 }
 
+// ---------------------------------------------------------------------------
+// TEMPORARY DIAGNOSTIC (#554) — identify what triggers `exportType: 'other'`.
+//
+// Measured on production 2026-08-19..25: `other` is 87,608 of 93,786 adfExport
+// invocations and 46,417 of 47,878 export failures. Atlassian documents
+// `exportType` only as `pdf`, `word` or `other`, with `other` as the catch-all,
+// and the Developer Console groups invocations by our own function name, so
+// nothing we hold today names the caller. Several tenants fire this on a fixed
+// schedule (one alternates 20/10 invocations every hour around the clock;
+// another fires ~3,100 inside a single hour each day), and two accounts swept
+// 262 and 257 distinct spaces in a week — the shape of a scheduled export tool.
+//
+// Delete this block, `redactPayloadShape`, and its call site once #554 names
+// the trigger.
+// ---------------------------------------------------------------------------
+
+/** Sample rate for the #554 payload-shape log. 1% of ~12,500 invocations/day. */
+const OTHER_EXPORT_SHAPE_SAMPLE_RATE = 0.01;
+
+/**
+ * Keys whose values can carry page or diagram content rather than structure.
+ * Their subtrees are reduced to key names only, so the diagnostic never copies
+ * customer content into the app log.
+ */
+const SHAPE_LOG_CONTENT_KEYS = new Set([
+  'parameters', 'body', 'value', 'title', 'text', 'content', 'macroParams',
+]);
+
+/**
+ * Reduces a payload to a shape-only view for diagnostic logging: object keys
+ * survive, long strings collapse to `String(<length>)`, arrays report their
+ * length and first entries, and recursion stops at depth 4. Short strings are
+ * kept because the identifying signal we are looking for is one — an app key,
+ * a module key, or an enum value.
+ */
+export function redactPayloadShape(value, depth = 0, key = '') {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value.length > 80 ? `String(${value.length})` : value;
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    if (depth >= 4) return `Array(${value.length})`;
+    return { _len: value.length, _sample: value.slice(0, 2).map((v) => redactPayloadShape(v, depth + 1)) };
+  }
+  const entries = Object.entries(value);
+  if (depth >= 4) return `Object(${entries.length})`;
+  if (SHAPE_LOG_CONTENT_KEYS.has(key)) return { _keys: entries.map(([k]) => k) };
+  return Object.fromEntries(entries.map(([k, v]) => [k, redactPayloadShape(v, depth + 1, k)]));
+}
+
 /**
  * Common join-key fields included on every export tracking event so we can
  * left-join to the frontend `attachment_upload_*` events on
@@ -169,11 +222,19 @@ export function joinKeyProps(ctx) {
  * Never throws — a tracking failure must never break the export function.
  */
 export async function trackExportEvent(eventName, properties) {
+  // Forge variables are scoped by environment. Staging deploys set this flag;
+  // production leaves it unset so real export telemetry continues.
+  if (process.env.MIXPANEL_DISABLED === 'true') return;
   const token = process.env.MIXPANEL_TOKEN;
   if (!token) {
     console.debug('Export: MIXPANEL_TOKEN not set — skipping analytics');
     return;
   }
+  // Quota sampling (src/lib/exportSampling.js). Null means "drop this one";
+  // otherwise the returned props carry the `sample_rate` stamp that lets a
+  // count be extrapolated as `count / sample_rate`.
+  const sampleProps = decideExportSample(eventName);
+  if (sampleProps === null) return;
   try {
     const body = JSON.stringify([{
       event: eventName,
@@ -199,6 +260,9 @@ export async function trackExportEvent(eventName, properties) {
         $insert_id: crypto.randomUUID(),
         source: 'forge_export',
         ...properties,
+        // The sampler returns the final absolute rate. Caller metadata must
+        // not replace it or make downstream extrapolation wrong.
+        ...sampleProps,
       },
     }]);
 
@@ -257,6 +321,51 @@ async function ensureCustomContentParsed(ctx) {
   return ctx.customContentParsed;
 }
 
+/**
+ * Reads the export PNG's own pixel width/height without downloading the
+ * whole file: a byte-Range request for the first 32 bytes is enough to cover
+ * the PNG signature + IHDR chunk (see src/lib/pngDimensions.js). If the
+ * Confluence attachment endpoint ignores the Range header it just returns the
+ * full file — readPngDimensions only reads the leading bytes it needs either
+ * way, so correctness doesn't depend on Range support, only bandwidth does.
+ *
+ * Never throws: a failure here must not fail the whole export (the diagram
+ * still exports, just without a declared intrinsic size — the pre-existing
+ * mediaSingle-only-width behavior). Logged with console.error and surfaced
+ * via the `media_width_px`/`media_height_px: null` telemetry on the success
+ * event, so the degrade stays visible rather than silently masked.
+ *
+ * `usedAsUser` picks the SAME identity that resolved the attachments lookup
+ * (asApp() vs the asUser() 404-fallback, see the handler) — a page asApp()
+ * can't read is a page it likely can't download from either, so this avoids
+ * a doomed second asApp() call on the fallback path.
+ */
+async function fetchPngDimensions(linksBase, downloadLink, attachmentName, pageId, usedAsUser) {
+  const downloadUrl = `${linksBase}${downloadLink}`;
+  try {
+    const requester = usedAsUser ? api.asUser() : api.asApp();
+    // requestConfluence rejects a plain string URL at runtime — @forge/api
+    // requires a Route built from the `route` tagged template, or (as here,
+    // where the full absolute URL is already known from `_links.base` +
+    // `downloadLink`) `routeFromAbsolute`, which strips it down to the
+    // pathname+search a Route carries. See the ReadonlyRoute brand check in
+    // @forge/api's safeUrl.js — a bare string throws
+    // "You must create your route using the 'route' export from
+    // '@forge/api'", which is exactly the production error this fixes.
+    const response = await requester.requestConfluence(routeFromAbsolute(downloadUrl), {
+      headers: { Range: 'bytes=0-31' },
+    });
+    if (!response.ok) {
+      throw new Error(`png_header_fetch_failed_${response.status}`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return readPngDimensions(buffer);
+  } catch (error) {
+    console.error(`Export: failed to read PNG dimensions for ${attachmentName} on page ${pageId}:`, error);
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Export handler
 // ---------------------------------------------------------------------------
@@ -264,6 +373,11 @@ async function ensureCustomContentParsed(ctx) {
 export const handler = async (payload) => {
   const ctx = extractExportContext(payload);
   const { pageId, customContentId, attachmentName } = ctx;
+
+  // #554 diagnostic — see redactPayloadShape above. Sampled, shape only.
+  if (ctx.format === 'other' && Math.random() < OTHER_EXPORT_SHAPE_SAMPLE_RATE) {
+    console.log(`Export #554: exportType=other payload shape ${JSON.stringify(redactPayloadShape(payload))}`);
+  }
 
   // NO custom-content read on the success path. Measured on Lite production
   // 2026-08-16: `exportMacro` runs 12,407 times/day, 40.3% of ALL Forge
@@ -303,6 +417,7 @@ export const handler = async (payload) => {
     // The fallback path is the new failure mode introduced by switching to asApp() (issue #74) —
     // track usage so we can measure how often it triggers and whether it succeeds.
     let fallbackInfo = null;
+    let usedAsUser = false;
     if (!response.ok && response.status === 404) {
       fallbackInfo = { used: true, status: null, error_name: null };
       try {
@@ -310,6 +425,7 @@ export const handler = async (payload) => {
         fallbackInfo.status = userResponse.status;
         if (userResponse.ok) {
           response = userResponse;
+          usedAsUser = true;
         }
       } catch (e) {
         fallbackInfo.error_name = e?.name ?? 'UnknownError';
@@ -320,9 +436,17 @@ export const handler = async (payload) => {
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`Export: attachments API ${response.status} for ${attachmentName} on page ${pageId}`, errorBody);
-      const failureReason = response.status === 401 || response.status === 403
-        ? 'needs_authentication'
-        : `attachments_api_${response.status}`;
+      // #654: when the asUser() retry threw NEEDS_AUTHENTICATION_ERR there was no user
+      // credential (guest, anonymous, or server-side export). That says nothing about the
+      // page, so it must not be recorded as a missing/unreadable page (`attachments_api_404`).
+      let failureReason;
+      if (response.status === 401 || response.status === 403) {
+        failureReason = 'needs_authentication';
+      } else if (fallbackInfo?.error_name === 'NEEDS_AUTHENTICATION_ERR') {
+        failureReason = 'no_user_credential';
+      } else {
+        failureReason = `attachments_api_${response.status}`;
+      }
       // Failure path — resolve the type here so this event is sizeable by
       // diagram type. The success path never reaches this and never reads.
       await ensureCustomContentParsed(ctx);
@@ -340,6 +464,39 @@ export const handler = async (payload) => {
     if (!attachmentsData?.results?.length) {
       console.debug(`Export: ${attachmentName} not found on page ${pageId}`);
 
+      // The attachment lookup succeeded and returned no file. Only now may a
+      // remembered lifecycle state explain the missing image. Use the same
+      // Confluence identity that successfully read the attachment list.
+      const requester = usedAsUser ? api.asUser() : api.asApp();
+      const propertyRequest = (url, method, body) => requester.requestConfluence(
+        routeFromAbsolute(new URL(url, payload.context?.siteUrl ?? 'https://example.atlassian.net').href),
+        { method, ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}) },
+      );
+      const propertyFailures = [];
+      const propertyFailure = (operation, error) => {
+        console.warn(`Export: PNG state ${operation} failed: ${error?.message}`);
+        propertyFailures.push({ operation, reason: /^\w+_http_\d+$/.test(error?.message ?? '') ? error.message : 'request_error' });
+      };
+      const reportPropertyFailures = async () => {
+        for (const failure of propertyFailures.splice(0)) {
+          await trackExportEvent('png_export_state_persistence_failed', {
+            ...joinKeyProps(ctx), png_export_property_operation: failure.operation,
+            failure_reason: failure.reason, surface: 'backend',
+          });
+        }
+      };
+      const stored = await readPngState(propertyRequest, pageId, customContentId, propertyFailure);
+      await reportPropertyFailures();
+      const known = stored.kind === 'ok' && stored.value.state !== 'ready';
+      if (known) {
+        await trackExportEvent('macro_export_placeholder_shown', {
+          ...joinKeyProps(ctx),
+          png_export_placeholder_reason: stored.value.state,
+          ...fallbackProps(fallbackInfo),
+        });
+        return createErrorDocument(pngPlaceholderMessage(stored.value.state));
+      }
+
       // Failure telemetry still needs the real diagram type. The removed
       // PlantUML server-render fallback used to trigger this lazy read as a
       // side effect; keep the diagnostic behavior without the external fetch.
@@ -349,20 +506,58 @@ export const handler = async (payload) => {
         failure_reason: 'attachment_not_found',
         ...fallbackProps(fallbackInfo),
       });
+      if (stored.kind !== 'error') {
+        const now = Date.now();
+        const wrote = await writePngState(propertyRequest, {
+          pageId, customContentId, state: 'missing', attemptId: `export-${crypto.randomUUID()}`,
+          startedAt: now, startAttempt: true,
+          expectedVersion: stored.kind === 'absent' ? null : stored.version,
+        }, propertyFailure, now);
+        await reportPropertyFailures();
+        if (wrote) await trackExportEvent('png_export_state_changed', {
+          ...joinKeyProps(ctx), png_export_state: 'missing', surface: 'backend',
+        });
+      }
       return createErrorDocument("Diagram image not yet generated. Please open the Confluence page containing this diagram to generate it, then export again.");
     }
 
     const attachment = attachmentsData.results[0];
-    const downloadLink = `${attachmentsData._links.base}${attachment.downloadLink}`;
+
+    // The export ADF must reference the PNG as a native Confluence media file,
+    // never as an external URL — see createMediaDocument below. Without a
+    // fileId there is nothing to reference, so surface it instead of degrading.
+    if (!attachment.fileId) {
+      console.error(`Export: attachment ${attachmentName} on page ${pageId} carries no fileId`);
+      await trackExportEvent('macro_export_failed', {
+        ...joinKeyProps(ctx),
+        failure_reason: 'missing_file_id',
+        ...fallbackProps(fallbackInfo),
+      });
+      return createErrorDocument('Diagram image reference not available for export');
+    }
 
     console.info(`Export: found ${attachmentName} on page ${pageId}`);
+
+    // The file media node is sized from the media file's own metadata, not
+    // from mediaSingle's width/widthType hint — measured on lite-stg
+    // 2026-08-19: with no width attrs the placed image was 1.77in; with a
+    // mediaSingle width hint (either percentage or an equal-valued pixel
+    // count) it was 5.38in, never the 6.68in the previous `type: "external"`
+    // node produced for the same page. Declaring the image's own intrinsic
+    // width/height directly on the media node (not just on mediaSingle) is
+    // the ADF-documented way to give a file node a natural size; see
+    // fetchPngDimensions below for how those pixels are read without a full
+    // download.
+    const dimensions = await fetchPngDimensions(attachmentsData._links.base, attachment.downloadLink, attachmentName, pageId, usedAsUser);
 
     await trackExportEvent('macro_export_succeeded', {
       ...joinKeyProps(ctx),
       ...fallbackProps(fallbackInfo),
+      media_width_px: dimensions?.width ?? null,
+      media_height_px: dimensions?.height ?? null,
     });
 
-    return createMediaDocument(downloadLink);
+    return createMediaDocument(attachment.fileId, pageId, dimensions);
 
   } catch (error) {
     const errorName = error?.name ?? 'UnknownError';
@@ -386,6 +581,17 @@ export const handler = async (payload) => {
   }
 };
 
+export function pngPlaceholderMessage(state) {
+  switch (state) {
+    case 'generating': return 'Diagram image is being generated. Please export again shortly.';
+    case 'waiting_for_publish': return 'Diagram image is waiting for the Confluence page to be published. Publish the page, then export again.';
+    case 'generation_failed': return 'Diagram image generation failed. Open the diagram page to retry, then export again.';
+    case 'upload_denied': return 'Diagram image could not be attached because permission was denied. Ask a page editor to open the diagram, then export again.';
+    case 'upload_failed': return 'Diagram image upload failed. Open the diagram page to retry, then export again.';
+    default: return 'Diagram image is missing. Open the diagram page to generate it, then export again.';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ADF helpers
 // ---------------------------------------------------------------------------
@@ -408,23 +614,59 @@ export function createErrorDocument(message) {
   };
 }
 
-function createMediaDocument(downloadLink) {
+/**
+ * Builds the export document as a native Confluence media reference.
+ *
+ * A media node of type "external" pointing at the attachment download endpoint
+ * needs a Confluence session. Confluence's own export pipeline has one; a
+ * third-party exporter running outside the page context does not, so it
+ * received 404 and dropped the image. Reproduced with Scroll PDF Exporter on
+ * 2026-08-19 — see docs/debugging/scroll-pdf-export.md for the issue report.
+ *
+ * A file media node carries only the fileId and the page's media collection.
+ * Every renderer resolves it with its own credentials, so the diagram keeps the
+ * access control the page already has and no URL is published.
+ *
+ * `dimensions` is the export PNG's own {width, height} in px (fetchPngDimensions),
+ * or null if that read failed. When known, it is declared BOTH on the media
+ * node (its documented "intrinsic size" attrs) and on mediaSingle (the width
+ * hint alone was measured insufficient — see the call site's comment) —
+ * candidate fix for the placement-width regression tracked in this PR; not
+ * yet confirmed against a real PDF export, see the PR body for the
+ * pdfimages -list measurement.
+ *
+ * Falls back to the pre-existing mediaSingle-only 760px hint when dimensions
+ * are unknown, matching the behavior this replaces.
+ */
+function createMediaDocument(fileId, pageId, dimensions) {
+  const mediaAttrs = {
+    "type": "file",
+    "id": fileId,
+    "collection": `contentId-${pageId}`,
+  };
+  const mediaSingleAttrs = { "layout": "center" };
+
+  if (dimensions) {
+    mediaAttrs.width = dimensions.width;
+    mediaAttrs.height = dimensions.height;
+    mediaSingleAttrs.width = dimensions.width;
+    mediaSingleAttrs.widthType = "pixel";
+  } else {
+    mediaSingleAttrs.width = 760;
+    mediaSingleAttrs.widthType = "pixel";
+  }
+
   return {
     type: "doc",
     version: 1,
     content: [
       {
         "type": "mediaSingle",
-        "attrs": {
-          "layout": "center"
-        },
+        "attrs": mediaSingleAttrs,
         "content": [
           {
             "type": "media",
-            "attrs": {
-              "type": "external",
-              "url": downloadLink
-            }
+            "attrs": mediaAttrs
           }
         ]
       }

@@ -13,9 +13,10 @@
 //    "close current modal, reopen as editor" flow.
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 
 import globals from '@/model/globals'
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId'
 import { getContext as initForgeContext, getView, openModal } from '@/model/globals/forgeGlobal'
 import AsyncApiViewer from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
 import macroMetrics from '@/services/MacroMetrics'
@@ -24,7 +25,7 @@ import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 import { mountRoot } from '@/mount-root'
 import { guardEditClick } from '@/utils/guardEditClick'
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
 import EventBus from './EventBus'
 import { attributionFromCustomContent } from '@/model/DiagramAttribution'
 import { publishDiagramAttribution } from '@/utils/viewerLoadOutcome'
@@ -37,12 +38,16 @@ let viewerCustomContentId: string | undefined
 
 async function initializeMacro() {
   const context = await initForgeContext()
-  // Read customContentId from config (macro context) AND modal context —
-  // the dashboard's View flow opens this viewer via a modal with the
-  // contentId passed through extension.modal.customContentId.
-  const customContentId =
-    context.extension?.config?.customContentId ||
-    context.extension?.modal?.customContentId
+  // Read customContentId from config (macro context), modal context AND a
+  // pasted typed deeplink — the dashboard's View flow opens this viewer via a
+  // modal with the contentId passed through extension.modal.customContentId,
+  // and a macro created by pasting `/d/asyncapi/<cloudId>/<contentId>` (the
+  // link the Lite byline hands back after a create) has no config at all: the
+  // id lives only in the matched URL that Confluence persists in the page ADF.
+  // Reading config/modal directly here is exactly how the graph and openapi
+  // viewers rendered a permanently blank macro for a pasted link — see the
+  // docblock on resolveEffectiveCustomContentId.
+  const customContentId = resolveEffectiveCustomContentId(context)
   viewerCustomContentId = customContentId
 
   let spec: string | undefined
@@ -78,7 +83,6 @@ async function initializeMacro() {
     console.error('forge-asyncapi-viewer: #app element missing')
     return
   }
-
   // The embed macro references a document owned elsewhere. On a published page
   // it must not offer an inline Edit pencil — editing the source happens at the
   // origin (dashboard / original macro), and re-targeting which document is
@@ -99,6 +103,7 @@ async function initializeMacro() {
     // Inline React viewer. The dashboard view gets an Edit button that swaps
     // to the Studio editor in place (no second modal, no gesture loss); the
     // fullscreen macro viewer omits it (showInlineEdit === false).
+    const reactRoot = createRoot(root)
 
     async function closeModal() {
       try {
@@ -111,10 +116,17 @@ async function initializeMacro() {
 
     async function renderEditor() {
       try {
+        // This path swaps the current viewer iframe into the editor instead of
+        // loading forge-asyncapi-editor.ts, so start replay at the swap point.
+        trackAuthoringStarted({
+          macroType: 'asyncapi',
+          entryPoint: 'dashboard',
+          customContentId,
+        })
         const [{ default: AsyncApiStudioEditor }] = await Promise.all([
           import('@/components/Editor/AsyncApiEditor/AsyncApiStudioEditor'),
         ])
-        ReactDOM.render(
+        reactRoot.render(
           React.createElement(AsyncApiStudioEditor, {
             initialSpec: spec,
             onSave: async (newSpec: string) => {
@@ -129,31 +141,24 @@ async function initializeMacro() {
                 spec: newSpec,
                 pinToId: customContentId,
               })
-              try {
-                await saveToPlatform(diagram)
-              } catch (err) {
-                console.error('Save failed:', err)
-                throw err
-              }
+              await saveToPlatform(diagram)
               await closeModal()
             },
             onCancel: closeModal,
           }),
-          root,
         )
       } catch (err) {
         console.error('Failed to swap viewer → editor:', err)
       }
     }
 
-    ReactDOM.render(
+    reactRoot.render(
       React.createElement(AsyncApiViewer, {
         spec,
         onEdit: showInlineEdit ? renderEditor : undefined,
         onCancel: closeModal,
         loadError,
       }),
-      root,
     )
   } else {
     // -------- Page-rendered macro path --------
@@ -163,6 +168,16 @@ async function initializeMacro() {
       import('@/components/Viewer/AsyncApiViewer/AsyncApiMacroViewer.vue'),
     ])
     const doc: Diagram = existing ?? { ...NULL_DIAGRAM, diagramType: DiagramType.AsyncApi, code: spec ?? '' }
+    // Fullscreen viewer paywall (Lite): blocking modal over the read-only
+    // spec on a saturated space. Same gate the other dedicated viewers get
+    // via bootstrapForgeViewer; no-ops outside fullscreen and on non-Lite.
+    const { tryFullscreenViewerPaywall } = await import('@/utils/paywall/mountPaywallGate')
+    if (await tryFullscreenViewerPaywall({
+      doc,
+      content: AsyncApiMacroViewer,
+      contentProps: { doc, loadError, hideEdit: isEmbedMacro },
+      macroKind: 'asyncapi',
+    })) return
     // mountRoot stuffs doc into the vuex store, but our Vue wrapper reads
     // from a `doc` prop (matches OpenApiViewer's signature). Pass it via
     // the props arg too — same for loadError, propagated from the
@@ -189,14 +204,6 @@ EventBus.$on('edit', async () => {
     // shared forgeIndex listener firing on this same click costs no extra GET.
     if (!(await guardEditClick({ customContentId: viewerCustomContentId, macroType: 'asyncapi' }))) return;
 
-    trackAnalyticsEvent('macro_edit_started', {
-      feature_area: 'macro',
-      surface: 'viewer',
-      macro_type: 'asyncapi',
-      entry_point: 'macro_toolbar',
-      operation_mode: 'edit',
-      custom_content_id: viewerCustomContentId,
-    })
     await openModal({
       resource: 'main',
       onClose: () => {

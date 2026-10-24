@@ -1,9 +1,10 @@
+import { json } from '../OkResponse';
 import type { ForgeRequestData } from '../utils/authenticate';
 import {
   authenticateMetricsRequest,
   errorResponse,
   isSnapshotEnrolled,
-  jsonResponse,
+  NO_STORE_HEADERS,
   metricsKvKey,
   readLatestPointer,
   type DomainMetrics,
@@ -21,11 +22,11 @@ export const onRequest = async ({
 }) => {
   try {
     if (request.method !== 'GET') {
-      return jsonResponse({ error: 'Method Not Allowed' }, 405);
+      return json({ error: 'Method Not Allowed' }, { status: 405, headers: NO_STORE_HEADERS });
     }
     const url = new URL(request.url);
     const space = url.searchParams.get('space');
-    if (!space) return jsonResponse({ error: 'Missing space parameter' }, 400);
+    if (!space) return json({ error: 'Missing space parameter' }, { status: 400, headers: NO_STORE_HEADERS });
 
     const context = await authenticateMetricsRequest(request, env, {
       forgeContext: data.forgeContext,
@@ -40,10 +41,10 @@ export const onRequest = async ({
     const metrics = domainData?.spaces?.[space] ?? null;
 
     if (url.searchParams.get('contract') === '2') {
-      return jsonResponse({ mode, metrics });
+      return json({ mode, metrics }, { headers: NO_STORE_HEADERS });
     }
     if (!metrics) return new Response(null, { status: 404 });
-    return jsonResponse(metrics);
+    return json(metrics, { headers: NO_STORE_HEADERS });
   } catch (error) {
     return errorResponse(error);
   }

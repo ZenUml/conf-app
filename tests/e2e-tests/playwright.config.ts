@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { defineConfig, devices } from '@playwright/test';
+import { PROJECT_DEPENDENCIES } from './config/project-dependencies.mjs';
 import { AUTH_STATE_PATH } from './config/auth-state.js';
 
 export default defineConfig({
@@ -57,6 +58,7 @@ export default defineConfig({
   projects: [
     {
       name: 'auth',
+      dependencies: PROJECT_DEPENDENCIES.auth,
       testMatch: 'setup/auth.setup.ts',
       use: {
         ...devices['Desktop Chrome'],
@@ -68,14 +70,14 @@ export default defineConfig({
       name: 'pages',
       testMatch: 'render/pages.setup.ts',
       use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
+      dependencies: PROJECT_DEPENDENCIES['pages'],
       timeout: 180000,
     },
     {
       name: 'render',
       testMatch: 'render/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
-      dependencies: ['pages'],
+      dependencies: PROJECT_DEPENDENCIES['render'],
       fullyParallel: false,
     },
     {
@@ -98,7 +100,7 @@ export default defineConfig({
       // module-level state and each test builds its own page.
       fullyParallel: true,
       use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
+      dependencies: PROJECT_DEPENDENCIES['insert'],
       timeout: 300000,
     },
     {
@@ -119,14 +121,14 @@ export default defineConfig({
       name: 'feedback',
       testMatch: 'feedback/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
+      dependencies: PROJECT_DEPENDENCIES['feedback'],
       timeout: 300000,
     },
     {
       name: 'syntax-validation',
       testMatch: 'syntax-validation/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
+      dependencies: PROJECT_DEPENDENCIES['syntax-validation'],
       timeout: 300000,
     },
     {
@@ -137,7 +139,7 @@ export default defineConfig({
       name: 'fullscreen',
       testMatch: 'fullscreen/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
+      dependencies: PROJECT_DEPENDENCIES['fullscreen'],
       timeout: 300000,
     },
     {
@@ -147,7 +149,7 @@ export default defineConfig({
       name: 'agent-link',
       testMatch: 'agent-link/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
+      dependencies: PROJECT_DEPENDENCIES['agent-link'],
       timeout: 300000,
     },
     {
@@ -156,13 +158,14 @@ export default defineConfig({
       name: 'asyncapi',
       testMatch: 'asyncapi/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
-      dependencies: ['auth'],
+      dependencies: PROJECT_DEPENDENCIES['asyncapi'],
       timeout: 120000,
     },
     {
       // Standalone visual snapshots against local Vite dev server (pnpm start:local).
       // No Confluence/Forge auth required.
       name: 'preview',
+      dependencies: PROJECT_DEPENDENCIES.preview,
       testMatch: ['viewer-preview*.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],

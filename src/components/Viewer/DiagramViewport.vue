@@ -13,8 +13,11 @@
       v-if="isInteractive"
       :macro-type="macroType"
       :label="label"
+      :ready="!!panZoom"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
+      @fit-height="fitAxis('height')"
+      @fit-width="fitAxis('width')"
     />
     <ViewportZoomHint v-if="isInteractive" ref="zoomHint" :macro-type="macroType" />
   </div>
@@ -344,6 +347,17 @@ export default {
     },
     zoomOut() {
       this.panZoom?.zoomOut();
+    },
+    fitAxis(axis) {
+      if (!this.panZoom) return;
+      this.panZoom.resize();
+      const sizes = this.panZoom.getSizes();
+      const extent = sizes.viewBox?.[axis];
+      if (!(extent > 0) || !(sizes[axis] > 0) || !(sizes.realZoom > 0)) return;
+      // svg-pan-zoom's public zoom is relative to its initial fit, whereas
+      // realZoom maps natural SVG units to pixels. Fit just the requested axis.
+      this.panZoom.zoom(this.panZoom.getZoom() * sizes[axis] / extent / sizes.realZoom);
+      this.panZoom.center();
     },
   },
 };

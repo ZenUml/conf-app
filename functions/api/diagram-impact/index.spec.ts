@@ -42,4 +42,13 @@ describe('GET /api/diagram-impact', () => {
     expect(identityResult.status).toBe(400);
     await expect(identityResult.json()).resolves.toEqual({ error: 'invalid_request' });
   });
+
+  it('answers 403 no_user_credential for a valid FIT with a system token but no user token', async () => {
+    const result = await onRequest({
+      request: new Request('https://example.test/api/diagram-impact?customContentId=content-a', { headers: { 'x-forge-oauth-system': 'sys' } }),
+      env: { DB: db() }, data,
+    } as any);
+    expect(result.status).toBe(403);
+    await expect(result.json()).resolves.toEqual({ error: 'no_user_credential' });
+  });
 });

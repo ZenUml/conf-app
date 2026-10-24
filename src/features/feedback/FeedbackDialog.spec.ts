@@ -30,6 +30,25 @@ describe('FeedbackDialog', () => {
     expect(editor.get('.feedback-dialog').classes()).not.toContain('feedback-dialog--forge-modal')
   })
 
+  it('tells a viewer-surface sender who receives the message', () => {
+    const wrapper = mount(FeedbackDialog, { props: { context, submit: vi.fn() } })
+
+    const note = wrapper.get('[data-testid="feedback-recipient-note"]')
+    expect(note.text()).toBe('This goes to the ZenUML team, not the page author.')
+    expect(wrapper.get('textarea').attributes('aria-describedby')).toBe(note.attributes('id'))
+  })
+
+  it.each(['editor', 'fullscreen', 'png_export', 'get_started', 'dashboard'] as const)(
+    'does not show the recipient note on the %s surface',
+    (surface) => {
+      const wrapper = mount(FeedbackDialog, { props: { context: { ...context, surface }, submit: vi.fn() } })
+
+      expect(wrapper.find('[data-testid="feedback-recipient-note"]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('not the page author')
+      expect(wrapper.get('textarea').attributes('aria-describedby')).toBeUndefined()
+    },
+  )
+
   it('keeps context collapsed and requires a description', async () => {
     const submit = vi.fn()
     const wrapper = mount(FeedbackDialog, { props: { context, submit } })

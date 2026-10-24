@@ -58,7 +58,15 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "agent_link_identity_unresolved",
   "agent_link_oauth_authorized",
   "agent_link_oauth_refresh_failed",
+  "agent_link_oauth_token_refresh_completed",
   "agent_link_oauth_revoked",
+  "agent_link_oauth_authorize_routed",
+  "agent_link_app_view_requested",
+  "agent_link_app_view_failed",
+  "agent_link_mcp_initialized",
+  // Our refresh-token chain revoked on reuse or a client mismatch
+  // (oauth/authServer.ts handleToken).
+  "agent_link_oauth_chain_revoked",
   // Headless writes (design §10). `agent_link_diagram_created` carries the
   // paywall gate's decision in `paywall_gate` — the only way to see how often
   // the Lite limit is actually consulted rather than skipped on an unknown
@@ -69,6 +77,10 @@ export const CANONICAL_EVENT_NAME_LIST = [
   // carry the write guard's verdict instead.
   "agent_link_page_created",
   "agent_link_page_updated",
+  // Headless MCP usage: one event per authenticated tools/call (every tool,
+  // reads included) and one per initialize handshake (which client).
+  "agent_link_mcp_tool_called",
+  "agent_link_mcp_initialized",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

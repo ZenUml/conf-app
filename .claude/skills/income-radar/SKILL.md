@@ -33,14 +33,18 @@ python3 $S radar --local         # offline, from the last `sync` snapshot (fast,
 
 ## What it reports
 
-Two sections:
+Four sections:
 
 - **INCOMING** — renewals due in the next N days, summed as expected income. Each row carries
   the same payment-risk `flags` as MISSED, and the header splits out how much of the expected
   total sits on a flagged/dead card (a renewal on `no-payment-method` is the *leading*
   indicator it will fail and land in MISSED next cycle).
 - **MISSED** — payer renewals that lapsed in the past N days without a new payment landing,
-  summed as income at risk.
+  summed as income at risk. A license still in its grace period is excluded (see IN GRACE).
+- **IN GRACE** — paid coverage ended (`paid_thru < today`) but the license is active with
+  `inGracePeriod = Yes` and its `maintenanceEndDate` (the grace deadline, `grace_until`) is
+  today or later. The renewal is pending, not missed. Listed regardless of the look-back
+  window until the grace deadline passes; its total is separate from MISSED.
 - **EVALUATIONS** — trials (`licenseType = EVALUATION`) expiring in the next N days (a
   billing observation window — not an instruction to contact them) or that expired in the past N days. A lifecycle
   signal, **not income** — shown in its own section, kept out of the $ totals. Each row shows
@@ -67,14 +71,15 @@ are excluded.
 - **expected amount** — the `vendorAmount` of that client's most recent *paid* transaction
   (the number most likely to repeat on the next cycle).
 - **INCOMING**: `today <= paid_thru <= today + N`.
-- **MISSED**: `today - N <= paid_thru < today` — no newer paid transaction has extended
-  coverage past today. Reinforced with `inGracePeriod = Yes` and
-  `invoiceDunningReason` ("no-payment-method") flags, plus `inactive` if the license itself
+- **IN GRACE**: `paid_thru < today`, `inGracePeriod = Yes`, `today <= grace_until`, where
+  `grace_until` is the license `maintenanceEndDate`. Checked before INCOMING and MISSED.
+- **MISSED**: `today - N <= paid_thru < today` and not IN GRACE — no newer paid transaction
+  has extended coverage past today. Reinforced with `invoiceDunningReason` ("no-payment-method") flags, plus `inactive` if the license itself
   went inactive.
 
 ## Output
 
-**Default (text):** a header, then four sections, each a headline + a padded table. Empty
+**Default (text):** a header, then five sections, each a headline + a padded table. Empty
 sections print `(none)`. In `--local` mode a `[local snapshot @ … (Nh old)]` line goes to
 **stderr**, keeping stdout clean.
 
@@ -85,6 +90,8 @@ INCOMING (next Nd): C renewals, ~ $T expected  (at-risk on flagged cards: $R)
   due  app  billing  amount  flags  tier  company  host  entitlement
 MISSED (past Nd): C renewals overdue, ~ $T at risk
   paid_thru  days_late  app  billing  amount  flags  company  host  entitlement
+IN GRACE: C renewals pending (paid coverage ended, license still active), ~ $T
+  grace_until  days_left  paid_thru  app  billing  amount  flags  company  host  entitlement
 note: … (3 lines on renewal-timing-as-proxy)
 EVALUATIONS expiring (next Nd): C trials — conversion window (not income)
   expires  app  tier  status  converted  company  host  entitlement
@@ -100,6 +107,7 @@ no total by design (trials are $0). Each `rows[]` entry has the fields of its se
   "asof": "YYYY-MM-DD", "days": N,
   "incoming": { "total": <$>, "at_risk": <$>, "count": <n>, "rows": [ { "company","host","entitlement","app","billing","amount","tier","flags","due" } ] },
   "missed":   { "total": <$>, "count": <n>, "rows": [ { …, "paid_thru", "days_late" } ] },
+  "in_grace": { "total": <$>, "count": <n>, "rows": [ { …, "paid_thru", "grace_until", "days_left" } ] },
   "evaluations": {
     "expiring": { "count": <n>, "rows": [ { "expires","app","tier","status","converted","company","host","entitlement" } ] },
     "expired":  { "count": <n>, "rows": [ { …, "days_ago" } ] }

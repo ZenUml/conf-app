@@ -2,7 +2,7 @@
 // ZenUML) macro inside the fullscreen Forge bridge modal. Source of truth
 // is docs/fullscreen-test-rerun-data.json.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectModalVisible,
@@ -11,6 +11,7 @@ import {
   fillEditorTitle,
   clickEditorPublish,
   expectModalClosed,
+  clickHeaderClose,
   switchEditorTab,
   modalContentFrame,
 } from '../../helpers/FullscreenModalHelper.js';
@@ -19,10 +20,11 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
 
-test.describe('Sequence — Create flow', { tag: ['@fullscreen', '@sequence'] }, () => {
+test.describe('Sequence — Create flow', { tag: ['@test:sequence-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@sequence'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence not in profile');
 
@@ -124,10 +126,15 @@ test.describe('Sequence — Create flow', { tag: ['@fullscreen', '@sequence'] },
   });
 
   // sequence-create:9 — Close dirty.
-  test('sequence-create:9 — dirty editor: synthetic beforeunload is true', async ({ page }) => {
-    await insertMacro(page, 'sequence');
+  test('sequence-create:9 — dirty draft survives header close', async ({ page }) => {
+    const { editorPage, macroName } = await insertMacro(page, 'sequence');
     await dirtyEditor(page, 'sequence');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result).toBe(true);
+    // view.onClose replaced beforeunload; the draft protects unsaved work.
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
+    await clickHeaderClose(page, 'edit');
+    await expectModalClosed(page, 'edit');
+    await editorPage.clickInsertElements();
+    await editorPage.searchAndSelectMacro('diagram', macroName);
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
   });
 });

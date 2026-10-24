@@ -5,6 +5,7 @@ import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { syncCustomContent } from "@/services/CustomContent";
 import forgeGlobal from "@/model/globals/forgeGlobal";
+import { _resetCreationFlowForTesting, getCreationFlowProps } from "@/utils/analytics/creationFlow";
 import macroMetrics from "@/services/MacroMetrics";
 import { EditorState, Transaction } from '@codemirror/state';
 import {
@@ -58,6 +59,7 @@ describe('Persistence', function () {
     vi.mocked(syncCustomContent).mockClear();
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
+    _resetCreationFlowForTesting();
     resetEditorMutationSession();
   });
 
@@ -123,6 +125,31 @@ describe('Persistence', function () {
         attachment_name: "zenuml-mocked_custom_content_id.png",
       })
     );
+  })
+
+  it('macro_create_succeeded carries the creation origin handed over by the byline (#614)', async () => {
+    (forgeGlobal as any).forgeContext = { extension: { modal: { macroMode: 'editor', creationOrigin: 'byline_editor' } } };
+    _resetCreationFlowForTesting();
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_create_succeeded",
+      expect.objectContaining({ creation_origin: 'byline_editor', creation_flow_id: expect.any(String) })
+    );
+  })
+
+  it('macro_create_succeeded defaults to page_editor and shares its flow id with the start event (#614)', async () => {
+    _resetCreationFlowForTesting();
+    const started = getCreationFlowProps();
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'macro_create_succeeded')!;
+    expect(call[1]).toMatchObject({ creation_origin: 'page_editor', creation_flow_id: started.creation_flow_id });
+  })
+
+  it('macro_save_succeeded carries no creation properties (#614)', async () => {
+    await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing', diagramType: DiagramType.Sequence }, mockApWrapper);
+    const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'macro_save_succeeded')!;
+    expect(call[1]).not.toHaveProperty('creation_origin');
+    expect(call[1]).not.toHaveProperty('creation_flow_id');
   })
 
   it('macro_create_succeeded carries a numeric save_duration_ms (publish latency)', async () => {

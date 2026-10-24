@@ -11,6 +11,9 @@ vi.mock("./trackAnalyticsEvent", () => ({
   trackAnalyticsEventBeforeUnload: h.trackAnalyticsEventBeforeUnload,
 }));
 
+const forgeGlobalMock = vi.hoisted(() => ({ forgeContext: undefined as any }));
+vi.mock("@/model/globals/forgeGlobal", () => ({ default: forgeGlobalMock }));
+
 vi.mock("./editorMutationTelemetry", () => ({
   getEditorMutationSummary: h.getEditorMutationSummary,
 }));
@@ -29,6 +32,13 @@ import {
   registerEditorCloseTracking,
   trackEditorClosedWithoutSave,
 } from "./editorCloseOutcome";
+import { _resetCreationFlowForTesting, getCreationFlowProps } from "./creationFlow";
+import { DiagramType } from '@/model/Diagram/Diagram';
+import {
+  captureOpenApiEditorBaseline,
+  createOpenApiEditorState,
+  hasOpenApiEditorChanges,
+} from '@/model/OpenApi/OpenApiEditorState';
 
 const fireHostClose = async () => {
   for (const handler of h.closeHandlers) await handler();
@@ -40,6 +50,8 @@ describe("editorCloseOutcome", () => {
     h.closeHandlers.length = 0;
     h.getEditorMutationSummary.mockReturnValue({});
     _resetEditorCloseOutcomeForTesting();
+    _resetCreationFlowForTesting();
+    forgeGlobalMock.forgeContext = undefined;
     // Every case below models a session whose start event fired; the
     // paywall-blocked (never armed) case is tested explicitly.
     markEditorAuthoringStarted();
@@ -71,6 +83,31 @@ describe("editorCloseOutcome", () => {
     expect(h.trackAnalyticsEventBeforeUnload).toHaveBeenCalledTimes(1);
   });
 
+  it("stamps macro_create_cancelled with the start event's creation origin and flow id (#614)", async () => {
+    forgeGlobalMock.forgeContext = { extension: { modal: { macroMode: "editor", creationOrigin: "byline_view" } } };
+    const started = getCreationFlowProps();
+    registerEditorCloseTracking({ getMacroType: () => "graph", operationMode: "create" });
+
+    await fireHostClose();
+
+    const [eventName, props] = h.trackAnalyticsEventBeforeUnload.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(eventName).toBe("macro_create_cancelled");
+    expect(props).toMatchObject({ creation_origin: "byline_view", creation_flow_id: started.creation_flow_id });
+  });
+
+  it("leaves macro_edit_cancelled without creation properties (#614)", async () => {
+    registerEditorCloseTracking({ getMacroType: () => "graph", operationMode: "edit" });
+
+    await fireHostClose();
+
+    const props = (h.trackAnalyticsEventBeforeUnload.mock.calls[0] as unknown as [string, Record<string, unknown>])[1];
+    expect(props).not.toHaveProperty("creation_origin");
+    expect(props).not.toHaveProperty("creation_flow_id");
+  });
+
   it("emits macro_edit_cancelled with host_close when the host closes an unsaved edit", async () => {
     registerEditorCloseTracking({
       getMacroType: () => "mermaid",
@@ -95,6 +132,29 @@ describe("editorCloseOutcome", () => {
       had_changes: true,
     });
     expect(typeof props.editor_open_duration_ms).toBe("number");
+  });
+
+  it("reports a mutated OpenAPI source as a changed edit on host close", async () => {
+    const original = 'openapi: 3.0.0\ninfo:\n  title: Orders API';
+    const diagram = createOpenApiEditorState({
+      id: '123', diagramType: DiagramType.OpenApi, title: 'Orders API', code: original,
+    });
+    const baseline = captureOpenApiEditorBaseline(diagram);
+    let specContent = original;
+    registerEditorCloseTracking({
+      getMacroType: () => 'openapi',
+      operationMode: 'edit',
+      hadChanges: () => hasOpenApiEditorChanges(baseline, specContent, diagram),
+    });
+
+    specContent = `${original}\npaths: {}`;
+    diagram.code = specContent; // Vuex and window.diagram share this object.
+    await fireHostClose();
+
+    expect(h.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith(
+      'macro_edit_cancelled',
+      expect.objectContaining({ macro_type: 'openapi', operation_mode: 'edit', had_changes: true }),
+    );
   });
 
   it("emits macro_create_cancelled for a create session", async () => {

@@ -4,6 +4,9 @@ import PlantUml from '@/components/PlantUml.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
+import Example from '@/utils/sequence/Example';
+import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -67,6 +70,7 @@ describe('PlantUml pan/zoom viewport', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(validatePlantUmlSyntax).mockResolvedValue({ valid: true, error: null, location: null });
     // jsdom lays nothing out, and DiagramViewport refuses to attach to a 0 x 0
     // SVG (svg-pan-zoom would throw InvalidStateError on the singular matrix).
     vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
@@ -96,6 +100,93 @@ describe('PlantUml pan/zoom viewport', () => {
     expect(wrapper.get('[role="toolbar"]').attributes('aria-label')).toBe('PlantUML zoom controls');
     // captureCrop.ts and the export-entry framing rules both select this class.
     expect(wrapper.get('.diagram-viewport-content').classes()).toContain('plantuml-render');
+  });
+
+  it.each([
+    ['authored', '@startuml\nAlice -> Bob: Hello\n@enduml', 'authored'],
+    ['bundled example', Example.PlantUml, 'default'],
+  ])('macro_viewed carries content_state for a %s body (#113)', async (_label, code, expected) => {
+    (window as { forgeGlobal?: unknown }).forgeGlobal = { forgeContext: { extension: {} } };
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: code };
+
+    mount(PlantUml, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ macro_type: 'plantuml', content_state: expected });
+  });
+
+  it('reports a whitespace body even when validation rejects it, preserving the validation path (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = withPlantUmlViewerFallback({
+      ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: ' \n\t ',
+    });
+    vi.mocked(validatePlantUmlSyntax).mockResolvedValueOnce({ valid: false, error: 'Missing @startuml', location: null });
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(validatePlantUmlSyntax).toHaveBeenCalledWith(' \n\t '));
+    const viewed = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
+    expect(viewed).toHaveLength(1);
+    expect(viewed[0][1]).toMatchObject({ macro_type: 'plantuml', content_state: 'empty' });
+    expect(window.fetch).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Missing @startuml'));
+  });
+
+  it('reports the loaded empty body after the fallback example SVG finishes rendering (#113)', async () => {
+    window.__macroLoadStart = 0;
+    let finishFetch!: (response: Response) => void;
+    vi.mocked(window.fetch).mockImplementationOnce(() => new Promise((resolve) => { finishFetch = resolve; }));
+    store.state.diagram = withPlantUmlViewerFallback({
+      ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: '',
+    });
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(window.fetch).toHaveBeenCalled());
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed')).toHaveLength(0);
+    finishFetch(new Response(SERVER_SVG, { status: 200 }));
+    await vi.waitFor(() => {
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(true);
+    });
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_viewed')!;
+    expect(props).toMatchObject({ macro_type: 'plantuml', content_state: 'empty' });
+    expect(window.fetch).toHaveBeenCalled();
+    expect(wrapper.find('svg').exists()).toBe(true);
+  });
+
+  // #113: forgeIndex backfills an empty body with the example on the main load
+  // path, but the embed viewer mounts the referenced document as stored, so a
+  // wiped PlantUML body can reach this component. It reports the view with the
+  // verdict and does not hit the render server.
+  it('emits one macro_viewed with content_state=empty for a loaded empty body and does not fetch (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.PlantUml, plantUmlCode: '' };
+
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const viewed = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed');
+    expect(viewed).toHaveLength(1);
+    expect(viewed[0][1]).toMatchObject({ macro_type: 'plantuml', content_state: 'empty' });
+    expect(window.fetch).not.toHaveBeenCalled();
+
+    // The body arriving later in the same mount must not be a second view.
+    store.state.diagram = { ...store.state.diagram, plantUmlCode: '@startuml\nA -> B\n@enduml' };
+    await vi.waitFor(() => expect(window.fetch).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'macro_viewed')).toHaveLength(1);
+  });
+
+  it('emits no macro_viewed for an empty PlantUML body that never loaded (#113)', async () => {
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM };
+
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.some(([name]) => name === 'macro_viewed')).toBe(false);
   });
 
   it('reports viewport actions as plantuml', async () => {
@@ -175,5 +266,22 @@ describe('PlantUml pan/zoom viewport', () => {
     await vi.waitFor(() => expect(wrapper.find('.plantuml-render svg').exists()).toBe(true));
 
     expect(svgPanZoomMock).not.toHaveBeenCalled();
+  });
+
+  it('does not publish a PlantUML validation error after switching to Mermaid', async () => {
+    let resolveValidation!: (result: any) => void;
+    vi.mocked(validatePlantUmlSyntax).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveValidation = resolve;
+    }));
+    const wrapper = mount(PlantUml, { global: { plugins: [store] } });
+    expect(validatePlantUmlSyntax).toHaveBeenCalled();
+
+    store.commit('updateDiagramType', DiagramType.Mermaid);
+    await wrapper.vm.$nextTick();
+    resolveValidation({ valid: false, error: 'PlantUML syntax error at line 2: Assumed diagram type: sequence', location: null });
+    await Promise.resolve();
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.error).toBeNull();
   });
 });

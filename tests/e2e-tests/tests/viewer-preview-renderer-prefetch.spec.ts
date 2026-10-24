@@ -33,7 +33,7 @@
  * - real Forge flag evaluation, CDN cache headers, cross-iframe warm flip
  *   (forge tunnel items — see docs/features/renderer-prefetch.md)
  */
-import { test, expect } from '@playwright/test'
+import { test, expect } from '../fixtures/mixpanel-test.js'
 import { clearPrefetchState, runPrefetchInPage, probeUrls } from '../helpers/rendererPrefetch'
 import { localDevUrl } from '../helpers/localDevUrl'
 

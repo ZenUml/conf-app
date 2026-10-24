@@ -1,21 +1,10 @@
 // Reusable primitives for testing the unsaved-edit close guard
 // (`src/utils/closeGuard.ts`) end-to-end through the Forge bridge fullscreen
-// modal. The guard registers a `beforeunload` listener on the editor iframe's
-// window that calls preventDefault when isDirty() is true; the bridge X click
-// triggers iframe unload which fires beforeunload which the browser converts
-// into a "Leave site?" confirm dialog.
-//
-// Two ways to verify the guard from a Playwright test:
-//
-//   1. SYNTHETIC dispatch (deterministic): manually dispatch a beforeunload
-//      Event inside the editor frame and read defaultPrevented. No real modal
-//      navigation, no dialog handler, no flake. This is the primary signal.
-//
-//   2. REAL header X click + page.on('dialog'): integration proof. Register
-//      the dialog handler BEFORE clicking X; assert dialog.type() ===
-//      'beforeunload'. Note that Playwright's default behavior auto-dismisses
-//      beforeunload dialogs in some headless modes, so dialog.type() may not
-//      always surface — treat as a complement to synthetic, not a replacement.
+// modal. view.onClose flushes the editor draft before the iframe closes;
+// per-keystroke localStorage drafts also protect work if that callback is lost.
+// Verify dirty edits by reading the draft before closing through the visible
+// header X and reading it after reopening. Synthetic beforeunload is retained
+// only for clean editors; it is not the dirty-close protection mechanism.
 //
 // SCREENSHOT CONVENTION: when these helpers are used as part of a manually-
 // driven test execution (e.g. via Playwright MCP) that records evidence in
@@ -134,6 +123,8 @@ export async function expectGuardContract(
   const cleanResult = await dispatchSyntheticBeforeunload(frame);
   expect(cleanResult, `clean dispatch for ${kind}`).toBe(false);
 
+  const previousDraft = await readPersistedDraft(frame);
+
   // Editor-specific dirty action (or caller-provided override).
   if (options.dirtyAction) {
     await options.dirtyAction();
@@ -141,14 +132,16 @@ export async function expectGuardContract(
     await dirtyEditor(page, kind);
   }
 
-  const dirtyResult = await dispatchSyntheticBeforeunload(frame);
-  expect(dirtyResult, `dirty dispatch for ${kind}`).toBe(true);
+  await expect.poll(async () => {
+    const draft = await readPersistedDraft(frame);
+    return Boolean(draft?.code && draft.code !== previousDraft?.code);
+  }, { timeout: 15_000 }).toBe(true);
 }
 
 /**
  * Per-editor "make it dirty" action. Each editor exposes a different
  * mechanism for state mutation, but the abstraction is the same: change
- * something the close guard's isDirty() callback observes.
+ * something the editor's per-keystroke draft saver observes.
  */
 export async function dirtyEditor(page: Page, kind: EditorKind): Promise<void> {
   const frame = bridgeModalFrame(page);

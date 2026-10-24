@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to define mocks before they're used in vi.mock factories
-const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence } = vi.hoisted(() => {
+const { mockTrackEvent, mockTrackAnalyticsEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence, mockRecordPublishStep } = vi.hoisted(() => {
   const mockTrackEvent = vi.fn();
+  const mockTrackAnalyticsEvent = vi.fn();
+  const mockRecordPublishStep = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
     getAttachmentsV2: vi.fn(),
@@ -15,11 +17,13 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCal
 
   return {
     mockTrackEvent,
+    mockTrackAnalyticsEvent,
     mockApWrapper,
     mockGetContext,
     mockForgeRequest,
     mockCallRemote,
-    mockRequestConfluence
+    mockRequestConfluence,
+    mockRecordPublishStep
   };
 });
 
@@ -28,6 +32,15 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCal
 vi.mock('@/model/captureBlob', () => ({
   captureBlob: vi.fn(),
   default: vi.fn()
+}));
+
+// Per-step publish timing: only the save-time PNG capture reports into it.
+vi.mock('@/utils/analytics/publishTiming', () => ({
+  recordPublishStep: (...args: any[]) => mockRecordPublishStep(...args)
+}));
+
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: (...args: any[]) => mockTrackAnalyticsEvent(...args)
 }));
 
 // Mock md5
@@ -67,6 +80,8 @@ vi.mock('@forge/bridge', () => ({
 }));
 
 import createAttachmentIfContentChanged, { capturePng } from './Attachment';
+import { ForgeRequestError } from '@/utils/forgeRequestError';
+import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
@@ -101,6 +116,9 @@ describe('Attachment', () => {
     vi.clearAllMocks();
     // Reset window state
     delete (window as any).createAttachmentInProgress;
+    // A 429 test leaves a site cooldown behind; never let it defer later tests.
+    localStorage.clear();
+    resetRateLimitCooldown();
     // Setup default mocks for Forge
     mockGetContext.mockResolvedValue({
       extension: { config: { customContentId: 'test-uuid' } }
@@ -323,6 +341,302 @@ describe('Attachment', () => {
       );
 
       consoleErrorSpy.mockRestore();
+    });
+
+    describe('Confluence rate limit (429)', () => {
+      const html429 = (retryAfter?: string) => new ForgeRequestError({
+        status: 429,
+        method: 'GET',
+        url: '/wiki/api/v2/pages/123456/attachments?filename=zenuml-x.png',
+        contentType: 'text/html;charset=utf-8',
+        body: '<!doctype html><html><head><title>HTTP Status 429 – Too Many Requests</title></head></html>',
+        retryAfter,
+      });
+      const analyticsCalls = (name: string) => mockTrackAnalyticsEvent.mock.calls.filter(c => c[0] === name);
+
+      it('defers instead of failing, and records the cooldown from Retry-After', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValue(html429('120'));
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_failed', expect.any(String), expect.anything(),
+        );
+        expect(analyticsCalls('attachment_upload_rate_limited')).toEqual([[
+          'attachment_upload_rate_limited',
+          expect.objectContaining({
+            surface: 'viewer',
+            http_status: 429,
+            failed_request: 'GET /wiki/api/v2/pages/{id}/attachments',
+            retry_after_source: 'header',
+            retry_after_s: 120,
+            cooldown_ms: 120_000,
+          }),
+        ]]);
+        expect((window as any).createAttachmentInProgress).toBe(false);
+      });
+
+      it('uses the default cooldown when there is no Retry-After header', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValue(html429());
+
+        await createAttachmentIfContentChanged('test content');
+
+        const [, props] = analyticsCalls('attachment_upload_rate_limited')[0];
+        expect(props).toMatchObject({ retry_after_source: 'default', cooldown_ms: 5 * 60 * 1000 });
+        expect(props).not.toHaveProperty('retry_after_s');
+      });
+
+      it('skips the next view-time backfill without any request while the cooldown runs', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429());
+        await createAttachmentIfContentChanged('test content');
+        mockApWrapper.getAttachmentsV2.mockClear();
+
+        await createAttachmentIfContentChanged('other content');
+
+        expect(mockApWrapper.getAttachmentsV2).not.toHaveBeenCalled();
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+        expect(analyticsCalls('attachment_upload_deferred')).toEqual([[
+          'attachment_upload_deferred',
+          expect.objectContaining({ surface: 'viewer', cooldown_remaining_ms: expect.any(Number) }),
+        ]]);
+        expect(analyticsCalls('attachment_upload_deferred')[0][1].cooldown_remaining_ms).toBeGreaterThan(0);
+      });
+
+      it('retries once the cooldown has passed', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+          mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429('60'));
+          await createAttachmentIfContentChanged('test content');
+          vi.setSystemTime(Date.now() + 61_000);
+          mockApWrapper.getAttachmentsV2.mockClear();
+
+          await createAttachmentIfContentChanged('test content').catch(() => {});
+
+          expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
+          expect(analyticsCalls('attachment_upload_deferred')).toHaveLength(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('still attempts a save-time write during the cooldown', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429());
+        await createAttachmentIfContentChanged('test content');
+        mockApWrapper.getAttachmentsV2.mockClear();
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockCallRemote.mockResolvedValue({ ok: true, queued: true });
+
+        await createAttachmentIfContentChanged('test content', undefined, { customContentId: 'test-uuid', fromSave: true });
+
+        expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
+        expect(analyticsCalls('attachment_upload_deferred')).toHaveLength(0);
+      });
+
+      it('treats a 429 on the data POST the same way', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: false,
+          status: 429,
+          text: vi.fn().mockResolvedValue('Too Many Requests'),
+        });
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockCallRemote).not.toHaveBeenCalledWith('/forge-upload-attachment', expect.anything(), expect.anything());
+        expect(analyticsCalls('attachment_upload_rate_limited')[0][1]).toMatchObject({
+          failed_request: 'POST attachment data',
+          retry_after_source: 'default',
+        });
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_failed', expect.any(String), expect.anything(),
+        );
+      });
+    });
+
+    it('records the status and failing call when the attachments GET gets an HTML page', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockApWrapper.getAttachmentsV2.mockRejectedValue(new ForgeRequestError({
+        status: 502,
+        method: 'GET',
+        url: '/wiki/api/v2/pages/123456/attachments?filename=zenuml-x.png',
+        contentType: 'text/html; charset=UTF-8',
+        body: '<!doctype html><html><head><title>Bad Gateway</title></head><body>…</body></html>',
+      }));
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'non_json_http_502',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({
+          error_name: 'ForgeRequestError',
+          http_status: 502,
+          failed_request: 'GET /wiki/api/v2/pages/{id}/attachments',
+          response_content_type: 'text/html; charset=UTF-8',
+          response_title: 'Bad Gateway',
+        }),
+      );
+    });
+
+    it('keeps a non-JSON 404 on the properties PUT a failure, not an unpublished-parent skip', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] }))
+      });
+      mockForgeRequest.mockRejectedValue(new ForgeRequestError({
+        status: 404,
+        method: 'PUT',
+        url: '/wiki/rest/api/content/123456/child/attachment/att789/properties',
+        contentType: 'text/html',
+        body: '<!doctype html><html><body>not here</body></html>',
+      }));
+
+      await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        expect.any(String), 'attachment_upload_skipped', expect.any(String), expect.anything(),
+      );
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        'non_json_http_404',
+        'attachment_upload_failed',
+        'export',
+        expect.objectContaining({
+          http_status: 404,
+          failed_request: expect.stringMatching(/^PUT /),
+          response_content_type: 'text/html',
+          response_title: 'none',
+        }),
+      );
+    });
+
+    describe('properties PUT HTTP status (#801)', () => {
+      // The real forgeRequest answers a JSON 4xx/5xx with the parsed body unless
+      // the caller opts in; model both behaviours so the spec fails when the
+      // properties PUT does not opt in.
+      const putFails = (status: number) => {
+        const body = JSON.stringify({ statusCode: status, message: `com.atlassian.confluence.api.service.exceptions.PermissionException: put ${status}` });
+        mockForgeRequest.mockImplementation(async (url: string, method: string, _data: unknown, opts?: { throwOnHttpError?: boolean }) => {
+          if (opts?.throwOnHttpError) {
+            throw new ForgeRequestError({ status, method, url, contentType: 'application/json', body, nonJson: false });
+          }
+          return JSON.parse(body);
+        });
+      };
+      const arrange = () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] })),
+        });
+      };
+
+      it('fails a JSON 403 on the properties PUT without rerunning the write as the app', async () => {
+        // The user's POST already created (or versioned) the attachment, so an app
+        // fallback would POST the same name again (create: rejected by v1; update:
+        // an extra version whose PUT then conflicts). Only the PUT was denied.
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        arrange();
+        putFails(403);
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_app_fallback_started', expect.any(String), expect.anything(),
+        );
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_succeeded', expect.any(String), expect.anything(),
+        );
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_failed', 'export',
+          expect.objectContaining({ http_status: 403, via_app_fallback: false, failed_request: expect.stringMatching(/^PUT /) }),
+        );
+      });
+
+      it('fails a JSON 500 on the properties PUT with http_status 500, never as success', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        arrange();
+        putFails(500);
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_succeeded', expect.any(String), expect.anything(),
+        );
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_500', 'attachment_upload_failed', 'export',
+          expect.objectContaining({ http_status: 500, failed_request: expect.stringMatching(/^PUT /) }),
+        );
+        // A JSON-status error is not a non-JSON response: a dashboard reading
+        // "response_content_type is set" as "non-JSON" must not pick it up.
+        const props = mockTrackEvent.mock.calls.find((c) => c[1] === 'attachment_upload_failed')![3] as Record<string, unknown>;
+        expect(props).not.toHaveProperty('response_content_type');
+        expect(props).not.toHaveProperty('response_title');
+      });
+
+      it('treats a 200-wrapped {"statusCode":403} body on the properties PUT as a failure, not a fallback', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        arrange();
+        mockForgeRequest.mockResolvedValue({ statusCode: 403, data: { authorized: true } });
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow();
+
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_app_fallback_started', expect.any(String), expect.anything(),
+        );
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_failed', 'export',
+          expect.objectContaining({ http_status: 403, via_app_fallback: false }),
+        );
+      });
+
+      it('keeps non_json_http_403 and the response_* properties for an HTML 403 on the properties PUT, without a fallback', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        arrange();
+        mockForgeRequest.mockRejectedValue(new ForgeRequestError({
+          status: 403, method: 'PUT', url: '/wiki/rest/api/content/page-123/child/attachment/attachment-123',
+          contentType: 'text/html', body: '<html><title>Forbidden</title></html>',
+        }));
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(ForgeRequestError);
+
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'non_json_http_403', 'attachment_upload_failed', 'export',
+          expect.objectContaining({
+            http_status: 403,
+            failed_request: expect.stringMatching(/^PUT /),
+            response_content_type: 'text/html',
+            response_title: 'Forbidden',
+          }),
+        );
+      });
+
+      it('leaves a successful properties PUT unchanged and opts it in to HTTP-status errors', async () => {
+        arrange();
+        mockForgeRequest.mockResolvedValue({ id: 'attachment-123' });
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockForgeRequest).toHaveBeenCalledWith(
+          expect.stringContaining('/attachment-123'), 'PUT', expect.anything(), { throwOnHttpError: true },
+        );
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'created', 'attachment_upload_succeeded', 'export',
+          expect.objectContaining({ via_app_fallback: false }),
+        );
+        expect(mockCallRemote).not.toHaveBeenCalled();
+      });
     });
 
     it('should recover a viewer-only 403 via the app fallback (issue #166)', async () => {
@@ -627,6 +941,185 @@ describe('Attachment', () => {
       // envelope is gone.
       expect(String(props.error_message)).toContain('same file name as an existing attachment');
       expect(String(props.error_message)).not.toContain('"authorized"');
+    });
+
+    // #75 — the existence gate reads v2 but the write is v1. When v2 misses an
+    // attachment v1 already holds (visibility lag, or a concurrent upload from
+    // another iframe on the same page), the create POST 400s with "same file
+    // name". That must recover by re-resolving via v1 and uploading a new version.
+    describe('same-file-name 400 recovery (#75)', () => {
+      const sameNameBody = JSON.stringify({
+        statusCode: 400,
+        data: { authorized: true, valid: true, errors: [], successful: true },
+        message:
+          'com.atlassian.confluence.api.service.exceptions.api.BadRequestException: Cannot add a new attachment with same file name as an existing attachment: zenuml-test-uuid.png',
+      });
+      const resp = (ok: boolean, status: number, body: string) => ({
+        ok,
+        status,
+        text: vi.fn().mockResolvedValue(body),
+      });
+      const sameName = () => resp(false, 400, sameNameBody);
+      const v1ReadUrl =
+        '/wiki/rest/api/content/page-123/child/attachment?filename=zenuml-test-uuid.png&expand=version,metadata';
+
+      // Attachment-endpoint POSTs answer from a queue (the last entry repeats);
+      // every other requestConfluence call (page-property reads) gets an empty 200.
+      let uploadResponses: ReturnType<typeof resp>[] = [];
+      const uploadUrls = () =>
+        mockRequestConfluence.mock.calls.map((c: unknown[]) => c[0] as string).filter((u) => u.includes('/child/attachment'));
+
+      beforeEach(() => {
+        uploadResponses = [];
+        mockRequestConfluence.mockReset();
+        mockRequestConfluence.mockImplementation(async (url: string) => {
+          if (!url.includes('/child/attachment')) return resp(true, 200, '{}');
+          return uploadResponses.length > 1 ? uploadResponses.shift() : uploadResponses[0];
+        });
+        mockForgeRequest.mockReset();
+        mockForgeRequest.mockResolvedValue({});
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]); // v2 miss
+      });
+
+      it('retries once as a new version and reports success with a recovery marker', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')]; // create 400s, new-version POST lands
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 1 } }, { id: 'att-old', version: { number: 4 } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual([
+          '/wiki/rest/api/content/page-123/child/attachment',
+          '/wiki/rest/api/content/page-123/child/attachment/att-old/data',
+        ]);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'updated',
+          'attachment_upload_succeeded',
+          'export',
+          expect.objectContaining({
+            version_number: 5,
+            attachment_id: 'att-old',
+            recovered_from: 'same_name_400',
+          }),
+        );
+        expect(
+          mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed'),
+        ).toHaveLength(0);
+      });
+
+      it('skips the retry when the other writer already stored this metaKey (race between iframes)', async () => {
+        uploadResponses = [sameName()]; // only the create POST; a retry would be a 2nd POST
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 3 }, metadata: { comment: 'hash-test content' } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual(['/wiki/rest/api/content/page-123/child/attachment']);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'updated',
+          'attachment_upload_succeeded',
+          'export',
+          expect.objectContaining({
+            attachment_id: 'att-old',
+            recovered_from: 'same_name_400',
+            skipped_duplicate: true,
+          }),
+        );
+        expect(
+          mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed'),
+        ).toHaveLength(0);
+      });
+
+      it('still retries when the existing attachment carries a different comment', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')];
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 3 }, metadata: { comment: 'hash-other' } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toHaveLength(2);
+      });
+
+      it('does not mark a normal create as recovered', async () => {
+        uploadResponses = [resp(true, 200, JSON.stringify({ results: [{ id: 'attachment-123' }] }))];
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual(['/wiki/rest/api/content/page-123/child/attachment']);
+        const succeeded = mockTrackEvent.mock.calls.find(
+          (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
+        );
+        expect(succeeded?.[0]).toBe('created');
+        expect(succeeded?.[3]).not.toHaveProperty('recovered_from');
+      });
+
+      it('keeps a properties denial after the recovery POST from rerunning the upload as the app', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')];
+        mockForgeRequest.mockImplementation(async (url: string, method: string) => {
+          if (url === v1ReadUrl) return { results: [{ id: 'att-old', version: { number: 4 } }] };
+          if (method === 'PUT') return { statusCode: 403, message: 'denied' };
+          return {};
+        });
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toMatchObject({ status: 403 });
+        expect(uploadUrls()).toHaveLength(2);
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_failed', 'export', expect.objectContaining({ http_status: 403, via_app_fallback: false }),
+        );
+      });
+
+      it('passes the resolved update target to the app when the recovery POST is denied', async () => {
+        uploadResponses = [sameName(), resp(false, 403, 'denied')];
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl ? { results: [{ id: 'att-old', version: { number: 4 } }] } : {},
+        );
+        mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-old', versionNumber: 5 });
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.objectContaining({
+          attachmentId: 'att-old', versionNumber: 5,
+        }));
+      });
+
+      it('still fails with the original error when v1 cannot find the attachment', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        uploadResponses = [sameName()];
+        mockForgeRequest.mockResolvedValue({ results: [] });
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(/same file name/);
+
+        expect(uploadUrls()).toHaveLength(1);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_400',
+          'attachment_upload_failed',
+          'export',
+          expect.anything(),
+        );
+      });
+
+      it('retries only once when the new-version upload also fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        uploadResponses = [sameName()]; // every attachment POST answers same-name
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl ? { results: [{ id: 'att-old', version: { number: 1 } }] } : {},
+        );
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow();
+
+        expect(uploadUrls()).toHaveLength(2);
+      });
     });
 
     it('salvages the message from a truncated envelope (backend relays 500 chars)', async () => {
@@ -943,7 +1436,10 @@ describe('Attachment', () => {
           'POST',
           expect.objectContaining({ async: true, attachmentName: 'zenuml-saved-id-1000.png' }),
         );
-        expect(mockRequestConfluence).not.toHaveBeenCalled();
+        // A best-effort page-property read records the PNG generation state;
+        // no user-side attachment POST runs on the save path.
+        expect(mockRequestConfluence.mock.calls.every(([url]) =>
+          String(url).includes('/properties'))).toBe(true);
 
         // Emits a queued (not succeeded) signal carrying from_save:true.
         const queued = mockTrackEvent.mock.calls.find(
@@ -955,6 +1451,73 @@ describe('Attachment', () => {
           (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
         );
         expect(succeeded).toBeUndefined();
+      });
+
+      it('records a real guest denial from the async backend as upload_denied and http_403', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockCallRemote.mockRejectedValue(Object.assign(new Error('HTTP 403: no_user_credential'), { status: 403 }));
+        let property: any;
+        mockRequestConfluence.mockImplementation(async (_url: string, opts: any) => {
+          if (opts.method === 'GET') return {
+            ok: true, json: async () => ({ results: property ? [{ id: 'property-1', version: { number: 1 }, value: property }] : [] }),
+          };
+          property = JSON.parse(opts.body).value;
+          return { ok: true };
+        });
+
+        await expect(createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1000', fromSave: true,
+        })).rejects.toMatchObject({ status: 403 });
+
+        expect(property).toMatchObject({ state: 'upload_denied', customContentId: 'saved-id-1000' });
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_failed', 'export', expect.objectContaining({ http_status: 403 }),
+        );
+        expect(mockTrackEvent.mock.calls.some((call: any[]) => call[1] === 'attachment_upload_queued')).toBe(false);
+      });
+
+      it('reports how long the save-time PNG capture took as attachment_capture_ms', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockCallRemote.mockResolvedValue({ ok: true, queued: true });
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1002',
+          fromSave: true,
+        });
+
+        expect(mockRecordPublishStep).toHaveBeenCalledTimes(1);
+        expect(mockRecordPublishStep).toHaveBeenCalledWith('attachment_capture_ms', expect.any(Number));
+      });
+
+      it('does NOT report capture timing for a view-time backfill (no fromSave): it is not on the publish path', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-saved-4' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1003',
+        });
+
+        expect(mockRecordPublishStep).not.toHaveBeenCalled();
+      });
+
+      it('does NOT report capture timing when no PNG was produced', async () => {
+        vi.mocked(captureBlob).mockRejectedValue(new Error('Conversion failed'));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1004',
+          fromSave: true,
+        });
+
+        expect(mockRecordPublishStep).not.toHaveBeenCalled();
       });
 
       it('does NOT set from_save when opts.fromSave is absent', async () => {

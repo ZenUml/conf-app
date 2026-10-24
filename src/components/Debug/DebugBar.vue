@@ -119,8 +119,12 @@ async function onTriggerCsatBanner() {
     csatArmed.value = false;
     return;
   }
-  const suppressionKey = Object.keys(localStorage).find(k => k.startsWith('csat_state-'));
-  if (suppressionKey) localStorage.removeItem(suppressionKey);
+  try {
+    const suppressionKey = Object.keys(localStorage).find(k => k.startsWith('csat_state-'));
+    if (suppressionKey) localStorage.removeItem(suppressionKey);
+  } catch (e) {
+    console.debug('[DebugBar] could not clear csat suppression key', e);
+  }
   markCsatPending();
   // router.navigate reloads the full Confluence page so the pageBanner iframe
   // remounts and detects csatPending. window.location.reload() only reloads

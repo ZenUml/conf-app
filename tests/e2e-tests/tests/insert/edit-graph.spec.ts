@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { createPageAndSetup, moveToPvt } from './insert-helpers.js';
 import { MacroPage } from '../../pages/MacroPage.js';
@@ -7,7 +7,7 @@ const macroType = 'graph' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Edit Test - ${macroType}`, { tag: ['@editor', '@viewer', '@graph', '@smoke'] }, () => {
+test.describe(`Edit Test - ${macroType}`, { tag: ['@test:edit-graph', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@graph', '@smoke'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {

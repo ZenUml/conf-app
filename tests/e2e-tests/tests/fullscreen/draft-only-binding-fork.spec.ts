@@ -21,7 +21,7 @@
 // RED on buggy code: the modal stays open + "view.submit/close failed" logs.
 // GREEN after 1a: the modal closes cleanly, no submit failure.
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
@@ -48,7 +48,7 @@ async function dismissPaywall(page: Page, waitMs = 4000): Promise<void> {
   }
 }
 
-test.describe('REGRESSION #169 — draft-only binding updates in place (no fork)', { tag: ['@fullscreen', '@editor', '@sequence'] }, () => {
+test.describe('REGRESSION #169 — draft-only binding updates in place (no fork)', { tag: ['@test:draft-only-binding-fork', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 

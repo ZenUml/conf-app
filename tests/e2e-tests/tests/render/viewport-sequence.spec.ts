@@ -18,7 +18,7 @@ import {
 const test = createMacroTest('sequence');
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Sequence pan/zoom viewport', { tag: ['@viewer', '@viewport', '@sequence'] }, () => {
+test.describe('Sequence pan/zoom viewport', { tag: ['@test:viewport-sequence', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@viewport', '@sequence'] }, () => {
   test('offers zoom controls on the rendered macro', async ({ macroPage }) => {
     await expectZoomControls(macroPage.getSequenceMacroFrame(), 'Sequence');
   });

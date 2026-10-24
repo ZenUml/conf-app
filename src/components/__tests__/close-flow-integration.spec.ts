@@ -42,6 +42,8 @@ import { DiagramType } from '@/model/Diagram/Diagram';
 import EventBus from '@/EventBus';
 import extendedStore from '@/model/store2/ExtendedStore';
 
+const mountedHeaders: Array<ReturnType<typeof mount>> = [];
+
 /** Build a fresh Vuex store with controlled initial state. */
 function makeStore(overrides: Record<string, any> = {}) {
   return createStore({
@@ -70,6 +72,7 @@ function makeStore(overrides: Record<string, any> = {}) {
 /** Mount Header with the given store and await the mounted() hook fully. */
 async function mountHeader(store: ReturnType<typeof makeStore>) {
   const wrapper = mount(Header, { global: { plugins: [store] } });
+  mountedHeaders.push(wrapper);
   // mounted() is async (awaits primeCloudId + loadDraft); flush all microtasks.
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
@@ -81,11 +84,14 @@ const DRAFT_KEY = 'zenuml.draft.test-cloud.new:diagram';
 
 beforeEach(() => {
   localStorage.clear();
-  capturedCloseHandlers.length = 0;
+  // closeGuard keeps one bridge callback for this iframe, even after all
+  // subscribers unmount. Keep the mock's callback across test cases too.
   vi.clearAllMocks();
 });
 
 afterEach(() => {
+  for (const wrapper of mountedHeaders) wrapper.unmount();
+  mountedHeaders.length = 0;
   vi.useRealTimers();
 });
 
@@ -135,7 +141,7 @@ describe('Test 2 — view.onClose triggers sync draft save', () => {
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
 
     // Invoke the handler that Header registered with view.onClose.
-    expect(capturedCloseHandlers.length).toBeGreaterThan(0);
+    expect(capturedCloseHandlers).toHaveLength(1);
     await capturedCloseHandlers[capturedCloseHandlers.length - 1]();
 
     const raw = localStorage.getItem(DRAFT_KEY);

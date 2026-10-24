@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { openModal, resolveZenumlRemoteBaseUrl } from './forgeGlobal'
 
 const openSpy = vi.fn()
@@ -41,6 +41,36 @@ describe('openModal', () => {
 // rejected by the backend (symptom: AI Repair returns
 // "Remote could not verify the Forge Invocation Token").
 describe('resolveZenumlRemoteBaseUrl', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('uses a local HTTPS origin only for the development Forge environment', () => {
+    vi.stubEnv('VITE_JOINT_DEBUG_REMOTE_BASE_URL', 'https://example.ngrok-free.app')
+    expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isAsyncApi: true })).toBe(
+      'https://example.ngrok-free.app',
+    )
+    expect(resolveZenumlRemoteBaseUrl('STAGING', { isAsyncApi: true })).toBe(
+      'https://conf-stg-lite.zenuml.com',
+    )
+    expect(resolveZenumlRemoteBaseUrl('PRODUCTION', { isAsyncApi: true })).toBe(
+      'https://zenapi.zenuml.com',
+    )
+  })
+
+  it('rejects a local override that is not an HTTPS origin', () => {
+    vi.stubEnv('VITE_JOINT_DEBUG_REMOTE_BASE_URL', 'http://localhost:8789/path')
+    expect(() => resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isLite: true })).toThrow(
+      'VITE_JOINT_DEBUG_REMOTE_BASE_URL must be an HTTPS origin',
+    )
+  })
+
+  it('ignores the local override outside Vite dev mode', () => {
+    vi.stubEnv('VITE_JOINT_DEBUG_REMOTE_BASE_URL', 'https://example.ngrok-free.app')
+    vi.stubEnv('DEV', false)
+    expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isLite: true })).toBe(
+      'https://conf-stg-lite.zenuml.com',
+    )
+  })
+
   describe('asyncapi variant', () => {
     // Regression: asyncapi used to fall through to the FULL branch and hit
     // conf-stg-full, which is not its backend nor a declared remote.

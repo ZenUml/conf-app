@@ -161,12 +161,8 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     customContentKey: 'gpt-custom-content-key',
     appLabel: 'Diagramly for Confluence',
   },
-  // Single-purpose AsyncAPI variant. Doesn't ship the ZenUML/Mermaid/Graph/
-  // OpenAPI macro family, so the `macros` axis is empty — tests that loop
-  // ALL_MACROS skip automatically via testConfig.macros.includes(...). The
-  // current asyncapi e2e is a single space-page-loads smoke (see
-  // tests/asyncapi/), and it discovers the space at runtime, so the
-  // `spaceKey` here is only a fallback for future expansion.
+  // AsyncAPI ships both AsyncAPI Studio and the OpenAPI macro/editor.
+  // Parentless staging fixtures provision a parent in an accessible test space.
   'asyncapi@stg': {
     id: 'asyncapi@stg',
     domain: 'asyncapi-stg.atlassian.net',
@@ -176,8 +172,8 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     isLite: false,
     productType: 'asyncapi',
     isForge: true,
-    macros: [],
-    renderMacros: [],
+    macros: ['openapi'],
+    renderMacros: ['openapi'],
     addonKey: 'my-api',
     sequenceMacroKey: 'zenuml-asyncapi-macro',
     customContentKey: 'async-api-doc',

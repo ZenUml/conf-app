@@ -27,7 +27,7 @@
 //   # grab SAMEPAGE_PAGE_ID from output, deploy FIXED build, then:
 //   REPRO_PAGE_ID=<id> APP=zenuml-lite@dev npx playwright test --project=fullscreen draft-only-binding-samepage
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import {
@@ -60,7 +60,7 @@ async function dirtyAndPublish(page: Page): Promise<void> {
   await clickEditorPublish(page);
 }
 
-test.describe('SAME-PAGE #169 — one page: broken on buggy deploy → fixed on fixed deploy', { tag: ['@fullscreen', '@editor', '@sequence'] }, () => {
+test.describe('SAME-PAGE #169 — one page: broken on buggy deploy → fixed on fixed deploy', { tag: ['@test:draft-only-binding-samepage', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');
 

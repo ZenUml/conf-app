@@ -1,8 +1,7 @@
 import globals from "@/model/globals";
 import forgeGlobal, { getView, getContext as initForgeContext } from './model/globals/forgeGlobal';
-import MacroUtil from "@/model/MacroUtil";
 import { trackEvent } from "@/utils/window";
-import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
 import { markCsatPending } from "@/utils/csat";
 import { mountRoot } from "@/mount-root";
@@ -14,16 +13,27 @@ installRestoreDraftBanner();
 import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
 import store from "@/model/store2";
 import uuidv4 from "@/utils/uuid";
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { markEditorAuthoringStarted, markEditorSaved, registerEditorCloseTracking } from '@/utils/analytics/editorCloseOutcome';
 import { toast } from '@/utils/toast';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
 let originalConfigUuid: string | undefined;
+
+// The operation mode, decided ONCE when the editor opens and used for the start
+// event, the close-without-save outcome and the success event (conf-app#519).
+// The success path used to re-derive it from `getMacroData().uuid`, a different
+// discriminator from the start event's `resolveEffectiveCustomContentId`, so a
+// session could open as a create and be reported as an edit (or vice versa).
+// initializeMacro assigns it before the editor mounts, so the Publish handler
+// can never run first.
+let embedOperationMode: 'create' | 'edit' = 'create';
 
 async function saveEmbedAndExit(selectedCustomContentId: string) {
   // Start the publish-latency clock at the save-handler entry (≈ the Publish
@@ -43,40 +53,13 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
   // intentional in source. Result was every embed save POSTed an empty
   // {diagramType:"embed",source:"custom-content"} placeholder, and the
   // viewer rendered "Unknown diagram type: embed".
-  const macroData = await globals.apWrapper.getMacroData();
-  const isNew = !macroData?.uuid;
+  const isNew = embedOperationMode === 'create';
 
   const savedIdProps = {
     content_id: selectedCustomContentId,
     custom_content_id: selectedCustomContentId,
     attachment_name: `zenuml-${selectedCustomContentId}.png`,
   };
-
-  // Embed bypasses Persistence.ts, so mark the save here (see editorCloseOutcome).
-  markEditorSaved();
-
-  if (isNew) {
-    trackAnalyticsEvent("macro_create_succeeded", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: "embed",
-      operation_mode: "create",
-      ...savedIdProps,
-    });
-  } else {
-    trackAnalyticsEvent("macro_save_succeeded", {
-      feature_area: "macro",
-      surface: "editor",
-      macro_type: "embed",
-      operation_mode: "edit",
-      ...savedIdProps,
-    });
-    markCsatPending();
-  }
-
-  if (getEditJourneyId()) {
-    endEditJourney('saved');
-  }
 
   setTimeout(async () => {
     try {
@@ -112,6 +95,35 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
         EventBus.$emit('save-error', new Error('embed target not fetchable'));
         return;
       }
+      // The save is going to be submitted: only now is it a success. Reported
+      // here, after the invalid-id and not-fetchable gates, so a pick that keeps
+      // the editor open is not counted. The authoring journey ends here too, for
+      // the same reason: ending it before the gates emitted macro_authoring_ended
+      // 'saved' for a rejected pick, and a later close then emitted
+      // macro_create_cancelled, so the two events contradicted each other.
+      // The success event is awaited (sendBeacon transport) so it is ordered
+      // before view.submit tears this iframe down. Delivery stays best-effort:
+      // Mixpanel keeps batching unless send_immediately is set, so the await
+      // does not guarantee the event leaves the browser. The correctness fix for
+      // conf-app#519 is the single operation-mode discriminator above, not the
+      // await. Embed bypasses Persistence.ts, so the saved mark (see
+      // editorCloseOutcome) is here too.
+      if (getEditJourneyId()) {
+        endEditJourney('saved');
+      }
+      markEditorSaved();
+      await trackAnalyticsEventBeforeUnload(
+        isNew ? "macro_create_succeeded" : "macro_save_succeeded",
+        {
+          feature_area: "macro",
+          surface: "editor",
+          macro_type: "embed",
+          operation_mode: isNew ? "create" : "edit",
+          ...(isNew && getCreationFlowProps()),
+          ...savedIdProps,
+        },
+      );
+      if (!isNew) markCsatPending();
       // Redirect starts now (view.submit below). Stop the clock. Placed after
       // the invalid-id / not-fetchable early-returns so it only fires on a real
       // redirect, not when the editor stays open for a re-pick.
@@ -175,6 +187,16 @@ async function initializeMacro() {
   // Ensure session is initialized
   getOrCreateSession();
   const customContentId = context.extension?.config?.customContentId;
+  // Analytics only — deliberately NOT reused for the load path above, which
+  // keeps its narrower config-only read. resolveEffectiveCustomContentId also
+  // covers extension.modal and the autoconvert link, so it answers "is this a
+  // new macro" correctly for a macro opened from the modal surface.
+  const resolvedCustomContentId = resolveEffectiveCustomContentId(context);
+  embedOperationMode = resolvedCustomContentId ? 'edit' : 'create';
+  setEditJourneyMeta({
+    macroType: 'embed',
+    operationMode: embedOperationMode,
+  });
 
   let doc: Diagram | undefined;
   if (customContentId) {
@@ -226,13 +248,21 @@ async function initializeMacro() {
     mountRoot(doc ?? NULL_DIAGRAM, ForgeEmbedEditor, contentProps);
   }
 
-  const isNew = await MacroUtil.isCreateNew();
+  // Was MacroUtil.isCreateNew(), which reads only extension.config — see the
+  // matching note in forge-graph-editor.ts.
+  const isNew = embedOperationMode === 'create';
   markEditorAuthoringStarted();
   trackAnalyticsEvent(isNew ? 'macro_create_started' : 'macro_edit_started', {
     feature_area: 'macro',
     surface: 'editor',
     macro_type: 'embed',
+    operation_mode: embedOperationMode,
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(isNew && getCreationFlowProps()),
+    ...(resolvedCustomContentId && {
+      content_id: resolvedCustomContentId,
+      custom_content_id: resolvedCustomContentId,
+    }),
   });
   // The picker cannot tell whether the selection changed, so had_changes is
   // left off; the close-without-save itself is what the funnel needs.

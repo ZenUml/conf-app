@@ -2,6 +2,8 @@
 
 ZenUML PR Agent Panel 是一个运行在 `github.com` Pull Request 页面上的 Chrome 扩展。它把你已经打开的 Claude Code 或 Codex 会话连接到当前 PR：
 
+这里的 Claude 指 Claude Code。Claude Desktop 的聊天列表不会显示 Codex 或 Claude Code 的会话；本插件的 Hub 也不保存完整聊天记录供另一个客户端打开。
+
 - GitHub 左侧显示当前仓库已经完成的 AI 评审；
 - 右下角的 Agent Panel 显示连接状态、当前任务、最新评审和消息；
 - AI 仍使用你自己的 Claude Code 或 Codex 会话和权限读取代码；本地 Hub 不会启动模型，也不会替你向 GitHub 发布评论。
@@ -34,7 +36,7 @@ pr-panel-mcp
    gh auth status
    ```
 
-   Agent 使用自己的 `gh` 权限读取 PR 和 diff；扩展不会把 GitHub 登录凭据交给 Hub。
+   Agent 使用自己的 `gh` 权限读取 PR 和 diff；Hub 也使用其进程可访问的本机 `gh` 登录，仅读取已评审 PR 的状态。扩展不会把 GitHub 登录凭据交给 Hub。
 
 ## 从源码安装扩展
 
@@ -180,6 +182,12 @@ Claude 和 Codex 可以同时连接同一个 Hub，通常不会因为端口而�
 - 两个评审都完成时，左侧列表和面板显示的是该 PR 的最新完成记录。
 
 如果分别处理不同 PR，每次开始任务前仍要确认全局活动标签：`get_active_pr` 返回的是当前被激活的 PR 页面，不是每个 Agent 会话各自固定的 PR。
+
+### 评审列表的当前状态和分页
+
+Hub 运行时用本机 `gh` 登录，只读取已经保存过 AI 评审的 PR。它在启动时、每五分钟以及扩展重连或请求列表后刷新当前状态、head SHA 和 GitHub 合并信号；密集请求会合并。评审原文仍是评审当时的记录。GitHub 查询失败时保留上次已知状态；未知的合并条件不会显示为 Ready。
+
+左侧列表按实际可用高度和条目高度自动分页，无固定每页条数。明确标记为 P0 的评审固定在顶部，仍显示其阻塞或未知状态；普通条目中，Ready 排在需要处理或确认的条目前面。筛选、调整窗口高度或删除条目后，页码会重新计算。翻页只改变本机显示，不发起新评审或 GitHub 写入。
 
 ## 故障排查
 

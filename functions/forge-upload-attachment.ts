@@ -5,6 +5,7 @@ import { mixpanelTrack } from "./service/mixpanelService";
 import { getAtlassianInstanceClientDomain } from "./utils/dbUtils";
 import type { D1Database } from "@cloudflare/workers-types";
 import { writePngState } from "../src/lib/pngExportState.js";
+import { isPng } from "../src/lib/png.js";
 
 // ---------------------------------------------------------------------------
 // Attachment-upload fallback (issue #166)
@@ -99,7 +100,6 @@ import { writePngState } from "../src/lib/pngExportState.js";
 // Rejects path traversal and anything outside our namespace.
 const ATTACHMENT_NAME_RE = /^zenuml-[A-Za-z0-9._-]+\.(png|json)$/;
 const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024; // generous ceiling for a diagram screenshot or snapshot
-const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47]; // "\x89PNG"
 
 // contentType allowlist -> the file extension it must be paired with. Keeps
 // the namespace guard just as tight as the PNG-only original: a caller can't
@@ -518,7 +518,7 @@ export const onRequest = async ({
     // Magic-byte check applies only to the PNG payload — an application/json
     // payload is arbitrary text bytes; the namespace + extension/contentType
     // consistency check above is its guard.
-    if (contentType === 'image/png' && (bytes.length < 8 || !PNG_MAGIC.every((b, i) => bytes[i] === b))) {
+    if (contentType === 'image/png' && !isPng(bytes)) {
       return OkResponse({ ok: false, status: 400, body: 'payload is not a PNG' });
     }
 

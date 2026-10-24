@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+/* Loaded AFTER Tailwind so the design-system values win wherever the two use the
+   same custom-property name. That is deliberate for four namespaces:
+     --font-sans / --font-mono   -> `font-sans` / `font-mono` render the DS stacks
+     --radius-md / -lg / -full   -> `rounded-md` / `rounded-lg` / `rounded-full`
+     --shadow-xl                 -> `shadow-xl` is the DS drawer elevation
+     --color-blue-* / --color-primary
+   The DS blue and gray ramps ARE the Tailwind ramps (blue-600 #2563EB,
+   gray-200 #E5E7EB …), so `bg-blue-50`, `text-blue-800` and `border-gray-300`
+   are already the design's colours and need no theme entry. */
+@import "./tokens.css";
+
+/* Only the tokens Tailwind has no equivalent for. Every value is a reference
+   into tokens.css — no hex is transcribed here. Names differ from the DS names
+   on purpose: `--color-success: var(--color-success)` would be circular. */
+@theme {
+  /* Semantic roles */
+  --color-fg1: var(--fg1);
+  --color-fg2: var(--fg2);
+  --color-fg3: var(--fg3);
+  --color-bg1: var(--bg1);
+  --color-bg2: var(--bg2);
+  --color-bg3: var(--bg3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+
+  /* Brand + status */
+  --color-brand: var(--color-primary);
+  --color-brand-hover: var(--color-primary-hover);
+  --color-ok: var(--color-success);
+  --color-bad: var(--color-danger);
+
+  /* Diagram-type accents, by their DS role in this screen:
+     amber = blocked / unresolved, rust = confirm strips + "no source yet" */
+  --color-amber-50: var(--accent-drawio-50);
+  --color-amber-100: var(--accent-drawio-100);
+  --color-amber-300: var(--accent-drawio-300);
+  --color-amber-500: var(--accent-drawio-500);
+  --color-amber-800: var(--accent-drawio-800);
+  --color-rust-50: var(--accent-plantuml-50);
+  --color-rust-100: var(--accent-plantuml-100);
+  --color-rust-300: var(--accent-plantuml-300);
+  --color-rust-500: var(--accent-plantuml-500);
+  --color-rust-800: var(--accent-plantuml-800);
+  --color-cerulean-500: var(--accent-sequence-500);
+  --color-radical-500: var(--accent-mermaid-500);
+  --color-leaf-50: var(--accent-openapi-50);
+  --color-leaf-100: var(--accent-openapi-100);
+  --color-leaf-500: var(--accent-openapi-500);
+  --color-leaf-800: var(--accent-openapi-800);
+
+  /* Product variants */
+  --color-prod-full: var(--product-full);
+  --color-prod-lite: var(--product-lite);
+  --color-prod-dia: var(--product-diagramly);
+
+  /* Type scale -> text-h3, text-body, text-body-sm, text-micro … */
+  --text-h3: var(--fs-h3);
+  --text-h4: var(--fs-h4);
+  --text-body: var(--fs-body);
+  --text-body-sm: var(--fs-body-sm);
+  --text-caption: var(--fs-caption);
+  --text-micro: var(--fs-micro);
+
+  --tracking-label: 0.025em;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg2);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+/* The drawer slide. The design allows no other entry animation. */
+@keyframes lc-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.lc-drawer {
+  animation: lc-in 180ms ease-out;
+}
+
+/* Transitions are colour-only, at the DS durations. No scale, no springs. */
+.lc-t-border {
+  transition: border-color var(--t-base);
+}
+
+.lc-t-bg {
+  transition: background var(--t-base);
+}
+
+.lc-t-nav {
+  transition:
+    background var(--t-base),
+    color var(--t-base);
+}
+
+/* Every identifier, date, count and key path is mono and tabular. */
+.lc-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Uppercase micro-label used on every section head. */
+.lc-label {
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  color: var(--fg3);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}

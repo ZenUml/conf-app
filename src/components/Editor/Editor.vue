@@ -1,8 +1,7 @@
 <template>
   <div class="flex flex-col h-full overflow-y-scroll">
     <div class="flex flex-col h-full justify-between">
-      <div v-show="!store.state.generating" class="dsl-editor flex flex-1" ref="rootElement"> </div>
-      <div v-if="store.state.generating" style="margin-top: 2px;"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block" class="tabler-icon tabler-icon-loader-2 h-5 w-5 animate-spin text-primary"><path d="M12 3a9 9 0 1 0 9 9"></path></svg> Generating diagram code ...</div>
+      <div class="dsl-editor flex flex-1" ref="rootElement"> </div>
     </div>
   </div>
 
@@ -17,10 +16,20 @@ import {EditorState, Compartment} from '@codemirror/state';
 import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions, plantUmlExtensions} from "./extensions";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {useStore} from "vuex";
-import { validateMermaidSyntaxForStore } from "@/utils/mermaid/validate";
-import { validateSequenceSyntaxForStore } from "@/utils/sequence/validate";
-import { validatePlantUmlSyntaxForStore } from "@/utils/plantuml/validate";
+import { validateMermaidSyntax } from "@/utils/mermaid/validate";
+import { validateSequenceSyntax } from "@/utils/sequence/validate";
+import { validatePlantUmlSyntax } from "@/utils/plantuml/validate";
 import { debounce } from 'lodash';
+import {
+  recordEditorTransaction,
+  resetEditorMutationSession,
+  startEditorMutationSession,
+} from '@/utils/analytics/editorMutationTelemetry';
+import {
+  getEditJourneyId,
+  getEditJourneyStartTime,
+  getOrCreateSession,
+} from '@/utils/journeyTracking';
 
 const store = useStore();
 const rootElement = ref();
@@ -38,26 +47,36 @@ const onEditorCodeChange = (newCode) => {
   store.dispatch(getStoreUpdateAction(diagramType.value), newCode);
 }
 
-// Create a unified debounced validation function
-const debouncedValidate = debounce(async (newCode) => {
-  if (!newCode) {
-    store.dispatch('updateError', null);
-    return;
-  }
-  if(diagramType.value===DiagramType.Mermaid){
-    await validateMermaidSyntaxForStore(newCode, store, 'updateError');
+// Async parsers can finish out of order. Only the validation started for the
+// latest code revision may publish an error to the shared store.
+let validationRevision = 0;
+const debouncedValidate = debounce(async (newCode, revision) => {
+  let result;
+  if (!newCode || diagramType.value === DiagramType.Markdown) {
+    result = { error: null };
+  } else if(diagramType.value===DiagramType.Mermaid){
+    result = await validateMermaidSyntax(newCode);
   } else if(diagramType.value===DiagramType.PlantUml){
-    await validatePlantUmlSyntaxForStore(newCode, store, 'updateError');
+    result = await validatePlantUmlSyntax(newCode);
   } else {
-    await validateSequenceSyntaxForStore(newCode, store, 'updateError');
+    result = await validateSequenceSyntax(newCode);
+  }
+
+  if (revision === validationRevision) {
+    store.dispatch('updateError', result.error);
   }
 }, 1000);
 // Watch for code changes and update error state
 watch(code, (newCode) => {
-  debouncedValidate(newCode);
+  validationRevision += 1;
+  // Any existing error describes the previous source. Clear it immediately;
+  // the latest validation will restore an error if the new source is invalid.
+  store.dispatch('updateError', null);
+  debouncedValidate(newCode, validationRevision);
 }, { immediate: true });
 
 const diagramSpecificExtensions = computed(() => {
+  if (diagramType.value === DiagramType.Markdown) return [EditorView.lineWrapping];
   if (diagramType.value === DiagramType.Mermaid) return mermaidExtensions;
   if (diagramType.value === DiagramType.PlantUml) return plantUmlExtensions;
   return zenumlExtensions;
@@ -75,7 +94,7 @@ watch(code, (newVal) => {
   })
 })
 
-const baseExtensions = computed(() => baseExtensionsFactory(onEditorCodeChange));
+const baseExtensions = computed(() => baseExtensionsFactory(onEditorCodeChange, recordEditorTransaction));
 
 watch(diagramType, () => {
   cmView.value.dispatch({
@@ -97,6 +116,15 @@ onBeforeMount(async () => {
 })
 
 onMounted(() => {
+  startEditorMutationSession({
+    initialCode: code.value,
+    macroType: diagramType.value,
+    operationMode: store.state.diagram.id ? 'edit' : 'create',
+    customContentId: store.state.diagram.id,
+    journeyId: getEditJourneyId(),
+    sessionId: getOrCreateSession(),
+    openedAt: getEditJourneyStartTime() ?? Date.now(),
+  });
   cmView.value = new EditorView({
     state: EditorState.create({
       doc: code.value,
@@ -112,8 +140,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   // Cancel the debounced validation function to avoid memory leaks
+  validationRevision += 1;
   debouncedValidate.cancel();
   cmView.value.destroy();
+  resetEditorMutationSession();
   // Clear error state when component is unmounted
   store.dispatch('updateError', null);
 })

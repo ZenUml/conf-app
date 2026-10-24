@@ -3,5 +3,6 @@ export function getAuthorizationHeader(request: Request): string | null {
   if (!authHeader) {
     return null;
   }
-  return authHeader.split(' ')[1] || null;
+  const match = /^Bearer ([^\s]+)$/i.exec(authHeader);
+  return match?.[1] || null;
 }

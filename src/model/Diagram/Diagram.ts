@@ -10,12 +10,23 @@ export enum DataSource {
 export enum DiagramType {
   Sequence = 'sequence',
   Mermaid = 'mermaid',
+  Markdown = 'markdown',
   PlantUml = 'plantuml',
   Graph = 'graph',
   OpenApi = 'OpenAPI',
   AsyncApi = 'AsyncAPI',
   Embed = 'embed',
   Unknown = 'unknown'
+}
+
+/** Optional, producer-prepared Magic rendering stored with the Mermaid body. */
+export interface MagicArtifact {
+  /** Lowercase SHA-256 hex of the exact UTF-8 mermaidCode, without normalization. */
+  sourceHash: string;
+  svg: string;
+  rulesVersion: 'magic-v1';
+  outcome: 'validated';
+  generatedAt?: string;
 }
 
 export class Diagram {
@@ -51,6 +62,9 @@ export class Diagram {
   title?: string = '';
   styles?: object = {};
   mermaidCode?: string = '';
+  magic?: MagicArtifact;
+  // Undefined means the Markdown tab has never been opened; empty is intentional.
+  markdownCode?: string;
   plantUmlCode?: string = '';
   graphXml?: string = '';
   /**

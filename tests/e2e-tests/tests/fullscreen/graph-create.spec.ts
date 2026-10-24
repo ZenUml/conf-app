@@ -8,7 +8,7 @@
 // The dirty signal for DrawIO is also iframe-scoped (autosave message
 // dispatched on the OUTER editor frame's window — see CloseGuardHelper).
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,
@@ -16,6 +16,7 @@ import {
   fillEditorTitle,
   clickEditorPublish,
   expectModalClosed,
+  clickHeaderClose,
   modalContentFrame,
 } from '../../helpers/FullscreenModalHelper.js';
 import { insertMacro } from '../../helpers/MacroFlowHelper.js';
@@ -23,9 +24,11 @@ import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  readPersistedDraft,
+  GRAPH_DIRTY_MARKER,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Graph (DrawIO) — Create flow', () => {
+test.describe('Graph (DrawIO) — Create flow', { tag: ['@test:graph-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@graph'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('graph'), 'graph not in profile');
 
@@ -74,10 +77,15 @@ test.describe('Graph (DrawIO) — Create flow', () => {
   });
 
   // graph-create:6 — Close dirty.
-  test('graph-create:6 — dirty editor (autosave message): synthetic beforeunload is true', async ({ page }) => {
-    await insertMacro(page, 'graph');
+  test('graph-create:6 — dirty draft survives header close', async ({ page }) => {
+    const { editorPage, macroName } = await insertMacro(page, 'graph');
     await dirtyEditor(page, 'graph');
-    const result = await dispatchSyntheticBeforeunload(bridgeModalFrame(page));
-    expect(result).toBe(true);
+    // view.onClose replaced beforeunload; the draft protects unsaved work.
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain(GRAPH_DIRTY_MARKER);
+    await clickHeaderClose(page, 'edit');
+    await expectModalClosed(page, 'edit');
+    await editorPage.clickInsertElements();
+    await editorPage.searchAndSelectMacro('graph', macroName);
+    await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain(GRAPH_DIRTY_MARKER);
   });
 });

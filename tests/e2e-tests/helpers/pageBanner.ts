@@ -104,7 +104,7 @@ export async function setAppMocks(
   }, entries);
 }
 
-/** Remove only the paywall markers (targeting + activity + dismissal), leaving mocks in place. */
+/** Remove only the paywall markers (targeting + activity + impression), leaving mocks in place. */
 export async function clearPaywallMarkers(page: Page): Promise<void> {
   const f = await appFrame(page);
   await f?.evaluate(() => {
@@ -112,25 +112,6 @@ export async function clearPaywallMarkers(page: Page): Promise<void> {
       .filter((k) => /^paywall(Warning|Activity|Banner):/.test(k))
       .forEach((k) => localStorage.removeItem(k));
   });
-}
-
-/**
- * Back-date the dismissal marker's `lastShownAt` by `hours` so the impression
- * taper (warningBanner.ts BANNER_TAPER_*) treats the next page load as due.
- * Without this, any reload inside 24h of the first impression is suppressed by
- * design — which is exactly what a real user experiences, and what the taper
- * assertion in the spec checks first.
- */
-export async function ageLastImpression(page: Page, hours: number): Promise<void> {
-  const f = await appFrame(page);
-  if (!f) throw new Error('[page-banner] app Forge iframe not found — is a macro rendered?');
-  await f.evaluate((h) => {
-    const key = Object.keys(localStorage).find((k) => k.startsWith('paywallBanner:'));
-    if (!key) throw new Error('[page-banner] no dismissal marker to age — banner never recorded an impression');
-    const marker = JSON.parse(localStorage.getItem(key) || '{}');
-    marker.lastShownAt = new Date(Date.now() - h * 3_600_000).toISOString();
-    localStorage.setItem(key, JSON.stringify(marker));
-  }, hours);
 }
 
 /** Reset all banner-related state (markers, mocks, CSAT trigger/suppression). */
@@ -146,6 +127,12 @@ export async function clearAllBannerState(page: Page): Promise<void> {
           ['mockMacroCount', 'mockSpacePaid', 'mockCSSEnabled'].includes(k),
       )
       .forEach((k) => localStorage.removeItem(k));
+    // Keep the "What's new" strip out of the slot. It is the lowest-priority
+    // banner, so whenever a live release exists it fills the slot the moment
+    // the banner under test stands down — and these specs assert that the
+    // iframe then closes (expectBannerAbsent). See isWhatsNewMockedOff() in
+    // src/utils/whatsNew/state.ts.
+    localStorage.setItem('mockWhatsNewEnabled', 'false');
   });
 }
 

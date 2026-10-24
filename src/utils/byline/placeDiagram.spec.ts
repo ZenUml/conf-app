@@ -81,6 +81,23 @@ describe('placeDiagram — the step both surfaces share', () => {
     expect(outcome.placed).toBe(true)
   })
 
+  it('passes the failure reason and status through to the caller', async () => {
+    // The surfaces put these on diagram_added_to_page. Dropping them here would
+    // leave the readout with one 'failed' bucket over six causes.
+    addDiagramToPage.mockResolvedValue({
+      result: 'failed', reason: 'page_write_failed', status: 502,
+    })
+    expect(await placeDiagram('page-1', DIAGRAM)).toMatchObject({
+      result: 'failed', reason: 'page_write_failed', status: 502,
+    })
+  })
+
+  it('leaves reason and status off an outcome that had neither', async () => {
+    const ok = await placeDiagram('page-1', DIAGRAM)
+    expect(ok).not.toHaveProperty('reason')
+    expect(ok).not.toHaveProperty('status')
+  })
+
   it('marks ONLY a refusal as refused', async () => {
     // 'failed' is a 500 or a dropped connection and says nothing about
     // permission. Treating the two alike took the button off every remaining

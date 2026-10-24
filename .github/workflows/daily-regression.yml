@@ -1,0 +1,156 @@
+name: Daily Full Staging Regression
+
+on:
+  schedule:
+    # Runs at 03:00 Melbourne time year-round, including daylight saving.
+    - cron: '0 3 * * *'
+      timezone: 'Australia/Melbourne'
+  workflow_dispatch:
+    inputs:
+      sha:
+        type: string
+        default: ''
+        description: 'Main commit SHA; empty selects current main'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: conf-app-staging
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - id: target
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+        run: |
+          if [ -n "$REQUESTED_SHA" ]; then
+            [[ "$REQUESTED_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
+            git merge-base --is-ancestor "$REQUESTED_SHA" HEAD
+            TARGET_SHA="$REQUESTED_SHA"
+          else
+            TARGET_SHA=$(git rev-parse HEAD)
+          fi
+          echo "sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          export TARGET_SHA
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('regression-target.json',JSON.stringify({sha:process.env.TARGET_SHA}));"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: regression-target-${{ github.run_id }}
+          path: regression-target.json
+          overwrite: true
+          retention-days: 30
+
+  migrations:
+    name: Shared staging D1 migrations
+    needs: target
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging-lite
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Every staging Pages project uses the same DB binding in this config.
+      # Apply once before any transaction can deploy or begin its regression.
+      - name: Apply shared staging D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cp wrangler-stg.toml wrangler.toml
+          pnpm exec wrangler d1 migrations apply DB --remote --env production
+
+  lite:
+    name: Lite
+    needs: [target, migrations]
+    uses: ./.github/workflows/staging-transaction.yml
+    with:
+      variant: lite
+      ref: ${{ needs.target.outputs.sha }}
+      skip-migrations: true
+      backend-sha-only: true
+      workflow-ref: ${{ github.workflow_sha }}
+    secrets: inherit
+
+  full:
+    name: Full
+    needs: [target, migrations]
+    uses: ./.github/workflows/staging-transaction.yml
+    with:
+      variant: full
+      ref: ${{ needs.target.outputs.sha }}
+      skip-migrations: true
+      backend-sha-only: true
+      workflow-ref: ${{ github.workflow_sha }}
+    secrets: inherit
+
+  diagramly:
+    name: Diagramly
+    needs: [target, migrations]
+    uses: ./.github/workflows/staging-transaction.yml
+    with:
+      variant: diagramly
+      ref: ${{ needs.target.outputs.sha }}
+      skip-migrations: true
+      backend-sha-only: true
+      workflow-ref: ${{ github.workflow_sha }}
+    secrets: inherit
+
+  asyncapi:
+    name: AsyncAPI
+    needs: [target, migrations]
+    uses: ./.github/workflows/staging-transaction.yml
+    with:
+      variant: asyncapi
+      ref: ${{ needs.target.outputs.sha }}
+      skip-migrations: true
+      backend-sha-only: true
+      workflow-ref: ${{ github.workflow_sha }}
+    secrets: inherit
+
+  summary:
+    needs: [target, migrations, lite, full, diagramly, asyncapi]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+      - name: Preserve full regression verdicts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          node scripts/test-selection/regression-results.mjs --run "$RUN_ID" --output regression-results.json
+          echo '## Full staging regression (daily release draft gate)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat regression-results.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: regression-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: regression-results.json
+          retention-days: 30

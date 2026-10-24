@@ -1,0 +1,133 @@
+name: E2E Auth Bootstrap
+
+# One Atlassian login for one app profile, published as an artifact of
+# auth-state-<domain>.json that any number of E2E shards can restore. This is
+# the `auth` job that used to live inside e2e-test.yml, pulled out so it can be
+# called from TWO places:
+#
+#   1. e2e-test.yml — its own `auth` job, when a caller does not hand it a
+#      ready-made artifact (the pre-existing behaviour, unchanged).
+#   2. build-test-deploy.yml — once per site at t=0 of the run, BEFORE any
+#      staging deploy has finished. The suites then pass that artifact down as
+#      `auth-artifact` and skip (1) entirely. Measured on main run 34602804979
+#      (2026-09-11), the Lite insert suite could not start its shards until
+#      6m40s in: the deploy finished at 5m20s, then its bootstrap queued 78s
+#      behind the two other Lite bootstraps on the `e2e-auth` group below and
+#      ran for 36s more. Logging in while the deploy is still building takes
+#      that whole 1m20s off the critical path — the session does not care
+#      which build is on the site.
+#
+# Credentials are SECRETS, not inputs: a reusable workflow's `inputs` are
+# echoed verbatim in the run logs, `secrets` are registered for masking. Callers
+# pass repo vars through a job-level `secrets:` block, never `with:`.
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        type: string
+        required: true
+        description: 'App profile to log in to (e.g. zenuml-lite@stg)'
+      artifact-name:
+        type: string
+        required: true
+        description: >-
+          Name of the artifact to publish auth-state-<domain>.json under. The
+          consumer (e2e-test.yml's `test` job) downloads it by this exact name.
+      node-version:
+        type: string
+        default: '24.x'
+    secrets:
+      username:
+        required: true
+      password:
+        required: true
+      otp:
+        required: true
+
+jobs:
+  auth:
+    name: auth bootstrap
+    runs-on: ubuntu-latest
+    # EVERY caller logs in as the same robot account and reads the same
+    # `vars.ATLASSIAN_OTP`, so any two bootstraps that overlap can be handed the
+    # same TOTP code and the loser fails. Observed 2026-09-01: two zenuml-lite@stg
+    # bootstraps started in the same second, DrawIO's finished at 09:37:09Z, and
+    # the other logged `OTP attempt 1 failed, retrying...` and was reaped, which
+    # skipped every E2E: Lite shard.
+    #
+    # The group key is therefore a repo-wide constant, not per app — concurrency
+    # groups are scoped to the repository, so one constant serialises every
+    # bootstrap in every workflow and on every branch.
+    #
+    # `queue: max` is required, not decoration. The default is `queue: single`,
+    # where a newly queued job CANCELS the one already pending. With several
+    # callers on one constant group that would cancel most of them. `max` allows
+    # up to 100 pending and releases them first-in-first-out. It cannot be
+    # combined with `cancel-in-progress: true`, which this job does not use.
+    #
+    # After the first login of the day for an app every later bootstrap restores
+    # the daily cache below and skips login entirely (~8s), so the serial queue
+    # is cheap — and since build-test-deploy.yml now runs it at t=0, it is no
+    # longer on any critical path at all.
+    concurrency:
+      group: e2e-auth
+      cancel-in-progress: false
+      queue: max
+    # A clean OTP login took 42-55s in the four uncollided bootstraps measured on
+    # 2026-09-01. 2 minutes reaped a legitimate retry mid-flight; 4 covers the
+    # full 3-attempt cycle and still reaps a hung login well inside a shard's
+    # budget.
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+      - name: Install E2E test dependencies
+        run: cd tests/e2e-tests && pnpm install --ignore-workspace
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Compute daily cache key
+        id: cacheday
+        run: echo "key=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - name: Restore cached auth session
+        # The Atlassian session lasts ~30 days, so a daily key is well inside its
+        # validity: the day's first run logs in and caches the storageState; later
+        # runs restore it and auth.setup.ts validates liveness, then skips login. A
+        # stale/revoked session self-heals (auth.setup deletes it and re-logs-in).
+        # actions/cache writes the cache only on a restore miss, so most days = 1
+        # login per app. Keyed on the APP, not the caller: the three Lite staging
+        # suites used to keep three separate entries (one per artifact suffix) and
+        # so paid three logins a day for one site.
+        uses: actions/cache@v5
+        with:
+          path: tests/e2e-tests/auth-state-*.json
+          key: auth-session-${{ inputs.app }}-${{ steps.cacheday.outputs.key }}
+      - name: Authenticate once (writes auth-state-<domain>.json)
+        run: cd tests/e2e-tests && pnpm exec playwright test --project=auth
+        env:
+          APP: ${{ inputs.app }}
+          CI: true
+          ZENUML_STAGE_USERNAME: ${{ secrets.username }}
+          ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
+          ATLASSIAN_OTP: ${{ secrets.otp }}
+      - name: Upload shared auth state
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ./tests/e2e-tests/auth-state-*.json
+          retention-days: 1
+          if-no-files-found: error

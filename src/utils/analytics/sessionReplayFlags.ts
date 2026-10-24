@@ -2,10 +2,10 @@
  * Mixpanel session-replay BASELINE sampling — controlled live from the Forge
  * Developer Console rather than hardcoded in this module.
  *
- * The typed analytics path has one deliberate override: every
- * macro_create_started / macro_edit_started event forces recording at 100%.
- * That authoring policy does not use a Forge flag; these flags continue to
- * control viewer and other non-authoring iframe sessions.
+ * The typed analytics path has a separate authoring policy: create/edit start
+ * events share one per-iframe draw (50% normally, 1% in October 2026 UTC).
+ * These flags control the non-authoring baseline outside that budget window;
+ * they are not evaluated during the window.
  *
  * Uses the @forge/bridge client-side FeatureFlags SDK (bridge ≥ 5.15):
  * `initialize()` downloads the flag configuration once through the Forge
@@ -45,7 +45,9 @@ import { getContext } from '@/model/globals/forgeGlobal';
 export const FULL_FLAG = 'session-replay-full';
 export const SAMPLED_FLAG = 'session-replay';
 
-export type SessionReplaySource = 'targeted' | 'sampled' | 'off';
+// 'timeout' is never returned by getSessionReplayConfig: trackAnalyticsEvent
+// substitutes it when the bounded flag wait is cut short (#707).
+export type SessionReplaySource = 'targeted' | 'sampled' | 'off' | 'timeout';
 
 export interface SessionReplayConfig {
   /** `record_sessions_percent` to pass to `mixpanel.init`. */

@@ -1,4 +1,7 @@
+import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
+import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
@@ -20,18 +23,20 @@ import { handleGetStartedRoute } from './routes/getStarted';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
-import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
+import { decidePageBanner, handlePageBannerRoute, maybeHandleTargetedSurvey } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
 import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
+import { markWhatsNewAudience } from '@/utils/whatsNew/state';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { markPublishClicked, trackPublishCompleted } from '@/utils/analytics/publishTiming'
+import { markPublishClicked, trackPublishCompleted, recordPublishStep, recordPublishFlag } from '@/utils/analytics/publishTiming'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { handleHomepageFeedRoute } from './routes/homepageFeed';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution, setSequenceViewerLoadState } from '@/utils/viewerLoadOutcome';
 import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
@@ -48,9 +53,17 @@ import {
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { inferLegacyDiagramType, withLegacyDiagramType } from '@/model/Diagram/legacyDiagramType';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
+import { markEditorAuthoringStarted, trackEditorClosedWithoutSave } from '@/utils/analytics/editorCloseOutcome';
+import {
+  EXPORT_SESSION_EVENT,
+  readExportSession,
+  receiveExportSession,
+} from '@/components/ExportModal/exportSession';
+import { openWithExportSessionHandoff } from '@/components/ExportModal/exportSessionHandoff';
 
 // Track editor session start time
 const editorStartTime = Date.now();
@@ -84,6 +97,20 @@ async function initializeCriticalPath() {
   // extension.modal (when there isn't a real modal) doesn't have it.
   const context = await initForgeContext();
   const isOpenedModal = !!context.extension?.modal?.macroMode;
+
+  if (context.extension?.modal?.macroMode === 'feedback') {
+    const { mountFeedbackModal } = await import('@/features/feedback/mountFeedback');
+    mountFeedbackModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // Viewer Create's slash-command guide (src/features/createGuide). Same early exit as
+  // feedback: `feedbackHandled` makes main() skip the viewer, editor and feedback host.
+  if (context.extension?.modal?.macroMode === CREATE_GUIDE_MACRO_MODE) {
+    const { mountCreateGuideModal } = await import('@/features/createGuide/mountCreateGuide');
+    mountCreateGuideModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
 
   // Check if this is a global settings route (get started page)
   if (!isOpenedModal && context.extension?.type === 'confluence:globalSettings') {
@@ -143,7 +170,7 @@ async function initializeCriticalPath() {
   // entry's UI.
   //
   //   zenuml-byline-newuser  → the activation nudge ("View as diagram")
-  //   zenuml-byline-diagrams → the Lite diagram index
+  //   zenuml-byline-diagrams → the diagram index (Lite, Full, AsyncAPI)
   //   zenuml-byline-aiaide   → the Aide chat (the fallback)
   if (!isOpenedModal && context.extension?.type === 'confluence:contentBylineItem') {
     if (context.moduleKey === 'zenuml-byline-newuser') {
@@ -162,13 +189,13 @@ async function initializeCriticalPath() {
   // Confluence page load and decides — synchronously, from localStorage only —
   // which banner (if any) to show: paywall warning outranks the CSAT survey.
   // The paywall branch is eligible only when the space is unpaid, over the
-  // Lite hard limit, CSS targeting is on, recent macro authoring activity is
-  // present, and the user is not snoozed. On the ~99% of loads where neither
-  // banner is eligible we close immediately WITHOUT importing the banner
-  // route, initializing the macro context, or mounting Vue. One module +
+  // Lite hard limit, effective paywall policy is on, and the user recently
+  // authored a macro or administers the space. When existing banners decline,
+  // Lite and Full check one bounded targeted-survey lookup before closing.
+  // Diagramly and AsyncAPI still close without that lookup. One module +
   // central priority means the banners never coordinate across iframes (no
-  // defer). decidePageBanner() touches only the cheap predicates, so this
-  // stays a true fast-exit.
+  // defer). decidePageBanner() touches only cheap local predicates; the survey
+  // lookup runs after they decline.
   // (Routed by moduleKey, not extension.type, because the pageBanner extension
   // carries no macro config to discriminate on.)
   // The unplaced-diagram banner. A SEPARATE pageBanner module from the host
@@ -214,6 +241,10 @@ async function initializeCriticalPath() {
 
     const choice = decidePageBanner();
     if (choice === 'none') {
+      // The targeted survey is a Lite/Full authenticated fallback. The
+      // lookup has a strict deadline and fails closed. It runs only after the
+      // existing banners decline their slot, so it never delays their display.
+      if (await maybeHandleTargetedSurvey(import.meta.env.PRODUCT_TYPE)) return { macroData: null };
       // Idle renderer prefetch (EAG-64): the banner mounts on every page —
       // including pages with no macros — making it the only surface that can
       // warm the renderer-bundle cache for macro-free browsing. Gated by a
@@ -248,7 +279,8 @@ async function initializeCriticalPath() {
 }
 
 // Load heavy components asynchronously
-async function loadHeavyComponents(criticalData: { macroData: any }) {
+async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandled?: boolean }) {
+  if (criticalData.feedbackHandled) return;
   // Dynamically import heavy dependencies
   const [
     { mountRoot }
@@ -290,6 +322,12 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   // (see refreshUserCohortsIfStale) so this adds no meaningful cost to
   // every-macro-render placement.
   void refreshUserCohortsIfStale();
+
+  // "What's new" audience marker: this browser has seen one of our macros on
+  // this site, so the page-banner host may announce releases to it (see
+  // utils/whatsNew/state.ts). All variants, synchronous, at most one
+  // localStorage write per day, never throws.
+  markWhatsNewAudience();
 
   // Paywall page-banner targeting write. Every macro render (viewer OR editor,
   // any diagram type) refreshes the per-space localStorage marker that the
@@ -419,7 +457,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   // moments later, so nothing is silently dropped — it's deferred off the
   // critical path, same as the fetch itself.
   // See utils/renderCache/contentCacheStore.ts.
-  const mountSequenceViewer = async (viewerDoc: Diagram, attribution: DiagramAttribution | null = null) => {
+  const mountSequenceViewer = async (storedDoc: Diagram, attribution: DiagramAttribution | null = null) => {
+    // Both SWR mounts (cache hit, revalidate) hand over the stored body as-is;
+    // one older than `diagramType` would pick no renderer and show an empty card.
+    const viewerDoc = withLegacyDiagramType(storedDoc);
     // #382: hold the mount until the viewport gate releases (the gate shows
     // its own shimmer placeholder while holding — index.html has no real
     // skeleton element). awaitGateBlocking also records the ACTUAL wait at
@@ -466,9 +507,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, {
           recoveryUsed: true,
           recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+          directFetch: loaded,
         });
       } else if (!loaded.customContent?.value) {
-        reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+        reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       }
       const fresh = loaded.customContent?.value;
       if (!fresh) return; // content unreadable now — keep the last-known-good cached render
@@ -490,7 +532,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       if (hashContent(serialized) !== cachedHash) {
         renderPerf.markContentSource('fetch');
         // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
-        const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
+        const freshDoc: Diagram = withPlantUmlViewerFallback(fresh);
         await mountSequenceViewer(freshDoc, freshAttribution);
       }
     } catch (e) {
@@ -504,7 +546,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       try {
         const cachedDoc = JSON.parse(cached.doc) as Diagram;
         // @ts-ignore - cachedDoc may be a partial spread type; matches the happy-path mount below
-        const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
+        const viewerDoc: Diagram = withPlantUmlViewerFallback(cachedDoc);
         renderPerf.markContentSource('swr_cache');
         // Revalidate BEFORE the (possibly gated) mount: an offscreen macro
         // must not delay its freshness check / orphan reporting / snapshot
@@ -552,7 +594,10 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const loaded = await renderPerf.time('fetch', () =>
       globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId, { copyCheckMode }));
     console.debug('Loaded custom content', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
-    doc = loaded.customContent?.value;
+    // A body older than `diagramType` would otherwise mount no renderer (an
+    // empty card) and save back typeless. The cache below keeps the RAW value:
+    // its hash must match the next fetch.
+    doc = withLegacyDiagramType(loaded.customContent?.value);
     diagramAttribution = attributionFromCustomContent(loaded.customContent);
     if (isSequence && loaded.customContent?.value) {
       // Prime the id-keyed SWR cache so a later viewer revisit can render
@@ -571,13 +616,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
       reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
       // ZEN-1170: the referenced customContent failed to load AND no page
       // child was a confident match. Don't assign doc here — let the legacy
       // content-property fallback below try storageUuid before we mount an
       // empty/example doc and risk a destructive save.
-      reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       ccLoadError = mapCustomContentLoadError(loaded);
     }
 
@@ -669,16 +715,13 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
         // (Sequence is the dominant legacy shape), then mermaidCode,
         // then plantUmlCode. Default to Sequence for empty objects.
         const VALID_DIAGRAM_TYPES: ReadonlyArray<DiagramType> = [
-          DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+          DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown,
         ];
         const storedTypeIsValid = restored.diagramType
           && VALID_DIAGRAM_TYPES.includes(restored.diagramType);
         const inferredDiagramType = storedTypeIsValid
           ? restored.diagramType!
-          : (restored.code ? DiagramType.Sequence
-            : restored.mermaidCode ? DiagramType.Mermaid
-            : restored.plantUmlCode ? DiagramType.PlantUml
-            : DiagramType.Sequence);
+          : (inferLegacyDiagramType(restored) ?? DiagramType.Sequence);
         doc = {
           ...restored,
           diagramType: inferredDiagramType,
@@ -839,7 +882,7 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
   // support. `doc` is only populated for the sequence family above; non-sequence
   // types leave it undefined (the dedicated entry loads their doc), so guard.
   if (doc && !doc.plantUmlCode) {
-    doc = { ...doc, plantUmlCode: Example.PlantUml };
+    doc = withPlantUmlViewerFallback(doc);
   }
 
   // Start journey tracking for editor mode
@@ -970,12 +1013,14 @@ async function loadHeavyComponents(criticalData: { macroData: any }) {
     const trackPageEditorAuthoringStarted = () => {
       const isNew = !customContentId;
       const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
+      markEditorAuthoringStarted();
       if (isNew) {
         trackAnalyticsEvent("macro_create_started", {
           feature_area: "macro",
           surface: "editor",
           macro_type: macroType,
           entry_point: "page_editor",
+          ...getCreationFlowProps(),
         });
       } else {
         trackAnalyticsEvent("macro_edit_started", {
@@ -1151,9 +1196,16 @@ async function main() {
   const criticalData = await initializeCriticalPath();
 
   // Phase 2: Load heavy components
-  loadHeavyComponents(criticalData).catch(e =>
-    console.error('Failed to load heavy components:', e)
-  );
+  try {
+    await loadHeavyComponents(criticalData);
+    if (!criticalData.feedbackHandled) {
+      const context = await initForgeContext();
+      const { installFeedbackHost } = await import('@/features/feedback/mountFeedback');
+      installFeedbackHost(context);
+    }
+  } catch (e) {
+    console.error('Failed to load heavy components:', e);
+  }
 }
 
 export default main()
@@ -1375,7 +1427,7 @@ EventBus.$on('save', async () => {
   // attachment_not_found. At save the user has write permission (no 403) and the
   // content is known, so we can write it directly.
   //
-  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml) only —
+  // Scope: the zenuml-sequence-macro family (sequence/mermaid/plantuml/markdown) only —
   // it's the one editor with a capturable preview (.screen-capture-content).
   // graph/openapi editors have no diagram to snapshot here (tracked separately).
   //
@@ -1384,11 +1436,16 @@ EventBus.$on('save', async () => {
   // exceeds the cap or throws, we proceed to submit anyway — the view-time path
   // remains as a backfill.
   const savedDiagramType = store.state.diagram.diagramType;
-  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml')) {
+  if (id && (savedDiagramType === 'sequence' || savedDiagramType === 'mermaid' || savedDiagramType === 'plantuml' || savedDiagramType === 'markdown')) {
+    // Publish timing (attachment_ack_ms / attachment_timed_out): the clock starts
+    // before the dynamic-import await so a slow chunk load counts. The capture
+    // slice inside it is timed in Attachment.ts (attachment_capture_ms).
+    const attachmentStartedAt = performance.now();
+    let attachmentTimedOut = false;
     try {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await Promise.race([
-        createAttachmentIfContentChanged(store.state.diagram.code ?? '', savedDiagramType, {
+        createAttachmentIfContentChanged(getDiagramData(store.state.diagram), savedDiagramType, {
           customContentId: String(id),
           fromSave: true,
         }),
@@ -1398,10 +1455,18 @@ EventBus.$on('save', async () => {
         // attachment.ts). So this await only bounds the client-side PNG capture
         // + a fast backend ack (~1.5–3.5s), not the full upload. The cap is a
         // hang-guard for a wedged capture; 6s is generous headroom.
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('save-attachment timeout')), 6000)),
+        new Promise<never>((_, reject) => setTimeout(() => {
+          attachmentTimedOut = true;
+          reject(new Error('save-attachment timeout'));
+        }, 6000)),
       ]);
     } catch (e) {
       console.warn('save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);
+    } finally {
+      // Read here, when the race settles. The cap timer is never cleared, so
+      // it can fire later and flip the flag after a backup that finished first.
+      recordPublishStep('attachment_ack_ms', attachmentStartedAt);
+      recordPublishFlag('attachment_timed_out', attachmentTimedOut);
     }
   }
 
@@ -1418,7 +1483,11 @@ EventBus.$on('save', async () => {
     // duplicate POST branch), (c) we recovered from an orphan and must
     // repoint the macro at the recovered sibling id, or (d) we migrated a
     // legacy uuid-only macro and must write customContentId for the first time.
+    // Publish timing (writeback_context_ms): both read the cached forge context,
+    // so this is expected to be ~0; recorded to rule it in or out.
+    const writebackContextStartedAt = performance.now();
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
+    recordPublishStep('writeback_context_ms', writebackContextStartedAt);
     // #170: never view.submit in a non-submittable surface — see writebackGate.ts.
     const { attemptRepair, attemptLegacyMigration, needsWriteback } = decideWriteback(
       deriveWritebackSignals({
@@ -1531,7 +1600,10 @@ EventBus.$on('exit', async (showWarning: boolean) => {
       // User confirmed exit - track exit event
       const exitEventAction = isNewSequence ? 'create_macro_exit' : 'edit_macro_exit';
       trackEvent('', exitEventAction, DiagramType.Sequence, eventProps);
-      trackEditorMutationLifecycleEvent('macro_edit_cancelled');
+      // Awaited: view.close() below tears the iframe down, and the shared
+      // tracker suppresses the duplicate that view.onClose would otherwise
+      // send for this same close.
+      await trackEditorClosedWithoutSave('discard_dialog');
       
       // End journey on exit
       if (getEditJourneyId()) {
@@ -1575,21 +1647,39 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
       || context.extension?.config?.uuid
       || uuidv4();
 
-    await openModal({
-      resource: 'main',
-      onClose: () => {
-        location.reload();
+    const exportSession = readExportSession();
+
+    // The listener's lifetime lives in openWithExportSessionHandoff, which is
+    // unit-tested: the bridge resolves openModal() when the modal has OPENED,
+    // so unsubscribing on that resolve loses every annotation the child makes.
+    await openWithExportSessionHandoff({
+      macroUuid,
+      subscribe: async (handler) => {
+        const { events } = await import('@forge/bridge');
+        return events.on(EXPORT_SESSION_EVENT, handler);
       },
-      size: 'fullscreen',
-      context: {
-        macroMode: 'fullscreen',
-        macro_uuid: macroUuid,
-        session_id: getOrCreateSession(),
-        // Export PNG entry: the modal opens the export dialog on arrival, and
-        // the fullscreen-viewer paywall is skipped for it — inline export has
-        // never been gated, and gating it here would both block the action and
-        // report a paywall_triggered the user never asked for.
-        ...(options?.openExport ? { openExport: true } : {}),
+      onSnapshot: receiveExportSession,
+      open: (onClose) => openModal({
+        resource: 'main',
+        onClose,
+        size: 'fullscreen',
+        context: {
+          macroMode: 'fullscreen',
+          macro_uuid: macroUuid,
+          session_id: getOrCreateSession(),
+          ...(exportSession ? { exportSession } : {}),
+          // Export PNG entry: the modal opens the export dialog on arrival, and
+          // the fullscreen-viewer paywall is skipped for it — inline export has
+          // never been gated, and gating it here would both block the action and
+          // report a paywall_triggered the user never asked for.
+          ...(options?.openExport ? { openExport: true } : {}),
+        },
+      }),
+      onClosed: () => {
+        // Export-entry close must only dismiss the temporary modal. A normal
+        // fullscreen close keeps the page visit alive when export state exists.
+        if (options?.openExport || readExportSession() !== null) return;
+        location.reload();
       },
     });
   } finally {
@@ -1601,7 +1691,8 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
 // opened by Export PNG and skipped the fullscreen-viewer paywall, so the viewer
 // behind it must not stay reachable. See GenericViewer.onExportModalClose.
 EventBus.$on('closeFullscreen', async () => {
-  await (await getView()).close();
+  const exportSession = readExportSession();
+  await (await getView()).close({ exportSession });
 });
 
 EventBus.$on('updateContent', async (diagram: Diagram) => {

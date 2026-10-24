@@ -22,6 +22,15 @@ const counts = {
   unknown: 0,
 };
 
+function expectScalarProperties(properties: Record<string, unknown>) {
+  for (const [key, value] of Object.entries(properties)) {
+    expect(
+      value == null || ['string', 'number', 'boolean'].includes(typeof value),
+      key,
+    ).toBe(true);
+  }
+}
+
 describe('macro count snapshot analytics builders', () => {
   it('builds deterministic completed and changed insert IDs', () => {
     const completed = completedSnapshotEvent({
@@ -42,6 +51,8 @@ describe('macro count snapshot analytics builders', () => {
       current: { space: 'ENG', ...counts, isLite: true, lastUpdated: run.capturedAt },
     });
 
+    expectScalarProperties(completed.properties);
+    expectScalarProperties(changed.properties);
     expect(completed.insertId).toBe('run-1:completed');
     expect(changed.insertId).toBe('run-1:space:ENG');
     expect(changed.properties).toMatchObject({ previous_total: 0, current_total: 3, delta_total: 3 });
@@ -61,8 +72,6 @@ describe('macro count snapshot analytics builders', () => {
 
     expect(event.insertId).toBe('run-1:failed');
     expect(JSON.stringify(event)).not.toMatch(/contentId|pageId|logicalIdHash|title|raw/i);
-    expect(Object.values(event.properties).every((value) => (
-      value == null || ['string', 'number', 'boolean'].includes(typeof value)
-    ))).toBe(true);
+    expectScalarProperties(event.properties);
   });
 });

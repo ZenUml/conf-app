@@ -77,4 +77,21 @@ describe('ExportPreview — annotation intent tracking', () => {
     expect(trackAnalyticsEvent).not.toHaveBeenCalled();
     wrapper.unmount();
   });
+
+  it('deselects a selected annotation instead of re-arming and double-counting its tool', async () => {
+    const { wrapper, state } = mountPreview();
+    state.callout.text = 'Retry happens here';
+    state.callout.position = { x: 0.46, y: 0.4 };
+    state.selectedAnnotation.value = 'callout';
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('button[aria-label="Callout (click to place)"]').attributes('aria-pressed')).toBe('true');
+
+    await wrapper.find('button[aria-label="Callout (click to place)"]').trigger('click');
+
+    expect(state.selectedAnnotation.value).toBe(null);
+    expect(state.activeTool.value).toBe(null);
+    expect(trackAnalyticsEvent).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
 });

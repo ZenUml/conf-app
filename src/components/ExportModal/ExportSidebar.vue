@@ -17,19 +17,27 @@
             :key="bg.value"
             type="button"
             class="bg-swatch"
-            :class="{ active: state.background.value === bg.value, 'swatch-transparent': bg.value === 'transparent' }"
-            :style="bg.value === 'transparent' ? {} : { backgroundColor: bg.color }"
+            :class="{ active: state.background.value === bg.value }"
             :title="bg.label"
             :aria-label="bg.label"
             :aria-pressed="state.background.value === bg.value"
             @click="state.selectBackground(bg.value)"
-          ></button>
+          >
+            <span
+              class="bg-swatch-preview"
+              :class="{ 'swatch-transparent': bg.value === 'transparent' }"
+              :style="bg.value === 'transparent' ? {} : { backgroundColor: bg.color }"
+              aria-hidden="true"
+            ><i></i><i></i></span>
+            <span class="bg-swatch-label">{{ bg.label }}</span>
+          </button>
           <div class="custom-color-wrap">
             <label class="custom-color-label" title="Custom color">
               <input type="color" v-model="state.customBgColor.value" @input="state.selectBackground('custom')" class="custom-color-input" aria-label="Custom background color"/>
               <span class="custom-color-swatch" :style="{ backgroundColor: state.customBgColor.value }">
                 <AdsIcon glyph="add" :size="12" />
               </span>
+              <span class="custom-color-label-text">Custom</span>
             </label>
           </div>
         </div>
@@ -105,7 +113,7 @@
         <h3 class="section-heading">Callout Properties</h3>
         <div class="field-row">
           <label class="field-label" for="export-callout-text">Text</label>
-          <input id="export-callout-text" type="text" v-model="state.callout.text" class="field-input" placeholder="Label text..."/>
+          <input id="export-callout-text" type="text" v-model="state.callout.text" maxlength="80" class="field-input" placeholder="Label text..."/>
         </div>
         <div class="field-row">
           <label class="field-label" for="export-callout-fontsize">Font Size <span class="field-value">{{ state.callout.fontSize }}px</span></label>
@@ -177,8 +185,15 @@
 
     <!-- Action bar -->
     <div class="sidebar-actions">
-      <button class="btn-cancel" @click="$emit('close')">Cancel</button>
       <div class="sidebar-actions-primary">
+        <button class="btn-export" @click="$emit('export')" :disabled="state.isExporting.value">
+          <svg v-if="state.isExporting.value" class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <AdsIcon v-else glyph="download" :size="13" />
+          {{ state.isExporting.value ? 'Exporting…' : 'Download PNG' }}
+        </button>
         <button
           v-if="clipboardExportSupported"
           type="button"
@@ -193,14 +208,6 @@
           <AdsIcon v-else-if="state.copySucceeded.value" glyph="check" :size="13" />
           <AdsIcon v-else glyph="copy" :size="13" />
           {{ state.copySucceeded.value ? 'Copied' : (state.isCopying.value ? 'Copying…' : 'Copy image') }}
-        </button>
-        <button class="btn-export" @click="$emit('export')" :disabled="state.isExporting.value">
-          <svg v-if="state.isExporting.value" class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
-            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          <AdsIcon v-else glyph="download" :size="13" />
-          {{ state.isExporting.value ? 'Exporting…' : 'Download PNG' }}
         </button>
       </div>
     </div>
@@ -297,7 +304,7 @@ export default defineComponent({
    measured 290px plus padding and pushed Download past the sidebar's edge. */
 .sidebar-actions-primary {
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   align-items: stretch;
   gap: 8px;
 }

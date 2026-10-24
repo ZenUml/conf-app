@@ -21,7 +21,7 @@ const meta: Meta<typeof IconCloud> = {
     layout: 'padded',
     docs: {
       description: {
-        component: 'All SVG icon components available in the conf-app icon library.',
+        component: 'The five SVG icon components in src/components/icons — the set was pruned to the icons product code actually uses.',
       },
     },
   },

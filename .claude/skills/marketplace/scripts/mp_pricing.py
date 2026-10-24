@@ -38,8 +38,7 @@ DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "marketplace.db")
 
 FULL_ADDON = "com.zenuml.confluence-addon"
 
-# Cumulative per-user-per-MONTH bands for the Full plan. Annual list = 10x
-# monthly (Atlassian's cloud convention: two months free).
+# Historical monthly bands for analytics/validation only; never derive annual quotes from them.
 #   Verified 2026-08-11: 82 of 102 Full monthly renewals in the preceding two
 #   months matched to the cent. The 20 that did not were all 1-3 user sites
 #   settling a mid-cycle tier change pro rata, which is not a band question.
@@ -79,8 +78,10 @@ def _pricing_payload():
     return _PRICING_CACHE["data"]
 
 
-def live_list_price(users):
-    """(monthly, annual) published list price for `users`, read from the Marketplace."""
+def live_full_quote(users):
+    """Published pricing, shared by quote and license tools. No stale-price fallback."""
+    if not isinstance(users, int) or isinstance(users, bool) or users <= 0:
+        raise ValueError("A positive verified seat count is required")
     data = _pricing_payload()
 
     # unitCount == -1 is the "Unlimited users" sentinel, not a band. It sorts first and
@@ -109,14 +110,23 @@ def live_list_price(users):
     else:
         monthly += max(0, users - prev_top) * per_unit[-1]["amount"]
 
-    band = next((i for i in annual_items if i["unitCount"] >= users), annual_items[-1])
+    band = next((i for i in annual_items if i["unitCount"] >= users), None)
+    if band is None:
+        raise RuntimeError("Seat count exceeds verified published annual tiers; obtain a quote")
     annual = band["amount"]
 
     # Below the first per-unit band the app is flat-rated; the annual band price is
     # authoritative and the monthly one is derived from it.
     if users <= FLAT_SMALL_TIER_USERS:
         monthly = annual / 12.0
-    return monthly, annual
+    return {"monthly": monthly, "annual": annual, "band": band["unitCount"],
+            "per_user_month_annual": annual / users / 12,
+            "per_user_month_monthly": monthly / users}
+
+
+def live_list_price(users):
+    quote = live_full_quote(users)
+    return quote["monthly"], quote["annual"]
 
 
 def monthly_list_price(users):
@@ -372,25 +382,17 @@ def cmd_validate(args):
 
 
 def cmd_tiers(args):
-    print("Full plan — cumulative per-user bands, USD per user per MONTH")
-    print()
-    lower = 0
-    for upper, rate in BANDS:
-        label = "{}+".format(lower + 1) if upper is None else "{}-{}".format(lower + 1, upper)
-        print("  {:<12} ${:.2f}".format(label, rate))
-        if upper is None:
-            break
-        lower = upper
-    print()
-    print("  1-{} users: flat ${:.0f}/year (${:.2f}/month)".format(
-        FLAT_SMALL_TIER_USERS, FLAT_SMALL_TIER_ANNUAL, FLAT_SMALL_TIER_ANNUAL / 10))
-    print("  annual list price = 10 x monthly")
-    print()
-    print("Enterprise Bundle: ${:.0f}/space/year, flat, our own Stripe billing.".format(
-        ENTERPRISE_BUNDLE_ANNUAL))
-    print()
-    print("These constants can go stale. Run `validate` to check them against")
-    print("real renewals before quoting.")
+    data = _pricing_payload()
+    print("Full — live published pricing (USD); annual is a flat tier, not monthly × 10")
+    for label, key, months in (("Monthly per-user band", "perUnitItems", 1), ("Annual flat tier", "items", 12)):
+        rows = sorted((x for x in data.get(key, []) if x.get("licenseType") == "COMMERCIAL"
+                       and x.get("unitCount", 0) > 0 and x.get("monthsValid", months) == months),
+                      key=lambda x: x["unitCount"])
+        if not rows:
+            raise RuntimeError("Published price tiers unavailable")
+        for row in rows:
+            print(f"{label}: up to {row['unitCount']} users: USD {row['amount']}")
+    print("Source:", MARKETPLACE_PRICING_URL)
     return 0
 
 

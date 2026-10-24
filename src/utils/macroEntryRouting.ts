@@ -32,5 +32,6 @@ export function isSequenceFamilyEntry(
       moduleKey.startsWith('gpt-diagram-macro'))
   ) ||
     modalDiagramType === 'sequence' ||
-    modalDiagramType === 'mermaid';
+    modalDiagramType === 'mermaid' ||
+    modalDiagramType === 'markdown';
 }

@@ -16,8 +16,9 @@ import React from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import AsyncApiReactView from '@/components/Viewer/AsyncApiViewer/AsyncApiViewer'
-import { Diagram } from '@/model/Diagram/Diagram'
+import { Diagram, DiagramType } from '@/model/Diagram/Diagram'
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime'
+import { viewContentState } from '@/utils/analytics/contentState'
 
 export default defineComponent({
   name: 'AsyncApiMacroViewer',
@@ -75,7 +76,11 @@ export default defineComponent({
       // @asyncapi/react-component renders asynchronously internally — this
       // measures time-to-content, not time-to-full-paint. Same approximation
       // as OpenApiViewer's trackRenderTime call.
-      trackRenderTime('asyncapi', this.$store.getters.isDisplayMode)
+      trackRenderTime(
+        'asyncapi', this.$store.getters.isDisplayMode, 'live_render', 'none',
+        // A string loadError means the body never arrived — no verdict then.
+        this.loadError ? undefined : viewContentState(this.doc, DiagramType.AsyncApi),
+      )
     },
   },
 })

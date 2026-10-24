@@ -1,6 +1,6 @@
 ---
 name: mixpanel
-description: Use when you need a Mixpanel fact or query path for the conf-app / ZenUML Confluence add-on — which project, which event name (and the 2026-04 rename), the internal-domain exclude filter, whether isForge/isLite/product_type is usable, MCP-vs-JQL, or how to authenticate. Canonical reference for Mixpanel project 3373228. Triggers on mixpanel, macro_viewed, view_macro, create_macro, edit_macro, JQL, is_internal_client_domain, product_type, isForge, "which mixpanel project", "how to query mixpanel". For churn/retention/growth/D1 analysis use the conf-app skill instead.
+description: Use when you need a Mixpanel fact or query path for the conf-app / ZenUML Confluence add-on — which project, which event name (and the 2026-04 rename), the internal-domain exclude filter, whether isForge/isLite/product_type is usable, MCP-vs-JQL, or how to authenticate. Canonical reference for Mixpanel project 3373228. Triggers on mixpanel, session replay, macro_viewed, view_macro, create_macro, edit_macro, JQL, is_internal_client_domain, product_type, isForge, "which mixpanel project", "how to query mixpanel". For churn/retention/growth/D1 analysis use the conf-app skill instead.
 ---
 
 # Mixpanel (conf-app)
@@ -47,7 +47,7 @@ Section comments in `types.ts` are organisational, not authoritative — `conflu
 - **`isForge` / `isLite` are dead** — effectively always `false`, even on events fired from Forge. Filtering `isForge=true` returns ~**zero**. Use **`product_type`** (`lite`/`full`/`diagramly`) for the *variant*. `product_type` does **not** encode Connect-vs-Forge runtime (see below).
 - **`client_domain` = bare subdomain**, no `.atlassian.net` (e.g. `example-tenant`). D1's `clientDomain` is the full hostname — convert before joining the two stores.
 - **`distinct_id` = `user_account_id`** (the Atlassian account), not tenant / macro / content id — **except when the Forge context had not resolved at send time.** Then it is the literal `unknown_user_account_id`, and `client_domain` is `unknown_atlassian_domain`. Both are shared constants, not per-user values, so **never count `unique` on an event that carries them** — every affected user collapses into one. Measured 30d to 2026-07-26 (178 event names, 969,584 events): fleet-wide loss is only **0.06%**, because every high-volume event fires after resolution (`macro_viewed`: 14 of 315,133). The loss is concentrated in early-boot events — `ai_aide_route_accessed` **100%**, `renderer_prefetch_started/completed` **35–37%**, `legacy_content_property_load_failed` **30%**, `cohorts_refresh_failed` 17%, `initializeContext` 100% (unavoidable — it fires *during* init). Re-measure with `.groupBy(['name', e => e.distinct_id === 'unknown_user_account_id' ? 'NO_USER' : 'ok'], mixpanel.reducer.count())`.
-  - **Changing (PR #400, open 2026-07-26):** unresolved events will carry a Mixpanel-generated **anonymous** `distinct_id` instead of the literal, plus a localStorage SWR cache (`zenumlAccountId:<clientDomain>`) that attributes the first event of most iframes correctly. After it ships, **queries filtering on the `unknown_user_account_id` literal stop matching** — the population still exists, it is just anonymous and merged into the real user on the next identify. Check whether #400 is merged before trusting either shape.
+  - **Current implementation (checked in code 2026-09-12):** the tracker contains anonymous identity handling and the account SWR cache. The preceding July measurements describe a historical window. Unresolved events can have generated anonymous distinct IDs, so excluding only the old literal does not exclude all anonymous events. For known-account counts use a verified `user_account_id`, excluding missing/placeholders; measure coverage in the actual window. Code presence does not establish every event or historical deployment date.
 - **Two more `unknown_*` traps when reading breakdowns:** `$mp_session_record` (Mixpanel's own session-replay event, ~372k/30d) carries **no** `client_domain` at all and will dominate any all-events domain breakdown. And project 3373228 is shared — a long tail of 100%-no-domain events (`home_page_viewed`, `signup_started`, `user_registered`, `otp_*`, `diagram_generated`, `brand_saved`, `pass_issued`…) belongs to **other products** (diagramly.ai, membership-card), not to conf-app. Excluding both, real domain loss is ~0.2%, not the 38.5% a naive breakdown shows.
 - **`event_category` casing flipped:** `openapi` (pre-Nov 2025) → `OpenAPI` (post). Sum both.
 
@@ -62,6 +62,44 @@ Both names coexist **only in April 2026**; fully switched by May. **Window ≤ A
 | `macro_save_succeeded` | `edit_macro_end` |
 
 Other events were renamed in the same wave; **`src/utils/analytics/catalog.ts` is authoritative** for current names — read it, don't trust a stale copy here.
+
+## The 2026-08-18 `macro_edit_opened` → `macro_edit_started` rename (evidence-verified)
+
+`macro_edit_opened` was replaced by **`macro_edit_started`** on 2026-08-18 (per
+`docs/analytics/events-catalog.md`; the old name is in no code and never was in `catalog.ts`
+git history). Weekly totals, fleet-wide: old name 873 in the week of 2026-08-17 then **0**
+from 2026-08-24; new name 435 that same crossover week, then ~2,000/week. **Sum both for any
+window touching 2026-08-17..23; use only the new name after that.**
+
+The trap this records (hit 2026-09-11): the "Edit Macro Completion" funnel (report
+`89660488`, board `11129697`) still had `macro_edit_opened` as step 1, so its 30-day view
+silently decayed towards a zero-entry funnel. It was re-pointed to `macro_edit_started` in
+place (Update-Dashboard cell update keeps the bookmark id). Rebuilt 30d totals funnel:
+4,761 → 4,419 (**93%**). Any saved report that still names `macro_edit_opened` reads flat, not
+broken — check the step names before proposing a product mechanism.
+
+Two more facts from the same investigation. **The default 7-day conversion window hides the
+loss:** with totals counting, a user who reopens and saves days later converts the stale entry.
+Customers-only, 1-hour window, 30d to 2026-09-11: 3,866 → 3,209 (**83%**); graph **64%**, openapi
+**67%**, plantuml 86%, mermaid 87%, sequence 92%. Internal domains convert at 100% and, on graph,
+outnumber customer edits ~2:1, so an unfiltered graph funnel is mostly E2E traffic. And **the
+drop-off had no explaining event**: `macro_edit_cancelled` fired 0 times in the 12 weeks to
+2026-09-11 (it was reachable only from a discard dialog behind a removed exit button), while
+`paywall_blocked_edit` accounts for ~7% of Lite customer edit sessions. From the build carrying
+`src/utils/analytics/editorCloseOutcome.ts`, `macro_edit_cancelled` / `macro_create_cancelled`
+fire on the Atlassian modal X (`close_source`, `had_changes`, `editor_open_duration_ms`); before
+it, treat the event as absent, not as zero cancellations.
+
+## The 2026-09 AI-title event rename
+
+`ai_generation_requested` / `ai_generation_succeeded` / `ai_generation_failed` were renamed to
+**`ai_title_generation_requested` / `_succeeded` / `_failed`** (commit on branch
+`chore/ai-title-generation-event-rename`, 2026-09-08). They are the AI **title** generator in
+`src/composables/useAutoTitle.ts`; `generation_source='init'` (automatic on editor open) is 97% of
+volume, so a count of these events is not a count of users asking for AI. Query both names across
+the release date; the old names are emitted by no code after it. Seven saved Insights/Flows reports
+(ids 90438085, 90450988, 90438088, 90486806, 90438092, 90438089, 90486745) still reference the old
+names and go flat after the release until re-pointed.
 
 ## The 2026-09 architecture-tokens rename (evidence-verified)
 
@@ -121,6 +159,22 @@ Two further traps when reading this event:
   `ai_repair_requested` says someone clicked it. Post-change the two are much closer in meaning
   than they were, which will look like a conversion-rate jump that is entirely definitional.
 
+## Session replay: what a replay can and cannot show
+
+- **The MCP (`Get-User-Replays-Data`) returns a DOM-interaction transcript** (Navigated / Scrolled /
+  Clicked / Focused / Set input, with epoch timestamps) plus the analytics events in the replay. It
+  does **not** return console output or network requests; those are only in the replay player UI
+  (mixpanel-agent-browser skill, needs the persistent Mixpanel profile — absent in the remote agent
+  container, which also has no Mixpanel UI credentials).
+- **Console** has been recorded since the SDK's `record_console` default (kept explicit since
+  2026-09-11). **Network** telemetry exists only in `mixpanel-browser` >= 2.76.0; this repo shipped
+  2.73.0 until the 2026-09-11 bump to 2.83.0 with `record_network: true`, so **every replay recorded
+  before that release has an empty Network tab** — that is missing capture, not "no requests". The
+  plugin records URL, method, status and timing only (no headers or bodies by default).
+- Replay coverage of authoring is partial: over 14d to 2026-09-11, `macro_edit_started` split
+  `returned` 2,060 / `skipped_sampled` 624 / undefined 409 on `session_replay_start_call_outcome`,
+  so ~1 in 5 edit sessions has no replay to inspect.
+
 ## Event sampling — a raw count is NOT the volume
 
 **Since 2026-08-26 (`e572eb7b`, quota reduction) some events emit only a fraction of the
@@ -159,6 +213,21 @@ against 4,482 is **7.6%**.
 Two rules follow. A sudden step change in one event's volume — check `eventSampling.ts` and the
 release that carried it **before** proposing any mechanism. And a ratio between two events is only
 valid when both carry the same rate; otherwise extrapolate both first.
+
+## Analytics bootstrap timing (#707)
+
+Every frontend event carries the per-iframe `analytics_init_ms` super-property:
+monotonic milliseconds from the first retained track call to Mixpanel init
+completion, including the replay-config wait. Later events reuse that value;
+it excludes enrichment and event delivery. Use its distribution to tune the
+3,000 ms replay-config timeout.
+
+`session_replay_source = 'timeout'` means replay is off because the flag lookup
+did not answer before that deadline. It is distinct from `'off'` (a resolved
+off decision, an override, or a thrown lookup). `analytics_init_degraded` fires
+once after a timeout with `reason = 'session_replay_config_timeout'` and
+`timeout_ms = 3000`. The October 2026 budget override skips the flag lookup,
+so the timeout path becomes active on 2026-11-01 UTC for flag-driven iframes.
 
 ## Hot events (the ones you actually query)
 
@@ -209,6 +278,7 @@ There is **no reliable runtime boolean** (`isForge` is dead). To split:
 | Comparing a raw count across 2026-08-26, or ratioing a sampled event against an unsampled one | `diagram_attribution_shown` is 5%, `macro_export_*` 5–10%, `click` and friends 10%; `macro_viewed` and the audience registration events are 1. Extrapolate `count / sample_rate` inside the query. See "Event sampling" above. |
 | Validating a property against ONE tenant | A distinct count returns 1 both for an absent property (the value `undefined`) and for a real property at a one-space tenant. Always verify fleet-wide. |
 | `BooleanPropertyFilter` in MCP `Run-Query` when the output is a link or saved report | The executed query is correct, but the encoded state is malformed: the shared `report_url` re-runs with the filter flipped to `= true`, and a saved report (bookmark updated via query_id) renders the chip as `True` AND reverts every viewer edit — clicking 30D snaps back to the saved range because the UI cannot re-serialize the filter (hit 2026-07-23 and 2026-08-19, Coles board reports 91672617/91672628). Fix: string-encode boolean filters. For `tab_hidden`, use `{type:"string", propertyType:"string", operator:"equals", value:"false"}`; for customer-wide reports, use the `is_internal_client_domain` filter shown above. It returned the same 76,052-event seven-day population as the native boolean form on 2026-08-22. Results returned inline in the tool response are trustworthy either way. |
+| `viewer_load_failed` counts for `svg element not in render tree` across `v2026.09.220157` | Not comparable: that release carried PR #695, after which a hidden Mermaid macro waits instead of failing and emits nothing until `viewer_render_deferred` / `viewer_render_abandoned` / `macro_viewed.layout_wait_ms` (#706) ship. |
 | `macro_viewed` `surface='viewer'` = a real page view | On builds before 2026-07-19 (conf-app#368) the native macro-config surface was stamped `viewer` too, so historical viewer volumes include ~3% authoring renders — recognizable as no-`custom_content_id` events near `macro_create_started` by the same user, with inflated `duration_ms` (long-lived editor iframes, tab switches re-firing). Fixed in `ApWrapper2.isDisplayMode()`; segment by `app_version` across the fix. |
 
 ## JQL details

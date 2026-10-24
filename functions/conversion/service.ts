@@ -18,13 +18,14 @@
 
 import {
   HttpError,
-  jsonResponse,
+  NO_STORE_HEADERS,
   errorResponse,
   authenticateMetricsRequest,
   LITE_APP_ID,
   productTypeForAppId,
   type SnapshotEnv,
 } from '../metrics-cache/snapshot/common';
+import { json } from '../OkResponse';
 import type { ForgeRequestData } from '../utils/authenticate';
 import { mixpanelImportServiceEvents } from '../service/mixpanelService';
 import type { AnalyticsEventName } from '../service/analyticsTypes';
@@ -93,6 +94,7 @@ function emitConversionEvent(
       },
     ],
     env.MIXPANEL_TOKEN,
+    { runtime: env },
   ).catch((error) => {
     console.warn('[lite2full] Mixpanel delivery failed', {
       event,
@@ -148,7 +150,7 @@ export async function handleClaim(
       .bind(context.cloudId, staleBefore)
       .first<ConversionJobRow>();
 
-    if (!row) return jsonResponse({ job: null });
+    if (!row) return json({ job: null }, { headers: NO_STORE_HEADERS });
 
     const claimed = await env.DB.prepare(
       `UPDATE ConversionJob SET status = 'claimed', claimedAt = ?2
@@ -158,7 +160,7 @@ export async function handleClaim(
       .run();
     if (!claimed.meta || claimed.meta.changes === 0) {
       // Lost the race to a concurrent invocation — behave as an empty queue.
-      return jsonResponse({ job: null });
+      return json({ job: null }, { headers: NO_STORE_HEADERS });
     }
 
     emitConversionEvent(env, 'macro_convert_job_claimed', row.id, context.cloudId, {
@@ -168,7 +170,7 @@ export async function handleClaim(
       convert_request_source: row.requestSource,
     }, waitUntil);
 
-    return jsonResponse({
+    return json({
       job: {
         id: row.id,
         spaceKey: row.spaceKey,
@@ -187,7 +189,7 @@ export async function handleClaim(
         environmentId: context.environmentId ?? null,
         environmentType: context.environmentType ?? null,
       },
-    });
+    }, { headers: NO_STORE_HEADERS });
   } catch (e) {
     return errorResponse(e);
   }
@@ -290,7 +292,7 @@ export async function handleBodies(
       };
     }
     const missing = ids.filter((id) => !(id in found));
-    return jsonResponse({ contents: found, missing });
+    return json({ contents: found, missing }, { headers: NO_STORE_HEADERS });
   } catch (e) {
     return errorResponse(e);
   }
@@ -372,7 +374,7 @@ export async function handleReport(
       }, waitUntil);
     }
 
-    return jsonResponse({ ok: true, status: requeue ? 'queued' : status });
+    return json({ ok: true, status: requeue ? 'queued' : status }, { headers: NO_STORE_HEADERS });
   } catch (e) {
     return errorResponse(e);
   }

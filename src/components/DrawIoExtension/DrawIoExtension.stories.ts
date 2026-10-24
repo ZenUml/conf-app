@@ -90,7 +90,7 @@ const meta: Meta<typeof DrawIoExtension> = {
 
 export default meta
 
-/** Empty Graph editor state. */
+/** Empty Graph editor: no title yet. The spark button is always available (the ai-title rollout flag is gone). */
 export const Default: Story = {
   decorators: [
     () => {
@@ -105,16 +105,6 @@ export const WithTitle: Story = {
   decorators: [
     () => {
       setupStore({ title: 'Order Flow' })
-      return overlayShell
-    },
-  ],
-}
-
-/** Labelled shapes in currentXml. */
-export const AIEnabled: Story = {
-  decorators: [
-    () => {
-      setupStore()
       return overlayShell
     },
   ],

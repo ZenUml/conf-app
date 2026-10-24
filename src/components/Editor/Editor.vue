@@ -52,7 +52,7 @@ const onEditorCodeChange = (newCode) => {
 let validationRevision = 0;
 const debouncedValidate = debounce(async (newCode, revision) => {
   let result;
-  if (!newCode) {
+  if (!newCode || diagramType.value === DiagramType.Markdown) {
     result = { error: null };
   } else if(diagramType.value===DiagramType.Mermaid){
     result = await validateMermaidSyntax(newCode);
@@ -76,6 +76,7 @@ watch(code, (newCode) => {
 }, { immediate: true });
 
 const diagramSpecificExtensions = computed(() => {
+  if (diagramType.value === DiagramType.Markdown) return [EditorView.lineWrapping];
   if (diagramType.value === DiagramType.Mermaid) return mermaidExtensions;
   if (diagramType.value === DiagramType.PlantUml) return plantUmlExtensions;
   return zenumlExtensions;

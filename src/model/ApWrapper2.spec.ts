@@ -87,6 +87,33 @@ describe('ApWrapper2', () => {
         (forgeGlobalMod.default as any).isDiagramly = false;
       }
     });
+
+    // Regression (#403): the AsyncAPI variant registers only `async-api-doc`.
+    // getMacroContentTypes() fell through to the lite/full pair, so MacroMetrics
+    // asked the V2 space endpoint for ac:my-api:zenuml-content-sequence/-graph
+    // and Confluence answered 400 "Unsupported value for type".
+    it('returns only the registered async-api-doc type on the AsyncAPI variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isAsyncApi = true;
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual(['ac:my-api:async-api-doc']);
+      } finally {
+        (forgeGlobalMod.default as any).isAsyncApi = false;
+      }
+    });
+
+    it('keeps the lite prefix with the sequence + graph pair on Lite', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isLite = true;
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual([
+          'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
+          'ac:com.zenuml.confluence-addon-lite:zenuml-content-graph',
+        ]);
+      } finally {
+        (forgeGlobalMod.default as any).isLite = false;
+      }
+    });
   });
 
   describe('updateCustomContentV2', () => {
@@ -353,6 +380,49 @@ describe('ApWrapper2', () => {
       const result = await wrapper.getCustomContentByIdV2('999');
 
       expect(result).toBeUndefined();
+    });
+
+    // load_custom_content_v2_missing used to carry only the content id, so
+    // the stream could not be split into "really gone" vs "Confluence failed".
+    it('records not_found with the structured status and code on a strict 404', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 404, code: 'NOT_FOUND', title: 'Not Found' }],
+      });
+
+      await wrapper.getCustomContentByIdV2('77');
+
+      expect(trackEvent).toHaveBeenCalledWith('77', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'not_found',
+        error_class: 'structured',
+        http_status: 404,
+        error_code: 'NOT_FOUND',
+      });
+    });
+
+    it('records other_error for a structured non-404 error', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        errors: [{ status: 403, code: 'PERMISSION_DENIED', title: 'Forbidden' }],
+      });
+
+      await wrapper.getCustomContentByIdV2('78');
+
+      expect(trackEvent).toHaveBeenCalledWith('78', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'structured',
+        http_status: 403,
+        error_code: 'PERMISSION_DENIED',
+      });
+    });
+
+    it('records other_error / malformed for a body without body.raw.value', async () => {
+      vi.mocked(forgeRequest).mockResolvedValueOnce({ id: '79' });
+
+      await wrapper.getCustomContentByIdV2('79');
+
+      expect(trackEvent).toHaveBeenCalledWith('79', 'load_custom_content_v2_missing', 'warning', {
+        load_status: 'other_error',
+        error_class: 'malformed',
+      });
     });
   });
 
@@ -738,6 +808,22 @@ describe('ApWrapper2', () => {
       expect(result.directFetchErrorClass).toBe('structured');
     });
 
+    it('keeps the strict-404 diagnostics on a successful sibling recovery (#148)', async () => {
+      vi.mocked(forgeRequest)
+        .mockResolvedValueOnce({ errors: [{ status: 404, code: 'NOT_FOUND' }] })
+        .mockResolvedValueOnce({ results: [childWith(recoveredId, orphanId)] })
+        .mockResolvedValueOnce({ results: [] })
+        .mockResolvedValueOnce(happyCustomContent(recoveredId));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.recoveredFromOrphanId).toBe(orphanId);
+      expect(result.directFetchStatus).toBe('not_found');
+      expect(result.directFetchHttpStatus).toBe(404);
+      expect(result.directFetchErrorCode).toBe('NOT_FOUND');
+      expect(result.directFetchErrorClass).toBe('structured');
+    });
+
     it('surfaces httpStatus/errorCode/errorClass for a 403 FORBIDDEN', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({ errors: [{ status: 403, code: 'FORBIDDEN' }] });
 
@@ -944,6 +1030,42 @@ describe('ApWrapper2', () => {
     // title= filter is silently ignored — verified on whimet4 2026-05-27
     // (1000+ CCs, matching record buried beyond limit=250). CQL with exact
     // `title = "<uuid>"` matching is reliable and permission-scoped.
+    // Regression (#403): the AsyncAPI variant registers only `async-api-doc`;
+    // naming sequence/graph in the CQL type clause is an unsupported type there.
+    it('limits the CQL type clause to async-api-doc on the AsyncAPI variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isAsyncApi = true;
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+        await wrapper.findLegacyCustomContentByUuid(uuid);
+
+        const expectedCql = `(type = "ac:my-api:async-api-doc") AND title = "${uuid}"`;
+        expect(forgeRequest).toHaveBeenCalledWith(
+          `/wiki/rest/api/search?cql=${encodeURIComponent(expectedCql)}&limit=250`,
+        );
+      } finally {
+        (forgeGlobalMod.default as any).isAsyncApi = false;
+      }
+    });
+
+    it('uses the single Diagramly storage type on the Diagramly variant', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isDiagramly = true;
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
+
+        await wrapper.findLegacyCustomContentByUuid(uuid);
+
+        const expectedCql = `(type = "ac:gptdock-confluence:gpt-custom-content-key") AND title = "${uuid}"`;
+        expect(forgeRequest).toHaveBeenCalledWith(
+          `/wiki/rest/api/search?cql=${encodeURIComponent(expectedCql)}&limit=250`,
+        );
+      } finally {
+        (forgeGlobalMod.default as any).isDiagramly = false;
+      }
+    });
+
     it('runs a CQL exact-title search across both legacy CC types', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({ results: [] });
 
@@ -1370,6 +1492,84 @@ describe('ApWrapper2', () => {
       await expect(wrapper.saveCustomContentV2(ccId, diagramToSave()))
         .rejects.toThrow(/no usable customContentId/);
       expect(forgeRequest).toHaveBeenCalledTimes(2); // no third (create) call
+    });
+  });
+
+  // conf-app#523: Confluence reports an unpublished (draft) page's id as the
+  // sentinel "0". It is truthy, so it used to be sent as the custom-content
+  // `pageId` parent and Confluence answered 404 "parent page 0 not found".
+  describe('createCustomContentV2 parent selection (#523)', () => {
+    const created = { id: 'new-cc-1', version: { number: 1 } };
+
+    function stubParents(pageId: unknown, space: unknown) {
+      (wrapper as any)._getCurrentPageId = vi.fn().mockResolvedValue(pageId);
+      (wrapper as any).getCurrentSpace = vi.fn().mockResolvedValue(space);
+    }
+
+    function postedBody() {
+      const call = vi.mocked(forgeRequest).mock.calls.find(
+        (c) => c[0] === '/wiki/api/v2/custom-content' && c[1] === 'POST',
+      );
+      expect(call).toBeDefined();
+      return call![2] as Record<string, unknown>;
+    }
+
+    it('keeps using pageId for a valid persisted page id', async () => {
+      stubParents('456', { id: '789', key: 'S' });
+      vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+      await wrapper.createCustomContentV2(buildDiagram());
+
+      const body = postedBody();
+      expect(body.pageId).toBe('456');
+      expect(body).not.toHaveProperty('spaceId');
+    });
+
+    it.each([
+      ['"0"', '0'],
+      ['0', 0],
+      ['""', ''],
+      ['null', null],
+      ['undefined', undefined],
+    ])('sends exactly spaceId and no pageId when the page id is %s', async (_label, invalid) => {
+      stubParents(invalid, { id: '789', key: 'S' });
+      vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+      const result = await wrapper.createCustomContentV2(buildDiagram());
+
+      const body = postedBody();
+      expect(body.spaceId).toBe('789');
+      expect(body).not.toHaveProperty('pageId');
+      expect(result.id).toBe('new-cc-1');
+    });
+
+    it('falls back to the space when forgeContext reports the draft sentinel "0"', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = {
+        extension: { content: { id: '0' }, space: { id: '789', key: 'S' } },
+      };
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce(created);
+
+        await wrapper.createCustomContentV2(buildDiagram());
+
+        const body = postedBody();
+        expect(body.spaceId).toBe('789');
+        expect(body).not.toHaveProperty('pageId');
+      } finally {
+        (forgeGlobalMod.default as any).forgeContext = null;
+      }
+    });
+
+    it.each([
+      ['"0"', '0'],
+      ['undefined', undefined],
+    ])('throws without calling Confluence when the page id is %s and no space id is available', async (_label, invalid) => {
+      stubParents(invalid, { key: 'S' });
+
+      await expect(wrapper.createCustomContentV2(buildDiagram()))
+        .rejects.toThrow(/no page or space context available/);
+      expect(forgeRequest).not.toHaveBeenCalled();
     });
   });
 

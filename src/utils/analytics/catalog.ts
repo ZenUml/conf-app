@@ -116,7 +116,11 @@ export type Surface =
   // item is CLICKED (measured 2026-08-01: 5 opens against 39,197 macro views on
   // the variants that ship it), so every event carrying this surface is a
   // deliberate user action — there are no byline impressions to filter out.
-  | "byline";
+  | "byline"
+  // Not a UI surface: the iframe's own analytics bootstrap (_initMixpanel).
+  // Used by analytics_init_degraded, which fires before any surface is known.
+  // Segment by the `module_key` property to see which iframe degraded.
+  | "iframe_bootstrap";
 
 export type EntryPoint =
   | "page_view"
@@ -137,6 +141,33 @@ export type EntryPoint =
   | "unknown";
 
 export type OperationMode = "create" | "edit" | "unknown";
+
+// Which surface started a create. Carried on macro_create_started,
+// macro_create_succeeded and macro_create_cancelled (never on edit events) so
+// the onboarding funnel can be split by where the author came from, which
+// `entry_point` cannot do: every editor-hosted create records
+// `entry_point: page_editor`, whether the user inserted a macro or clicked
+// "Add a diagram" in the byline.
+//
+// - page_editor  the ordinary insert-macro / slash-menu / macro-toolbar path
+//                (also the default when nothing else is carried)
+// - byline_view  Lite/Full byline opened while the host page is being viewed
+// - byline_editor byline opened while the host page is in the editor
+// - dashboard    the My API Documents dashboard's "Create" menu
+// - homepage     reserved: the homepage feed card has no create action today
+// - unknown      an origin value was carried but is not one of these
+//
+// Separate from EntryPoint on purpose: entry_point semantics (and every
+// existing breakdown that uses them) stay untouched.
+export const CREATION_ORIGINS = [
+  "page_editor",
+  "byline_view",
+  "byline_editor",
+  "homepage",
+  "dashboard",
+  "unknown",
+] as const;
+export type CreationOrigin = (typeof CREATION_ORIGINS)[number];
 
 // How an authoring session ended. Emitted by journeyTracking.endEditJourney on
 // macro_authoring_ended — the terminal event that makes the create funnel add
@@ -193,6 +224,14 @@ export type RenderGateMode = "render" | "load";
 // Lets cold-vs-warm render-time comparisons use a measured signal instead of
 // inferring cache state from duration magnitude. See trackRenderTime.ts.
 export type CacheState = "cold" | "warm" | "unknown";
+
+// What the macro body looked like when `macro_viewed` fired (#113 wipe detection):
+//   empty    — the type-specific body field is null / undefined / whitespace-only
+//   default  — the body equals the bundled starter content for that type
+//   authored — anything else (also: types with no known body field)
+// A custom_content_id that was once `authored` and is now `empty` is a
+// high-confidence wipe. See utils/analytics/contentState.ts.
+export type ContentState = "default" | "authored" | "empty";
 
 // Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
 // `cc_body` = SVG co-stored in the custom-content body (Phase 2);
@@ -258,6 +297,9 @@ export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
 // `feedback` records the explicit start requested by the Feedback trigger.
+// `timeout` means the Forge flag download did not settle within
+// SESSION_REPLAY_CONFIG_TIMEOUT_MS (#707) so replay was forced off; `off` is
+// reserved for "the flag/policy said off".
 export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
@@ -265,6 +307,7 @@ export type SessionReplayEventSource =
   | "plan_usage_page"
   | "fullscreen"
   | "feedback"
+  | "timeout"
   | "off";
 
 // `start_session_recording()` is a void SDK call whose recorder work continues
@@ -1136,6 +1179,34 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // #707: Mixpanel init had to proceed without an input it normally waits for,
+  // so the iframe's events leave with a degraded configuration instead of not at
+  // all. Fired once per iframe, AFTER mixpanel.init, from the bootstrap in
+  // trackAnalyticsEvent.ts. Properties: feature_area=system,
+  // surface=iframe_bootstrap, module_key, reason, timeout_ms.
+  // reason='session_replay_config_timeout': the Forge feature-flag download
+  // (FeatureFlags.initialize, a bare bridge postMessage with no timeout of its
+  // own) did not settle within SESSION_REPLAY_CONFIG_TIMEOUT_MS; Mixpanel
+  // initialised with replay off and that iframe's replay stays off.
+  | "analytics_init_degraded"
+  // Hidden-Mermaid wait (#706). Since PR #695 the viewer waits, with no deadline,
+  // for an SVG text layout when mermaid.render() throws `svg element not in
+  // render tree` (collapsed expand, background tab, display:none ancestor), and
+  // a hidden macro and a silently broken one looked the same in Mixpanel (a
+  // boot with neither macro_viewed nor viewer_load_failed). Three outcomes of
+  // that wait, none of which retries or blanks the diagram:
+  // - viewer_render_deferred: ONE heartbeat per wait, emitted when the wait
+  //   passes 10 s. Props: macro_type=mermaid, surface, reason='no_layout',
+  //   waited_ms (time actually waited at emit), plus render_gate /
+  //   visible_at_boot when the viewport gate recorded them.
+  // - viewer_render_abandoned: the wait was cancelled before it resolved
+  //   (unmount, diagram cleared or replaced). Same props; waited_ms is the
+  //   total wait. Sent with sendBeacon (trackAnalyticsEventBeforeUnload)
+  //   because the cancel usually coincides with iframe teardown.
+  // - success: macro_viewed carries layout_wait_ms (types.ts), the same shape as
+  //   render_deferred_ms; a retry that fails still goes out as viewer_load_failed.
+  | "viewer_render_deferred"
+  | "viewer_render_abandoned"
   // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
   // `retry()` is a bare location.reload(), so the click and its result sit in
   // two different page lifetimes: the click event is emitted before the reload,
@@ -1388,7 +1459,9 @@ export type AnalyticsEventName =
   // closed, or not, has to be made on. `_updated` has no gate (updating an
   // existing diagram consumes no limit, §9.1) and instead carries
   // `guardrail_rejected`, so the write guard's refusal rate is readable on the
-  // headless path the way it already is on the relay. Both carry the target
+  // headless path the way it already is on the relay. A successful `_updated`
+  // also carries `title_changed` (#789): true when the call renamed the
+  // diagram, false for a plain source edit. Both carry the target
   // site in `cloud_id` (from the tool's `cloudId` argument), so outcomes and
   // gate branches can be split per customer without joining on
   // agent_link_mcp_tool_called.
@@ -1545,7 +1618,43 @@ export type AnalyticsEventName =
   // action already covered by `advocacy_message_copied`).
   | "request_full_guide_shown"
   | "request_full_reason_copied"
-  | "request_full_atlassian_clicked";
+  | "request_full_atlassian_clicked"
+  // "Diagram locations" (conf-app#848): the screen behind "View diagram
+  // locations" on the Plan and usage page. It lists the site's stored
+  // diagrams with the page each one was created on (its owning page), read
+  // as the viewer so Confluence applies their permissions. Macro placements
+  // that embed a diagram stored on another page are not enumerated, so every
+  // count on these events is a count of stored diagrams, never of placements.
+  // `plan_usage_locations_shown` fires when the screen opens (`space_count` =
+  // spaces with a reported count, `macro_count` = the reported site total).
+  // `plan_usage_locations_loaded` fires per fetched batch (`page_index` 0 =
+  // the first), with `load_outcome`, `listed_count`, `hidden_count` (records
+  // whose page the viewer cannot read — omitted from the UI, counted here),
+  // `has_more` and `duration_ms`. `plan_usage_locations_load_failed` fires
+  // instead when a batch threw or Confluence answered a non-2xx the viewer
+  // cannot act on (`http_status`).
+  // `plan_usage_locations_filtered` fires on each search, space / type filter,
+  // clear, page or page-size change (`locations_filter`), with `listed_count`
+  // = matching rows after the change.
+  // `plan_usage_locations_page_clicked` fires when "Open page" opens a row's
+  // owning page (`macro_type` = the diagram on that row).
+  | "plan_usage_locations_shown"
+  | "plan_usage_locations_loaded"
+  | "plan_usage_locations_load_failed"
+  | "plan_usage_locations_filtered"
+  | "plan_usage_locations_page_clicked";
+
+/**
+ * How one Diagram-locations batch resolved. `ok` listed at least one row;
+ * `empty` found no stored diagram the viewer can list in that space;
+ * `forbidden` means Confluence refused the space or its custom content for
+ * this viewer (403 / 404), which is an answer, not a failure. Failures carry
+ * `failed` on plan_usage_locations_load_failed.
+ */
+export type DiagramLocationsLoadOutcome = "ok" | "empty" | "forbidden" | "failed";
+
+/** Which control changed the Diagram-locations result set. */
+export type DiagramLocationsFilter = "search" | "space" | "type" | "clear" | "page" | "page_size";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the
@@ -1697,12 +1806,12 @@ export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit
 // does not apply; 'under_limit' = counted and below the limit;
-// 'limit_reached' = counted and refused; 'count_unknown' = the space's macro
-// count could not be read, and the create was ALLOWED anyway. The last one is
-// the fail-open path (the #302 shape, matching the frontend's own behaviour on
-// an unknown count) and the reason this property exists: its share of creates
-// is what says whether failing open is a rounding error or the normal case.
-export type AgentLinkPaywallGate = "paid" | "under_limit" | "limit_reached" | "count_unknown";
+// 'over_limit' = counted at or past the limit and ALLOWED, because the limit no
+// longer blocks (the UI block was retired in 2026-09 and headless create
+// matches it); 'count_unknown' = the space's macro count could not be read,
+// and the create was allowed. 'limit_reached' = counted and refused; no longer
+// emitted, kept so historical events still type-check in queries.
+export type AgentLinkPaywallGate = "paid" | "under_limit" | "over_limit" | "limit_reached" | "count_unknown";
 
 export type AgentLinkIdentityFailure =
   | "no_macro_on_site"

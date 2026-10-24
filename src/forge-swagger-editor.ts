@@ -22,6 +22,7 @@ import { trackEvent } from '@/utils/window';
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { markEditorAuthoringStarted, registerEditorCloseTracking, trackEditorClosedWithoutSave } from "@/utils/analytics/editorCloseOutcome";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus';
@@ -509,6 +510,7 @@ async function initializeMacro() {
         surface: 'editor',
         macro_type: 'openapi',
         entry_point: 'page_editor',
+        ...getCreationFlowProps(),
       });
     } else {
       trackAnalyticsEvent('macro_edit_started', {

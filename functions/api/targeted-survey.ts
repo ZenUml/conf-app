@@ -1,4 +1,5 @@
 import type { ForgeRequestContext, ForgeRequestData } from '../utils/authenticate';
+import { json } from '../OkResponse';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
@@ -27,12 +28,7 @@ interface SurveyConfig {
   options: Array<{ id: string; label: string }>;
 }
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  });
-}
+const NO_STORE = { 'cache-control': 'no-store' };
 
 function identity(fit: ForgeRequestContext | undefined): fit is ForgeRequestContext & {
   cloudId: string; accountId: string; forgeAppId: string;
@@ -94,39 +90,39 @@ async function eligible(env: Env, fit: ForgeRequestContext, excludeTerminal = fa
 }
 
 export const onRequestGet: PagesFunction<Env, string, ForgeRequestData> = async ({ env, data }) => {
-  if (!identity(data.forgeContext)) return json(200, { survey: null });
+  if (!identity(data.forgeContext)) return json({ survey: null }, { status: 200, headers: NO_STORE });
   try {
     const survey = await eligible(env, data.forgeContext, true);
-    return json(200, { survey: survey ? {
+    return json({ survey: survey ? {
       uuid: survey.uuid,
       revision: survey.revision,
       expiresAt: survey.expiresAt,
       title: survey.title,
       question: survey.question,
       options: survey.options.map(({ id, label }) => ({ id, label })),
-    } : null });
+    } : null }, { status: 200, headers: NO_STORE });
   } catch {
-    return json(503, { survey: null });
+    return json({ survey: null }, { status: 503, headers: NO_STORE });
   }
 };
 
 /** Atomic claim or reclaim. A live lease and a terminal outcome cannot be stolen. */
 export const onRequestPut: PagesFunction<Env, string, ForgeRequestData> = async ({ request, env, data }) => {
   const fit = data.forgeContext;
-  if (!identity(fit)) return json(404, { claimed: false });
+  if (!identity(fit)) return json({ claimed: false }, { status: 404, headers: NO_STORE });
   let survey: SurveyConfig | null;
   try { survey = await eligible(env, fit); }
-  catch { return json(503, { claimed: false }); }
-  if (!survey) return json(404, { claimed: false });
+  catch { return json({ claimed: false }, { status: 503, headers: NO_STORE }); }
+  if (!survey) return json({ claimed: false }, { status: 404, headers: NO_STORE });
   let body: any;
   try {
     const raw = await request.text();
-    if (raw.length > 1024) return json(413, { claimed: false });
+    if (raw.length > 1024) return json({ claimed: false }, { status: 413, headers: NO_STORE });
     body = JSON.parse(raw);
-  } catch { return json(400, { claimed: false }); }
+  } catch { return json({ claimed: false }, { status: 400, headers: NO_STORE }); }
   if (!body || typeof body !== 'object' || Array.isArray(body)
     || body.surveyUuid !== survey.uuid || body.revision !== survey.revision) {
-    return json(400, { claimed: false });
+    return json({ claimed: false }, { status: 400, headers: NO_STORE });
   }
   const claimToken = crypto.randomUUID();
   const now = Date.now();
@@ -143,31 +139,31 @@ export const onRequestPut: PagesFunction<Env, string, ForgeRequestData> = async 
     `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId,
       fit.forgeAppId, claimToken, now + LEASE_MS, now).run();
     if (!result.success || (result.meta?.changes !== 0 && result.meta?.changes !== 1)) {
-      return json(503, { claimed: false });
+      return json({ claimed: false }, { status: 503, headers: NO_STORE });
     }
     return result.meta.changes === 1
-      ? json(200, { claimed: true, claimToken, leaseMs: LEASE_MS })
-      : json(200, { claimed: false });
-  } catch { return json(503, { claimed: false }); }
+      ? json({ claimed: true, claimToken, leaseMs: LEASE_MS }, { status: 200, headers: NO_STORE })
+      : json({ claimed: false }, { status: 200, headers: NO_STORE });
+  } catch { return json({ claimed: false }, { status: 503, headers: NO_STORE }); }
 };
 
 /** Confirm a live pending display, or dismiss a confirmed display. */
 export const onRequestPatch: PagesFunction<Env, string, ForgeRequestData> = async ({ request, env, data }) => {
   const fit = data.forgeContext;
-  if (!identity(fit)) return json(404, { ok: false });
+  if (!identity(fit)) return json({ ok: false }, { status: 404, headers: NO_STORE });
   let survey: SurveyConfig | null;
   try { survey = await eligible(env, fit); }
-  catch { return json(503, { ok: false }); }
-  if (!survey) return json(404, { ok: false });
+  catch { return json({ ok: false }, { status: 503, headers: NO_STORE }); }
+  if (!survey) return json({ ok: false }, { status: 404, headers: NO_STORE });
   let body: any;
   try {
     const raw = await request.text();
-    if (raw.length > 1024) return json(413, { ok: false });
+    if (raw.length > 1024) return json({ ok: false }, { status: 413, headers: NO_STORE });
     body = JSON.parse(raw);
-  } catch { return json(400, { ok: false }); }
+  } catch { return json({ ok: false }, { status: 400, headers: NO_STORE }); }
   if (!body || body.surveyUuid !== survey.uuid || body.revision !== survey.revision
     || typeof body.claimToken !== 'string' || !UUID.test(body.claimToken)
-    || (body.action !== 'shown' && body.action !== 'dismiss')) return json(400, { ok: false });
+    || (body.action !== 'shown' && body.action !== 'dismiss')) return json({ ok: false }, { status: 400, headers: NO_STORE });
   const now = Date.now();
   try {
     const result = await env.DB.prepare(body.action === 'shown' ? `
@@ -181,7 +177,7 @@ export const onRequestPatch: PagesFunction<Env, string, ForgeRequestData> = asyn
     `).bind(...(body.action === 'shown'
       ? [survey.uuid, survey.revision, fit.cloudId, fit.accountId, fit.forgeAppId, body.claimToken, now]
       : [survey.uuid, survey.revision, fit.cloudId, fit.accountId, fit.forgeAppId, body.claimToken])).run();
-    if (!result.success) return json(503, { ok: false });
+    if (!result.success) return json({ ok: false }, { status: 503, headers: NO_STORE });
     if (result.meta?.changes !== 1) {
       const existing = await env.DB.prepare(`
         SELECT terminal FROM TargetedSurveyLease WHERE surveyUuid = ?1 AND surveyRevision = ?2
@@ -190,35 +186,35 @@ export const onRequestPatch: PagesFunction<Env, string, ForgeRequestData> = asyn
         body.claimToken).first<{ terminal: string | null }>();
       if (body.action === 'shown' && existing?.terminal === 'shown'
         || body.action === 'dismiss' && (existing?.terminal === 'dismissed' || existing?.terminal === 'submitted')) {
-        return json(200, { ok: true });
+        return json({ ok: true }, { status: 200, headers: NO_STORE });
       }
-      return json(409, { ok: false });
+      return json({ ok: false }, { status: 409, headers: NO_STORE });
     }
-    return json(200, { ok: true });
-  } catch { return json(503, { ok: false }); }
+    return json({ ok: true }, { status: 200, headers: NO_STORE });
+  } catch { return json({ ok: false }, { status: 503, headers: NO_STORE }); }
 };
 
 export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async ({ request, env, data }) => {
   const fit = data.forgeContext;
-  if (!identity(fit)) return json(404, { ok: false, error: 'unavailable' });
+  if (!identity(fit)) return json({ ok: false, error: 'unavailable' }, { status: 404, headers: NO_STORE });
   let survey: SurveyConfig | null;
   try {
     survey = await eligible(env, fit);
   } catch {
-    return json(503, { ok: false, error: 'unavailable', retryable: true });
+    return json({ ok: false, error: 'unavailable', retryable: true }, { status: 503, headers: NO_STORE });
   }
-  if (!survey) return json(404, { ok: false, error: 'unavailable' });
+  if (!survey) return json({ ok: false, error: 'unavailable' }, { status: 404, headers: NO_STORE });
 
   let body: unknown;
   try {
     const raw = await request.text();
-    if (raw.length > 4096) return json(413, { ok: false, error: 'response_too_large' });
+    if (raw.length > 4096) return json({ ok: false, error: 'response_too_large' }, { status: 413, headers: NO_STORE });
     body = JSON.parse(raw);
   } catch {
-    return json(400, { ok: false, error: 'invalid_json' });
+    return json({ ok: false, error: 'invalid_json' }, { status: 400, headers: NO_STORE });
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return json(400, { ok: false, error: 'invalid_response' });
+    return json({ ok: false, error: 'invalid_response' }, { status: 400, headers: NO_STORE });
   }
   const response = body as Record<string, unknown>;
   const text = typeof response.text === 'string' ? response.text.trim() : '';
@@ -230,7 +226,7 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
     || new Set(options).size !== options.length
     || (response.text !== undefined && typeof response.text !== 'string')
     || text.length > 2000 || (!text && options.length === 0)) {
-    return json(400, { ok: false, error: 'invalid_response' });
+    return json({ ok: false, error: 'invalid_response' }, { status: 400, headers: NO_STORE });
   }
 
   try {
@@ -241,7 +237,7 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
       .first<{ claimToken: string; forgeAppId: string; terminal: string | null }>();
     if (!owner || owner.claimToken !== response.claimToken || owner.forgeAppId !== fit.forgeAppId
       || (owner.terminal !== 'shown' && owner.terminal !== 'submitted')) {
-      return json(409, { ok: false, error: 'lease_lost' });
+      return json({ ok: false, error: 'lease_lost' }, { status: 409, headers: NO_STORE });
     }
     const result = await env.DB.prepare(`
       INSERT OR IGNORE INTO TargetedSurveyResponse
@@ -259,15 +255,15 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
       SELECT submissionId FROM TargetedSurveyResponse WHERE surveyUuid = ?1 AND surveyRevision = ?2
         AND cloudId = ?3 AND accountId = ?4
     `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId).first<{ submissionId: string }>();
-    if (!saved || saved.submissionId !== response.submissionId) return json(409, { ok: false, error: 'lease_lost' });
+    if (!saved || saved.submissionId !== response.submissionId) return json({ ok: false, error: 'lease_lost' }, { status: 409, headers: NO_STORE });
     await env.DB.prepare(`
       UPDATE TargetedSurveyLease SET terminal = 'submitted'
       WHERE surveyUuid = ?1 AND surveyRevision = ?2 AND cloudId = ?3 AND accountId = ?4
         AND forgeAppId = ?5 AND claimToken = ?6 AND terminal = 'shown'
     `).bind(survey.uuid, survey.revision, fit.cloudId, fit.accountId, fit.forgeAppId,
       response.claimToken).run();
-    return json(201, { ok: true });
+    return json({ ok: true }, { status: 201, headers: NO_STORE });
   } catch {
-    return json(503, { ok: false, error: 'storage_unavailable', retryable: true });
+    return json({ ok: false, error: 'storage_unavailable', retryable: true }, { status: 503, headers: NO_STORE });
   }
 };

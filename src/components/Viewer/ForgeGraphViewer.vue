@@ -36,6 +36,8 @@ import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { isLoadedEmptyBody, viewContentState } from "@/utils/analytics/contentState";
+import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import {
@@ -72,6 +74,7 @@ export default {
       currentPage: 0,
       pageCount: 0,
       graphRendered: false,
+      emptyViewReported: false,
       wheelZoomHandler: null,
     };
   },
@@ -108,7 +111,14 @@ export default {
   watch: {
     effectiveGraphXml() {
       this.renderViewer();
-    }
+    },
+    // #113: the shell mounts with graphXml '' and the document arrives later.
+    // A wiped body is '' too, so effectiveGraphXml does not change and the
+    // watcher above stays silent. The type flipping from Unknown is the signal
+    // that a document landed; emptyViewReported keeps this to one report.
+    '$store.state.diagram.diagramType'() {
+      if (!this.effectiveGraphXml && !this.emptyViewReported) this.renderViewer();
+    },
   },
   methods: {
     failBoardLoad(errorCode, cause) {
@@ -152,7 +162,16 @@ export default {
           return;
         }
       }
-      if (!container || !this.effectiveGraphXml) return;
+      if (!container) return;
+      // Classify the effective document (including Board/prop overrides) before
+      // parsing: whitespace is empty even if DrawIO rejects it. Rendering and
+      // its failure telemetry retain their existing path.
+      const emptyBody = isLoadedEmptyBody({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph);
+      if (!this.emptyViewReported && emptyBody) {
+        this.emptyViewReported = true;
+        trackRenderTime('graph', this.$store.getters.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      if (!this.effectiveGraphXml) return;
       container.innerHTML = '';
       try {
         // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>
@@ -183,7 +202,14 @@ export default {
         this.graphRendered = true;
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
-        trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        // Classify the XML that was rendered (effectiveGraphXml honours the
+        // `graphXml` prop and the Board document), not just store.graphXml.
+        if (!emptyBody) {
+          trackRenderTime(
+            'graph', this.$store.getters.isDisplayMode, 'live_render', 'none',
+            viewContentState({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph),
+          );
+        }
         // Graph emits no 'diagramLoaded' (that event belongs to the text-DSL
         // renderers). An export-entry Fullscreen open waits for this before it
         // opens the export dialog, so the dialog's first capture is of a

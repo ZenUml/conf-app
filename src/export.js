@@ -436,9 +436,17 @@ export const handler = async (payload) => {
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`Export: attachments API ${response.status} for ${attachmentName} on page ${pageId}`, errorBody);
-      const failureReason = response.status === 401 || response.status === 403
-        ? 'needs_authentication'
-        : `attachments_api_${response.status}`;
+      // #654: when the asUser() retry threw NEEDS_AUTHENTICATION_ERR there was no user
+      // credential (guest, anonymous, or server-side export). That says nothing about the
+      // page, so it must not be recorded as a missing/unreadable page (`attachments_api_404`).
+      let failureReason;
+      if (response.status === 401 || response.status === 403) {
+        failureReason = 'needs_authentication';
+      } else if (fallbackInfo?.error_name === 'NEEDS_AUTHENTICATION_ERR') {
+        failureReason = 'no_user_credential';
+      } else {
+        failureReason = `attachments_api_${response.status}`;
+      }
       // Failure path — resolve the type here so this event is sizeable by
       // diagram type. The success path never reaches this and never reads.
       await ensureCustomContentParsed(ctx);

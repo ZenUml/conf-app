@@ -25,6 +25,7 @@ The reply message it prints follows the canonical template in the handbook:
 import argparse
 import datetime as dt
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -35,8 +36,13 @@ SPACE_LICENSE_KV_NS = "8969e8528105403bb2d9adca9fc16567"
 KV_FULL_BASE = "https://conf-full.zenuml.com"
 KV_LITE_BASE = "https://conf-lite.zenuml.com"
 STRIPE_BUNDLE_LINK = "https://buy.stripe.com/cNifZifkN7hzavK12H7IY05"
-MARKETPLACE_LINK = "https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram"
+MARKETPLACE_LINK = "https://marketplace.atlassian.com/apps/1218380/zenuml-diagrams-for-confluence"
 ENTERPRISE_BUNDLE_USD = 299  # per space / year, flat
+
+# Override when the repo's node_modules/wrangler is missing or broken (a dangling
+# symlink cost 8 diagnostic calls before the first grant, 2026-08-25):
+#   WRANGLER_CMD="npx --yes wrangler@4" python3 grant_extension.py ...
+WRANGLER_CMD = os.environ.get("WRANGLER_CMD", "npx wrangler").split()
 
 
 def normalize_domain(raw):
@@ -97,7 +103,7 @@ def verify_space(bare_domain, space):
 
 
 def wrangler_kv_get(key):
-    cmd = ["npx", "wrangler", "kv", "key", "get", key,
+    cmd = WRANGLER_CMD + ["kv", "key", "get", key,
            f"--namespace-id={SPACE_LICENSE_KV_NS}", "--remote"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
@@ -107,21 +113,20 @@ def wrangler_kv_get(key):
 
 
 def wrangler_kv_put(key, value_path):
-    cmd = ["npx", "wrangler", "kv", "key", "put", key, "--path", value_path,
+    cmd = WRANGLER_CMD + ["kv", "key", "put", key, "--path", value_path,
            f"--namespace-id={SPACE_LICENSE_KV_NS}", "--remote"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "wrangler put failed")
 
 
-def full_plan_arr(n):
-    """Full-plan list price/yr via the ARR tier model (docs/pricing-model.yml)."""
-    if n <= 10:
-        return 40.0
-    return (min(n, 100) * 0.44
-            + max(0, min(n, 250) - 100) * 0.33
-            + max(0, min(n, 1000) - 250) * 0.11
-            + max(0, n - 1000) * 0.05) * 10
+# Shared with Marketplace quoting; do not maintain another pricing algorithm.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "marketplace", "scripts"))
+from mp_pricing import live_full_quote, MARKETPLACE_PRICING_URL
+
+
+def full_plan_pricing(n):
+    return live_full_quote(n)
 
 
 def grant(domain, space, days, activated_by, dry_run, user_account_id=None):
@@ -215,12 +220,26 @@ def through_date(expires_at):
 
 def print_reply(space, expires_at, users, user_scoped=False, days=7, feedback_days=None):
     if users:
-        price = full_plan_arr(users)
+        p = full_plan_pricing(users)
         users_line = f"~{users:,} users"
-        full_price = f"~${price:,.0f}/year"
+        # Lead with the ANNUAL figure, not the monthly one. Monthly is the smaller number on
+        # its own, but any reader who annualises it lands on monthly*12, which is HIGHER than
+        # the annual price (902 users: $1,983 vs $1,760) — so leading with monthly makes the
+        # app look more expensive to exactly the reader who is costing it out for a purchase
+        # order. What actually shrinks the number is the per-user-per-month rate, and that is
+        # independent of billing cycle. Monthly follows as an option, with its extra cost named.
+        # (No conversion data exists either way; this is the arithmetic, not a tested preference.)
+        annual_extra = p["monthly"] * 12 - p["annual"]
+        full_price = (
+            f"~${p['annual']:,.0f}/year on annual billing "
+            f"(~${p['per_user_month_annual']:.2f} per user per month). "
+            f"Monthly billing is also available at ~${p['monthly']:,.0f}/month"
+            + (f", though it costs about ${annual_extra:,.0f} more over a year"
+               if annual_extra > 0 else "")
+        )
     else:
         users_line = "~{USERS} users (fetch tier from the Marketplace license report)"
-        full_price = "~${FULL_PRICE}/year"
+        full_price = "~${ANNUAL}/year on annual billing (~${PER_USER} per user per month), or ~${MONTHLY}/month"
 
     if user_scoped:
         intro = (
@@ -288,7 +307,7 @@ It's a temporary bridge. For a lasting fix there are two routes — happy to hel
 
 Per-space (Enterprise Bundle) — ${ENTERPRISE_BUNDLE_USD}/space/year, unlimited macros and users in that space. It's the quickest path and doesn't require a Confluence admin — you can set it up directly, so it's ideal if you'd like {space} unblocked permanently right away. Purchase here: {STRIPE_BUNDLE_LINK} — just reply with the space key after payment and we'll activate it.
 
-Org-wide (Full plan) — removes the limit across all your spaces and users at once; best value if you want everything covered (you're running a large site with diagrams across many spaces). Based on your site's {users_line}, this works out to {full_price}. You can upgrade on the Atlassian Marketplace here: ZenUML Diagrams for Confluence | Atlassian Marketplace ({MARKETPLACE_LINK}) — this one goes through whoever administers Confluence apps for your site.
+Org-wide (Full plan) — removes the limit across all your spaces and users at once; best value if you want everything covered (you're running a large site with diagrams across many spaces). Based on your site's {users_line}, this works out to {full_price}. Every Marketplace app also carries a 30-day free trial, so you can remove the limit site-wide today and decide afterwards. You can upgrade on the Atlassian Marketplace here: ZenUML Diagrams for Confluence | Atlassian Marketplace ({MARKETPLACE_LINK}) — this one goes through whoever administers Confluence apps for your site.
 
 {closing}
 

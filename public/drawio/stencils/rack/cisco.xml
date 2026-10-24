@@ -2173,7 +2173,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="handleColor" default="#ffffff"/>
         <path>
             <move x="21.5" y="14.5"/>
             <arc large-arc-flag="1" rx="1.5" ry="1.5" sweep-flag="1" x="23.5" x-axis-rotation="0" y="14.5"/>
@@ -7968,7 +7968,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#b4b4b4"/>
+        <fillcolor color="fillColor2" default="#b4b4b4"/>
         <path>
             <move x="123" y="2.5"/>
             <line x="128" y="2.5"/>
@@ -10445,7 +10445,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#66ccff"/>
+        <fillcolor color="accentColor" default="#66ccff"/>
         <strokewidth width="0.301"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -10642,7 +10642,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#66ccff"/>
+        <fillcolor color="accentColor" default="#66ccff"/>
         <fillalpha alpha="1"/>
         <path>
             <move x="1" y="291"/>
@@ -10679,7 +10679,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="maskColor" default="#f4f4f4"/>
         <strokewidth width="0.301"/>
         <fillalpha alpha="1"/>
         <path>
@@ -10856,8 +10856,8 @@
         <restore/>
         <rect/>
         <stroke/>
-        <strokecolor color="#66ccff"/>
-        <fillcolor color="#66ccff"/>
+        <strokecolor color="accentColor" default="#66ccff"/>
+        <fillcolor color="accentColor" default="#66ccff"/>
         <path>
             <move x="149.4" y="39.5"/>
             <line x="149.4" y="66.5"/>
@@ -11048,7 +11048,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#66ccff"/>
+        <fillcolor color="accentColor" default="#66ccff"/>
         <strokewidth width="0.301"/>
         <fillalpha alpha="1"/>
         <path>
@@ -11084,7 +11084,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#66ccff"/>
+        <fillcolor color="accentColor" default="#66ccff"/>
         <fillalpha alpha="1"/>
         <path>
             <move x="9" y="171"/>
@@ -11105,7 +11105,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#f4f4f4"/>
+        <fillcolor color="maskColor" default="#f4f4f4"/>
         <path>
             <move x="0" y="66"/>
             <line x="0" y="99"/>
@@ -14641,8 +14641,8 @@
         <restore/>
         <rect/>
         <stroke/>
-        <strokecolor color="#00cccc"/>
-        <fillcolor color="#00cccc"/>
+        <strokecolor color="handleColor" default="#00cccc"/>
+        <fillcolor color="handleColor" default="#00cccc"/>
         <path>
             <move x="155.4" y="10.5"/>
             <line x="161.4" y="10.5"/>

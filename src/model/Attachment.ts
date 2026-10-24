@@ -1,11 +1,51 @@
-import * as htmlToImage from 'html-to-image';
+import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
 import {trackEvent} from '@/utils/window';
 import { toast } from '@/utils/toast';
 import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
+import {ForgeRequestError} from '@/utils/forgeRequestError';
 import type { Attachment } from '@/model/ConfluenceTypes';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { recordPublishStep } from '@/utils/analytics/publishTiming';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { writePngState } from '@/lib/pngExportState.js';
+import { rateLimitCooldownRemainingMs, startRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
+
+type PngState = 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready';
+
+async function recordPngState(
+  pageId: string, customContentId: string, state: PngState,
+  attemptId: string, startedAt: number, contentHash: string, attachmentId?: string,
+  surface: 'editor' | 'viewer' = 'viewer',
+  startAttempt = false,
+): Promise<void> {
+  try {
+  const { requestConfluence } = await import('@forge/bridge');
+  const reportFailure = (operation: 'read' | 'create' | 'update', error: unknown) => {
+    trackAnalyticsEvent('png_export_state_persistence_failed', {
+      feature_area: 'macro', surface, page_id: pageId,
+      custom_content_id: customContentId, png_export_property_operation: operation,
+      failure_reason: error instanceof Error ? error.message.split('_')[0] : 'unknown',
+    });
+  };
+  const ok = await writePngState(
+    (url: string, method: string, body?: unknown) => requestConfluence(url, {
+      method: method as 'GET' | 'POST' | 'PUT',
+      ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
+    }),
+    { pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt },
+    reportFailure,
+  );
+  if (ok) trackAnalyticsEvent('png_export_state_changed', {
+    feature_area: 'macro', surface, page_id: pageId,
+    custom_content_id: customContentId, png_export_state: state,
+  });
+  } catch (error) {
+    console.warn('PNG export state write failed:', error);
+  }
+}
 
 // ============================================================================
 // Type Definitions
@@ -18,6 +58,11 @@ interface RequestConfig {
   type: 'GET' | 'POST' | 'PUT' | 'DELETE';
   contentType?: 'multipart/form-data' | 'application/json';
   data?: Record<string, unknown>;
+  /**
+   * JSON requests only: make a non-2xx response throw `ForgeRequestError`
+   * (see `forgeRequest`) instead of returning its error body as if it were data.
+   */
+  throwOnHttpError?: boolean;
 }
 
 /** Metadata returned after attachment upload */
@@ -46,6 +91,8 @@ interface AttachmentWithLinks extends Attachment {
     base: string;
     download: string;
   };
+  /** v1 read only (`expand=metadata`): `metadata.comment` is what v2 surfaces as `comment`. */
+  metadata?: { comment?: string };
 }
 
 /** Response structure from API requests */
@@ -88,9 +135,23 @@ interface UploadContext {
 // Helper Functions
 // ============================================================================
 
+/**
+ * The custom content this attachment belongs to.
+ *
+ * Resolved, not a raw `config` read: a macro placed by pasting a typed deeplink
+ * has NO config at all — its id lives only in the matched URL, which Confluence
+ * keeps in the page ADF. Reading config directly returned undefined for those,
+ * so the guard in createAttachmentIfContentChanged bailed and the backup PNG was
+ * never written on the page the macro actually sits on. That is the view-time
+ * backfill the save path explicitly relies on ("the view-time path remains as a
+ * backfill"), so losing it means a pasted diagram can end up with no backup at
+ * all — and PDF/Word export then fails with attachment_not_found.
+ *
+ * Same omission as ZEN #278e3ab, which fixed the viewer/editor entry points but
+ * not this one.
+ */
 async function getIdentifier(): Promise<string | undefined> {
-  const context = await initForgeContext();
-  return context?.extension?.config?.customContentId;
+  return resolveEffectiveCustomContentId(await initForgeContext());
 }
 
 /**
@@ -142,7 +203,9 @@ async function makeRequest(requestConfig: RequestConfig): Promise<ApiResponse> {
     }
     return { body };
   } else {
-    return await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
+    return requestConfig.throwOnHttpError
+      ? await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data, { throwOnHttpError: true })
+      : await forgeRequest(`/wiki${requestConfig.url}`, requestConfig.type, requestConfig.data);
   }
 }
 
@@ -161,12 +224,51 @@ function iframeToPng(iframe: HTMLIFrameElement): Promise<Blob> {
       if (sourceWindow?.location?.href !== window.location.href &&
           (data as ExportResultMessageData)?.action === 'export.result') {
         resolve((data as ExportResultMessageData).data);
-        console.debug('received PNG export result from iframe');
       }
     });
 
     iframe.contentWindow?.postMessage({ action: 'export' }, '*');
-    console.debug('fired PNG export to iframe');
+  });
+}
+
+/**
+ * Thrown when the capture promise doesn't settle (neither resolves nor
+ * rejects) within TOPNG_CAPTURE_TIMEOUT_MS. Observed on lite-stg
+ * page 220659974 / custom content 220659992: `window.createAttachmentInProgress`
+ * stayed true for 90+ seconds across four page loads, no `convert_to_png`
+ * event ever fired (toPng's own `finally` never ran), and no attachment POST
+ * reached the network — the await on toBlob() itself never returned. This
+ * class exists only so toPng's catch can tag the timeout with its own
+ * telemetry label, distinct from `toPng_failed` (a settled rejection). The
+ * cause of that hang IS now established — html-to-image's rAF-gated
+ * `createImage`, see model/captureBlob.ts — but the bound stays, so any future
+ * never-settling path becomes an observed, retryable failure instead of a
+ * silent permanent one.
+ */
+class ToPngTimeoutError extends Error {
+  constructor() {
+    super('toPng: html-to-image toBlob() did not settle within the capture timeout');
+    this.name = 'ToPngTimeoutError';
+  }
+}
+
+// Fresh graph macros on a new page wrote their attachment (full pipeline:
+// bootstrap + DOM capture + upload) in ~16s (watched it run on lite-stg,
+// 2026-08-19). That figure bounds the WHOLE save, not the toBlob() call in
+// isolation — html-to-image's DOM screenshot is a small fraction of it, the
+// rest being page bootstrap and the network upload that follows capture. So a
+// 10s bound on just the capture step leaves ample margin and shouldn't cut
+// off a legitimate slow capture; it only needs to be shorter than "forever".
+const TOPNG_CAPTURE_TIMEOUT_MS = 10_000;
+
+/** Race `promise` against a timeout; on timeout, reject with `makeTimeoutError()`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, makeTimeoutError: () => Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(makeTimeoutError()), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
   });
 }
 
@@ -196,17 +298,34 @@ async function toPng(): Promise<Blob | null | undefined> {
     // / `non_error_thrown` in attachment_upload_failed (~48% of all failures).
     // Catching it here turns a capture miss into a clean ToPngError skip with
     // its own `convert_to_png` telemetry, not a mislabeled upload failure.
-    return await htmlToImage.toBlob(node, { backgroundColor: 'white', skipFonts: true });
+    //
+    // Bounded with a timeout: toBlob()'s promise has been observed to never
+    // settle at all (see ToPngTimeoutError) — an unbounded await here left
+    // `window.createAttachmentInProgress` stuck true, silently blocking every
+    // later save for that session. Racing against the timeout guarantees this
+    // function always settles.
+    //
+    // The hang is now explained and fixed: `captureBlob` replaces
+    // htmlToImage.toBlob(), whose only resolve path runs inside a
+    // requestAnimationFrame callback that Chrome never services in an
+    // offscreen (rendering-throttled) Forge macro iframe. See
+    // model/captureBlob.ts for the measurement. The timeout stays as a bound
+    // on any future never-settling path.
+    return await withTimeout(
+      captureBlob(node, { backgroundColor: 'white', skipFonts: true }),
+      TOPNG_CAPTURE_TIMEOUT_MS,
+      () => new ToPngTimeoutError(),
+    );
   } catch (e) {
     console.warn('Failed to convert to png', e);
-    trackEvent('toPng_failed', 'convert_to_png', 'error');
+    // Timeout gets its own label so it's countable separately from other
+    // convert_to_png capture failures (a settled html-to-image rejection).
+    trackEvent(e instanceof ToPngTimeoutError ? 'toPng_timeout' : 'toPng_failed', 'convert_to_png', 'error');
     return undefined;
   } finally {
     trackEvent('toPng', 'convert_to_png', 'export');
   }
 }
-
-const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
 
 /**
  * PlantUML renders by fetching an SVG from the remote PlantUML server and
@@ -214,28 +333,83 @@ const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
  * make the backup PNG — and fails ~81% of the time (the offscreen image can't
  * decode the server SVG, so html-to-image rejects with a DOM Event). The server
  * already serves a ready raster at /plantuml/png/<encoded>, so fetch THAT
- * directly for the backup and skip html-to-image entirely. Deterministic, and
- * it sidesteps the single biggest class of attachment-capture failures. Returns
- * undefined on any failure so the caller falls back to the DOM capture.
+ * directly for the backup and skip html-to-image entirely — see
+ * `utils/plantuml/fetchPng.ts`, shared with the interactive Export PNG modal.
+ *
+ * This wrapper adds the attachment-scoped telemetry and the PDF-export dpi
+ * upscale on top of that plain fetch. Returns undefined on any failure so the
+ * caller falls back to the DOM capture (the backup is silent, so a degraded
+ * capture beats no backup at all).
  */
 async function fetchPlantUmlPng(code: string): Promise<Blob | undefined> {
   try {
-    const { plantumlEncode } = await import('@/utils/plantuml/encode');
-    const resp = await fetch(`${PLANTUML_PNG_SERVER}${plantumlEncode(code)}`);
-    if (!resp.ok) return undefined;
-    const blob = await resp.blob();
-    // The server can answer 200 with a non-PNG body (e.g. an HTML/SVG error
-    // page from a proxy/CDN) — only accept a real raster PNG, else fall back.
-    // Content-Type is reliable for the PlantUML server (image/png for PNGs).
-    const type = (blob.type || '').toLowerCase().split(';')[0].trim();
-    if (type === 'image/png') {
-      trackEvent('plantuml_server_png', 'convert_to_png', 'export');
-      return blob;
-    }
-    return undefined;
+    const { fetchPlantUmlPngBlob } = await import('@/utils/plantuml/fetchPng');
+    const blob = await fetchPlantUmlPngBlob(code);
+    if (!blob) return undefined;
+    trackEvent('plantuml_server_png', 'convert_to_png', 'export');
+    return (await upscalePlantUmlPng(blob, code)) ?? blob;
   } catch (e) {
     console.warn('PlantUML server PNG fetch failed; falling back to DOM capture', e);
     trackEvent('plantuml_server_png_failed', 'convert_to_png', 'warning');
+    return undefined;
+  }
+}
+
+/**
+ * The PlantUML server renders at a fixed 96 dpi by default, so a small
+ * diagram (few participants) comes back as a tiny raster (e.g. ~95px wide
+ * for a 3-line sequence). The PDF export places every macro image at the
+ * fixed content-column width (~6.3in) regardless of the source's native
+ * size, so anything under `TARGET_WIDTH_PX` gets stretched ~15x and turns
+ * visibly pixelated. Re-request the same diagram at a computed
+ * `skinparam dpi` so the natural render is already sharp at that width —
+ * see `src/utils/plantuml/resolution.ts` for why `skinparam dpi` (not the
+ * `scale` directive, which plantuml.com's public server caps at 4x) is the
+ * lever. Best-effort: any failure here just keeps the natural-size PNG
+ * already captured by the caller.
+ */
+async function upscalePlantUmlPng(naturalBlob: Blob, code: string): Promise<Blob | undefined> {
+  const { readPngSize, computeUpscaleDpi, withDpiDirective } = await import('@/utils/plantuml/resolution');
+  const size = await readPngSize(naturalBlob);
+  if (!size) return undefined;
+  const dpi = computeUpscaleDpi(size.width, size.height);
+  if (!dpi) return undefined;
+
+  // withDpiDirective only matches a leading `@startuml` — if the caller's
+  // content has leading whitespace (validate.ts trims before rejecting, so
+  // it's storable) the injection is a no-op and the re-fetch would return
+  // the same tiny PNG. Skip it rather than firing a false "upscaled" event.
+  const dpiCode = withDpiDirective(code, dpi);
+  if (dpiCode === code) return undefined;
+
+  try {
+    const { plantumlEncode } = await import('@/utils/plantuml/encode');
+    const { PLANTUML_PNG_SERVER } = await import('@/utils/plantuml/fetchPng');
+    const encoded = plantumlEncode(dpiCode);
+    const resp = await fetch(`${PLANTUML_PNG_SERVER}${encoded}`);
+    if (!resp.ok) {
+      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+      return undefined;
+    }
+    const blob = await resp.blob();
+    const type = (blob.type || '').toLowerCase().split(';')[0].trim();
+    if (type !== 'image/png') {
+      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+      return undefined;
+    }
+    // Confirm the server actually honoured the dpi directive before trusting
+    // it as the "upscaled" result — a rejected/ignored directive would
+    // otherwise report success while silently keeping the tiny image.
+    const upscaledSize = await readPngSize(blob);
+    if (!upscaledSize || upscaledSize.width <= size.width) {
+      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+      return undefined;
+    }
+    trackEvent('plantuml_server_png_upscaled', 'convert_to_png', 'export');
+    return blob;
+  } catch (e) {
+    console.warn('PlantUML dpi upscale fetch failed; using natural-size PNG', e);
+    trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
     return undefined;
   }
 }
@@ -245,7 +419,13 @@ async function fetchPlantUmlPng(code: string): Promise<Blob | undefined> {
  * server-side PNG fetch above (html-to-image can't reliably rasterize its
  * remote SVG); every other type captures the rendered DOM via toPng().
  */
-async function capturePng(diagramType?: string, content?: string): Promise<Blob | null | undefined> {
+// Exported for the byline activation dialog's completion screen (mint a
+// deeplink PNG). NOTE: DOM capture is scoped to '.screen-capture-content' /
+// '#mainFrame' by bare document lookups, so the diagram preview MUST still be
+// mounted in the live DOM when this is called (capture at/just-after save,
+// not lazily on the completion screen). Proven for sequence/mermaid/plantuml;
+// graph/openapi have no snapshot node and return a non-PNG blob.
+export async function capturePng(diagramType?: string, content?: string): Promise<Blob | null | undefined> {
   const trimmed = content?.trim() ?? '';
   if (diagramType === 'plantuml' && trimmed) {
     // Callers can pass a mismatched content/diagramType pair — e.g. the
@@ -262,7 +442,14 @@ async function capturePng(diagramType?: string, content?: string): Promise<Blob 
       // fall through to the DOM capture if the server fetch failed
     }
   }
-  return toPng();
+  // Never label an old document image with the newest source hash. A skipped
+  // save-time capture is repaired by diagramLoaded after the viewer renders.
+  const markdownMatches = () => document.querySelector('.screen-capture-content .markdown-document')
+    ?.getAttribute('data-markdown-source-hash') === md5(content ?? '');
+  if (diagramType === 'markdown' && !markdownMatches()) throw new Error('Markdown preview is still rendering');
+  const png = await toPng();
+  if (diagramType === 'markdown' && !markdownMatches()) throw new Error('Markdown preview changed during capture');
+  return png;
 }
 
 /**
@@ -373,7 +560,6 @@ async function postAttachmentAsUser(
   blob: Blob,
 ): Promise<ApiResponse> {
   const file = new File([blob], attachmentName, { type: 'image/png' });
-  console.debug('Uploading attachment to', uri);
   return await makeRequest(buildPostRequestToUploadAttachment(uri, effectiveHash, file));
 }
 
@@ -382,7 +568,7 @@ async function postAttachmentAsUser(
  * the PNG to the backend fallback over the JSON `callRemote` wire. Uses
  * FileReader rather than `blob.arrayBuffer()` for jsdom compatibility in tests.
  */
-function blobToBase64(blob: Blob): Promise<string> {
+export function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -408,6 +594,9 @@ function buildPutRequestToUpdateAttachmentProperties(
     url: buildAttachmentBasePath(pageId) + '/' + attachmentId,
     type: 'PUT',
     contentType: 'application/json',
+    // A rejected PUT must not read as success (#801): a JSON 4xx/5xx body is
+    // otherwise returned as data and the upload is reported as succeeded.
+    throwOnHttpError: true,
     data: {
       minorEdit: true,
       id: attachmentId,
@@ -422,23 +611,14 @@ function buildPutRequestToUpdateAttachmentProperties(
 // Attachment Name & Link Functions
 // ============================================================================
 
-function attachmentNameByIdentifier(id: string): string {
-  return `zenuml-${id}.png`;
-}
-
 /**
- * Get the download link for an attachment by page ID and macro UUID.
+ * The single definition of the backup-PNG filename. Exported because the byline
+ * modal resolves thumbnails by matching this exact name against a page's
+ * attachments (utils/byline/thumbnails.ts) — if the convention ever changes,
+ * both sides must move together or thumbnails silently stop resolving.
  */
-export async function getAttachmentDownloadLink(
-  pageId: string,
-  macroUuid: string
-): Promise<string | false> {
-  const attachmentName = attachmentNameByIdentifier(macroUuid);
-  const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
-  if (attachments.length > 1) {
-    console.warn(`Multiple attachments found with uuid "${macroUuid}" on page ${pageId}:`, attachments);
-  }
-  return attachments.length > 0 && `${attachments[0]._links.base}${attachments[0]._links.download}`;
+export function attachmentNameByIdentifier(id: string): string {
+  return `zenuml-${id}.png`;
 }
 
 // ============================================================================
@@ -532,13 +712,14 @@ export function parseConfluenceErrorClass(detail: string): string | undefined {
 /**
  * Pull an HTTP status out of an arbitrary thrown value.  Covers three shapes
  * we see in production:
- *   1. `AttachmentUploadHttpError.status` (our typed error)
+ *   1. `AttachmentUploadHttpError.status` / `ForgeRequestError.status` (our
+ *      typed errors — the latter is a non-JSON body from `forgeRequest`)
  *   2. `e.status` (Forge bridge surface on some failures)
  *   3. `e.xhr.status` (legacy XHR-style error)
  * Returns undefined when no status is recoverable.
  */
 function extractHttpStatus(e: unknown): number | undefined {
-  if (e instanceof AttachmentUploadHttpError) return e.status;
+  if (e instanceof AttachmentUploadHttpError || e instanceof ForgeRequestError) return e.status;
   const obj = e as { status?: unknown; xhr?: { status?: unknown } } | null | undefined;
   const candidate = obj?.status ?? obj?.xhr?.status;
   return typeof candidate === 'number' ? candidate : undefined;
@@ -550,7 +731,11 @@ function extractHttpStatus(e: unknown): number | undefined {
  * not free-form strings.  Examples:
  *   - `http_403`        — Confluence rejected the upload (permissions, etc.)
  *   - `http_404`        — page or content gone
- *   - `SyntaxError`     — body wasn't JSON (Confluence returned HTML/error page)
+ *   - `non_json_http_502` — `forgeRequest` got a body that wasn't JSON (an
+ *                         HTML error/login page) with that status. Kept apart
+ *                         from `http_<status>` because the response is a page,
+ *                         not a Confluence error envelope.
+ *   - `SyntaxError`     — body wasn't JSON on a path that has no status
  *   - `non_error_thrown` — something other than an Error was thrown
  *   - `Error`           — fallback (anonymous Error with no useful name)
  *   - `app_no_access`   — the app-authenticated fallback 404'd, i.e. the APP
@@ -565,6 +750,7 @@ function buildFailureLabel(
   viaAppFallback = false,
 ): string {
   if (httpStatus === 404 && viaAppFallback) return 'app_no_access';
+  if (e instanceof ForgeRequestError && e.nonJson) return `non_json_http_${e.status}`;
   if (typeof httpStatus === 'number') return `http_${httpStatus}`;
   if (e instanceof Error) return e.name || 'Error';
   return 'non_error_thrown';
@@ -610,6 +796,31 @@ async function tryGetAttachment(identifierOverride?: string): Promise<Attachment
   const attachments = await global.apWrapper.getAttachmentsV2(pageId, { filename: attachmentName }) as AttachmentWithLinks[];
   const descending = attachments.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
   return descending.length > 0 && descending[0];
+}
+
+/** v1 answer for "a new attachment with this name already exists" (#75). */
+const SAME_FILE_NAME_RE = /Cannot add a new attachment with same file name/i;
+
+function isSameFileNameError(e: unknown): boolean {
+  return e instanceof AttachmentUploadHttpError && e.status === 400 && SAME_FILE_NAME_RE.test(e.message);
+}
+
+/**
+ * Re-resolve the attachment by name through the v1 API — the API the write
+ * goes through — instead of v2, which is what `tryGetAttachment` gates on and
+ * which just missed it (#75: v2/v1 visibility lag, or another iframe on the
+ * page created the same name a moment ago). Returns the highest version, or
+ * undefined when v1 does not list it either.
+ */
+async function findAttachmentViaV1(
+  pageId: string,
+  attachmentName: string,
+): Promise<AttachmentWithLinks | undefined> {
+  const url = `${buildAttachmentBasePath(pageId)}?filename=${encodeURIComponent(attachmentName)}&expand=version,metadata`;
+  const response = await forgeRequest(`/wiki${url}`, 'GET');
+  const results: AttachmentWithLinks[] = Array.isArray(response?.results) ? [...response.results] : [];
+  results.sort((a, b) => (b.version?.number ?? 0) - (a.version?.number ?? 0));
+  return results[0];
 }
 
 /**
@@ -681,6 +892,7 @@ async function uploadAttachmentViaApp(
   effectiveHash: string,
   blob: Blob,
   opts?: { async?: boolean },
+  attemptId?: string,
 ): Promise<AttachmentMeta> {
   const pngBase64 = await blobToBase64(blob);
   let raw: unknown;
@@ -691,6 +903,7 @@ async function uploadAttachmentViaApp(
       attachmentName,
       hash: effectiveHash,
       versionNumber: target.versionNumber,
+      ...(attemptId ? { pngAttemptId: attemptId } : {}),
       pngBase64,
       // Async mode: the backend acks after validation and completes the write
       // in waitUntil (survives editor teardown). See createAttachmentIfContentChanged.
@@ -699,7 +912,7 @@ async function uploadAttachmentViaApp(
   } catch (e) {
     // callRemote throws on a non-2xx transport response (e.g. the function
     // itself 500'd); normalise so the failure is labelled consistently.
-    throw new AttachmentUploadHttpError(0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
+    throw new AttachmentUploadHttpError(extractHttpStatus(e) ?? 0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
   }
   const result: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
   if (!result?.ok) {
@@ -723,12 +936,19 @@ async function uploadAttachmentViaApp(
  */
 async function updateAttachmentProperties(attachmentMeta: AttachmentMeta): Promise<void> {
   const pageId = await global.apWrapper._getCurrentPageId();
-  await makeRequest(buildPutRequestToUpdateAttachmentProperties(
+  const result: any = await makeRequest(buildPutRequestToUpdateAttachmentProperties(
     pageId,
     attachmentMeta.attachmentId,
     attachmentMeta.versionNumber,
     attachmentMeta.hash
   ));
+  // The v1 POST can answer HTTP 200 with the failure wrapped in the body
+  // ({"statusCode":403,…}, see parseUploadResult); apply the same check to the
+  // PUT's parsed body in case the v1 properties endpoint does the same. A
+  // successful PUT returns the attachment object, which has no `statusCode`.
+  if (typeof result?.statusCode === 'number' && result.statusCode >= 400) {
+    throw new AttachmentUploadHttpError(result.statusCode, JSON.stringify(result));
+  }
 }
 
 // ============================================================================
@@ -778,8 +998,28 @@ async function createAttachmentIfContentChanged(
   // — the next save migrates the macro and subsequent calls write the
   // correctly-named attachment. Centralised here so embed/swagger/other
   // viewer call sites are covered without per-caller guards.
-  const macroCustomContentId = overrideId ?? forgeGlobal.forgeContext?.extension?.config?.customContentId;
+  const macroCustomContentId = overrideId ?? resolveEffectiveCustomContentId(forgeGlobal.forgeContext);
   if (!macroCustomContentId) {
+    return;
+  }
+
+  // The guard above used to do double duty. It read only
+  // `extension.config.customContentId`, which is unset in a dashboard modal
+  // ("My API Documents" → View/Edit — the surface forge-swagger-editor calls
+  // `isDashboardEdit`), so those modals returned early as a side effect of the
+  // id being empty. Widening the read to resolveEffectiveCustomContentId is
+  // right for the pasted-macro case, but it also makes the id non-empty there,
+  // and a dashboard modal has NO page: the upload would have nowhere to land
+  // and would only produce a failing request plus attachment_upload_failed
+  // noise on a path that was previously silent. Check page context explicitly,
+  // so that surface still returns early for its own stated reason.
+  let attachmentPageId = '';
+  try {
+    attachmentPageId = await global.apWrapper._getCurrentPageId();
+  } catch {
+    attachmentPageId = '';
+  }
+  if (!attachmentPageId) {
     return;
   }
 
@@ -797,6 +1037,27 @@ async function createAttachmentIfContentChanged(
   // The v1 attachment API only accepts status=current pages — a draft page returns a
   // wrapped 404 body, causing a misleading "no results" error downstream.
   if (forgeGlobal.forgeContext?.extension?.content?.status === 'draft') {
+    if (opts?.fromSave) {
+      const startedAt = Date.now();
+      await recordPngState(attachmentPageId, macroCustomContentId, 'waiting_for_publish',
+        crypto.randomUUID(), startedAt, hash, undefined, 'editor', true);
+    }
+    return;
+  }
+
+  // A recent 429 on this site means Confluence is rate-limiting this user's
+  // requests; a view-time backfill now would only add to them. Defer it: the
+  // first view after the cooldown retries. The save-time write is a single
+  // user action, so it always tries.
+  const rateLimitSite = getCloudId() ?? 'unknown';
+  const cooldownRemainingMs = opts?.fromSave ? 0 : rateLimitCooldownRemainingMs(rateLimitSite);
+  if (cooldownRemainingMs > 0) {
+    trackAnalyticsEvent('attachment_upload_deferred', {
+      feature_area: 'macro', surface: 'viewer',
+      page_id: ctx.page_id, custom_content_id: macroCustomContentId,
+      attachment_name: ctx.attachment_name,
+      cooldown_remaining_ms: cooldownRemainingMs,
+    });
     return;
   }
 
@@ -810,6 +1071,10 @@ async function createAttachmentIfContentChanged(
   // Mixpanel instead of only recoverable by count-matching against
   // `attachment_upload_app_fallback_started` at 10% sampling (#392).
   let fallbackFromStatus: number | undefined;
+  const pngAttemptId = crypto.randomUUID();
+  const pngStartedAt = Date.now();
+  let pngAttemptStarted = false;
+  let pngCaptureCompleted = false;
 
   try {
     const attachment = await tryGetAttachment(overrideId);
@@ -822,12 +1087,15 @@ async function createAttachmentIfContentChanged(
     // When diagramType is absent injection is skipped, so no version token.
     const metaKey = diagramType ? `${hash}|${diagramType}|itxt:v1` : hash;
     if (!attachment || metaKey !== attachment.comment) {
+      await recordPngState(attachmentPageId, macroCustomContentId, 'generating',
+        pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer', true);
+      pngAttemptStarted = true;
       const isUpdate = Boolean(attachment);
       const pageId = await global.apWrapper._getCurrentPageId();
       const identifier = overrideId ?? await getIdentifier();
       const attachmentName = attachmentNameByIdentifier(identifier!);
       const base = buildAttachmentBasePath(pageId);
-      const target: UploadTarget = isUpdate
+      let target: UploadTarget = isUpdate
         ? {
             isUpdate: true,
             attachmentId: (attachment as AttachmentWithLinks).id,
@@ -839,7 +1107,13 @@ async function createAttachmentIfContentChanged(
       trackEvent('version:' + target.versionNumber, 'upload_attachment', 'export', ctx);
 
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
+      const captureStartedAt = performance.now();
       const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+      pngCaptureCompleted = true;
+      // Publish timing: only the save-time capture is on the publish path (a
+      // view-time backfill is not), and only a produced PNG is timed — a failed
+      // capture throws above and records nothing.
+      if (opts?.fromSave) recordPublishStep('attachment_capture_ms', captureStartedAt);
 
       // Save-time path (perf/publish-async-backup): the editor blocks its
       // dialog close on this write only because view.submit tears down the
@@ -849,7 +1123,7 @@ async function createAttachmentIfContentChanged(
       // (~1.5–3.5s) instead of capture + the full upload (~3–8s). The user is
       // the page editor here, so the app-token read-check always passes.
       if (opts?.fromSave) {
-        await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, { async: true });
+        await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, { async: true }, pngAttemptId);
         // Not "succeeded": the write completes server-side after we return, so
         // this is a queued signal. The view-time backfill + downstream
         // macro_export_* events measure the ultimate outcome.
@@ -863,10 +1137,52 @@ async function createAttachmentIfContentChanged(
 
       let attachmentMeta: AttachmentMeta;
       let viaAppFallback = false;
+      // Set when the create POST hit v1's "same file name" 400 and we recovered
+      // by uploading a new version of the attachment v2 had missed (#75).
+      let recoveredFrom: 'same_name_400' | undefined;
+      // Set when the v1 re-read shows another writer already stored this exact
+      // metaKey: the upload is already done, so no second version is written.
+      let skippedDuplicate = false;
+      // Only a denied data POST can rerun the whole write as the app.
+      let stage: 'post' | 'put' = 'post';
+      const postAndParse = async (t: UploadTarget): Promise<AttachmentMeta> =>
+        parseUploadResult(await postAttachmentAsUser(attachmentName, t.uri, effectiveHash, blob), t, effectiveHash);
       try {
-        const response = await postAttachmentAsUser(attachmentName, target.uri, effectiveHash, blob);
-        attachmentMeta = parseUploadResult(response, target, effectiveHash);
-        await updateAttachmentProperties(attachmentMeta);
+        try {
+          attachmentMeta = await postAndParse(target);
+        } catch (createError) {
+          // The existence gate read v2 but this write is v1. If v1 already
+          // holds the name, retry ONCE as a new version of it. Only the create
+          // path can produce this; anything v1 can't find re-throws the
+          // original error unchanged.
+          if (target.isUpdate || !isSameFileNameError(createError)) throw createError;
+          const existing = await findAttachmentViaV1(pageId, attachmentName).catch(() => undefined);
+          if (!existing) throw createError;
+          recoveredFrom = 'same_name_400';
+          if (existing.metadata?.comment === metaKey) {
+            // Racing iframe (#75) wrote this exact content first; uploading
+            // again would add a byte-identical version. Same gate as the
+            // normal path above (`metaKey !== attachment.comment`).
+            skippedDuplicate = true;
+            target = {
+              isUpdate: true,
+              attachmentId: existing.id,
+              versionNumber: existing.version?.number ?? 0,
+              uri: base + '/' + existing.id + '/data',
+            };
+            attachmentMeta = { attachmentId: existing.id, versionNumber: target.versionNumber, hash: effectiveHash };
+          } else {
+            target = {
+              isUpdate: true,
+              attachmentId: existing.id,
+              versionNumber: (existing.version?.number ?? 0) + 1,
+              uri: base + '/' + existing.id + '/data',
+            };
+            attachmentMeta = await postAndParse(target);
+          }
+        }
+        stage = 'put';
+        if (!skippedDuplicate) await updateAttachmentProperties(attachmentMeta);
       } catch (e) {
         // Viewer-only users (issue #166) lack attachment-write permission on the
         // page even though the app does. On 401/403 — whether a real HTTP status
@@ -874,7 +1190,14 @@ async function createAttachmentIfContentChanged(
         // properties PUT) server-side as the app. Every other failure (network,
         // 5xx, parse) re-throws so we don't burn the Forge remote on cases the
         // app can't fix anyway.
-        if (e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
+        // Only a denied POST qualifies. Once the POST succeeded the attachment
+        // (new) or its next version (update) already exists, so rerunning the
+        // write as the app would be rejected as a duplicate name (create) or add
+        // an extra version whose PUT conflicts (update). A 401/403 on the
+        // properties PUT — a real HTTP status (ForgeRequestError) or a
+        // 200-wrapped statusCode (AttachmentUploadHttpError) — therefore
+        // re-throws and is recorded as a labelled failure instead (#801).
+        if (stage === 'post' && e instanceof AttachmentUploadHttpError && (e.status === 401 || e.status === 403)) {
           fallbackFromStatus = e.status;
           // Emit BEFORE the fallback call so attempts are counted even when the
           // backend itself throws. `recovered_from_status` is the headline join.
@@ -882,7 +1205,7 @@ async function createAttachmentIfContentChanged(
             ...ctx,
             recovered_from_status: e.status,
           });
-          attachmentMeta = await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob);
+          attachmentMeta = await uploadAttachmentViaApp(pageId, target, attachmentName, effectiveHash, blob, undefined, pngAttemptId);
           viaAppFallback = true;
           trackEvent(`http_${e.status}`, 'attachment_upload_app_fallback_succeeded', 'export', {
             ...ctx,
@@ -897,17 +1220,45 @@ async function createAttachmentIfContentChanged(
       // Success path — gives us a denominator for `_failed` and tells the
       // `created` vs `updated` story. Emit only once the write (and its
       // properties PUT) really landed, whether via the user or the app path.
-      trackEvent(isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
+      trackEvent(target.isUpdate ? 'updated' : 'created', 'attachment_upload_succeeded', 'export', {
         ...ctx,
         version_number: attachmentMeta.versionNumber,
         attachment_id: attachmentMeta.attachmentId,
         via_app_fallback: viaAppFallback,
+        ...(recoveredFrom ? { recovered_from: recoveredFrom } : {}),
+        ...(skippedDuplicate ? { skipped_duplicate: true } : {}),
         ...(opts?.fromSave ? { from_save: true } : {}),
       });
+      await recordPngState(pageId, macroCustomContentId, 'ready', pngAttemptId,
+        pngStartedAt, hash, attachmentMeta.attachmentId, opts?.fromSave ? 'editor' : 'viewer');
     }
   } catch (e: any) {
     const httpStatus = extractHttpStatus(e);
     const viaAppFallback = fallbackFromStatus !== undefined;
+    // 429: Confluence is rate-limiting this user. The write did not fail, it
+    // was refused for now, and the next view after the cooldown retries it.
+    // Start the site-wide cooldown so the other macros' backfills stand down
+    // too, and record it as its own outcome rather than a failure.
+    if (httpStatus === 429) {
+      const cooldown = startRateLimitCooldown(
+        rateLimitSite,
+        e instanceof ForgeRequestError ? e.retryAfter : undefined,
+      );
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'upload_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
+      trackAnalyticsEvent('attachment_upload_rate_limited', {
+        feature_area: 'macro', surface: opts?.fromSave ? 'editor' : 'viewer',
+        page_id: ctx.page_id, custom_content_id: macroCustomContentId,
+        attachment_name: ctx.attachment_name,
+        http_status: 429,
+        failed_request: e instanceof ForgeRequestError ? e.endpoint
+          : e instanceof AttachmentUploadHttpError ? 'POST attachment data' : 'unknown',
+        retry_after_source: cooldown.source,
+        ...(cooldown.retryAfterS !== undefined ? { retry_after_s: cooldown.retryAfterS } : {}),
+        cooldown_ms: cooldown.cooldownMs,
+      });
+      return;
+    }
     // A 404 on the attachment POST means the parent page is not (yet) an
     // addressable published v1 content: it's an unpublished/draft/uncommitted
     // page. This reaches us in three shapes, all of which are the SAME benign
@@ -932,7 +1283,18 @@ async function createAttachmentIfContentChanged(
     // Skipping those buried the single most common way the fallback fails, so
     // a post-fallback 404 falls through to the genuine-failure path below and
     // is labelled `app_no_access` there (#392).
-    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback)) {
+    //
+    // A non-JSON 404 (ForgeRequestError) is not that situation either: it is an
+    // HTML page, not Confluence's NotFound envelope, so it stays a failure.
+    //
+    // A JSON-status 404 (ForgeRequestError with nonJson false) can only come from
+    // the properties PUT after the user's POST succeeded, so the parent exists:
+    // it is not the unpublished-parent case either.
+    const isForgeRequestError = e instanceof ForgeRequestError;
+    const isNonJsonResponse = e instanceof ForgeRequestError && e.nonJson;
+    if (e instanceof DraftPageError || (httpStatus === 404 && !viaAppFallback && !isForgeRequestError)) {
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'waiting_for_publish', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       // Both branches are the 404-class skip; DraftPageError carries no numeric
       // status of its own, so normalise to 404 for a consistent denominator.
       // `content_status` is resolved from the API rather than taken from the
@@ -954,8 +1316,13 @@ async function createAttachmentIfContentChanged(
     // an empty state for blank diagrams; for non-empty diagrams a toast was shown
     // in uploadAttachment. Either way, skip the upload — don't count as a failure.
     if (e instanceof ToPngError) {
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'generation_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       return;
     }
+    if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+      !pngCaptureCompleted ? 'generation_failed' : httpStatus === 401 || httpStatus === 403 ? 'upload_denied' : 'upload_failed',
+      pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
     // The function still throws (callers wrap this in try/catch already), but we
     // now record the failure with full join-key context so it can be correlated
     // with the backend `macro_export_failed` event.
@@ -968,9 +1335,11 @@ async function createAttachmentIfContentChanged(
     const errorName = (e instanceof Error && e.name) ? e.name : (e == null ? 'null' : typeof e);
     const errorMessage = String((e as { message?: unknown })?.message ?? e ?? '').slice(0, 200);
     const label = buildFailureLabel(e, httpStatus, viaAppFallback);
-    const confluenceErrorClass = e instanceof AttachmentUploadHttpError
-      ? e.confluenceErrorClass
-      : undefined;
+    // Explicit 'none' rather than omission — see NO_CONFLUENCE_ERROR_CLASS in
+    // SnapshotAttachment.ts. An absent property cannot be told apart from an
+    // unparseable class, nor from an event that predates this field.
+    const confluenceErrorClass =
+      (e instanceof AttachmentUploadHttpError ? e.confluenceErrorClass : undefined) || 'none';
     trackEvent(label, 'attachment_upload_failed', 'export', {
       ...ctx,
       error_name: errorName,
@@ -978,7 +1347,15 @@ async function createAttachmentIfContentChanged(
       http_status: httpStatus,
       via_app_fallback: viaAppFallback,
       ...(viaAppFallback ? { fallback_from_status: fallbackFromStatus } : {}),
-      ...(confluenceErrorClass ? { confluence_error_class: confluenceErrorClass } : {}),
+      confluence_error_class: confluenceErrorClass,
+      // ForgeRequestError only: which call got the response (the attachments GET
+      // or the properties PUT). The response_* properties describe a non-JSON
+      // body, so a JSON-status error (opt-in throwOnHttpError) does not carry them.
+      ...(isForgeRequestError ? { failed_request: e.endpoint } : {}),
+      ...(isNonJsonResponse ? {
+        response_content_type: e.contentType || 'none',
+        response_title: e.htmlTitle ?? 'none',
+      } : {}),
     });
     throw e;
   } finally {

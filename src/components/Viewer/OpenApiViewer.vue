@@ -1,6 +1,9 @@
 <template>
 <generic-viewer :wide="true" :hideHeader="hideHeader">
-  <div id="swagger-ui" ref="swaggerUi"></div>
+  <div v-if="loadError" class="openapi-load-error" role="status">
+    This diagram isn't available.
+  </div>
+  <div v-else id="swagger-ui" ref="swaggerUi"></div>
 </generic-viewer>
 </template>
 
@@ -11,6 +14,9 @@ import "swagger-ui/dist/swagger-ui.css";
 import SpecListener from '@/utils/spec-listener';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { viewContentState } from '@/utils/analytics/contentState';
+import { DiagramType } from '@/model/Diagram/Diagram';
+import EventBus from '@/EventBus';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 
 export default {
@@ -30,21 +36,31 @@ export default {
     return { renderReported: false };
   },
   mounted() {
-    this.initSwaggerUi();
-    this.updateSpecFromDiagram();
+    // Slice 1 (Diagram.loadError): nothing to mount SwaggerUI onto when the
+    // document totally failed to resolve — the template renders a terminal
+    // message instead. reportRenderOnce() still runs unconditionally below:
+    // macro_viewed is a readership metric, not success-only.
+    if (!this.loadError) {
+      this.initSwaggerUi();
+      this.updateSpecFromDiagram();
+    }
     this.reportRenderOnce();
   },
   watch: {
     doc: {
       handler() {
-        this.updateSpecFromDiagram();
+        if (!this.loadError) {
+          this.updateSpecFromDiagram();
+        }
         this.reportRenderOnce();
       },
       deep: true
     },
     storeDiagram: {
       handler() {
-        this.updateSpecFromDiagram();
+        if (!this.loadError) {
+          this.updateSpecFromDiagram();
+        }
       },
       deep: true
     },
@@ -61,6 +77,9 @@ export default {
     },
     effectiveDoc() {
       return this.doc ?? this.storeDiagram;
+    },
+    loadError() {
+      return this.effectiveDoc?.loadError ?? null;
     }
   },
   methods: {
@@ -83,7 +102,13 @@ export default {
       // SwaggerUI renders asynchronously internally — this measures
       // time-to-content, not time-to-full-paint. Best approximation available
       // without a render callback.
-      trackRenderTime('openapi', this.$store.getters.isDisplayMode);
+      trackRenderTime(
+        'openapi', this.$store.getters.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.effectiveDoc, DiagramType.OpenApi),
+      );
+      // See ForgeGraphViewer: OpenAPI emits no 'diagramLoaded' either, and an
+      // export-entry Fullscreen open needs a readiness signal to capture from.
+      EventBus.$emit('viewerRenderSettled', 'openapi');
     },
     // reliability-audit-2026-08-06 §4/§12.2 (conf-app#149/#150): this file had
     // no error handling at all — a SwaggerUIBundle/updateSpec exception threw

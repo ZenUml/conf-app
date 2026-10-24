@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Repair Benchmark"
+  short_description: "Compare repair quality, latency, and cost across models with L1/L2"
+  default_prompt: "Use $ai-repair-benchmark to compare how different models repair this DSL."
+policy:
+  allow_implicit_invocation: true

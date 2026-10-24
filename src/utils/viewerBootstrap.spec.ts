@@ -17,6 +17,7 @@ vi.mock('@/model/globals', () => ({
   default: {
     apWrapper: {
       initializeContext: vi.fn(() => Promise.resolve()),
+      isDisplayMode: vi.fn(() => true),
     },
   },
 }));
@@ -36,8 +37,15 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 // Forge bridge context resolve — resolveContentId's argument. The actual
 // shape doesn't matter for these tests (resolveContentId is test-controlled
 // below); this only needs to resolve so `await initForgeContext()` doesn't hang.
+// `default` mirrors the real module's default export — getForgeCustomContentId
+// (viewerLoadOutcome.ts) reads forgeContext off it; individual tests below
+// mutate mockForgeGlobal.forgeContext rather than window.forgeGlobal.
+const mockForgeGlobal = vi.hoisted(() => ({ forgeContext: undefined as any }));
+const mockIsExportEntry = vi.fn(() => Promise.resolve(false));
 vi.mock('@/model/globals/forgeGlobal', () => ({
+  default: mockForgeGlobal,
   getContext: vi.fn(() => Promise.resolve({ extension: {} })),
+  isExportEntry: () => mockIsExportEntry(),
 }));
 
 // Spy-wrapped but functionally real (backed by an in-memory Map, reusing the
@@ -88,7 +96,10 @@ describe('viewerBootstrap', () => {
     _resetForTesting();
     _resetContentCacheForTesting();
     store.state.diagram = { ...NULL_DIAGRAM };
+    store.state.viewerLoadState = null;
+    store.state.loadError = null;
     window.diagram = undefined;
+    vi.mocked(globals.apWrapper.isDisplayMode).mockReturnValue(true);
   });
 
   it('mounts a stable NULL_DIAGRAM shell before loading and then publishes the loaded diagram', async () => {
@@ -122,7 +133,73 @@ describe('viewerBootstrap', () => {
     expect(mountRoot).toHaveBeenCalledWith(NULL_DIAGRAM, Component, undefined);
     expect(events).toEqual(['mount', 'load', 'afterLoad']);
     expect(store.state.diagram).toStrictEqual(loaded);
+    expect(store.state.viewerLoadState).toBe('ready');
     expect(window.diagram).toStrictEqual(loaded);
+  });
+
+  it('marks rejected loadDiagram as failed_with_source when a custom content id exists', async () => {
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: 'cc-missing' } },
+    };
+    const onError = vi.fn();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => {
+        throw new Error('network down');
+      }),
+      onError,
+    });
+
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    expect(store.state.loadError).toMatchObject({
+      errorClass: 'thrown',
+      errorCode: 'network down',
+    });
+    // publishLoadedDiagram attaches the load error to the published diagram
+    // (the `doc`-prop channel OpenApiViewer reads) alongside the store slots.
+    expect(store.state.diagram).toStrictEqual({
+      ...NULL_DIAGRAM,
+      loadError: store.state.loadError,
+    });
+  });
+
+  it('marks rejected loadDiagram as failed_without_source when no custom content id exists', async () => {
+    mockForgeGlobal.forgeContext = {
+      extension: { config: {} },
+    };
+
+    await bootstrapForgeViewer({
+      macroKind: 'embed',
+      content: Component,
+      loadDiagram: vi.fn(async () => {
+        throw new Error('load blew up');
+      }),
+      onError: vi.fn(),
+    });
+
+    expect(store.state.viewerLoadState).toBe('failed_without_source');
+    expect(store.state.loadError?.errorClass).toBe('thrown');
+  });
+
+  it('marks failed loads with a source id as failed_with_source', async () => {
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: 'cc-missing' } },
+    };
+
+    await bootstrapForgeViewer({
+      macroKind: 'openapi',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({
+        doc: undefined,
+        loadError: { httpStatus: 404, directFetchStatus: 'not_found' as const },
+      })),
+    });
+
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    expect(store.state.loadError).toEqual({ httpStatus: 404, directFetchStatus: 'not_found' });
   });
 
   it('does not mount directly when fullscreen paywall mounts the shell', async () => {
@@ -174,6 +251,32 @@ describe('viewerBootstrap', () => {
     expect(store.state.diagram).toStrictEqual(NULL_DIAGRAM);
     expect(window.diagram).toStrictEqual(NULL_DIAGRAM);
   });
+
+  it('accepts a { doc, loadError } loadDiagram result and publishes the doc with loadError attached', async () => {
+    const loaded = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi };
+    await bootstrapForgeViewer({
+      macroKind: 'openapi',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({ doc: loaded, loadError: null })),
+    });
+    expect(store.state.diagram).toStrictEqual(loaded);
+  });
+
+  it('a failed load ({ doc: undefined, loadError }) publishes NULL_DIAGRAM with loadError attached', async () => {
+    await bootstrapForgeViewer({
+      macroKind: 'openapi',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({
+        doc: undefined,
+        loadError: { directFetchStatus: 'not_found' as const, errorClass: 'structured' as const },
+      })),
+    });
+    expect(store.state.diagram).toEqual({
+      ...NULL_DIAGRAM,
+      loadError: { directFetchStatus: 'not_found', errorClass: 'structured' },
+    });
+    expect(store.state.diagramLoadComplete).toBe(true);
+  });
 });
 
 // Mirrors the content-SWR behavior forgeIndex.ts wires into the sequence
@@ -215,6 +318,92 @@ describe('viewerBootstrap content SWR', () => {
     expect(loadDiagram).toHaveBeenCalledTimes(1); // the background revalidate fired...
     // ...but nothing awaited it on the critical path (no NULL_DIAGRAM shell mount).
     expect(mountRoot).toHaveBeenCalledTimes(1);
+  });
+
+  // Board must not be served from a cached Diagram-era body, but disabling the
+  // cache for Board also skipped the putCachedContent write, so the entry went
+  // stale for the Diagram mode too. Validate the CACHED doc instead and fall
+  // through to the authoritative fetch when it fails.
+  it('does not let the cache mask an invalid independent Board document', async () => {
+    const cachedBoard = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Graph,
+      graphXml: '<mxGraphModel><root /></mxGraphModel>',
+      boardGraphXml: '<mxfile><diagram name="Board" /></mxfile>',
+    };
+    putCachedContent(CC_ID, JSON.stringify(cachedBoard));
+    vi.mocked(putCachedContent).mockClear();
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: CC_ID } },
+    };
+    const invalidBoard = {
+      ...cachedBoard,
+      boardGraphXml: '',
+    };
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      contentProps: { graphEditorMode: 'board' },
+      loadDiagram: vi.fn(async () => ({
+        doc: invalidBoard,
+        loadError: {
+          errorClass: 'malformed' as const,
+          errorCode: 'board_document_empty',
+          terminal: true,
+        },
+      })),
+      resolveContentId: () => CC_ID,
+    });
+
+    expect(getCachedContent).toHaveBeenCalledWith(CC_ID);
+    // The cached copy renders first (SWR), then the background revalidate's
+    // terminal Board error replaces it. Disabling the cache for Board instead
+    // also disabled the putCachedContent write below, which left the entry
+    // stale for the macro's Diagram mode.
+    expect(mountRoot).toHaveBeenCalledWith(
+      expect.objectContaining({ boardGraphXml: cachedBoard.boardGraphXml }),
+      Component,
+      { graphEditorMode: 'board' },
+    );
+    await vi.waitFor(() => expect(store.state.viewerLoadState).toBe('failed_with_source'));
+    expect(store.state.loadError).toMatchObject({
+      errorClass: 'malformed',
+      errorCode: 'board_document_empty',
+      terminal: true,
+    });
+    expect(store.state.diagram.graphXml).toBe(cachedBoard.graphXml);
+    expect(store.state.diagram.boardGraphXml).toBe('');
+    expect(putCachedContent).not.toHaveBeenCalled();
+  });
+
+  it('serves a VALID cached Board document from the cache', async () => {
+    const cachedBoard = {
+      ...NULL_DIAGRAM,
+      diagramType: DiagramType.Graph,
+      graphXml: '<mxGraphModel><root /></mxGraphModel>',
+      boardGraphXml: '<mxfile><diagram name="Board" /></mxfile>',
+    };
+    putCachedContent(CC_ID, JSON.stringify(cachedBoard));
+    vi.mocked(putCachedContent).mockClear();
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: CC_ID } },
+    };
+    const loadDiagram = vi.fn(async () => ({ doc: cachedBoard, loadError: null }));
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      contentProps: { graphEditorMode: 'board' },
+      loadDiagram,
+      resolveContentId: () => CC_ID,
+    });
+
+    expect(mountRoot).toHaveBeenCalledWith(
+      expect.objectContaining({ boardGraphXml: cachedBoard.boardGraphXml }),
+      Component,
+      { graphEditorMode: 'board' },
+    );
   });
 
   it('background revalidate republishes when the fetched content hash changed', async () => {
@@ -416,5 +605,38 @@ describe('viewerBootstrap content SWR', () => {
     expect(store.state.diagram).toStrictEqual(loaded);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+describe('viewerBootstrap — export entry skips the fullscreen paywall', () => {
+  // Export PNG on the inline macro is ungated, and it now always routes through
+  // the Fullscreen modal. Without this exemption a saturated Lite space would
+  // newly lose Graph and OpenAPI export: the gate would mount PaywallGate and
+  // the viewer that opens the export dialog would never mount at all.
+  it('mounts the viewer instead of the paywall when the modal is an export entry', async () => {
+    mockIsExportEntry.mockResolvedValueOnce(true);
+    vi.mocked(tryFullscreenViewerPaywall).mockClear();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => NULL_DIAGRAM),
+    });
+
+    expect(tryFullscreenViewerPaywall).not.toHaveBeenCalled();
+    expect(mountRoot).toHaveBeenCalled();
+  });
+
+  it('still gates an ordinary fullscreen open', async () => {
+    mockIsExportEntry.mockResolvedValueOnce(false);
+    vi.mocked(tryFullscreenViewerPaywall).mockClear();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => NULL_DIAGRAM),
+    });
+
+    expect(tryFullscreenViewerPaywall).toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConnectPanel from './ConnectPanel.vue'
+import forgeGlobal from '@/model/globals/forgeGlobal'
 import AgentStatusHeader from './AgentStatusHeader.vue'
 import connectPanelSource from './ConnectPanel.vue?raw'
 import type { AgentLinkActivityEntry } from '@/composables/agentLink/useAgentLinkSession'
@@ -44,7 +45,7 @@ describe('ConnectPanel', () => {
 
     expect(wrapper.find('[data-testid="agent-link-waiting"]').exists()).toBe(true)
     const prompt = wrapper.find('[data-testid="agent-link-prompt"]').text()
-    expect(prompt).toContain('Connect to my ZenUML diagram via the conf-agent MCP.')
+    expect(prompt).toContain('Connect to my ZenUML diagram via the zenuml MCP.')
     expect(prompt).toContain('session: tok-123')
     expect(prompt).toContain('reads this page · edits this diagram · 10 min idle / 60 min max')
     expect(wrapper.find('[data-testid="agent-link-waiting-status"]').text()).toContain(
@@ -153,12 +154,14 @@ describe('ConnectPanel', () => {
     expect(connectPanelSource).toContain('border-color: var(--agent-link-green)')
   })
 
-  it('timeout: shows the setup command', () => {
+  it('timeout: shows the setup command for the backend that minted the session', () => {
+    forgeGlobal.zenumlRemoteBaseUrl = 'https://conf-stg-lite.zenuml.com'
     const wrapper = mountPanel({ state: 'timeout', token: 'tok-123' })
+    forgeGlobal.zenumlRemoteBaseUrl = undefined
 
     expect(wrapper.find('[data-testid="agent-link-timeout"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-setup-command"]').text()).toContain(
-      'claude mcp add --transport http conf-agent https://zenapi.zenuml.com/agent-link/mcp'
+      'claude mcp add --transport http zenuml https://conf-stg-lite.zenuml.com/agent-link/mcp'
     )
     // The dead "Add to Cursor" button (no click handler) and the dead
     // "Use the no-install bridge instead" link (href="#") were removed —
@@ -240,6 +243,7 @@ describe('ConnectPanel', () => {
   it('already_linked: renders the rejected notice with honest (no-fake-time) copy and actions', async () => {
     const wrapper = mountPanel({ state: 'already_linked' })
 
+    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--already_linked')
     const notice = wrapper.find('[data-testid="agent-link-notice"]')
     expect(notice.exists()).toBe(true)
     expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(
@@ -408,18 +412,6 @@ describe('ConnectPanel — Track H rail composition', () => {
 
     await wrapper.find('[data-testid="agent-link-reconnect-btn"]').trigger('click')
     expect(wrapper.emitted('reconnect')).toHaveLength(1)
-  })
-
-  it('already-linked rejection: shows the rejected notice and Revoke & re-link, not an empty rail', () => {
-    const wrapper = mountRail({ state: 'already_linked', diagramTitle: 'Checkout flow' })
-
-    expect(wrapper.find('[data-testid="agent-link-panel"]').classes()).toContain('agent-link-panel--already_linked')
-    expect(wrapper.find('[data-testid="agent-link-notice"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-notice-title"]').text()).toBe(
-      'This diagram is already linked to an agent'
-    )
-    expect(wrapper.find('[data-testid="agent-link-notice-revoke-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agent-link-notice-cancel-btn"]').exists()).toBe(true)
   })
 
   it('idle: renders an empty panel (no header, notice, feed or actions) — nothing before connect', () => {

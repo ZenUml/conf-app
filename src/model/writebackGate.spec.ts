@@ -82,6 +82,41 @@ describe('decideWriteback (#170 — gate view.submit to submittable surfaces)', 
   });
 });
 
+describe('decideWriteback — first bind (autoConvert paste)', () => {
+  const base = {
+    inserting: false,
+    configuring: false,
+    idChanged: false,
+    macroNeedsRepair: false,
+    legacyMacroNeedsRepair: false,
+    hasId: true,
+  }
+
+  it('writes back the first id for a macro that was never inserted through the macro browser', () => {
+    // An autoConvert paste creates the ADF node before its editor opens, so
+    // Forge reports neither inserting nor an id change. Without this the id is
+    // never bound and every save orphans a fresh custom content.
+    expect(decideWriteback({ ...base, configuring: true, hasSourceId: false }).needsWriteback).toBe(true)
+  })
+
+  it('still refuses on a non-submittable surface, preserving #170', () => {
+    // In-viewer Edit modal: inserting and configuring both false. view.submit
+    // would throw "view is not submittable".
+    expect(decideWriteback({ ...base, hasSourceId: false }).needsWriteback).toBe(false)
+  })
+
+  it('does not fire for a macro that already references a custom content', () => {
+    expect(decideWriteback({ ...base, configuring: true, hasSourceId: true }).needsWriteback).toBe(false)
+  })
+
+  it('does not fire when the save produced no usable id', () => {
+    expect(decideWriteback({ ...base, configuring: true, hasId: false, hasSourceId: false }).needsWriteback).toBe(false)
+  })
+
+  it('leaves the slash-menu insert path unchanged', () => {
+    expect(decideWriteback({ ...base, inserting: true, hasSourceId: false }).needsWriteback).toBe(true)
+  })
+})
 // Slice 0 of the content-opening unification: the signal DERIVATION was
 // triplicated across forgeIndex / forge-graph-editor / forge-swagger-editor,
 // and the two editor copies also reimplemented the decision with drifted
@@ -148,5 +183,42 @@ describe('deriveWritebackSignals (slice 0 — one derivation for all editors)', 
     expect(s.inserting).toBe(false);
     expect(s.configuring).toBe(false);
     expect(decideWriteback(s).needsWriteback).toBe(false);
+  });
+});
+
+// The merge hazard this guards: decideWriteback's firstBind term reads
+// hasSourceId, and deriveWritebackSignals is the only producer of it. If the
+// derivation stops setting it, hasSourceId goes undefined, firstBind collapses
+// to hasId, and every ordinary save from a configuring surface writes back.
+describe('deriveWritebackSignals — hasSourceId feeds the first-bind term', () => {
+  const base = {
+    inserting: false,
+    configuring: true,
+    sourceId: '',
+    newId: '111',
+    originalCustomContentId: undefined as string | undefined,
+    docSource: DataSource.CustomContent as DataSource | string,
+    recoveredFromOrphan: false,
+  };
+
+  it('an autoConvert paste has neither id at open — first bind, so write back', () => {
+    const s = deriveWritebackSignals(base);
+    expect(s.hasSourceId).toBe(false);
+    expect(decideWriteback(s).needsWriteback).toBe(true);
+  });
+
+  it('a loaded doc counts as a prior binding', () => {
+    const s = deriveWritebackSignals({ ...base, sourceId: '111' });
+    expect(s.hasSourceId).toBe(true);
+    expect(decideWriteback(s).needsWriteback).toBe(false);
+  });
+
+  it('a macro-config id counts as a prior binding even with no loaded doc', () => {
+    const s = deriveWritebackSignals({ ...base, originalCustomContentId: '999' });
+    expect(s.hasSourceId).toBe(true);
+  });
+
+  it('is never undefined — that is what makes firstBind collapse to hasId', () => {
+    expect(deriveWritebackSignals(base).hasSourceId).not.toBeUndefined();
   });
 });

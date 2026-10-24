@@ -1,5 +1,5 @@
-import createAttachmentIfContentChanged from "@/model/Attachment";
-import {trackEvent, serializeError} from "@/utils/window";
+import { scheduleAttachmentRefresh } from "@/model/attachment/scheduleAttachmentRefresh";
+import {trackEvent} from "@/utils/window";
 import globals from '@/model/globals';
 import ForgeEmbedViewer from "@/components/Viewer/ForgeEmbedViewer.vue";
 import EventBus from './EventBus'
@@ -140,29 +140,18 @@ export async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
 }
 
 function afterLoad(doc: Diagram | undefined) {
-  setTimeout(async function () {
-    try {
-      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        // Select the body by the doc's OWN diagramType. The old
-        // `code || graphXml || mermaidCode` chain never looked at
-        // plantUmlCode, so a plantuml doc converted from the default
-        // sequence template shipped its leftover ZenUML `code` labeled
-        // 'plantuml' — feeding capturePng a doomed PlantUML-server fetch
-        // (400) and hashing/iTXt-embedding the wrong source.
-        const content = doc?.diagramType
-          ? getDiagramData(doc)
-          : (doc?.code || doc?.graphXml || doc?.mermaidCode || '');
-        await createAttachmentIfContentChanged(content, doc?.diagramType ?? 'embed');
-      } else {
-        console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
-      }
-    } catch (e) {
-      // Do not re-throw the error
-      console.error("Error when creating attachment", e);
-      trackEvent(serializeError(e), 'create_attachment', 'error');
-    }
-
-  }, 1500);
+  // Select the body by the doc's OWN diagramType. The old
+  // `code || graphXml || mermaidCode` chain never looked at
+  // plantUmlCode, so a plantuml doc converted from the default
+  // sequence template shipped its leftover ZenUML `code` labeled
+  // 'plantuml' — feeding capturePng a doomed PlantUML-server fetch
+  // (400) and hashing/iTXt-embedding the wrong source.
+  scheduleAttachmentRefresh(
+    () => doc?.diagramType
+      ? getDiagramData(doc)
+      : (doc?.code || doc?.graphXml || doc?.mermaidCode || ''),
+    doc?.diagramType ?? 'embed',
+  );
 }
 
 

@@ -1,39 +1,160 @@
-import {ServerErrorResponse} from "./ServerErrorResponse";
+import { oauthDiscoveryResponse } from "./agent-link/oauth/discovery";
+import { openaiAppsChallengeResponse } from "./agent-link/openaiAppsChallenge";
+import type { OpenAiAppsChallengeEnv } from "./agent-link/openaiAppsChallenge";
 import authenticate from "./utils/authenticate";
+import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
+import { json } from './OkResponse';
 
-const AUTHENTICATED_PATHS = ['/diagramly', '/metrics-cache', '/forge-custom-content'];
+// JSON + explicit Content-Type so this remote-facing 500 is parseable by the
+// Forge bridge instead of being rejected as `text/plain` (see OkResponse.ts).
+// Inlined from functions/ServerErrorResponse.ts 2026-09-02 — this was its
+// only caller.
+function serverErrorResponse(): Response {
+  return json({ error: 'Something went wrong' }, {
+    status: 500,
+    statusText: 'Internal Server Error',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+interface Env extends OpenAiAppsChallengeEnv {
+  SENTRY_DSN?: string;
+}
+
+export const AUTHENTICATED_PATHS = [
+  '/diagramly',
+  '/metrics-cache',
+  '/forge-custom-content',
+  '/forge-upload-attachment',
+  '/deeplink-ticket',
+  '/activation-prepared',
+  '/magic-writeback',
+  '/api/diagram-impact',
+  '/api/architecture-tokens',
+  '/api/feedback-report',
+  '/api/targeted-survey',
+  // Conversion queue endpoints re-verify the FIT themselves, but the claim
+  // response's app identity (environmentId for the ADF extensionKey rewrite)
+  // is read from the middleware-populated forgeContext — without this entry
+  // the first staging job failed at stage 'claim' with an empty identity
+  // (2026-08-11, job b275a201).
+  '/conversion'
+];
+
+const DEEPLINK_TICKET_CORS_HEADERS: Record<string, string> = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'POST, OPTIONS',
+  'access-control-allow-headers': 'Authorization, Content-Type',
+  'access-control-max-age': '86400',
+};
+
+function isDeeplinkTicketPath(pathname: string): boolean {
+  return pathname === '/deeplink-ticket' || pathname === '/deeplink-ticket/';
+}
+
+function withDeeplinkTicketCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(DEEPLINK_TICKET_CORS_HEADERS)) {
+    headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+// Customer deeplink paths (/d/<cloudId>/<contentId>, /i/<token>) identify a
+// tenant + diagram and must never be logged verbatim
+// (docs/policies/client-privacy.md). Redact to just the path prefix.
+const UNLOGGED_PATH_PREFIXES = ['/d', '/i', '/magic-writeback'];
+
+// Query parameters that are credentials in their own right, wherever they
+// appear. `code` is Atlassian's authorization code and ours; `auth` is the
+// parked-authorization id, which alone completes a consent; `state` binds a
+// flow to a browser; `token` is the relay's session token, which the MCP
+// endpoint still accepts in the query string. Logging any of them writes a
+// live credential into Cloudflare's logs and Sentry breadcrumbs — the OAuth
+// callback and consent hop did exactly that until 2026-09-26.
+const REDACTED_QUERY_PARAMS = ['code', 'auth', 'state', 'token', 'code_verifier', 'refresh_token'];
+
+export function redactedRequestUrlForLogging(url: string): string {
+  const parsed = new URL(url);
+  const { pathname, origin } = parsed;
+  const hit = UNLOGGED_PATH_PREFIXES.find((p) => pathname === p || pathname.startsWith(`${p}/`));
+  if (hit) return `${origin}${hit} [redacted]`;
+
+  let redacted = false;
+  for (const name of REDACTED_QUERY_PARAMS) {
+    if (parsed.searchParams.has(name)) {
+      parsed.searchParams.set(name, '[redacted]');
+      redacted = true;
+    }
+  }
+  return redacted ? parsed.toString() : url;
+}
 
 // Create a middleware function that handles authentication
-const authMiddleware = async ({next, request, env}) => {
+export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = async ({
+  next,
+  request,
+  env,
+  data,
+}) => {
   try {
-    console.log('Function request url:', request.url);
+    console.log('Function request url:', redactedRequestUrlForLogging(request.url));
 
-    if (AUTHENTICATED_PATHS.some(path => new URL(request.url).pathname.startsWith(path))) {
-      const response = await authenticate({request, env});
+    const { pathname } = new URL(request.url);
+
+    // The two OAuth discovery documents are served from here rather than from
+    // route files, because the Pages router ignores directories whose name
+    // starts with a dot — a probe function under functions/.well-known/ never
+    // received a request (verified 2026-09-25; the SPA answered instead).
+    // They are public by definition: a client that has never authenticated has
+    // to be able to read them to find out how to authenticate.
+    const discovery = oauthDiscoveryResponse(request.url);
+    if (discovery) return discovery;
+
+    // ChatGPT's directory domain check, public for the same reason.
+    const openaiChallenge = openaiAppsChallengeResponse(request, env);
+    if (openaiChallenge) return openaiChallenge;
+
+    const isDeeplinkTicket = isDeeplinkTicketPath(pathname);
+    if (isDeeplinkTicket && request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: DEEPLINK_TICKET_CORS_HEADERS });
+    }
+
+    if (AUTHENTICATED_PATHS.some(path => pathname.startsWith(path))) {
+      const response = await authenticate({request, env, data});
       if(response.status !== 200) {
-        return response;
+        return isDeeplinkTicket ? withDeeplinkTicketCors(response) : response;
       }
     }
 
-    return await next();
+    const response = await next();
+    return isDeeplinkTicket ? withDeeplinkTicketCors(response) : response;
   } catch (e) {
     // Log the error to console first as a fallback
     console.error('Authentication middleware error:', e);
 
     // Don't try to use Sentry directly here - the Sentry middleware will capture this error
-    return ServerErrorResponse();
+    return serverErrorResponse();
   }
 };
 
 // Make sure Sentry is the first middleware so it can capture errors from subsequent middleware
+const sentryMiddleware = Sentry.sentryPagesPlugin<Env, string, ForgeRequestData>((context) => ({
+  dsn: context.env.SENTRY_DSN,
+  // Set tracesSampleRate to 1.0 to capture 100% of spans for tracing.
+  // Learn more at
+  // https://docs.sentry.io/platforms/javascript/configuration/options/#traces-sample-rate
+  tracesSampleRate: 1.0,
+}));
+
 export const onRequest = [
-  Sentry.sentryPagesPlugin((context) => ({
-    dsn: (context.env as any).SENTRY_DSN,
-    // Set tracesSampleRate to 1.0 to capture 100% of spans for tracing.
-    // Learn more at
-    // https://docs.sentry.io/platforms/javascript/configuration/options/#traces-sample-rate
-    tracesSampleRate: 1.0,
-  })),
+  sentryMiddleware,
   authMiddleware
 ];

@@ -1,0 +1,429 @@
+// Ported from AsyncAPI-Conf-V2/src/components/editor/AsyncAPIStudioEditor.tsx.
+// The Studio is loaded as a nested iframe; same-origin localStorage is the
+// sync channel between this wrapper and the Studio runtime, so the Studio
+// assets must ship under the same Forge resource as index.html (handled by
+// vite.config.mjs's conditional copy step).
+
+import React, { useRef, useEffect, useState } from 'react';
+
+interface AsyncApiStudioEditorProps {
+  initialSpec?: string;
+  onSpecChange?: (spec: string) => void;
+  onSave?: (spec: string) => Promise<void> | void;
+  onCancel?: () => void;
+  height?: string;
+  readOnly?: boolean;
+  /**
+   * When true, the editor renders its own title bar across the top
+   * with the action buttons aligned to it — matching the
+   * AsyncAPI-Conf-V2 layout. Pass true when the editor is opened in a
+   * Forge `Modal.open({ size: 'max' })` (dashboard flow): that modal
+   * has no Confluence chrome, so the iframe owns the whole viewport.
+   *
+   * Pass false (default) when editing a macro instance from
+   * Confluence's page editor — that wraps us in a modal with its own
+   * title + X header, so a second header inside the iframe would be
+   * redundant. The action buttons still render, floating at the top
+   * of the iframe, immediately under Confluence's chrome.
+   */
+  ownTitleBar?: boolean;
+  /**
+   * Title text rendered when `ownTitleBar` is true. Defaults to
+   * "Edit AsyncAPI Document" / "Create AsyncAPI Document" inferred
+   * from whether `initialSpec` looks empty.
+   */
+  titleText?: string;
+}
+
+class AsyncApiStudioIntegration {
+  private iframe: HTMLIFrameElement;
+  private onSpecChange?: (spec: string) => void;
+  private pollInterval?: ReturnType<typeof setInterval>;
+  private lastKnownSpec?: string;
+
+  constructor(iframeElement: HTMLIFrameElement, onSpecChange?: (spec: string) => void) {
+    this.iframe = iframeElement;
+    this.onSpecChange = onSpecChange;
+  }
+
+  public startLocalStoragePolling() {
+    this.pollInterval = setInterval(() => {
+      try {
+        const studioDocument = localStorage.getItem('document');
+        if (studioDocument && studioDocument !== this.lastKnownSpec && this.onSpecChange) {
+          this.lastKnownSpec = studioDocument;
+          this.onSpecChange(studioDocument);
+        }
+      } catch (error) {
+        console.warn('Could not access Studio localStorage:', error);
+      }
+    }, 1000);
+  }
+
+  public setInitialDocument(spec: string): void {
+    try {
+      localStorage.setItem('document', spec);
+      this.lastKnownSpec = spec;
+    } catch (error) {
+      console.error('Failed to set initial document in localStorage:', error);
+    }
+  }
+
+  public updateDocument(spec: string): void {
+    try {
+      localStorage.setItem('document', spec);
+      this.lastKnownSpec = spec;
+      const currentSrc = this.iframe.src;
+      this.iframe.src = currentSrc;
+    } catch (error) {
+      console.error('Failed to update document in localStorage:', error);
+    }
+  }
+
+  public async saveSpec(): Promise<string> {
+    // Studio's Monaco onChange runs through `debounce(..., savingDelay)`
+    // (apps/studio/src/components/Editor/MonacoWrapper.tsx) with default
+    // savingDelay=625ms. Until that debounce fires, the user's most
+    // recent keystrokes live only in Monaco's in-memory value — they
+    // haven't reached localStorage. Clicking Publish before the debounce
+    // expires would otherwise have us PUT a stale body and silently
+    // lose the latest edits.
+    //
+    // Two-step flush:
+    //   1. Dispatch Ctrl+S into the Monaco editor (Studio binds Ctrl+S
+    //      to `editorSvc.saveToLocalStorage()` — see
+    //      apps/studio/src/services/editor.service.tsx). This forces an
+    //      immediate, undebounced write of Monaco's current value to
+    //      localStorage.
+    //   2. yield to the next macrotask so the synthetic event handler +
+    //      localStorage.setItem complete before we read.
+    //
+    // The 750ms wait is a belt-and-suspenders backstop in case the
+    // Ctrl+S keybinding fails (e.g. iframe not yet focused or Studio
+    // patched the keybinding) — it's strictly larger than the default
+    // savingDelay so any pending debounced autosave will have flushed.
+    try {
+      const win = this.iframe.contentWindow;
+      const doc = this.iframe.contentDocument;
+      if (win && doc) {
+        const target = (doc.activeElement as HTMLElement) || doc.body;
+        const keydown = new (win as any).KeyboardEvent('keydown', {
+          key: 's', code: 'KeyS', keyCode: 83, which: 83,
+          ctrlKey: true, metaKey: true, bubbles: true, cancelable: true,
+        });
+        target.dispatchEvent(keydown);
+      }
+    } catch {
+      // Cross-origin or other error — fall through to the delay.
+    }
+    await new Promise((r) => setTimeout(r, 750));
+    const currentSpec = localStorage.getItem('document');
+    if (!currentSpec) {
+      throw new Error('No spec found in localStorage');
+    }
+    return currentSpec;
+  }
+
+  public destroy() {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+    }
+  }
+}
+
+const buildStudioUrl = (readOnly: boolean): string => {
+  // Relative path so the Studio loads from the same Forge resource origin
+  // as index.html (`*.cdn.prod.atlassian-dev.net/<app-id>/`). The
+  // localStorage sync below depends on same-origin access.
+  const baseUrl = './asyncapi-studio/index.html';
+  if (!readOnly) return baseUrl;
+  const params = new URLSearchParams();
+  params.set('readOnly', 'true');
+  return `${baseUrl}?${params.toString()}`;
+};
+
+const AsyncApiStudioEditor: React.FC<AsyncApiStudioEditorProps> = ({
+  initialSpec,
+  onSpecChange,
+  onSave,
+  onCancel,
+  height = '100vh',
+  readOnly = false,
+  ownTitleBar = false,
+  titleText,
+}) => {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [studioIntegration, setStudioIntegration] = useState<AsyncApiStudioIntegration | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [specSet, setSpecSet] = useState(false);
+  const [studioUrl, setStudioUrl] = useState<string>('');
+
+  useEffect(() => {
+    if (initialSpec && !specSet) {
+      try {
+        localStorage.setItem('document', initialSpec);
+        setSpecSet(true);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        setError('Failed to prepare initial specification: ' + msg);
+      }
+    }
+  }, [initialSpec, specSet]);
+
+  useEffect(() => {
+    if (specSet || !initialSpec) {
+      setStudioUrl(buildStudioUrl(readOnly));
+    }
+  }, [specSet, initialSpec, readOnly]);
+
+  useEffect(() => {
+    if (!iframeRef.current || !studioUrl) return;
+    const integration = new AsyncApiStudioIntegration(iframeRef.current, onSpecChange);
+    setStudioIntegration(integration);
+
+    iframeRef.current.onload = () => {
+      setIsLoaded(true);
+      integration.startLocalStoragePolling();
+    };
+    iframeRef.current.onerror = () => {
+      setError('Failed to load AsyncAPI Studio');
+    };
+
+    return () => {
+      integration.destroy();
+    };
+  }, [studioUrl, onSpecChange]);
+
+  const handleSave = async () => {
+    if (!studioIntegration || !onSave) return;
+    setIsSaving(true);
+    try {
+      const spec = await studioIntegration.saveSpec();
+      const result = onSave(spec);
+      if (result && typeof (result as Promise<void>).then === 'function') {
+        await result;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to retrieve specification';
+      setError(msg);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    setIsLoaded(false);
+    setSpecSet(false);
+    setStudioUrl('');
+    if (initialSpec) {
+      // Guard the localStorage write like the mount effect does — retry is
+      // most likely reached after a storage failure (quota/unavailable), so a
+      // bare setItem would throw uncaught here and silently kill the retry.
+      try {
+        localStorage.setItem('document', initialSpec);
+        setSpecSet(true);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        setError('Failed to prepare initial specification: ' + msg);
+      }
+    }
+  };
+
+  if (error) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height, border: '1px solid #DE350B', borderRadius: '4px',
+        backgroundColor: '#FFEBE6', color: '#DE350B', flexDirection: 'column',
+        gap: '10px', padding: '20px',
+      }}>
+        <h3 style={{ margin: 0 }}>Error Loading AsyncAPI Studio</h3>
+        <p style={{ margin: 0, textAlign: 'center' }}>{error}</p>
+        <button
+          onClick={handleRetry}
+          style={{
+            padding: '8px 16px', border: 'none', borderRadius: '4px',
+            backgroundColor: '#DE350B', color: 'white', cursor: 'pointer',
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (initialSpec && !specSet) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height, fontSize: '16px', color: '#0052CC', flexDirection: 'column', gap: '10px',
+      }}>
+        <div>Preparing AsyncAPI document…</div>
+      </div>
+    );
+  }
+
+  // Two render modes, picked by the `ownTitleBar` prop:
+  //
+  //   ownTitleBar=true  (dashboard flow — Modal.open from "My API
+  //                      Documents") renders a full 48px title bar
+  //                      across the top: "Edit / Create AsyncAPI
+  //                      Document" on the left, Cancel + Save on the
+  //                      right. Same layout as the standalone
+  //                      AsyncAPI-Conf-V2 editor. Used when the modal
+  //                      has no Confluence chrome of its own and the
+  //                      iframe owns the whole viewport.
+  //
+  //   ownTitleBar=false (page-editor flow — Confluence wraps us in
+  //                      its macro-edit modal with its own
+  //                      title+X header) floats Cancel + Save in the
+  //                      top-right of the iframe. We don't add a
+  //                      second title bar inside the iframe because
+  //                      Confluence already shows one above us.
+  // Matches the ZenUML sequence editor pattern: a single Publish
+  // button as the only header action. Cancel is dropped because every
+  // path that opens this editor has a modal X (Confluence chrome on
+  // page-editor flow, Forge Modal X on dashboard flow + size='max'),
+  // and Escape also closes the modal. A redundant Cancel button just
+  // duplicates the X.
+  const showPublish = !!onSave && !readOnly;
+  const showActions = showPublish;
+  const computedTitle = titleText
+    ?? ((initialSpec && initialSpec.trim().length > 0)
+        ? 'Edit AsyncAPI Document'
+        : 'Create AsyncAPI Document');
+  const HEADER_HEIGHT = 48;
+
+  const publishButton = showPublish ? (
+    <button
+      onClick={handleSave}
+      disabled={isSaving}
+      style={{
+        padding: '6px 14px',
+        border: 'none',
+        borderRadius: 4,
+        background: isSaving ? '#A5ADBA' : '#0052CC',
+        color: '#fff',
+        cursor: isSaving ? 'not-allowed' : 'pointer',
+        fontSize: 14,
+        fontWeight: 500,
+        fontFamily: 'inherit',
+      }}
+    >
+      {isSaving ? 'Publishing…' : 'Publish'}
+    </button>
+  ) : null;
+
+  if (ownTitleBar) {
+    return (
+      <div style={{ width: '100%', height, display: 'flex', flexDirection: 'column' }}>
+        <div
+          style={{
+            flex: `0 0 ${HEADER_HEIGHT}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 16px',
+            background: '#fff',
+            borderBottom: '1px solid #DFE1E6',
+            gap: 12,
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#0052CC' }}>
+            {computedTitle}
+          </h2>
+          {showActions && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              {publishButton}
+            </div>
+          )}
+        </div>
+
+        <div style={{ flex: '1 1 auto', position: 'relative', minHeight: 0 }}>
+          {!isLoaded && studioUrl && (
+            <div
+              style={{
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                backgroundColor: '#f9f9f9', zIndex: 1, flexDirection: 'column', gap: 10,
+              }}
+            >
+              <div style={{ fontSize: 16, color: '#0052CC' }}>Loading AsyncAPI Studio…</div>
+            </div>
+          )}
+          {studioUrl && (
+            <iframe
+              ref={iframeRef}
+              src={studioUrl}
+              width="100%"
+              height="100%"
+              style={{
+                border: 'none',
+                opacity: isLoaded ? 1 : 0,
+                transition: 'opacity 0.3s',
+                display: 'block',
+              }}
+              title="AsyncAPI Studio"
+              allow="clipboard-read; clipboard-write"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ownTitleBar = false: float buttons over Studio's top-right corner.
+  return (
+    <div style={{ width: '100%', height, position: 'relative' }}>
+      {!isLoaded && studioUrl && (
+        <div
+          style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backgroundColor: '#f9f9f9', zIndex: 1, flexDirection: 'column', gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 16, color: '#0052CC' }}>Loading AsyncAPI Studio…</div>
+        </div>
+      )}
+      {studioUrl && (
+        <iframe
+          ref={iframeRef}
+          src={studioUrl}
+          width="100%"
+          height="100%"
+          style={{
+            border: 'none',
+            opacity: isLoaded ? 1 : 0,
+            transition: 'opacity 0.3s',
+            display: 'block',
+          }}
+          title="AsyncAPI Studio"
+          allow="clipboard-read; clipboard-write"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        />
+      )}
+      {showActions && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 16,
+            zIndex: 1000,
+            display: 'flex',
+            gap: 8,
+          }}
+        >
+          {publishButton}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AsyncApiStudioEditor;

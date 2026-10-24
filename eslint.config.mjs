@@ -69,7 +69,26 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/export.js"],
+    files: ["src/export.js", "src/page-capture.js"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+      },
+    },
+  },
+  {
+    // Pure Node.js modules used only from the Forge functions bundle
+    // (never imported by the frontend Vue/browser build).
+    files: ["src/lib/pngDimensions.js", "src/export.js"],
+    languageOptions: {
+      globals: {
+        Buffer: "readonly",
+      },
+    },
+  },
+  {
+    // Local pilot tooling — plain Node.js scripts, never part of any bundle.
+    files: ["tools/architecture-tokens/**/*.mjs"],
     languageOptions: {
       globals: {
         process: "readonly",

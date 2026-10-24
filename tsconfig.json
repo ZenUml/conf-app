@@ -12,12 +12,11 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "sourceMap": true,
-    "noEmitOnError": true,
-    "noEmit": true,
+    "noEmitOnError": false,
+    "noEmit": false,
     "baseUrl": ".",
     "types": [
-      "webpack-env",
-      "jest",
+      "vitest/globals",
       "@cloudflare/workers-types"
     ],
     "paths": {
@@ -41,6 +40,7 @@
     "src/**/*.jsx",
     "tests/**/*.ts",
     "tests/**/*.tsx",
+    ".storybook/**/*.ts",
     "global.d.ts"
   ],
   "exclude": [

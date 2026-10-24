@@ -1,0 +1,63 @@
+# Shared customer evidence rules
+
+Used by all three customer skills. This directory is shared data/reference, not another skill or runtime.
+
+## Product and identity scope
+
+Read `products.json`. Customer screening spans all five entries. The new-customers `all` and the standard local Marketplace sync cover the four conf-app entries; Marketplace live `all` is vendor-wide and may cover more. Query Mini Sites explicitly using its registered Marketplace key and its own telemetry; do not silently omit it or substitute conf-app usage. `forge-installs all` reports the four registered Forge IDs plus Mini Sites as unsupported until its ID is verified. Never equate different tools' `all` switches.
+
+Join site facts with verified cloudId/domain mapping and product identity. Deduplicate transactions by their source identifiers and aggregate by site + product, not site alone. A company can own multiple sites; a site can have Full and Lite installed simultaneously. Split version use first; combined unique-account totals require cross-version deduplication.
+
+Technical-contact fields are source labels, not proof of site admin, budget owner or current employment. Keep name/email/role, role-evidence reference, source date and channel separately. Verify company country and contact timezone; a license country conflicting with company location is uncertainty, not a resolved timezone.
+
+## Every signal carries
+
+`site`, `product`, `kind`, `facts`, `source`, `source_ref`, `occurred_at` (or bounded observation interval), `queried_at`, `window`, `timezone`, `read_status`, `coverage`, `unknowns`. Read status is one of `ok`, `empty`, `failed`, `unavailable`, `not_queried`. `empty` is permitted only after a successful query over a stated scope. Current-state-only records have no invented transition date. Original source IDs stay with the record for deduplication; real data stays private.
+
+Fact, inference and proposed action must be distinguishable. Query skills output facts and gaps, not a new permission to act. A cached source includes snapshot time; queried-at today does not make yesterday's snapshot current. Billing/contact decisions require checking relevant recent originals; do not repeatedly refresh an unchanged unrelated source.
+
+## Signal × source × derivability
+
+| Signal | Primary evidence | Can establish | Cannot establish alone |
+|---|---|---|---|
+| New license start | Marketplace license, subscription identity, known history | A new license-period candidate | First installation, first company acquisition or payment |
+| Install added/removed | Complete Forge snapshots with same product/scope | Observed presence change between snapshots | Exact uninstall time or reason; a failed/partial fetch is not absence |
+| Cancel/unsubscribe/inactive | Marketplace raw status/history or feedback | Recorded state, or transition if dated evidence exists | Uninstalled app, immediate access loss, or no intent to buy |
+| Trial/maintenance deadline | Marketplace license and subscription | Specific date and license type | Automatic payment succeeded/failed or a need to chase the customer |
+| Manual space/user grant deadline | Remote KV key and value with scope | Scope, status and expiry of that grant | Full subscription renewal, received money or universal editing block |
+| Purchase / renewal | Non-zero valid Marketplace order matched to the site, product and subscription, with effective commercial license | Commercial purchase established, including an order reported as Open | Confirmed payment, vendor payout, or two distinct purchases from overlapping invoices |
+| Payment / refund | Explicit Marketplace payment/refund status; Stripe/payment reference verified in billing source | The source's reported settlement state and evidenced period | Vendor bank payout, current coverage from lifetime totals, or that Open means the customer has not purchased; a grant's `isPaid` flag may mean comped access |
+| Customer opinion | Original Marketplace text, CSAT submission, D1 report, email/ticket | Stated request, reason or experience | Silent users' opinions or behavioural causality |
+| Activity | Mixpanel macro view/create/save events | Observed operations and known-account activity in the window | Inventory, installed seats, willingness to pay, or absence outside coverage |
+| Space inventory | Current Confluence/metrics inventory with timestamp | Reported current macro count per space and coverage | Count from cumulative create events or merely viewed instances |
+
+## Analytics and schema cautions
+
+- Keep **commercial result**, **license/access**, **reported settlement**, and **vendor payout** distinct. Positive `vendorAmount` establishes a recorded amount, not payment confirmation. Preserve the original `paymentStatus`; explicit Paid/Fully paid values are source-reported payment evidence, while Open/missing/unknown stays unconfirmed rather than unpaid. Open cannot undo an established purchase. Marketplace has documented status instability ([MP-577](https://jira.atlassian.com/browse/MP-577)); it is a reason to retain conflicting dated evidence, not proof that any particular customer is affected.
+- Match transactions using site/cloudId + product + entitlement when available. Keep transaction ID, line-item ID, sale type/date, amount, maintenance interval and status in the result. Deduplicate repeated source line items, not equal amounts. If different invoices cover the same subscription/period/amount, flag possible replacement or overlap, keep the invoices separate, and do not present their combined total as independently confirmed receipts. Exclude refund/void/cancelled records from purchase evidence; $0/free-only rows do not establish paid conversion. Future coverage and historical payments must not be presented as current paid-through coverage.
+
+- `macro_viewed` is engagement; D1 `page_viewed` is Confluence page activity. Creates and updates are separate operations; both are saves but neither is current macro stock.
+- Exclude missing and known placeholder account IDs (`unknown_user_account_id`, `unknown`, `anonymous`, `null`, `undefined`) from person counts. Do not blanket-exclude arbitrary opaque genuine account IDs. Report anonymous event volume separately when available.
+- State ranking denominator, eligible cohort, time window, product scope and tied-rank method. `client-health` uses active Lite sites and relative scores; creation breadth/seat tier is not all-user adoption. Prior-window zero can exaggerate growth. Re-check Full licenses before treating a Lite score as an upgrade opportunity.
+- Current Forge sync code includes cloudId/site mappings and Graph `macro_viewed`; older documents claiming these never exist are historical. Verify production deployment, nulls and date coverage before joining D1. D1 sync can fail, so it is not a complete diagram ledger or a guaranteed inventory bound.
+- D1 `FeedbackReport` capability is deployment-dependent; inspect schema/access and report missing coverage. Mixpanel workflow events need not carry the feedback report reference.
+- Remote KV read failure or malformed values must remain unknown. A successfully read empty list is different. Keys use `license:<cloudId>:<spaceKey>[:<userAccountId>]`; an account ID may contain colons.
+
+## Access and reuse
+
+Use existing Marketplace exports/snapshots, Forge install CLI, Mixpanel query runtime, configured read-only D1 routes and Gmail/JSM connectors/browser sessions. Do not create another credential store or infer public availability of customer data. The local CRM is a source of classification semantics and known coverage limits; simulated UI actions never establish production changes.
+
+Do not claim all sources checked when one is unavailable. Present partial useful findings and state the specific missing source, rather than turning access failures into empty results.
+
+## Structured cache and refresh policy
+
+Reuse source caches before exporting again: Marketplace SQLite, Forge JSON snapshots, and private query results. The active manifest is recorded in `private/operations/customer-evidence-cache.json`. Keep a private run manifest with source/query key, site/product scope, requested window and timezone, `queried_at`, source snapshot timestamp, read status, payload path, refresh policy and last refresh failure. Reusing a payload must retain its original timestamp.
+
+- **Site/product identity:** reuse verified mappings; invalidate on a conflicting identifier, site migration or product-registry change. Do not repeatedly look up unchanged IDs.
+- **Contact role/company context:** reuse the evidence and source date; recheck when a new referral, conflicting address or role-dependent action makes it material. A cached technical contact never becomes a verified admin.
+- **Licenses/payments:** a successful snapshot within 24 hours is a screening default; refresh the relevant subscription before payment/access/renewal claims or actions when the cached observation is insufficient. A trial deadline can trigger a refresh, not automatic outreach.
+- **Completed usage windows:** reuse the exact query/window/product/identity definition. Allow for late ingestion before treating recent windows as immutable; do not re-query an unchanged older window merely to regenerate a summary.
+- **Feedback/messages:** preserve original source IDs and text, query additions/updates since the last successful check where supported, and keep thread state separate from old message content. Re-read replies, drafts and scheduled messages immediately before the corresponding communication action.
+- **Refresh failures:** record the failed attempt separately, retain the last successful payload and timestamp, and label it stale where material. Never publish a partial refresh or treat a missing completion marker as successful-empty.
+
+These defaults guide an authorised run; they do not create a background refresh job or widen contact permission.

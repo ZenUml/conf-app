@@ -52,7 +52,7 @@
 </template>
 
 <script>
-import { handleMenuKeydown, shouldAlignMenuStart } from './menuKeyboard'
+import { useMenuPopover } from './useMenuPopover'
 
 // The five split-button menu entries. 'generic' (the primary segment) is not
 // listed here — it never appears in this menu. Labels/descriptions per the
@@ -68,62 +68,16 @@ const JOBS = [
 export default {
   name: 'CopyForAiMenu',
   emits: ['select', 'opened', 'closed'],
+  setup(_props, { emit }) {
+    return useMenuPopover(emit)
+  },
   data() {
-    return { open: false, alignStart: false, jobs: JOBS }
-  },
-  mounted() {
-    document.addEventListener('mousedown', this.onDocMouseDown)
-    document.addEventListener('keydown', this.onKeyDown)
-  },
-  beforeUnmount() {
-    document.removeEventListener('mousedown', this.onDocMouseDown)
-    document.removeEventListener('keydown', this.onKeyDown)
+    return { jobs: JOBS }
   },
   methods: {
-    toggle() {
-      if (this.open) this.close()
-      else this.openMenu()
-    },
-    openMenu() {
-      if (this.open) return
-      this.open = true
-      this.$emit('opened')
-      this.alignStart = false
-      this.$nextTick(() => {
-        this.alignStart = shouldAlignMenuStart(this.$refs.menuRef)
-        const firstItem = this.$refs.containerRef?.querySelector('[role="menuitem"]')
-        firstItem?.focus()
-      })
-    },
-    close() {
-      if (!this.open) return
-      this.open = false
-      this.$emit('closed')
-      this.$refs.triggerRef?.focus()
-    },
-    dismiss() {
-      if (!this.open) return
-      this.open = false
-      this.$emit('closed')
-    },
-    onMenuKeydown(e) {
-      handleMenuKeydown(e, this.$refs.menuRef, { close: this.close, dismiss: this.dismiss })
-    },
     select(job) {
       this.$emit('select', job)
       this.close()
-    },
-    onDocMouseDown(e) {
-      if (this.open && this.$refs.containerRef && !this.$refs.containerRef.contains(e.target)) {
-        this.dismiss()
-      }
-    },
-    onKeyDown(e) {
-      if (e.key === 'Escape' && this.open) {
-        e.preventDefault()
-        e.stopPropagation()
-        this.close()
-      }
     },
   },
 }

@@ -43,7 +43,7 @@
 </template>
 
 <script>
-import { MENU_ITEM_SELECTOR, handleMenuKeydown, shouldAlignMenuStart } from './menuKeyboard'
+import { useMenuPopover } from './useMenuPopover'
 
 /**
  * Icon-trigger menu ("More", ⋯). Lives in the viewer header since the staged
@@ -60,62 +60,8 @@ export default {
     placement: { type: String, default: 'bottom', validator: v => v === 'top' || v === 'bottom' },
   },
   emits: ['opened', 'closed'],
-  data() {
-    return { open: false, alignStart: false }
-  },
-  mounted() {
-    document.addEventListener('mousedown', this.onDocMouseDown)
-    document.addEventListener('keydown', this.onKeyDown)
-  },
-  beforeUnmount() {
-    document.removeEventListener('mousedown', this.onDocMouseDown)
-    document.removeEventListener('keydown', this.onKeyDown)
-  },
-  methods: {
-    toggle() {
-      if (this.open) this.close()
-      else this.openMenu()
-    },
-    openMenu() {
-      if (this.open) return
-      this.open = true
-      this.$emit('opened')
-      this.alignStart = false
-      this.$nextTick(() => {
-        this.alignStart = shouldAlignMenuStart(this.$refs.menuRef)
-        const firstItem = this.$refs.containerRef?.querySelector(MENU_ITEM_SELECTOR)
-        firstItem?.focus()
-      })
-    },
-    // Closes and returns focus to the trigger (Escape, an item picked).
-    close() {
-      if (!this.open) return
-      this.open = false
-      this.$emit('closed')
-      this.$refs.triggerRef?.focus()
-    },
-    // Closes without moving focus (Tab, a click elsewhere).
-    dismiss() {
-      if (!this.open) return
-      this.open = false
-      this.$emit('closed')
-    },
-    onMenuKeydown(e) {
-      handleMenuKeydown(e, this.$refs.menuRef, { close: this.close, dismiss: this.dismiss })
-    },
-    onDocMouseDown(e) {
-      if (this.open && this.$refs.containerRef && !this.$refs.containerRef.contains(e.target)) {
-        this.dismiss()
-      }
-    },
-    // Escape while focus is outside the menu (e.g. still on the trigger).
-    onKeyDown(e) {
-      if (e.key === 'Escape' && this.open) {
-        e.preventDefault()
-        e.stopPropagation()
-        this.close()
-      }
-    },
+  setup(_props, { emit }) {
+    return useMenuPopover(emit)
   },
 }
 </script>

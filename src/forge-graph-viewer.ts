@@ -1,42 +1,3 @@
-
-// Load external DrawIO scripts dynamically
-function loadDrawIOScripts(): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const scripts = [
-      './drawio/js/sanitizer/purify.min.js',
-      './drawio/mxgraph/mxClient.js',
-      './drawio/js/grapheditor/Init.js',
-      './drawio/js/grapheditor/Graph.js',
-      './drawio/js/grapheditor/Shapes.js'
-    ];
-    
-    let loadedCount = 0;
-    
-    scripts.forEach((src, index) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = () => {
-        loadedCount++;
-        if (loadedCount === scripts.length) {
-          // Wait for window.Graph to be available
-          const checkGraph = () => {
-            if (window.Graph) {
-              console.log('window.Graph is available:', window.Graph);
-              resolve();
-            } else {
-              console.log('Waiting for window.Graph...');
-              setTimeout(checkGraph, 100);
-            }
-          };
-          checkGraph();
-        }
-      };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  });
-}
-
 import createAttachmentIfContentChanged from "@/model/Attachment";
 import {trackEvent, serializeError} from "@/utils/window";
 import globals from '@/model/globals';
@@ -51,28 +12,54 @@ import {
   reportLegacyContentPropertyLoadFailed,
   reportLegacyContentPropertyValueUnexpected,
 } from '@/utils/legacyContentPropertyTelemetry';
-import { bootstrapForgeViewer } from '@/utils/viewerBootstrap';
+import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
+import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
+import { guardEditClick } from '@/utils/guardEditClick';
+import { attributionFromCustomContent } from '@/model/DiagramAttribution';
+import {
+  GRAPH_EDITOR_MODE_CONFIG_KEY,
+  normalizeGraphEditorMode,
+} from '@/utils/graph/graphEditorMode';
+import { getBoardDocumentLoadError, resolveGraphXml } from '@/utils/graph/boardDocument';
 
-async function loadDiagram(): Promise<Diagram | undefined> {
+async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
   const context = await initForgeContext();
 
   let doc: Diagram | undefined;
-  const customContentId = context.extension?.config?.customContentId;
+  let loadError = null;
+  let attribution = null;
+  // Includes the pasted-deeplink fallback: a graph macro created by
+  // autoConvert has no config, and reading only config left it rendering an
+  // empty canvas that stayed empty after editing.
+  const customContentId = resolveEffectiveCustomContentId(context);
   const pageId = context.extension?.content?.id;
   if(!customContentId) {
   } else {
-    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(pageId, customContentId);
+    // Viewer copy check is the zero-network cross-page comparison only. The
+    // full-page ADF scan it replaces was ~15% of a graph render's p50
+    // (354ms of 2338ms, 7d external) and its ONLY viewer-visible product —
+    // disabling Edit on a same-page duplicate — is now produced on demand by
+    // the Edit click gate (utils/guardEditClick.ts). The editor keeps the
+    // blocking full scan, which is what guards the save-fork path.
+    const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
+      pageId, customContentId, { copyCheckMode: 'cross-page-only' },
+    );
     console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
     doc = loaded.customContent?.value;
+    attribution = attributionFromCustomContent(loaded.customContent);
     if (loaded.recoveredFromOrphanId && doc) {
       doc.recoveredFromOrphan = true;
       doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
       reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
-      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(pageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
+      loadError = mapCustomContentLoadError(loaded);
     }
   }
 
@@ -145,7 +132,19 @@ async function loadDiagram(): Promise<Diagram | undefined> {
     }
   }
 
-  return doc;
+  // A ZEN-1170 recovery above may have restored `doc` after the customContent
+  // fetch set loadError. The document is present and renderable, so the error
+  // no longer describes this load — clearing it keeps classifyViewerLoadOutcome
+  // from turning a successful recovery into an error panel.
+  if (doc && loadError) {
+    loadError = null;
+  }
+
+  if (normalizeGraphEditorMode(context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY]) === 'board') {
+    loadError = getBoardDocumentLoadError(doc) ?? loadError;
+  }
+
+  return { doc, loadError, ...(attribution ? { attribution } : {}) };
 }
 
 function afterLoad(doc: Diagram | undefined) {
@@ -153,7 +152,10 @@ function afterLoad(doc: Diagram | undefined) {
   // compressed graph bodies to plain XML before the store write). Here we only
   // need plain XML for the attachment side-effect below, plus the compressed_*
   // telemetry that sizes how many legacy compressed graph macros are loaded.
-  let graphXml = doc?.graphXml;
+  // Snapshot the document the macro actually DISPLAYS. A Board macro's
+  // attachment is what Confluence PDF/Word export and page previews consume,
+  // so reading graphXml unconditionally exported the stale Diagram document.
+  let graphXml = resolveGraphXml(doc);
   if (doc?.compressed) {
     trackEvent('compressed_field_viewer', 'load', 'warning');
     if (!graphXml?.startsWith('<mxGraphModel')) {
@@ -184,13 +186,21 @@ function afterLoad(doc: Diagram | undefined) {
 }
 
 async function initializeMacro() {
-  // Load DrawIO scripts first
-  // await loadDrawIOScripts();
+  await ensureDrawioViewerLoaded();
+  const context = await initForgeContext();
+  const graphEditorMode = normalizeGraphEditorMode(
+    context.extension?.config?.[GRAPH_EDITOR_MODE_CONFIG_KEY],
+  );
   await bootstrapForgeViewer({
     macroKind: 'graph',
     content: ForgeGraphViewer,
+    contentProps: { graphEditorMode },
     loadDiagram,
     afterLoad,
+    // Same id `loadDiagram` loads above, pasted-deeplink fallback included. It
+    // is also the SWR cache key, so a raw config read here left a pasted graph
+    // macro uncached (#561).
+    resolveContentId: resolveEffectiveCustomContentId,
     onError: (error) => {
       console.error('Error loading graph viewer', error);
     },
@@ -201,6 +211,19 @@ async function initializeMacro() {
 export default initializeMacro();
 
 EventBus.$on('edit', async () => {
+  // Same-page duplicate gate — the viewer load no longer scans the page ADF,
+  // so this click is where a shared customContentId is caught. The guard is
+  // memoized: forgeIndex.ts's shared-entry listener fires on this same click
+  // and consults it too, but the page GET is paid once.
+  const ctx = await initForgeContext();
+  if (!(await guardEditClick({
+    // Resolved, not a raw config read (as forge-swagger-ui.ts does): a pasted
+    // macro has no config id, and an undefined id makes the gate skip, so a
+    // same-page duplicate of it was never caught.
+    customContentId: resolveEffectiveCustomContentId(ctx),
+    macroType: 'graph',
+  }))) return;
+
   await openModal({
     resource: 'main',
     onClose: (payload: any) => {

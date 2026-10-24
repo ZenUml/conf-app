@@ -3,8 +3,9 @@ import ApWrapper2 from "@/model/ApWrapper2";
 import { getLocalState, setLocalState } from "@/utils/window";
 import clone from "lodash/clone";
 import { IUser } from "@/model/IUser";
+import { CSAT_STATE_KEY, isCsatSuppressedForAccount } from "@/utils/csat";
 export default function useCSATState() {
-  const STORAGE_KEY = "csat_state";
+  const STORAGE_KEY = CSAT_STATE_KEY;
   const DEFAULT_STATE = { users: {}, lastUpdated: new Date() };
   const account = ref<IUser | null>(null);
 
@@ -15,14 +16,15 @@ export default function useCSATState() {
     return account.value;
   };
 
+  /**
+   * Delegates the actual verdict to utils/csat so the banner and the page-banner
+   * priority cascade cannot disagree about who is suppressed — see
+   * isCsatSuppressedForAccount. All this adds is resolving the account, which
+   * also caches it for markSuppressed()/clearSuppressed() below.
+   */
   const checkStateOfCSAT = async () => {
     const user = await ensureAccount();
-    const localState = getLocalState(STORAGE_KEY, DEFAULT_STATE);
-    const userState = localState.users[user.atlassianAccountId];
-    return (
-      userState &&
-      (!userState.expires || new Date() < new Date(userState.expires))
-    );
+    return isCsatSuppressedForAccount(user.atlassianAccountId);
   };
 
   /**

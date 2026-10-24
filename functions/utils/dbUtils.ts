@@ -1,6 +1,5 @@
 import { D1Database } from '@cloudflare/workers-types';
 import { ForgeAppRequestBody } from '../RequestBody';
-import { MixpanelTrackPayload } from '../service/mixpanelService';
 
 export async function getAtlassianInstanceClientDomain(
   db: D1Database,
@@ -28,13 +27,15 @@ export async function upsertAtlassianInstance(
     return;
   }
 
-  await db.prepare(
+  const result = await db.prepare(
     `INSERT INTO AtlassianInstance (cloudId, clientDomain)
      VALUES (?1, ?2)
      ON CONFLICT(cloudId) DO UPDATE SET clientDomain = excluded.clientDomain`
   )
     .bind(cloudId, clientDomain)
     .run();
+
+  console.log('DB AtlassianInstance Upsert Result:', result);
 }
 
 export async function getForgeInstallationClientDomain(
@@ -65,7 +66,7 @@ export async function getForgeInstallationClientDomain(
 }
 
 async function upsertForgeApp(db: D1Database, body: ForgeAppRequestBody) {
-  await db.prepare(
+  const result = await db.prepare(
     `INSERT INTO ForgeApp (
       appId, name, ownerAccountId, version, createdAt
     ) VALUES (?, ?, ?, ?, ?)
@@ -82,6 +83,8 @@ async function upsertForgeApp(db: D1Database, body: ForgeAppRequestBody) {
     body.app.version,
     new Date().toISOString()
   ) .run();
+
+  console.log('DB ForgeApp Upsert Result:', result);
 }
 
 export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequestBody) {
@@ -104,7 +107,7 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
     await upsertAtlassianInstance(db, cloudId, clientDomain);
   }
 
-  await db.prepare(
+  const result = await db.prepare(
     `INSERT INTO ForgeInstallation (
       installationId, context, installerAccountId, eventType, appId, environmentId, permissions, cloudId, clientDomain, createdAt
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -131,57 +134,6 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
     clientDomain,
     new Date().toISOString()
   ) .run();
-}
 
-export async function insertUserBehaviorEvent(
-  db: D1Database,
-  event: MixpanelTrackPayload,
-): Promise<void> {
-  await db.prepare(
-    `INSERT INTO UserBehaviorEvent (cloudId, userAccountId, contentId, action, clientDomain, spaceKey, payload)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
-  )
-    .bind(
-      event.cloud_id || 'unknown_cloud_id',
-      event.user_account_id || 'unknown_user',
-      event.content_id || 'unknown_content',
-      event.action,
-      event.client_domain || null,
-      event.space_key || event.confluence_space || null,
-      JSON.stringify(event),
-    )
-    .run();
-}
-
-export async function aggregateDailyCounters(db: D1Database): Promise<void> {
-  await db.prepare(
-    `INSERT INTO DailyBehaviorCounter (date, cloudId, clientDomain, spaceKey, action, eventCount, uniqueUsers, uniquePages, updatedAt)
-     SELECT
-       DATE(createdAt) as date,
-       cloudId,
-       clientDomain,
-       spaceKey,
-       action,
-       COUNT(*) as eventCount,
-       COUNT(DISTINCT userAccountId) as uniqueUsers,
-       COUNT(DISTINCT contentId) as uniquePages,
-       CURRENT_TIMESTAMP
-     FROM UserBehaviorEvent
-     WHERE DATE(createdAt) < DATE('now')
-     GROUP BY DATE(createdAt), cloudId, clientDomain, spaceKey, action
-     ON CONFLICT(date, cloudId, spaceKey, action) DO UPDATE SET
-       eventCount = excluded.eventCount,
-       uniqueUsers = excluded.uniqueUsers,
-       uniquePages = excluded.uniquePages,
-       clientDomain = COALESCE(excluded.clientDomain, DailyBehaviorCounter.clientDomain),
-       updatedAt = CURRENT_TIMESTAMP`
-  ).run();
-}
-
-export async function purgeOldEvents(db: D1Database, retentionDays: number = 60): Promise<void> {
-  await db.prepare(
-    `DELETE FROM UserBehaviorEvent WHERE createdAt < DATETIME('now', ?1)`
-  )
-    .bind(`-${retentionDays} days`)
-    .run();
+  console.log('DB ForgeInstallation Upsert Result:', result);
 }

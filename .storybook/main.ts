@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const config: StorybookConfig = {
   stories: ['../src/**/*.stories.@(js|jsx|mjs|ts|tsx)'],
+  staticDirs: ['../public'],
   addons: ['@storybook/addon-docs', '@storybook/addon-a11y'],
   framework: {
     name: '@storybook/vue3-vite',
@@ -21,12 +22,21 @@ const config: StorybookConfig = {
         'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(''),
       },
       resolve: {
-        alias: {
-          vue: '@vue/compat',
-          '@': path.resolve(__dirname, '../src'),
-          '@forge/bridge': path.resolve(__dirname, '../src/stubs/forge-bridge.ts'),
-        },
-        dedupe: ['vue', '@vue/compat'],
+        alias: [
+          {
+            find: /^@\/utils\/analytics\/trackAnalyticsEvent$/,
+            replacement: path.resolve(__dirname, './stubs/trackAnalyticsEvent.ts'),
+          },
+          {
+            find: '@forge/bridge',
+            replacement: path.resolve(__dirname, '../src/stubs/forge-bridge.ts'),
+          },
+          {
+            find: '@',
+            replacement: path.resolve(__dirname, '../src'),
+          },
+        ],
+        dedupe: ['vue'],
       },
     } satisfies UserConfig)
   },

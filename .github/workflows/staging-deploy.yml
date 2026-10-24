@@ -1,12 +1,55 @@
 name: Staging Deploy
 
 on:
-  workflow_call:
+  # Manual entry point so a feature branch can deploy a non-Lite variant to
+  # staging without merging first. build-test-deploy.yml gates full/diagramly/
+  # asyncapi staging deploys on the default branch, which left Full-only code
+  # (e.g. the Lite->Full conversion executor) unverifiable pre-merge.
+  workflow_dispatch:
     inputs:
       variant:
         required: true
+        type: choice
+        options: [lite, full, diagramly, asyncapi]
+        description: 'Variant to deploy to staging from this branch'
+  workflow_call:
+    inputs:
+      ref:
+        required: false
         type: string
-        description: 'lite, full, or diagramly'
+        default: ''
+        description: 'Immutable source SHA for daily regression'
+
+      preparation-mode:
+        required: false
+        type: string
+        default: 'auto'
+        description: 'auto selects optimized Lite staging; baseline is rollback; candidate is explicit opt-in'
+      candidate-runner:
+        required: false
+        type: string
+        default: 'auto'
+        description: 'auto selects ARM for optimized Lite staging, Ubuntu otherwise; explicit hardware overrides are supported'
+      benchmark-sample:
+        required: false
+        type: string
+        default: ''
+        description: 'Unique experimental artifact suffix; empty preserves ordinary deploys'
+      skip-migrations:
+        required: false
+        type: boolean
+        default: false
+        description: 'Daily owner has already applied the shared D1 migrations'
+      workflow-ref:
+        required: false
+        type: string
+        default: ''
+        description: 'Pinned workflow commit supplying deployment action and helpers'
+
+      variant:
+        required: true
+        type: string
+        description: 'lite, full, diagramly, or asyncapi'
       license:
         required: true
         type: string
@@ -20,51 +63,379 @@ on:
         type: string
         description: 'GitHub environment name'
 
+# workflow_call inherits ownership from the caller. Only the standalone dispatch
+# acquires the shared lock; a nested same-group lock would deadlock.
+concurrency:
+  group: ${{ github.workflow == 'Staging Deploy' && 'conf-app-staging' || format('staging-inner-{0}-{1}', github.run_id, inputs.variant) }}
+  cancel-in-progress: false
+  queue: max
+
 jobs:
-  deploy:
+  # workflow_dispatch supplies only `variant`; workflow_call supplies all four.
+  # This job normalises both into one set of values the deploy job consumes,
+  # keeping the variant -> project/environment mapping in a single place.
+  resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      variant: ${{ steps.map.outputs.variant }}
+      license: ${{ steps.map.outputs.license }}
+      project: ${{ steps.map.outputs.project }}
+      environment: ${{ steps.map.outputs.environment }}
+      runner: ${{ steps.map.outputs.runner }}
+      preparation-mode: ${{ steps.map.outputs.preparation-mode }}
+      tooling-ref: ${{ steps.map.outputs.tooling-ref }}
+    steps:
+      - id: map
+        env:
+          VARIANT: ${{ inputs.variant }}
+          IN_LICENSE: ${{ inputs.license }}
+          IN_PROJECT: ${{ inputs.project }}
+          IN_ENVIRONMENT: ${{ inputs.environment }}
+          IN_RUNNER: ${{ inputs.candidate-runner }}
+          PREPARATION_MODE: ${{ inputs.preparation-mode }}
+          IN_TOOLING_REF: ${{ inputs.workflow-ref }}
+          APP_REF: ${{ inputs.ref || github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          # Every supplied value can reach the line-based output protocol.
+          # Reject delimiters before resolving or publishing any value.
+          for field in VARIANT IN_LICENSE IN_PROJECT IN_ENVIRONMENT IN_RUNNER PREPARATION_MODE IN_TOOLING_REF APP_REF WORKFLOW_SHA; do
+            case "${!field}" in
+              *$'\r'*|*$'\n'*) echo 'Invalid staging input delimiters' >&2; exit 1 ;;
+            esac
+          done
+          case "$VARIANT" in
+            lite)      DEF_PROJECT=conf-stg-lite ;;
+            full)      DEF_PROJECT=conf-stg-full ;;
+            diagramly) DEF_PROJECT=conf-stg-lite ;;
+            asyncapi)  DEF_PROJECT=conf-stg-lite ;;
+            *) echo 'Unknown staging variant' >&2; exit 1 ;;
+          esac
+          LICENSE="${IN_LICENSE:-$VARIANT}"
+          PROJECT="${IN_PROJECT:-$DEF_PROJECT}"
+          ENVIRONMENT="${IN_ENVIRONMENT:-staging-$VARIANT}"
+          is_lite_staging() {
+            [ "$VARIANT" = lite ] && [ "$LICENSE" = lite ] &&
+              [ "$PROJECT" = conf-stg-lite ] && [ "$ENVIRONMENT" = staging-lite ]
+          }
+          MODE="${PREPARATION_MODE:-auto}"
+          case "$MODE" in
+            auto) if is_lite_staging; then MODE=candidate; else MODE=baseline; fi ;;
+            baseline) ;;
+            candidate) is_lite_staging || { echo 'Candidate preparation requires Lite staging' >&2; exit 1; } ;;
+            *) echo 'Unsupported staging preparation mode' >&2; exit 1 ;;
+          esac
+          DEPLOY_RUNNER="${IN_RUNNER:-auto}"
+          case "$DEPLOY_RUNNER" in
+            auto) if [ "$MODE" = candidate ]; then DEPLOY_RUNNER=ubuntu-24.04-arm; else DEPLOY_RUNNER=ubuntu-latest; fi ;;
+            ubuntu-latest) ;;
+            ubuntu-24.04-arm)
+              [ "$MODE" = candidate ] && is_lite_staging || exit 1
+              ;;
+            *) echo 'Unsupported staging deployment runner' >&2; exit 1 ;;
+          esac
+          TOOLING_REF="${IN_TOOLING_REF:-}"
+          if [ -z "$TOOLING_REF" ] && [ "$MODE" = candidate ] && [ "$APP_REF" != "$WORKFLOW_SHA" ]; then
+            [[ "$WORKFLOW_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Automatic deployment tooling requires an immutable Git SHA' >&2; exit 1; }
+            TOOLING_REF="$WORKFLOW_SHA"
+          fi
+          {
+            echo "variant=$VARIANT"
+            echo "license=$LICENSE"
+            echo "project=$PROJECT"
+            echo "environment=$ENVIRONMENT"
+            echo "runner=$DEPLOY_RUNNER"
+            echo "preparation-mode=$MODE"
+            echo "tooling-ref=$TOOLING_REF"
+          } >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: resolve
+    runs-on: ${{ needs.resolve.outputs.runner }}
+    timeout-minutes: 10
     environment:
-      name: ${{ inputs.environment }}
+      name: ${{ needs.resolve.outputs.environment }}
     env:
       FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
       FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
     steps:
       - uses: actions/checkout@v5
-      - name: Build and publish
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      # A daily or benchmark call can build a pinned main ancestor. Load
+      # deployment tooling from the caller commit, keeping app source pinned.
+      - name: Checkout pinned workflow tooling
+        if: needs.resolve.outputs.tooling-ref != ''
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.tooling-ref }}
+          path: .ci-workflow
+      - name: Use pinned workflow deployment tooling
+        if: needs.resolve.outputs.tooling-ref != ''
+        env:
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+        run: |
+          cp .ci-workflow/.github/actions/wrangler-publish/action.yml .github/actions/wrangler-publish/action.yml
+          for helper in lite-deploy-prepare.mjs lite-deploy-evidence.mjs lite-deploy-forge-timing.mjs lite-deploy-permissions-cache.mjs lite-deploy-studio-cache.mjs mixpanel-staging-config.mjs; do
+            if [ "$PREPARATION_MODE" = candidate ] && [ ! -f ".ci-workflow/scripts/ci/$helper" ]; then
+              echo 'Pinned candidate deployment tooling is incomplete' >&2; exit 1
+            fi
+            if [ -f ".ci-workflow/scripts/ci/$helper" ]; then cp ".ci-workflow/scripts/ci/$helper" "scripts/ci/$helper"; fi
+          done
+      - name: Record checked-out deployment provenance
+        id: provenance
+        env:
+          TOOLING_REF: ${{ needs.resolve.outputs.tooling-ref }}
+        run: |
+          set -euo pipefail
+          APP_SHA="$(git rev-parse HEAD)"
+          TOOLING_SHA="$APP_SHA"
+          if [ -n "$TOOLING_REF" ]; then TOOLING_SHA="$(git -C .ci-workflow rev-parse HEAD)"; fi
+          [[ "$APP_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]]
+          {
+            echo "app-sha=$APP_SHA"
+            echo "tooling-sha=$TOOLING_SHA"
+          } >> "$GITHUB_OUTPUT"
+      - name: Validate staging preparation mode
+        env:
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+          VARIANT: ${{ needs.resolve.outputs.variant }}
+        run: |
+          case "$PREPARATION_MODE" in
+            baseline|'') ;;
+            candidate) [ "$VARIANT" = lite ] ;;
+            *) exit 1 ;;
+          esac
+      # The asyncapi and lite builds (pnpm build:asyncapi / build:lite) need
+      # vendor/asyncapi-studio checked out before scripts/build-studio.sh runs
+      # (lite ships the AsyncAPI macro per ADR-0005). Init explicitly so
+      # `actions/checkout@v5` doesn't try to clone the private submodule.
+      - name: Init asyncapi-studio submodule
+        if: needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite'
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
+      # The same cache the build job in build-test-deploy.yml already keeps (same
+      # key, so the two share one entry). On a hit static/asyncapi-studio/
+      # .studio-commit matches the submodule pin and scripts/build-studio.sh
+      # fast-paths out, so the lite/asyncapi vite build below no longer pays
+      # for a Next.js build of Studio. Before this step it paid every time:
+      # measured on main run 34602804979 (2026-09-11), Lite's "Build and publish
+      # to Cloudflare" took 198s against Full's 80s and the AsyncAPI deploy job
+      # 5.5 min against Diagramly's 3.0 — Studio was the whole difference. Lite
+      # matters most: its deploy is the head of the main-branch critical path,
+      # since no Lite E2E shard can start until it finishes.
+      - name: Resolve asyncapi-studio submodule SHA
+        if: needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite'
+        id: studio-sha
+        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cache asyncapi Studio build
+        if: (needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite') && needs.resolve.outputs.preparation-mode != 'candidate'
+        uses: actions/cache@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
+      # A Studio output hit exits build-studio.sh before its install. Keep
+      # just the static output in this candidate cache; existing aggregate
+      # cache is a first-run fallback and its cold restore is reported.
+      - name: Cache asyncapi Studio output only (Lite staging experiment)
+        if: needs.resolve.outputs.preparation-mode == 'candidate'
+        id: studio-output
+        uses: actions/cache@v5
+        with:
+          path: static/asyncapi-studio
+          key: studio-output-v1-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+      # Cache versions hash the requested path list. The old aggregate
+      # archive cannot be a restore-key fallback for the output-only version;
+      # restore it explicitly with its original paths, then let the lean
+      # cache's successful post step save only the static output. The x64
+      # fallback keeps its original behavior; ARM has a separate strict restore
+      # followed immediately by dependency removal and static-output validation.
+      - name: Restore legacy Studio aggregate on lean cache miss
+        if: needs.resolve.outputs.preparation-mode == 'candidate' && runner.arch != 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
+        id: studio-legacy
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+          restore-keys: |
+            studio-${{ steps.studio-sha.outputs.sha }}-
+            studio-
+      - name: Restore exact legacy Studio output seed on ARM lean cache miss
+        if: needs.resolve.outputs.preparation-mode == 'candidate' && runner.arch == 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
+        id: studio-legacy-arm
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            static/asyncapi-studio
+            vendor/asyncapi-studio/node_modules
+            vendor/asyncapi-studio/apps/*/node_modules
+            vendor/asyncapi-studio/packages/*/node_modules
+          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
+      # No subsequent install/build may see dependencies from the unscoped
+      # archive. A partial hit or invalid static output is discarded, so the
+      # existing build-studio.sh path installs/builds fully for ARM on a miss.
+      - name: Remove legacy Studio dependencies and validate ARM static seed
+        if: needs.resolve.outputs.preparation-mode == 'candidate' && runner.arch == 'ARM64' && steps.studio-output.outputs.cache-hit != 'true'
+        env:
+          STUDIO_PIN: ${{ steps.studio-sha.outputs.sha }}
+          LEGACY_CACHE_HIT: ${{ steps.studio-legacy-arm.outputs.cache-hit }}
+        run: node scripts/ci/lite-deploy-studio-cache.mjs
+      - name: Record Studio output cache result
+        if: needs.resolve.outputs.preparation-mode == 'candidate'
+        env:
+          CACHE_HIT: ${{ steps.studio-output.outputs.cache-hit }}
+          LEGACY_CACHE_HIT: ${{ steps.studio-legacy.outputs.cache-hit }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {existsSync, readFileSync, writeFileSync} from 'node:fs';
+          const file = 'lite-deploy-studio-legacy-sanitization.json';
+          const arm = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+          writeFileSync('lite-deploy-studio-cache.json', JSON.stringify({studio_output_hit:process.env.CACHE_HIT === 'true', studio_legacy_cache_hit:process.env.LEGACY_CACHE_HIT === 'true', ...arm}));
+          NODE
+      # Cloudflare Pages backend deploy (conf-stg-{project}) — runs before the
+      # Forge-specific steps below in this same job. Named to match
+      # release.yml's equivalent step so `gh run view --json jobs` step lists
+      # (which collapse composite-action internals to this one line) can't be
+      # misread as part of the Forge deploy that follows.
+      - name: Build and publish to Cloudflare
         uses: ./.github/actions/wrangler-publish
         with:
           node-version: '24.x'
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          license: ${{ inputs.license }}
-          project: ${{ inputs.project }}
+          license: ${{ needs.resolve.outputs.license }}
+          project: ${{ needs.resolve.outputs.project }}
           environment: stg
+          vite-app-version: ${{ inputs.ref != '' && format('ci-{0}-{1}', inputs.ref, inputs.variant) || '' }}
           vite-mixpanel-token: ${{ vars.VITE_MIXPANEL_TOKEN }}
           sentry-dsn: ${{ vars.SENTRY_DSN }}
           page-capture-secret: ${{ vars.PAGE_CAPTURE_SECRET }}
           page-capture-allowed-domains: ${{ vars.PAGE_CAPTURE_ALLOWED_DOMAINS_STG }}
+          # The Pages publish runs below, in parallel with the Forge deploy
+          # (ADR-0007 §3, staging only — production keeps backend-before-
+          # frontend in release.yml).
+          preparation-mode: ${{ needs.resolve.outputs.preparation-mode }}
+          skip-publish: 'true'
+          skip-migrations: ${{ inputs.skip-migrations && 'true' || 'false' }}
 
-      # Lite: remove contentBylineItem and licensing
-      - name: Remove contentBylineItem from manifest
-        if: inputs.variant == 'lite'
+      # full/diagramly: strip the asyncapi-only modules. They live in
+      # manifest.yml so the asyncapi variant can ship them, but must NOT leak
+      # into full/diagramly. Mirrors the full/diagramly manifestEdits in
+      # scripts/forge-wizard.mjs (macros zenuml-asyncapi-*, the async-api-doc
+      # custom content, and the asyncapi-only confluence:spacePage dashboard).
+      - name: Remove asyncapi modules from manifest
+        if: needs.resolve.outputs.variant != 'asyncapi' && needs.resolve.outputs.variant != 'lite'
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"])' -i manifest.yml
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
+
+      # lite: ADR-0005 Option A — keep the page-rendered AsyncAPI macro
+      # (content stored under the shared zenuml-content-sequence type); strip
+      # only the embed macro (references async-api-doc documents, a type Lite
+      # doesn't claim), the async-api-doc custom content, and the dashboard
+      # spacePage. Grant unsafe-eval for AsyncAPI Studio's runtime schema
+      # compilation. Mirrors the lite manifestEdits in scripts/forge-wizard.mjs.
+      - name: Remove asyncapi embed/content/dashboard from manifest, allow unsafe-eval (Lite keeps the AsyncAPI macro)
+        if: needs.resolve.outputs.variant == 'lite'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro")) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"]) | .permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
+
+      # All non-asyncapi variants: strip the retained Connect lifecycle module.
+      # AsyncAPI keeps this manifest metadata for the legacy upgrade path;
+      # all four variants run on Forge.
+      - name: Remove Connect lifecycle module (connectModules) from manifest
+        if: needs.resolve.outputs.variant != 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.connectModules)' -i manifest.yml
+
+      # confluence:contentBylineItem carries three entries and every variant
+      # ships a different subset, so each strip is key-scoped — a blanket module
+      # delete would take the activation nudge (gated by
+      # displayConditions.entityPropertyExists) with it. Mirrors
+      # scripts/forge-wizard.mjs and release.yml:
+      #
+      #   lite      → newuser + diagrams   (drops aiaide)
+      #   full      → newuser + diagrams   (drops aiaide)
+      #   diagramly → newuser + aiaide     (drops diagrams)
+      #   asyncapi  → diagrams             (drops aiaide + newuser, further below)
+      - name: Remove zenuml-byline-aiaide from manifest (Lite keeps newuser + diagrams)
+        if: needs.resolve.outputs.variant == 'lite'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide"))' -i manifest.yml
+      # Full keeps the diagram index too, minus its display condition: that
+      # condition hides the byline where Full's presence marker exists, which
+      # in Full is every space.
+      - name: Remove zenuml-byline-aiaide from manifest and drop the diagrams byline's Lite-only displayConditions (Full keeps newuser + diagrams)
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions)' -i manifest.yml
+      - name: Remove the Lite diagrams byline entry from manifest (Diagramly keeps newuser + aiaide)
+        if: needs.resolve.outputs.variant == 'diagramly'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams"))' -i manifest.yml
+      # The unplaced-diagram banner is gated on a content property written only
+      # by zenuml-byline-diagrams, which Diagramly strips; there it is a module
+      # that can never fire. AsyncAPI's empty key suffix would gate its banner
+      # on Full's key, so it gets its own. Mirrors the manifestEdits in
+      # scripts/forge-wizard.mjs and unplacedPropertyKeyFor().
+      - name: Remove the unplaced-diagram page banner (Diagramly)
+        if: needs.resolve.outputs.variant == 'diagramly'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner"))' -i manifest.yml
+      - name: Gate the unplaced-diagram page banner on the AsyncAPI property key
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval '(.modules["confluence:pageBanner"][] | select(.key == "zenuml-unplaced-banner") | .displayConditions.entityPropertyExists.propertyKey) = "zenuml-unplaced-diagrams-asyncapi"' -i manifest.yml
       - name: Remove licensing (Lite is free)
-        if: inputs.variant == 'lite'
+        if: needs.resolve.outputs.variant == 'lite'
         uses: mikefarah/yq@master
         with:
           cmd: yq eval 'del(.app.licensing)' -i manifest.yml
-      - name: Upload final manifest
-        if: inputs.variant == 'lite'
-        uses: actions/upload-artifact@v6
-        with:
-          name: manifest-lite-staging
-          path: manifest.yml
 
-      # Diagramly: remove ZenUML-only dashboard/get-started entries (keep diagramly admin entry) and the embed macro
+      # Plan and Usage is the Lite limit page. Keep Full's other globalPage
+      # entries intact. Mirrors the Full manifestEdits in forge-wizard.mjs.
+      - name: Remove Lite Plan and Usage page from Full manifest
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalPage"][] | select(.key == "zenuml-plan-usage-page"))' -i manifest.yml
+
+      # Full: the source manifest carries Lite's canonical matcher. CI edits
+      # manifests independently of scripts/forge-wizard.mjs, so keep this
+      # variant override here as well.
+      - name: Point Full embed deeplink matcher at conf-full
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval '(.modules.macro[] | select(.key | test("zenuml-embed-macro")) | .autoConvert.matchers[0].pattern) = "https://conf-full.zenuml.com/d/*/*"' -i manifest.yml
+
+      # Diagramly: remove ZenUML-only dashboard/get-started entries (keep
+      # diagramly admin entry). The embed macro ships in Diagramly now (task 6
+      # deeplink productization) — do NOT reintroduce a "remove embed macro"
+      # step here; see the comment on diagramly's manifestEdits array in
+      # scripts/forge-wizard.mjs.
       - name: Remove ZenUML-only globalSettings/globalPage entries from Diagramly manifest
-        if: inputs.variant == 'diagramly'
+        if: needs.resolve.outputs.variant == 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: |
@@ -72,16 +443,45 @@ jobs:
               del(.modules."confluence:globalSettings"[] | select(.key == "zenuml-get-started-settings"))
               | del(.modules."confluence:globalPage")
             ' -i manifest.yml
-      - name: Remove embed macro from manifest
-        if: inputs.variant == 'diagramly'
+      # AsyncAPI: keep only the asyncapi macros, drop the dashboard /
+      # get-started modules and every byline entry but the diagram index, and
+      # grant `unsafe-eval` in CSP so Studio's runtime schema compilation works
+      # inside Forge's iframe.
+      # Mirrors the asyncapi block in scripts/forge-wizard.mjs.
+      - name: Remove non-asyncapi macros from manifest (AsyncAPI; keep asyncapi + openapi)
+        if: needs.resolve.outputs.variant == 'asyncapi'
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))' -i manifest.yml
+          # Keep the asyncapi macros AND the OpenAPI macro — see scripts/forge-wizard.mjs.
+          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi|zenuml-openapi-macro") | not))' -i manifest.yml
+      - name: Remove globalSettings + globalPage + homepageFeed (AsyncAPI uses spacePage only)
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:homepageFeed"])' -i manifest.yml
+      # AsyncAPI keeps only the diagram-index byline (OpenAPI + AsyncAPI
+      # tiles), without the Lite-only display condition.
+      - name: Keep only zenuml-byline-diagrams in the byline module, titled API Docs (AsyncAPI)
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-aiaide" or .key == "zenuml-byline-newuser")) | del(.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .displayConditions) | (.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .title) = "API Docs" | (.modules["confluence:contentBylineItem"][] | select(.key == "zenuml-byline-diagrams") | .tooltip) = "See the API docs on this page, or add one"' -i manifest.yml
+      - name: Remove non-asyncapi custom content types (AsyncAPI)
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval 'del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc") | not))' -i manifest.yml
+      - name: Allow 'unsafe-eval' in CSP (AsyncAPI Studio runtime schema compilation)
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq eval '.permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
 
-      # Lite/Full: strip the diagramly-only admin module + its function entries
-      # + scheduled trigger
+      # Non-Diagramly: strip only the Diagramly demo pipeline. Do not delete
+      # the whole scheduledTrigger block: Lite also owns the daily macro count
+      # snapshot trigger.
       - name: Remove diagramly admin module from Lite/Full manifest
-        if: inputs.variant != 'diagramly'
+        if: needs.resolve.outputs.variant != 'diagramly'
         uses: mikefarah/yq@master
         with:
           cmd: |
@@ -89,16 +489,121 @@ jobs:
               del(.modules."confluence:globalSettings"[] | select(.key == "diagramly-admin-create-demo-page"))
               | del(.modules.function[] | select(.key == "createDemoPage"))
               | del(.modules.function[] | select(.key == "createDemoPageScheduled"))
-              | del(.modules.scheduledTrigger)
+              | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
             ' -i manifest.yml
 
-      # Forge deploy (all variants)
-      - name: Deploy to Forge Staging
+      # The snapshot schedule ships only in Lite. The connect remote's storage
+      # declaration applies to every variant because all variants mirror saved
+      # diagram content to D1.
+      - name: Remove Lite macro snapshot modules from non-Lite variants
+        if: needs.resolve.outputs.variant != 'lite'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules.function[] | select(.key == "macroCountSnapshotFn"))
+              | del(.modules.scheduledTrigger[] | select(.key == "lite-macro-count-daily"))
+              | del(.modules.scheduledTrigger | select(length == 0))
+            ' -i manifest.yml
+
+      # The /new/<type> and /d/<type>/*/* matchers are the byline's
+      # paste-to-create and paste-to-place links. Identical patterns in two
+      # installed apps race for one pasted URL, and the app-scoped custom
+      # content behind a /d/ link makes the wrong winner a permanently broken
+      # macro. So Lite keeps confluence.zenuml.com, Full and AsyncAPI move the
+      # typed matchers to their own hosts (the hosts buildDiagramDeeplink
+      # mints on), and Diagramly — no byline — drops them. /new/ links are
+      # minted by nothing outside Lite. The embed macro's 3-segment matchers
+      # are untouched. Mirrors forge-wizard.mjs.
+      - name: Remove byline paste-to-create matchers (Diagramly)
+        if: needs.resolve.outputs.variant == 'diagramly'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/(new|d)/(sequence|mermaid|plantuml|openapi|graph|asyncapi)"))) | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
+      - name: Move byline paste-to-place matchers to conf-full.zenuml.com (Full)
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://conf-full.zenuml.com/") | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
+      - name: Move byline paste-to-place matchers to zenapi.zenuml.com (AsyncAPI)
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval 'del(.modules.macro[].autoConvert.matchers[] | select(.pattern | test("zenuml[.]com/new/"))) | (.modules.macro[].autoConvert.matchers[] | select(.pattern | test("^https://confluence[.]zenuml[.]com/d/(sequence|mermaid|plantuml|openapi|graph|asyncapi)/")) | .pattern) |= sub("^https://confluence[.]zenuml[.]com/"; "https://zenapi.zenuml.com/") | del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)' -i manifest.yml
+
+      # The Lite->Full conversion executor ships only in Full
+      # (docs/superpowers/specs/2026-08-11-lite-to-full-conversion.md).
+      - name: Remove Full conversion modules from non-Full variants
+        if: needs.resolve.outputs.variant != 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules.function[] | select(.key == "liteFullConversionFn" or .key == "fullPresenceFn"))
+              | del(.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly" or .key == "full-presence-daily"))
+              | del(.modules.scheduledTrigger | select(length == 0))
+            ' -i manifest.yml
+
+      # Staging only: tighten the conversion trigger from hourly to 5-minute so
+      # a validation job does not wait up to an hour to be claimed. Production
+      # keeps `hour` (manifest default) — fiveMinute is 8,640 ticks/month per
+      # install, the cadence that drove the Forge KV read overage alert on the
+      # Diagramly demo pipeline.
+      - name: Speed up the conversion trigger on staging
+        if: needs.resolve.outputs.variant == 'full'
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              (.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly") | .interval) = "fiveMinute"
+            ' -i manifest.yml
+
+      - name: Upload final manifest
+        if: needs.resolve.outputs.variant == 'lite'
+        uses: actions/upload-artifact@v6
+        with:
+          name: manifest-lite-staging${{ inputs.benchmark-sample != '' && format('-{0}', inputs.benchmark-sample) || '' }}
+          path: manifest.yml
+
+      # Forge deploy (all variants), with the Cloudflare Pages publish running
+      # beside it. Staging has no ordering contract between the two (nothing
+      # in production consumes it), so the ~30s publish hides under the ~90s
+      # Forge deploy. Both exit codes are checked; wrangler.toml (left by the
+      # wrangler-publish action for this) is removed afterwards either way.
+      - name: Write deployed source identity
+        env:
+          VARIANT: ${{ needs.resolve.outputs.variant }}
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; import {execFileSync} from 'node:child_process'; writeFileSync('dist/__ci-version.json', JSON.stringify({sha:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),variant:process.env.VARIANT}));"
+      - name: Deploy to Forge Staging (Pages publish in parallel)
         env:
           MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          pnpm forge:deploy:disable-analytics
-          case "${{ inputs.variant }}" in
+          set -uo pipefail
+          trap 'if [ -n "${PAGES_PID:-}" ]; then wait "$PAGES_PID" || true; fi; rm -f wrangler.toml' EXIT
+          ( set +e; pnpm exec wrangler pages deploy dist --branch production --project-name=${{ needs.resolve.outputs.project }} \
+              > pages-publish.log 2>&1; echo $? > pages-publish.exit ) &
+          PAGES_PID=$!
+          set -e
+          if [ "${{ needs.resolve.outputs.preparation-mode }}" != candidate ]; then
+            pnpm forge:deploy:disable-analytics
+          fi
+          # Forge variables are environment-scoped. Set this for every staging
+          # variant, including the candidate preparation path.
+          case "${{ needs.resolve.outputs.variant }}" in
+            full) FORGE_STAGING_APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 ;;
+            diagramly) FORGE_STAGING_APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf ;;
+            asyncapi) FORGE_STAGING_APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 ;;
+            *) FORGE_STAGING_APP_ID=8ad26115-211f-4216-971b-0540f606303d ;;
+          esac
+          APP_ID="$FORGE_STAGING_APP_ID" pnpm exec forge variables set MIXPANEL_DISABLED true -e staging
+          if [ "${{ needs.resolve.outputs.preparation-mode }}" != candidate ]; then
+          case "${{ needs.resolve.outputs.variant }}" in
             full)
               APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-full.zenuml.com" -e staging
@@ -107,16 +612,50 @@ jobs:
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
+            asyncapi)
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
+              # AsyncAPI uses the shared Lite Cloudflare Pages backend.
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              ;;
             *)
               pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
               pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
               ;;
           esac
-          pnpm forge:deploy:${{ inputs.variant }}:staging
+          fi
+          # One retry, for the pre-deploy step that dies on the network rather
+          # than on the manifest: PR #677's run 34666960785 failed here with
+          # `Error: fetch failed` inside @forge/lint before anything was
+          # deployed, and the hand re-run was green. A failed pre-deploy
+          # deploys nothing, so a second attempt is safe; a real manifest or
+          # bundle error fails twice and stays red.
+          deploy_forge() (
+            # The source and final manifest are immutable by this point. Let
+            # the typed parser use one Program instead of maintaining watches.
+            # A subshell limits this setting to this Forge deploy invocation.
+            if [ "${{ needs.resolve.outputs.preparation-mode }}" = candidate ]; then
+              export TSESTREE_SINGLE_RUN=true
+            fi
+            if [ -n "${{ inputs.benchmark-sample }}" ]; then
+              node scripts/ci/lite-deploy-forge-timing.mjs "${{ needs.resolve.outputs.variant }}"
+            else
+              pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
+            fi
+          )
+          FORGE_EXIT=0
+          if ! deploy_forge; then
+            echo "::warning::forge deploy failed once — retrying in 20s"
+            sleep 20
+            deploy_forge || FORGE_EXIT=$?
+          fi
+          wait "$PAGES_PID" || true
+          echo "--- wrangler pages deploy (ran in parallel) ---"; cat pages-publish.log
+          [ "$(cat pages-publish.exit)" = "0" ] || { echo "::error::Cloudflare Pages publish failed (see log above)"; exit 1; }
+          [ "$FORGE_EXIT" = "0" ] || { echo "::error::Forge deploy failed after retry"; exit "$FORGE_EXIT"; }
       - name: Set PAGE_CAPTURE_SECRET in Forge Staging
         if: ${{ vars.PAGE_CAPTURE_SECRET != '' }}
         run: |
-          case "${{ inputs.variant }}" in
+          case "${{ needs.resolve.outputs.variant }}" in
             lite)
               pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
               ;;
@@ -126,33 +665,107 @@ jobs:
             diagramly)
               APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
               ;;
+            asyncapi)
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              ;;
           esac
         env:
           PAGE_CAPTURE_SECRET: ${{ vars.PAGE_CAPTURE_SECRET }}
       - name: Install Lite to lite-stg.atlassian.net
-        if: inputs.variant == 'lite'
-        run: pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging
-        continue-on-error: true
+        if: needs.resolve.outputs.variant == 'lite'
+        env:
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+        run: |
+          if [ "$PREPARATION_MODE" = candidate ]; then
+            pnpm forge:upgrade:lite:staging || pnpm forge:install:lite:staging
+          else
+            pnpm forge:install:lite:staging || pnpm forge:upgrade:lite:staging
+          fi
+        # A benchmark sample must prove this deployment is installed. Keep
+        # the ordinary staging caller's existing tolerated install outcome.
+        continue-on-error: ${{ inputs.benchmark-sample == '' }}
       - name: Install Full to full-stg.atlassian.net
-        if: inputs.variant == 'full'
+        if: needs.resolve.outputs.variant == 'full'
         run: pnpm forge:install:full:staging || pnpm forge:upgrade:full:staging
         continue-on-error: true
       - name: Install Diagramly to dia-stg.atlassian.net
-        if: inputs.variant == 'diagramly'
+        if: needs.resolve.outputs.variant == 'diagramly'
         run: pnpm forge:install:diagramly:staging || pnpm forge:upgrade:diagramly:staging
+        continue-on-error: true
+      - name: Install AsyncAPI to asyncapi-stg.atlassian.net
+        if: needs.resolve.outputs.variant == 'asyncapi'
+        run: pnpm forge:install:asyncapi:staging || pnpm forge:upgrade:asyncapi:staging
         continue-on-error: true
 
       - name: Write deployment summary
         if: always()
+        env:
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+          DEPLOY_RUNNER_LABEL: ${{ needs.resolve.outputs.runner }}
+          APP_SHA: ${{ steps.provenance.outputs.app-sha }}
+          TOOLING_SHA: ${{ steps.provenance.outputs.tooling-sha }}
         run: |
-          case "${{ inputs.variant }}" in
-            lite)      SITE="zenuml-stg.atlassian.net"; TYPE="Forge" ;;
-            full)      SITE="full-stg.atlassian.net";   TYPE="Forge" ;;
-            diagramly) SITE="dia-stg.atlassian.net";    TYPE="Forge" ;;
+          case "${{ needs.resolve.outputs.variant }}" in
+            lite)      SITE="zenuml-stg.atlassian.net";  TYPE="Forge" ;;
+            full)      SITE="full-stg.atlassian.net";    TYPE="Forge" ;;
+            diagramly) SITE="dia-stg.atlassian.net";     TYPE="Forge" ;;
+            asyncapi)  SITE="asyncapi-stg.atlassian.net";TYPE="Forge" ;;
           esac
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Variant  | ${{ inputs.variant }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant  | ${{ needs.resolve.outputs.variant }} |" >> $GITHUB_STEP_SUMMARY
           echo "| App type | ${TYPE} |" >> $GITHUB_STEP_SUMMARY
           echo "| Confluence site | ${SITE} |" >> $GITHUB_STEP_SUMMARY
+          node --input-type=module <<'NODE'
+          import {readFileSync, appendFileSync} from 'node:fs';
+          const read = file => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
+          const dependencies = read('lite-deploy-cache.json');
+          const studio = read('lite-deploy-studio-cache.json');
+          const permissions = read('lite-deploy-permissions-cache.json');
+          const flag = value => typeof value === 'boolean' ? String(value) : 'not recorded';
+          const boolean = value => typeof value === 'boolean' ? value : null;
+          const rows = [
+            ['Preparation', process.env.PREPARATION_MODE], ['Runner', process.env.DEPLOY_RUNNER_LABEL],
+            ['Node runtime', `${process.platform}/${process.arch} ${process.version}`],
+            ['Application SHA', process.env.APP_SHA], ['Deployment tooling SHA', process.env.TOOLING_SHA],
+            ['Installed dependency exact hit', flag(dependencies?.installed_dependencies_hit)],
+            ['pnpm store requested', flag(dependencies?.pnpm_store_requested)],
+            ['pnpm store exact hit', flag(dependencies?.pnpm_store_hit)],
+            ['Studio output exact hit', flag(studio?.studio_output_hit)],
+            ['ARM legacy Studio output validated', flag(studio?.studio_legacy_arm_output_valid)],
+            ['Public permission specs exact hit', flag(permissions?.permission_specs_hit)],
+          ];
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, rows.map(([key, value]) => `| ${key} | ${value} |\n`).join(''));
+          console.log(JSON.stringify({mode: process.env.PREPARATION_MODE, runner: process.env.DEPLOY_RUNNER_LABEL,
+            platform: process.platform, arch: process.arch, node: process.version,
+            installed_dependencies_hit: boolean(dependencies?.installed_dependencies_hit),
+            pnpm_store_requested: boolean(dependencies?.pnpm_store_requested),
+            pnpm_store_hit: boolean(dependencies?.pnpm_store_hit),
+            studio_output_hit: boolean(studio?.studio_output_hit),
+            studio_legacy_arm_output_valid: boolean(studio?.studio_legacy_arm_output_valid),
+            permission_specs_hit: boolean(permissions?.permission_specs_hit)}));
+          NODE
+
+      - name: Verify benchmark deployment identity and record metadata
+        if: inputs.benchmark-sample != ''
+        env:
+          TARGET_SHA: ${{ steps.provenance.outputs.app-sha }}
+          TOOLING_SHA: ${{ steps.provenance.outputs.tooling-sha }}
+          PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+          BENCHMARK_SAMPLE: ${{ inputs.benchmark-sample }}
+          DEPLOY_RUNNER_LABEL: ${{ needs.resolve.outputs.runner }}
+        run: node scripts/ci/lite-deploy-evidence.mjs
+      - name: Upload benchmark deployment metadata
+        if: always() && inputs.benchmark-sample != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: lite-deploy-${{ inputs.benchmark-sample }}
+          path: |
+            lite-deploy-evidence.json
+            lite-deploy-preparation.json
+            lite-deploy-cache.json
+            lite-deploy-studio-cache.json
+            lite-deploy-forge.json
+            lite-deploy-permissions-cache.json
+          retention-days: 30

@@ -165,4 +165,98 @@ describe('metrics-cache/inspect', () => {
       expect(body.status).toBe('no_data');
     });
   });
+
+  // A tenant's metrics live under `metrics:<domain>:<productType>`. Defaulting an
+  // absent product to `full` served a Lite-only tenant a `full` record that a past
+  // writer bug had left behind — 458 of 767 domains carry both keys. Never guess.
+  describe('product resolution when no product is specified', () => {
+    const spaceOf = (name: string, total: number, lastUpdated: string) => ({
+      space: name, total, sequence: 0, graph: 0, openapi: 0,
+      mermaid: total, plantuml: 0, unknown: 0, isLite: true, lastUpdated,
+    });
+
+    it('should resolve to lite when only the lite key has data (never default to full)', async () => {
+      const now = new Date().toISOString();
+      const env = makeEnv({
+        'metrics:vin3s:lite': { domain: 'vin3s', spaces: { VARW: spaceOf('VARW', 188, now) } },
+      });
+
+      const res = await onRequest({
+        request: makeRequest(`${baseDomain}/metrics-cache/inspect?domain=vin3s&space=VARW`),
+        env,
+      });
+
+      const body = await res.json();
+      expect(body.status).toBe('ok');
+      expect(body.data.total).toBe(188);
+      expect(body.diagnosis.kvKey).toBe('metrics:vin3s:lite');
+      expect(body.diagnosis.productType).toBe('lite');
+      expect(body.diagnosis.productResolvedBy).toBe('sole-match');
+    });
+
+    it('should report ambiguity instead of picking when several product keys have data', async () => {
+      const fresh = new Date().toISOString();
+      const old = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const env = makeEnv({
+        'metrics:vin3s:lite': { domain: 'vin3s', spaces: { VARW: spaceOf('VARW', 188, fresh) } },
+        'metrics:vin3s:full': { domain: 'vin3s', spaces: { VARW: spaceOf('VARW', 438, old) } },
+      });
+
+      const res = await onRequest({
+        request: makeRequest(`${baseDomain}/metrics-cache/inspect?domain=vin3s&space=VARW`),
+        env,
+      });
+
+      const body = await res.json();
+      expect(body.status).toBe('ambiguous_product');
+      expect(body.data).toBeNull();
+      expect(Object.keys(body.diagnosis.products).sort()).toEqual(['full', 'lite']);
+      expect(body.diagnosis.products.lite.newestUpdate).toBe(fresh);
+      expect(body.diagnosis.products.full.newestUpdate).toBe(old);
+      expect(body.diagnosis.products.lite.spaceCount).toBe(1);
+    });
+
+    it('should list every product probed when nothing has data', async () => {
+      const res = await onRequest({
+        request: makeRequest(`${baseDomain}/metrics-cache/inspect?domain=nobody`),
+        env: makeEnv(),
+      });
+
+      const body = await res.json();
+      expect(body.status).toBe('no_data');
+      expect(body.diagnosis.productsProbed.sort())
+        .toEqual(['asyncapi', 'diagramly', 'full', 'lite']);
+    });
+
+    it('should honour an explicit productType param without probing', async () => {
+      const now = new Date().toISOString();
+      const env = makeEnv({
+        'metrics:vin3s:lite': { domain: 'vin3s', spaces: { VARW: spaceOf('VARW', 188, now) } },
+        'metrics:vin3s:full': { domain: 'vin3s', spaces: { VARW: spaceOf('VARW', 438, now) } },
+      });
+
+      const res = await onRequest({
+        request: makeRequest(`${baseDomain}/metrics-cache/inspect?domain=vin3s&space=VARW&productType=full`),
+        env,
+      });
+
+      const body = await res.json();
+      expect(body.status).toBe('ok');
+      expect(body.data.total).toBe(438);
+      expect(body.diagnosis.productType).toBe('full');
+      expect(body.diagnosis.productResolvedBy).toBe('explicit');
+      expect(env.confluence_plugin_features.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reject an unknown productType rather than falling back', async () => {
+      const res = await onRequest({
+        request: makeRequest(`${baseDomain}/metrics-cache/inspect?domain=vin3s&productType=enterprise`),
+        env: makeEnv(),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain('productType');
+    });
+  });
 });

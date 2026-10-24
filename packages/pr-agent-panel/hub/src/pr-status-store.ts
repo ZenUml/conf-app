@@ -13,10 +13,9 @@ const ObservedSchema = z.object({
   readiness: MergeReadinessSchema.optional(),
   readinessReason: z.string().max(100).optional(),
   authorLogin: z.string().min(1).max(39).optional(),
-  assigneeLogins: z.array(z.string().min(1).max(39)).max(100).optional(),
 })
 const FileSchema = z.record(z.string(), ObservedSchema)
-export type ObservedPr = { state: PrState; headSha?: string; readiness?: MergeReadiness; readinessReason?: string; authorLogin?: string; assigneeLogins?: string[] }
+export type ObservedPr = { state: PrState; headSha?: string; readiness?: MergeReadiness; readinessReason?: string; authorLogin?: string }
 
 function key(repoKey: string, prNumber: number): string {
   return `${repoKey.toLowerCase()}#${prNumber}`
@@ -54,12 +53,10 @@ export class PrStatusStore {
       ...(observed.readinessReason ? { readinessReason: observed.readinessReason } : {}),
       ...(observed.headSha ?? prior?.headSha ? { headSha: observed.headSha ?? prior?.headSha } : {}),
       ...(observed.authorLogin ?? prior?.authorLogin ? { authorLogin: observed.authorLogin ?? prior?.authorLogin } : {}),
-      ...(observed.assigneeLogins ?? prior?.assigneeLogins ? { assigneeLogins: observed.assigneeLogins ?? prior?.assigneeLogins } : {}),
     }
     if (prior?.state === next.state && prior.headSha === next.headSha
       && prior.readiness === next.readiness && prior.readinessReason === next.readinessReason
-      && prior.authorLogin === next.authorLogin
-      && JSON.stringify(prior.assigneeLogins) === JSON.stringify(next.assigneeLogins)) return false
+      && prior.authorLogin === next.authorLogin) return false
     const previous = this.entries[id]
     this.entries[id] = next
     try {

@@ -102,9 +102,8 @@ export const ReviewSummarySchema = z.object({
   priority: PrioritySchema.optional(),
   tags: TagsSchema,
   prState: PrStateSchema,
-  /** Current GitHub author/assignees, supplied by the Hub status sync. Missing data is not ownership evidence. */
+  /** Current GitHub author, supplied by the Hub status sync. Missing data is not ownership evidence. */
   authorLogin: z.string().min(1).max(39).optional(),
-  assigneeLogins: z.array(z.string().min(1).max(39)).max(100).optional(),
   /** Live GitHub merge signal; absent in older Hub payloads means unknown. */
   readiness: MergeReadinessSchema.optional(),
   readinessReason: z.string().max(100).optional(),

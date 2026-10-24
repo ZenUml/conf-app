@@ -13,7 +13,6 @@ const GitHubPrSchema = z.object({
   mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
   mergeStateStatus: z.enum(['BEHIND', 'BLOCKED', 'CHANGES_REQUESTED', 'CLEAN', 'DIRTY', 'DRAFT', 'HAS_HOOKS', 'UNKNOWN', 'UNSTABLE']),
   author: z.object({ login: z.string().min(1).max(39) }).nullable().optional(),
-  assignees: z.object({ nodes: z.array(z.object({ login: z.string().min(1).max(39) }).nullable()) }).optional(),
 })
 
 function readinessOf(pr: z.infer<typeof GitHubPrSchema>): Pick<ObservedPr, 'readiness' | 'readinessReason'> {
@@ -75,7 +74,7 @@ export async function readSavedPrStatuses(refs: PrRef[], query: QueryGraphql = q
   for (const group of groups.values()) {
     for (const batch of chunks(group, BATCH_SIZE)) {
       const { owner, repo } = batch[0]
-      const fields = batch.map((ref, i) => `p${i}: pullRequest(number: ${ref.number}) { state isDraft headRefOid mergeable mergeStateStatus author { login } assignees(first: 100) { nodes { login } } }`).join(' ')
+      const fields = batch.map((ref, i) => `p${i}: pullRequest(number: ${ref.number}) { state isDraft headRefOid mergeable mergeStateStatus author { login } }`).join(' ')
       const graphql = `query { repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(repo)}) { ${fields} } }`
       try {
         const response = await query(graphql) as { data?: { repository?: Record<string, unknown> | null } }
@@ -90,7 +89,6 @@ export async function readSavedPrStatuses(refs: PrRef[], query: QueryGraphql = q
               state: pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : pr.isDraft ? 'draft' : 'open',
               ...readinessOf(pr),
               ...(pr.author ? { authorLogin: pr.author.login } : {}),
-              ...(pr.assignees ? { assigneeLogins: pr.assignees.nodes.flatMap((assignee) => assignee ? [assignee.login] : []) } : {}),
               ...(pr.headRefOid ? { headSha: pr.headRefOid } : {}),
             },
           })

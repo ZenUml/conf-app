@@ -625,7 +625,6 @@ export class HubRuntime {
             readinessReason: observed.get(item.prNumber)?.readinessReason,
           }),
           ...(observed.get(item.prNumber)?.authorLogin ? { authorLogin: observed.get(item.prNumber)?.authorLogin } : {}),
-          ...(observed.get(item.prNumber)?.assigneeLogins ? { assigneeLogins: observed.get(item.prNumber)?.assigneeLogins } : {}),
         })),
       ...(inReplyTo ? { inReplyTo } : {}),
     }

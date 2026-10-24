@@ -57,16 +57,16 @@ describe('page store', () => {
     expect(s.state.reviews).toEqual(otherRows)
   })
 
-  it('keeps another author out after a background review refresh, while adding a newly assigned PR', () => {
+  it('keeps an Assignee-only PR out after a background refresh, while adding a newly authored PR', () => {
     const s = setup()
     const repoKey = 'github.com/example-org/example-repo'
     const ours = REVIEWS[0]!
-    const other = { ...REVIEWS[1]!, authorLogin: 'another-user', assigneeLogins: [] }
+    const other = { ...REVIEWS[1]!, authorLogin: 'another-user', assigneeLogins: ['EXAMPLE-USER'] }
     s.applyFrame({ ...base, id: 'initial', type: 'reviews', repoKey, items: [ours, other] })
     expect(s.visibleReviews.value.map((item) => item.prNumber)).toEqual([ours.prNumber])
 
     s.applyFrame({ ...base, id: 'refresh', type: 'reviews', repoKey, items: [ours, other, {
-      ...REVIEWS[2]!, authorLogin: 'another-user', assigneeLogins: ['EXAMPLE-USER'],
+      ...REVIEWS[2]!, authorLogin: 'EXAMPLE-USER',
     }] })
     expect(s.visibleReviews.value.map((item) => item.prNumber)).toEqual([ours.prNumber, REVIEWS[2]!.prNumber])
     s.state.viewerLogin = null

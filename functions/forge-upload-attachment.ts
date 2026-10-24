@@ -334,7 +334,7 @@ async function doUpload(
 
   // v1 attachment API. apiBaseUrl is the api.atlassian.com/ex/confluence/{cloudId}
   // gateway, which proxies the /wiki context — paths are appended WITHOUT /wiki
-  // (see functions/utils/confluenceUtils.ts which calls /api/v2/... the same way).
+  // (see functions/utils/confluenceAsUser.ts which calls /api/v2/... the same way).
   const attachmentBase = `${apiBaseUrl}/rest/api/content/${p.pageId}/child/attachment`;
   let attachmentId = p.attachmentId;
   let finalVersion = typeof p.versionNumber === 'number' && p.versionNumber > 0 ? p.versionNumber : 1;

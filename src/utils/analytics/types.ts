@@ -1174,6 +1174,10 @@ export type AnalyticsProperties = {
   review_count?: number; // rows rendered in the left list
   deleted_run_count?: number; // local review runs removed for one PR
   delete_outcome?: 'deleted' | 'not_found' | 'failed';
+  sync_outcome?: 'updated' | 'unchanged' | 'partial' | 'failed';
+  checked_pr_count?: number;
+  changed_pr_count?: number;
+  failed_pr_count?: number;
   row_index?: number; // 0-based position of the clicked row
   is_stale?: boolean; // reviewed head SHA differs from the PR's current head
   panel_state?: PrPanelPanelState;

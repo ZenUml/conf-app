@@ -29,6 +29,8 @@
  * We answer nothing else, and we never call `tools/call` — this view only draws.
  */
 
+import { svgUrl } from '@/utils/plantuml/serverUrl';
+
 /**
  * Resolved per call rather than captured once, so the handshake is reachable
  * from a test. Capturing `window.parent` at module load made every message
@@ -42,11 +44,11 @@ type Json = Record<string, unknown>;
 
 /**
  * The public PlantUML server the Confluence app already draws with
- * (PlantUml.vue). PlantUML has no browser renderer, so the diagram is an <img>
+ * (utils/plantuml/serverUrl.ts). PlantUML has no browser renderer, so the diagram is an <img>
  * of the server's SVG; `www.plantuml.com` is in the resource csp for exactly
  * this (mcpApps.ts uiCsp).
  */
-export const PLANTUML_SVG_BASE = 'https://www.plantuml.com/plantuml/svg/';
+export const PLANTUML_SVG_BASE = svgUrl('');
 
 /** Diagram payload, once we have found it in whatever shape the host delivered. */
 interface DiagramPayload {

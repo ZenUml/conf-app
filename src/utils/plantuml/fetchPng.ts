@@ -22,7 +22,9 @@
  * plain fetch with no side effects.
  */
 
-export const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';
+import { pngUrl } from './serverUrl';
+
+export const PLANTUML_PNG_SERVER = pngUrl('');
 
 /**
  * Is this string actually PlantUML source?

@@ -1,7 +1,5 @@
 import { SyntaxValidationResult } from '../validate/types';
-import { plantumlEncode } from './encode';
-
-const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml';
+import { fetchPlantUmlSvg } from './server';
 
 // Cache validation results to avoid duplicate API calls
 const validationCache = new Map<string, { result: SyntaxValidationResult; timestamp: number }>();
@@ -9,7 +7,7 @@ const CACHE_TTL = 2000; // Cache for 2 seconds
 
 /**
  * Validates PlantUML syntax using the official PlantUML server.
- * Sends code to https://www.plantuml.com/plantuml/svg/YOUR_ENCODED_CODE
+ * Sends code to the PlantUML server's /svg/ endpoint (see ./server)
  * and checks if the SVG contains syntax error indicators.
  * Results are cached for 2 seconds to avoid duplicate API calls.
  */
@@ -65,14 +63,11 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
   // Validate using PlantUML server (SVG endpoint)
   // The SVG output contains error information in the rendered image
   try {
-    const encoded = plantumlEncode(trimmed);
-    const svgUrl = `${PLANTUML_SERVER}/svg/${encoded}`;
-    
-    const response = await fetch(svgUrl);
-    
-    // PlantUML returns 400 for syntax errors, but still includes SVG with error details
-    // So we need to read the response body even for 400 status
-    const svgText = await response.text();
+    // PlantUML returns 400 for syntax errors, but still includes SVG with error details,
+    // so fetchPlantUmlSvg reads the body even for 400 status. The viewer's render
+    // reuses this same response (#929).
+    const response = await fetchPlantUmlSvg(trimmed);
+    const { svgText } = response;
     
     // Check if SVG contains syntax error indicators
     // PlantUML embeds error messages in the SVG when there are syntax errors

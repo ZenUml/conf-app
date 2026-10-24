@@ -207,9 +207,30 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    Diagramly install before rolling out there, since their CSP has no `'unsafe-eval'`.
 3. **Visual comparison.** Render a sample with both renderers and compare. The public
    server's PlantUML version is unknown, and Smetana and Graphviz lay out
-   differently. Sample from the roughly 1,000 Graphviz-layout diagrams, weighted to
-   the 270 component/state/use-case diagrams created in the last 90 days. Sequence
-   and activity diagrams need only a spot check.
+   differently. Tool: `scripts/plantuml-compare/compare.mjs`. It bundles the real
+   `engine.ts`, renders in headless Chromium under `script-src 'self'` (the Full
+   and Diagramly iframe policy), and with `--server` also asks plantuml.com, then
+   compares text labels, sizes and side-by-side PNGs.
+   - **Synthetic corpus done (2026-10-24):** 20 diagrams in
+     `corpus.synthetic.mjs`, no customer content. All 20 rendered locally; every
+     label plantuml.com drew is also in the local drawing. Under the strict policy
+     there were no CSP violations and no requests outside the page (so the stricter
+     Full/Diagramly policy holds in the test page; a real Full/Diagramly iframe is
+     still step 2). Sequence, activity, C4, mindmap and Gantt diagrams match except
+     for text metrics. The server stretches letters to its own font widths, while
+     the engine measures with the browser font, so local drawings are 3–25%
+     smaller. Class, component, state, use-case, deployment and object diagrams get
+     a different but valid layout. Edge routing differs, and one defect showed: a
+     class-diagram note's connector is drawn across another class instead of
+     around it.
+   - **Production corpus: not run.** Two parts remain, both needing the owner's
+     decision because they take customer diagram source out of D1 into a working
+     environment. (a) Engine only, nothing sent anywhere: draw all 4,060 diagrams
+     locally and count clean draws, syntax errors, fallbacks and crashes. (b)
+     Both renderers on a sample of the roughly 1,000 Graphviz-layout diagrams,
+     which sends that sample's source to plantuml.com, as viewers' browsers
+     already do on every view. Outputs from customer content stay out of this
+     public repo.
 4. **Self-host the stdlib.** **C4 done (2026-10-24).** `utils/plantuml/stdlib.ts`
    sets `PLANTUML_STDLIB_LOADER` and serves C4-PlantUML 2.14.0 (MIT) as data from a
    lazy chunk (`stdlib/c4.json`, about 190 KB). The JSON is converted from the

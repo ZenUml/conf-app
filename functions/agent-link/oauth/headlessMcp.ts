@@ -22,6 +22,7 @@ import {
   type HeadlessContext,
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
+import { toMacroType } from '../../../src/lib/diagramTypeVocabulary.js';
 import { readUiResource, uiCapability, uiResourceList, withUiMeta, UI_EXTENSION_ID } from './mcpApps';
 import type { GateEnv } from './headlessGate';
 import type { GrantEvent } from './tokenStore';
@@ -395,17 +396,6 @@ async function trackToolCall(
   ));
 }
 
-/** The analytics macro_type vocabulary, keyed by the stored diagramType folded to lower case. */
-const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
-  sequence: 'sequence',
-  mermaid: 'mermaid',
-  plantuml: 'plantuml',
-  graph: 'graph',
-  openapi: 'openapi',
-  asyncapi: 'asyncapi',
-  markdown: 'markdown',
-};
-
 /**
  * Which diagram type a successful diagram tool call touched: read_diagram
  * reports it, create_diagram was told it. update_diagram knows neither, so it
@@ -419,7 +409,9 @@ export function macroTypeOf(tool: string, args: unknown, value: unknown): string
       : tool === 'create_diagram'
         ? (args as { diagramType?: unknown } | null)?.diagramType
         : undefined;
-  return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
+  if (typeof from !== 'string') return undefined;
+  const macroType = toMacroType(from);
+  return macroType === 'none' ? undefined : macroType;
 }
 
 export interface HeadlessMcpDeps {

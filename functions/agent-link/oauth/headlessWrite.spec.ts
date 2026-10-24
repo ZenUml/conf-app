@@ -770,3 +770,10 @@ describe('the paywall gate itself', () => {
     expect(decision).toEqual({ allowed: true, reason: 'over_limit', macroCount: 999 });
   });
 });
+
+describe('canonicalDiagramType allow-list (#942)', () => {
+  it('refuses embed: agents cannot create Embed diagrams, even though the shared vocabulary knows it', () => {
+    expect(canonicalDiagramType('embed')).toBeNull();
+    expect(canonicalDiagramType('Embed')).toBeNull();
+  });
+});

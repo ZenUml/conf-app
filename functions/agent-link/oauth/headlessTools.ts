@@ -22,6 +22,7 @@
 
 import { listAccessibleSites, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
 import { confluenceReaderFor } from './confluenceReader';
+import { foldDiagramType } from '../../../src/lib/diagramTypeVocabulary.js';
 import { confluenceRequestFor, type ConfluenceRequest } from './confluenceWriter';
 import { checkCreateAllowed, type GateEnv } from './headlessGate';
 import { buildMacroNode, countExtensions, referencesCustomContent } from '../macroNode';
@@ -458,19 +459,18 @@ function updateSummaryFor(summary: unknown, renamedTo?: string): string {
  * tool's own description asked for), which matched nothing and produced
  * macros that render as the wrong type.
  */
-const DIAGRAM_TYPE_BY_FOLDED: Record<string, string> = {
-  sequence: 'sequence',
-  mermaid: 'mermaid',
-  markdown: 'markdown',
-  plantuml: 'plantuml',
-  graph: 'graph',
-  openapi: 'OpenAPI',
-  asyncapi: 'AsyncAPI',
-};
+/**
+ * Types an agent may NOT create, though the shared vocabulary knows them.
+ * `create_diagram` does not offer Embed (its accepted types are the text/spec
+ * formats listed in the refusal message), so it stays refused here even
+ * though read paths report it. Keep this an explicit allow-list decision.
+ */
+const AGENT_CREATABLE_EXCLUDES: ReadonlySet<string> = new Set(['embed']);
 
-/** The canonical stored value for a caller-supplied type, or null if we do not know it. */
+/** The canonical stored value for a caller-supplied type, or null if we do not know it or agents may not create it. */
 export function canonicalDiagramType(raw: string): string | null {
-  return DIAGRAM_TYPE_BY_FOLDED[raw.trim().toLowerCase()] ?? null;
+  const stored = foldDiagramType(raw.trim());
+  return stored && !AGENT_CREATABLE_EXCLUDES.has(stored) ? stored : null;
 }
 
 /**

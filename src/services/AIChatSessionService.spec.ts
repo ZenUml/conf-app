@@ -252,7 +252,32 @@ describe('runAIChatSession', () => {
       failureReason: 'timeout',
       pollCount: 1,
     })
-    expect(mocks.getDiagramlyJobStatus).toHaveBeenCalledOnce()
+    // The shared poller checks the deadline before each request, so an
+    // already-expired budget makes no status call.
+    expect(mocks.getDiagramlyJobStatus).not.toHaveBeenCalled()
+  })
+
+  it('bounds an in-flight status request by the session deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.getDiagramlyJobStatus.mockImplementation(() => new Promise(() => {}))
+      const outcome = runAIChatSession({
+        diagramId: 'diagram-1',
+        diagramCode: 'A -> B',
+        diagramType: DiagramType.Sequence,
+        prompt: 'Add payment',
+        timeoutMs: 5000,
+      }).then(() => null, (error) => error)
+      await vi.advanceTimersByTimeAsync(5000)
+      await expect(outcome).resolves.toMatchObject({
+        message: 'Diagram update timed out after 5000ms',
+        failurePhase: 'timeout',
+        failureReason: 'timeout',
+        pollCount: 1,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps polling beyond the provider\'s two-minute request budget', () => {

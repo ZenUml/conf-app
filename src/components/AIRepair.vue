@@ -193,7 +193,8 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onUnmounted, onBeforeUnmount, Directive } from 'vue';
 import * as Diff from 'diff';
-import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService";
+import { startFixDiagram, type DiagramlyJobStatus } from "@/services/GenerateService";
+import { DiagramlyJobPollError, pollDiagramlyJob } from "@/services/diagramlyJob";
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
 import { withTimeout } from '@/lib/withTimeout.js';
@@ -488,8 +489,8 @@ const handleDragEnd = () => {
 const repairStatus = ref<string>('');
 const repairProgress = ref<number>(0);
 const currentJobId = ref<string | null>(null);
-let pollIntervalId: number | null = null;
-let pollingGeneration = 0;
+// One controller per repair run; stopPolling() aborts it, which also marks the run stale.
+let repairController: AbortController | null = null;
 let repairStartedAt = 0;
 let pollCount = 0;
 const wasApplied = ref(false);
@@ -503,7 +504,7 @@ const macroType = computed(
 );
 
 type RepairFailurePhase = 'start' | 'poll' | 'server' | 'timeout';
-type RepairJobStatus = Awaited<ReturnType<typeof getFixDiagramStatus>>;
+type RepairJobStatus = DiagramlyJobStatus;
 
 class RepairTimeoutError extends Error {
   constructor() {
@@ -552,10 +553,10 @@ const failRepair = (
   displayMessage: string,
   failureReason: string,
   failurePhase: RepairFailurePhase,
-  generation: number,
+  controller: AbortController,
   status?: RepairJobStatus,
 ) => {
-  if (generation !== pollingGeneration) return;
+  if (controller.signal.aborted) return;
 
   console.error('[AIRepair] Repair error:', displayMessage);
   repairResult.value = null;
@@ -586,7 +587,8 @@ const triggerAiRepair = async () => {
   if (hasRetried.value) return;
 
   stopPolling();
-  const generation = pollingGeneration;
+  const controller = new AbortController();
+  repairController = controller;
   activeRetryAfterFailure = repairError.value !== null;
   hasRetried.value = activeRetryAfterFailure;
   repairError.value = null;
@@ -628,9 +630,9 @@ const triggerAiRepair = async () => {
       deadlineMs,
     );
 
-    if (generation !== pollingGeneration || !props.showDialog) return;
+    if (controller.signal.aborted || !props.showDialog) return;
     currentJobId.value = jobId;
-    startPolling(jobId, generation, deadlineMs);
+    await runPolling(jobId, controller, deadlineMs);
 
   } catch (err: any) {
     const timedOut = err instanceof RepairTimeoutError;
@@ -638,92 +640,85 @@ const triggerAiRepair = async () => {
       err.message,
       timedOut ? 'client_timeout' : 'start_failed',
       timedOut ? 'timeout' : 'start',
-      generation,
+      controller,
     );
   }
 };
 
-const startPolling = (jobId: string, generation: number, deadlineMs: number) => {
-  const poll = async () => {
-    if (generation !== pollingGeneration) return;
+const runPolling = async (jobId: string, controller: AbortController, deadlineMs: number) => {
+  const showProgress = (status: RepairJobStatus) => {
+    repairStatus.value = status.message || status.status;
+    repairProgress.value = status.progress;
+  };
 
-    try {
-      pollCount++;
-      const status = await withRepairDeadline(() => getFixDiagramStatus(jobId), deadlineMs);
-      if (generation !== pollingGeneration) return;
+  try {
+    const status = await pollDiagramlyJob(jobId, {
+      signal: controller.signal,
+      deadlineMs,
+      intervalMs: POLL_INTERVAL_MS,
+      onPoll: (count) => { pollCount = count; },
+      onStatus: showProgress,
+    });
+    if (controller.signal.aborted) return;
+    showProgress(status);
 
-      // Update UI
-      repairStatus.value = status.message || status.status;
-      repairProgress.value = status.progress;
-
-      // Check completion
-      if (status.status === 'COMPLETED') {
-        if (status.output?.diagramCode) {
-          repairResult.value = status.output.diagramCode;
-          repairStatus.value = 'Completed';
-          repairProgress.value = 100;
-        } else {
-          failRepair(
-            'Job completed but no diagram code in output',
-            'missing_output',
-            'server',
-            generation,
-            status,
-          );
-          return;
-        }
-        trackAnalyticsEvent('ai_repair_succeeded', {
-          feature_area: 'ai',
-          surface: 'modal',
-          macro_type: macroType.value,
-          duration_ms: Math.max(0, Date.now() - repairStartedAt),
-          poll_interval_ms: POLL_INTERVAL_MS,
-          timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
-          poll_count: pollCount,
-          ...requestedConfigAnalytics(),
-          ...backendAnalytics(status),
-        });
-        stopPolling();
-        return;
-      } else if (status.status === 'FAILED') {
+    if (status.status === 'COMPLETED') {
+      if (!status.output?.diagramCode) {
         failRepair(
-          `Diagram modification failed: ${status.error || 'Unknown error'}`,
-          status.output?.timedOut ? 'server_timeout' : 'server_failed',
-          status.output?.timedOut ? 'timeout' : 'server',
-          generation,
+          'Job completed but no diagram code in output',
+          'missing_output',
+          'server',
+          controller,
           status,
         );
         return;
       }
-
-      // Schedule next poll only after current one completes
-      if (generation === pollingGeneration) {
-        const remainingMs = deadlineMs - Date.now();
-        if (remainingMs <= 0) throw new RepairTimeoutError();
-        pollIntervalId = window.setTimeout(poll, Math.min(POLL_INTERVAL_MS, remainingMs));
-      }
-
-    } catch (err: any) {
-      const timedOut = err instanceof RepairTimeoutError;
+      repairResult.value = status.output.diagramCode;
+      repairStatus.value = 'Completed';
+      repairProgress.value = 100;
+      trackAnalyticsEvent('ai_repair_succeeded', {
+        feature_area: 'ai',
+        surface: 'modal',
+        macro_type: macroType.value,
+        duration_ms: Math.max(0, Date.now() - repairStartedAt),
+        poll_interval_ms: POLL_INTERVAL_MS,
+        timeout_budget_ms: REPAIR_TIMEOUT_BUDGET_MS,
+        poll_count: pollCount,
+        ...requestedConfigAnalytics(),
+        ...backendAnalytics(status),
+      });
+      stopPolling();
+    } else if (status.status === 'CANCELLED') {
       failRepair(
-        err.message,
-        timedOut ? 'client_timeout' : 'poll_failed',
-        timedOut ? 'timeout' : 'poll',
-        generation,
+        `Diagram modification cancelled: ${status.error || 'Unknown error'}`,
+        'server_cancelled',
+        'server',
+        controller,
+        status,
+      );
+    } else {
+      failRepair(
+        `Diagram modification failed: ${status.error || 'Unknown error'}`,
+        status.output?.timedOut ? 'server_timeout' : 'server_failed',
+        status.output?.timedOut ? 'timeout' : 'server',
+        controller,
+        status,
       );
     }
-  };
-
-  // Start first poll
-  void poll();
+  } catch (err: any) {
+    if (err instanceof DiagramlyJobPollError && err.kind === 'aborted') return;
+    const timedOut = err instanceof DiagramlyJobPollError && err.kind === 'timeout';
+    failRepair(
+      timedOut ? new RepairTimeoutError().message : err.message,
+      timedOut ? 'client_timeout' : 'poll_failed',
+      timedOut ? 'timeout' : 'poll',
+      controller,
+    );
+  }
 };
 
 const stopPolling = () => {
-  pollingGeneration++;
-  if (pollIntervalId !== null) {
-    window.clearTimeout(pollIntervalId);
-    pollIntervalId = null;
-  }
+  repairController?.abort();
 };
 
 const closeDialog = () => {

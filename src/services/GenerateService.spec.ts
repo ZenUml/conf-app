@@ -11,7 +11,6 @@ import {
   ensureDiagramlyDiagram,
   getDiagramlyJobStatus,
   getDiagramlyVersions,
-  getFixDiagramStatus,
   restoreDiagramlyVersion,
   startDiagramChatModification,
   startFixDiagram,
@@ -43,7 +42,7 @@ describe('GenerateService Diagramly requests', () => {
       });
 
     await startFixDiagram('A -> B', 'syntax error', 'Sequence' as any);
-    await getFixDiagramStatus('job-123');
+    await getDiagramlyJobStatus('job-123');
 
     expect(callRemote).toHaveBeenNthCalledWith(
       1,

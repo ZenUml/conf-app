@@ -4,14 +4,14 @@ import { nextTick } from 'vue'
 
 vi.mock('@/services/GenerateService', () => ({
   startFixDiagram: vi.fn(),
-  getFixDiagramStatus: vi.fn(),
+  getDiagramlyJobStatus: vi.fn(),
 }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
 }))
 
 import AIRepair from '@/components/AIRepair.vue'
-import { startFixDiagram, getFixDiagramStatus } from '@/services/GenerateService'
+import { startFixDiagram, getDiagramlyJobStatus } from '@/services/GenerateService'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 const COMPLETED_STATUS = {
@@ -80,7 +80,7 @@ describe('AIRepair analytics', () => {
     localStorage.clear()
     vi.mocked(trackAnalyticsEvent).mockClear()
     vi.mocked(startFixDiagram as any).mockClear()
-    vi.mocked(getFixDiagramStatus as any).mockClear()
+    vi.mocked(getDiagramlyJobStatus as any).mockClear()
     vi.useFakeTimers()
   })
   afterEach(() => {
@@ -89,7 +89,7 @@ describe('AIRepair analytics', () => {
 
   it('fires ai_repair_requested with macro_type and prompt_length when repair starts', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -107,7 +107,7 @@ describe('AIRepair analytics', () => {
 
   it('uses openai/gpt-5.6-luna as the default repair model', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-default-model' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -128,7 +128,7 @@ describe('AIRepair analytics', () => {
   it('uses the ai_repair_model localStorage value when starting a repair', async () => {
     localStorage.setItem('ai_repair_model', ' anthropic/claude-sonnet-5 ')
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-local-model' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -148,7 +148,7 @@ describe('AIRepair analytics', () => {
   it('falls back to the configured model when ai_repair_model is blank', async () => {
     localStorage.setItem('ai_repair_model', '   ')
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-blank-local-model' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
 
     const wrapper = mountRepair({ model: 'openai/gpt-5.6-luna' })
     await triggerRepair(wrapper)
@@ -164,7 +164,7 @@ describe('AIRepair analytics', () => {
 
   it('forwards and tracks explicit model and disableReasoning configuration', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-configured' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue({ status: 'PROCESSING', message: '...', progress: 30, output: null })
 
     const wrapper = mountRepair({
       model: 'anthropic/claude-sonnet-5',
@@ -190,7 +190,7 @@ describe('AIRepair analytics', () => {
 
   it('fires ai_repair_succeeded when job completes', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(COMPLETED_STATUS)
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue(COMPLETED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -211,7 +211,7 @@ describe('AIRepair analytics', () => {
 
   it('fires ai_repair_failed when job fails', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(FAILED_STATUS)
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue(FAILED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -232,7 +232,7 @@ describe('AIRepair analytics', () => {
 
   it('shows a retry state after a timeout without treating the error as repaired code', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-timeout' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(TIMEOUT_STATUS)
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue(TIMEOUT_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -252,7 +252,7 @@ describe('AIRepair analytics', () => {
     vi.mocked(startFixDiagram as any)
       .mockResolvedValueOnce({ jobId: 'j-timeout' })
       .mockResolvedValueOnce({ jobId: 'j-retry' })
-    vi.mocked(getFixDiagramStatus as any)
+    vi.mocked(getDiagramlyJobStatus as any)
       .mockResolvedValueOnce(failureStatus)
       .mockResolvedValueOnce(COMPLETED_STATUS)
 
@@ -260,13 +260,13 @@ describe('AIRepair analytics', () => {
     await triggerRepair(wrapper)
     await vi.advanceTimersByTimeAsync(120_000)
     expect(startFixDiagram).toHaveBeenCalledTimes(1)
-    expect(getFixDiagramStatus).toHaveBeenCalledTimes(1)
+    expect(getDiagramlyJobStatus).toHaveBeenCalledTimes(1)
     await wrapper.get('[data-testid="ai-repair-retry"]').trigger('click')
     await flushPromises()
     await nextTick()
 
     expect(startFixDiagram).toHaveBeenCalledTimes(2)
-    expect(getFixDiagramStatus).toHaveBeenCalledTimes(2)
+    expect(getDiagramlyJobStatus).toHaveBeenCalledTimes(2)
     expect(vi.mocked(startFixDiagram as any).mock.calls[1]).toEqual([
       ORIGINAL_CODE,
       'syntax error on line 1',
@@ -294,7 +294,7 @@ describe('AIRepair analytics', () => {
     vi.mocked(startFixDiagram as any)
       .mockResolvedValueOnce({ jobId: 'j-initial' })
       .mockResolvedValueOnce({ jobId: 'j-retry' })
-    vi.mocked(getFixDiagramStatus as any)
+    vi.mocked(getDiagramlyJobStatus as any)
       .mockResolvedValueOnce(FAILED_STATUS)
       .mockResolvedValueOnce(retryFailureStatus)
 
@@ -323,7 +323,7 @@ describe('AIRepair analytics', () => {
     vi.mocked(startFixDiagram as any)
       .mockResolvedValueOnce({ jobId: 'j-initial' })
       .mockImplementationOnce(() => new Promise(resolve => { resolveRetryStart = resolve }))
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(FAILED_STATUS)
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue(FAILED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -334,7 +334,7 @@ describe('AIRepair analytics', () => {
     resolveRetryStart({ jobId: 'j-retry' })
     await flushPromises()
     await nextTick()
-    expect(getFixDiagramStatus).toHaveBeenCalledTimes(2)
+    expect(getDiagramlyJobStatus).toHaveBeenCalledTimes(2)
     expect(startFixDiagram).toHaveBeenCalledTimes(2)
     wrapper.unmount()
   })
@@ -344,7 +344,7 @@ describe('AIRepair analytics', () => {
       .mockResolvedValueOnce({ jobId: 'j-first-session' })
       .mockResolvedValueOnce({ jobId: 'j-first-session-retry' })
       .mockResolvedValueOnce({ jobId: 'j-second-session' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(FAILED_STATUS)
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue(FAILED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -388,7 +388,7 @@ describe('AIRepair analytics', () => {
 
   it('fires ai_repair_applied when user clicks Apply Code', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(COMPLETED_STATUS)
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue(COMPLETED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -407,7 +407,7 @@ describe('AIRepair analytics', () => {
 
   it('fires ai_repair_dismissed when dialog is closed after a successful repair without applying', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(COMPLETED_STATUS)
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue(COMPLETED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -426,7 +426,7 @@ describe('AIRepair analytics', () => {
 
   it('does NOT fire ai_repair_dismissed when user applies the repair', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue(COMPLETED_STATUS)
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue(COMPLETED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
@@ -441,20 +441,20 @@ describe('AIRepair analytics', () => {
 
   it('polls again after one second so completed repairs become visible promptly', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any)
+    vi.mocked(getDiagramlyJobStatus as any)
       .mockResolvedValueOnce({ status: 'PROCESSING', message: 'Working', progress: 30 })
       .mockResolvedValueOnce(COMPLETED_STATUS)
 
     const wrapper = mountRepair()
     await triggerRepair(wrapper)
 
-    expect(getFixDiagramStatus).toHaveBeenCalledTimes(1)
+    expect(getDiagramlyJobStatus).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(999)
-    expect(getFixDiagramStatus).toHaveBeenCalledTimes(1)
+    expect(getDiagramlyJobStatus).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
     await flushPromises()
 
-    expect(getFixDiagramStatus).toHaveBeenCalledTimes(2)
+    expect(getDiagramlyJobStatus).toHaveBeenCalledTimes(2)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_repair_succeeded',
       expect.objectContaining({ duration_ms: 1000, poll_count: 2 }),
@@ -464,7 +464,7 @@ describe('AIRepair analytics', () => {
 
   it('uses one wall-clock budget instead of a fixed poll-attempt limit', async () => {
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue({
       status: 'PROCESSING',
       message: 'Working',
       progress: 30,
@@ -475,7 +475,7 @@ describe('AIRepair analytics', () => {
     await vi.advanceTimersByTimeAsync(120_000)
     await flushPromises()
 
-    expect(getFixDiagramStatus).toHaveBeenCalledTimes(120)
+    expect(getDiagramlyJobStatus).toHaveBeenCalledTimes(120)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
       'ai_repair_failed',
       expect.objectContaining({
@@ -489,10 +489,38 @@ describe('AIRepair analytics', () => {
     wrapper.unmount()
   })
 
+  it('stops polling on a CANCELLED job and reports a server outcome, not client_timeout', async () => {
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j-cancel' })
+    vi.mocked(getDiagramlyJobStatus as any).mockResolvedValue({
+      status: 'CANCELLED',
+      message: 'Cancelled',
+      progress: 0,
+      output: null,
+      error: 'Cancelled by operator',
+    })
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+    await vi.advanceTimersByTimeAsync(120_000)
+    await flushPromises()
+
+    expect(getDiagramlyJobStatus).toHaveBeenCalledTimes(1)
+    const failed = vi.mocked(trackAnalyticsEvent).mock.calls.filter(c => c[0] === 'ai_repair_failed')
+    expect(failed).toHaveLength(1)
+    expect(failed[0]![1]).toEqual(expect.objectContaining({
+      failure_reason: 'server_cancelled',
+      failure_phase: 'server',
+      poll_count: 1,
+    }))
+    expect(failed[0]![1]).not.toEqual(expect.objectContaining({ failure_reason: 'client_timeout' }))
+    expect(wrapper.get('[data-testid="ai-repair-error"]').text()).toContain('Cancelled by operator')
+    wrapper.unmount()
+  })
+
   it('ignores an in-flight poll response after the dialog is closed', async () => {
     let resolveStatus: (value: typeof COMPLETED_STATUS) => void = () => {}
     vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
-    vi.mocked(getFixDiagramStatus as any).mockImplementation(
+    vi.mocked(getDiagramlyJobStatus as any).mockImplementation(
       () => new Promise(resolve => { resolveStatus = resolve }),
     )
 

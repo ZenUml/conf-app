@@ -1,0 +1,4 @@
+interface:
+  display_name: "Forge Feature Flag"
+  short_description: "Read, change, and verify Forge flags"
+  default_prompt: "Use $forge-feature-flag: name the request, read the code and flags-status.mjs, mutate only if asked, and verify a write at runtime."

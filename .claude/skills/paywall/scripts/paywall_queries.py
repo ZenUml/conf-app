@@ -124,6 +124,16 @@ def _open_with_retry(
     raise last_err
 
 
+# Mixpanel's segmentation API returns only its top-N `on` buckets by volume when
+# `limit` is omitted (default N = 60). Every other bucket is silently absent and
+# reads as zero downstream. Observed 2026-09-06: a fleet-wide client_domain
+# breakdown came back with exactly 60 domains while MCP Insights returned 209 for
+# the same window. Any breakdown query must therefore send an explicit limit that
+# comfortably exceeds the fleet (662 Lite tenants at the time). See SKILL.md
+# "CORRUPTION GUARD #3".
+SEGMENTATION_BUCKET_LIMIT = 5000
+
+
 def call_segmentation(
     secret: str,
     event: str,
@@ -142,6 +152,7 @@ def call_segmentation(
     }
     if on:
         params["on"] = on
+        params["limit"] = str(SEGMENTATION_BUCKET_LIMIT)
     if where:
         params["where"] = where
     url = MIXPANEL_SEGMENTATION_URL + "?" + urllib.parse.urlencode(params)
@@ -240,7 +251,7 @@ def call_jql_unique(
         },
     )
     rows = json.loads(_open_with_retry(req, timeout=120, delays=[10.0, 30.0, 60.0]).decode())
-    return {(r["key"][0] if r["key"] else "<null>"): r["value"] for r in rows}
+    return {(r["key"][0] if (r["key"] and r["key"][0] is not None) else "<null>"): r["value"] for r in rows}
 
 
 def call_jql_unique_by_domain(
@@ -265,7 +276,7 @@ def call_jql_unique_by_domain(
         },
     )
     rows = json.loads(_open_with_retry(req, timeout=120, delays=[10.0, 30.0, 60.0]).decode())
-    return {(r["key"][0] if r["key"] else "<null>"): r["value"] for r in rows}
+    return {(r["key"][0] if (r["key"] and r["key"][0] is not None) else "<null>"): r["value"] for r in rows}
 
 
 def call_jql_per_space_all(
@@ -326,10 +337,19 @@ def call_event(
 
 
 def date_range(window_days: int) -> tuple[str, str]:
-    today = dt.date.today()
+    # Mixpanel resolves date strings in the PROJECT timezone (US-based),
+    # not the local machine's. Using local dt.date.today() from AEST asked
+    # for a project-tz day that hadn't started yet, so daily runs returned
+    # near-empty data with empty __unique maps (2026-06-03/04/10 incidents).
+    # Fix: anchor the window start on the earliest plausible project-tz
+    # date (UTC-8) and end on the local date — the span always contains
+    # the live project day. window_days=1 therefore covers ~1-2 calendar
+    # days (rolling "today, tz-safe"), summed by the callers.
+    local_today = dt.date.today()
+    project_today = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=8)).date()
     return (
-        (today - dt.timedelta(days=window_days)).isoformat(),
-        (today - dt.timedelta(days=1)).isoformat(),
+        (project_today - dt.timedelta(days=window_days - 1)).isoformat(),
+        local_today.isoformat(),
     )
 
 
@@ -340,6 +360,17 @@ DAILY_EVENTS = [
     "macro_save_failed",
     "paywall_continued_editing",
     "macro_create_succeeded",
+]
+
+# Subset of DAILY_EVENTS where unique-user counts (in addition to event totals)
+# materially change outreach interpretation. Without these, you cannot tell
+# "10 distinct users hit the paywall" from "1 user hit it 10 times" — and the
+# right outreach action is very different in each case.
+DAILY_EVENTS_UNIQUE = [
+    "paywall_triggered",
+    "advocacy_message_copied",
+    "paywall_continued_editing",
+    "macro_save_succeeded",
 ]
 
 PER_SPACE_EVENTS = [
@@ -361,20 +392,30 @@ AB_EVENTS_UNIQUE = [
 ]
 
 
-def run_daily(secret: str, window_days: int, measurement: str) -> dict[str, dict[str, int]]:
+def run_daily(secret: str, window_days: int) -> dict[str, dict[str, int]]:
+    # Always returns BOTH total (event counts) and unique (period-unique users)
+    # for the key events. Unique variants use the `__unique` suffix.
+    # Rationale: event counts alone hide the difference between "broad-base
+    # friction" (many users, few clicks each) and "one frustrated power user
+    # repeatedly hitting the wall" — and outreach decisions depend on which.
     from_date, to_date = date_range(window_days)
+    work: list[tuple[str, str]] = (
+        [(e, "total") for e in DAILY_EVENTS]
+        + [(e, "unique") for e in DAILY_EVENTS_UNIQUE]
+    )
     results: dict[str, dict[str, int]] = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
             pool.submit(
                 call_event, secret, e, from_date, to_date,
-                "client_domain", None, measurement,
-            ): e
-            for e in DAILY_EVENTS
+                "client_domain", None, m,
+            ): (e, m)
+            for e, m in work
         }
         for fut in as_completed(futures):
-            event = futures[fut]
-            results[event] = fut.result()
+            event, m = futures[fut]
+            key = event if m == "total" else f"{event}__unique"
+            results[key] = fut.result()
     return results
 
 
@@ -469,10 +510,8 @@ def main(argv: list[str]) -> int:
 
     daily = sub.add_parser("daily", help="Q1–Q4 daily monitoring queries")
     daily.add_argument("--window-days", type=int, default=1)
-    daily.add_argument(
-        "--measurement", choices=["total", "unique"], default="total",
-        help="total = event counts (segmentation API); unique = period-unique users (JQL)",
-    )
+    # `daily` always returns both event totals and unique-user counts.
+    # Unique variants appear in output with the `__unique` suffix.
 
     per_space = sub.add_parser("per-space", help="Q5 per-space breakdown for one domain")
     per_space.add_argument("domain")
@@ -488,7 +527,7 @@ def main(argv: list[str]) -> int:
     per_space_all.add_argument(
         "--domains", nargs="+", required=True,
         metavar="DOMAIN",
-        help="CSS customer domain prefixes, e.g. --domains colesgroup vin3s linemanwongnai",
+        help="CSS customer domain prefixes, e.g. --domains example-one example-two example-three",
     )
     per_space_all.add_argument("--window-days", type=int, default=1)
 
@@ -502,7 +541,7 @@ def main(argv: list[str]) -> int:
     secret = load_api_secret()
 
     if args.cmd == "daily":
-        out = run_daily(secret, args.window_days, args.measurement)
+        out = run_daily(secret, args.window_days)
     elif args.cmd == "per-space":
         out = run_per_space(secret, args.domain, args.window_days, args.measurement)
     elif args.cmd == "per-space-all":

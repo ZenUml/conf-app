@@ -4,13 +4,11 @@
 // and a DrawIO export sidebar for Graph; Versions is a console-log dump for
 // all three (the Forge versions UI is currently emit-only, no modal).
 //
-// Toolbar buttons live inside the macro iframe and use these aria-labels
-// (see src/components/Viewer/GenericViewer.vue):
-//   - "Fullscreen"
-//   - "Edit"
-//   - "Export" (the button itself is a download icon; aria-label is "Download PNG")
-//   - "Copy Code"
-//   - "Versions"
+// Controls live inside the macro iframe (see src/components/Viewer/GenericViewer.vue):
+//   - header buttons "Fullscreen" and "Edit"
+//   - header "More" (⋯) menu items "Copy diagram link", "Copy page link",
+//     "Export PNG", "Versions", "Download debug info" — the staged header
+//     (2026-10) removed the bottom pill that used to hold them
 //
 // CAVEATS:
 //  - Clipboard reads require navigator.clipboard.readText() from the TOP page
@@ -18,12 +16,12 @@
 //    won't have clipboard permission.
 //  - Versions in the current build only logs to console — there's no DOM
 //    target to assert on. We listen to console messages and pattern-match.
-//  - The Export aria-label on the actual button is "Download PNG" (the button
-//    that opens the export modal), not "Export". Use a regex to be tolerant.
+//  - "More" must be matched exactly: getByRole name matching is a substring
+//    match, and the Copy for AI chevron is labelled "Copy for AI — more options".
 
 import { Page, FrameLocator, expect, ConsoleMessage } from '@playwright/test';
 import { MacroPage } from '../pages/MacroPage.js';
-import { modalDialog, expectModalVisible } from './FullscreenModalHelper.js';
+import { modalDialog, modalContentFrame, expectModalVisible } from './FullscreenModalHelper.js';
 
 export type ViewerKind = 'sequence' | 'graph' | 'openapi';
 
@@ -50,44 +48,61 @@ export async function openFullscreenViewer(page: Page, kind: ViewerKind): Promis
 }
 
 /**
- * Click the toolbar Export button. For sequence/openapi this opens the in-
- * iframe ExportModal (Vue); for graph it opens the DrawIO sidebar.
- * Returns true if a recognizable export UI surfaced.
+ * Open the inline header's More (⋯) menu and pick an item. The header actions
+ * are hover-revealed; Playwright's click moves the pointer onto the trigger,
+ * which reveals them.
  */
-export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 'export-modal' | 'drawio-sidebar' | 'unknown' }> {
-  const frame = viewerFrame(page, kind);
-  await expect(frame.locator('body')).toBeVisible({ timeout: 30_000 });
-  // Button uses aria-label="Download PNG" in GenericViewer.vue.
-  const exportBtn = frame.getByRole('button', { name: /download png|export/i }).first();
-  await expect(exportBtn).toBeVisible();
-  await exportBtn.click();
-
-  if (kind === 'sequence' || kind === 'openapi') {
-    // Vue ExportModal — has a "Download" or "PNG" button visible.
-    const exportModal = frame.locator('[data-testid="export-modal"], .export-modal, [class*="export"]').first();
-    if (await exportModal.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      return { kind: 'export-modal' };
-    }
-    // Fallback: heading text "Export Settings".
-    const exportHeading = frame.getByText(/export settings/i).first();
-    if (await exportHeading.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      return { kind: 'export-modal' };
-    }
-    return { kind: 'unknown' };
-  }
-
-  // Graph (DrawIO) — sidebar appears.
-  const drawioFrame = frame.locator('iframe').contentFrame();
-  const sidebar = drawioFrame.locator('.sidebar-container, [class*="sidebar-container"]').first();
-  if (await sidebar.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    return { kind: 'drawio-sidebar' };
-  }
-  return { kind: 'unknown' };
+export async function clickMoreMenuItem(frame: FrameLocator, name: string): Promise<void> {
+  const more = frame.getByRole('button', { name: 'More', exact: true });
+  await expect(more).toBeVisible({ timeout: 30_000 });
+  await more.click();
+  const item = frame.getByRole('menuitem', { name, exact: true });
+  await expect(item).toBeVisible();
+  await item.click();
 }
 
 /**
- * Click Copy Code, then read clipboard from the top-level page. Returns the
- * clipboard text. Caller asserts the content matches the expected diagram.
+ * Pick "Export PNG" from the header More menu and assert the shared
+ * ExportModal (src/components/ExportModal/ExportModal.vue) opens. As of the
+ * V8 viewer redesign (2026-05-04) ALL three macro types share this one
+ * export UI — Graph no longer opens a separate DrawIO export sidebar.
+ */
+export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 'export-modal' | 'unknown' }> {
+  const frame = viewerFrame(page, kind);
+  await expect(frame.locator('body')).toBeVisible({ timeout: 30_000 });
+  await clickMoreMenuItem(frame, 'Export PNG');
+
+  // The dialog no longer opens inside the inline macro iframe. That iframe is
+  // ~560px wide and a few hundred px tall (564x256 on the production page this
+  // was reported from), which leaves the annotation controls unusable, so the
+  // button opens the Fullscreen modal and the dialog opens there on arrival.
+  await expectModalVisible(page, 'fullscreen-viewer');
+  const modalFrame = modalContentFrame(page, 'fullscreen-viewer');
+
+  const exportModal = modalFrame.locator('[data-testid="export-modal"], .export-modal').first();
+  // isVisible is an immediate snapshot; its timeout option does not wait for
+  // the fullscreen viewer's asynchronous export-entry initialization.
+  await expect(exportModal).toBeVisible({ timeout: 20_000 });
+  return { kind: 'export-modal' };
+}
+
+/**
+ * Retrieve the diagram source and put it on the clipboard, then read the
+ * clipboard from the top-level page. Returns the clipboard text.
+ *
+ * The old single "Copy Code" button (viewerFrame -> Copy Code -> clipboard)
+ * was removed by the V8 viewer redesign (2026-05-04). The current path for
+ * text-DSL macros (sequence/mermaid/plantuml — see GenericViewer.vue's
+ * `showViewSource` gate) is: click "Source" (data-testid="view-source-btn")
+ * to open the ViewSourcePanel side sheet, then its own Copy button
+ * (data-testid="view-source-copy") writes the source to the clipboard.
+ *
+ * Graph and OpenAPI have NO source-retrieval affordance in the current
+ * viewer toolbar at all — `showViewSource` is gated to text-DSL diagram
+ * types only, and neither ForgeGraphViewer.vue nor OpenApiViewer.vue add
+ * one of their own. Callers for those kinds will find no "Source" button
+ * and this correctly times out — that reflects a real, deliberate product
+ * gap (not a stale selector), not a bug in this helper.
  *
  * The clipboard read happens on the OUTER `page` because the iframe doesn't
  * have clipboard-read permission — even if we wrote to the clipboard from
@@ -95,21 +110,45 @@ export async function openExport(page: Page, kind: ViewerKind): Promise<{ kind: 
  */
 export async function clickCopyCodeAndRead(page: Page, kind: ViewerKind): Promise<string> {
   const frame = viewerFrame(page, kind);
-  const btn = frame.getByRole('button', { name: 'Copy Code' });
-  await expect(btn).toBeVisible({ timeout: 30_000 });
   // Grant clipboard-read so navigator.clipboard.readText() works.
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+  if (kind === 'sequence') {
+    // data-testid, not getByRole(name: 'Source') — the diagram canvas can
+    // contain a participant/node whose accessible name is something like
+    // "Icon-Resource/Compute/…", and Playwright's default name match is a
+    // case-insensitive SUBSTRING match, so "Source" matches "Re[source]"
+    // too (strict-mode violation, 2 elements). See view-source-btn in
+    // GenericViewer.vue.
+    const sourceBtn = frame.getByTestId('view-source-btn');
+    await expect(sourceBtn).toBeVisible({ timeout: 30_000 });
+    await sourceBtn.click();
+    const copyBtn = frame.getByTestId('view-source-copy');
+    await expect(copyBtn).toBeVisible({ timeout: 10_000 });
+    await copyBtn.click();
+    // Small settle window — Vue mutation observers fire async.
+    await page.waitForTimeout(300);
+    return page.evaluate(async () => {
+      try {
+        return await navigator.clipboard.readText();
+      } catch (e) {
+        return `__clipboard_error__:${(e as Error).message}`;
+      }
+    });
+  }
+
+  // graph / openapi — no source-retrieval affordance exists; see doc comment.
+  const btn = frame.getByRole('button', { name: 'Copy Code' });
+  await expect(btn).toBeVisible({ timeout: 30_000 });
   await btn.click();
-  // Small settle window — Vue mutation observers fire async.
   await page.waitForTimeout(300);
-  const text = await page.evaluate(async () => {
+  return page.evaluate(async () => {
     try {
       return await navigator.clipboard.readText();
     } catch (e) {
       return `__clipboard_error__:${(e as Error).message}`;
     }
   });
-  return text;
 }
 
 /**
@@ -137,9 +176,7 @@ export async function clickVersionsAndCaptureLogs(
   };
   page.on('console', listener);
   try {
-    const btn = frame.getByRole('button', { name: 'Versions' });
-    await expect(btn).toBeVisible({ timeout: 30_000 });
-    await btn.click();
+    await clickMoreMenuItem(frame, 'Versions');
     // Wait for the version-fetch + log roundtrip.
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {

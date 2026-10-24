@@ -34,6 +34,7 @@ jobs:
   deploy:
     name: 'Deploy: whimet4'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # whimet4-specific Forge credentials, falling back to the shared CI ones.
       # The shared principal (support@zenuml.com) is not a site admin of
@@ -51,13 +52,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # v5 + an explicit version, matching build-test-deploy.yml and the
-      # wrangler-publish action. package.json has no `packageManager` field, so
-      # the action cannot infer one and hard-fails without this.
+      # `pnpm build:lite` chains `build:studio`, which builds AsyncAPI Studio
+      # from the vendor/asyncapi-studio submodule (Lite ships the AsyncAPI
+      # macro per ADR-0005). `actions/checkout@v5` does NOT init submodules,
+      # so init this one explicitly — and only this one, so the private
+      # submodule isn't attempted. Mirrors staging-deploy.yml / release.yml.
+      - name: Init asyncapi-studio submodule
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
+
+      # No `version` input: package.json's `packageManager` field is the single
+      # source of the pnpm version, and action-setup hard-errors when the two
+      # disagree ("Multiple versions of pnpm specified").
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
-        with:
-          version: 10.x
 
       - name: Setup Node
         uses: actions/setup-node@v5
@@ -86,10 +93,19 @@ jobs:
       # modules Lite does not have — and any scope change that implies would
       # make the install need re-consent, which --non-interactive cannot give.
       # ---------------------------------------------------------------------
-      - name: Remove asyncapi modules from manifest
+      # ADR-0005 Option A — Lite KEEPS the page-rendered AsyncAPI macro
+      # (`zenuml-asyncapi-macro`); its content is stored under the shared
+      # zenuml-content-sequence type, discriminated by diagramType, like
+      # OpenAPI. Strip only the embed macro, BY EXACT KEY — the broad
+      # test("zenuml-asyncapi") filter this step used to carry would take the
+      # page macro with it — plus the async-api-doc custom content and the
+      # dashboard spacePage. Grant unsafe-eval for AsyncAPI Studio's runtime
+      # schema compilation. Mirrors the lite manifestEdits in
+      # scripts/forge-wizard.mjs.
+      - name: Remove asyncapi embed/content/dashboard from manifest, allow unsafe-eval (Lite keeps the AsyncAPI macro)
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules.macro[] | select(.key | test("zenuml-asyncapi"))) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"])' -i manifest.yml
+          cmd: yq eval 'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro")) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"]) | .permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
 
       - name: Remove Connect lifecycle module (connectModules) from manifest
         uses: mikefarah/yq@master
@@ -122,19 +138,26 @@ jobs:
               | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
             ' -i manifest.yml
 
+      # Mirrors staging-deploy.yml "Remove Full conversion modules from
+      # non-Full variants". fullPresenceFn is not just wrong-variant baggage
+      # here — it writes the `zenuml-full-active` space property that the
+      # byline display condition SUBTRACTS, so shipping it inside the Lite app
+      # would make this deployment hide the very byline it exists to test.
+      - name: Remove Full-only modules from Lite manifest
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            yq eval '
+              del(.modules.function[] | select(.key == "liteFullConversionFn" or .key == "fullPresenceFn"))
+              | del(.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly" or .key == "full-presence-daily"))
+            ' -i manifest.yml
+
       - name: Upload final manifest
         uses: actions/upload-artifact@v4
         with:
           name: manifest-lite-whimet4
           path: manifest.yml
           retention-days: 7
-
-      # Same workaround as staging-deploy.yml: the Forge CLI's node-fetch throws
-      # "Premature close" on newer Node.
-      - name: Use Node 20 for Forge CLI
-        uses: actions/setup-node@v5
-        with:
-          node-version: '20.x'
 
       - name: Deploy to Forge (${{ env.FORGE_ENV }})
         env:

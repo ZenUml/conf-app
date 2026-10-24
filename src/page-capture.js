@@ -30,19 +30,12 @@ export const handler = async (event, context) => {
     context?.installation?.contexts?.[0]?.cloudId ??
     context?.installContext?.split('/').pop() ??
     null;
-  console.log('page-capture: handler invoked', {
-    contentId: content?.id,
-    contentType: content?.type,
-    cloudId,
-  });
-
   if (!content?.id) {
     console.warn('page-capture: no content.id in payload, skipping');
     return;
   }
 
   if (content.type !== 'page' || content.subType === 'live') {
-    console.log('page-capture: skipping non-page or live content', { type: content.type, subType: content.subType });
     return;
   }
 
@@ -102,8 +95,6 @@ export const handler = async (event, context) => {
     if (!res.ok) {
       const text = await res.text();
       console.error(`page-capture: Worker returned ${res.status}: ${text}`);
-    } else {
-      console.log('page-capture: forwarded successfully');
     }
   } catch (err) {
     console.error('page-capture: error forwarding to Worker:', err);

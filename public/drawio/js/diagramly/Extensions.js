@@ -1,4 +1,8 @@
 /**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
+/**
  * Handles paste from Lucidchart
  * 
  * TODO: Move to dynamic loading minimized plugin.
@@ -5531,10 +5535,16 @@ LucidImporter = {};
 		{
 			imgUrl = properties.URL;
 		}
-		else if (action.Class == 'UserImage2Block' && properties.ImageFillProps != null &&
-				properties.ImageFillProps.url != null)
+		else if (action.Class == 'UserImage2Block')
 		{
-			imgUrl = properties.ImageFillProps.url;
+			if (properties.ImageFillProps != null && properties.ImageFillProps.url != null)
+			{
+				imgUrl = properties.ImageFillProps.url;
+			}
+			else if (properties.FillColor != null && properties.FillColor.url != null)
+			{
+				imgUrl = properties.FillColor.url;
+			}
 		}
 					
 		if (imgUrl != null)
@@ -5797,34 +5807,99 @@ LucidImporter = {};
 
 					var waypoints = p.ElbowControlPoints != null && p.ElbowControlPoints.length > 0? p.ElbowControlPoints : p.Joints;
 
-					if (isCurved && p.BezierJoints != null && p.BezierJoints.length > 0)
+					if (isCurved)
 					{
-						waypoints = [];
-
-						//Last point sometimes has incorrect x,y value!
-						var lpt = p.BezierJoints[p.BezierJoints.length - 1];
-						lpt.p.x = p.Endpoint2.x;
-						lpt.p.y = p.Endpoint2.y;
-
-						for (var i = 0; i < p.BezierJoints.length; i++)
+						// Point where draw.io places the endpoint, in Lucid coordinates: the
+						// block-relative anchor if attached (Endpoint x, y is often stale for
+						// attached endpoints), else the endpoint coordinates
+						var effectivePoint = function(endpoint, terminal)
 						{
-							var pt = p.BezierJoints[i];
-							//TODO This is best-effort approximation (close enouhh but not exact)
-							waypoints.push({x: pt.p.x + pt.nt.x * pt.lcps * .75, y: pt.p.y + pt.nt.y * pt.lcps * .75});
-							waypoints.push({x: pt.p.x + pt.nt.x * pt.rcps * .75, y: pt.p.y + pt.nt.y * pt.rcps * .75});
-						}
+							if (terminal != null && terminal.geometry != null && !terminal.geometry.isRotated &&
+								endpoint.LinkX != null && endpoint.LinkY != null)
+							{
+								return {x: (terminal.geometry.x + endpoint.LinkX * terminal.geometry.width - dx) / scale,
+									y: (terminal.geometry.y + endpoint.LinkY * terminal.geometry.height - dy) / scale};
+							}
 
-						//remove first & last points
-						waypoints = waypoints.slice(1, waypoints.length - 1);
-					}
-					else if (isCurved) //Curved with the default waypoints
-					{
-						waypoints = [];
-						//TODO This is best-effort approximation (close enouhh but not exact)
-						waypoints.push({x: p.Endpoint1.x + (p.Endpoint1.LinkX < 0.1? -250 : (p.Endpoint1.LinkX > 0.9? 250 : 0) ), 
-										y: p.Endpoint1.y + (p.Endpoint1.LinkY < 0.1? -250 : (p.Endpoint1.LinkY > 0.9? 250 : 0) )});
-						waypoints.push({x: p.Endpoint2.x + (p.Endpoint2.LinkX < 0.1? -250 : (p.Endpoint2.LinkX > 0.9? 250 : 0) ), 
-										y: p.Endpoint2.y + (p.Endpoint2.LinkY < 0.1? -250 : (p.Endpoint2.LinkY > 0.9? 250 : 0) )});
+							return {x: endpoint.x, y: endpoint.y};
+						};
+
+						var ep1 = effectivePoint(p.Endpoint1, source);
+						var ep2 = effectivePoint(p.Endpoint2, target);
+
+						if (p.BezierJoints != null && p.BezierJoints.length > 1)
+						{
+							// BezierJoints describe a cubic spline: p is an on-curve point, nt a unit
+							// tangent and lcps/rcps the signed incoming/outgoing handle lengths along
+							// nt. The first and last joints are the endpoints but their p is often
+							// stale, so pin them to the points the terminals actually connect at.
+							var joints = p.BezierJoints;
+							joints[0].p = ep1;
+							joints[joints.length - 1].p = ep2;
+
+							// bezier=1 control points: [cp1, cp2, anchor, ..., cp1, cp2] with the
+							// terminals excluded (see mxPolyline.paintBezierLine)
+							waypoints = [];
+
+							for (var i = 0; i < joints.length - 1; i++)
+							{
+								var j0 = joints[i];
+								var j1 = joints[i + 1];
+
+								waypoints.push({x: j0.p.x + j0.nt.x * j0.rcps, y: j0.p.y + j0.nt.y * j0.rcps});
+								waypoints.push({x: j1.p.x + j1.nt.x * j1.lcps, y: j1.p.y + j1.nt.y * j1.lcps});
+
+								if (i < joints.length - 2)
+								{
+									waypoints.push(j1.p);
+								}
+							}
+
+							cell.style += 'bezier=1;';
+						}
+						else
+						{
+							// Curve without joints: single cubic leaving each endpoint along the
+							// outward perimeter normal of its attach point with handles of 0.4 x
+							// chord length (calibrated against Lucid renders), falling back to the
+							// chord direction for unattached or center attached endpoints
+							var curveTangent = function(endpoint, terminal, from, to)
+							{
+								var tx = 0, ty = 0;
+
+								if (terminal != null && terminal.geometry != null && !terminal.geometry.isRotated &&
+									endpoint.LinkX != null && endpoint.LinkY != null)
+								{
+									tx = (endpoint.LinkX - 0.5) / terminal.geometry.width;
+									ty = (endpoint.LinkY - 0.5) / terminal.geometry.height;
+								}
+
+								if (tx == 0 && ty == 0)
+								{
+									tx = to.x - from.x;
+									ty = to.y - from.y;
+								}
+
+								var len = Math.sqrt(tx * tx + ty * ty);
+
+								return (len > 0) ? {x: tx / len, y: ty / len} : {x: 0, y: 0};
+							};
+
+							var chord = Math.sqrt((ep2.x - ep1.x) * (ep2.x - ep1.x) +
+								(ep2.y - ep1.y) * (ep2.y - ep1.y));
+
+							if (chord > 0)
+							{
+								var t1 = curveTangent(p.Endpoint1, source, ep1, ep2);
+								var t2 = curveTangent(p.Endpoint2, target, ep2, ep1);
+
+								waypoints = [
+									{x: ep1.x + t1.x * 0.4 * chord, y: ep1.y + t1.y * 0.4 * chord},
+									{x: ep2.x + t2.x * 0.4 * chord, y: ep2.y + t2.y * 0.4 * chord}];
+
+								cell.style += 'bezier=1;';
+							}
+						}
 					}
 
 					if (waypoints != null)
@@ -5853,10 +5928,10 @@ LucidImporter = {};
 								Math.round(source.geometry.y + source.geometry.height * p.Endpoint1.LinkY));
 							var entry = new mxPoint(Math.round(target.geometry.x + target.geometry.width * p.Endpoint2.LinkX),
 								Math.round(target.geometry.y + target.geometry.height * p.Endpoint2.LinkY));
-							dx = (exit.x == entry.x) ? (Math.abs(exit.x - source.geometry.x) < source.geometry.width / 2? -20 : 20) : 0;
-							dy = (exit.y == entry.y) ? (Math.abs(exit.y - source.geometry.y) < source.geometry.height / 2? -20 : 20) : 0;
-							
-							var p1 = new mxPoint(exit.x + dx, exit.y + dy), p2 = new mxPoint(entry.x + dx, entry.y + dy);
+							var ldx = (exit.x == entry.x) ? (Math.abs(exit.x - source.geometry.x) < source.geometry.width / 2? -20 : 20) : 0;
+							var ldy = (exit.y == entry.y) ? (Math.abs(exit.y - source.geometry.y) < source.geometry.height / 2? -20 : 20) : 0;
+
+							var p1 = new mxPoint(exit.x + ldx, exit.y + ldy), p2 = new mxPoint(entry.x + ldx, entry.y + ldy);
 							p1.generated = true;
 							p2.generated = true;
 							cell.geometry.points = [p1, p2];
@@ -5906,9 +5981,8 @@ LucidImporter = {};
 		if (obj.id != null)
 		{
 			cell.style += ';lucidId=' + obj.id + ';';
+			LucidImporter.lucidchartObjects[obj.id] = obj;
 		}
-
-		cell.lucidchartObject = obj;
 	};
 	
 	function createVertex(obj, graph)
@@ -6061,8 +6135,8 @@ LucidImporter = {};
 			}
 		} 
 
-		
-		lab.lucidchartObject = textArea;
+		// TODO Check if this is needed, textArea & lab have no ids
+		//LucidImporter.lucidchartObjects[lab.id] = textArea;
 		e.insert(lab);
 		
 		return e;
@@ -6184,7 +6258,7 @@ LucidImporter = {};
 				{
 					memberCells.push(v);
 				}
-				else if (blocksMap[key] != null)
+				else if (Object.prototype.hasOwnProperty.call(blocksMap, key) && blocksMap[key] != null)
 				{
 					memberCells.push(blocksMap[key]);
 					//Edges are not yet created, so, create a map for them
@@ -6276,8 +6350,13 @@ LucidImporter = {};
 				group.visible = false;
 			}
 
-			group.lucidchartObject = obj;
-			
+			// TODO Check if this is needed, group & obj have no ids
+			/*if (obj.id != null)
+			{
+				group.style += ';lucidId=' + obj.id + ';';
+				LucidImporter.lucidchartObjects[obj.id] = obj;
+			}*/
+
 			return group;
 		}
 		catch(e)
@@ -6295,8 +6374,11 @@ LucidImporter = {};
 		try
 		{
 			var select = [];
-			var lookup = {};
-			var edgesGroups = {};
+			// Null prototypes as these are keyed by untrusted Lucidchart block
+			// ids (obj.id / Endpoint.Block) so an id such as __proto__ cannot
+			// resolve to Object.prototype (aborting the import) or swap the map.
+			var lookup = Object.create(null);
+			var edgesGroups = Object.create(null);
 			var blocksMap = {};
 			var queue = [];
 
@@ -6578,16 +6660,6 @@ LucidImporter = {};
 						normalizeGroup(graph, c);
 						normalizeStyle(graph, c);
 						normalizeEdge(graph, c);
-
-						if (urlParams['lucidchartObject'] == '1' &&
-							c.lucidchartObject != null)
-						{
-							setAttributeForCell(c, 'lucidchartObject',
-								JSON.stringify(c.lucidchartObject, null, 2),
-								graph);
-						}
-
-						delete c.lucidchartObject;
 						delete c.zOrder;
 					}
 				}
@@ -6605,6 +6677,22 @@ LucidImporter = {};
 			graph.getModel().endUpdate();
 		}	
 	};
+
+	function getLucidId(cell)
+	{
+		try
+		{
+			var m = cell.style.match(/;lucidId=([^;]*)/);
+
+			if (m != null)
+			{
+				return m[1];
+			}
+		}
+		catch(e) {}
+
+		return null;
+	}
 
 	// Optimizes edge routing and labels
 	function normalizeEdge(graph, cell)
@@ -6632,7 +6720,9 @@ LucidImporter = {};
 			}
 
 			// Fixes simple elbow routing
-			var lo = cell.lucidchartObject;
+			var lo = LucidImporter.lucidchartObjects[getLucidId(cell)];
+
+			lo = lo != null && lo.Action != null ? lo.Action.Properties : null;
 
 			if (lo != null && lo.Shape == 'elbow' &&
 				lo.ElbowControlPoints == null &&
@@ -6938,7 +7028,8 @@ LucidImporter = {};
 	{
 		dx = 0;
 		dy = 0;
-		LucidImporter.stencilsMap = {}; //Reset stencils cache
+		//Reset stencils cache. Null prototype: keyed by stencil ids from the file
+		LucidImporter.stencilsMap = Object.create(null);
 		LucidImporter.imgSrcRepl = imgSrcRepl; //Use LucidImporter object to store the map since it is used deep inside
 		LucidImporter.advImpConfig = advImpConfig;
 		LucidImporter.globalProps = {};
@@ -6947,9 +7038,10 @@ LucidImporter = {};
 		LucidImporter.hasOrgChart = false;
 		LucidImporter.hasTimeLine = false;
 		LucidImporter.hasExtImgs = false;
-		var xml = ['<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '<mxfile type="Lucidchart-Import" version="' +
-			EditorUi.VERSION + '" host="' + mxUtils.htmlEntities(window.location.hostname) + 
-			'" agent="' + mxUtils.htmlEntities(navigator.appVersion) + 
+		// Null prototype: keyed by object ids from the file
+		LucidImporter.lucidchartObjects = Object.create(null);
+		var xml = ['<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '<mxfile type="Lucidchart-Import"' +
+			' host="' + mxUtils.htmlEntities(window.location.hostname) +
 			'" modified="' + mxUtils.htmlEntities(new Date().toISOString()) + '">'];
 
 		if (advImpConfig && advImpConfig.transparentEdgeLabels)

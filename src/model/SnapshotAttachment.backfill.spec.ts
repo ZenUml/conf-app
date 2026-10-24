@@ -53,6 +53,10 @@ describe('maybeBackfillSnapshot', () => {
     mockRequestConfluence.mockReset();
     mockCallRemote.mockReset();
     mockTrackAnalyticsEvent.mockReset();
+    // The #387 denial memo persists in localStorage across calls by design —
+    // clear it between tests so one test's confirmed denial can't leak into
+    // another test's assertions about a fresh page.
+    window.localStorage.clear();
   });
 
   it('creates a snapshot on the host page for a cross-page alias with no existing snapshot', async () => {
@@ -239,5 +243,88 @@ describe('maybeBackfillSnapshot', () => {
     expect(mockRequestConfluence).not.toHaveBeenCalled();
     expect(mockCallRemote).not.toHaveBeenCalled();
     expect(mockTrackAnalyticsEvent).not.toHaveBeenCalled();
+  });
+
+  // #387: viewer_backfill flooded snapshot_create_failed (later reclassified
+  // to snapshot_backfill_skipped by fa29db93/dfe0f9a3) because a page whose
+  // app-authenticated write is denied gets re-attempted — and re-403s — on
+  // EVERY view, forever. The fix is a negative memo (denialMemo.ts): after the
+  // first confirmed 401/403 on a page, later viewer-surface calls for that
+  // same page must stop attempting the write at all.
+  describe('#387 denial memo — viewer surface only stops re-attempting a known-denied page', () => {
+    beforeEach(() => {
+      window.localStorage.clear();
+    });
+
+    it('a 403 on the first view attempts the write once; a second view of the same page attempts nothing', async () => {
+      mockGetAttachmentsV2.mockResolvedValue([]);
+      mockCallRemote.mockResolvedValue({ ok: false, status: 403, body: '{"statusCode":403,"message":"PermissionException"}' });
+
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+      expect(mockCallRemote).toHaveBeenCalledTimes(1); // the confirming attempt
+      expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('snapshot_backfill_skipped', expect.objectContaining({
+        snapshot_skip_reason: 'no_write_permission',
+      }));
+
+      mockGetAttachmentsV2.mockClear();
+      mockCallRemote.mockClear();
+      mockTrackAnalyticsEvent.mockClear();
+
+      // Second view of the SAME page: on origin/main (no memo) this repeats
+      // the fetchSnapshot GET + the 403'ing upload attempt — the exact
+      // repeat-attempt flood #387 reports. With the memo, nothing is attempted.
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+      expect(mockGetAttachmentsV2).not.toHaveBeenCalled();
+      expect(mockCallRemote).not.toHaveBeenCalled();
+      expect(mockTrackAnalyticsEvent).not.toHaveBeenCalled();
+    });
+
+    it('a 401 on the first view also memoes — the second view attempts nothing', async () => {
+      mockGetAttachmentsV2.mockResolvedValue([]);
+      mockCallRemote.mockResolvedValue({ ok: false, status: 401, body: 'missing x-forge-oauth-user header' });
+
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+      mockCallRemote.mockClear();
+
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+      expect(mockCallRemote).not.toHaveBeenCalled();
+    });
+
+    it('a 404 (unpublished draft) does NOT memo — the second view retries, matching the new-page recovery design', async () => {
+      mockGetAttachmentsV2.mockResolvedValue([]);
+      mockCallRemote.mockResolvedValue({ ok: false, status: 404, body: '{"statusCode":404,"message":"NotFoundException: No content"}' });
+
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+      mockGetAttachmentsV2.mockClear();
+      mockCallRemote.mockClear();
+
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+      expect(mockCallRemote).toHaveBeenCalledTimes(1); // retried, not memoed
+    });
+
+    it('a denial on one page does not memo a different page', async () => {
+      mockGetAttachmentsV2.mockResolvedValue([]);
+      mockCallRemote.mockResolvedValue({ ok: false, status: 403, body: '{"statusCode":403,"message":"PermissionException"}' });
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page', hostPageId: 'host-page' }));
+      mockCallRemote.mockClear();
+
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'other-page', hostPageId: 'other-page' }));
+      expect(mockCallRemote).toHaveBeenCalledTimes(1); // different page, not memoed
+    });
+
+    it('the editor surface is unaffected by a viewer-surface denial memo on the same page', async () => {
+      mockGetAttachmentsV2.mockResolvedValue([]);
+      mockCallRemote.mockResolvedValue({ ok: false, status: 403, body: '{"statusCode":403,"message":"PermissionException"}' });
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: true, ccPageId: 'host-page' }));
+
+      mockGetAttachmentsV2.mockClear();
+      mockCallRemote.mockClear();
+      mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-1', versionNumber: 1 });
+
+      // Editor surface, cross-page alias — must still attempt (editor writes
+      // don't go through the viewer denial memo).
+      await maybeBackfillSnapshot(baseOpts({ isDisplayMode: false, ccPageId: 'source-page', hostPageId: 'host-page' }));
+      expect(mockCallRemote).toHaveBeenCalledTimes(1);
+    });
   });
 });

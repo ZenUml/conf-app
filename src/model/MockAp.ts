@@ -86,6 +86,16 @@ export default class MockAp implements IAp {
     if(handler) {
       return handler.handle(req);
     }
+
+    // Default response for an unmatched GET /api/v2/pages/... — covers callers
+    // that never registered setPage() (e.g. the local-dev sandbox harness,
+    // whose standalone content.id is a non-numeric string and so never matches
+    // the digits-only 'page' contract regex above). Without this,
+    // ApWrapper2.getCustomContentForCurrentPage()'s unguarded `page.status`
+    // read throws on `undefined`.
+    if (req.type?.toLowerCase() === 'get' && req.url.startsWith('/api/v2/pages/')) {
+      return {body: JSON.stringify({status: 'current'})};
+    }
   }
   public navigator: any
   public dialog: any;

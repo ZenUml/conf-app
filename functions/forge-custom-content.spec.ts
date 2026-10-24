@@ -202,17 +202,16 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
     vi.clearAllMocks();
   });
 
-  it('returns a JSON 400 (not a text/plain 500) when the OAuth user header is missing', async () => {
+  it('returns a JSON 403 no_user_credential (not a text/plain 500) when the OAuth user header is missing', async () => {
     const db = makeDB({ rowExists: true });
     const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({ contentId: 'cc-1' }, /* withAuth */ false);
 
     const res = await onRequest({ request: req, env, data: FORGE_DATA } as any);
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     expect(res.headers.get('content-type')).toContain('application/json');
-    const json: any = await res.json();
-    expect(json.error).toContain('x-forge-oauth-user');
+    expect(await res.json()).toEqual({ error: 'no_user_credential' });
     // No re-fetch, no DB writes when input is rejected up front.
     expect(getCustomContentFromConfluenceForForge).not.toHaveBeenCalled();
     expect(db.calls.length).toBe(0);
@@ -274,5 +273,128 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
     expect(res.headers.get('content-type')).toContain('application/json');
     const json: any = await res.json();
     expect(json.error).toContain('Invalid JSON body');
+  });
+
+  it('stamps the tenant on the content row, so a per-tenant index can be built', async () => {
+    const db = makeDB({ rowExists: false });
+    const env = { DB: { prepare: db.prepare } };
+    const data = {
+      forgeContext: {
+        ...FORGE_CONTEXT,
+        apiBaseUrl: 'https://api.atlassian.com/ex/confluence/368b0fa8-90e4-4ffc-92d6-de20c0e38c9e',
+      },
+    };
+
+    await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env, data } as any);
+
+    const insertCall = db.calls.find((c) => c.sql.startsWith('insert into CustomContent'));
+    // 13th bind: cloudId, read out of the Forge apiBaseUrl
+    expect(insertCall!.binds[12]).toBe('368b0fa8-90e4-4ffc-92d6-de20c0e38c9e');
+  });
+
+  it('never clears a recorded tenant when the id cannot be read', async () => {
+    const db = makeDB({ rowExists: true });
+    const env = { DB: { prepare: db.prepare } };
+    const data = { forgeContext: { ...FORGE_CONTEXT, apiBaseUrl: 'https://example.invalid/x' } };
+
+    await onRequest({ request: makeRequest({ contentId: 'cc-1' }), env, data } as any);
+
+    const updateCall = db.calls.find((c) => c.sql.startsWith('UPDATE CustomContent'));
+    expect(updateCall!.sql).toContain('cloudId = COALESCE(?11, cloudId)');
+    expect(updateCall!.binds[10]).toBeNull();
+  });
+});
+
+// The architecture-token index is derived from content Confluence already owns.
+// These assert the two properties that matter at the handler level: a save is
+// never failed by the index write, and a healthy DB receives the replace.
+describe('architecture-token index on save', () => {
+  const sequenceContent = {
+    id: 'cc-1',
+    type: 'zenuml-content-sequence',
+    spaceId: 'space-1',
+    pageId: 'page-1',
+    title: 'Test',
+    body: {
+      raw: {
+        value: JSON.stringify({
+          diagramType: 'mermaid',
+          mermaidCode: 'sequenceDiagram\n  participant PA as Partner App\n  PA->>PA: x',
+        }),
+      },
+    },
+    version: { number: 7, message: '', minorEdit: false },
+    authorId: 'user-1',
+    createdAt: '2026-09-02T00:00:00.000Z',
+    status: 'current',
+  };
+
+  beforeEach(() => {
+    vi.mocked(getCustomContentFromConfluenceForForge).mockResolvedValue(sequenceContent as any);
+  });
+
+  it('replaces the diagram rows at the saved version', async () => {
+    const db = makeDB({ rowExists: true });
+    const batched: any[] = [];
+    (db as any).batch = vi.fn(async (stmts: any[]) => { batched.push(...stmts); return []; });
+
+    const res = await onRequest({
+      request: makeRequest({ contentId: 'cc-1' }),
+      env: { DB: db },
+      data: { forgeContext: { apiBaseUrl: 'https://api.atlassian.com/ex/confluence/cloud-1', forgeAppId: 'app-1' } },
+    } as any);
+
+    expect(res.status).toBe(200);
+    expect((db as any).batch).toHaveBeenCalledTimes(1);
+    const sqls = db.calls.map((c) => c.sql);
+    expect(sqls.some((s) => s.startsWith('DELETE FROM ArchitectureTokenOccurrence'))).toBe(true);
+    expect(sqls.some((s) => s.includes('INSERT INTO ArchitectureTokenOccurrence'))).toBe(true);
+    // The indexed version is the version just saved — this is what stops
+    // service.ts raising error_kind 'stale_index'.
+    const insert = db.calls.find((c) => c.sql.includes('INSERT INTO ArchitectureTokenOccurrence'));
+    expect(insert?.binds[4]).toBe(7);
+  });
+
+  it('still returns a successful save when the index write fails', async () => {
+    const db = makeDB({ rowExists: true });
+    (db as any).batch = vi.fn(async () => { throw new Error('D1 down'); });
+
+    const res = await onRequest({
+      request: makeRequest({ contentId: 'cc-1' }),
+      env: { DB: db },
+      data: { forgeContext: { apiBaseUrl: 'https://api.atlassian.com/ex/confluence/cloud-1', forgeAppId: 'app-1' } },
+    } as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('skips the index when the apiBaseUrl carries no cloudId', async () => {
+    const db = makeDB({ rowExists: true });
+    (db as any).batch = vi.fn(async () => []);
+
+    const res = await onRequest({
+      request: makeRequest({ contentId: 'cc-1' }),
+      env: { DB: db },
+      data: { forgeContext: { apiBaseUrl: 'https://example.invalid/x', forgeAppId: 'app-1' } },
+    } as any);
+
+    expect(res.status).toBe(200);
+    expect((db as any).batch).not.toHaveBeenCalled();
+  });
+});
+
+describe('forge-custom-content viewer without a user credential', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('answers 403 no_user_credential when a valid FIT arrives with a system token but no user token', async () => {
+    const db = makeDB({ rowExists: false });
+    const req = makeRequest({ contentId: 'cc-1' }, false);
+    req.headers.set('x-forge-oauth-system', 'sys-token');
+    const res = await onRequest({ request: req, env: { DB: { prepare: db.prepare } }, data: FORGE_DATA } as any);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'no_user_credential' });
+    expect(getCustomContentFromConfluenceForForge).not.toHaveBeenCalled();
   });
 });

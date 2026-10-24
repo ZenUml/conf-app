@@ -3,7 +3,7 @@
     ref="headerRef"
     :title="currentTitle"
     :error="titleError"
-    :ai-title-enabled="aiTitleEnabled"
+    :ai-title-available="aiTitleEnabled"
     :is-generating-title="isGeneratingTitle"
     :is-animating="isAnimating"
     :displayed-title="displayedTitle"
@@ -11,6 +11,7 @@
     :spark-fading-out="sparkFadingOut"
     :show-dismiss="showDismiss"
     :auto-name-animation-done="autoNameAnimationDone"
+    :editor-mode="editorMode"
     @titleChange="handleTitleChange"
     @titleConfirm="handleTitleConfirm"
     @manualGenerate="onManualGenerate"
@@ -41,6 +42,10 @@ export default defineComponent({
     currentXml: {
       type: String,
       default: ""
+    },
+    editorMode: {
+      type: String,
+      default: "diagram"
     }
   },
   setup(props) {
@@ -51,7 +56,7 @@ export default defineComponent({
     const {
       aiTitleEnabled, isGeneratingTitle, isAnimating, displayedTitle,
       showSpark, sparkFadingOut, showDismiss, autoNameAnimationDone,
-      initFlag, generate, dismiss, markManualEdit, onTitleCleared, reset,
+      generate, dismiss, markManualEdit, onTitleCleared, reset,
     } = useAutoTitle();
 
     // Single source of truth for the graph title is the Vuex store. Because the
@@ -159,13 +164,12 @@ export default defineComponent({
 
     watch(graphCode, () => scheduleAutoGenerate());
 
-    onMounted(async () => {
+    onMounted(() => {
       reset(); // clear any per-document state left over from a previous editor session
       window.ensureTitle = ensureTitle;
-      await initFlag();
       // Existing untitled graphs already have labelled content at mount, so the
       // graphCode watcher won't fire on its own — kick off an initial attempt.
-      if (aiTitleEnabled.value) scheduleAutoGenerate();
+      scheduleAutoGenerate();
     });
 
     onBeforeUnmount(() => {

@@ -2,72 +2,139 @@ import { getAuthorizationHeader } from '../utils/requestUtils';
 import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import type { SpaceLicenseRecord } from './space-license';
+import { json } from '../OkResponse';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
   ALLOWED_FORGE_APP_IDS?: string;
+  // Optional: the project-wide "DB" D1 binding (conf-zenuml-prod). Optional
+  // because some environments (tests, older wrangler configs) don't bind it —
+  // the paid-rail check below must degrade to the existing not-paid path
+  // rather than fail the request when it's absent.
+  DB?: D1Database;
 }
 
-interface SpaceStatusResponse {
+export interface SpaceStatusResponse {
   isPaid: boolean;
-  source?: 'user_license' | 'space_license';
+  source?: 'user_license' | 'space_license' | 'paid_rail';
 }
 
-/** Forge invokeRemote requires valid JSON + application/json for every status (incl. errors). */
-function jsonResponse(
-  status: number,
-  body: SpaceStatusResponse & { error?: string; message?: string },
-  cache: 'short' | 'none' = 'none'
-): Response {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (cache === 'short') {
-    // 'private': the response varies by the caller's accountId (user-scoped
-    // license), not just cloudId+spaceKey — a shared/CDN cache must not reuse
-    // one user's response for another user on the same space.
-    headers['Cache-Control'] = 'private, max-age=300';
-  } else {
-    headers['Cache-Control'] = 'no-store';
+// Full and Diagramly Forge app identifiers (our own app IDs, not tenant
+// data — see .claude/skills/forge-installs/SKILL.md).
+const FULL_APP_ID = 'd9e4002b-120b-426b-834b-402a4a5adce7';
+const DIAGRAMLY_APP_ID = '01ede8b1-4e88-451a-b9ef-89eeef93afaf';
+
+// Atlassian's Forge trial is 30 days; +15 days buffer for install-to-decision
+// lag. Long-term paid Full/Diagramly tenants are handled by explicit
+// PAYWALL_EXEMPTIONS entries (see the paywall skill), NOT by this query —
+// this suppression is deliberately time-boxed so it can never substitute for
+// a real license check on an old install.
+//
+// Caveat (verified against Atlassian's own docs, not assumed): ForgeInstallation.createdAt
+// (functions/utils/dbUtils.ts upsertForgeInstallation) is overwritten to "now" on EVERY
+// upsert, including avi:forge:upgraded:app — but per
+// https://developer.atlassian.com/platform/forge/events-reference/life-cycle/ that event
+// "is not sent for minor or patch version upgrades", only major ones (scope/licensing/consent
+// changes — see this repo's own "Forge app versions" doc). Majors are rare, so createdAt is a
+// reasonable install-date proxy for most tenants; a tenant whose install had a recent MAJOR
+// version bump (not a routine release) will also read as "recent" here — an occasional,
+// fail-safe (over-suppressing, not under-suppressing) false positive, not a systemic one.
+const PAID_RAIL_TRIAL_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
+
+/**
+ * Paid-rail suppression (owner directive 2026-08-07): a cloudId with a
+ * RECENT Full or Diagramly Forge install is very likely mid-trial on one of
+ * those products and evaluating whether to buy — don't paywall their Lite
+ * usage on the same tenant while that evaluation is in flight. This is our
+ * own D1 (ForgeInstallation), not the Atlassian Marketplace API.
+ *
+ * Returns the paid-rail response when a qualifying install is found, `null`
+ * on a miss OR any error (never throws into the caller — a D1 outage must
+ * fall through to the existing not-paid path, not fail the request).
+ */
+async function checkPaidRail(db: D1Database | undefined, cloudId: string): Promise<SpaceStatusResponse | null> {
+  if (!db) return null;
+  try {
+    const cutoff = new Date(Date.now() - PAID_RAIL_TRIAL_WINDOW_MS).toISOString();
+    const row = await db
+      .prepare(
+        `SELECT 1 FROM ForgeInstallation WHERE cloudId = ?1 AND appId IN ('${FULL_APP_ID}','${DIAGRAMLY_APP_ID}') AND createdAt >= ?2 LIMIT 1`
+      )
+      .bind(cloudId, cutoff)
+      .first();
+    if (row) {
+      return { isPaid: true, source: 'paid_rail' };
+    }
+    return null;
+  } catch (error) {
+    console.error('space-status: paid_rail D1 check failed', error);
+    return null;
   }
-  return new Response(JSON.stringify(body), { status, headers });
+}
+
+// Forge invokeRemote requires valid JSON + application/json for every status
+// (incl. errors); json() supplies the Content-Type.
+const NO_STORE = { 'Cache-Control': 'no-store' };
+// 'private': the response varies by the caller's accountId (user-scoped
+// license), not just cloudId+spaceKey - a shared/CDN cache must not reuse
+// one user's response for another user on the same space.
+const PRIVATE_CACHE_5MIN = { 'Cache-Control': 'private, max-age=300' };
+
+/**
+ * The shared tail for both "no active license" exits: a missing space-level
+ * KV record, and a record that's present but inactive/expired. Both must
+ * check the D1 paid-rail fallback before finally reporting not-paid — the
+ * user- and space-license checks above this still win when they hit.
+ */
+async function notPaidOrPaidRail(env: Env, cloudId: string): Promise<Response> {
+  const paidRail = await checkPaidRail(env.DB, cloudId);
+  if (paidRail) {
+    return json(paidRail, { status: 200, headers: PRIVATE_CACHE_5MIN });
+  }
+  return json({ isPaid: false }, { status: 200, headers: PRIVATE_CACHE_5MIN });
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
 
   if (request.method !== 'GET') {
-    return jsonResponse(405, {
+    return json({
       isPaid: false,
       error: 'method_not_allowed',
       message: 'Method Not Allowed',
-    });
+    }, { status: 405, headers: NO_STORE });
   }
 
   try {
     const jwt = getAuthorizationHeader(request);
 
     if (!jwt) {
-      return jsonResponse(401, {
+      return json({
         isPaid: false,
         error: 'unauthorized',
         message: 'Missing or invalid Authorization header',
-      });
+      }, { status: 401, headers: NO_STORE });
     }
 
     const allowedForgeAppIds = env.ALLOWED_FORGE_APP_IDS;
     if (!allowedForgeAppIds) {
       console.error('ALLOWED_FORGE_APP_IDS environment variable is not set');
-      return jsonResponse(500, {
+      return json({
         isPaid: false,
         error: 'server_configuration',
         message: 'ALLOWED_FORGE_APP_IDS not configured',
-      });
+      }, { status: 500, headers: NO_STORE });
     }
 
     const url = new URL(request.url);
     const payload = await validateContextToken(jwt, allowedForgeAppIds);
-    const cloudId = payload.cloudId || payload.payload.context?.cloudId;
+    // `context.cloudId` is typed `unknown` on the FIT payload, so the raw
+    // expression is `string | {}` — fine while it only fed template literals,
+    // but the D1 paid-rail check below binds it as a parameter. Narrow to a
+    // real string; a non-string value now reads as absent (falsy), which the
+    // guard below already treats as "no decision to make".
+    const rawCloudId = payload.cloudId || payload.payload.context?.cloudId;
+    const cloudId = typeof rawCloudId === 'string' ? rawCloudId : undefined;
     // Derived from the Forge-validated token, never a client query param — a
     // query param would let any user claim another user's accountId.
     const accountId = payload?.payload?.principal;
@@ -75,12 +142,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!cloudId || !spaceKey) {
       console.log('space-status: missing cloudId or spaceKey', { cloudId, spaceKey });
-      return jsonResponse(200, { isPaid: false }, 'short');
+      return json({ isPaid: false }, { status: 200, headers: PRIVATE_CACHE_5MIN });
     }
 
     if (!env.SPACE_LICENSE_KV) {
       console.error('SPACE_LICENSE_KV binding not configured');
-      return jsonResponse(200, { isPaid: false }, 'short');
+      return json({ isPaid: false }, { status: 200, headers: PRIVATE_CACHE_5MIN });
     }
 
     // User-scoped extension (checked first): only when the token carries a
@@ -92,7 +159,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const userIsActive = userRecord.status === 'active';
         const userIsExpired = new Date(userRecord.expiresAt) < new Date();
         if (userIsActive && !userIsExpired) {
-          return jsonResponse(200, { isPaid: true, source: 'user_license' }, 'short');
+          return json({ isPaid: true, source: 'user_license' }, { status: 200, headers: PRIVATE_CACHE_5MIN });
         }
       }
     }
@@ -101,7 +168,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!licenseRaw) {
       console.log('space-status: no license found for', `license:${cloudId}:${spaceKey}`);
-      return jsonResponse(200, { isPaid: false }, 'short');
+      return await notPaidOrPaidRail(env, cloudId);
     }
 
     const record = JSON.parse(licenseRaw) as SpaceLicenseRecord;
@@ -120,21 +187,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
 
     if (isPaid) {
-      return jsonResponse(
-        200,
-        { isPaid: true, source: 'space_license' },
-        'short'
-      );
+      return json({ isPaid: true, source: 'space_license' }, { status: 200, headers: PRIVATE_CACHE_5MIN });
     }
 
-    return jsonResponse(200, { isPaid: false }, 'short');
+    return await notPaidOrPaidRail(env, cloudId);
   } catch (error) {
     console.error('Error checking space status:', error);
     captureError(error);
-    return jsonResponse(500, {
+    return json({
       isPaid: false,
       error: 'internal_error',
       message: 'Internal Server Error',
-    });
+    }, { status: 500, headers: NO_STORE });
   }
 };

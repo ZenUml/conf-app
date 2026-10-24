@@ -13,6 +13,94 @@ const ANALYTICS_FACT_PURGE_BATCH_SIZE = 50000;
 // Cap rows removed per nightly run (batch x maxBatches). Large enough to drain a
 // historical backlog over a few nights, bounded so the cron stays well within limits.
 const ANALYTICS_FACT_PURGE_MAX_BATCHES = 40;
+const FEEDBACK_ATTACHMENT_PURGE_BATCH_SIZE = 100;
+const OAUTH_REFRESH_STATE_PURGE_BATCH_SIZE = 1000;
+
+export async function purgeExpiredFeedbackScreenshots(
+  db: D1Database,
+  now: string,
+): Promise<number> {
+  const result = await db.prepare(
+    `UPDATE FeedbackReport
+        SET screenshotData = NULL,
+            screenshotContentType = NULL,
+            screenshotExpiresAt = NULL
+      WHERE reportReference IN (
+        SELECT reportReference
+          FROM FeedbackReport
+         WHERE screenshotData IS NOT NULL
+           AND screenshotExpiresAt <= ?1
+         LIMIT ?2
+      )`,
+  ).bind(now, FEEDBACK_ATTACHMENT_PURGE_BATCH_SIZE).run();
+  return result.meta.changes || 0;
+}
+
+export interface OAuthRefreshStatePurgeCounts {
+  receiptsStripped: number;
+  tokensDeleted: number;
+  chainsDeleted: number;
+}
+
+/**
+ * Remove expired OAuth replay receipts and token state in bounded batches.
+ * Receipt encryption material becomes eligible for clearing on the next
+ * scheduled purge after its replay window closes, while the token row's
+ * nonce/hash metadata remains until token expiry so reuse detection can still
+ * reject an old token. Any remaining child token protects its chain marker
+ * until the bounded token cleanup removes that child.
+ */
+export async function purgeExpiredOAuthRefreshState(
+  db: D1Database,
+  nowMs: number,
+): Promise<OAuthRefreshStatePurgeCounts> {
+  const receipts = await db.prepare(
+    `UPDATE AgentLinkOAuthRefreshToken
+        SET receiptCiphertext = NULL,
+            receiptIv = NULL,
+            receiptExpiresAtMs = NULL
+      WHERE rowid IN (
+        SELECT rowid
+          FROM AgentLinkOAuthRefreshToken
+         WHERE receiptCiphertext IS NOT NULL
+           AND receiptExpiresAtMs <= ?1
+         LIMIT ?2
+      )`,
+  ).bind(nowMs, OAUTH_REFRESH_STATE_PURGE_BATCH_SIZE).run();
+
+  const tokens = await db.prepare(
+    `DELETE FROM AgentLinkOAuthRefreshToken
+      WHERE rowid IN (
+        SELECT rowid
+          FROM AgentLinkOAuthRefreshToken
+         WHERE expiresAtMs <= ?1
+           AND (receiptCiphertext IS NULL OR receiptExpiresAtMs <= ?1)
+         LIMIT ?2
+      )`,
+  ).bind(nowMs, OAUTH_REFRESH_STATE_PURGE_BATCH_SIZE).run();
+
+  const chains = await db.prepare(
+    `DELETE FROM AgentLinkOAuthRefreshChain
+      WHERE rowid IN (
+        SELECT c.rowid
+          FROM AgentLinkOAuthRefreshChain AS c
+         WHERE c.expiresAtMs <= ?1
+           AND NOT EXISTS (
+             SELECT 1
+               FROM AgentLinkOAuthRefreshToken AS t
+              WHERE t.issuer = c.issuer
+                AND t.chainId = c.chainId
+           )
+         LIMIT ?2
+      )`,
+  ).bind(nowMs, OAUTH_REFRESH_STATE_PURGE_BATCH_SIZE).run();
+
+  return {
+    receiptsStripped: receipts.meta.changes || 0,
+    tokensDeleted: tokens.meta.changes || 0,
+    chainsDeleted: chains.meta.changes || 0,
+  };
+}
 
 export default {
   async scheduled(
@@ -23,38 +111,6 @@ export default {
     console.log(
       `Cron triggered at ${new Date(controller.scheduledTime).toISOString()}`
     );
-
-    // Aggregate raw events into daily counters (all complete days before today)
-    const aggregateResult = await env.DB.prepare(
-      `
-      INSERT INTO DailyBehaviorCounter (date, cloudId, clientDomain, spaceKey, action, eventCount, uniqueUsers, uniquePages, updatedAt)
-      SELECT DATE(createdAt) as date, cloudId, clientDomain, spaceKey, action,
-             COUNT(*) as eventCount,
-             COUNT(DISTINCT userAccountId) as uniqueUsers,
-             COUNT(DISTINCT contentId) as uniquePages,
-             CURRENT_TIMESTAMP
-      FROM UserBehaviorEvent
-      WHERE DATE(createdAt) < DATE('now')
-      GROUP BY DATE(createdAt), cloudId, clientDomain, spaceKey, action
-      ON CONFLICT(date, cloudId, spaceKey, action) DO UPDATE SET
-        eventCount = excluded.eventCount,
-        uniqueUsers = excluded.uniqueUsers,
-        uniquePages = excluded.uniquePages,
-        clientDomain = COALESCE(excluded.clientDomain, DailyBehaviorCounter.clientDomain),
-        updatedAt = CURRENT_TIMESTAMP
-    `
-    ).run();
-
-    console.log(
-      `Aggregated: ${aggregateResult.meta.changes} counter rows upserted`
-    );
-
-    // Purge raw events older than 60 days
-    const purgeResult = await env.DB.prepare(
-      `DELETE FROM UserBehaviorEvent WHERE createdAt < datetime('now', '-60 days')`
-    ).run();
-
-    console.log(`Purged: ${purgeResult.meta.changes} old events deleted`);
 
     // Purge AnalyticsEventFact beyond the retention window, in bounded batches.
     const retentionDays =
@@ -83,6 +139,20 @@ export default {
 
     console.log(
       `Purged AnalyticsEventFact (eventDate < ${cutoffDate}, ${retentionDays}d): ${factDeleted} rows deleted`
+    );
+
+    const feedbackAttachmentsDeleted = await purgeExpiredFeedbackScreenshots(
+      env.DB,
+      new Date(controller.scheduledTime).toISOString(),
+    );
+    console.log(`Purged expired feedback attachments: ${feedbackAttachmentsDeleted}`);
+
+    const oauthRefreshState = await purgeExpiredOAuthRefreshState(
+      env.DB,
+      controller.scheduledTime,
+    );
+    console.log(
+      `Purged expired OAuth refresh state: ${oauthRefreshState.receiptsStripped} receipts stripped, ${oauthRefreshState.tokensDeleted} tokens deleted, ${oauthRefreshState.chainsDeleted} chains deleted`,
     );
   },
 };

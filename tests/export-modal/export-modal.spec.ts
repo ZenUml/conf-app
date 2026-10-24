@@ -1,77 +1,177 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Download, type Page } from './mixpanel-test.js';
+import { readFileSync } from 'node:fs';
 
 const TEST_URL = '/test-viewer.html';
 
+/**
+ * Below this, in either dimension, the "export" is a blank/degenerate canvas
+ * rather than a diagram. The sequence fixture renders several hundred px wide
+ * (and the preview is captured at pixelRatio 2, so its decoded size is double
+ * that again); the PlantUML fixture's server raster is ~400x200. 100px is
+ * comfortably under all of those and comfortably over the failure mode this
+ * guards (a 1x1 / 0.5x0.5 image, which still serializes to a perfectly
+ * well-formed PNG).
+ */
+const MIN_EXPORT_DIMENSION_PX = 100;
+
+// The sequence sandbox fixture (custom-content-by-id-v1-diagram-sequence.json)
+// embeds title "20241006 Order Service (Demonstration only)" in its body.raw.value —
+// that's what GenericViewer's `title` computed reads, and what ExportModal's
+// `diagramTitle` prop (and therefore slugifyFilename()) actually receives.
+const EXPECTED_EXPORT_FILENAME = '20241006-order-service-demonstration-only.png';
+
 // ─── Shared Helpers ───
 
-async function waitForViewerReady(page: Page) {
-  await page.goto(TEST_URL, { waitUntil: 'networkidle' });
+/**
+ * Default is `seq-fullscreen`, NOT `seq-view`. Since the staged-header redesign
+ * the inline viewer has no Export PNG button on the canvas: it lives in the
+ * header More menu, and choosing it routes through forgeIndex's fullscreen
+ * handler (`openModal` over the Forge bridge), which the standalone sandbox does
+ * not have — the menu item does nothing here (measured 2026-10-21). In the
+ * Fullscreen viewer Export PNG is a header button and opens the dialog in place,
+ * which is the same dialog the Forge modal hosts. Other presets: see
+ * src/sandbox/presets.ts.
+ */
+async function waitForViewerReady(page: Page, sandbox = 'seq-fullscreen') {
+  await page.goto(`${TEST_URL}?outputType=display&sandbox=${sandbox}`, { waitUntil: 'networkidle' });
   await page.waitForSelector('.screen-capture-content', { timeout: 15000 });
   await page.waitForTimeout(1000);
 }
 
+/**
+ * PNG IHDR width/height — bytes 16..23 of the file, after the 8-byte signature
+ * and the IHDR length/type. Deliberately NOT a data-URL prefix check: a blank,
+ * effectively zero-pixel canvas still serializes to a valid
+ * `data:image/png;base64,...`, which is exactly how a blank PlantUML export
+ * passed this suite unnoticed. Only real dimensions prove a real diagram.
+ */
+function readPngSize(bytes: Buffer | Uint8Array): { width: number; height: number } {
+  const buf = Buffer.from(bytes);
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!buf.subarray(0, 8).equals(signature)) {
+    throw new Error(`not a PNG: first bytes ${buf.subarray(0, 8).toString('hex')}`);
+  }
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
+/** Decoded dimensions of whatever the preview <img> is currently showing. */
+async function previewImageSize(page: Page): Promise<{ width: number; height: number }> {
+  const img = page.locator('img[alt="Diagram preview"]');
+  await expect(img).toBeVisible({ timeout: 10000 });
+  // naturalWidth stays 0 until the browser has decoded the src.
+  await expect
+    .poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 10000 })
+    .toBeGreaterThan(0);
+  return img.evaluate((el: HTMLImageElement) => ({ width: el.naturalWidth, height: el.naturalHeight }));
+}
+
+/** Read the bytes Playwright actually saved and decode their real size. */
+async function downloadedPngSize(download: Download): Promise<{ width: number; height: number }> {
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  return readPngSize(readFileSync(path!));
+}
+
+function expectRealDiagram(size: { width: number; height: number }, what: string) {
+  expect(size.width, `${what} width`).toBeGreaterThan(MIN_EXPORT_DIMENSION_PX);
+  expect(size.height, `${what} height`).toBeGreaterThan(MIN_EXPORT_DIMENSION_PX);
+}
+
 async function openExportModal(page: Page) {
-  const exportBtn = page.locator('button[aria-label="Download PNG"]');
+  const exportBtn = page.getByRole('button', { name: 'Export PNG', exact: true });
   await expect(exportBtn).toBeVisible({ timeout: 5000 });
   await exportBtn.click();
   await page.waitForSelector('.export-modal-backdrop', { timeout: 5000 });
-  await page.waitForSelector('.preview-real-diagram', { timeout: 10000 });
+  // The preview <img> only mounts once the DOM capture succeeded, so this wait
+  // is also the "capture pipeline works" assertion.
+  await page.waitForSelector('img[alt="Diagram preview"]', { timeout: 10000 });
 }
 
-function getCanvasBox(page: Page) {
-  return page.locator('.preview-canvas').boundingBox();
+// ─── Workspace locators (ExportWorkspace.vue, replaced the sidebar dialog in 1cff9a2a8) ───
+
+const toolbarButton = (page: Page, name: string) =>
+  page.getByRole('toolbar', { name: 'Export tools' }).getByRole('button', { name, exact: true });
+const annotationCanvas = (page: Page) => page.locator('svg.annotation-canvas');
+const overlay = (page: Page) => page.locator('.rendered-annotations svg');
+const annotationProps = (page: Page) => page.locator('.context-tools[aria-label="Annotation properties"]');
+const watermarkProps = (page: Page) => page.locator('.context-tools[aria-label="Watermark properties"]');
+
+async function canvasBox(page: Page) {
+  const box = await annotationCanvas(page).boundingBox();
+  if (!box) throw new Error('annotation canvas not found');
+  return box;
 }
 
-async function clickTool(page: Page, titleMatch: string) {
-  const btn = page.locator(`.tool-btn[title*="${titleMatch}"]`);
+/** Point inside the image, as fractions of its width/height. */
+async function at(page: Page, fx: number, fy: number) {
+  const box = await canvasBox(page);
+  return { x: box.x + box.width * fx, y: box.y + box.height * fy };
+}
+
+async function clickTool(page: Page, label: string) {
+  const btn = toolbarButton(page, label);
   await expect(btn).toBeVisible();
   await btn.click();
 }
 
-async function drawArrow(page: Page) {
-  await clickTool(page, 'Arrow');
-  const box = await getCanvasBox(page);
-  if (!box) throw new Error('preview-canvas not found');
-
-  const startX = box.x + box.width * 0.15;
-  const startY = box.y + box.height * 0.2;
-  const endX = box.x + box.width * 0.6;
-  const endY = box.y + box.height * 0.5;
-  await page.mouse.move(startX, startY);
+async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
+  await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.mouse.move(endX, endY, { steps: 10 });
+  await page.mouse.move(to.x, to.y, { steps: 10 });
   await page.mouse.up();
-  await page.waitForTimeout(200);
 }
 
-async function placeNote(page: Page) {
-  await clickTool(page, 'Note');
-  const box = await getCanvasBox(page);
-  if (!box) throw new Error('preview-canvas not found');
-  await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.15);
-  await page.waitForTimeout(200);
+async function drawArrow(page: Page, from = [0.15, 0.2], to = [0.6, 0.5]) {
+  await clickTool(page, 'Add arrow');
+  await drag(page, await at(page, from[0], from[1]), await at(page, to[0], to[1]));
+  await expect(overlay(page).locator('line')).toHaveCount(1);
 }
 
-async function placeCallout(page: Page) {
-  await clickTool(page, 'Callout');
-  const box = await getCanvasBox(page);
-  if (!box) throw new Error('preview-canvas not found');
-  await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.7);
-  await page.waitForTimeout(200);
+async function drawRectangle(page: Page) {
+  await clickTool(page, 'Add rectangle');
+  await drag(page, await at(page, 0.2, 0.3), await at(page, 0.5, 0.6));
+  await expect(overlay(page).locator('rect')).toHaveCount(1);
 }
 
-async function selectAnnotation(page: Page, className: string) {
-  const el = page.locator(`.overlay-layer .${className}`);
-  await el.first().dispatchEvent('click');
-  await page.waitForTimeout(200);
+/** Note and callout are placed by a click and then typed in an inline input. */
+async function placeText(page: Page, tool: 'Add text' | 'Add callout', text: string, fx: number, fy: number) {
+  await clickTool(page, tool);
+  const p = await at(page, fx, fy);
+  await page.mouse.click(p.x, p.y);
+  const input = page.getByLabel('Annotation text');
+  await expect(input).toBeFocused();
+  await input.fill(text);
+  await input.press('Enter');
+  await expect(overlay(page).locator('text', { hasText: text })).toHaveCount(1);
 }
 
-async function focusOverlay(page: Page) {
-  const overlay = page.locator('.overlay-layer');
-  if (await overlay.count() > 0) {
-    await overlay.first().focus();
-  }
+const placeNote = (page: Page, text = 'Note', fx = 0.7, fy = 0.15) => placeText(page, 'Add text', text, fx, fy);
+const placeCallout = (page: Page, text = 'Callout', fx = 0.4, fy = 0.7) => placeText(page, 'Add callout', text, fx, fy);
+
+async function addWatermark(page: Page) {
+  await clickTool(page, 'Add watermark');
+  await expect(watermarkProps(page)).toBeVisible();
 }
+
+/** Select an annotation by clicking its hit target (the `<g>` the canvas draws). */
+async function selectAnnotation(page: Page, type: 'arrow' | 'note' | 'callout' | 'rectangle', nth = 0) {
+  const target = annotationCanvas(page).locator(`g[data-annotation-id][aria-label^="${type}:"]`).nth(nth);
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`no ${type} annotation on the canvas`);
+  // Rectangles are hit on their stroke only; everything else on the box centre.
+  const p = type === 'rectangle'
+    ? { x: box.x + box.width / 2, y: box.y + 1 }
+    : { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.mouse.click(p.x, p.y);
+  await expect(annotationProps(page)).toBeVisible();
+}
+
+async function pickColor(page: Page, swatchLabel: string, choice: string) {
+  await annotationProps(page).getByRole('button', { name: swatchLabel }).click();
+  await page.getByRole('menuitem', { name: choice, exact: true }).click();
+}
+
+const exportButton = (page: Page) => toolbarButton(page, 'Download image');
 
 // ─── Modal Structure ───
 
@@ -80,57 +180,93 @@ test.describe('Modal Structure', () => {
     await waitForViewerReady(page);
   });
 
-  test('export modal opens with preview and sidebar', async ({ page }) => {
+  test('export dialog opens with toolbar and canvas stage', async ({ page }) => {
     await openExportModal(page);
-    await expect(page.locator('.export-preview-pane')).toBeVisible();
-    await expect(page.locator('.export-sidebar')).toBeVisible();
-    await expect(page.locator('.export-divider')).toBeVisible();
+    await expect(page.getByRole('toolbar', { name: 'Export tools' })).toBeVisible();
+    await expect(page.locator('.workspace-stage')).toBeVisible();
+    await expect(annotationCanvas(page)).toBeVisible();
   });
 
-  test('annotation toolbar has 4 tool buttons', async ({ page }) => {
+  test('toolbar offers select, four annotation tools and watermark', async ({ page }) => {
     await openExportModal(page);
-    const tools = page.locator('.annotation-toolbar .tool-btn');
-    await expect(tools).toHaveCount(4);
+    for (const name of ['Select and move', 'Add text', 'Add arrow', 'Add callout', 'Add rectangle', 'Add watermark']) {
+      await expect(toolbarButton(page, name), name).toBeVisible();
+    }
   });
 
-  test('sidebar shows Background section', async ({ page }) => {
+  test('toolbar shows the Background control and the fixed PNG format label', async ({ page }) => {
     await openExportModal(page);
-    const headings = await page.locator('.section-heading').allTextContents();
-    const lower = headings.map(h => h.trim().toLowerCase());
-    expect(lower).toContain('background');
+    await expect(page.getByLabel('Image background')).toBeVisible();
+    await expect(page.locator('.format-label')).toHaveText('PNG');
   });
 
-  test('sidebar shows hint when no annotation selected', async ({ page }) => {
+  test('toolbar reports the image size and zoom', async ({ page }) => {
     await openExportModal(page);
-    const hint = page.locator('.annotation-hint');
-    await expect(hint).toBeVisible();
-    await expect(hint).toContainText('Use the toolbar');
+    await expect(page.locator('.image-meta', { hasText: 'Image size' })).toContainText(/\d+ × \d+/);
+    await expect(page.locator('.image-meta', { hasText: 'Zoom' })).toContainText(/\d+%/);
+  });
+
+  test('no annotation properties are shown until something is selected', async ({ page }) => {
+    await openExportModal(page);
+    await expect(annotationProps(page)).toHaveCount(0);
+    await expect(watermarkProps(page)).toHaveCount(0);
   });
 
   test('preview shows captured diagram image', async ({ page }) => {
     await openExportModal(page);
-    const img = page.locator('.preview-real-diagram');
+    const img = page.locator('img[alt="Diagram preview"]');
     await expect(img).toBeVisible();
     const src = await img.getAttribute('src');
-    expect(src).toContain('data:image/png');
+    // A raster the browser can decode — either an inline data URL (DOM
+    // capture) or an object URL (PlantUML's server PNG).
+    expect(src).toMatch(/^(data:image\/png|blob:)/);
+
+    // The assertion that matters. Checking only the data-URL prefix let a
+    // blank, effectively zero-pixel capture pass this suite for two months
+    // (the PlantUML Export PNG bug): a degenerate canvas still produces a
+    // well-formed `data:image/png;base64,...`. Decode it and demand pixels.
+    expectRealDiagram(await previewImageSize(page), 'preview image');
   });
 
-  test('close button dismisses modal', async ({ page }) => {
+  test('close button dismisses the dialog', async ({ page }) => {
     await openExportModal(page);
-    await page.locator('.sidebar-close').click();
+    await toolbarButton(page, 'Close export').click();
     await expect(page.locator('.export-modal-backdrop')).not.toBeVisible();
   });
 
-  test('backdrop click dismisses modal', async ({ page }) => {
+  test('Refresh preview recaptures the diagram', async ({ page }) => {
     await openExportModal(page);
-    await page.locator('.export-modal-backdrop').click({ position: { x: 5, y: 5 } });
+    await toolbarButton(page, 'Refresh preview').click();
+    expectRealDiagram(await previewImageSize(page), 'refreshed preview');
+  });
+});
+
+// ─── Dialog Accessibility ───
+
+test.describe('Dialog Accessibility', () => {
+  test.beforeEach(async ({ page }) => {
+    await waitForViewerReady(page);
+    await openExportModal(page);
+  });
+
+  test('dialog has role="dialog", aria-modal="true" and a name', async ({ page }) => {
+    const dialog = page.locator('.export-modal');
+    await expect(dialog).toHaveAttribute('role', 'dialog');
+    await expect(dialog).toHaveAttribute('aria-modal', 'true');
+    await expect(dialog).toHaveAttribute('aria-label', 'Export image');
+  });
+
+  test('Escape closes the dialog when no tool or annotation is active', async ({ page }) => {
+    await page.keyboard.press('Escape');
     await expect(page.locator('.export-modal-backdrop')).not.toBeVisible();
   });
 
-  test('cancel button dismisses modal', async ({ page }) => {
-    await openExportModal(page);
-    await page.locator('.btn-cancel').click();
-    await expect(page.locator('.export-modal-backdrop')).not.toBeVisible();
+  test('active tool is exposed through aria-pressed', async ({ page }) => {
+    const arrow = toolbarButton(page, 'Add arrow');
+    await expect(arrow).toHaveAttribute('aria-pressed', 'false');
+    await arrow.click();
+    await expect(arrow).toHaveAttribute('aria-pressed', 'true');
+    await expect(toolbarButton(page, 'Select and move')).toHaveAttribute('aria-pressed', 'false');
   });
 });
 
@@ -142,21 +278,40 @@ test.describe('Background', () => {
     await openExportModal(page);
   });
 
-  test('background swatches are clickable', async ({ page }) => {
-    const swatches = page.locator('.bg-swatch');
-    const count = await swatches.count();
-    expect(count).toBeGreaterThanOrEqual(4);
-    for (let i = 0; i < count; i++) {
-      await swatches.nth(i).click();
-      await expect(swatches.nth(i)).toHaveClass(/active/);
+  test('every background option repaints the image surface', async ({ page }) => {
+    const select = page.getByLabel('Image background');
+    const surface = page.locator('.image-surface');
+    const expected: Record<string, string> = {
+      transparent: 'rgba(0, 0, 0, 0)',
+      white: 'rgb(255, 255, 255)',
+      warm: 'rgb(255, 251, 240)',
+      cool: 'rgb(240, 244, 255)',
+    };
+    for (const [value, color] of Object.entries(expected)) {
+      await select.selectOption(value);
+      await expect(surface, value).toHaveCSS('background-color', color);
     }
   });
 
-  test('transparent background shows checkerboard', async ({ page }) => {
-    await page.locator('.swatch-transparent').click();
-    const wrap = page.locator('.preview-canvas-wrap');
-    const bgImage = await wrap.evaluate(el => getComputedStyle(el).backgroundImage);
-    expect(bgImage).toContain('linear-gradient');
+  test('transparent background leaves the stage checkerboard visible', async ({ page }) => {
+    await page.getByLabel('Image background').selectOption('transparent');
+    const bgImage = await page.locator('.workspace-stage').evaluate(el => getComputedStyle(el).backgroundImage);
+    expect(bgImage).toContain('conic-gradient');
+  });
+
+  test('custom background offers a colour menu and applies a chosen colour', async ({ page }) => {
+    await page.getByLabel('Image background').selectOption('custom');
+    await page.getByRole('button', { name: 'Custom background color', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Cool', exact: true }).click();
+    await expect(page.locator('.image-surface')).toHaveCSS('background-color', 'rgb(240, 244, 255)');
+  });
+
+  test('custom background rejects a malformed hex value', async ({ page }) => {
+    await page.getByLabel('Image background').selectOption('custom');
+    await page.getByRole('button', { name: 'Custom background color', exact: true }).click();
+    await page.getByLabel('Custom background hex').fill('#12');
+    await expect(page.getByText('Use #RRGGBB')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
   });
 });
 
@@ -168,161 +323,75 @@ test.describe('Arrow Tool', () => {
     await openExportModal(page);
   });
 
-  test('clicking arrow tool activates it with highlight', async ({ page }) => {
-    const arrowBtn = page.locator('.tool-btn[title*="Arrow"]');
-    await arrowBtn.click();
-    await expect(arrowBtn).toHaveClass(/active/);
+  test('clicking the arrow tool activates it and arms a crosshair canvas', async ({ page }) => {
+    await clickTool(page, 'Add arrow');
+    await expect(toolbarButton(page, 'Add arrow')).toHaveAttribute('aria-pressed', 'true');
+    await expect(annotationCanvas(page)).toHaveCSS('cursor', 'crosshair');
   });
 
-  test('arrow tool shows drag hint', async ({ page }) => {
-    await clickTool(page, 'Arrow');
-    await expect(page.locator('.arrow-click-hint', { hasText: 'Drag to draw arrow' })).toBeVisible();
-  });
-
-  test('drag creates arrow with line and arrowhead visible', async ({ page }) => {
+  test('drag creates an arrow with a line and an arrowhead', async ({ page }) => {
     await drawArrow(page);
-
-    const arrowLine = page.locator('.overlay-layer .arrow-overlay line').first();
-    await expect(arrowLine).toBeVisible({ timeout: 3000 });
-
-    const arrowHead = page.locator('.overlay-layer .arrow-overlay path').first();
-    await expect(arrowHead).toBeVisible();
+    await expect(overlay(page).locator('line')).toHaveCount(1);
+    await expect(overlay(page).locator('path')).toHaveCount(1);
   });
 
   test('arrow tool deactivates after drawing', async ({ page }) => {
     await drawArrow(page);
-    const arrowBtn = page.locator('.tool-btn[title*="Arrow"]');
-    await expect(arrowBtn).not.toHaveClass(/active/);
+    await expect(toolbarButton(page, 'Add arrow')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  test('shows "Release to finish" hint during drag', async ({ page }) => {
-    await clickTool(page, 'Arrow');
-    const box = await getCanvasBox(page);
-    if (!box) throw new Error('preview-canvas not found');
-
-    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.3);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, { steps: 3 });
-
-    await expect(page.locator('.arrow-click-hint', { hasText: 'Release to finish' })).toBeVisible();
-
-    await page.mouse.up();
+  test('a very short drag does not create an arrow', async ({ page }) => {
+    await clickTool(page, 'Add arrow');
+    const p = await at(page, 0.3, 0.3);
+    await drag(page, p, { x: p.x + 1, y: p.y + 1 });
+    await expect(overlay(page).locator('line')).toHaveCount(0);
+    await expect(annotationProps(page)).toHaveCount(0);
   });
 
-  test('very short drag does not create arrow', async ({ page }) => {
-    await clickTool(page, 'Arrow');
-    const box = await getCanvasBox(page);
-    if (!box) throw new Error('preview-canvas not found');
-    const x = box.x + box.width * 0.5;
-    const y = box.y + box.height * 0.5;
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    await page.mouse.move(x + 1, y + 1);
-    await page.mouse.up();
-
-    const arrowLine = page.locator('.overlay-layer .arrow-overlay line');
-    await expect(arrowLine).not.toBeVisible();
-  });
-
-  test('selecting arrow shows Arrow Properties in sidebar', async ({ page }) => {
+  test('the new arrow is selected and shows its properties', async ({ page }) => {
     await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const propsSection = page.locator('.annotation-props').filter({ hasText: 'Arrow Properties' });
-    await expect(propsSection).toBeVisible();
-    await expect(propsSection.locator('.field-select')).toBeVisible();
-    await expect(propsSection.locator('.field-color')).toBeVisible();
-    await expect(propsSection.locator('.field-range')).toBeVisible();
+    const props = annotationProps(page);
+    await expect(props).toBeVisible();
+    await expect(props.getByLabel('Annotation color', { exact: true })).toBeVisible();
+    await expect(props.getByLabel('Stroke width')).toBeVisible();
+    await expect(props.getByLabel('Arrow direction')).toBeVisible();
+    await expect(props.getByLabel('Delete annotation')).toBeVisible();
   });
 
-  test('grip handles appear when arrow is selected', async ({ page }) => {
+  test('start and end handles appear while the arrow is selected', async ({ page }) => {
     await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const grips = page.locator('.overlay-layer .arrow-overlay .grip-handle');
-    await expect(grips).toHaveCount(2);
+    await expect(page.locator('circle[aria-label="Drag start handle"]')).toBeVisible();
+    await expect(page.locator('circle[aria-label="Drag end handle"]')).toBeVisible();
   });
 
-  test('changing arrow color in sidebar updates SVG', async ({ page }) => {
+  test('changing the arrow colour updates the rendered line', async ({ page }) => {
     await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const colorInput = page.locator('.annotation-props .field-color');
-    await expect(colorInput).toBeVisible();
-    await colorInput.fill('#00ff00');
-    await page.waitForTimeout(200);
-
-    const line = page.locator('.overlay-layer .arrow-overlay .arrow-line-body');
-    const stroke = await line.getAttribute('stroke');
-    expect(stroke).toBe('#00ff00');
+    await pickColor(page, 'Annotation color', 'Blue');
+    await expect(overlay(page).locator('line')).toHaveAttribute('stroke', '#2563eb');
   });
 
-  test('arrow grip drag repositions endpoint', async ({ page }) => {
+  test('dragging the end handle repositions the endpoint', async ({ page }) => {
     await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const grips = page.locator('.overlay-layer .arrow-overlay .grip-handle');
-    await expect(grips).toHaveCount(2);
-
-    const endGrip = grips.nth(1);
-    const gripBox = await endGrip.boundingBox();
-    if (!gripBox) throw new Error('grip not found');
-
-    const gripCenterX = gripBox.x + gripBox.width / 2;
-    const gripCenterY = gripBox.y + gripBox.height / 2;
-
-    const line = page.locator('.overlay-layer .arrow-overlay .arrow-line-body');
-    const x2Before = await line.getAttribute('x2');
-
-    await page.mouse.move(gripCenterX, gripCenterY);
-    await page.mouse.down();
-    await page.mouse.move(gripCenterX - 50, gripCenterY - 30, { steps: 5 });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-
-    const x2After = await line.getAttribute('x2');
-    expect(x2After).not.toBe(x2Before);
+    const line = overlay(page).locator('line');
+    const before = Number(await line.getAttribute('x2'));
+    const handle = await page.locator('circle[aria-label="Drag end handle"]').boundingBox();
+    if (!handle) throw new Error('end handle missing');
+    const from = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 };
+    await drag(page, from, { x: from.x - 80, y: from.y + 40 });
+    await expect.poll(async () => Number(await line.getAttribute('x2'))).toBeLessThan(before);
   });
 
-  test('arrow body drag moves entire arrow', async ({ page }) => {
+  test('dragging the arrow body moves the whole arrow', async ({ page }) => {
     await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const line = page.locator('.overlay-layer .arrow-overlay .arrow-line-body');
-    const x1Before = parseFloat((await line.getAttribute('x1'))!);
-    const y1Before = parseFloat((await line.getAttribute('y1'))!);
-
-    const hitArea = page.locator('.overlay-layer .arrow-overlay .arrow-hit-area');
-    const hitBox = await hitArea.boundingBox();
-    if (!hitBox) throw new Error('arrow hit area not found');
-
-    const midX = hitBox.x + hitBox.width / 2;
-    const midY = hitBox.y + hitBox.height / 2;
-
-    await page.mouse.move(midX, midY);
-    await page.mouse.down();
-    await page.mouse.move(midX + 30, midY + 20, { steps: 5 });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-
-    const x1After = parseFloat((await line.getAttribute('x1'))!);
-    const y1After = parseFloat((await line.getAttribute('y1'))!);
-    expect(x1After).not.toBeCloseTo(x1Before, 0);
-    expect(y1After).not.toBeCloseTo(y1Before, 0);
-  });
-
-  test('adding label in sidebar shows label on arrow', async ({ page }) => {
-    await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const labelInput = page.locator('.annotation-props .field-input[placeholder*="label" i]');
-    await expect(labelInput).toBeVisible();
-    await labelInput.fill('Important');
-    await page.waitForTimeout(200);
-
-    const labelText = page.locator('.overlay-layer .arrow-overlay text');
-    await expect(labelText).toBeVisible();
-    await expect(labelText).toHaveText('Important');
+    const line = overlay(page).locator('line');
+    const x1 = Number(await line.getAttribute('x1'));
+    const y1 = Number(await line.getAttribute('y1'));
+    const hit = await annotationCanvas(page).locator('g[data-annotation-id]').first().boundingBox();
+    if (!hit) throw new Error('arrow hit target missing');
+    const from = { x: hit.x + hit.width / 2, y: hit.y + hit.height / 2 };
+    await drag(page, from, { x: from.x + 40, y: from.y + 30 });
+    await expect.poll(async () => Number(await line.getAttribute('x1'))).toBeGreaterThan(x1);
+    expect(Number(await line.getAttribute('y1'))).toBeGreaterThan(y1);
   });
 });
 
@@ -334,104 +403,106 @@ test.describe('Note Tool', () => {
     await openExportModal(page);
   });
 
-  test('clicking note tool activates it', async ({ page }) => {
-    const noteBtn = page.locator('.tool-btn[title*="Note"]');
-    await noteBtn.click();
-    await expect(noteBtn).toHaveClass(/active/);
-    await expect(page.locator('.arrow-click-hint', { hasText: 'Click to place note' })).toBeVisible();
+  test('clicking the text tool activates it', async ({ page }) => {
+    await clickTool(page, 'Add text');
+    await expect(toolbarButton(page, 'Add text')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('clicking canvas places note with default text', async ({ page }) => {
-    await placeNote(page);
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    await expect(noteText).toBeVisible({ timeout: 3000 });
-    await expect(noteText).toHaveText('Note');
+  test('clicking the canvas opens an inline editor and the typed text is rendered', async ({ page }) => {
+    await placeNote(page, 'Hello export');
+    await expect(overlay(page).locator('text')).toHaveText('Hello export');
   });
 
-  test('note tool deactivates after placing', async ({ page }) => {
+  test('text tool deactivates after placing', async ({ page }) => {
     await placeNote(page);
-    const noteBtn = page.locator('.tool-btn[title*="Note"]');
-    await expect(noteBtn).not.toHaveClass(/active/);
+    await expect(toolbarButton(page, 'Add text')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  test('note has draggable-note class and grab cursor', async ({ page }) => {
-    await placeNote(page);
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    await expect(noteText).toBeVisible();
-    await expect(noteText).toHaveClass(/draggable-note/);
-    const cursor = await noteText.evaluate(el => getComputedStyle(el).cursor);
-    expect(cursor).toBe('grab');
+  test('committing an empty note discards it', async ({ page }) => {
+    await clickTool(page, 'Add text');
+    const p = await at(page, 0.5, 0.5);
+    await page.mouse.click(p.x, p.y);
+    const input = page.getByLabel('Annotation text');
+    await expect(input).toBeFocused();
+    await input.press('Enter');
+    await expect(overlay(page).locator('text')).toHaveCount(0);
+    await expect(annotationProps(page)).toHaveCount(0);
   });
 
-  test('selecting note shows Note Properties in sidebar', async ({ page }) => {
-    await placeNote(page);
-    await selectAnnotation(page, 'note-overlay');
-
-    const propsSection = page.locator('.annotation-props').filter({ hasText: 'Note Properties' });
-    await expect(propsSection).toBeVisible();
-    await expect(propsSection.locator('.field-input')).toBeVisible();
-    await expect(propsSection.locator('.field-range')).toBeVisible();
-    await expect(propsSection.locator('.field-color')).toBeVisible();
+  test('Escape while typing cancels a fresh note', async ({ page }) => {
+    await clickTool(page, 'Add text');
+    const p = await at(page, 0.5, 0.5);
+    await page.mouse.click(p.x, p.y);
+    const input = page.getByLabel('Annotation text');
+    await input.fill('never kept');
+    await input.press('Escape');
+    await expect(overlay(page).locator('text')).toHaveCount(0);
+    await expect(page.locator('.export-modal-backdrop')).toBeVisible();
   });
 
-  test('double-click note opens edit input', async ({ page }) => {
+  test('a selected note shows text-specific properties', async ({ page }) => {
     await placeNote(page);
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    await expect(noteText).toBeVisible();
-    await noteText.dispatchEvent('dblclick');
-
-    const editInput = page.locator('.note-edit-input');
-    await expect(editInput).toBeVisible({ timeout: 3000 });
+    await selectAnnotation(page, 'note');
+    const props = annotationProps(page);
+    await expect(props.getByLabel('Edit text')).toBeVisible();
+    await expect(props.getByLabel('Font size')).toBeVisible();
+    await expect(props.getByLabel('Stroke width')).toHaveCount(0);
   });
 
-  test('editing note text via in-place editor updates SVG', async ({ page }) => {
-    await placeNote(page);
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    await expect(noteText).toBeVisible();
-    await noteText.dispatchEvent('dblclick');
-
-    const editInput = page.locator('.note-edit-input');
-    await expect(editInput).toBeVisible({ timeout: 3000 });
-    await editInput.fill('My Annotation');
-    await editInput.press('Enter');
-
-    await expect(page.locator('.overlay-layer .note-overlay text')).toHaveText('My Annotation');
+  test('double-click re-opens the editor and updates the rendered text', async ({ page }) => {
+    await placeNote(page, 'Before');
+    const hit = await annotationCanvas(page).locator('g[data-annotation-id]').first().boundingBox();
+    if (!hit) throw new Error('note hit target missing');
+    await page.mouse.dblclick(hit.x + hit.width / 2, hit.y + hit.height / 2);
+    const input = page.getByLabel('Annotation text');
+    await expect(input).toBeFocused();
+    await input.fill('After');
+    await input.press('Enter');
+    await expect(overlay(page).locator('text')).toHaveText('After');
   });
 
-  test('editing note text via sidebar updates SVG', async ({ page }) => {
-    await placeNote(page);
-    await selectAnnotation(page, 'note-overlay');
-
-    const textInput = page.locator('.annotation-props .field-input').first();
-    await expect(textInput).toBeVisible();
-    await textInput.fill('Sidebar Text');
-    await page.waitForTimeout(200);
-
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    await expect(noteText).toHaveText('Sidebar Text');
+  test('the Edit text button updates the rendered text', async ({ page }) => {
+    await placeNote(page, 'Before');
+    await selectAnnotation(page, 'note');
+    await annotationProps(page).getByLabel('Edit text').click();
+    const input = page.getByLabel('Annotation text');
+    await input.fill('Via button');
+    await input.press('Enter');
+    await expect(overlay(page).locator('text')).toHaveText('Via button');
   });
 
-  test('note drag moves it to new position', async ({ page }) => {
+  test('note colour change updates the rendered fill', async ({ page }) => {
     await placeNote(page);
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    await expect(noteText).toBeVisible();
+    await selectAnnotation(page, 'note');
+    await pickColor(page, 'Annotation color', 'Red');
+    await expect(overlay(page).locator('text')).toHaveAttribute('fill', '#dc2626');
+  });
 
-    const xBefore = parseFloat((await noteText.getAttribute('x'))!);
-    const yBefore = parseFloat((await noteText.getAttribute('y'))!);
+  test('note font size change updates the rendered font-size', async ({ page }) => {
+    await placeNote(page);
+    await selectAnnotation(page, 'note');
+    const size = annotationProps(page).getByLabel('Font size');
+    await size.fill('32');
+    await size.press('Enter');
+    await size.blur();
+    await expect(overlay(page).locator('text')).toHaveAttribute('font-size', '32');
+  });
 
-    const noteBox = await noteText.boundingBox();
-    if (!noteBox) throw new Error('note bounding box not found');
+  test('note has a drop shadow filter in the overlay', async ({ page }) => {
+    await placeNote(page);
+    await expect(overlay(page).locator('text')).toHaveAttribute('filter', 'url(#ds)');
+    await expect(overlay(page).locator('filter#ds')).toHaveCount(1);
+  });
 
-    await page.mouse.move(noteBox.x + noteBox.width / 2, noteBox.y + noteBox.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(noteBox.x + noteBox.width / 2 + 40, noteBox.y + noteBox.height / 2 + 30, { steps: 5 });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-
-    const xAfter = parseFloat((await noteText.getAttribute('x'))!);
-    const yAfter = parseFloat((await noteText.getAttribute('y'))!);
-    expect(xAfter).not.toBeCloseTo(xBefore, 0);
-    expect(yAfter).not.toBeCloseTo(yBefore, 0);
+  test('dragging a note moves it', async ({ page }) => {
+    await placeNote(page);
+    const text = overlay(page).locator('text');
+    const x = Number(await text.getAttribute('x'));
+    const hit = await annotationCanvas(page).locator('g[data-annotation-id]').first().boundingBox();
+    if (!hit) throw new Error('note hit target missing');
+    const from = { x: hit.x + hit.width / 2, y: hit.y + hit.height / 2 };
+    await drag(page, from, { x: from.x - 100, y: from.y + 60 });
+    await expect.poll(async () => Number(await text.getAttribute('x'))).toBeLessThan(x);
   });
 });
 
@@ -443,117 +514,103 @@ test.describe('Callout Tool', () => {
     await openExportModal(page);
   });
 
-  test('clicking callout tool activates it', async ({ page }) => {
-    const calloutBtn = page.locator('.tool-btn[title*="Callout"]');
-    await calloutBtn.click();
-    await expect(calloutBtn).toHaveClass(/active/);
-    await expect(page.locator('.arrow-click-hint', { hasText: 'Click to place callout' })).toBeVisible();
+  test('clicking the callout tool activates it', async ({ page }) => {
+    await clickTool(page, 'Add callout');
+    await expect(toolbarButton(page, 'Add callout')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('clicking canvas places callout with speech bubble and default text', async ({ page }) => {
-    await placeCallout(page);
-
-    const calloutPath = page.locator('.overlay-layer .callout-overlay path');
-    await expect(calloutPath).toBeVisible({ timeout: 3000 });
-    const d = await calloutPath.getAttribute('d');
-    expect(d).toBeTruthy();
-    expect(d).toContain('Q');
-
-    const calloutText = page.locator('.overlay-layer .callout-overlay text');
-    await expect(calloutText).toHaveText('Callout');
+  test('placing a callout renders a bubble path and its text', async ({ page }) => {
+    await placeCallout(page, 'Look here');
+    await expect(overlay(page).locator('path')).toHaveCount(1);
+    await expect(overlay(page).locator('text')).toHaveText('Look here');
   });
 
   test('callout tool deactivates after placing', async ({ page }) => {
     await placeCallout(page);
-    const calloutBtn = page.locator('.tool-btn[title*="Callout"]');
-    await expect(calloutBtn).not.toHaveClass(/active/);
+    await expect(toolbarButton(page, 'Add callout')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  test('selecting callout shows Callout Properties in sidebar', async ({ page }) => {
+  test('a selected callout shows text and fill properties', async ({ page }) => {
     await placeCallout(page);
-    await selectAnnotation(page, 'callout-overlay');
-
-    const propsSection = page.locator('.annotation-props').filter({ hasText: 'Callout Properties' });
-    await expect(propsSection).toBeVisible();
-    await expect(propsSection.locator('.field-input')).toBeVisible();
-    await expect(propsSection.locator('.field-range')).toBeVisible();
+    await selectAnnotation(page, 'callout');
+    const props = annotationProps(page);
+    await expect(props.getByLabel('Edit text')).toBeVisible();
+    await expect(props.getByLabel('Callout fill')).toBeVisible();
+    await expect(props.getByLabel('Font size')).toBeVisible();
   });
 
-  test('callout tip grip appears when selected', async ({ page }) => {
+  test('the tip handle appears while the callout is selected', async ({ page }) => {
     await placeCallout(page);
-    await selectAnnotation(page, 'callout-overlay');
-
-    const gripHandle = page.locator('.overlay-layer .callout-overlay .grip-handle');
-    await expect(gripHandle).toBeVisible({ timeout: 3000 });
+    await selectAnnotation(page, 'callout');
+    await expect(page.locator('circle[aria-label="Drag end handle"]')).toBeVisible();
+    await expect(page.locator('circle[aria-label="Drag start handle"]')).toHaveCount(0);
   });
 
-  test('callout body has move cursor', async ({ page }) => {
+  test('dragging a callout body moves the whole callout', async ({ page }) => {
     await placeCallout(page);
-    const calloutGroup = page.locator('.overlay-layer .callout-overlay');
-    await expect(calloutGroup).toBeVisible();
-    const style = await calloutGroup.getAttribute('style');
-    expect(style).toContain('cursor: move');
+    const text = overlay(page).locator('text');
+    const x = Number(await text.getAttribute('x'));
+    const hit = await annotationCanvas(page).locator('g[data-annotation-id]').first().boundingBox();
+    if (!hit) throw new Error('callout hit target missing');
+    const from = { x: hit.x + hit.width / 2, y: hit.y + hit.height / 2 - 10 };
+    await drag(page, from, { x: from.x + 80, y: from.y - 30 });
+    await expect.poll(async () => Number(await text.getAttribute('x'))).toBeGreaterThan(x);
   });
 
-  test('callout body drag moves the entire callout', async ({ page }) => {
-    await placeCallout(page);
-
-    const calloutText = page.locator('.overlay-layer .callout-overlay text');
-    const xBefore = parseFloat((await calloutText.getAttribute('x'))!);
-
-    const calloutBox = await calloutText.boundingBox();
-    if (!calloutBox) throw new Error('callout bounding box not found');
-
-    await page.mouse.move(calloutBox.x + calloutBox.width / 2, calloutBox.y + calloutBox.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      calloutBox.x + calloutBox.width / 2 + 40,
-      calloutBox.y + calloutBox.height / 2 + 30,
-      { steps: 5 }
-    );
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-
-    const xAfter = parseFloat((await calloutText.getAttribute('x'))!);
-    expect(xAfter).not.toBeCloseTo(xBefore, 0);
+  test('editing callout text updates the rendered text', async ({ page }) => {
+    await placeCallout(page, 'Before');
+    await selectAnnotation(page, 'callout');
+    await annotationProps(page).getByLabel('Edit text').click();
+    const input = page.getByLabel('Annotation text');
+    await input.fill('After');
+    await input.press('Enter');
+    await expect(overlay(page).locator('text')).toHaveText('After');
   });
 
-  test('editing callout text in sidebar updates SVG', async ({ page }) => {
+  test('callout fill change updates the bubble fill', async ({ page }) => {
     await placeCallout(page);
-    await selectAnnotation(page, 'callout-overlay');
-
-    const textInput = page.locator('.annotation-props .field-input').first();
-    await expect(textInput).toBeVisible();
-    await textInput.fill('Look here!');
-    await page.waitForTimeout(200);
-
-    const calloutText = page.locator('.overlay-layer .callout-overlay text');
-    await expect(calloutText).toHaveText('Look here!');
+    await selectAnnotation(page, 'callout');
+    await pickColor(page, 'Callout fill', 'Blue');
+    await expect(overlay(page).locator('path')).toHaveAttribute('fill', '#2563eb');
   });
 
-  test('callout tip grip drag repositions the tip', async ({ page }) => {
+  test('dragging the tip handle repositions the tip', async ({ page }) => {
     await placeCallout(page);
-    await selectAnnotation(page, 'callout-overlay');
+    await selectAnnotation(page, 'callout');
+    const path = overlay(page).locator('path');
+    const before = await path.getAttribute('d');
+    const handle = await page.locator('circle[aria-label="Drag end handle"]').boundingBox();
+    if (!handle) throw new Error('tip handle missing');
+    const from = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 };
+    await drag(page, from, { x: from.x + 90, y: from.y + 20 });
+    await expect.poll(() => path.getAttribute('d')).not.toBe(before);
+  });
+});
 
-    const calloutPath = page.locator('.overlay-layer .callout-overlay path');
-    const dBefore = await calloutPath.getAttribute('d');
+// ─── Rectangle Tool ───
 
-    const gripHandle = page.locator('.overlay-layer .callout-overlay .grip-handle');
-    const gripBox = await gripHandle.boundingBox();
-    if (!gripBox) throw new Error('callout grip not found');
+test.describe('Rectangle Tool', () => {
+  test.beforeEach(async ({ page }) => {
+    await waitForViewerReady(page);
+    await openExportModal(page);
+  });
 
-    await page.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      gripBox.x + gripBox.width / 2 + 40,
-      gripBox.y + gripBox.height / 2 + 20,
-      { steps: 5 }
-    );
-    await page.mouse.up();
-    await page.waitForTimeout(200);
+  test('drag creates a rectangle', async ({ page }) => {
+    await drawRectangle(page);
+    await expect(toolbarButton(page, 'Add rectangle')).toHaveAttribute('aria-pressed', 'false');
+    await expect(overlay(page).locator('rect')).toHaveAttribute('stroke', '#ef4444');
+  });
 
-    const dAfter = await calloutPath.getAttribute('d');
-    expect(dAfter).not.toBe(dBefore);
+  test('rectangle shows stroke width but no arrow direction', async ({ page }) => {
+    await drawRectangle(page);
+    await expect(annotationProps(page).getByLabel('Stroke width')).toBeVisible();
+    await expect(annotationProps(page).getByLabel('Arrow direction')).toHaveCount(0);
+  });
+
+  test('rectangle colour change updates the stroke', async ({ page }) => {
+    await drawRectangle(page);
+    await pickColor(page, 'Annotation color', 'Green');
+    await expect(overlay(page).locator('rect')).toHaveAttribute('stroke', '#16a34a');
   });
 });
 
@@ -565,66 +622,50 @@ test.describe('Watermark Tool', () => {
     await openExportModal(page);
   });
 
-  test('clicking watermark tool adds watermark immediately', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-
-    const svgText = page.locator('.overlay-layer .watermark-overlay text');
-    await expect(svgText).toBeVisible({ timeout: 3000 });
-    await expect(svgText).toHaveText('Confidential');
+  test('clicking the watermark button adds a watermark immediately', async ({ page }) => {
+    await addWatermark(page);
+    await expect(overlay(page).locator('text')).toHaveCount(1);
   });
 
-  test('watermark is auto-selected and shows properties', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-
-    const propsSection = page.locator('.annotation-props').filter({ hasText: 'Watermark Properties' });
-    await expect(propsSection).toBeVisible();
-    await expect(propsSection.locator('.field-input')).toBeVisible();
-    await expect(propsSection.locator('.field-range')).toHaveCount(2);
-    await expect(propsSection.locator('.field-select')).toBeVisible();
+  test('the watermark is auto-selected and shows its properties', async ({ page }) => {
+    await addWatermark(page);
+    const props = watermarkProps(page);
+    await expect(props.getByLabel('Watermark text')).toBeVisible();
+    await expect(props.getByLabel('Watermark opacity')).toBeVisible();
+    await expect(props.getByLabel('Watermark position')).toBeVisible();
+    await expect(props.getByLabel('Delete watermark')).toBeVisible();
   });
 
-  test('watermark button toggles off', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-    const svgText = page.locator('.overlay-layer .watermark-overlay text');
-    await expect(svgText).toBeVisible({ timeout: 3000 });
-
-    await clickTool(page, 'Watermark');
-    await expect(svgText).not.toBeVisible({ timeout: 3000 });
+  test('changing the watermark text updates the rendered text', async ({ page }) => {
+    await addWatermark(page);
+    await watermarkProps(page).getByLabel('Watermark text').fill('INTERNAL');
+    await expect(overlay(page).locator('text')).toHaveText('INTERNAL');
   });
 
-  test('changing watermark text in sidebar updates SVG', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-    await page.waitForTimeout(200);
-
-    const textInput = page.locator('.annotation-props .field-input').first();
-    await expect(textInput).toBeVisible();
-    await textInput.fill('DRAFT');
-    await page.waitForTimeout(200);
-
-    const svgText = page.locator('.overlay-layer .watermark-overlay text');
-    await expect(svgText).toHaveText('DRAFT');
+  test('a diagonal watermark is rotated', async ({ page }) => {
+    await addWatermark(page);
+    await expect(overlay(page).locator('text')).toHaveAttribute('transform', /rotate\(-45/);
   });
 
-  test('watermark diagonal has rotation transform', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-    const svgText = page.locator('.overlay-layer .watermark-overlay text');
-    await expect(svgText).toBeVisible({ timeout: 3000 });
-
-    const transform = await svgText.getAttribute('transform');
-    expect(transform).toContain('rotate(-45');
+  test('bottom-right position removes the rotation', async ({ page }) => {
+    await addWatermark(page);
+    await watermarkProps(page).getByLabel('Watermark position').selectOption('bottom-right');
+    await expect(overlay(page).locator('text')).not.toHaveAttribute('transform', /rotate/);
   });
 
-  test('re-enabling watermark after removal works', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-    const svgText = page.locator('.overlay-layer .watermark-overlay text');
-    await expect(svgText).toBeVisible({ timeout: 3000 });
+  test('the opacity slider changes the rendered opacity', async ({ page }) => {
+    await addWatermark(page);
+    await watermarkProps(page).getByLabel('Watermark opacity').fill('40');
+    await expect(overlay(page).locator('text')).toHaveAttribute('opacity', '0.4');
+  });
 
-    await clickTool(page, 'Watermark');
-    await expect(svgText).not.toBeVisible({ timeout: 3000 });
-
-    await clickTool(page, 'Watermark');
-    await expect(svgText).toBeVisible({ timeout: 3000 });
-    await expect(svgText).toHaveText('Confidential');
+  test('Delete watermark removes it and Add watermark brings it back', async ({ page }) => {
+    await addWatermark(page);
+    await watermarkProps(page).getByLabel('Delete watermark').click();
+    await expect(overlay(page).locator('text')).toHaveCount(0);
+    await expect(watermarkProps(page)).toHaveCount(0);
+    await addWatermark(page);
+    await expect(overlay(page).locator('text')).toHaveCount(1);
   });
 });
 
@@ -636,29 +677,19 @@ test.describe('SVG Overlay Layer', () => {
     await openExportModal(page);
   });
 
-  test('SVG overlay has proper viewBox', async ({ page }) => {
-    await placeNote(page);
-    const svg = page.locator('.overlay-layer');
-    await expect(svg).toBeVisible({ timeout: 3000 });
-    const viewBox = await svg.getAttribute('viewBox');
-    expect(viewBox).toMatch(/^0 0 \d+ \d+$/);
+  test('the rendered overlay uses the 600-unit reference viewBox', async ({ page }) => {
+    const viewBox = await overlay(page).getAttribute('viewBox');
+    expect(viewBox).toMatch(/^0 0 600 [\d.]+$/);
   });
 
-  test('note has drop shadow filter', async ({ page }) => {
-    await placeNote(page);
-    const svgText = page.locator('.overlay-layer .note-overlay text');
-    await expect(svgText).toBeVisible({ timeout: 3000 });
-    const filter = await svgText.getAttribute('filter');
-    expect(filter).toContain('drop-shadow');
+  test('the interaction canvas has the same viewBox as the rendered overlay', async ({ page }) => {
+    expect(await annotationCanvas(page).getAttribute('viewBox')).toBe(await overlay(page).getAttribute('viewBox'));
   });
 
-  test('overlay becomes interactive when tool is active', async ({ page }) => {
-    await clickTool(page, 'Arrow');
-    const svg = page.locator('.overlay-layer');
-    await expect(svg).toBeVisible();
-    const style = await svg.getAttribute('style');
-    expect(style).toContain('pointer-events: auto');
-    expect(style).toContain('cursor: crosshair');
+  test('the canvas is a crosshair only while a drawing tool is armed', async ({ page }) => {
+    await expect(annotationCanvas(page)).not.toHaveCSS('cursor', 'crosshair');
+    await clickTool(page, 'Add rectangle');
+    await expect(annotationCanvas(page)).toHaveCSS('cursor', 'crosshair');
   });
 });
 
@@ -670,115 +701,68 @@ test.describe('Selection & Delete', () => {
     await openExportModal(page);
   });
 
-  test('Escape key deactivates active tool', async ({ page }) => {
-    await clickTool(page, 'Arrow');
-    const arrowBtn = page.locator('.tool-btn[title*="Arrow"]');
-    await expect(arrowBtn).toHaveClass(/active/);
-
-    await focusOverlay(page);
+  test('Escape deactivates an armed tool without closing the dialog', async ({ page }) => {
+    await clickTool(page, 'Add arrow');
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(200);
-    await expect(arrowBtn).not.toHaveClass(/active/);
+    await expect(toolbarButton(page, 'Add arrow')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.export-modal-backdrop')).toBeVisible();
   });
 
-  test('Escape key deselects annotation', async ({ page }) => {
-    await placeNote(page);
-    await selectAnnotation(page, 'note-overlay');
-
-    const propsSection = page.locator('.annotation-props').filter({ hasText: 'Note Properties' });
-    await expect(propsSection).toBeVisible();
-
-    await focusOverlay(page);
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(200);
-    await expect(propsSection).not.toBeVisible();
-  });
-
-  test('Delete key removes selected arrow', async ({ page }) => {
+  test('Escape deselects an annotation without closing the dialog', async ({ page }) => {
     await drawArrow(page);
-    const arrowLine = page.locator('.overlay-layer .arrow-overlay line').first();
-    await expect(arrowLine).toBeVisible({ timeout: 3000 });
-
-    await selectAnnotation(page, 'arrow-overlay');
-    await focusOverlay(page);
-    await page.keyboard.press('Delete');
-
-    await expect(arrowLine).not.toBeVisible({ timeout: 3000 });
+    await expect(annotationProps(page)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(annotationProps(page)).toHaveCount(0);
+    await expect(page.locator('.export-modal-backdrop')).toBeVisible();
   });
 
-  test('Delete key removes selected note', async ({ page }) => {
+  test('Delete key removes the selected arrow', async ({ page }) => {
+    await drawArrow(page);
+    await page.keyboard.press('Delete');
+    await expect(overlay(page).locator('line')).toHaveCount(0);
+  });
+
+  test('Delete key removes the selected note', async ({ page }) => {
     await placeNote(page);
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    await expect(noteText).toBeVisible({ timeout: 3000 });
-
-    await selectAnnotation(page, 'note-overlay');
-    await focusOverlay(page);
+    await selectAnnotation(page, 'note');
     await page.keyboard.press('Delete');
-
-    await expect(noteText).not.toBeVisible({ timeout: 3000 });
+    await expect(overlay(page).locator('text')).toHaveCount(0);
   });
 
-  test('Delete key removes selected callout', async ({ page }) => {
+  test('Delete key removes the selected callout', async ({ page }) => {
     await placeCallout(page);
-    const calloutPath = page.locator('.overlay-layer .callout-overlay path');
-    await expect(calloutPath).toBeVisible({ timeout: 3000 });
-
-    await selectAnnotation(page, 'callout-overlay');
-    await focusOverlay(page);
+    await selectAnnotation(page, 'callout');
     await page.keyboard.press('Delete');
-
-    await expect(calloutPath).not.toBeVisible({ timeout: 3000 });
+    await expect(overlay(page).locator('path')).toHaveCount(0);
   });
 
-  test('Remove button in sidebar deletes arrow', async ({ page }) => {
-    await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const removeBtn = page.locator('.btn-delete-annotation', { hasText: 'Remove Arrow' });
-    await expect(removeBtn).toBeVisible();
-    await removeBtn.click();
-
-    const arrowLine = page.locator('.overlay-layer .arrow-overlay line');
-    await expect(arrowLine).not.toBeVisible({ timeout: 3000 });
-  });
-
-  test('Remove button in sidebar deletes watermark', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-    const svgText = page.locator('.overlay-layer .watermark-overlay text');
-    await expect(svgText).toBeVisible({ timeout: 3000 });
-
-    const removeBtn = page.locator('.btn-delete-annotation', { hasText: 'Remove Watermark' });
-    await expect(removeBtn).toBeVisible();
-    await removeBtn.click();
-
-    await expect(svgText).not.toBeVisible({ timeout: 3000 });
-  });
-
-  test('re-drawing arrow after deletion works', async ({ page }) => {
-    await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-    await focusOverlay(page);
+  test('Delete key removes the watermark', async ({ page }) => {
+    await addWatermark(page);
     await page.keyboard.press('Delete');
-
-    const arrowLine = page.locator('.overlay-layer .arrow-overlay line');
-    await expect(arrowLine).not.toBeVisible({ timeout: 3000 });
-
-    await drawArrow(page);
-    await expect(arrowLine.first()).toBeVisible({ timeout: 3000 });
+    await expect(overlay(page).locator('text')).toHaveCount(0);
   });
 
-  test('clicking empty space deselects annotation', async ({ page }) => {
-    await placeNote(page);
-    await selectAnnotation(page, 'note-overlay');
+  test('the Delete annotation button removes the selected arrow', async ({ page }) => {
+    await drawArrow(page);
+    await annotationProps(page).getByLabel('Delete annotation').click();
+    await expect(overlay(page).locator('line')).toHaveCount(0);
+    await expect(annotationProps(page)).toHaveCount(0);
+  });
 
-    const propsSection = page.locator('.annotation-props').filter({ hasText: 'Note Properties' });
-    await expect(propsSection).toBeVisible();
+  test('drawing an arrow again after deleting one works', async ({ page }) => {
+    await drawArrow(page);
+    await annotationProps(page).getByLabel('Delete annotation').click();
+    await expect(overlay(page).locator('line')).toHaveCount(0);
+    await drawArrow(page);
+  });
 
-    await clickTool(page, 'Arrow');
-    const box = await getCanvasBox(page);
-    if (!box) throw new Error('preview-canvas not found');
-    await page.mouse.click(box.x + 5, box.y + 5);
-    await page.waitForTimeout(200);
+  test('clicking empty stage space deselects the annotation', async ({ page }) => {
+    await drawArrow(page);
+    await expect(annotationProps(page)).toBeVisible();
+    const stage = await page.locator('.workspace-stage').boundingBox();
+    if (!stage) throw new Error('stage missing');
+    await page.mouse.click(stage.x + 15, stage.y + stage.height - 15);
+    await expect(annotationProps(page)).toHaveCount(0);
   });
 });
 
@@ -792,178 +776,77 @@ test.describe('Multi-Annotation Interactions', () => {
 
   test('all annotation types can coexist', async ({ page }) => {
     await drawArrow(page);
-    await placeNote(page);
-    await placeCallout(page);
-    await clickTool(page, 'Watermark');
-    await page.waitForTimeout(300);
-
-    await expect(page.locator('.overlay-layer .arrow-overlay line').first()).toBeVisible();
-    await expect(page.locator('.overlay-layer .note-overlay text')).toBeVisible();
-    await expect(page.locator('.overlay-layer .callout-overlay path')).toBeVisible();
-    await expect(page.locator('.overlay-layer .watermark-overlay text')).toBeVisible();
+    await drawRectangle(page);
+    await placeNote(page, 'N', 0.8, 0.1);
+    await placeCallout(page, 'C', 0.4, 0.8);
+    await addWatermark(page);
+    const svg = overlay(page);
+    await expect(svg.locator('line')).toHaveCount(1);
+    await expect(svg.locator('rect')).toHaveCount(1);
+    await expect(svg.locator('text')).toHaveCount(3); // note + callout + watermark
   });
 
-  test('selecting different annotations switches sidebar context', async ({ page }) => {
+  test('selecting a different annotation switches the properties bar', async ({ page }) => {
     await drawArrow(page);
-    await placeNote(page);
-
-    await selectAnnotation(page, 'arrow-overlay');
-    await expect(page.locator('.annotation-props').filter({ hasText: 'Arrow Properties' })).toBeVisible();
-
-    await selectAnnotation(page, 'note-overlay');
-    await expect(page.locator('.annotation-props').filter({ hasText: 'Note Properties' })).toBeVisible();
-    await expect(page.locator('.annotation-props').filter({ hasText: 'Arrow Properties' })).not.toBeVisible();
+    await placeNote(page, 'N', 0.8, 0.1);
+    await selectAnnotation(page, 'arrow');
+    await expect(annotationProps(page).getByLabel('Arrow direction')).toBeVisible();
+    await selectAnnotation(page, 'note');
+    await expect(annotationProps(page).getByLabel('Font size')).toBeVisible();
+    await expect(annotationProps(page).getByLabel('Arrow direction')).toHaveCount(0);
   });
 });
 
-// ─── Sidebar Property Variants ───
+// ─── Property Variants ───
 
-test.describe('Sidebar Property Variants', () => {
+test.describe('Property Variants', () => {
   test.beforeEach(async ({ page }) => {
     await waitForViewerReady(page);
     await openExportModal(page);
-  });
-
-  test('watermark bottom-right position removes rotation', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-    await page.waitForTimeout(200);
-
-    const posSelect = page.locator('.annotation-props .field-select');
-    await posSelect.selectOption('bottom-right');
-    await page.waitForTimeout(200);
-
-    const svgText = page.locator('.overlay-layer .watermark-overlay text');
-    await expect(svgText).toBeVisible();
-    const transform = await svgText.getAttribute('transform');
-    expect(transform).toBeNull();
-
-    const textAnchor = await svgText.getAttribute('text-anchor');
-    expect(textAnchor).toBe('end');
-  });
-
-  test('arrow type "double" shows two arrowheads', async ({ page }) => {
     await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const typeSelect = page.locator('.annotation-props .field-select');
-    await typeSelect.selectOption('←→');
-    await page.waitForTimeout(200);
-
-    const paths = page.locator('.overlay-layer .arrow-overlay path');
-    await expect(paths).toHaveCount(2);
   });
 
-  test('arrow type "left" reverses arrowhead direction', async ({ page }) => {
-    await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const typeSelect = page.locator('.annotation-props .field-select');
-    await typeSelect.selectOption('←');
-    await page.waitForTimeout(200);
-
-    const paths = page.locator('.overlay-layer .arrow-overlay path');
-    await expect(paths).toHaveCount(1);
+  test('arrow direction "←→" draws two arrowheads', async ({ page }) => {
+    await annotationProps(page).getByLabel('Arrow direction').selectOption('←→');
+    await expect(overlay(page).locator('path')).toHaveCount(2);
   });
 
-  test('callout background color change updates SVG fill', async ({ page }) => {
-    await placeCallout(page);
-    await selectAnnotation(page, 'callout-overlay');
-
-    const colorInputs = page.locator('.annotation-props .field-color');
-    const bgColorInput = colorInputs.nth(1);
-    await expect(bgColorInput).toBeVisible();
-    await bgColorInput.fill('#ff0000');
-    await page.waitForTimeout(200);
-
-    const calloutPath = page.locator('.overlay-layer .callout-overlay path');
-    const fill = await calloutPath.getAttribute('fill');
-    expect(fill).toBe('#ff0000');
+  test('arrow direction "←" draws a single arrowhead, at the start', async ({ page }) => {
+    const line = overlay(page).locator('line');
+    const x1 = Number(await line.getAttribute('x1'));
+    await annotationProps(page).getByLabel('Arrow direction').selectOption('←');
+    const heads = overlay(page).locator('path');
+    await expect(heads).toHaveCount(1);
+    // The head is drawn at (x1, y1): its tip coordinates start near x1.
+    expect(Number((await heads.getAttribute('d'))!.match(/M\s*(-?[\d.]+)/)![1])).toBeLessThan(x1 + 40);
   });
 
-  test('note font size slider changes SVG font-size', async ({ page }) => {
-    await placeNote(page);
-    await selectAnnotation(page, 'note-overlay');
-
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    const sizeBefore = await noteText.getAttribute('font-size');
-
-    const rangeInput = page.locator('.annotation-props .field-range');
-    await rangeInput.fill('20');
-    await page.waitForTimeout(200);
-
-    const sizeAfter = await noteText.getAttribute('font-size');
-    expect(sizeAfter).toBe('20');
-    expect(sizeAfter).not.toBe(sizeBefore);
+  test('arrow direction offers exactly three options', async ({ page }) => {
+    await expect(annotationProps(page).getByLabel('Arrow direction').locator('option')).toHaveText(['→', '←', '←→']);
   });
 
-  test('watermark opacity slider changes SVG opacity', async ({ page }) => {
-    await clickTool(page, 'Watermark');
-    await page.waitForTimeout(200);
-
-    const svgText = page.locator('.overlay-layer .watermark-overlay text');
-    const opacityBefore = await svgText.getAttribute('opacity');
-
-    const rangeInputs = page.locator('.annotation-props .field-range');
-    const opacitySlider = rangeInputs.first();
-    await opacitySlider.fill('40');
-    await page.waitForTimeout(200);
-
-    const opacityAfter = await svgText.getAttribute('opacity');
-    expect(opacityAfter).not.toBe(opacityBefore);
-    expect(parseFloat(opacityAfter!)).toBeCloseTo(0.4, 1);
+  test('stroke width changes the rendered stroke-width', async ({ page }) => {
+    const line = overlay(page).locator('line');
+    const before = Number(await line.getAttribute('stroke-width'));
+    const width = annotationProps(page).getByLabel('Stroke width');
+    await width.fill('8');
+    await width.press('Enter');
+    await width.blur();
+    await expect.poll(async () => Number(await line.getAttribute('stroke-width'))).toBeGreaterThan(before);
   });
 
-  test('note color change updates SVG fill', async ({ page }) => {
-    await placeNote(page);
-    await selectAnnotation(page, 'note-overlay');
-
-    const colorInput = page.locator('.annotation-props .field-color');
-    await colorInput.fill('#ff6600');
-    await page.waitForTimeout(200);
-
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    const fill = await noteText.getAttribute('fill');
-    expect(fill).toBe('#ff6600');
+  test('a malformed custom colour is rejected', async ({ page }) => {
+    await annotationProps(page).getByRole('button', { name: 'Annotation color' }).click();
+    await page.getByLabel('Custom annotation color').fill('red');
+    await expect(page.getByText('Use #RRGGBB')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
   });
 
-  test('arrow thickness slider changes SVG stroke-width', async ({ page }) => {
-    await drawArrow(page);
-    await selectAnnotation(page, 'arrow-overlay');
-
-    const line = page.locator('.overlay-layer .arrow-overlay .arrow-line-body');
-    const thicknessBefore = await line.getAttribute('stroke-width');
-
-    const rangeInput = page.locator('.annotation-props .field-range');
-    await rangeInput.fill('5');
-    await page.waitForTimeout(200);
-
-    const thicknessAfter = await line.getAttribute('stroke-width');
-    expect(thicknessAfter).toBe('5');
-    expect(thicknessAfter).not.toBe(thicknessBefore);
-  });
-
-  test('remove note via sidebar button', async ({ page }) => {
-    await placeNote(page);
-    await selectAnnotation(page, 'note-overlay');
-
-    const removeBtn = page.locator('.btn-delete-annotation', { hasText: 'Remove Note' });
-    await expect(removeBtn).toBeVisible();
-    await removeBtn.click();
-
-    const noteText = page.locator('.overlay-layer .note-overlay text');
-    await expect(noteText).not.toBeVisible({ timeout: 3000 });
-  });
-
-  test('remove callout via sidebar button', async ({ page }) => {
-    await placeCallout(page);
-    await selectAnnotation(page, 'callout-overlay');
-
-    const removeBtn = page.locator('.btn-delete-annotation', { hasText: 'Remove Callout' });
-    await expect(removeBtn).toBeVisible();
-    await removeBtn.click();
-
-    const calloutPath = page.locator('.overlay-layer .callout-overlay path');
-    await expect(calloutPath).not.toBeVisible({ timeout: 3000 });
+  test('a valid custom hex colour is applied', async ({ page }) => {
+    await annotationProps(page).getByRole('button', { name: 'Annotation color' }).click();
+    await page.getByLabel('Custom annotation color').fill('#123456');
+    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await expect(overlay(page).locator('line')).toHaveAttribute('stroke', '#123456');
   });
 });
 
@@ -975,40 +858,146 @@ test.describe('Export Pipeline', () => {
     await openExportModal(page);
   });
 
-  test('download PNG button is present and enabled', async ({ page }) => {
-    const downloadBtn = page.locator('.btn-export');
-    await expect(downloadBtn).toBeVisible();
-    await expect(downloadBtn).toHaveText(/Download PNG/);
-    await expect(downloadBtn).toBeEnabled();
+  test('Download image button is present and enabled', async ({ page }) => {
+    await expect(exportButton(page)).toBeVisible();
+    await expect(exportButton(page)).toBeEnabled();
   });
 
-  test('export triggers download with correct filename', async ({ page }) => {
+  test('export triggers a download with the right filename and real pixels', async ({ page }) => {
     const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
-    await page.locator('.btn-export').click();
+    await exportButton(page).click();
 
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe('zenuml-diagram-export.png');
+    expect(download.suggestedFilename()).toBe(EXPECTED_EXPORT_FILENAME);
+    // Not just "a file arrived" — a file with a diagram in it.
+    expectRealDiagram(await downloadedPngSize(download), 'downloaded PNG');
   });
 
-  test('export button shows loading state during export', async ({ page }) => {
-    const exportBtn = page.locator('.btn-export');
-    await exportBtn.click();
-    await expect(exportBtn).toContainText(/Exporting/);
+  test('a successful download closes the dialog', async ({ page }) => {
+    const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
+    await exportButton(page).click();
+    await downloadPromise;
+    await expect(page.locator('.export-modal-backdrop')).not.toBeVisible();
   });
 
-  test('export with all annotation overlays produces valid PNG', async ({ page }) => {
+  test('Copy image is present and does not crash on click', async ({ page }) => {
+    // Clipboard-write may be denied by the test sandbox's permission model
+    // (exportDiagramToClipboard catches that as 'clipboard_denied'), and the
+    // button is disabled where the Clipboard API is unsupported. The point is
+    // that clicking never throws and the dialog stays open — Copy, unlike
+    // Download, does not close on success.
+    const copy = toolbarButton(page, 'Copy image');
+    await expect(copy).toBeVisible();
+    if (await copy.isEnabled()) await copy.click();
+    await expect(page.locator('.export-modal-backdrop')).toBeVisible();
+  });
+
+  test('the toolbar shows an Exporting status during export', async ({ page }) => {
+    await exportButton(page).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Exporting' })).toBeVisible();
+  });
+
+  test('export with every annotation type produces a valid PNG', async ({ page }) => {
+    await drawArrow(page);
+    await drawRectangle(page);
+    await placeNote(page, 'N', 0.8, 0.1);
+    await placeCallout(page, 'C', 0.4, 0.8);
+    await addWatermark(page);
+
+    const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
+    await exportButton(page).click();
+
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(EXPECTED_EXPORT_FILENAME);
+    // "valid PNG" means the bytes decode AND carry real dimensions, not
+    // merely that download.path() is truthy.
+    expectRealDiagram(await downloadedPngSize(download), 'annotated export');
+  });
+});
+
+// ─── PlantUML (regression: blank Export PNG) ───
+//
+// Every other test in this file runs against the default `seq-fullscreen` preset, so
+// the whole suite only ever exercised the sequence renderer. PlantUML is the
+// one macro type whose diagram is an SVG fetched from the remote PlantUML
+// server and inlined with v-html — html-to-image cannot reliably rasterize
+// that, and the Export PNG button silently produced a blank, effectively
+// zero-pixel image for two months. The fix routes PlantUML to the server's own
+// raster (/plantuml/png/<encoded>); these tests are what would have caught it.
+//
+// NOTE: this describe block reaches plantuml.com, exactly as the macro itself
+// does at render time. A sandboxed network makes these fail, not flake quietly.
+//
+// HONEST LIMITATION — read before trusting these as a regression guard.
+// The production defect does NOT reproduce here. Measured 2026-09-09 against
+// pre-fix code in this exact harness: the preview and the download both came
+// out 1000x188 / 16.9 KB, i.e. a perfectly good DOM capture. html-to-image's
+// failure to rasterize PlantUML's inlined remote SVG is specific to the Forge
+// macro's sandboxed cross-origin iframe (CSP, font access, rendering
+// throttling) and is not reproducible in a plain headless page.
+//
+// So the dimension assertions below are healthy-path coverage, not a red->green
+// proof. The test that IS a real regression guard is
+// 'requests the raster from the PlantUML PNG server, not a DOM capture': it
+// asserts the mechanism the fix establishes — the raster comes from
+// /plantuml/png/, never from html-to-image — which holds in every environment
+// and does fail against pre-fix code.
+test.describe('PlantUML Export', () => {
+  // The plantuml fixture (custom-content-by-id-v1-diagram-plantuml.json) has
+  // title "Order Service (PlantUML)", which slugifyFilename turns into this.
+  const PLANTUML_EXPORT_FILENAME = 'order-service-plantuml.png';
+
+  test.beforeEach(async ({ page }) => {
+    await waitForViewerReady(page, 'plantuml-fullscreen');
+    await openExportModal(page);
+  });
+
+  test('preview shows the rendered PlantUML diagram, not a blank capture', async ({ page }) => {
+    expectRealDiagram(await previewImageSize(page), 'PlantUML preview');
+  });
+
+  // THE regression guard. Environment-independent: it asserts where the pixels
+  // came from, not how many survived. Pre-fix, the only plantuml.com traffic is
+  // the /svg/ render fetch and the export rasterizes the DOM; post-fix, opening
+  // the modal and exporting both pull /plantuml/png/<encoded>.
+  test('requests the raster from the PlantUML PNG server, not a DOM capture', async ({ page }) => {
+    const pngRequests: string[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/plantuml/png/')) pngRequests.push(req.url());
+    });
+
+    // The modal's own open-time capture already happened in beforeEach, before
+    // this listener existed — drive a fresh one through the Refresh button.
+    await toolbarButton(page, 'Refresh preview').click();
+    await expect.poll(() => pngRequests.length, { timeout: 15000 }).toBeGreaterThan(0);
+
+    const before = pngRequests.length;
+    const downloadPromise = page.waitForEvent('download', { timeout: 20000 });
+    await exportButton(page).click();
+    await downloadPromise;
+
+    // Export asked the server too, rather than falling back to html-to-image.
+    await expect.poll(() => pngRequests.length, { timeout: 10000 }).toBeGreaterThan(before);
+  });
+
+  test('export downloads a PlantUML PNG with real pixel dimensions', async ({ page }) => {
+    const downloadPromise = page.waitForEvent('download', { timeout: 20000 });
+    await exportButton(page).click();
+
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(PLANTUML_EXPORT_FILENAME);
+    expectRealDiagram(await downloadedPngSize(download), 'PlantUML export');
+  });
+
+  test('export with annotations still produces a real PlantUML PNG', async ({ page }) => {
     await drawArrow(page);
     await placeNote(page);
-    await placeCallout(page);
-    await clickTool(page, 'Watermark');
-    await page.waitForTimeout(300);
+    await addWatermark(page);
 
-    const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
-    await page.locator('.btn-export').click();
+    const downloadPromise = page.waitForEvent('download', { timeout: 20000 });
+    await exportButton(page).click();
 
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe('zenuml-diagram-export.png');
-    const path = await download.path();
-    expect(path).toBeTruthy();
+    expectRealDiagram(await downloadedPngSize(download), 'annotated PlantUML export');
   });
 });

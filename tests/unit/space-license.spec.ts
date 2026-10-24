@@ -272,6 +272,113 @@ describe('space-license API', () => {
     });
   });
 
+  describe('POST /api/space-license — user-scoped extension', () => {
+    it('writes a user-scoped key when userAccountId is provided', async () => {
+      const ctx = createMockContext({
+        method: 'POST',
+        headers: authHeaders(),
+        env: makeEnv(),
+        body: {
+          cloudId: 'cloud-123',
+          spaceKey: 'ENG',
+          expiresAt: '2027-04-06T00:00:00Z',
+          activatedBy: 'support:temp-14d-extension',
+          userAccountId: 'user-abc',
+        },
+      });
+
+      const response = await onRequest(ctx);
+      expect(response.status).toBe(201);
+
+      const body = await response.json();
+      expect(body.userAccountId).toBe('user-abc');
+
+      const raw = await kv.get('license:cloud-123:ENG:user-abc');
+      expect(raw).not.toBeNull();
+      // The bare space-level key must NOT be written by a user-scoped grant.
+      const spaceRaw = await kv.get('license:cloud-123:ENG');
+      expect(spaceRaw).toBeNull();
+    });
+
+    it('records the userAccountId in the index alongside the space-level entries', async () => {
+      const ctx = createMockContext({
+        method: 'POST',
+        headers: authHeaders(),
+        env: makeEnv(),
+        body: {
+          cloudId: 'cloud-123',
+          spaceKey: 'ENG',
+          expiresAt: '2027-04-06T00:00:00Z',
+          activatedBy: 'ops-jane',
+          userAccountId: 'user-abc',
+        },
+      });
+      await onRequest(ctx);
+
+      const indexRaw = await kv.get('license-index');
+      const index = JSON.parse(indexRaw!);
+      expect(index).toEqual([{ cloudId: 'cloud-123', spaceKey: 'ENG', userAccountId: 'user-abc' }]);
+    });
+
+    it('rejects an empty-string userAccountId (security invariant — never a placeholder grant)', async () => {
+      const ctx = createMockContext({
+        method: 'POST',
+        headers: authHeaders(),
+        env: makeEnv(),
+        body: {
+          cloudId: 'cloud-123',
+          spaceKey: 'ENG',
+          expiresAt: '2027-04-06T00:00:00Z',
+          activatedBy: 'ops-jane',
+          userAccountId: '   ',
+        },
+      });
+      const response = await onRequest(ctx);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_user_account_id');
+
+      const raw = await kv.get('license:cloud-123:ENG:   ');
+      expect(raw).toBeNull();
+    });
+
+    it('a user-scoped grant and a space-level grant for the same space coexist independently', async () => {
+      const spaceCtx = createMockContext({
+        method: 'POST',
+        headers: authHeaders(),
+        env: makeEnv(),
+        body: {
+          cloudId: 'cloud-123',
+          spaceKey: 'ENG',
+          expiresAt: '2027-01-01T00:00:00Z',
+          activatedBy: 'ops-jane',
+        },
+      });
+      await onRequest(spaceCtx);
+
+      const userCtx = createMockContext({
+        method: 'POST',
+        headers: authHeaders(),
+        env: makeEnv(),
+        body: {
+          cloudId: 'cloud-123',
+          spaceKey: 'ENG',
+          expiresAt: '2027-01-01T00:00:00Z',
+          activatedBy: 'ops-jane',
+          userAccountId: 'user-abc',
+        },
+      });
+      await onRequest(userCtx);
+
+      expect(await kv.get('license:cloud-123:ENG')).not.toBeNull();
+      expect(await kv.get('license:cloud-123:ENG:user-abc')).not.toBeNull();
+
+      const indexRaw = await kv.get('license-index');
+      const index = JSON.parse(indexRaw!);
+      expect(index).toHaveLength(2);
+    });
+  });
+
   describe('GET /api/space-license', () => {
     async function createLicense(cloudId: string, spaceKey: string, status = 'active') {
       const ctx = createMockContext({
@@ -348,6 +455,36 @@ describe('space-license API', () => {
       expect(body.licenses[0].spaceKey).toBe('ENG');
     });
 
+    it('lists a user-scoped license alongside a space-level license for the same space', async () => {
+      await createLicense('cloud-1', 'ENG');
+
+      const userCtx = createMockContext({
+        method: 'POST',
+        headers: authHeaders(),
+        env: makeEnv(),
+        body: {
+          cloudId: 'cloud-1',
+          spaceKey: 'ENG',
+          expiresAt: '2027-01-01T00:00:00Z',
+          activatedBy: 'ops-jane',
+          userAccountId: 'user-abc',
+        },
+      });
+      await onRequest(userCtx);
+
+      const ctx = createMockContext({
+        method: 'GET',
+        url: 'https://example.com/api/space-license?cloudId=cloud-1',
+        headers: authHeaders(),
+        env: makeEnv(),
+      });
+      const response = await onRequest(ctx);
+      const body = await response.json();
+      expect(body.total).toBe(2);
+      expect(body.licenses.some((l: any) => l.userAccountId === 'user-abc')).toBe(true);
+      expect(body.licenses.some((l: any) => l.userAccountId === undefined)).toBe(true);
+    });
+
     it('returns empty list when no licenses exist', async () => {
       const ctx = createMockContext({
         method: 'GET',
@@ -419,6 +556,50 @@ describe('space-license API', () => {
       });
       const response = await onRequest(ctx);
       expect(response.status).toBe(400);
+    });
+
+    it('soft-deletes only the user-scoped record when userAccountId is provided, leaving the space-level record untouched', async () => {
+      const spaceCtx = createMockContext({
+        method: 'POST',
+        headers: authHeaders(),
+        env: makeEnv(),
+        body: {
+          cloudId: 'cloud-123',
+          spaceKey: 'ENG',
+          expiresAt: '2027-01-01T00:00:00Z',
+          activatedBy: 'ops-jane',
+        },
+      });
+      await onRequest(spaceCtx);
+
+      const userCtx = createMockContext({
+        method: 'POST',
+        headers: authHeaders(),
+        env: makeEnv(),
+        body: {
+          cloudId: 'cloud-123',
+          spaceKey: 'ENG',
+          expiresAt: '2027-01-01T00:00:00Z',
+          activatedBy: 'ops-jane',
+          userAccountId: 'user-abc',
+        },
+      });
+      await onRequest(userCtx);
+
+      const delCtx = createMockContext({
+        method: 'DELETE',
+        url: 'https://example.com/api/space-license?cloudId=cloud-123&spaceKey=ENG&userAccountId=user-abc',
+        headers: authHeaders(),
+        env: makeEnv(),
+      });
+      const response = await onRequest(delCtx);
+      expect(response.status).toBe(200);
+
+      const userRaw = JSON.parse((await kv.get('license:cloud-123:ENG:user-abc'))!);
+      expect(userRaw.status).toBe('inactive');
+
+      const spaceRaw = JSON.parse((await kv.get('license:cloud-123:ENG'))!);
+      expect(spaceRaw.status).toBe('active');
     });
   });
 

@@ -3,7 +3,7 @@ name: pvt-fullscreen
 description: >
   Focused production validation for macro fullscreen / expanded viewer (Forge fullscreen modal
   bridge). Opens fullscreen from the viewer toolbar, verifies the diagram remains usable, then exits
-  cleanly. Invoked by release-app Step 5.5 when fullscreen-related commits are detected.
+  cleanly. Invoked by release-app Step 2.6 when fullscreen-related commits are detected.
   Triggers on "pvt-fullscreen", "test fullscreen", "validate fullscreen viewer".
 ---
 
@@ -18,7 +18,7 @@ Usage: `/pvt-fullscreen [lite] [full] [diagramly]`
 ### Which product (variant) to test
 
 1. **Explicit flags** — If the user names `lite`, `full`, and/or `diagramly`, test **only** those, in order.
-2. **Infer from conversation** — If no flags: derive variant from the thread (release tag, `/release-app …`, Step 5.5 parent release, user saying Lite/Full/Diagramly, branch/PR hints). Test **that** variant only.
+2. **Infer from conversation** — If no flags: derive variant from the thread (release tag, `/release-app …`, Step 2.6 parent release, user saying Lite/Full/Diagramly, branch/PR hints). Test **that** variant only.
 3. **If still ambiguous** — Ask: lite, full, or diagramly? **Do not** run all three by default.
 
 Site: always production (`zenuml.atlassian.net`).
@@ -27,8 +27,8 @@ Space/parent for creating scratch pages: **ZEN** / parent **`247136259`** (`Test
 
 ## Prerequisites
 
-- Logged into production Confluence in the browser session (Playwright MCP or headed runner).
-- **Forge iframe only:** interact via `page.locator('[data-testid="hosted-resources-iframe"]').contentFrame()` or frame walk — see `CLAUDE.md` / `smoke-test` skill.
+- Logged into production Confluence in the browser session (agent-browser, Playwright MCP fallback, or headed runner).
+- **Forge iframe only:** interact via agent-browser `frame @ref` / `frame --url`, then `eval` / `click` (Playwright fallback: `page.locator('[data-testid="hosted-resources-iframe"]').contentFrame()` or frame walk) — see `CLAUDE.md` / `smoke-test` skill.
 - A **published** page that already contains a diagram macro for the target variant (sequence or mermaid is fine). Alternatively create one page via `/smoke-test on zenuml <variant> mermaid` first.
 
 ## Confluence page title (when creating a scratch page)

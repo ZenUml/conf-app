@@ -6,36 +6,65 @@ interface Env {
 
 type Strategy = (ai: Ai, dsl: string, type?: string) => Promise<string>;
 
+function isOpenApiTitleRequest(type?: string): boolean {
+  return /openapi/i.test((type || '').trim());
+}
+
+// Robustly pull a title out of the model's free-form response. Llama often
+// ignores the "wrap in triple quotes" instruction (especially for sequence
+// DSLs), so fall back through: triple-quoted span -> any quoted span -> the
+// first non-empty line of the raw text. Throws only when nothing usable remains.
+export function extractTitle(raw: string): string {
+  const text = String(raw ?? '');
+  const quoted = text.match(/"""([\s\S]*?)"""/)?.[1] ?? text.match(/"([^"]{2,})"/)?.[1];
+  const firstLine = (quoted ?? text)
+    .replace(/^\s*title\s*[:\-]\s*/i, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const title = (firstLine ?? '').replace(/^["'\s]+|["'\s]+$/g, '').trim();
+  if (!title) throw new Error('Failed to extract title');
+  return title.slice(0, 80);
+}
+
+// Two strategies deliberately run on *different* models so a single model
+// deprecation/outage degrades the fallback chain instead of breaking it. This
+// endpoint has been taken down twice by Cloudflare deprecating the one shared
+// model (llama-2-7b-chat-int8, then llama-3.1-8b-instruct); diverging the models
+// closes that failure mode. Verify replacements against `wrangler ai models`.
+const PRIMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+const FALLBACK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+
 const strategies: Strategy[] = [
   async (ai, dsl, type) => {
-    const result = await (ai as any).run('@cf/meta/llama-2-7b-chat-int8', {
+    const systemPrompt = isOpenApiTitleRequest(type)
+      ? 'Create one concise title (ideally under 60 characters) for the provided OpenAPI specification. Only output the title, enclosed with triple quotes (like: """example title""").'
+      : `You will help the user to create a title for an ${type || 'UML'} diagram, the user will give a DSL that describing an ${type || 'UML'} diagram, you should just give out one concise title (ideally under 60 characters) describing the whole UML and enclose it with triple quotes (like: """example title""").`;
+    const result = await (ai as any).run(PRIMARY_MODEL, {
       messages: [
         {
           role: 'system',
-          content: `You will help the user to create a title for an ${type || 'UML'} diagram, the user will give a DSL that describing an ${type || 'UML'} diagram, you should just give out one title describing the whole UML and enclose it with triple quotes (like: """example title""").`,
+          content: systemPrompt,
         },
         { role: 'user', content: dsl },
       ],
     });
-    const matchResult = (result as any).response.match(/"""(.*)"""/is);
-    const title = matchResult?.[1];
-    if (!title) throw new Error('Failed to extract title');
-    return title;
+    return extractTitle((result as any).response);
   },
-  async (ai, dsl) => {
-    const result = await (ai as any).run('@cf/meta/llama-2-7b-chat-int8', {
+  async (ai, dsl, type) => {
+    const systemPrompt = isOpenApiTitleRequest(type)
+      ? 'Generate one concise title for the provided OpenAPI specification. Only output the title, nothing else.'
+      : 'You are an expert of ZenUML sequence diagram. Generate title for the given DSL. Only output the title, nothing else.';
+    const result = await (ai as any).run(FALLBACK_MODEL, {
       messages: [
         {
           role: 'system',
-          content: 'You are an expert of ZenUML sequence diagram. Generate title for the given DSL. Only output the title, nothing else.',
+          content: systemPrompt,
         },
         { role: 'user', content: dsl },
       ],
     });
-    const matchResult = (result as any).response.match(/[^"]+title[^"]+"([^"]+)"/is);
-    const title = matchResult?.[1];
-    if (!title) throw new Error('Failed to extract title');
-    return title;
+    return extractTitle((result as any).response);
   },
 ];
 
@@ -45,9 +74,12 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-export async function onRequestPost({ request, env }: { request: Request; env: Env }) {
+export async function onRequest({ request, env }: { request: Request; env: Env }) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
+  }
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: CORS_HEADERS });
   }
 
   let body: { dsl?: string; type?: string };

@@ -14,10 +14,12 @@
  *    diagrams into PlantUML's "An error has occurred!" crash page.
  *    Without it the engine lays out with Smetana, its built-in Java port of
  *    Graphviz, and class diagrams render under `script-src 'self'`.
- *  - PLANTUML_STDLIB_BASE is left unset, so `!include <C4/...>` is answered
- *    with "cannot include" rather than a fetch to plantuml.github.io, which
- *    would just be a different third party. Self-hosting the stdlib bundles
- *    is a separate step.
+ *  - PLANTUML_STDLIB_BASE is left unset and PLANTUML_STDLIB_LOADER answers
+ *    instead (./stdlib.ts): a library we host (C4) arrives as data from our
+ *    own chunk; any other `!include <lib/...>` gets "cannot include" rather
+ *    than a fetch to plantuml.github.io, which would just be a different third
+ *    party. URL and local-file includes fail the same way: the engine has no
+ *    network access of its own.
  *  - The engine measures text with a canvas, so it needs a real browser:
  *    jsdom cannot run it, and unit tests mock this module's import.
  *
@@ -25,10 +27,16 @@
  * "Syntax Error?" and "[From textarea (line N)]", the same markers the server's
  * SVG had, and validate.ts reads them unchanged.
  */
-import type { PlantUmlLocalFailureReason } from '@/utils/analytics/catalog';
+import type { PlantUmlLocalFailureReason, PlantUmlUnresolvedInclude } from '@/utils/analytics/catalog';
+import { installPlantUmlStdlibLoader } from './stdlib';
 
 export class PlantUmlLocalRenderError extends Error {
-  constructor(public readonly reason: PlantUmlLocalFailureReason, message: string) {
+  constructor(
+    public readonly reason: PlantUmlLocalFailureReason,
+    message: string,
+    /** For reason=include: which kind of include the engine could not resolve. */
+    public readonly unresolvedInclude?: PlantUmlUnresolvedInclude,
+  ) {
     super(message);
     this.name = 'PlantUmlLocalRenderError';
   }
@@ -43,6 +51,7 @@ type RenderToString = (
 let engine: Promise<RenderToString> | null = null;
 
 function loadEngine(): Promise<RenderToString> {
+  installPlantUmlStdlibLoader();
   engine ??= import('@plantuml/core').then(
     (m) => m.renderToString as RenderToString,
     (err) => {
@@ -72,13 +81,24 @@ async function loadOptionalData(code: string): Promise<void> {
 const CRASH_MARKER = 'An error has occurred!';
 const ERROR_PAGE_MARKER = /\[From textarea \(line \d+\)/;
 const INCLUDE_MARKER = /cannot include\b/;
+// What follows "cannot include": `&lt;lib/...&gt;` in the SVG's escaped text, a
+// URL, or a file path.
+const UNRESOLVED_KIND = /cannot include\s+(&lt;|<|https?:\/\/)?/;
+
+function unresolvedKind(svg: string): PlantUmlUnresolvedInclude {
+  const opener = UNRESOLVED_KIND.exec(svg)?.[1];
+  if (opener === '&lt;' || opener === '<') return 'stdlib';
+  if (opener) return 'url';
+  return 'local';
+}
 
 function classify(svg: string): string {
   if (svg.includes(CRASH_MARKER)) {
     throw new PlantUmlLocalRenderError('engine_error', 'The PlantUML engine crashed on this diagram');
   }
   if (ERROR_PAGE_MARKER.test(svg) && INCLUDE_MARKER.test(svg)) {
-    throw new PlantUmlLocalRenderError('include', 'This diagram uses an !include library that is not available yet');
+    throw new PlantUmlLocalRenderError(
+      'include', 'This diagram uses an !include library that is not available yet', unresolvedKind(svg));
   }
   return svg;
 }

@@ -81,18 +81,24 @@ export const SyntaxError: Story = {
   },
 }
 
-/** Stands in for plantuml.com's answer to the C4 diagram below. */
-const SERVER_C4_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="160px" height="60px" viewBox="0 0 160 60"><rect x="5" y="5" width="150" height="50" fill="#08427B"/><text x="20" y="35" fill="#FFFFFF">User (server)</text></svg>'
+/** C4 is self-hosted (utils/plantuml/stdlib): the include resolves with plantuml.com refused. */
+export const C4FromHostedStdlib: Story = {
+  render: localRendererStory('@startuml\n!include <C4/C4_Context>\nPerson(user, "Customer")\nSystem(shop, "Online shop")\nRel(user, shop, "Buys from")\n@enduml'),
+  play: async ({ canvasElement }) => expectDrawnWithoutServer(canvasElement, 'Online shop'),
+}
+
+/** Stands in for plantuml.com's answer to the Azure diagram below. */
+const SERVER_AZURE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="160px" height="60px" viewBox="0 0 160 60"><rect x="5" y="5" width="150" height="50" fill="#0078D4"/><text x="20" y="35" fill="#FFFFFF">Azure (server)</text></svg>'
 
 /**
- * Known gap until the stdlib is self-hosted: the engine cannot resolve the
- * !include, so this one diagram falls back to the server, which draws it.
+ * A library that is not hosted yet: the engine cannot resolve the !include,
+ * so this one diagram falls back to the server, which draws it.
  */
 export const IncludeFallsBackToServer: Story = {
-  render: localRendererStory('@startuml\n!include <C4/C4_Context>\nPerson(user, "User")\n@enduml', SERVER_C4_SVG),
+  render: localRendererStory('@startuml\n!include <azure/AzureCommon>\nAlice -> Bob\n@enduml', SERVER_AZURE_SVG),
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(canvasElement.querySelector('.plantuml-render svg')).not.toBeNull(), { timeout: 30000 })
-    await expect(canvasElement.querySelector('.plantuml-render svg')!.textContent).toContain('User (server)')
+    await expect(canvasElement.querySelector('.plantuml-render svg')!.textContent).toContain('Azure (server)')
     await expect(serverCalls.length).toBeGreaterThan(0)
     await expect(serverCalls.every((url) => url.startsWith('https://www.plantuml.com/plantuml/svg/'))).toBe(true)
   },

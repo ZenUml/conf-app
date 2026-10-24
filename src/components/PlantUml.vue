@@ -136,17 +136,19 @@ export default {
      */
     async renderLocally(code) {
       let reason = 'load_failed';
+      let unresolvedInclude;
       try {
         const { renderPlantUmlLocally, PlantUmlLocalRenderError } = await import('@/utils/plantuml/engine');
         try {
           return normalizePlantUmlSvg(await renderPlantUmlLocally(code));
         } catch (err) {
           reason = err instanceof PlantUmlLocalRenderError ? err.reason : 'engine_error';
+          unresolvedInclude = err instanceof PlantUmlLocalRenderError ? err.unresolvedInclude : undefined;
           throw err;
         }
       } catch (err) {
         console.warn('PlantUML local engine could not draw this diagram; using the server', err);
-        trackAnalyticsEvent('plantuml_local_render_failed', this.localFailureProps(reason));
+        trackAnalyticsEvent('plantuml_local_render_failed', this.localFailureProps(reason, unresolvedInclude));
         return null;
       }
     },
@@ -160,13 +162,14 @@ export default {
       // injected into a flex parent that squashes one axis (conf-app#626).
       return normalizePlantUmlSvg(await response.text());
     },
-    localFailureProps(reason) {
+    localFailureProps(reason, unresolvedInclude) {
       return {
         feature_area: 'macro',
         surface: this.isDisplayMode ? 'viewer' : 'editor',
         macro_type: 'plantuml',
         plantuml_renderer: 'local',
         plantuml_failure_reason: reason,
+        ...(unresolvedInclude ? { plantuml_unresolved_include: unresolvedInclude } : {}),
       };
     },
     /** Re-bind the pan/zoom viewport after a new server SVG lands. */

@@ -89,7 +89,7 @@ describe('PlantUml local renderer (ADR-0010)', () => {
 
   it('falls back to the server when the engine cannot draw the diagram, and says so', async () => {
     vi.mocked(renderPlantUmlLocally).mockRejectedValue(
-      new PlantUmlLocalRenderError('include', 'This diagram uses an !include library that is not available yet'));
+      new PlantUmlLocalRenderError('include', 'This diagram uses an !include library that is not available yet', 'stdlib'));
     window.fetch = vi.fn(() => Promise.resolve(new Response(LOCAL_SVG, { status: 200 }))) as typeof fetch;
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -109,6 +109,7 @@ describe('PlantUml local renderer (ADR-0010)', () => {
       macro_type: 'plantuml',
       plantuml_renderer: 'local',
       plantuml_failure_reason: 'include',
+      plantuml_unresolved_include: 'stdlib',
     });
   });
 

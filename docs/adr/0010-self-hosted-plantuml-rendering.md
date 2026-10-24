@@ -130,9 +130,12 @@ Two more properties surfaced:
   is off, so no customer is affected.
 - `PlantUml.vue` and `validate.ts`: try the engine, fall back to the server for a
   diagram it cannot draw. Export (3) and the MCP view (4) are untouched.
+- `utils/plantuml/stdlib.ts`: the C4 library as data through
+  `PLANTUML_STDLIB_LOADER` (rollout step 4).
 - Analytics, added before the code: `macro_viewed.plantuml_renderer`
   (`server | local | server_fallback`) and `plantuml_local_render_failed` with
-  `plantuml_failure_reason` (`load_failed | include | engine_error`).
+  `plantuml_failure_reason` (`load_failed | include | engine_error`) and, for
+  include failures, `plantuml_unresolved_include` (`stdlib | url | local`).
 - Storybook: `Editor/Diagram/PlantUmlLocalRenderer`. Sequence, class and syntax-error
   stories refuse any plantuml.com request; the include story stands in for the
   server and shows the fallback drawing.
@@ -207,12 +210,18 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    differently. Sample from the roughly 1,000 Graphviz-layout diagrams, weighted to
    the 270 component/state/use-case diagrams created in the last 90 days. Sequence
    and activity diagrams need only a spot check.
-4. **Self-host the stdlib** under our own static assets and set
-   `PLANTUML_STDLIB_BASE`. C4 first: it covers about 90% of today's fallbacks. Also
-   map the known `plantuml-stdlib` GitHub URLs (`C4-PlantUML`, the sprites repo)
-   onto the hosted copy through a `PLANTUML_FILE_LOADER` that answers only those
-   URLs. tupadr3, azure and aws are optional (8 diagrams). Other local-file and URL
-   includes stay on the fallback.
+4. **Self-host the stdlib.** **C4 done (2026-10-24).** `utils/plantuml/stdlib.ts`
+   sets `PLANTUML_STDLIB_LOADER` and serves C4-PlantUML 2.14.0 (MIT) as data from a
+   lazy chunk (`stdlib/c4.json`, about 190 KB). The JSON is converted from the
+   official `c4.min.js` by `scripts/plantuml-stdlib/bundle-to-json.mjs`, which
+   parses the bundle and accepts only literal data, so no downloaded code runs.
+   Any other library is declined and falls back. `PLANTUML_STDLIB_BASE` stays unset.
+   **Still open:** the 112 GitHub `C4-PlantUML` URL includes. The engine never
+   hands URL includes to `PLANTUML_FILE_LOADER` (measured: it reports "cannot
+   include" without calling it), so they need a source rewrite before rendering:
+   known `plantuml-stdlib/C4-PlantUML/<ref>/<File>.puml` URLs become
+   `<C4/<File>>`. Then tupadr3, azure and aws (8 diagrams), which are optional.
+   Other local-file and URL includes stay on the fallback.
 5. **Roll out the Forge flag** by site: diagramly, then lite, then full. The flag
    must first be created in the Developer Console for each app (forge-feature-flag
    skill). Gate each widening on `macro_viewed` split by `plantuml_renderer`

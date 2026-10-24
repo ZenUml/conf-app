@@ -12,7 +12,9 @@ vi.mock('@plantuml/core/emoji.js', () => ({}));
 
 const OK_SVG = '<svg viewBox="0 0 106 148" width="106" height="148"><text>Alice</text></svg>';
 const SYNTAX_SVG = '<svg><text>[From textarea (line 3) ]</text><text>Syntax Error? (Assumed diagram type: sequence)</text></svg>';
-const INCLUDE_SVG = '<svg><text>[From textarea (line 2) ]</text><text>cannot include &lt;C4/C4_Context&gt;</text></svg>';
+const INCLUDE_SVG = '<svg><text>[From textarea (line 2) ]</text><text>cannot include &lt;azure/AzureCommon&gt;</text></svg>';
+const URL_INCLUDE_SVG = '<svg><text>[From textarea (line 2) ]</text><text>cannot include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml</text></svg>';
+const LOCAL_INCLUDE_SVG = '<svg><text>[From textarea (line 2) ]</text><text>cannot include styles/common.puml</text></svg>';
 const CRASH_SVG = '<svg><text>An error has occurred!</text><text>What the hell is a gigawatt?</text></svg>';
 
 function engineReturns(svg: string) {
@@ -44,6 +46,24 @@ describe('renderPlantUmlLocally (ADR-0010)', () => {
     const err = await renderPlantUmlLocally('@startuml\nx\n@enduml').catch((e) => e);
     expect(err).toBeInstanceOf(PlantUmlLocalRenderError);
     expect(err.reason).toBe(reason);
+  });
+
+  it.each([
+    ['stdlib', INCLUDE_SVG],
+    ['url', URL_INCLUDE_SVG],
+    ['local', LOCAL_INCLUDE_SVG],
+  ])('says which kind of include was unresolved: %s', async (kind, svg) => {
+    engineReturns(svg);
+    const err = await renderPlantUmlLocally('@startuml\nx\n@enduml').catch((e) => e);
+    expect(err.reason).toBe('include');
+    expect(err.unresolvedInclude).toBe(kind);
+  });
+
+  it('installs the stdlib loader before the engine runs', async () => {
+    delete (globalThis as Record<string, unknown>).PLANTUML_STDLIB_LOADER;
+    engineReturns(OK_SVG);
+    await renderPlantUmlLocally('@startuml\nA\n@enduml');
+    expect(typeof (globalThis as Record<string, unknown>).PLANTUML_STDLIB_LOADER).toBe('function');
   });
 
   it('does not mistake a label that says "cannot include" for an include failure', async () => {

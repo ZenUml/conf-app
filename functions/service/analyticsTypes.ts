@@ -7,6 +7,20 @@
 // hand-maintained union + Set duplicated every name and could drift within this
 // file before frontend/backend drift was even considered.
 export const CANONICAL_EVENT_NAME_LIST = [
+  // Fullscreen recovery lifecycle (shared vocabulary with the frontend).
+  "fullscreen_recovery_notice_shown",
+  "fullscreen_recovery_gate_shown",
+  "fullscreen_recovery_action_selected",
+  "fullscreen_recovery_request_submitted",
+  "fullscreen_recovery_request_completed",
+  "fullscreen_recovery_request_failed",
+  "fullscreen_view_ready",
+  "fullscreen_recovery_activation_completed",
+  "fullscreen_recovery_activation_failed",
+  "fullscreen_recovery_mail_status_changed",
+  "fullscreen_recovery_support_outcome_recorded",
+  "fullscreen_recovery_manual_extension_completed",
+  "fullscreen_recovery_manual_extension_failed",
   "macro_viewed",
   "macro_create_started",
   "macro_create_succeeded",

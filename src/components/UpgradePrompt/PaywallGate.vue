@@ -28,6 +28,7 @@
     :remaining-continue-attempts="remainingContinueAttempts"
     @close="onClose"
     @continue-editing="onContinueEditing"
+    @unlocked="onUnlocked"
   />
 </template>
 
@@ -85,6 +86,18 @@ function onContinueEditing() {
       props.continueAttemptsIdentity
     ).remainingAttempts
   }
+  modalVisible.value = false
+  emit('continue-editing')
+}
+
+/**
+ * The pricing survey granted this user a space license, so editing resumes on
+ * the same path as "continue editing" but WITHOUT useContinueAttempt: the
+ * attempts counter exists to ration free passes, and a license is not one.
+ * Spending an attempt here would take something from a user who just paid in
+ * answers.
+ */
+function onUnlocked() {
   modalVisible.value = false
   emit('continue-editing')
 }

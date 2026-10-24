@@ -12,6 +12,9 @@ export interface ExtensionRequestContext {
   macroKind: MacroKind
   productType: string
   appVersion: string
+  /** Present when the user reached support through the pricing survey. Lets a
+   *  support reply be joined to the answers already stored for that response. */
+  surveyResponseId?: string
 }
 
 // Deep link to the "ZenUML Upgrade or Extension Request" form (request type 9)
@@ -55,6 +58,7 @@ export function buildExtensionRequestContext(args: {
   macroCount: number
   macrosLimit: number
   macroKind: MacroKind
+  surveyResponseId?: string
 }): ExtensionRequestContext {
   return {
     clientDomain: getClientDomain() || 'unknown_atlassian_domain',
@@ -66,6 +70,7 @@ export function buildExtensionRequestContext(args: {
     macroKind: args.macroKind,
     productType: import.meta.env.PRODUCT_TYPE || 'unknown_product_type',
     appVersion: import.meta.env.VITE_APP_VERSION || 'unknown_app_version',
+    ...(args.surveyResponseId ? { surveyResponseId: args.surveyResponseId } : {}),
   }
 }
 
@@ -82,6 +87,7 @@ export function buildExtensionRequestMessage(ctx: ExtensionRequestContext): stri
     `User account ID: ${ctx.userAccountId}`,
     `Page ID: ${ctx.pageId}`,
     `Macro type: ${ctx.macroKind}`,
+    ...(ctx.surveyResponseId ? [`Survey ID: ${ctx.surveyResponseId}`] : []),
     '',
     'Reason:',
     'This Confluence space has reached the ZenUML Lite diagram limit and editing may be disabled. Please temporarily extend editing access while our team reviews upgrade options.',

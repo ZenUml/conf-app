@@ -3,12 +3,16 @@
     <div
       ref="modalContainer"
       v-if="visible"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      class="fixed inset-0 z-[1100] flex items-center justify-center p-4"
       tabindex="-1"
       @keydown.esc="$emit('close')"
     >
       <div class="fixed inset-0 bg-black bg-opacity-50" @click="$emit('close')"></div>
-      <div :class="['relative bg-white rounded-lg shadow-xl', widthClass, 'max-h-[660px] overflow-y-auto']">
+      <!-- max-h caps at 660px but never exceeds the viewport (minus the
+           outer wrapper's p-4): a Forge editor iframe can be shorter than
+           660px, and without this the modal clips top and bottom with no
+           way to scroll to what's below the fold. -->
+      <div :class="['relative bg-white rounded-lg shadow-xl', widthClass, 'max-h-[min(660px,calc(100vh_-_2rem))] overflow-y-auto']">
         <header class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <h2 class="text-base font-semibold text-gray-900">
             <slot name="title" />

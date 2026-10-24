@@ -54,6 +54,44 @@ describe('PaywallGate', () => {
     expect(onContinueEditing).toHaveBeenCalledOnce();
   });
 
+  it('an unlocked survey grant closes the modal WITHOUT spending a continue attempt', async () => {
+    const onContinueEditing = vi.fn();
+    const wrapper = mount(PaywallGate, {
+      props: {
+        macrosCreated: 100,
+        macrosLimit: 100,
+        upgradeUrl: 'https://example.com/upgrade',
+        enterpriseBundleUrl: 'https://example.com/enterprise',
+        content: { template: '<div data-testid="content-stub" />' },
+        continueAttemptsIdentity: identity,
+        onContinueEditing,
+      },
+      global: {
+        stubs: {
+          UpgradePrompt: {
+            template: `
+              <div>
+                <button data-testid="unlocked" @click="$emit('unlocked')">unlocked</button>
+              </div>
+            `,
+          },
+        },
+      },
+    });
+
+    await wrapper.get('[data-testid="unlocked"]').trigger('click');
+
+    // Editing resumes on the same channel the editor already listens on...
+    expect(wrapper.emitted('continue-editing')).toHaveLength(1);
+    expect(onContinueEditing).toHaveBeenCalledOnce();
+    // ...but the attempt balance is untouched: the user earned a license, and
+    // the counter exists to ration free passes, not paid ones.
+    expect(JSON.parse(localStorage.getItem(continueAttemptsKey(identity)) || '{}')).toMatchObject({
+      remainingAttempts: DEFAULT_CONTINUE_ATTEMPTS,
+      lastUsedAt: null,
+    });
+  });
+
   it('initializes local continue attempts and passes the remaining count to the prompt', () => {
     const wrapper = mount(PaywallGate, {
       props: {

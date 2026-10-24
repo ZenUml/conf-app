@@ -45,15 +45,31 @@ import { requestConfluenceJson as request } from '@/utils/byline/confluenceReque
  * Lite's byline read the `zenuml-full-active` marker Full writes (see the
  * displayConditions comment in manifest.yml). An unsuffixed key would therefore
  * let Full's banner module boot on a property Lite wrote and announce a diagram
- * it knows nothing about. Resolves to `zenuml-unplaced-diagrams-lite` on Lite
- * and `zenuml-unplaced-diagrams` elsewhere, matching
- * `zenuml-unplaced-diagrams${LITE_KEY_SUFFIX}` in the manifest — the two MUST
- * move together or the display condition silently never fires.
+ * it knows nothing about. Resolves to `zenuml-unplaced-diagrams-lite` on Lite,
+ * `zenuml-unplaced-diagrams-asyncapi` on the AsyncAPI app and
+ * `zenuml-unplaced-diagrams` on Full, matching the banner's propertyKey in each
+ * variant's manifest — the two MUST move together or the display condition
+ * silently never fires.
  */
-export const UNPLACED_PROPERTY_KEY =
-  import.meta.env.PRODUCT_TYPE === 'lite'
-    ? 'zenuml-unplaced-diagrams-lite'
-    : 'zenuml-unplaced-diagrams'
+export const UNPLACED_PROPERTY_KEY = unplacedPropertyKeyFor(import.meta.env.PRODUCT_TYPE)
+
+/**
+ * The AsyncAPI app gets its own key too, though its ${LITE_KEY_SUFFIX} is
+ * empty: Full also ships the banner, so a shared `zenuml-unplaced-diagrams`
+ * would boot Full's banner on an `async-api-doc` diagram Full cannot place.
+ * scripts/forge-wizard.mjs rewrites the asyncapi manifest's propertyKey to
+ * match.
+ */
+export function unplacedPropertyKeyFor(productType: string | undefined): string {
+  switch (productType) {
+    case 'lite':
+      return 'zenuml-unplaced-diagrams-lite'
+    case 'asyncapi':
+      return 'zenuml-unplaced-diagrams-asyncapi'
+    default:
+      return 'zenuml-unplaced-diagrams'
+  }
+}
 
 /**
  * Defensive cap on how many diagrams travel in the property. Content property
@@ -61,13 +77,26 @@ export const UNPLACED_PROPERTY_KEY =
  * inventory, so a pathological page (a demo page, an architecture index) has
  * nothing to gain from naming all of them. The COUNT is not capped by this —
  * the entries are — because the property's job is to arm the gate and name a
- * few, not to be the page's diagram index.
+ * few, not to be the page's diagram index. The count travels as `total`: until
+ * it did, the banner counted the capped entries and read "20 diagrams" on a
+ * page with 23 (whimet4 page 32997, 2026-10-16).
  */
 export const MAX_PROPERTY_ENTRIES = 20
 
 export interface UnplacedPropertyValue {
   entries: UnplacedDiagramEntry[]
+  /**
+   * How many diagrams the scan found unplaced, of which `entries` names at
+   * most MAX_PROPERTY_ENTRIES. Absent on records written before it existed;
+   * read those as `entries.length`.
+   */
+  total?: number
   updatedAt: string
+}
+
+/** Unplaced diagrams the record counts but does not name (beyond the cap). */
+export function unlistedCount(value: Pick<UnplacedPropertyValue, 'entries' | 'total'>): number {
+  return Math.max(0, (value.total ?? value.entries.length) - value.entries.length)
 }
 
 export type UnplacedPropertyRead =
@@ -91,7 +120,10 @@ function propertiesPath(pageId: string): string {
 function parseValue(raw: unknown): UnplacedPropertyValue | null {
   const v = raw as Partial<UnplacedPropertyValue> | undefined
   if (!v || !Array.isArray(v.entries) || typeof v.updatedAt !== 'string') return null
-  return { entries: sanitizeUnplacedEntries(v.entries), updatedAt: v.updatedAt }
+  const entries = sanitizeUnplacedEntries(v.entries)
+  // A total below the names it carries cannot be right; fall back to the names.
+  const total = Number.isInteger(v.total) && (v.total as number) >= entries.length ? v.total : undefined
+  return { entries, ...(total === undefined ? {} : { total }), updatedAt: v.updatedAt }
 }
 
 /**
@@ -158,14 +190,19 @@ export async function persistUnplacedProperty(
   // discard a set we cannot see.
   if (current.status === 'error') return 'failed'
 
-  const capped = sanitizeUnplacedEntries(entries).slice(0, MAX_PROPERTY_ENTRIES)
+  const sanitized = sanitizeUnplacedEntries(entries)
+  const capped = sanitized.slice(0, MAX_PROPERTY_ENTRIES)
 
   if (capped.length === 0) {
     if (current.status === 'absent') return 'unchanged'
     return deleteProperty(pageId, current.propertyId)
   }
 
-  const value: UnplacedPropertyValue = { entries: capped, updatedAt: new Date(now).toISOString() }
+  const value: UnplacedPropertyValue = {
+    entries: capped,
+    total: sanitized.length,
+    updatedAt: new Date(now).toISOString(),
+  }
 
   if (current.status === 'absent') {
     return writeResult(
@@ -178,7 +215,12 @@ export async function persistUnplacedProperty(
   // Skipping the write keeps the property's version — and its updatedAt, which
   // scopes dismissals — stable, so a user who dismissed the banner is not shown
   // it again merely because they reopened the byline.
-  if (sameEntries(current.value.entries, capped)) return 'unchanged'
+  // The total counts too: past the cap, a placed or new diagram can change it
+  // while the named entries stay the same.
+  if (
+    sameEntries(current.value.entries, capped)
+    && (current.value.total ?? current.value.entries.length) === sanitized.length
+  ) return 'unchanged'
 
   const res = await request(`${propertiesPath(pageId)}/${encodeURIComponent(current.propertyId)}`, 'PUT', {
     key: UNPLACED_PROPERTY_KEY,

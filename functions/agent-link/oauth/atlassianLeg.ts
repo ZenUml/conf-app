@@ -35,7 +35,7 @@ import {
   listAccessibleSites,
   type FetchLike,
 } from './atlassianClient';
-import { saveGrant } from './tokenStore';
+import { grantKey, saveGrant } from './tokenStore';
 
 export const STATE_COOKIE = 'agent_link_oauth_state';
 /**
@@ -131,7 +131,7 @@ export function handleAuthorize(request: Request, deps: LegDeps): Response {
 }
 
 export type CallbackOutcome =
-  | { ok: true; accountId: string; siteCount: number }
+  | { ok: true; accountId: string; siteCount: number; replacedGrant: boolean }
   | {
       ok: false;
       reason:
@@ -145,6 +145,9 @@ export type CallbackOutcome =
         // or a host the console does not know. Nothing was stored.
         | 'config';
       detail?: string;
+      /** sites_failed only: the grant WAS stored, so who it belongs to and whether it replaced one. */
+      accountId?: string;
+      replacedGrant?: boolean;
     };
 
 /**
@@ -234,6 +237,9 @@ export async function handleCallback(
       meDetail);
   }
 
+  // A user authorizing again replaces their grant (one per user, shared by
+  // all their MCP clients); report that the old one ended, as 'reauthorized'.
+  const replacedGrant = (await store.get(grantKey(accountId))) !== null;
   await saveGrant(store, secret, accountId, grant, now());
 
   const sites = await listAccessibleSites(fetchImpl, grant.accessToken);
@@ -242,7 +248,7 @@ export async function handleCallback(
     // rather than pretend, but do not throw away a good grant.
     return {
       response: html(200, 'Connected to Atlassian', `<p>Your agent can now act on your behalf. (Listing your sites failed: <code>${sites.detail}</code>; it will be retried when the agent first needs them.)</p>`, clear),
-      outcome: { ok: false, reason: 'sites_failed', detail: sites.detail },
+      outcome: { ok: false, reason: 'sites_failed', detail: sites.detail, accountId, replacedGrant },
     };
   }
 
@@ -250,6 +256,6 @@ export async function handleCallback(
   return {
     response: html(200, 'Connected to Atlassian',
       `<p>Your agent can now read and update ZenUML diagrams as you on ${sites.sites.length} site${sites.sites.length === 1 ? '' : 's'}:</p><ul>${list}</ul><p>You can close this tab.</p>`, clear),
-    outcome: { ok: true, accountId, siteCount: sites.sites.length },
+    outcome: { ok: true, accountId, siteCount: sites.sites.length, replacedGrant },
   };
 }

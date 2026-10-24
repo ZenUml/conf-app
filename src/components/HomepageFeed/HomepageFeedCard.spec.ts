@@ -14,6 +14,22 @@ vi.mock("@/model/globals/forgeGlobal", () => ({
 }));
 import { openUrl, navigateToPage } from "@/model/globals/forgeGlobal";
 
+const isAgentLinkEnabled = vi.fn();
+vi.mock("@/apis/aiTitleFeatureFlag", () => ({
+  isAgentLinkEnabled: () => isAgentLinkEnabled(),
+}));
+
+vi.mock("@/composables/agentLink/connectInstructions", () => ({
+  mcpAddCommand: () => "claude mcp add --transport http zenuml https://conf-lite.zenuml.com/agent-link/mcp",
+  mcpServerName: () => "zenuml",
+  buildHomepagePrompt: ({ cloudId }: { cloudId?: string }) => `home prompt for ${cloudId || "-"}`,
+}));
+
+const writeClipboard = vi.fn();
+vi.mock("@/composables/agentLink/clipboard", () => ({
+  writeClipboard: (text: string) => writeClipboard(text),
+}));
+
 // The shape searchDiagramsForge really returns (ApWrapper2.DiagramSearchHit):
 // a v1 CQL hit enriched with the v2 body's diagramType and pageId. Building
 // rows from anything narrower is how the card would pass its tests while
@@ -62,6 +78,8 @@ describe("HomepageFeedCard (confluence:homepageFeed)", () => {
     vi.mocked(openUrl).mockClear();
     vi.mocked(navigateToPage).mockClear();
     searchDiagramsForge.mockReset();
+    isAgentLinkEnabled.mockReset().mockResolvedValue(false);
+    writeClipboard.mockReset();
   });
 
   it("renders and fires homepage_feed_viewed exactly once on mount", async () => {
@@ -209,5 +227,104 @@ describe("HomepageFeedCard (confluence:homepageFeed)", () => {
     expect(wrapper.vm.loading).toBe(false);
     expect(wrapper.vm.diagrams).toHaveLength(0);
     expect(wrapper.vm.examples).toHaveLength(4);
+  });
+
+  describe("Connect MCP row", () => {
+    const MCP_PROPS = {
+      feature_area: "agent_link",
+      surface: "route",
+      entry_point: "route",
+      mcp_mode: "headless",
+      mcp_button_placement: "homepage_feed",
+    };
+
+    async function mountWithFlag(enabled: boolean) {
+      isAgentLinkEnabled.mockResolvedValue(enabled);
+      const wrapper = await mountSettled([]);
+      await Promise.resolve();
+      await wrapper.vm.$nextTick();
+      return wrapper;
+    }
+
+    afterEach(() => {
+      delete (window as unknown as { forgeGlobal?: unknown }).forgeGlobal;
+    });
+
+    it("stays hidden while the agent-link flag is off", async () => {
+      const wrapper = await mountWithFlag(false);
+      expect(wrapper.find('[data-testid="homepage-feed-mcp"]').exists()).toBe(false);
+    });
+
+    it("stays hidden when the flag lookup fails", async () => {
+      isAgentLinkEnabled.mockRejectedValue(new Error("flags down"));
+      const wrapper = await mountSettled([]);
+      await Promise.resolve();
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find('[data-testid="homepage-feed-mcp"]').exists()).toBe(false);
+    });
+
+    it("opens the setup command and a site-scoped prompt, and reports the open", async () => {
+      (window as unknown as { forgeGlobal: unknown }).forgeGlobal = { forgeContext: { cloudId: "c-1" } };
+      const wrapper = await mountWithFlag(true);
+      vi.mocked(trackAnalyticsEvent).mockClear();
+
+      await wrapper.find('[data-testid="homepage-feed-mcp-toggle"]').trigger("click");
+
+      expect(wrapper.find('[data-testid="homepage-feed-mcp-setup"]').text()).toContain("claude mcp add");
+      expect(wrapper.find('[data-testid="homepage-feed-mcp-prompt"]').text()).toBe("home prompt for c-1");
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith("agent_link_mcp_dialog_opened", MCP_PROPS);
+    });
+
+    it("reports the dwell when the row is closed again", async () => {
+      const wrapper = await mountWithFlag(true);
+      const toggle = wrapper.find('[data-testid="homepage-feed-mcp-toggle"]');
+      await toggle.trigger("click");
+      vi.mocked(trackAnalyticsEvent).mockClear();
+
+      await toggle.trigger("click");
+
+      expect(wrapper.find('[data-testid="homepage-feed-mcp-setup"]').exists()).toBe(false);
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        "agent_link_mcp_dialog_closed",
+        expect.objectContaining({ ...MCP_PROPS, dwell_ms: expect.any(Number) }),
+      );
+    });
+
+    it("copies the setup command and reports the outcome", async () => {
+      writeClipboard.mockResolvedValue(true);
+      const wrapper = await mountWithFlag(true);
+      await wrapper.find('[data-testid="homepage-feed-mcp-toggle"]').trigger("click");
+      vi.mocked(trackAnalyticsEvent).mockClear();
+
+      const copy = wrapper.find('[data-testid="homepage-feed-mcp-copy-setup"]');
+      await copy.trigger("click");
+      await Promise.resolve();
+      await wrapper.vm.$nextTick();
+
+      expect(writeClipboard).toHaveBeenCalledWith(expect.stringContaining("claude mcp add"));
+      expect(copy.text()).toBe("Copied");
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith("agent_link_mcp_dialog_copied", {
+        ...MCP_PROPS,
+        mcp_copy_target: "setup_command",
+        outcome: "copied",
+      });
+    });
+
+    it("offers manual selection when the clipboard is unavailable", async () => {
+      writeClipboard.mockResolvedValue(false);
+      const wrapper = await mountWithFlag(true);
+      await wrapper.find('[data-testid="homepage-feed-mcp-toggle"]').trigger("click");
+
+      const copy = wrapper.find('[data-testid="homepage-feed-mcp-copy-prompt"]');
+      await copy.trigger("click");
+      await Promise.resolve();
+      await wrapper.vm.$nextTick();
+
+      expect(copy.text()).toBe("Select & copy");
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        "agent_link_mcp_dialog_copied",
+        expect.objectContaining({ mcp_copy_target: "prompt", outcome: "clipboard_failed" }),
+      );
+    });
   });
 });

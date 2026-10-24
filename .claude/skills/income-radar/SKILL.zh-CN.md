@@ -24,10 +24,11 @@ python3 $S radar --local         # 离线，使用上次 `sync` 的快照（快�
 
 ## 报告内容
 
-包含两个部分：
+包含四个部分：
 
 - **INCOMING（即将到账）** — 未来 N 天内到期的续费，合计为预期收入。每一行都带有与 MISSED 相同的付款风险 `flags`；标题还会单独列出预期总额中处于风险卡片/失效卡片上的金额（续费带有 `no-payment-method` 标志，是续费下个周期失败并进入 MISSED 的**领先指标**）。
-- **MISSED（已错过）** — 过去 N 天内已过期且没有新付款到账的付款客户续费，合计为风险收入。
+- **MISSED（已错过）** — 过去 N 天内已过期且没有新付款到账的付款客户续费，合计为风险收入。仍在宽限期内的许可证不计入（见 IN GRACE）。
+- **IN GRACE（宽限期）** — 付费覆盖期已结束（`paid_thru < today`），但许可证仍为 active，`inGracePeriod = Yes`，且其 `maintenanceEndDate`（宽限截止日 `grace_until`）不早于今天。续费处于待付状态，不是漏付。在宽限截止日之前始终列出，不受回看窗口限制；金额合计与 MISSED 分开。
 - **EVALUATIONS（试用）** — 未来 N 天内即将到期的试用（这是账务观察窗口，不是联系他们的指令），或过去 N 天内已到期的试用。这是生命周期信号，**不是收入**——单独显示，不计入金额合计。每行显示 `converted`（该租户 + 应用是否已有付费交易）。排除 Lite（免费，没有付费转化）。
 
 范围：**所有收入应用**（Full + Diagramly + AsyncAPI；Lite 是免费的 Marketplace 上架应用，因此此处约为 `$0`——其付费层由 Stripe/KV 管理，见 `extend-space-license` / `paywall`）。**仅付款客户**——累计供应商收入 > 0 的客户。过去从未付款的试用或免费安装不会出现在任何一个类别中。
@@ -41,11 +42,12 @@ python3 $S radar --local         # 离线，使用上次 `sync` 的快照（快�
 - **`paid_thru`** — 辅助程序给出的最新正金额交易结束日期；将其称为已结算覆盖期之前，应核实原始状态。未来才开始的区间不覆盖今天。它不是供应商收款日期。
 - **预期金额** — 该客户最近一笔*已付款*交易的 `vendorAmount`（最可能在下一周期重复的金额）。
 - **INCOMING：** `today <= paid_thru <= today + N`。
-- **MISSED：** `today - N <= paid_thru < today`——没有更新的已付款交易将覆盖期延长到今天之后。再通过 `inGracePeriod = Yes` 和 `invoiceDunningReason`（`no-payment-method`）标志加强判断；许可证本身已失效时也会显示 `inactive`。
+- **IN GRACE：** `paid_thru < today`、`inGracePeriod = Yes`、`today <= grace_until`，其中 `grace_until` 是许可证的 `maintenanceEndDate`。先于 INCOMING 和 MISSED 判断。
+- **MISSED：** `today - N <= paid_thru < today` 且不属于 IN GRACE——没有更新的已付款交易将覆盖期延长到今天之后。再通过 `invoiceDunningReason`（`no-payment-method`）标志加强判断；许可证本身已失效时也会显示 `inactive`。
 
 ## 输出
 
-**默认（文本）：** 标题之后是四个部分，每部分由标题和对齐表格组成。空部分会打印 `(none)`。在 `--local` 模式下，`[local snapshot @ … (Nh old)]` 行会输出到 **stderr**，保持 stdout 清洁。
+**默认（文本）：** 标题之后是五个部分，每部分由标题和对齐表格组成。空部分会打印 `(none)`。在 `--local` 模式下，`[local snapshot @ … (Nh old)]` 行会输出到 **stderr**，保持 stdout 清洁。
 
 ```text
 === income radar  asof=YYYY-MM-DD  window=+/-Nd  (all revenue apps, payers only) ===
@@ -54,6 +56,8 @@ INCOMING (next Nd): C renewals, ~ $T expected  (at-risk on flagged cards: $R)
   due  app  billing  amount  flags  tier  company  host  entitlement
 MISSED (past Nd): C renewals overdue, ~ $T at risk
   paid_thru  days_late  app  billing  amount  flags  company  host  entitlement
+IN GRACE: C renewals pending (paid coverage ended, license still active), ~ $T
+  grace_until  days_left  paid_thru  app  billing  amount  flags  company  host  entitlement
 note: … (3 lines on renewal-timing-as-proxy)
 EVALUATIONS expiring (next Nd): C trials — conversion window (not income)
   expires  app  tier  status  converted  company  host  entitlement
@@ -68,6 +72,7 @@ EVALUATIONS expired (past Nd): C trials
   "asof": "YYYY-MM-DD", "days": N,
   "incoming": { "total": <$>, "at_risk": <$>, "count": <n>, "rows": [ { "company","host","entitlement","app","billing","amount","tier","flags","due" } ] },
   "missed":   { "total": <$>, "count": <n>, "rows": [ { …, "paid_thru", "days_late" } ] },
+  "in_grace": { "total": <$>, "count": <n>, "rows": [ { …, "paid_thru", "grace_until", "days_left" } ] },
   "evaluations": {
     "expiring": { "count": <n>, "rows": [ { "expires","app","tier","status","converted","company","host","entitlement" } ] },
     "expired":  { "count": <n>, "rows": [ { …, "days_ago" } ] }

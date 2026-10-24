@@ -65,8 +65,11 @@ describe('staging workflow safety contracts', () => {
         expect(step.env.SOURCE_SHA).toBe(name === 'pr-validation' ? '${{ github.sha }}' : '${{ inputs.source-sha }}');
       }
     }
-    expect(structure('main-staging-validation').jobs['staging-full-e2e'].needs).toContain('staging-lite-e2e');
-    expect(structure('main-staging-validation').jobs['staging-full-e2e-now'].needs).not.toContain('staging-lite-e2e');
+    const staging = structure('main-staging-validation');
+    for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
+      expect(staging.jobs[`staging-${variant}-e2e`].needs.slice().sort()).toEqual([`staging-${variant}`, `e2e-auth-${variant}`, 'parent'].sort());
+    }
+    expect(staging.jobs).not.toHaveProperty('staging-full-e2e-now');
   });
   it('keeps the main root graph small and dispatches independent build and staging phases', () => {
     const root = structure('build-test-deploy');
@@ -135,7 +138,9 @@ describe('staging workflow safety contracts', () => {
         expect(job.if).toContain('!cancelled()');
         expect(job.if).not.toContain('always()');
         const dispatch = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
-        expect(dispatch.if).toBe('${{ !cancelled() }}');
+        expect(dispatch.if).toBe(name === 'main-staging-validation'
+          ? '${{ success() && !cancelled() }}'
+          : '${{ !cancelled() }}');
         const cleanup = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
         expect(cleanup.if).toBe('${{ always() }}');
         expect(job.steps.indexOf(cleanup)).toBeGreaterThan(job.steps.indexOf(dispatch));
@@ -194,7 +199,7 @@ describe('staging workflow safety contracts', () => {
     const matcher = new RegExp(JSON.parse(literal!));
     const canRecover = (failed: string[]) => failed.length > 0 && failed.every(name => matcher.test(name));
     expect(canRecover(['E2E: Lite / shard 1/10', 'E2E auth: Lite / auth bootstrap'])).toBe(true);
-    expect(canRecover(['Validate: Lite', 'Validate: Full (now)', 'Validate: Diagramly', 'Validate: AsyncAPI'])).toBe(true);
+    expect(canRecover(['Validate: Lite', 'Validate: Full', 'Validate: Diagramly', 'Validate: AsyncAPI'])).toBe(true);
     expect(canRecover(['E2E validation', 'Pipeline outcome'])).toBe(true);
     for (const failure of ['Build and Unit Test', 'Deploy: Lite', 'Jev category selection', 'Select E2E for this PR', 'Draft: Lite']) {
       expect(canRecover(['E2E validation', 'Pipeline outcome', failure])).toBe(false);
@@ -209,7 +214,8 @@ describe('staging workflow safety contracts', () => {
   it('preserves manual full coverage and succeeds with legitimate skips while rejecting reuse', () => {
     const yaml = workflow('pr-validation'); expect(yaml).toContain("contains(github.event.pull_request.labels.*.name, 'test:all')"); expect(yaml).toContain('Human test:all override: full E2E coverage');
     expect(workflow('e2e-test')).toContain('if(!e.execution_succeeded) process.exit(1)');
-    expect(workflow('daily-regression')).toContain("cron: '0 2 * * *'");
+    expect(workflow('daily-regression')).toContain("cron: '0 3 * * *'");
+    expect(workflow('daily-regression')).toContain("timezone: 'Australia/Melbourne'");
     expect(workflow('staging-transaction')).toContain('ref: ${{ inputs.ref }}');
     expect(workflow('staging-transaction')).toContain('suite: regression'); expect(workflow('staging-transaction')).not.toContain("if: inputs.variant != 'asyncapi'"); expect(workflow('staging-transaction')).toContain('suite: regression-render');
     expect(workflow('daily-regression')).not.toContain('SLACK_BOT_TOKEN');

@@ -1,5 +1,5 @@
 import {resolveAccessibleTestSpace} from '../../helpers/parentFixture.js';
-import { test as setup, type APIRequestContext } from '@playwright/test';
+import { test as setup, type APIRequestContext } from '../../fixtures/mixpanel-test.js';
 import { PageCreator } from '../../utils/page-creator.js';
 import { testConfig } from '../../config/test-config.js';
 import type { RenderMacroType } from '../../config/apps.js';

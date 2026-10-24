@@ -1,8 +1,10 @@
 import { mount, flushPromises } from '@vue/test-utils'
+import { h } from 'vue'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
+import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
@@ -25,6 +27,7 @@ import { writeMagicPreference } from '@/utils/magic/localPreference'
 import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 import { webcrypto } from 'node:crypto'
 import { reloadViewer, startRetryMarker, readRetryMarker } from '@/utils/loadFailedRetry'
+import { renameDiagramTitle } from '@/utils/renameDiagramTitle'
 
 vi.mock('@/utils/requestUtil', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/utils/requestUtil')>(),
@@ -58,6 +61,15 @@ vi.mock('@/apis/aiTitleFeatureFlag', () => ({
   isArchitectureTokensEnabled: vi.fn(() => Promise.resolve(false)),
   isCreateGuideEnabled: vi.fn(() => Promise.resolve(false)),
 }))
+
+// The first release offers the headless MCP only (RELAY_SESSIONS_ENABLED is
+// false), which hides the relay UI. The relay suites below switch it back on
+// so that code stays covered; the getter makes the switch per-test.
+const relaySwitch = vi.hoisted(() => ({ on: false }))
+vi.mock('@/composables/agentLink/connectInstructions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/composables/agentLink/connectInstructions')>()
+  return { ...actual, get RELAY_SESSIONS_ENABLED() { return relaySwitch.on } }
+})
 
 vi.mock('@/features/createGuide/openCreateGuide', () => ({ openCreateGuide: vi.fn(() => Promise.resolve()) }))
 
@@ -112,6 +124,13 @@ vi.mock('@/utils/window', () => ({
 
 vi.mock('@/utils/toast', () => ({
   toast: vi.fn(),
+}))
+
+// The persistence half of inline rename has its own spec
+// (utils/renameDiagramTitle.spec.ts); here it is a seam so the component tests
+// cover only the UI state machine + the events it fires.
+vi.mock('@/utils/renameDiagramTitle', () => ({
+  renameDiagramTitle: vi.fn(),
 }))
 
 vi.mock('@/model/globals/forgeGlobal', async (importOriginal) => {
@@ -797,6 +816,32 @@ describe('GenericViewer (chrome-less)', () => {
       wrapper.unmount()
     })
 
+    it('leads the More menu with the viewer-more-menu-start slot and keeps it in the keyboard order', async () => {
+      store.commit('updateDiagramType', DiagramType.Sequence)
+      const wrapper = mount(GenericViewer, {
+        attachTo: document.body,
+        global: { plugins: [store] },
+        slots: {
+          default: '<div class="diagram-stub">diagram</div>',
+          'viewer-more-menu-start': '<template #viewer-more-menu-start="{ close }"><button type="button" role="menuitemcheckbox" aria-checked="true" class="overflow-menu-item lead-item" @click="close()">Relationship highlights</button></template>',
+        },
+      })
+      await flushPromises()
+      await openMoreMenu(wrapper)
+      const lead = wrapper.find('.viewer-act-more .lead-item')
+      expect(lead.exists()).toBe(true)
+      expect(lead.element.nextElementSibling?.getAttribute('role')).toBe('separator')
+      expect(wrapper.findAll('.viewer-act-more [role="menuitem"]').length).toBeGreaterThan(0)
+      expect(document.activeElement).toBe(lead.element)
+      await wrapper.find('.viewer-act-more [role="menu"]').trigger('keydown', { key: 'ArrowDown' })
+      expect(document.activeElement?.getAttribute('role')).toBe('menuitem')
+      await wrapper.find('.viewer-act-more [role="menu"]').trigger('keydown', { key: 'ArrowUp' })
+      expect(document.activeElement).toBe(lead.element)
+      await lead.trigger('click')
+      expect(wrapper.find('.viewer-act-more [role="menu"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
     it('falls back to a default title when the diagram has no title', () => {
       store.state.diagram.title = ''
       const wrapper = mountViewer()
@@ -822,8 +867,46 @@ describe('GenericViewer (chrome-less)', () => {
         slots: { default: '<div class="diagram-stub" />' },
       })
       expect(wrapper.find('.viewer-frame').exists()).toBe(false)
+      expect(wrapper.find('.viewer-header-zoom').exists()).toBe(false)
       expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
       expect(wrapper.find('.diagram-stub').exists()).toBe(true)
+    })
+
+    it('mounts a renderer zoom toolbar in the header and leaves editor preview controls floating', async () => {
+      const toolbar = () => h(DiagramViewportToolbar, { label: 'Mermaid', macroType: 'mermaid' })
+      const inline = mount(GenericViewer, {
+        attachTo: document.body,
+        global: { plugins: [store] },
+        slots: { default: toolbar },
+      })
+      try {
+        await flushPromises()
+        const headerToolbar = inline.find('.viewer-header-zoom [role="toolbar"]')
+        expect(headerToolbar.exists()).toBe(true)
+        expect(headerToolbar.attributes('aria-label')).toBe('Mermaid zoom controls')
+        expect(headerToolbar.findAll('button').map(button => button.attributes('aria-label'))).toEqual([
+          'Zoom out', 'Zoom in',
+        ])
+      } finally {
+        inline.unmount()
+      }
+
+      const editor = mount(GenericViewer, {
+        attachTo: document.body,
+        props: { hideHeader: true },
+        global: { plugins: [store] },
+        slots: { default: toolbar },
+      })
+      try {
+        await flushPromises()
+        expect(editor.find('.viewer-header-zoom').exists()).toBe(false)
+        expect(editor.find('.diagram-viewport-toolbar').exists()).toBe(true)
+        expect(editor.find('.diagram-viewport-toolbar').findAll('button').map(button => button.attributes('aria-label'))).toEqual([
+          'Zoom out', 'Zoom in',
+        ])
+      } finally {
+        editor.unmount()
+      }
     })
 
     it('mounts RelatedDiagramsFooter only for a ready Mermaid or ZenUML sequence diagram when the flag is on and content id is present', async () => {
@@ -844,12 +927,14 @@ describe('GenericViewer (chrome-less)', () => {
         ready: true,
         enabled: true,
         surface: 'viewer',
+        macroType: 'mermaid',
       })
 
       store.commit('updateDiagramType', DiagramType.Sequence)
       store.commit('updateCode2', '@Actor Customer\nCustomer->Service: request')
       await sequence.vm.$nextTick()
-      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(true)
+      // #582: the footer's analytics must say which macro it is on, not assume mermaid
+      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).props('macroType')).toBe('sequence')
 
       store.commit('updateMermaidCode', 'flowchart TD\n  A-->B')
       store.commit('updateDiagramType', DiagramType.Mermaid)
@@ -1023,6 +1108,263 @@ describe('GenericViewer (chrome-less)', () => {
         macro_type: 'mermaid',
         entry_point: 'page_view',
       })
+    })
+  })
+
+  // Inline title rename: rename a diagram from the viewer's top edge without
+  // opening the editor modal. Same gate as the Edit button; persistence is
+  // renameDiagramTitle (mocked above).
+  describe('inline title rename', () => {
+    const renameMock = vi.mocked(renameDiagramTitle)
+    const titleButton = (w: ReturnType<typeof mountViewer>) => w.find('[data-testid="viewer-title-rename"]')
+    const titleInput = (w: ReturnType<typeof mountViewer>) => w.find('[data-testid="viewer-title-input"]')
+    const openRename = async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      await titleButton(wrapper).trigger('click')
+      return wrapper
+    }
+
+    // The viewer resolves its account from the memoised Forge context; the
+    // bridge mock above carries no accountId, which the gate reads as an
+    // anonymous visitor. Give these tests a signed-in viewer and put the
+    // previous context back afterwards (same pattern as the Magic tests).
+    let previousContext: typeof forgeRuntime.forgeContext
+    beforeEach(() => {
+      renameMock.mockReset()
+      renameMock.mockResolvedValue({ ok: true, id: '987654321', durationMs: 42 } as any)
+      previousContext = forgeRuntime.forgeContext
+      forgeRuntime.forgeContext = { ...previousContext, ...window.forgeGlobal!.forgeContext, accountId: 'rename-user' }
+    })
+    afterEach(() => {
+      forgeRuntime.forgeContext = previousContext
+    })
+
+    it('renders the rename control on a Mermaid diagram too', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      store.state.diagram.mermaidCode = 'sequenceDiagram\n  A->>B: hi'
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(titleButton(wrapper).exists()).toBe(true)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(false)
+    })
+
+    it('renders the title as a rename control when the diagram is editable custom content', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(titleButton(wrapper).exists()).toBe(true)
+      expect(titleButton(wrapper).text()).toBe('Login flow')
+      // The layout tests above keep reading the title through .viewer-title.
+      expect(wrapper.find('.viewer-title').text()).toBe('Login flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      // Exactly one title on screen: the control REPLACES the plain span
+      // (caught live in Storybook — a stray v-if between the chain's
+      // branches rendered both).
+      expect(wrapper.find('span.viewer-title').exists()).toBe(false)
+      expect(wrapper.findAll('.viewer-title')).toHaveLength(1)
+    })
+
+    it.each([
+      ['a read-only user', () => { vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false) }],
+      ['a cross-page copy', () => { store.state.diagram.isCopy = true; store.state.diagram.copyReason = 'cross-page' }],
+      ['a snapshot fallback', () => { store.state.diagram.snapshotFallback = true }],
+      ['a non custom-content source', () => { store.state.diagram.source = DataSource.ContentProperty }],
+      ['the fullscreen modal', () => { (window as any).forgeGlobal.forgeContext.extension.modal = { macroMode: 'fullscreen' } }],
+      ['an embed macro', () => { (window as any).forgeGlobal.forgeContext.moduleKey = 'zenuml-embed-macro' }],
+      ['a failed load', () => { store.state.viewerLoadState = 'failed_with_source' }],
+      // First rollout is the sequence and Mermaid macros: the other types keep
+      // the editor as the one place to rename until the control has proven
+      // itself there.
+      ['a PlantUML diagram', () => { store.commit('updateDiagramType', DiagramType.PlantUml) }],
+      ['a Graph diagram', () => { store.commit('updateDiagramType', DiagramType.Graph) }],
+      // No accountId in the Forge context = anonymous visitor of a public page:
+      // the bridge PUT can only fail for them, so the control is not offered.
+      ['an anonymous viewer', () => { forgeRuntime.forgeContext = { ...forgeRuntime.forgeContext, accountId: undefined } }],
+    ])('renders a plain title with no rename control for %s', async (_label, arrange) => {
+      arrange()
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(titleButton(wrapper).exists()).toBe(false)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(true)
+    })
+
+    it('hides the rename control when hideEdit is set', async () => {
+      const wrapper = mount(GenericViewer, { global: { plugins: [store] }, props: { hideEdit: true } })
+      await flushPromises()
+      expect(titleButton(wrapper).exists()).toBe(false)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(true)
+    })
+
+    it('opens an input prefilled with the current title and fires viewer_rename_started', async () => {
+      const wrapper = await openRename()
+      const input = titleInput(wrapper)
+      expect(input.exists()).toBe(true)
+      expect((input.element as HTMLInputElement).value).toBe('Login flow')
+      expect(input.attributes('maxlength')).toBe('255')
+      expect(titleButton(wrapper).exists()).toBe(false)
+      expect(wrapper.find('span.viewer-title').exists()).toBe(false)
+      expect(wrapper.findAll('.viewer-title')).toHaveLength(1)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_started', expect.objectContaining({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'sequence',
+        custom_content_id: '987654321',
+      }))
+      expect(renameMock).not.toHaveBeenCalled()
+    })
+
+    it('Enter with a new title persists it, updates the store, closes the input and fires viewer_rename_succeeded', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('  Checkout flow  ')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+
+      expect(renameMock).toHaveBeenCalledTimes(1)
+      expect(renameMock).toHaveBeenCalledWith(expect.objectContaining({
+        customContentId: '987654321',
+        title: 'Checkout flow',
+        macroType: 'sequence',
+      }))
+      expect(store.state.diagram.title).toBe('Checkout flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(wrapper.find('.viewer-title').text()).toBe('Checkout flow')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_succeeded', expect.objectContaining({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'sequence',
+        custom_content_id: '987654321',
+        content_id: '987654321',
+        save_duration_ms: 42,
+      }))
+    })
+
+    it('blur commits the draft the same way Enter does', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Checkout flow')
+      await titleInput(wrapper).trigger('blur')
+      await flushPromises()
+      expect(renameMock).toHaveBeenCalledTimes(1)
+      expect(store.state.diagram.title).toBe('Checkout flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+    })
+
+    it('Escape leaves edit mode without a write, keeps the old title and fires viewer_rename_cancelled (escape)', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Half typed')
+      await titleInput(wrapper).trigger('keydown', { key: 'Escape' })
+      await flushPromises()
+      expect(renameMock).not.toHaveBeenCalled()
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(titleButton(wrapper).text()).toBe('Login flow')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_cancelled', expect.objectContaining({
+        surface: 'viewer',
+        rename_exit_reason: 'escape',
+      }))
+    })
+
+    it('committing the unchanged title does not write and fires viewer_rename_cancelled (unchanged)', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue(' Login flow ')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(renameMock).not.toHaveBeenCalled()
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_cancelled', expect.objectContaining({
+        rename_exit_reason: 'unchanged',
+      }))
+    })
+
+    it('Enter with a blank title shows the error state and stays in edit mode without writing', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('   ')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(renameMock).not.toHaveBeenCalled()
+      expect(titleInput(wrapper).exists()).toBe(true)
+      expect(titleInput(wrapper).classes()).toContain('viewer-title-input--error')
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('viewer_rename_cancelled', expect.anything())
+    })
+
+    it('blur with a blank title leaves edit mode, keeps the previous title and fires viewer_rename_cancelled (empty)', async () => {
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('')
+      await titleInput(wrapper).trigger('blur')
+      await flushPromises()
+      expect(renameMock).not.toHaveBeenCalled()
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_cancelled', expect.objectContaining({
+        rename_exit_reason: 'empty',
+      }))
+    })
+
+    it('disables the input AND the Edit button while the write is in flight, and ignores a blur during it', async () => {
+      let resolve!: (v: unknown) => void
+      renameMock.mockReturnValue(new Promise((r) => { resolve = r }) as any)
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Checkout flow')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await wrapper.vm.$nextTick()
+      expect(titleInput(wrapper).exists()).toBe(true)
+      expect(titleInput(wrapper).attributes('disabled')).toBeDefined()
+      // The editor modal would boot on the pre-rename body and its later save
+      // would reinstate the old title — so Edit waits for the PUT.
+      expect(wrapper.find('button[aria-label="Edit"]').attributes('disabled')).toBeDefined()
+      await titleInput(wrapper).trigger('blur')
+      resolve({ ok: true, id: '987654321', durationMs: 5 })
+      await flushPromises()
+      expect(renameMock).toHaveBeenCalledTimes(1)
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(store.state.diagram.title).toBe('Checkout flow')
+      expect(wrapper.find('button[aria-label="Edit"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('a failed write reverts to the previous title, toasts once and fires viewer_rename_failed with failure_reason', async () => {
+      renameMock.mockResolvedValue({ ok: false, reason: 'save_error', durationMs: 7, error: new Error('403') } as any)
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Checkout flow')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(titleButton(wrapper).text()).toBe('Login flow')
+      expect(toast).toHaveBeenCalledTimes(1)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_failed', expect.objectContaining({
+        feature_area: 'macro',
+        surface: 'viewer',
+        macro_type: 'sequence',
+        custom_content_id: '987654321',
+        failure_reason: 'save_error',
+        save_duration_ms: 7,
+      }))
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('viewer_rename_succeeded', expect.anything())
+    })
+
+    it('a guard-blocked rename fires viewer_rename_failed but does not toast again (the guard already explained)', async () => {
+      renameMock.mockResolvedValue({ ok: false, reason: 'gate_blocked', durationMs: 3 } as any)
+      const wrapper = await openRename()
+      await titleInput(wrapper).setValue('Checkout flow')
+      await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(store.state.diagram.title).toBe('Login flow')
+      expect(titleInput(wrapper).exists()).toBe(false)
+      expect(toast).not.toHaveBeenCalled()
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_failed', expect.objectContaining({
+        failure_reason: 'gate_blocked',
+      }))
+    })
+
+    it('a document-level Escape while renaming leaves the open source panel alone', async () => {
+      store.commit('updateCode2', 'A->B: hi')
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      expect((wrapper.vm as any).showSourcePanel).toBe(true)
+      await titleButton(wrapper).trigger('click')
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect((wrapper.vm as any).showSourcePanel).toBe(true)
     })
   })
 
@@ -1245,7 +1587,7 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.vm.$nextTick()
       await openMoreMenu(wrapper)
       expect(moreMenuLabels(wrapper)).toEqual([
-        'Source', 'Copy for AI', 'Copy diagram link', 'Copy page link', 'Export PNG', 'Versions', 'Download debug info',
+        'Source', 'Copy for AI', 'Copy diagram link', 'Export PNG', 'Versions', 'Download debug info',
       ])
       expect(wrapper.findAll('.viewer-act-more [role="separator"]')).toHaveLength(2)
     })
@@ -1506,9 +1848,7 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
-  // Fullscreen Viewer v2 (design handoff). Fullscreen gets its own chrome: a
-  // diagram-type chip beside the title, a Source button that toggles, and
-  // Escape unwinding one layer at a time. The inline macro is unchanged.
+  // Fullscreen Viewer v2: Source toggles and Escape unwinds one layer at a time.
   describe('Fullscreen Viewer v2', () => {
     const asFullscreen = () => {
       ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
@@ -1520,26 +1860,16 @@ describe('GenericViewer (chrome-less)', () => {
 
     describe('diagram-type chip', () => {
       it.each([
-        [DiagramType.Sequence, 'Sequence', 'viewer-type-chip--sequence'],
-        [DiagramType.Mermaid, 'Mermaid', 'viewer-type-chip--mermaid'],
-        [DiagramType.PlantUml, 'PlantUML', 'viewer-type-chip--plantuml'],
-        [DiagramType.Graph, 'Graph', 'viewer-type-chip--graph'],
-        [DiagramType.OpenApi, 'OpenAPI', 'viewer-type-chip--openapi'],
-      ])('labels %s with its accent in fullscreen', async (type, label, accentClass) => {
+        DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+        DiagramType.Graph, DiagramType.OpenApi, DiagramType.AsyncApi,
+      ])('omits the static type chip for %s in fullscreen', async (type) => {
         asFullscreen()
         store.commit('updateDiagramType', type)
         const wrapper = mountViewer()
         await flushPromises()
-
-        const chip = wrapper.find('[data-testid="viewer-type-chip"]')
-        expect(chip.exists()).toBe(true)
-        expect(chip.text()).toBe(label)
-        expect(chip.find('.viewer-type-chip').classes()).toContain(accentClass)
+        expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
       })
 
-      // The chip earns its place by naming the type on a surface that fills the
-      // screen; the inline macro sits in a Confluence page that already frames
-      // it, and its header row is deliberately quiet.
       it('is not rendered on the inline viewer', async () => {
         store.commit('updateDiagramType', DiagramType.Sequence)
         const wrapper = mountViewer()
@@ -1548,17 +1878,6 @@ describe('GenericViewer (chrome-less)', () => {
         expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
       })
 
-      // The accent system (colors_and_type.css) defines five ramps and the
-      // design's TABS map names five types. AsyncAPI and Embed are in neither,
-      // and the chip is not worth inventing an accent for.
-      it('is omitted for a diagram type with no accent', async () => {
-        asFullscreen()
-        store.commit('updateDiagramType', DiagramType.AsyncApi)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
-      })
     })
 
     describe('Source toggle', () => {
@@ -2413,7 +2732,7 @@ describe('GenericViewer (chrome-less)', () => {
       vi.stubEnv('PRODUCT_TYPE', 'lite')
       const wrapper = mountViewer()
       await openMoreMenu(wrapper)
-      expect(moreMenuLabels(wrapper)).toEqual(['Copy diagram link', 'Copy page link', 'Export PNG', 'Versions', 'Download debug info'])
+      expect(moreMenuLabels(wrapper)).toEqual(['Copy diagram link', 'Export PNG', 'Versions', 'Download debug info'])
       expect(wrapper.findAll('.viewer-act-more [role="separator"]')).toHaveLength(1)
     })
 
@@ -2422,7 +2741,7 @@ describe('GenericViewer (chrome-less)', () => {
       store.state.diagram.source = DataSource.MacroBody
       const wrapper = mountViewer()
       await openMoreMenu(wrapper)
-      expect(moreMenuLabels(wrapper)).toEqual(['Copy page link', 'Export PNG', 'Download debug info'])
+      expect(moreMenuLabels(wrapper)).toEqual(['Export PNG', 'Download debug info'])
     })
 
     // asyncapi has no deeplinkHost mapping (embedDeeplink.ts) — deferred, its
@@ -2432,7 +2751,7 @@ describe('GenericViewer (chrome-less)', () => {
       vi.stubEnv('PRODUCT_TYPE', 'asyncapi')
       const wrapper = mountViewer()
       await openMoreMenu(wrapper)
-      expect(moreMenuLabels(wrapper)).toEqual(['Copy page link', 'Export PNG', 'Versions', 'Download debug info'])
+      expect(moreMenuLabels(wrapper)).toEqual(['Export PNG', 'Versions', 'Download debug info'])
     })
 
     it('renders no bottom pill', () => {
@@ -2476,13 +2795,11 @@ describe('GenericViewer (chrome-less)', () => {
       EventBus.$off('fullscreen', handler)
     })
 
-    it('keeps the legacy Versions and Copy page link events, tagged with the menu', async () => {
+    it('keeps the Versions event tagged with the menu', async () => {
       const { trackEvent } = await import('@/utils/window')
       const wrapper = mountViewer()
       await clickMoreItem(wrapper, 'Versions')
       expect(trackEvent).toHaveBeenCalledWith('show_content_versions', 'click', 'viewing', { action_location: 'header_more_menu' })
-      await clickMoreItem(wrapper, 'Copy page link')
-      expect(trackEvent).toHaveBeenCalledWith('copy_link', 'click', 'viewing', { action_location: 'header_more_menu' })
     })
 
     it('opens with the first item focused and moves with the arrow, Home and End keys', async () => {
@@ -2563,8 +2880,8 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
-  // Fullscreen header (staged header prototype): the former pill actions are
-  // buttons; More holds only Download debug info; an Exit button closes.
+  // Fullscreen header: diagram link and export remain buttons; Versions moves
+  // to More, followed by a divider and debug info. Forge owns modal exit.
   describe('Fullscreen header actions', () => {
     beforeEach(() => {
       vi.stubEnv('PRODUCT_TYPE', 'lite')
@@ -2572,44 +2889,43 @@ describe('GenericViewer (chrome-less)', () => {
     })
     afterEach(() => { vi.unstubAllEnvs() })
 
-    it('shows the former pill actions as header buttons in the prototype order', async () => {
+    it('shows only diagram link and export as header action buttons', async () => {
       store.commit('updateDiagramType', DiagramType.Sequence)
       const wrapper = mountViewer()
       await flushPromises()
       const labels = wrapper.findAll('.viewer-top-actions .viewer-fs-act').map(b => b.attributes('aria-label'))
-      expect(labels).toEqual(['Diagram link', 'Page link', 'Export PNG', 'Versions'])
+      expect(labels).toEqual(['Diagram link', 'Export PNG'])
       expect(wrapper.find('.viewer-act-edit').exists()).toBe(false)
       expect(wrapper.find('.viewer-act-fullscreen').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="fullscreen-exit"]').exists()).toBe(false)
+      expect(wrapper.find('.viewer-header-zoom').exists()).toBe(true)
     })
 
-    it('keeps only Download debug info in More', async () => {
+    it('puts Versions before a divider and debug info in More', async () => {
       const wrapper = mountViewer()
       await flushPromises()
       await openMoreMenu(wrapper)
-      expect(moreMenuLabels(wrapper)).toEqual(['Download debug info'])
+      expect(moreMenuLabels(wrapper)).toEqual(['Versions', 'Download debug info'])
+      expect(wrapper.findAll('.viewer-act-more [role="separator"]')).toHaveLength(1)
+      expect(wrapper.find('.viewer-act-more [role="separator"]').element.previousElementSibling?.textContent?.trim()).toBe('Versions')
+      expect(wrapper.find('.viewer-act-more [role="separator"]').element.nextElementSibling?.textContent?.trim()).toBe('Download debug info')
     })
 
-    it('opens Export PNG in place and tags header actions with fullscreen_header', async () => {
+    it('opens Export PNG in place and tags Versions with header_more_menu', async () => {
       const { trackEvent } = await import('@/utils/window')
       const wrapper = mountViewer()
       await flushPromises()
       await wrapper.find('.viewer-fs-act[aria-label="Export PNG"]').trigger('click')
       expect((wrapper.vm as any).showExportModal).toBe(true)
-      await wrapper.find('.viewer-fs-act[aria-label="Versions"]').trigger('click')
-      expect(trackEvent).toHaveBeenCalledWith('show_content_versions', 'click', 'viewing', { action_location: 'fullscreen_header' })
+      await clickMoreItem(wrapper, 'Versions')
+      expect(trackEvent).toHaveBeenCalledWith('show_content_versions', 'click', 'viewing', { action_location: 'header_more_menu' })
     })
 
-    it('exits Fullscreen from its own close button', async () => {
+    it('leaves fullscreen dismissal to the modal shell', async () => {
       const wrapper = mountViewer()
       await flushPromises()
-      const emitted: unknown[] = []
-      const handler = () => emitted.push('closeFullscreen')
-      EventBus.$on('closeFullscreen', handler)
-      const close = wrapper.find('[data-testid="fullscreen-exit"]')
-      expect(close.attributes('aria-label')).toBe('Exit fullscreen')
-      await close.trigger('click')
-      expect(emitted).toEqual(['closeFullscreen'])
-      EventBus.$off('closeFullscreen', handler)
+      expect(wrapper.find('[data-testid="fullscreen-exit"]').exists()).toBe(false)
     })
   })
 
@@ -2919,49 +3235,191 @@ describe('GenericViewer (chrome-less)', () => {
   // — the whole feature is gated behind agent-link-enabled, defaulting off.
   // Flag resolution is async (mounted()), so every assertion here awaits
   // flushPromises() after mount to let that promise settle before asserting.
+  describe('Connect MCP (headless only)', () => {
+    // agent_link_mcp_button_shown waits two animation frames for the header
+    // layout. Run frames synchronously here so each viewer reports inside its
+    // own test: with real frames, a viewer an earlier test left mounted could
+    // report after the next test cleared the mocks and the per-day dedupe.
+    let rafSpy: ReturnType<typeof vi.spyOn>
+    beforeEach(() => {
+      localStorage.clear()
+      rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => { cb(0); return 0 })
+    })
+    afterEach(() => {
+      rafSpy.mockRestore()
+      delete (window as any).forgeGlobal
+    })
+    const settleLayout = () => flushPromises()
+    const shownCalls = () => vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([name]) => name === 'agent_link_mcp_button_shown')
+
+    it('keeps Copy for AI and shows no Connect MCP when the flag resolves false (default)', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it('swaps Copy for AI for Connect MCP when the flag resolves true, with no relay badge', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+      expect(btn.exists()).toBe(true)
+      // Labelled at stage 0 (CSS drops the label from stage 1), and drawn
+      // with the MCP mark, not Copy for AI's sparkles.
+      expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
+      expect(btn.find('svg path').attributes('d')).toMatch(/^M2\.05 11\.25/)
+      expect(btn.attributes('aria-label')).toBe('Connect MCP')
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it('shows neither button while the flag is still resolving', async () => {
+      let resolveFlag: (on: boolean) => void = () => {}
+      vi.mocked(isAgentLinkEnabled).mockReturnValueOnce(new Promise(r => { resolveFlag = r }))
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+      resolveFlag(true)
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+    })
+
+    it('does not show Connect MCP for a non-MVP diagram type (graph) even when the flag is on', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+    })
+
+    it('opens the dialog inline without minting a session or opening Fullscreen', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' } } } }
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const emitSpy = vi.spyOn(EventBus, '$emit')
+      const wrapper = mountViewer()
+      await flushPromises()
+      const startConnect = vi.spyOn((wrapper.vm as any).agentLinkSession, 'startConnect')
+
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+
+      const dialog = wrapper.find('[data-testid="connect-mcp-dialog"]')
+      expect(dialog.exists()).toBe(true)
+      expect(dialog.attributes('data-mcp-mode')).toBe('headless')
+      const prompt = wrapper.find('[data-testid="connect-mcp-prompt"]').text()
+      expect(prompt).toContain('cloudId: cloud-1')
+      expect(prompt).toContain('pageId: 42')
+      expect(startConnect).not.toHaveBeenCalled()
+      expect(emitSpy).not.toHaveBeenCalledWith('fullscreen')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ feature_area: 'agent_link', mcp_mode: 'headless', macro_type: DiagramType.Sequence })
+      )
+    })
+
+    it('closes on Escape and records the dwell', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(false)
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_closed',
+        expect.objectContaining({ mcp_mode: 'headless', dwell_ms: expect.any(Number) })
+      )
+    })
+
+    it('takes the Copy for AI slot in fullscreen too, and reports the fullscreen surface', async () => {
+      ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' }, modal: { macroMode: 'fullscreen' } } } }
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+      expect(btn.exists()).toBe(true)
+      expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
+
+      await btn.trigger('click')
+
+      expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="connect-mcp-prompt"]').text()).toContain('pageId: 42')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ feature_area: 'agent_link', surface: 'fullscreen', mcp_mode: 'headless' })
+      )
+    })
+
+    it('reveals on hover like the rest of the inline header, also before it is opened', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ surface: 'viewer', mcp_button_reveal: 'hover' })
+      )
+    })
+
+    it('reports agent_link_mcp_button_shown once per viewer per day, not per macro', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toEqual([[
+        'agent_link_mcp_button_shown',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+          mcp_mode: 'headless',
+          mcp_button_placement: 'toolbar',
+          mcp_button_reveal: 'hover',
+          header_stage: 0,
+        }),
+      ]])
+
+      // A second macro on the same page (same storage) stays quiet.
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toHaveLength(1)
+    })
+
+    it('does not report agent_link_mcp_button_shown when the flag is off', async () => {
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toHaveLength(0)
+    })
+
+    it('does not try to reattach a relay session on mount', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect((wrapper.vm as any).agentLinkSession.state.value).toBe('idle')
+    })
+  })
+
   describe('Live Agent Link (flag-gated)', () => {
     const setFullscreen = (on: boolean) => {
       ;(window as any).forgeGlobal = on
         ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
         : undefined
     }
-    afterEach(() => { delete (window as any).forgeGlobal })
-
-    it('does NOT render Connect to Agent when the flag resolves false (default)', async () => {
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
-    })
-
-    it('renders Connect to Agent in the action area when the flag resolves true', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(true)
-    })
-
-    it('does not render Connect to Agent for a non-MVP diagram type (graph) even when the flag is on', async () => {
-      store.commit('updateDiagramType', DiagramType.Graph)
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
-    })
-
-    it('clicking Connect to Agent starts the session and opens Fullscreen', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const spy = vi.spyOn(EventBus, '$emit')
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="agent-link-connect-btn"]').trigger('click')
-
-      expect(spy).toHaveBeenCalledWith('fullscreen')
-      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
-        'agent_link_connect_clicked',
-        expect.objectContaining({ feature_area: 'agent_link', macro_type: DiagramType.Sequence })
-      )
+    beforeEach(() => { relaySwitch.on = true })
+    afterEach(() => {
+      relaySwitch.on = false
+      delete (window as any).forgeGlobal
     })
 
     it('mounts the Fullscreen Connect rail (not the small-macro button/badge) when in fullscreen with the flag on', async () => {
@@ -2971,7 +3429,7 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
 
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="agent-link-connect-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
@@ -3129,6 +3587,8 @@ describe('GenericViewer (chrome-less)', () => {
   // apWrapper/the bridge block at all — these tests remove apWrapper entirely
   // and confirm the rail still hydrates.
   describe('Fullscreen hydration is independent of globals.apWrapper (finding #4)', () => {
+    beforeEach(() => { relaySwitch.on = true })
+    afterEach(() => { relaySwitch.on = false })
     const setFullscreenWithPageId = (pageId?: string) => {
       ;(window as any).forgeGlobal = {
         forgeContext: {
@@ -3501,14 +3961,23 @@ describe('GenericViewer — auto-opening the export dialog in Fullscreen', () =>
   })
 })
 
-describe('GenericViewer embed detection', () => {
-  const source = readFileSync(resolve(__dirname, './GenericViewer.vue'), 'utf-8')
+describe('GenericViewer embed module context', () => {
+  beforeEach(() => {
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.source = DataSource.CustomContent
+  })
 
-  it('uses a Forge moduleKey-based embed detection (inline or via isEmbedMode helper)', () => {
-    // The viewer uses inline regex on forgeContext.moduleKey instead of importing
-    // the isEmbedMode helper — both are equivalent; accept either pattern.
-    const usesHelper = /isEmbedMode/.test(source)
-    const usesInline = /moduleKey/.test(source) && /embed-macro/.test(source)
-    expect(usesHelper || usesInline).toBe(true)
+  it.each([
+    ['zenuml-embed-macro', true],
+    ['zenuml-sequence-macro', false],
+    ['', false],
+  ])('renders the embed chip only for %s (embedded: %s)', async (moduleKey, embedded) => {
+    window.forgeGlobal = { forgeContext: { moduleKey, extension: {} } } as any
+    const wrapper = mountViewer()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.isEmbedded).toBe(embedded)
+    expect(wrapper.find('.viewer-embed-chip').exists()).toBe(embedded)
+    wrapper.unmount()
   })
 })

@@ -22,16 +22,20 @@
 // token it received" and "MUST only accept tokens specifically intended for
 // themselves" are both violated the moment the two are allowed to touch.
 //
-// WHY THE USER IS ONLY KNOWN AT STEP 3. We have no session of our own before
-// Atlassian tells us who consented (/me, atlassianLeg.ts). So the consent
-// check cannot happen at /authorize — there is no user yet to check. It
-// happens on the way back, before any code is issued, which is the point that
-// actually matters: an unconsented (user, client) pair never receives a code,
-// even when a live Atlassian grant for that user already exists.
+// WHEN THE USER IS KNOWN. On a first visit we have no session of our own
+// before Atlassian tells us who consented (/me, atlassianLeg.ts), so the
+// consent check happens on the way back, at step 3. A returning user carries
+// a signed cookie from that earlier callback (returningUser.ts); when it
+// verifies and their grant is still live, /authorize skips steps 2-3 and goes
+// straight to step 4 (or 5, if this client is already approved). Either way
+// the point that matters holds: an unconsented (user, client) pair never
+// receives a code, even when a live Atlassian grant for that user exists.
 
 import {
+  AUTHORIZE_PATH,
   CONSENT_PATH,
   DEFAULT_MCP_SCOPE,
+  issuerFor,
   MCP_SCOPES,
   resourceFor,
 } from './asMetadata';
@@ -39,15 +43,20 @@ import {
   ACCESS_TOKEN_TTL_SECONDS,
   bumpRegisterCount,
   consumeCode,
-  consumeRefreshToken,
   deletePending,
   issueAccessToken,
   issueCode,
   issueRefreshToken,
+  isChainRevoked,
+  loadLegacyRefreshToken,
+  publishAccessToken,
   loadClient,
   loadConsent,
   loadPending,
+  newChainId,
   randomToken,
+  redeemRefreshToken,
+  revokeChain,
   REGISTER_LIMIT,
   REGISTER_WINDOW_SECONDS,
   saveClient,
@@ -59,20 +68,25 @@ import {
 } from './asStore';
 import { canonicalizeResource } from './protectedResource';
 import { isValidChallenge, verifyPkce } from './pkce';
+import type { RefreshLedger } from './refreshLedger';
+import { json } from '../../OkResponse';
+
+/** Why the token endpoint revoked a refresh chain (agent_link_oauth_chain_revoked's `reason`). */
+export type ChainRevokeReason = 'refresh_reused' | 'client_mismatch';
 
 export interface AsDeps {
   store: GrantStoreLike;
+  refreshLedger?: RefreshLedger;
   nowMs?: () => number;
+  /** Told when a refresh chain is revoked, for analytics. Must not throw into the response. */
+  onChainRevoked?: (event: { reason: ChainRevokeReason; userId: string; clientId: string }) => void | Promise<void>;
+  onRefreshCompleted?: (event: { outcome: 'rotated' | 'retried' | 'rejected' | 'unavailable'; reason?: string; userId?: string; reuseAgeMs?: number }) => void | Promise<void>;
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
-}
-
 function oauthError(status: number, error: string, description?: string): Response {
-  return json(status, description ? { error, error_description: description } : { error });
+  return json(description ? { error, error_description: description } : { error }, { status, headers: JSON_HEADERS });
 }
 
 function escapeHtml(raw: string): string {
@@ -160,7 +174,7 @@ export async function handleRegister(request: Request, deps: AsDeps): Promise<Re
   };
   await saveClient(deps.store, client);
 
-  return json(201, {
+  return json({
     client_id: client.clientId,
     client_id_issued_at: Math.floor(now / 1000),
     redirect_uris: client.redirectUris,
@@ -169,7 +183,7 @@ export async function handleRegister(request: Request, deps: AsDeps): Promise<Re
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     scope: DEFAULT_MCP_SCOPE,
-  });
+  }, { status: 201, headers: JSON_HEADERS });
 }
 
 // ------------------------------------------------------------- authorization
@@ -177,6 +191,30 @@ export async function handleRegister(request: Request, deps: AsDeps): Promise<Re
 export type AuthorizeResult =
   | { ok: true; pendingId: string; pending: PendingAuthorization }
   | { ok: false; response: Response };
+
+/**
+ * A redirect to the client's (validated) redirect_uri carrying an
+ * authorization response, success or error.
+ *
+ * RFC 9207 §2: our metadata advertises
+ * `authorization_response_iss_parameter_supported`, so EVERY authorization
+ * response must carry `iss`, the issuer identifier. It is what tells a client
+ * talking to several authorization servers which one answered (the mix-up
+ * attack). Clients that check it reject a response without it: Claude Code's
+ * sign-in failed with "Issuer mismatch in authorization response (RFC 9207):
+ * expected "<issuer>", received undefined".
+ */
+function authorizationResponse(redirectUri: string, issuer: string, params: Record<string, string | undefined>): Response {
+  const target = new URL(redirectUri);
+  for (const [k, v] of Object.entries(params)) if (v !== undefined) target.searchParams.set(k, v);
+  target.searchParams.set('iss', issuer);
+  return Response.redirect(target.toString(), 302);
+}
+
+/** The issuer a parked authorization belongs to. Its resource is always ours (validateAuthorize), so its origin is the issuer. */
+function issuerOf(pending: PendingAuthorization): string {
+  return issuerFor(pending.resource);
+}
 
 function requestedScope(raw: string | null): string | null {
   if (!raw) return DEFAULT_MCP_SCOPE;
@@ -213,13 +251,10 @@ export async function validateAuthorize(request: Request, deps: AsDeps): Promise
   }
 
   const state = q.get('state') ?? undefined;
-  const fail = (error: string, description: string): AuthorizeResult => {
-    const target = new URL(redirectUri);
-    target.searchParams.set('error', error);
-    target.searchParams.set('error_description', description);
-    if (state) target.searchParams.set('state', state);
-    return { ok: false, response: Response.redirect(target.toString(), 302) };
-  };
+  const fail = (error: string, description: string): AuthorizeResult => ({
+    ok: false,
+    response: authorizationResponse(redirectUri, issuerFor(url), { error, error_description: description, state }),
+  });
 
   if (q.get('response_type') !== 'code') return fail('unsupported_response_type', 'only response_type=code is supported');
   if (q.get('code_challenge_method') !== 'S256') return fail('invalid_request', 'code_challenge_method must be S256');
@@ -296,6 +331,61 @@ export function consentCookie(pendingId: string, requestUrl: URL, maxAge = CONSE
   return `${CONSENT_COOKIE}=${pendingId}; Path=${CONSENT_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
+/**
+ * Park who is consenting and send the browser to our consent screen.
+ *
+ * Shared by the two ways a user can be known: /callback after Atlassian's /me,
+ * and /authorize from a verified returning-user cookie. Parking `userId` is
+ * what lets the consent screen — a separate request — complete against the
+ * same user rather than trusting anything the browser sends back. The consent
+ * cookie binds the parked authorization to THIS browser; the id also travels
+ * in the URL because the form has to name it, but the URL alone is not enough
+ * to complete a consent.
+ */
+export async function redirectToConsent(
+  deps: AsDeps,
+  requestUrl: URL,
+  pendingId: string,
+  pending: PendingAuthorization,
+  userId: string,
+  options: { recognised?: boolean; extraCookies?: string[] } = {},
+): Promise<Response> {
+  await savePending(deps.store, pendingId, {
+    ...pending,
+    userId,
+    ...(options.recognised ? { recognised: true } : {}),
+  });
+  const headers = new Headers({
+    location: consentUrl(requestUrl.origin, pendingId),
+    'cache-control': 'no-store',
+  });
+  for (const c of options.extraCookies ?? []) headers.append('set-cookie', c);
+  headers.append('set-cookie', consentCookie(pendingId, requestUrl));
+  return new Response(null, { status: 302, headers });
+}
+
+/**
+ * The same authorization request again, but forced through Atlassian.
+ *
+ * Rebuilt from the parked request rather than echoed from a Referer, so it can
+ * only ever name the client and redirect_uri this server already validated.
+ * Following it parks a fresh request; the old one simply expires.
+ */
+export function switchAccountUrl(origin: string, pending: PendingAuthorization): string {
+  const url = new URL(AUTHORIZE_PATH, origin);
+  const q = url.searchParams;
+  q.set('response_type', 'code');
+  q.set('client_id', pending.clientId);
+  q.set('redirect_uri', pending.redirectUri);
+  q.set('code_challenge', pending.codeChallenge);
+  q.set('code_challenge_method', 'S256');
+  q.set('scope', pending.scope);
+  q.set('resource', pending.resource);
+  if (pending.state) q.set('state', pending.state);
+  q.set('prompt', 'login');
+  return url.toString();
+}
+
 export function readCookie(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {
@@ -316,8 +406,14 @@ export function renderConsent(
   pendingId: string,
   scope: string,
   siteUrls: string[],
+  switchUrl?: string,
 ): Response {
   const name = client.clientName?.trim() || 'An application';
+  // Only offered to a recognised user: they skipped Atlassian's screen, which
+  // is the only place an account or a site can be chosen.
+  const switchLink = switchUrl
+    ? `\n<p><small>Not the Atlassian account you meant, or need another site? <a href="${escapeHtml(switchUrl)}">Sign in with Atlassian again</a>.</small></p>`
+    : '';
   const sites = siteUrls.length
     ? `<p>It will act on your behalf on:</p><ul>${siteUrls.map((s) => `<li><code>${escapeHtml(s)}</code></li>`).join('')}</ul>`
     : '';
@@ -332,7 +428,7 @@ ${sites}
   <input type="hidden" name="auth" value="${escapeHtml(pendingId)}">
   <button class="primary" name="decision" value="allow" type="submit">Allow</button>
   <button class="secondary" name="decision" value="deny" type="submit">Cancel</button>
-</form>`,
+</form>${switchLink}`,
   );
 }
 
@@ -359,10 +455,7 @@ export async function completeAuthorization(
     userId,
     createdAtMs: now,
   });
-  const target = new URL(pending.redirectUri);
-  target.searchParams.set('code', code);
-  if (pending.state) target.searchParams.set('state', pending.state);
-  return Response.redirect(target.toString(), 302);
+  return authorizationResponse(pending.redirectUri, issuerOf(pending), { code, state: pending.state });
 }
 
 export async function denyAuthorization(
@@ -371,11 +464,11 @@ export async function denyAuthorization(
   pending: PendingAuthorization,
 ): Promise<Response> {
   await deletePending(deps.store, pendingId);
-  const target = new URL(pending.redirectUri);
-  target.searchParams.set('error', 'access_denied');
-  target.searchParams.set('error_description', 'the user declined');
-  if (pending.state) target.searchParams.set('state', pending.state);
-  return Response.redirect(target.toString(), 302);
+  return authorizationResponse(pending.redirectUri, issuerOf(pending), {
+    error: 'access_denied',
+    error_description: 'the user declined',
+    state: pending.state,
+  });
 }
 
 /** Has this user already allowed this client, for at least this much? */
@@ -443,6 +536,9 @@ async function readForm(request: Request): Promise<TokenBody> {
 export async function handleToken(request: Request, deps: AsDeps): Promise<Response> {
   const body = await readForm(request);
   const now = (deps.nowMs ?? Date.now)();
+  const completeRefresh = async (event: Parameters<NonNullable<AsDeps['onRefreshCompleted']>>[0]) => {
+    try { await deps.onRefreshCompleted?.(event); } catch { /* telemetry never changes token response */ }
+  };
 
   if (body.grant_type === 'authorization_code') {
     if (!body.code) return oauthError(400, 'invalid_request', 'code is required');
@@ -465,35 +561,137 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       return oauthError(400, 'invalid_grant', 'code_verifier does not match the code_challenge');
     }
 
-    const { token, expiresInSeconds } = await issueAccessToken(
-      deps.store,
-      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource },
-      now,
-    );
-    const refresh = await issueRefreshToken(deps.store, {
+    // A new sign-in starts a new refresh chain; see asStore.ts "refresh chains".
+    const chainId = newChainId();
+    const refreshRecord = {
       userId: record.userId,
       clientId: record.clientId,
       scope: record.scope,
       resource: record.resource,
-    });
-    return json(200, {
+      chainId,
+    };
+    // The D1 chain must exist before this access token can be accepted by the
+    // headless endpoint. Production always supplies a ledger.
+    let refresh: string;
+    try {
+      refresh = deps.refreshLedger
+        ? await deps.refreshLedger.issue(refreshRecord, now)
+        : await issueRefreshToken(deps.store, refreshRecord);
+    } catch {
+      return oauthError(503, 'temporarily_unavailable', 'token service is temporarily unavailable');
+    }
+    const { token, expiresInSeconds } = await issueAccessToken(
+      deps.store,
+      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId, ledger: !!deps.refreshLedger },
+      now,
+    );
+    return json({
       access_token: token,
       token_type: 'Bearer',
       expires_in: expiresInSeconds,
       refresh_token: refresh,
       scope: record.scope,
-    });
+    }, { status: 200, headers: JSON_HEADERS });
   }
 
   if (body.grant_type === 'refresh_token') {
-    if (!body.refresh_token) return oauthError(400, 'invalid_request', 'refresh_token is required');
-    if (!body.client_id) return oauthError(400, 'invalid_request', 'client_id is required');
-
-    const record = await consumeRefreshToken(deps.store, body.refresh_token);
-    if (!record) return oauthError(400, 'invalid_grant', 'the refresh token is unknown, used, or expired');
-    if (body.client_id !== record.clientId) {
-      return oauthError(400, 'invalid_grant', 'the refresh token was issued to a different client');
+    if (!body.refresh_token) {
+      await completeRefresh({ outcome: 'rejected', reason: 'missing_refresh_token' });
+      return oauthError(400, 'invalid_request', 'refresh_token is required');
     }
+    if (!body.client_id) {
+      await completeRefresh({ outcome: 'rejected', reason: 'missing_client_id' });
+      return oauthError(400, 'invalid_request', 'client_id is required');
+    }
+
+    if (deps.refreshLedger) {
+      try {
+        // Old KV credentials may still be live at cutover. Import only when
+        // D1 has no row; a used or revoked legacy credential never rotates.
+        const known = await deps.refreshLedger.inspect(body.refresh_token);
+        const legacy = !known || known.legacy ? await loadLegacyRefreshToken(deps.store, body.refresh_token) : null;
+        if (known?.legacyLineage && known.chainId && await isChainRevoked(deps.store, known.chainId)) {
+          await deps.refreshLedger.revoke(known.chainId, now);
+          await completeRefresh({ outcome: 'rejected', reason: 'revoked' });
+          return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
+        }
+        if (known?.legacy && legacy?.usedAtMs !== undefined) {
+          await deps.refreshLedger.revoke(known.chainId, now);
+          await completeRefresh({ outcome: 'rejected', reason: 'reused' });
+          return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
+        }
+        if (known?.legacy && !legacy && known.usedAtMs === null) {
+          await completeRefresh({ outcome: 'rejected', reason: 'expired' });
+          return oauthError(400, 'invalid_grant', 'the refresh token is expired');
+        }
+        if (!known && legacy && legacy.resource === resourceFor(request.url)) {
+          if (legacy.chainId && await isChainRevoked(deps.store, legacy.chainId)) {
+            await completeRefresh({ outcome: 'rejected', reason: 'revoked', userId: legacy.userId });
+            return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
+          }
+          await deps.refreshLedger.importLegacy(body.refresh_token, legacy, now);
+        }
+        const result = await deps.refreshLedger.rotate(body.refresh_token, body.client_id, resourceFor(request.url), now);
+        if (result.status === 'rotated' || result.status === 'retried') {
+          const pair = result.pair;
+          await publishAccessToken(deps.store, pair.accessToken, {
+            userId: pair.record.userId, clientId: pair.record.clientId, scope: pair.record.scope,
+            resource: pair.record.resource, chainId: pair.record.chainId, ledger: true,
+            expiresAtMs: pair.accessExpiresAtMs,
+          }, now);
+          await completeRefresh({ outcome: result.status, userId: pair.record.userId, reuseAgeMs: result.reuseAgeMs });
+          return json({
+            access_token: pair.accessToken,
+            token_type: 'Bearer',
+            expires_in: Math.max(1, Math.ceil((pair.accessExpiresAtMs - now) / 1000)),
+            refresh_token: pair.refreshToken,
+            scope: pair.scope,
+          }, { status: 200, headers: JSON_HEADERS });
+        }
+        if (result.status === 'client_mismatch' || result.status === 'reused') {
+          try {
+            await deps.onChainRevoked?.({ reason: result.status === 'client_mismatch' ? 'client_mismatch' : 'refresh_reused',
+              userId: result.record!.userId, clientId: result.record!.clientId });
+          } catch { /* telemetry never changes token response */ }
+        }
+        await completeRefresh({ outcome: 'rejected', reason: result.status,
+          userId: 'record' in result ? result.record?.userId : undefined, reuseAgeMs: result.reuseAgeMs });
+        return oauthError(400, 'invalid_grant', 'the refresh token is invalid or this sign-in was revoked; sign in again');
+      } catch {
+        await completeRefresh({ outcome: 'unavailable', reason: 'storage_unavailable' });
+        return oauthError(503, 'temporarily_unavailable', 'refresh service is temporarily unavailable');
+      }
+    }
+
+    const redeemed = await redeemRefreshToken(deps.store, body.refresh_token, now);
+    if (redeemed.status === 'unknown') {
+      return oauthError(400, 'invalid_grant', 'the refresh token is unknown, used, or expired');
+    }
+    if (redeemed.status === 'revoked') {
+      return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
+    }
+    // A used token presented again, or a live one under another client: either
+    // way it is in two hands, so the whole chain goes (asStore.ts "refresh
+    // chains"), the legitimate client included. It signs in again.
+    const reason: ChainRevokeReason | null =
+      redeemed.status === 'reused' ? 'refresh_reused' : body.client_id !== redeemed.record.clientId ? 'client_mismatch' : null;
+    if (reason) {
+      await revokeChain(deps.store, redeemed.record.chainId, now);
+      try {
+        await deps.onChainRevoked?.({ reason, userId: redeemed.record.userId, clientId: redeemed.record.clientId });
+      } catch {
+        // analytics must never change the token response
+      }
+      return oauthError(
+        400,
+        'invalid_grant',
+        reason === 'refresh_reused'
+          ? 'the refresh token was already used; this sign-in has been revoked, sign in again'
+          : 'the refresh token was issued to a different client; this sign-in has been revoked',
+      );
+    }
+    // The rotated token starts unused; JSON drops the undefined marker.
+    const record = { ...redeemed.record, usedAtMs: undefined };
 
     // The upstream Atlassian grant is NOT refreshed here. It has its own
     // lifecycle in tokenStore.getAccessToken, driven by actual Confluence
@@ -501,17 +699,17 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
     // by an idle agent.
     const { token, expiresInSeconds } = await issueAccessToken(
       deps.store,
-      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource },
+      { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId: record.chainId },
       now,
     );
     const refresh = await issueRefreshToken(deps.store, record);
-    return json(200, {
+    return json({
       access_token: token,
       token_type: 'Bearer',
       expires_in: expiresInSeconds,
       refresh_token: refresh,
       scope: record.scope,
-    });
+    }, { status: 200, headers: JSON_HEADERS });
   }
 
   return oauthError(400, 'unsupported_grant_type', 'supported: authorization_code, refresh_token');

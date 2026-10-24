@@ -12,7 +12,7 @@
 // it can take 5+ minutes per case and isn't appropriate for every Playwright
 // run. CI invokes it explicitly when needed.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';

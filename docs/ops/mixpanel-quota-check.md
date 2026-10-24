@@ -36,10 +36,14 @@ So: **billable events = every event whose name does not start with `$`.**
 
 ## Procedure
 
+For the separate temporary October 2026 **event-volume** policy, see
+[`mixpanel-october-event-budget.md`](mixpanel-october-event-budget.md). Replay
+sampling and billable event sampling have distinct transports and rates.
+
 ### 1. Confirm which replay policies are live
 
 Three hardcoded overrides in `_initMixpanel` (`src/utils/analytics/trackAnalyticsEvent.ts`)
-and one in `_startAuthoringReplay` decide who records, independently of the
+and the authoring decision in `_startExplicitReplay` decide who records, independently of the
 Forge flags:
 
 | Surface | Rate | Where |
@@ -47,7 +51,31 @@ Forge flags:
 | Page banner | 0% | `moduleKey === 'zenuml-page-banner'` |
 | Plan & usage page | 100% | `moduleKey === 'zenuml-plan-usage-page'` |
 | Fullscreen modal | 100% | `extension.modal.macroMode === 'fullscreen'` |
-| Authoring (create/edit) | `AUTHORING_REPLAY_RATE` | `_startAuthoringReplay` |
+| Authoring (create/edit) | `AUTHORING_REPLAY_RATE` | `_startExplicitReplay` |
+
+**Temporary October 2026 budget:** From `2026-10-01T00:00:00Z` up to but not
+including `2026-11-01T00:00:00Z`, automatic baseline sampling is 0% in every
+iframe, including targeted/sampled Forge cohorts, fullscreen, and Plan & usage.
+The legacy `trackEvent` initializer makes the SDK's implicit baseline explicit
+at 0%. Create/edit authoring uses a 1% threshold with one random draw per
+iframe. Explicit feedback recording remains available. Ordinary analytics
+events, including `macro_viewed`, continue to track. New iframes after the
+deadline return to the rates in the table and their existing Forge flags; an
+iframe already initialized keeps its init-time SDK setting until it closes.
+`session_replay_source=off` and `session_replay_percent=0` describe the
+automatic baseline. Explicit starts stamp `authoring` or `feedback` if their
+SDK start call returns. A returned call
+is not proof that a replay uploaded. The SDK may continue or resume an existing,
+nonexpired recording across a reload despite the 0% new-sampling setting. This
+budget reduces new automatic replay starts; it does not stop all uploads or act
+as an ingestion kill switch.
+
+The authoring draw is reused, but eligibility is recomputed against the rate
+on each authoring start event. Within one policy window it is stable. If an
+iframe spans a UTC policy boundary, a later create/edit event may switch from
+eligible to ineligible or vice versa without drawing again. The code does not
+stop a recording that already began. `skipped_sampled` means no authoring start
+call was made **for that event**; it does not prove the recorder is inactive.
 
 Read `AUTHORING_REPLAY_RATE` on the branch being measured. If it differs from
 what the numbers below assume, say so before interpreting anything — a rate

@@ -22,6 +22,7 @@
 import { loadAccessToken, type GrantStoreLike, type McpTokenRecord } from './asStore';
 import { resourceFor } from './asMetadata';
 import { audienceMatches, buildWwwAuthenticate, metadataUrlFor } from './protectedResource';
+import type { RefreshLedger } from './refreshLedger';
 
 export type HeadlessAuthFailure = 'missing' | 'invalid' | 'expired' | 'wrong_audience';
 
@@ -49,6 +50,7 @@ export async function authenticateHeadless(
   request: Request,
   store: GrantStoreLike,
   nowMs: number = Date.now(),
+  ledger?: RefreshLedger,
 ): Promise<HeadlessAuthResult> {
   const token = bearerToken(request);
   if (!token) return { ok: false, reason: 'missing' };
@@ -58,6 +60,12 @@ export async function authenticateHeadless(
 
   if (!audienceMatches(record.resource, resourceFor(request.url))) {
     return { ok: false, reason: 'wrong_audience' };
+  }
+  if (record.ledger && !ledger) throw new Error('D1 refresh ledger unavailable');
+  if (record.chainId && ledger) {
+    const state = await ledger.chainState(record.chainId);
+    if (state === true) return { ok: false, reason: 'invalid' };
+    if (state === null && record.ledger) throw new Error('D1 refresh chain missing');
   }
   return { ok: true, token: record };
 }

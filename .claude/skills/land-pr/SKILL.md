@@ -108,7 +108,7 @@ Confirm draft releases were created for the expected variants.
 
 Before offering any production release, invoke the **release-app** skill in `preflight` mode (read-only) and read its canary order ("Variants & gates"). Do not compose release options from memory.
 
-The order is **diagramly → lite → full**: Diagramly first (canary, fewest users); Lite only after Diagramly is published for the same commit SHA (same session allowed); Full only ≥ 7 days after Lite for that SHA, never in the same session. AsyncAPI is independent. Offer the release options in that order, recommend Diagramly first, and never offer Lite or Full as the first step. Publishing still needs an explicit user trigger.
+The order is **diagramly → lite → full**: Diagramly first (canary, fewest users); Lite only after Diagramly is published for the same commit SHA (same session allowed); Full only ≥ 24 hours after Lite for that SHA, never in the same session. AsyncAPI is independent. Offer the release options in that order, recommend Diagramly first, and never offer Lite or Full as the first step. Publishing still needs an explicit user trigger.
 
 _(2026-09-15: after landing #689 the report offered "release Lite" first, skipping the Diagramly canary.)_
 

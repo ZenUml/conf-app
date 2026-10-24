@@ -11,7 +11,7 @@
  *   pnpm forge:tunnel                       # repo root
  *   IS_FORGE=true npx playwright test --project=insert tests/insert/paywall-page-banner.spec.ts
  */
-import { test, expect } from '@playwright/test';
+import { installMixpanelIsolation, test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { AUTH_STATE_PATH } from '../../config/auth-state.js';
 import { createPageAndSetup, publishAndVerifyMacros } from './insert-helpers.js';
@@ -21,7 +21,7 @@ import {
   showWarningBanner,
   clearAllBannerState,
   readAppMarker,
-  expectBannerAbsent,
+  setAppMocks,
 } from '../../helpers/pageBanner.js';
 
 // The Forge macro iframe. Its presence guarantees an app-origin
@@ -57,6 +57,7 @@ test.describe.serial('Paywall page banner', { tag: ['@test:paywall-page-banner',
     // title without clicking (and dismisses the paywall modal), and we do it once.
     const variantLabel = testConfig.isLite ? ' Lite' : '';
     const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+    await installMixpanelIsolation(context);
     const setupPage = await context.newPage();
     try {
       const editorPage = await createPageAndSetup(setupPage, variantLabel);
@@ -83,12 +84,11 @@ test.describe.serial('Paywall page banner', { tag: ['@test:paywall-page-banner',
 
   // CI keeps only what a live Forge page can prove and a unit test cannot: that
   // the pageBanner module mounts with the real count, that its CTA navigates,
-  // that Dismiss stamps the marker through the real iframe, and that the host
-  // then closes the iframe on the next load. The banner's STATE MACHINE — the
-  // 7-day snooze, the 24h/weekly impression taper, paywall outranking CSAT in
-  // the single slot — is pure localStorage logic and is pinned case by case in
+  // that the host shows the banner again on the next load, and that the banner
+  // has no close control. Eligibility and paywall priority in the single slot
+  // are localStorage logic, pinned case by case in
   // src/utils/paywall/warningBanner.spec.ts and src/routes/pageBanner.spec.ts.
-  // A third test here used to re-prove the taper and the CSAT ranking with two
+  // A third test here used to re-prove the CSAT ranking with two
   // more reloads and two 6-second waits (ADR-0006, "equivalent lower-cost
   // tests"): it was the longest shard of the Lite E2E and duplicated those
   // specs. The full granular matrix — per-CTA isolation, negative eligibility
@@ -108,17 +108,24 @@ test.describe.serial('Paywall page banner', { tag: ['@test:paywall-page-banner',
     await page.waitForURL(/zenuml-plan-usage/, { timeout: 15_000 });
   });
 
-  test('dismiss snoozes — banner gone after reload despite the warning marker', async ({ page }) => {
+  test('warning remains visible on reload despite legacy dismissal and high impression count', async ({ page }) => {
     await showWarningBanner(page);
-    await (await pageBannerFrame(page)).getByTestId('paywall-banner-dismiss').click();
+    const frame = await pageBannerFrame(page);
+    await expect(frame.getByTestId('paywall-banner-dismiss')).toHaveCount(0);
+    const existing = await readAppMarker(page, 'paywallBanner:');
+    expect(JSON.parse(existing ?? '{}').showCount).toBe(1);
 
-    // Dismissal marker is stamped (starts the 7-day snooze).
-    const dismissal = await readAppMarker(page, 'paywallBanner:');
-    expect(dismissal, 'dismissal marker should record dismissedAt').toContain('dismissedAt');
-
-    // Reload: the macro still writes a warning marker, but the snooze suppresses it.
+    const domain = new URL(page.url()).hostname.split('.')[0];
+    await setAppMocks(page, {
+      [`paywallBanner:${domain}:${testConfig.spaceKey}`]: JSON.stringify({
+        dismissedAt: new Date().toISOString(),
+        lastShownAt: new Date().toISOString(),
+        showCount: 50,
+      }),
+    });
     await page.reload();
-    await page.waitForTimeout(6_000);
-    await expectBannerAbsent(page);
+    await expect((await pageBannerFrame(page)).getByTestId('paywall-warning-banner')).toBeVisible({ timeout: 20_000 });
+    const next = await readAppMarker(page, 'paywallBanner:');
+    expect(JSON.parse(next ?? '{}').showCount).toBe(51);
   });
 });

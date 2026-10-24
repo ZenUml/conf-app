@@ -89,7 +89,7 @@ export async function isAgentLinkEndpointLive(base = AGENT_LINK_STG_BASE): Promi
   }
 }
 
-const forgeFrames = (page: Page) => page.frames().filter((f) => /atlassian-dev\.net/.test(f.url()));
+export const forgeFrames = (page: Page) => page.frames().filter((f) => /atlassian-dev\.net/.test(f.url()));
 
 /** Opt the macro into Agent Link + skip the Lite paywall via localStorage. */
 export async function enableAgentLinkOverrides(page: Page): Promise<void> {
@@ -117,11 +117,11 @@ export async function openIsolatedAgentLinkPage(page: Page): Promise<void> {
   await openMacroPage(page, testConfig.pageUrl(pageId));
 }
 
-/** Mint precedes the fullscreen relay WebSocket bootstrap; wait for readiness. */
+/** Mint precedes the macro's relay WebSocket bootstrap; wait for readiness. */
 export async function waitForAgentLinkReady(token: string): Promise<void> {
   await expect.poll(async () => (await agentLinkMcp(token, 'get_status')).status, {
     timeout: 20000,
-    message: 'fullscreen relay accepts the minted session',
+    message: 'relay accepts the minted session',
   }).toBe(200);
 }
 
@@ -147,12 +147,12 @@ export async function openMacroPage(page: Page, pageUrl: string, timeout = 60000
   await page.waitForTimeout(6000); // let the macro mount + resolve the flag
 }
 
-/** Click the inline macro's "Connect to Agent" (mints a session, opens Fullscreen). */
+/** Click the inline macro's "Connect MCP" (opens the inline dialog). */
 export async function clickConnectToAgent(page: Page): Promise<boolean> {
   for (const f of forgeFrames(page)) {
-    const text = await f.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
-    if (/connect to agent/i.test(text)) {
-      await f.getByRole('button', { name: 'Connect to Agent', exact: true }).click({ timeout: 9000 });
+    const button = f.getByTestId('connect-mcp-btn');
+    if (await button.count().catch(() => 0)) {
+      await button.click({ timeout: 9000 });
       return true;
     }
   }

@@ -81,9 +81,9 @@ export interface AddToPageOutcome {
  * the forge:deploy:* scripts in package.json). Hardcoding one of those here
  * would emit an extensionKey no variant but Lite could render — the exact
  * failure this file's header records from the lite→full conversion, where a
- * malformed key rendered as an unknown extension on a customer's page. Only
- * Lite ships the byline today, so the fallback preserves today's behaviour
- * while the env var decides when that changes.
+ * malformed key rendered as an unknown extension on a customer's page. The
+ * fallback is right for Lite and Full, the byline variants whose text-DSL
+ * macro is zenuml-sequence-macro; the AsyncAPI app offers no text-DSL tile.
  */
 const SEQUENCE_MACRO_KEY = import.meta.env.SEQUENCE_MACRO_KEY || 'zenuml-sequence-macro'
 
@@ -93,10 +93,12 @@ const MACRO_KEY_BY_DIAGRAM_TYPE: Record<string, string> = {
   [DiagramType.PlantUml]: SEQUENCE_MACRO_KEY,
   [DiagramType.Graph]: 'zenuml-graph-macro',
   [DiagramType.OpenApi]: 'zenuml-openapi-macro',
-  // No AsyncApi entry: the asyncapi variant strips zenuml-byline-diagrams
-  // (scripts/forge-wizard.mjs), which is the only thing that offers this
-  // action, so the key could never be used and having it here only suggests
-  // otherwise to the next reader.
+  // Explicit, never via SEQUENCE_MACRO_KEY: that is a Vite build-time define
+  // the asyncapi build does not set (only the forge:deploy:* scripts do), so
+  // it would resolve to zenuml-sequence-macro there. This key matches
+  // `zenuml-asyncapi-macro${LITE_KEY_SUFFIX}` in the manifest on Lite and on
+  // the AsyncAPI app; Full strips the macro and offers no AsyncAPI tile.
+  [DiagramType.AsyncApi]: 'zenuml-asyncapi-macro',
 }
 
 /** Fold case, like pageDiagrams.lookup: stored types spell OpenAPI/openapi. */

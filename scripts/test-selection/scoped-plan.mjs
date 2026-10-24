@@ -53,7 +53,7 @@ export function scopedPlan({ discover, selection, resolved, head, tree, policy, 
     && directTestFiles.every(file => typeof file === 'string' && /^(?:[^/]+\/)*[^/]+\.(?:spec|test)\.[cm]?[jt]s$/.test(file))
     && directInScope.every(file => full.tests.some(test => test.file === file));
   const validCategories = Array.isArray(resolved?.jev_categories)
-    && (resolved.jev_categories.length > 0 || (selection?.selection_scope === 'main' && selection.no_additional_impact === true))
+    && (resolved.jev_categories.length > 0 || selection?.selection_scope === 'main')
     && JSON.stringify(resolved.jev_categories) === JSON.stringify(chosen)
     && resolved.jev_grep === categoryGrep(resolved.jev_categories);
   const validCombinedFilter = validFloor && validCategories

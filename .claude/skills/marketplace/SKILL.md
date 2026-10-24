@@ -134,9 +134,9 @@ An overdue-payment candidate needs historical reported settlement plus a dated c
 
 All revenue joins key on `cloudId`, but a customer that **migrates Confluence sites gets a new
 cloudId**: the old license converts to `LEGACY_FREE` and reads as a churned payer, while the new
-site reads as an unrelated new customer. Real case (2026-07): `wendys.atlassian.net` showed as a
-$5.5k lapsed win-back target, but Wendy's had moved to `wentrack.atlassian.net` — COMMERCIAL,
-renewed annually, paid through 2027 (caught by the user, not the tooling).
+site reads as an unrelated new customer. Real case (2026-07, tenant names withheld):
+`example-old.atlassian.net` showed as a lapsed win-back target, but the customer had moved to
+`example-new.atlassian.net` — COMMERCIAL, renewed annually and paid up (caught by the user, not the tooling).
 
 **Before declaring any payer churned, run the migration-twin check:** take the lapsed license's
 `contactDetails.technicalContact.email` domain and scan **all** vendor licenses for another host

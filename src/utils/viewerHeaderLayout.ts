@@ -5,7 +5,7 @@
  * container-query breakpoints that ignored how long the title actually is:
  *
  *   stage 0  every label shown
- *   stage 1  Edit and Refined become icon-only
+ *   stage 1  Edit, Refined and Connect MCP become icon-only
  *   stage 2  Fullscreen becomes icon-only
  *   stage 3  Source and Copy for AI move into the More (⋯) menu
  *            (only when the diagram has source; otherwise stage 2 is the last)
@@ -22,7 +22,7 @@ export const MIN_TITLE_CHARS = 24
 
 export const HEADER_STAGE_NAMES: Record<HeaderStage, string> = {
   0: 'all labels',
-  1: 'Edit + Refined → icon',
+  1: 'Edit + Refined + Connect MCP → icon',
   2: 'Fullscreen → icon',
   3: 'Source + Copy for AI → More',
 }
@@ -37,6 +37,8 @@ export interface HeaderModel {
   pages: number
   /** The Edit button is present. */
   hasEdit: boolean
+  /** Connect MCP holds the Copy for AI slot (agent-link flag on). */
+  connectMcp?: boolean
 }
 
 /** Width in px of a button label at the given font size (500 weight). */
@@ -55,9 +57,9 @@ export function maxHeaderStage(model: Pick<HeaderModel, 'hasSource'>): HeaderSta
 }
 
 /**
- * Width of the controls to the right of the title at a given stage. Inline
- * zoom is not part of the header (it lives in each renderer's viewport), so the
- * prototype's zoom group is not counted.
+ * Stage-dependent width of the controls to the right of the title. The zoom
+ * group keeps the same width at every stage and is accounted for by the DOM
+ * measurement in GenericViewer, alongside badges and injected actions.
  */
 export function controlsWidth(model: HeaderModel, stage: HeaderStage, measureLabel: MeasureLabel): number {
   const parts: number[] = []
@@ -71,8 +73,14 @@ export function controlsWidth(model: HeaderModel, stage: HeaderStage, measureLab
   }
   const toolbar: number[] = []
   if (model.hasSource && stage < 3) {
-    // Source icon, 2px, Copy for AI split (28px icon + 18px chevron), separator.
-    toolbar.push(ICON + 2 + ICON + 18, SEPARATOR)
+    if (model.connectMcp) {
+      // Source icon, then Connect MCP: labelled "MCP" at stage 0 (8px padding
+      // + 1px border each side, 16px icon, 6px gap, label), icon-only after.
+      toolbar.push(ICON, stage < 1 ? 40 + measureLabel('MCP', 13) : ICON, SEPARATOR)
+    } else {
+      // Source icon, 2px, Copy for AI split (28px icon + 18px chevron), separator.
+      toolbar.push(ICON + 2 + ICON + 18, SEPARATOR)
+    }
   }
   toolbar.push(ICON) // More
   if (model.hasEdit) {
@@ -130,9 +138,9 @@ export function pickHeaderStage(options: {
 export type MoreMenuItemId =
   | 'source'
   | 'copy-for-ai'
+  | 'connect-mcp'
   | 'separator'
   | 'copy-diagram-link'
-  | 'copy-page-link'
   | 'export-png'
   | 'versions'
   | 'debug'
@@ -141,20 +149,22 @@ export type MoreMenuItemId =
  * Contents of the header More (⋯) menu, top to bottom. Inline, it holds the
  * actions the bottom pill used to carry, led by Source and Copy for AI once
  * stage 3 moves them out of the toolbar. Fullscreen shows those actions as
- * header buttons, so its menu holds only Download debug info.
+ * header buttons, so its menu holds Versions and Download debug info.
  */
 export function moreMenuItems(options: {
   stage: HeaderStage
   hasSource: boolean
+  /** Connect MCP holds the Copy for AI slot (agent-link flag on, inline). */
+  connectMcp?: boolean
   isCustomContent: boolean
   hasDeeplinkHost: boolean
   fullscreen: boolean
 }): MoreMenuItemId[] {
-  if (options.fullscreen) return ['debug']
+  if (options.fullscreen) return options.isCustomContent ? ['versions', 'separator', 'debug'] : ['debug']
   const items: MoreMenuItemId[] = []
-  if (options.stage >= 3 && options.hasSource) items.push('source', 'copy-for-ai', 'separator')
+  if (options.stage >= 3 && options.hasSource) items.push('source', options.connectMcp ? 'connect-mcp' : 'copy-for-ai', 'separator')
   if (options.isCustomContent && options.hasDeeplinkHost) items.push('copy-diagram-link')
-  items.push('copy-page-link', 'export-png')
+  items.push('export-png')
   if (options.isCustomContent) items.push('versions')
   items.push('separator', 'debug')
   return items

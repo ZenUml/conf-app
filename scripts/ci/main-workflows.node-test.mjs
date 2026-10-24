@@ -41,7 +41,7 @@ test('main child plans consume the verified producer and complete variant invent
   }
 });
 
-test('daily gate blocks every draft while deployment ordering and full validation remain mandatory', () => {
+test('daily gate blocks every draft while all four E2E lanes remain independent', () => {
   const drafts = workflow('main-draft-preparation');
   assert.match(drafts.jobs.parent.steps.find(step => step.id === 'regression').run, /verified-root-options.json/);
   for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
@@ -53,9 +53,11 @@ test('daily gate blocks every draft while deployment ordering and full validatio
   }
   const stage = workflow('main-staging-validation');
   assert.equal('reuse-check' in stage.jobs, false);
-  assert.ok(stage.jobs['staging-diagramly'].needs.includes('staging-lite-e2e'));
-  assert.ok(stage.jobs['staging-asyncapi'].needs.includes('staging-diagramly-e2e'));
-  assert.ok(stage.jobs['staging-full-e2e'].needs.includes('staging-lite-e2e'));
+  assert.deepEqual(stage.jobs['staging-diagramly'].needs, ['parent', 'migrations']);
+  assert.deepEqual(stage.jobs['staging-asyncapi'].needs, ['parent', 'migrations']);
+  for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
+    assert.deepEqual(stage.jobs[`staging-${variant}-e2e`].needs.slice().sort(), [`staging-${variant}`, `e2e-auth-${variant}`, 'parent'].sort());
+  }
   assert.equal(stage.jobs.parent.steps.find(step => step.env?.SELECTION_SCOPE).env.SELECTION_SCOPE, 'main');
 });
 

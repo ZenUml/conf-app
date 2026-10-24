@@ -49,19 +49,21 @@ The exporter renders with local Mermaid and headless Chromium, blocks render-tim
 
 ## Scope and limitations
 
-Supported: Mermaid flowcharts with resolvable node DOM IDs and edge IDs, curved and parallel connectors, explicit edge IDs, and HTML labels. Subgraphs can contain nodes; connectors whose endpoints are group IDs are rejected. Other Mermaid diagram types are rejected. Invisible connectors are excluded from interaction.
+Supported: Mermaid flowcharts with resolvable node DOM IDs and edge IDs, curved and parallel connectors, explicit edge IDs, and HTML labels. Subgraphs can contain nodes and nested subgraphs, and a connector may end at a subgraph. Mermaid draws a subgraph with no members as one plain node instead of a frame, so it is traced as a node: it can be the end of a connector, and its enclosing frames stay visible. A subgraph id that is listed twice is still refused, and so is a diagram whose drawing does not match its model. Tracing a node or connector keeps every enclosing subgraph frame visible. Tracing a subgraph keeps everything it contains at every depth, plus its own enclosing frames; connectors between its members stay faded. A node kept only by containment is un-faded where it sits; only a node joined by a traced connector is painted as an overlay copy, so the cost of tracing a subgraph follows its connectors and not its size. Containment comes from the `nodes` list of each subgraph in the model snapshot, because Mermaid draws a cluster beside its members rather than around them in the SVG tree. Other Mermaid diagram types are rejected. Invisible connectors are excluded from interaction.
 
 The adapter depends on Mermaid's flowchart database and rendered DOM structure; upgrades need verification. Attach again after rerendering or geometry changes. Export preserves the rendered diagram and highlights, but does not serialize application callbacks or Mermaid `bindFunctions` closures. The renderer uses strict security mode and a neutral theme. External resources are blocked. Source is limited to 256,000 bytes. This is a local tool, with no dependency installation or hosted rendering service.
 
 ## Tests and provenance
 
-With the three environment variables configured, run:
+From the repository root, run:
 
 ```sh
-node --test tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs
+pnpm test:mermaid-highlights
 ```
 
-There are nine tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, and pan/zoom geometry. Eight browser tests skip when Playwright module or Mermaid bundle paths are missing.
+The command finds Playwright and the Mermaid bundle in `node_modules`, runs the test file, and fails if any test is skipped. CI runs this same command in the "E2E: Viewer preview" job of the PR and main pipelines, after that job installs Chromium. Set `MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE` or `MERMAID_HIGHLIGHTS_MERMAID_BUNDLE` first to use a different copy, and `MERMAID_HIGHLIGHTS_CHROMIUM_EXECUTABLE` to use a different browser.
+
+There are twenty-two tests, including actual Mermaid browser interaction, callback forwarding, lifecycle restoration, identity validation, touch interaction, offline export, label preservation, pan/zoom geometry, subgraph containment, clone counts while a subgraph is traced, and empty subgraphs. Twenty of them need a browser. Running the file directly with `node --test tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs` skips those twenty unless the two required variables are set, so check that the summary reports `skipped 0`. When `CI` is set and a variable is missing, the file fails instead of skipping.
 
 Extracted from commit `bd78520a683e978f665219b8e0c87794c01328cf`, originally under `tools/pi-diagram-agent/`. Runtime environment variables and Symbol namespaces now belong to this independent tool. The generic runtime retains optional `sharedSections` support; the Mermaid adapter installs no shared sections. No static SVG exporter is required.
 

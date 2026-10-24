@@ -27,11 +27,18 @@ import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { isLoadedEmptyBody, viewContentState } from '@/utils/analytics/contentState';
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent';
+import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 import { attachMermaidHighlights } from '../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
+
+// A wait for a measurable layout that outlasts this reports one
+// viewer_render_deferred, so a hidden macro is told apart from a broken one (#706).
+const LAYOUT_WAIT_HEARTBEAT_MS = 10_000;
 
 export default {
   name: "Mermaid",
@@ -48,7 +55,6 @@ export default {
       highlightController: null,
       highlightCleanup: null,
       currentFlowchartModel: null,
-      highlightUsedGeneration: -1,
       renderGeneration: 0,
       layoutWaitController: null,
     }
@@ -72,10 +78,21 @@ export default {
   },
   async mounted() {
     const code = this.mermaidCode;
-    if (!code) return;
+    if (!code) {
+      // #113: an empty body is the wipe signal. Report the view, with the
+      // verdict, without attempting a render. A shell that never loaded has no
+      // verdict (isLoadedEmptyBody) and stays silent.
+      if (isLoadedEmptyBody(this.$store.state.diagram, DiagramType.Mermaid)) {
+        trackRenderTime('mermaid', this.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      return;
+    }
     const applied = await this.renderAndApply(code, true);
     if (applied) {
-      trackRenderTime('mermaid', this.isDisplayMode);
+      trackRenderTime(
+        'mermaid', this.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.$store.state.diagram, DiagramType.Mermaid),
+      );
       EventBus.$emit('diagramLoaded', code, DiagramType.Mermaid);
     }
     await globals.apWrapper.initializeContext();
@@ -139,7 +156,9 @@ export default {
       if (!svg) return;
       try {
         this.highlightController = attachMermaidHighlights(svg, this.currentFlowchartModel);
-        let used = this.highlightUsedGeneration === this.renderGeneration, timer = null, hovered = null;
+        // Every distinct target is one use (the feedback pill waits for the
+        // third); a hover that turns into a click on the same target is one use.
+        let reported = null, timer = null, hovered = null;
         const target = event => {
           const el = event.target.closest?.('[data-hit-node],[data-hit-edge],g[data-node],path[data-edge]');
           if (!el || !svg.contains(el)) return null;
@@ -148,15 +167,14 @@ export default {
         };
         const cancel = () => { clearTimeout(timer); timer = null; hovered = null; };
         const report = item => {
-          if (!item || used) return;
-          used = true;
-          this.highlightUsedGeneration = this.renderGeneration;
+          if (!item || item.el === reported) return;
+          reported = item.el;
           cancel();
           this.$emit('highlight-used', { kind: item.kind });
         };
         const over = event => {
           const item = target(event);
-          if (!item || used || hovered === item.el) return;
+          if (!item || hovered === item.el) return;
           cancel(); hovered = item.el;
           timer = setTimeout(() => report(item), 700);
         };
@@ -236,6 +254,43 @@ export default {
       return message.includes('svg element not in render tree')
         || /matrix (?:is )?(?:not |non[- ]?)invertible/i.test(message);
     },
+    // The wait itself is awaitSvgTextLayout, unchanged. Around it: one
+    // viewer_render_deferred past 10 s, viewer_render_abandoned if it is
+    // cancelled, and the elapsed time recorded for macro_viewed's
+    // layout_wait_ms when it succeeds (#706).
+    async awaitLayoutWithTelemetry(signal) {
+      const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const startedAt = now();
+      // render_gate / visible_at_boot exist only when the viewport gate ran.
+      const { render_gate, visible_at_boot } = getGateTelemetry();
+      const base = {
+        feature_area: 'macro',
+        surface: this.isDisplayMode ? 'viewer' : 'editor',
+        macro_type: 'mermaid',
+        reason: 'no_layout',
+        ...(render_gate !== undefined ? { render_gate } : {}),
+        ...(visible_at_boot !== undefined ? { visible_at_boot } : {}),
+      };
+      const waited = () => Math.round(now() - startedAt);
+      const heartbeat = setTimeout(
+        () => trackAnalyticsEvent('viewer_render_deferred', { ...base, waited_ms: waited() }),
+        LAYOUT_WAIT_HEARTBEAT_MS,
+      );
+      let measurable;
+      try {
+        measurable = await awaitSvgTextLayout({ signal });
+      } finally {
+        clearTimeout(heartbeat);
+      }
+      if (measurable && !signal?.aborted) {
+        renderPerf.markLayoutWait(waited());
+      } else {
+        // sendBeacon: the cancel usually coincides with the iframe going away,
+        // which aborts the default XHR transport.
+        void trackAnalyticsEventBeforeUnload('viewer_render_abandoned', { ...base, waited_ms: waited() });
+      }
+      return measurable;
+    },
     async render(code, measureInitialAttempt = false, signal) {
       const firstAttempt = () => measureInitialAttempt
         ? renderPerf.time('render', () => this.runMermaid(code))
@@ -255,7 +310,7 @@ export default {
         // There is deliberately no ten-second deadline: a collapsed or
         // virtualised Confluence macro can stay hidden longer, and PR #691's
         // timed retry produced the same guaranteed failure a second time.
-        const measurable = await awaitSvgTextLayout({ signal });
+        const measurable = await this.awaitLayoutWithTelemetry(signal);
         if (!measurable || signal?.aborted) return;
         try {
           return await this.runMermaid(code);

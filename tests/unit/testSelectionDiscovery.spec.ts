@@ -55,7 +55,7 @@ it('uses Jev behavior categories without adding a Mermaid-specific execution flo
 it('main plans smoke from real complete regression inventories for all four variants', () => {
   const temp = mkdtempSync(join(tmpdir(), 'main-selection-inventory-'));
   try {
-    const mainSelection = { ...selection, selection_scope: 'main', no_additional_impact: true, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: 0.02, selected: false }])) };
+    const mainSelection = { ...selection, selection_scope: 'main', no_selected_categories: true, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { probability: 0.02, selected: false }])) };
     const mainResolved = resolveSelection({ selection: mainSelection, files: ['functions/new-handler.ts'], head, tree, scope: 'main' });
     writeFileSync(join(temp, 'selection.json'), JSON.stringify(mainSelection));
     writeFileSync(join(temp, 'resolved.json'), JSON.stringify(mainResolved));

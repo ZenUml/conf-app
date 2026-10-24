@@ -104,7 +104,7 @@ jobs:
       - name: Install E2E discovery dependencies
         run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
       - run: pnpm test:unit
-      - run: node --test scripts/ci/*.node-test.mjs
+      - run: node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs
       # Verify the asyncapi variant builds even on feature-branch PRs. The
       # staging-asyncapi job below only runs on the default branch (like
       # full/diagramly), so this is the smoke test for PRs.
@@ -160,6 +160,15 @@ jobs:
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: Verify Mixpanel isolation without network egress
+        run: cd tests/e2e-tests && pnpm exec playwright test -c playwright.mixpanel-isolation.config.ts
+      # The only tests that run the real Mermaid highlight runtime in a browser.
+      # They skip silently without MERMAID_HIGHLIGHTS_* inputs, so this command
+      # resolves Playwright and the Mermaid bundle from the install above and
+      # fails if any test is skipped. It uses the same Chromium as the steps around
+      # it, and this job ends long before the staging E2E that runs beside it.
+      - name: Run the Mermaid highlight runtime tests in Chromium
+        run: pnpm test:mermaid-highlights
       - name: Run preview specs against a local Vite dev server
         # Server and tests share ONE step so the server cannot outlive or
         # predecease them: a background process started in an earlier step is

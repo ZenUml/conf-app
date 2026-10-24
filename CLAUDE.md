@@ -38,6 +38,14 @@ The **Handbook** is our internal, team-only knowledge site — *not* customer-fa
 
 ## Hard rules
 
+### Confluence UI changes require ordered visual validation
+
+For changes that affect the Confluence app UI, validate the same candidate in this order: **Storybook → Forge Tunnel → CI-deployed Staging**. Each stage must pass before starting the next. At every stage, record the tested branch/commit or deployed build and confirm where the visible UI is served from. Keep actual UI evidence (such as screenshots or snapshots) for the assertions. A blocked or skipped UI assertion is not a pass, and unit tests do not replace UI evidence.
+
+Pure documentation changes and changes with no UI impact are not applicable; state that and give the reason. Do not invent a Storybook check for a pure backend change. If a stage fails, fix the issue and repeat the affected stage; later acceptance must use the final candidate version. Staging checks start only after the candidate branch's CI deployment succeeds. Never deploy staging from a local shell; see the Forge deployment rule below.
+
+The **validate-branch** skill defines the execution order and distinguishes local readiness to push from completion of the full validation path. The **forge-tunnel** skill remains the source for tunnel setup, identity, and connection checks.
+
 ### Confluence app UI design targets desktop
 
 For the Confluence app, design for the desktop surface. Do not create narrow/mobile layouts or separate narrow-screen artboards unless the user explicitly requests them.
@@ -193,6 +201,8 @@ If `forge whoami` says not logged in (or `forge login` fails on keychain), see [
 
 Lite / full / diagramly map to `conf-stg-lite`, `conf-stg-full`, `conf-lite`, `conf-full`. See [docs/ops/cloudflare-pages.md](docs/ops/cloudflare-pages.md) for the full table, CI sources, and `wrangler pages secret put` usage.
 
+`dist/` also carries a second, separately built page: the MCP Apps diagram view (`pnpm build:mcp-app` → `dist/mcp-app/`, run at the end of every `build:*`), served from Pages to MCP hosts such as claude.ai. Build, deploy and host constraints: [docs/features/mcp-app-view.md](docs/features/mcp-app-view.md).
+
 ### Forge Functions usage & cost (GB-seconds)
 
 When a "Forge Functions usage" alert fires, use the **forge-functions-cost** skill — it holds the
@@ -220,11 +230,11 @@ So when checking a PR before merge:
 
 ### Release order — diagramly → lite → full
 
-Production releases go **Diagramly first** (canary), then **Lite** for the same commit SHA, then **Full** no sooner than 7 days after Lite; AsyncAPI is independent. Never offer Lite or Full as the first release step. Gates and scripts: the **release-app** skill, "Variants & gates".
+Production releases go **Diagramly first** (canary), then **Lite** for the same commit SHA, then **Full** no sooner than 24 hours after Lite; AsyncAPI is independent. Never offer Lite or Full as the first release step. Gates and scripts: the **release-app** skill, "Variants & gates".
 
 ### Release pipeline time budget
 
-Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. Full's E2E on `main` waits for Lite's unless the merge message carries `[full-first]` or the repo variable `FULL_DRAFT_LANE` is `now`. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared file runs everything, and `main` always does. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared PR file runs everything. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
 
 ### Analytics & observability
 

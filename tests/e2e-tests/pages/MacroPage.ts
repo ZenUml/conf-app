@@ -196,7 +196,7 @@ export class MacroPage {
     await expect(macroFrame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
 
     // Use aria-label to find the Edit button
-    const editButton = macroFrame.getByRole('button', { name: 'Edit' });
+    const editButton = macroFrame.getByRole('button', { name: 'Edit', exact: true });
 
     await expect(editButton).toBeVisible({ timeout: TIMEOUTS.BUTTON_VISIBLE });
     await editButton.click();

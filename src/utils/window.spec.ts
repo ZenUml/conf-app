@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import path from 'node:path'
+import ts from 'typescript'
 import mixpanel from 'mixpanel-browser'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
-import { _awaitableTrackEvent, addonKey, addonKeyForProductType, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
+import { _awaitableTrackEvent, _resetLegacyMixpanelForTesting, addonKey, addonKeyForProductType, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { normalizeProductType } from '@/utils/analytics/productType';
 
@@ -57,7 +59,49 @@ describe('window utils', async () => {
     vi.mocked(forgeGlobal).forgeContext = { localId: 'forge-local-id-123' } as any
   })
 
+  describe('October 2026 Replay budget in legacy analytics', () => {
+    afterEach(() => vi.mocked(Date.now).mockRestore())
+
+    it('disables baseline recording during October but still tracks', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-12T00:00:00Z'))
+      _resetLegacyMixpanelForTesting()
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      )
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.any(Object))
+    })
+
+    it('restores the previous SDK default after the budget expires', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z'))
+      _resetLegacyMixpanelForTesting()
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+      expect(vi.mocked(mixpanel.init).mock.calls[0][1]).not.toHaveProperty('record_sessions_percent')
+      expect(mixpanel.track).toHaveBeenCalledWith('test-action', expect.any(Object))
+    })
+  })
+
   describe('event sampling (legacy trackEvent path)', () => {
+    beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z')))
+    afterEach(() => vi.mocked(Date.now).mockRestore())
+
+    it('emits October success events with the final absolute rate and keeps errors full-rate', async () => {
+      vi.mocked(Date.now).mockReturnValue(Date.parse('2026-10-12T00:00:00Z'))
+      const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.009)
+      await _awaitableTrackEvent('toPng', 'convert_to_png', 'export', { sample_rate: 0.9 })
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        'convert_to_png', expect.objectContaining({ sample_rate: 0.01 }),
+      )
+      vi.clearAllMocks()
+      rnd.mockReturnValue(0.99)
+      await _awaitableTrackEvent('toPng_failed', 'convert_to_png', 'error')
+      const errorCall = vi.mocked(mixpanel.track).mock.calls.find((c) => c[0] === 'convert_to_png')
+      expect(errorCall).toBeTruthy()
+      expect(errorCall![1]).not.toHaveProperty('sample_rate')
+      rnd.mockRestore()
+    })
+
     it('drops a down-sampled action when the sampling roll misses', async () => {
       const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99) // ≥ 0.1 → drop
       await _awaitableTrackEvent('toPng', 'convert_to_png', 'export')
@@ -146,24 +190,71 @@ describe('window utils', async () => {
   })
 
   describe('trackEvent', () => {
-    it('should enforce EventCategory type safety', () => {
-      // This should cause a TypeScript error at compile time
-      // @ts-expect-error - Invalid category
-      _awaitableTrackEvent('label', 'action', 'invalid-category');
+    it('typechecks the public tracking signatures against valid and invalid callers', () => {
+      // Vitest transpiles test files without typechecking. Compile a focused
+      // consumer so the production function signatures are actually checked.
+      const fileName = path.resolve(process.cwd(), 'src/utils/__window_track_contract__.ts')
+      const source = `
+        import { trackEvent, _awaitableTrackEvent } from './window'
+        trackEvent('label', 'action', 'custom-category')
+        const result: Promise<void> = _awaitableTrackEvent('label', 'action', 'future-category')
+        // @ts-expect-error label must be a string
+        trackEvent(42, 'action', 'category')
+        // @ts-expect-error action must be a string
+        _awaitableTrackEvent('label', 42, 'category')
+        // @ts-expect-error category must be string-like
+        trackEvent('label', 'action', 42)
+        // @ts-expect-error category must be string-like
+        _awaitableTrackEvent('label', 'action', 42)
+        void result
+      `
+      const options: ts.CompilerOptions = {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Node10,
+        baseUrl: process.cwd(),
+        paths: { '@/*': ['src/*'] },
+        strict: true,
+        noEmit: true,
+        skipLibCheck: true,
+        allowJs: true,
+        types: [],
+      }
+      const host = ts.createCompilerHost(options)
+      const originalGetSourceFile = host.getSourceFile.bind(host)
+      host.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) =>
+        name === fileName
+          ? ts.createSourceFile(name, source, languageVersion, true)
+          : originalGetSourceFile(name, languageVersion, onError, shouldCreateNewSourceFile)
+      const windowPath = path.resolve(process.cwd(), 'src/utils/window.ts')
+      const resolved = ts.resolveModuleName('./window', fileName, options, host).resolvedModule?.resolvedFileName
+      const diagramTypePath = ts.resolveModuleName(
+        '@/model/Diagram/Diagram', windowPath, options, host,
+      ).resolvedModule?.resolvedFileName
+      expect(resolved).toBe(windowPath)
+      expect(diagramTypePath).toBe(path.resolve(process.cwd(), 'src/model/Diagram/Diagram.ts'))
+      const program = ts.createProgram([fileName], options, host)
+      const consumer = program.getSourceFile(fileName)
+      expect(consumer).toBeDefined()
+      expect(program.getSourceFile(resolved!)).toBeDefined()
+      expect(program.getSourceFile(diagramTypePath!)).toBeDefined()
+      // Only this consumer's diagnostics are relevant; other files in the
+      // window.ts dependency graph already have unrelated typecheck errors.
+      const diagnostics = [
+        ...program.getSyntacticDiagnostics(consumer),
+        ...program.getSemanticDiagnostics(consumer),
+      ]
+      expect(diagnostics.map((diagnostic) =>
+        `${diagnostic.file?.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line}: ${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')}`,
+      )).toEqual([])
+    })
 
-      // These should all be valid and not cause TypeScript errors
-      const validCategories = [
-        'sequence', 'mermaid', 'graph', 'openapi', 'embed',
-        'error', 'warning', 'info',
-        'macro', 'ai', 'analytics',
-        'user', 'system', 'performance'
-      ];
-
-      // No assertions needed - this is a compile-time check
-      validCategories.forEach(category => {
-        // Just checking that this compiles without errors
-        _awaitableTrackEvent('label', 'action', category as any);
-      });
+    it('passes a caller-defined category through to Mixpanel', async () => {
+      await _awaitableTrackEvent('label', 'action', 'custom-category');
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        'action',
+        expect.objectContaining({ event_category: 'custom-category' }),
+      );
     });
 
     it('should send tracking data via Mixpanel', async () => {

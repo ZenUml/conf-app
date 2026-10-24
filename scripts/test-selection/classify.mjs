@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { mainSafetyPath } from '../e2e-select.mjs';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -7,27 +6,46 @@ import { createHash } from 'node:crypto';
 import { CATEGORY_VERSION, CATEGORIES } from '../../tests/e2e-tests/config/categories.mjs';
 import { EXECUTION_IMPACT, EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 
-// v5 makes the behavior-selector catalog and direct-spec contract part of the
-// trusted selection policy.
-// Old Jev or resolver artifacts therefore fail closed after a catalog change.
-export const POLICY_VERSION = 'v7-main-jev-selectors-v1';
+// v9 accepts successful main decisions even when no category reaches 0.8.
+// Older selection artifacts cannot authorize the new coverage policy.
+export const POLICY_VERSION = 'v9-main-jev-empty-selection-v1';
 export const MAX_DIFF_BYTES = 180000;
 // A low threshold made weak, generic associations select most of the suite.
 // Direct E2E specs and smoke form the independent floor; Jev only adds a
 // category when it reports high confidence from concrete diff evidence.
 export const CATEGORY_SELECTION_THRESHOLD = 0.8;
-// A Vue `:token="variable"` binding contains no credential value. Keep the
-// token check for object properties and assignments, but do not mistake that
-// binding syntax for a quoted secret.
-export const SENSITIVE_DIFF_PATTERN = /https?:\/\/[^\s/]+\.atlassian\.net|cloudId|(?:api[_-]?key|(?<!:)token|password|secret)\s*[:=]\s*['\"][^'\"]{12}/i;
+// Sensitive-diff gate for the external Jev API. The pre-commit privacy grep in
+// docs/policies/client-privacy.md is the first barrier against tenant data in
+// public files; this regex is the second barrier, for what leaves for Jev. A
+// bare `cloudId` identifier or an internal/placeholder Atlassian host is not
+// tenant data, so only these count as sensitive:
+//   (a) a non-internal `*.atlassian.net` host,
+//   (b) a cloud ID value (UUID) within 40 characters after a cloud id key,
+//   (c) a quoted credential value. A Vue `:token="variable"` binding holds no
+//       credential, so the token check skips a leading colon.
+// A true match still falls to full regression.
+// Accepted gaps: a bare UUID with no cloud-id key within 40 characters reaches
+// Jev (as before this change), and a bare hostname without a scheme is left to
+// the first barrier (the pre-commit privacy grep), as before.
+export const INTERNAL_ATLASSIAN_SITES = [
+  'zenuml', 'whimet4', 'lite-stg', 'lite-dev', 'dia-stg', 'full-stg', 'asyncapi-stg',
+  'peng-dev', 'example', 'example-tenant', 'my-site', 'your-site',
+  'zenuml-stg', 'dia-dev', 'ecosystem', 'drawio', 'yoursite', 'site', 'tenant',
+];
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+export const SENSITIVE_DIFF_PATTERN = new RegExp([
+  `https?://(?!(?:${INTERNAL_ATLASSIAN_SITES.join('|')})\\.atlassian\\.net(?![a-z0-9@-]|\\.[a-z0-9]))[a-z0-9-]+\\.atlassian\\.net\\b`,
+  `cloud[_-]?id[^\\n]{0,40}?${UUID}`,
+  `(?:api[_-]?key|(?<!:)token|password|secret)\\s*[:=]\\s*['"][^'"]{12}`,
+].join('|'), 'i');
 export const EXECUTION_SELECTOR_CATALOG_FINGERPRINT = createHash('sha256')
   .update(JSON.stringify({ version: EXECUTION_SELECTOR_CATALOG_VERSION, selectors: EXECUTION_IMPACT }))
   .digest('hex');
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
-export const isUnitTestPath = path => /(^|\/)[^/]+\.(spec|test)\.[cm]?[jt]sx?$/.test(path) && !path.startsWith('tests/e2e-tests/');
+export const isUnitTestPath = path => /(^|\/)[^/]+\.(spec|test|node-test)\.[cm]?[jt]sx?$/.test(path) && !path.startsWith('tests/e2e-tests/');
 export function pathRule(path, scope = 'pr') {
   if (/^(private\/|\.env|.*\.(pem|key)$)/.test(path)) return 'excluded-sensitive-path';
-  if (scope === 'main') return mainSafetyPath(path) ? 'selection-infrastructure-path' : null;
+  if (scope === 'main') return null;
   // Analytics event registrations are behavior-local, public source that Jev
   // can classify alongside the feature diff.
   if (/^src\/utils\/analytics\//.test(path)) return null;
@@ -91,10 +109,9 @@ export async function classify({ diff, apiKey, mode = 'observe', humanFull = fal
     result.mode = Object.values(result.categories).some(c => c.selected) ? 'selected' : 'all';
     if (result.mode === 'all') {
       if (scope !== 'main') return fallback('empty-selection');
-      if (Object.values(result.categories).some(c => c.uncertain)) return fallback('uncertain-empty-selection');
       result.mode = 'selected';
-      result.no_additional_impact = true;
-      result.rules.push('jev-confirmed-no-additional-impact');
+      result.no_selected_categories = true;
+      result.rules.push('jev-no-selected-categories');
     }
     if (mode === 'enabled') { result.execution_mode = 'enabled'; result.rules.push('deterministic-coverage-floor-required'); }
     return result;

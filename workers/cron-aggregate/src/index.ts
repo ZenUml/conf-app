@@ -16,6 +16,8 @@ const ANALYTICS_FACT_PURGE_MAX_BATCHES = 40;
 const FEEDBACK_ATTACHMENT_PURGE_BATCH_SIZE = 100;
 const MAGIC_WRITEBACK_PURGE_BATCH_SIZE = 1000;
 const MAGIC_WRITEBACK_PURGE_MAX_BATCHES = 20;
+const OAUTH_REFRESH_STATE_PURGE_BATCH_SIZE = 1000;
+
 
 export async function purgeExpiredFeedbackScreenshots(
   db: D1Database,
@@ -56,6 +58,73 @@ export async function purgeExpiredMagicWritebacks(
     if (deleted < MAGIC_WRITEBACK_PURGE_BATCH_SIZE) break;
   }
   return total;
+}
+
+export interface OAuthRefreshStatePurgeCounts {
+  receiptsStripped: number;
+  tokensDeleted: number;
+  chainsDeleted: number;
+}
+
+/**
+ * Remove expired OAuth replay receipts and token state in bounded batches.
+ * Receipt encryption material becomes eligible for clearing on the next
+ * scheduled purge after its replay window closes, while the token row's
+ * nonce/hash metadata remains until token expiry so reuse detection can still
+ * reject an old token. Any remaining child token protects its chain marker
+ * until the bounded token cleanup removes that child.
+ */
+export async function purgeExpiredOAuthRefreshState(
+  db: D1Database,
+  nowMs: number,
+): Promise<OAuthRefreshStatePurgeCounts> {
+  const receipts = await db.prepare(
+    `UPDATE AgentLinkOAuthRefreshToken
+        SET receiptCiphertext = NULL,
+            receiptIv = NULL,
+            receiptExpiresAtMs = NULL
+      WHERE rowid IN (
+        SELECT rowid
+          FROM AgentLinkOAuthRefreshToken
+         WHERE receiptCiphertext IS NOT NULL
+           AND receiptExpiresAtMs <= ?1
+         LIMIT ?2
+      )`,
+  ).bind(nowMs, OAUTH_REFRESH_STATE_PURGE_BATCH_SIZE).run();
+
+  const tokens = await db.prepare(
+    `DELETE FROM AgentLinkOAuthRefreshToken
+      WHERE rowid IN (
+        SELECT rowid
+          FROM AgentLinkOAuthRefreshToken
+         WHERE expiresAtMs <= ?1
+           AND (receiptCiphertext IS NULL OR receiptExpiresAtMs <= ?1)
+         LIMIT ?2
+      )`,
+  ).bind(nowMs, OAUTH_REFRESH_STATE_PURGE_BATCH_SIZE).run();
+
+  const chains = await db.prepare(
+    `DELETE FROM AgentLinkOAuthRefreshChain
+      WHERE rowid IN (
+        SELECT c.rowid
+          FROM AgentLinkOAuthRefreshChain AS c
+         WHERE c.expiresAtMs <= ?1
+           AND NOT EXISTS (
+             SELECT 1
+               FROM AgentLinkOAuthRefreshToken AS t
+              WHERE t.issuer = c.issuer
+                AND t.chainId = c.chainId
+           )
+         LIMIT ?2
+      )`,
+  ).bind(nowMs, OAUTH_REFRESH_STATE_PURGE_BATCH_SIZE).run();
+
+  return {
+    receiptsStripped: receipts.meta.changes || 0,
+    tokensDeleted: tokens.meta.changes || 0,
+    chainsDeleted: chains.meta.changes || 0,
+  };
+
 }
 
 export default {
@@ -108,5 +177,13 @@ export default {
       controller.scheduledTime,
     );
     console.log(`Purged expired MagicWriteback rows: ${magicWritebacksDeleted}`);
+    const oauthRefreshState = await purgeExpiredOAuthRefreshState(
+      env.DB,
+      controller.scheduledTime,
+    );
+    console.log(
+      `Purged expired OAuth refresh state: ${oauthRefreshState.receiptsStripped} receipts stripped, ${oauthRefreshState.tokensDeleted} tokens deleted, ${oauthRefreshState.chainsDeleted} chains deleted`,
+    );
+
   },
 };

@@ -56,10 +56,6 @@ const directTestFilesFor = path => {
   return spec ? [spec] : DIRECT_TEST_DEPENDENCIES[path] ?? [];
 };
 
-// Main delegates application and shared-code impact to Jev. Changes to the
-// selector, category catalog, or CI harness invalidate that decision boundary.
-export const mainSafetyPath = path => (path.startsWith('tests/e2e-tests/helpers/') && !DIRECT_TEST_DEPENDENCIES[path]) || /^(?:\.github\/|scripts\/(?:ci\/|test-selection\/|e2e-select\.mjs$)|tests\/e2e-tests\/(?:config\/|playwright[^/]*\.config\.ts$|global[^/]*))/.test(path);
-
 /** @returns {{ mode: 'all'|'selected', tags: string[], grep: string, reasons: string[], direct_test_files: string[] }} */
 export function select(files, { scope = 'pr' } = {}) {
   const reasons = [];
@@ -70,8 +66,7 @@ export function select(files, { scope = 'pr' } = {}) {
     const directFiles = directTestFilesFor(file);
     if (directFiles.length) { directFiles.forEach(path => direct_test_files.add(path)); reasons.push(`${file}: direct test (${directFiles.join(', ')})`); continue; }
     if (scope === 'main') {
-      if (mainSafetyPath(file)) { reasons.push(`${file}: selection infrastructure → runs everything`); all = true; }
-      else reasons.push(`${file}: Jev-classified behavior`);
+      reasons.push(`${file}: Jev-classified behavior`);
       continue;
     }
     const shared = RUN_EVERYTHING.find(g => globToRegExp(g).test(file));

@@ -102,7 +102,7 @@ describe('WhatsNewBanner', () => {
 
     await wrapper.find('[data-testid="whats-new-link"]').trigger('click');
     await flushPromises();
-    expect(openUrl).toHaveBeenCalledWith('https://zenuml.com/docs/anonymous-viewing/');
+    expect(openUrl).toHaveBeenCalledWith('https://zenuml.com/docs/products/zenuml-diagrams-for-confluence/anonymous-viewing/');
     expect(events('whats_new_link_clicked')[0][1]).toMatchObject({
       whats_new_release_id: '2026-10-anonymous-viewing',
       whats_new_item_id: 'anonymous-viewing',

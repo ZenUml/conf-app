@@ -24,9 +24,10 @@
  * prove all of this by pasting every type into a live lite-stg editor: five
  * page creations, two shards' worth of the Lite E2E. Its assertions were the
  * same manifest-matcher facts, so it now keeps ONE live case as the canary for
- * Confluence's matcher semantics and this file carries the table. Only Lite
- * ships these matchers (scripts/forge-wizard.mjs strips them elsewhere), which
- * is why the source manifest — Lite's shape — is the right thing to read.
+ * Confluence's matcher semantics and this file carries the table. The source
+ * manifest is Lite's shape, so links here are minted as Lite; Full and AsyncAPI
+ * move the typed matchers to their own hosts (scripts/forge-wizard.mjs), which
+ * tests/unit/forgeWizard.spec.ts pins against typedDeeplinkHostForProductType.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -90,7 +91,7 @@ describe('typed deeplink routing (manifest autoConvert matchers)', () => {
     });
 
     it(`the minted /d/${type} link matches its own matcher and no other macro's`, () => {
-      const link = buildDiagramDeeplink(type, 'c78e721e-957f-402c-9b70-1df2227c2739', '170721444');
+      const link = buildDiagramDeeplink(type, 'c78e721e-957f-402c-9b70-1df2227c2739', '170721444', 'lite');
       expect(link).toBeDefined();
       const matching = macros
         .filter((m) => (m.autoConvert?.matchers ?? []).some((x) => matcherRegex(x.pattern).test(link!)))
@@ -108,7 +109,7 @@ describe('typed deeplink routing (manifest autoConvert matchers)', () => {
       expect(p, 'embed matcher shape').toMatch(/^https:\/\/[^/]+\/d\/\*\/\*$/);
     }
     // And the 4-segment typed link really does fall outside them.
-    const typed = buildDiagramDeeplink('graph', 'c78e721e-957f-402c-9b70-1df2227c2739', '170721444')!;
+    const typed = buildDiagramDeeplink('graph', 'c78e721e-957f-402c-9b70-1df2227c2739', '170721444', 'lite')!;
     for (const p of patterns) expect(matcherRegex(p).test(typed)).toBe(false);
   });
 

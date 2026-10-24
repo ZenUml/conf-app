@@ -10,7 +10,24 @@ const GitHubPrSchema = z.object({
   state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
   isDraft: z.boolean(),
   headRefOid: ShaSchema.nullable(),
+  mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
+  mergeStateStatus: z.enum(['BEHIND', 'BLOCKED', 'CHANGES_REQUESTED', 'CLEAN', 'DIRTY', 'DRAFT', 'HAS_HOOKS', 'UNKNOWN', 'UNSTABLE']),
 })
+
+function readinessOf(pr: z.infer<typeof GitHubPrSchema>): Pick<ObservedPr, 'readiness' | 'readinessReason'> {
+  if (pr.state === 'MERGED') return { readiness: 'blocked', readinessReason: 'Already merged' }
+  if (pr.state === 'CLOSED') return { readiness: 'blocked', readinessReason: 'Closed' }
+  if (pr.isDraft || pr.mergeStateStatus === 'DRAFT') return { readiness: 'blocked', readinessReason: 'Draft PR' }
+  if (pr.mergeable === 'CONFLICTING' || pr.mergeStateStatus === 'DIRTY') {
+    return { readiness: 'blocked', readinessReason: 'Merge conflicts' }
+  }
+  if (pr.mergeStateStatus === 'CLEAN' && pr.mergeable === 'MERGEABLE') return { readiness: 'ready' }
+  if (pr.mergeStateStatus === 'BEHIND') return { readiness: 'blocked', readinessReason: 'Branch behind base' }
+  if (pr.mergeStateStatus === 'BLOCKED') return { readiness: 'blocked', readinessReason: 'GitHub merge blocked' }
+  if (pr.mergeStateStatus === 'CHANGES_REQUESTED') return { readiness: 'blocked', readinessReason: 'Changes requested' }
+  if (pr.mergeStateStatus === 'UNSTABLE') return { readiness: 'unknown', readinessReason: 'Checks need review' }
+  return { readiness: 'unknown', readinessReason: 'Merge status unconfirmed' }
+}
 
 export interface GitHubReadResult {
   observations: Array<{ ref: PrRef; observed: ObservedPr }>
@@ -56,7 +73,7 @@ export async function readSavedPrStatuses(refs: PrRef[], query: QueryGraphql = q
   for (const group of groups.values()) {
     for (const batch of chunks(group, BATCH_SIZE)) {
       const { owner, repo } = batch[0]
-      const fields = batch.map((ref, i) => `p${i}: pullRequest(number: ${ref.number}) { state isDraft headRefOid }`).join(' ')
+      const fields = batch.map((ref, i) => `p${i}: pullRequest(number: ${ref.number}) { state isDraft headRefOid mergeable mergeStateStatus }`).join(' ')
       const graphql = `query { repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(repo)}) { ${fields} } }`
       try {
         const response = await query(graphql) as { data?: { repository?: Record<string, unknown> | null } }
@@ -69,6 +86,7 @@ export async function readSavedPrStatuses(refs: PrRef[], query: QueryGraphql = q
             ref: batch[i],
             observed: {
               state: pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : pr.isDraft ? 'draft' : 'open',
+              ...readinessOf(pr),
               ...(pr.headRefOid ? { headSha: pr.headRefOid } : {}),
             },
           })

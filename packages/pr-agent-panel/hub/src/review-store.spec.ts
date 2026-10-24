@@ -51,6 +51,12 @@ describe('ReviewStore', () => {
     expect(runs[0].headline).toBe('Changed')
   })
 
+  it('keeps an explicitly assigned P0 priority in the review summary', () => {
+    const store = new ReviewStore(tempDir())
+    store.upsert(run({ priority: 'P0' }))
+    expect(store.listLatestCompleted(REPO_KEY)[0].priority).toBe('P0')
+  })
+
   it('lists the latest completed run per PR, newest first, and marks stale rows', () => {
     const store = new ReviewStore(tempDir())
     store.upsert(run({ runId: 'old', completedAt: 200, reviewedHeadSha: '1111111' }))

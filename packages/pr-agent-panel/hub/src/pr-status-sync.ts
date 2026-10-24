@@ -1,4 +1,5 @@
 import type { Analytics } from './analytics'
+import { repoKeyOf } from '@zenuml/pr-panel-shared'
 import { createLogger } from './log'
 import type { ReviewStore } from './review-store'
 import type { PrStatusStore } from './pr-status-store'
@@ -7,6 +8,7 @@ import { readSavedPrStatuses, type GitHubReadResult } from './github-pr-reader'
 const log = createLogger('pr-status-sync')
 const POLL_MS = 5 * 60_000
 const MIN_REFRESH_MS = 30_000
+const MAX_FAILURE_BACKOFF_MS = 30 * 60_000
 
 export interface PrStatusSyncOptions {
   reviews: ReviewStore
@@ -25,6 +27,8 @@ export class PrStatusSync {
   private pending: ReturnType<typeof setTimeout> | undefined
   private inFlight: Promise<void> | undefined
   private lastStarted = 0
+  private backoffUntil = 0
+  private failureStreak = 0
   private rerun = false
   private stopped = false
 
@@ -53,7 +57,7 @@ export class PrStatusSync {
     if (this.stopped) return
     if (this.inFlight) { this.rerun = true; return }
     if (this.pending) return
-    const delay = Math.max(0, this.lastStarted + MIN_REFRESH_MS - this.now())
+    const delay = Math.max(0, this.lastStarted + MIN_REFRESH_MS - this.now(), this.backoffUntil - this.now())
     this.pending = setTimeout(() => {
       this.pending = undefined
       this.inFlight = this.refresh().catch((error: unknown) => {
@@ -97,11 +101,28 @@ export class PrStatusSync {
     }
     for (const repoKey of changedRepos) this.options.onChanged(repoKey)
     const failed = result.failed
+    const counts = { ready: 0, blocked: 0, unknown: 0 }
+    for (const ref of refs) counts[this.options.statuses.get(repoKeyOf(ref), ref.number)?.readiness ?? 'unknown']++
+    const repoKeys = new Set(refs.map(repoKeyOf))
+    const p0Count = [...repoKeys].reduce((sum, key) =>
+      sum + this.options.reviews.listLatestCompleted(key).filter((item) => item.priority === 'P0').length, 0)
+    if (failed > 0) {
+      this.failureStreak++
+      const delay = Math.min(MAX_FAILURE_BACKOFF_MS, POLL_MS * 2 ** Math.min(this.failureStreak - 1, 3))
+      this.backoffUntil = this.now() + delay
+    } else {
+      this.failureStreak = 0
+      this.backoffUntil = 0
+    }
     this.options.analytics?.track('pr_panel_pr_status_sync_completed', {
       sync_outcome: failed ? (result.observations.length ? 'partial' : 'failed') : changed ? 'updated' : 'unchanged',
       checked_pr_count: refs.length,
       changed_pr_count: changed,
       failed_pr_count: failed,
+      ready_pr_count: counts.ready,
+      blocked_pr_count: counts.blocked,
+      unknown_pr_count: counts.unknown,
+      p0_count: p0Count,
     })
   }
 }

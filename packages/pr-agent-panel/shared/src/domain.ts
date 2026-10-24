@@ -42,8 +42,11 @@ export type TaskStatus = z.infer<typeof TaskStatusSchema>
 export const SeveritySchema = z.enum(['blocker', 'major', 'minor', 'nit'])
 export type Severity = z.infer<typeof SeveritySchema>
 
-export const PrioritySchema = z.enum(['P1', 'P2', 'P3'])
+export const PrioritySchema = z.enum(['P0', 'P1', 'P2', 'P3'])
 export type Priority = z.infer<typeof PrioritySchema>
+
+export const MergeReadinessSchema = z.enum(['ready', 'blocked', 'unknown'])
+export type MergeReadiness = z.infer<typeof MergeReadinessSchema>
 
 export const PrStateSchema = z.enum(['open', 'draft', 'merged', 'closed', 'unknown'])
 export type PrState = z.infer<typeof PrStateSchema>
@@ -99,6 +102,9 @@ export const ReviewSummarySchema = z.object({
   priority: PrioritySchema.optional(),
   tags: TagsSchema,
   prState: PrStateSchema,
+  /** Live GitHub merge signal; absent in older Hub payloads means unknown. */
+  readiness: MergeReadinessSchema.optional(),
+  readinessReason: z.string().max(100).optional(),
   /** `mergeable === false` at review time. */
   conflict: z.boolean(),
   /** The PR's current head differs from the reviewed head; the row keeps the old verdict and says so. */
@@ -119,6 +125,7 @@ export function toReviewSummary(run: ReviewRun, currentHeadSha?: string): Review
     priority: run.priority,
     tags: run.tags,
     prState: run.prState,
+    readiness: 'unknown',
     conflict: run.mergeable === false,
     stale: isStale(run.reviewedHeadSha, currentHeadSha),
     completedAt: run.completedAt ?? run.startedAt,

@@ -605,16 +605,24 @@ export class HubRuntime {
       const numbers = new Set(repoSessions.map((s) => s.pr.number))
       if (numbers.size === 1) heads.set([...numbers][0], currentHeadSha)
     }
-    const observedStates = new Map<number, NonNullable<ReturnType<PrStatusStore['get']>>['state']>()
+    const observed = new Map<number, NonNullable<ReturnType<PrStatusStore['get']>>>()
     for (const item of this.store.listLatestCompleted(key)) {
-      const observed = this.statuses?.get(key, item.prNumber)
-      if (observed?.headSha) heads.set(item.prNumber, observed.headSha)
-      if (observed?.state) observedStates.set(item.prNumber, observed.state)
+      const value = this.statuses?.get(key, item.prNumber)
+      if (!value) continue
+      if (value.headSha) heads.set(item.prNumber, value.headSha)
+      observed.set(item.prNumber, value)
     }
     return {
       type: 'reviews',
       repoKey: key,
-      items: this.store.listLatestCompleted(key, heads, observedStates),
+      items: this.store.listLatestCompleted(key, heads, new Map([...observed].map(([number, value]) => [number, value.state])))
+        .map((item) => ({
+          ...item,
+          readiness: observed.get(item.prNumber)?.readiness ?? 'unknown',
+          ...(observed.get(item.prNumber)?.readinessReason
+            ? { readinessReason: observed.get(item.prNumber)?.readinessReason }
+            : {}),
+        })),
       ...(inReplyTo ? { inReplyTo } : {}),
     }
   }

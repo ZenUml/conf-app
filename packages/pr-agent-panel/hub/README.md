@@ -72,13 +72,21 @@ The Hub uses the existing `gh` CLI login to read the current state and head SHA
 of every distinct GitHub PR with a saved completed review. It queries those
 identities in GraphQL batches of 20 on start, then every five minutes while the
 Hub is running. Reconnects, list requests and new reviews request a coalesced
-refresh (at most once per 30 seconds). It does not list all repository PRs or
+refresh (at most once per 30 seconds, with up to 30 minutes of backoff after
+GitHub errors). It does not list all repository PRs or
 write to GitHub. Current observations are cached in `pr-status.json` (0600),
 separate from historical review runs, and changed repositories are broadcast
 through the existing `reviews` frame. A failed or inaccessible query keeps the
 last known state; it never marks the PR closed. The Hub's idle lifetime above
 still applies, so an extension with no connected agent refreshes again when a
 Hub starts. `gh` must be available to the Hub's process environment.
+
+The same GraphQL read includes `mergeable` and `mergeStateStatus`. Only an open,
+non-draft PR with `MERGEABLE` plus `CLEAN` is marked `ready`. A conflict, draft,
+closed PR, or explicit GitHub block is `blocked`; ambiguous checks and unknown
+merge states remain `unknown` for review. These are current GitHub observations,
+not part of the historical AI verdict. `P0` is an explicit review priority;
+the Hub never promotes a PR to it automatically.
 
 The Hub refuses a runtime directory or socket that is a symlink or owned by
 another user.

@@ -2,14 +2,19 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { PrStateSchema, ShaSchema, type PrState } from '@zenuml/pr-panel-shared'
+import { MergeReadinessSchema, PrStateSchema, ShaSchema, type MergeReadiness, type PrState } from '@zenuml/pr-panel-shared'
 import { PRIVATE_FILE_MODE } from './runtime-paths'
 import { createLogger } from './log'
 
 const log = createLogger('pr-status-store')
-const ObservedSchema = z.object({ state: PrStateSchema, headSha: ShaSchema.optional() })
+const ObservedSchema = z.object({
+  state: PrStateSchema,
+  headSha: ShaSchema.optional(),
+  readiness: MergeReadinessSchema.optional(),
+  readinessReason: z.string().max(100).optional(),
+})
 const FileSchema = z.record(z.string(), ObservedSchema)
-export type ObservedPr = { state: PrState; headSha?: string }
+export type ObservedPr = { state: PrState; headSha?: string; readiness?: MergeReadiness; readinessReason?: string }
 
 function key(repoKey: string, prNumber: number): string {
   return `${repoKey.toLowerCase()}#${prNumber}`
@@ -41,8 +46,14 @@ export class PrStatusStore {
   set(repoKey: string, prNumber: number, observed: ObservedPr): boolean {
     const id = key(repoKey, prNumber)
     const prior = this.entries[id]
-    const next = { state: observed.state, ...(observed.headSha ?? prior?.headSha ? { headSha: observed.headSha ?? prior?.headSha } : {}) }
-    if (prior?.state === next.state && prior.headSha === next.headSha) return false
+    const next: ObservedPr = {
+      state: observed.state,
+      readiness: observed.readiness ?? 'unknown',
+      ...(observed.readinessReason ? { readinessReason: observed.readinessReason } : {}),
+      ...(observed.headSha ?? prior?.headSha ? { headSha: observed.headSha ?? prior?.headSha } : {}),
+    }
+    if (prior?.state === next.state && prior.headSha === next.headSha
+      && prior.readiness === next.readiness && prior.readinessReason === next.readinessReason) return false
     const previous = this.entries[id]
     this.entries[id] = next
     try {

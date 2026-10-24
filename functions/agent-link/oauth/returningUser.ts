@@ -20,6 +20,8 @@
 // so this adds no configuration — under a message prefix that keeps the MAC
 // from colliding with any other use of that secret.
 
+import { clearCookie, readCookie, setCookie } from './cookies';
+
 export const RETURNING_USER_COOKIE = 'agent_link_user';
 /** Matches Atlassian's 90-day refresh-token inactivity window; refreshed on every use. */
 export const RETURNING_USER_TTL_SECONDS = 90 * 24 * 60 * 60;
@@ -62,23 +64,15 @@ function macInput(accountId: string): BufferSource {
   return ENC.encode(`${MAC_PREFIX}${accountId}`) as unknown as BufferSource;
 }
 
-function cookie(value: string, requestUrl: URL, maxAge: number): string {
-  const secure = requestUrl.protocol === 'https:' ? '; Secure' : '';
-  // Lax for the same reason as the state and consent cookies: /authorize is a
-  // top-level navigation that usually starts somewhere else (the agent opens
-  // the browser), and Strict would withhold the cookie on exactly that request.
-  return `${RETURNING_USER_COOKIE}=${value}; Path=${COOKIE_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
-}
-
 /** Set-Cookie value naming `accountId`, which must come from Atlassian's /me. */
 export async function returningUserCookie(accountId: string, secret: string, requestUrl: URL): Promise<string> {
   const mac = await crypto.subtle.sign('HMAC', await macKey(secret), macInput(accountId));
   const value = `${toBase64Url(ENC.encode(accountId))}.${toBase64Url(new Uint8Array(mac))}`;
-  return cookie(value, requestUrl, RETURNING_USER_TTL_SECONDS);
+  return setCookie(RETURNING_USER_COOKIE, value, { path: COOKIE_PATH, maxAge: RETURNING_USER_TTL_SECONDS, requestUrl });
 }
 
 export function clearReturningUserCookie(requestUrl: URL): string {
-  return cookie('', requestUrl, 0);
+  return clearCookie(RETURNING_USER_COOKIE, { path: COOKIE_PATH, requestUrl });
 }
 
 export type ReturningUser =
@@ -94,11 +88,8 @@ export type ReturningUser =
  * probe. Both are handled the same way — go to Atlassian.
  */
 export async function readReturningUser(cookieHeader: string | null, secret: string): Promise<ReturningUser> {
-  let raw: string | null = null;
-  for (const part of (cookieHeader ?? '').split(';')) {
-    const [k, ...rest] = part.trim().split('=');
-    if (k === RETURNING_USER_COOKIE) raw = rest.join('=');
-  }
+  // Last duplicate wins here (unlike the other two readers) — pinned by cookies.spec.ts.
+  const raw = readCookie(cookieHeader, RETURNING_USER_COOKIE, { duplicate: 'last' });
   if (!raw) return { status: 'none' };
 
   const [idPart, macPart, extra] = raw.split('.');

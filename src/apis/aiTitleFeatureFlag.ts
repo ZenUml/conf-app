@@ -7,6 +7,7 @@ const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 const CREATE_GUIDE_FLAG_ID = 'create-guide-enabled'
+const PLANTUML_LOCAL_RENDERER_FLAG_ID = 'plantuml-local-renderer-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -156,6 +157,22 @@ export async function isCreateGuideEnabled(): Promise<boolean> {
     return await client.checkFlag(CREATE_GUIDE_FLAG_ID, false)
   } catch (error) {
     console.error('Failed to load Create guide feature flag:', error)
+    return false
+  }
+}
+
+/**
+ * ADR-0010: draw PlantUML with the in-browser engine instead of plantuml.com.
+ * Fail-closed: a missing flag or a lookup error keeps today's server renderer.
+ */
+export async function isPlantUmlLocalRendererEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return false
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(PLANTUML_LOCAL_RENDERER_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load PlantUML local renderer feature flag:', error)
     return false
   }
 }

@@ -170,7 +170,11 @@ export default {
           feature_area: 'content', surface: 'editor', macro_type: 'markdown',
         });
         // Save user's tab preference to localStorage
-        localStorage.setItem('zenuml-preferred-diagram-type', value);
+        try {
+          localStorage.setItem('zenuml-preferred-diagram-type', value);
+        } catch (e) {
+          console.debug('[Header] could not save preferred diagram type', e);
+        }
       }
     },
     currentCode() {
@@ -374,7 +378,14 @@ export default {
     const isNewDiagram = this.$store.state.diagram.isNew;
     const typeWasRequested = !!this.$store.state.diagram.typeRequested;
     if (isNewDiagram && !typeWasRequested) {
-      const savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
+      // Storage can throw (blocked site data); an uncaught throw here would
+      // reject mounted() before the draft saver and close guard are installed.
+      let savedDiagramType = null;
+      try {
+        savedDiagramType = localStorage.getItem('zenuml-preferred-diagram-type');
+      } catch (e) {
+        console.debug('[Header] could not read preferred diagram type', e);
+      }
       if (savedDiagramType && (savedDiagramType === DiagramType.Sequence || savedDiagramType === DiagramType.Mermaid || savedDiagramType === DiagramType.Markdown)) {
         this.updateDiagramType(savedDiagramType);
       }

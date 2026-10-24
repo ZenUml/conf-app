@@ -30,14 +30,18 @@ import { loadClient, type McpTokenRecord } from './asStore';
 import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
 import { issuerFor } from './asMetadata';
+import { json } from '../../OkResponse';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
  *
- * A set rather than a condition: the first version was an || of two names and
- * silently left new write tools on the read scope when the page tools landed.
+ * Derived from each tool's own `readOnlyHint` rather than listed by name: the
+ * first version was an || of two names and silently left new write tools on
+ * the read scope when the page tools landed. Every descriptor must carry
+ * annotations, so a new tool cannot reach this set by omission, and the scope
+ * check can never disagree with what the tool tells the host about itself.
  */
-const WRITE_TOOLS = new Set(['create_diagram', 'update_diagram', 'create_page', 'update_page']);
+const WRITE_TOOLS = new Set(HEADLESS_TOOLS.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name));
 
 /** The relay's own token shape. Anything else is ours to answer. */
 const RELAY_TOKEN_RE = /^CL-[A-Z0-9]{4}-[A-Z0-9]{4}$/i;
@@ -62,7 +66,7 @@ const RPC_TOOL_ERROR = -32003;
 type JsonRpcId = string | number | null;
 
 function result(id: JsonRpcId, value: unknown): Response {
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: value }), {
+  return json({ jsonrpc: '2.0', id, result: value }, {
     status: 200,
     headers: JSON_HEADERS,
   });
@@ -71,7 +75,7 @@ function result(id: JsonRpcId, value: unknown): Response {
 function error(status: number, id: JsonRpcId, code: number, message: string, extra?: { headers?: Record<string, string>; data?: unknown }): Response {
   const body: Record<string, unknown> = { code, message };
   if (extra?.data !== undefined) body.data = extra.data;
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: body }), {
+  return json({ jsonrpc: '2.0', id, error: body }, {
     status,
     headers: { ...JSON_HEADERS, ...(extra?.headers ?? {}) },
   });

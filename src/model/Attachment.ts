@@ -23,6 +23,7 @@ import {
 // here so existing importers keep working.
 export { capturePng, blobToBase64 } from '@/model/attachment/capturePng';
 export { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/attachment/confluenceErrors';
+import { rateLimitCooldownRemainingMs, startRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 type PngState = 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready';
 
@@ -525,7 +526,7 @@ async function uploadAttachmentViaApp(
   } catch (e) {
     // callRemote throws on a non-2xx transport response (e.g. the function
     // itself 500'd); normalise so the failure is labelled consistently.
-    throw new AttachmentUploadHttpError(0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
+    throw new AttachmentUploadHttpError(extractHttpStatus(e) ?? 0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
   }
   const result: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
   if (!result?.ok) {
@@ -655,6 +656,22 @@ async function createAttachmentIfContentChanged(
       await recordPngState(attachmentPageId, macroCustomContentId, 'waiting_for_publish',
         crypto.randomUUID(), startedAt, hash, undefined, 'editor', true);
     }
+    return;
+  }
+
+  // A recent 429 on this site means Confluence is rate-limiting this user's
+  // requests; a view-time backfill now would only add to them. Defer it: the
+  // first view after the cooldown retries. The save-time write is a single
+  // user action, so it always tries.
+  const rateLimitSite = getCloudId() ?? 'unknown';
+  const cooldownRemainingMs = opts?.fromSave ? 0 : rateLimitCooldownRemainingMs(rateLimitSite);
+  if (cooldownRemainingMs > 0) {
+    trackAnalyticsEvent('attachment_upload_deferred', {
+      feature_area: 'macro', surface: 'viewer',
+      page_id: ctx.page_id, custom_content_id: macroCustomContentId,
+      attachment_name: ctx.attachment_name,
+      cooldown_remaining_ms: cooldownRemainingMs,
+    });
     return;
   }
 
@@ -832,6 +849,30 @@ async function createAttachmentIfContentChanged(
   } catch (e: any) {
     const httpStatus = extractHttpStatus(e);
     const viaAppFallback = fallbackFromStatus !== undefined;
+    // 429: Confluence is rate-limiting this user. The write did not fail, it
+    // was refused for now, and the next view after the cooldown retries it.
+    // Start the site-wide cooldown so the other macros' backfills stand down
+    // too, and record it as its own outcome rather than a failure.
+    if (httpStatus === 429) {
+      const cooldown = startRateLimitCooldown(
+        rateLimitSite,
+        e instanceof ForgeRequestError ? e.retryAfter : undefined,
+      );
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'upload_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
+      trackAnalyticsEvent('attachment_upload_rate_limited', {
+        feature_area: 'macro', surface: opts?.fromSave ? 'editor' : 'viewer',
+        page_id: ctx.page_id, custom_content_id: macroCustomContentId,
+        attachment_name: ctx.attachment_name,
+        http_status: 429,
+        failed_request: e instanceof ForgeRequestError ? e.endpoint
+          : e instanceof AttachmentUploadHttpError ? 'POST attachment data' : 'unknown',
+        retry_after_source: cooldown.source,
+        ...(cooldown.retryAfterS !== undefined ? { retry_after_s: cooldown.retryAfterS } : {}),
+        cooldown_ms: cooldown.cooldownMs,
+      });
+      return;
+    }
     // A 404 on the attachment POST means the parent page is not (yet) an
     // addressable published v1 content: it's an unpublished/draft/uncommitted
     // page. This reaches us in three shapes, all of which are the SAME benign

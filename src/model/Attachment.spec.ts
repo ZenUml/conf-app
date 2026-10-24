@@ -75,11 +75,11 @@ vi.mock('@forge/bridge', () => ({
 
 import createAttachmentIfContentChanged, { capturePng } from './Attachment';
 import { ForgeRequestError } from '@/utils/forgeRequestError';
-import { _resetForTesting as resetConfluenceThrottle, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
 
 import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { _resetForTesting as resetConfluenceThrottle, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
 
 describe('Attachment', () => {
   describe('Markdown preview capture', () => {

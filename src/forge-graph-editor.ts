@@ -3,11 +3,13 @@ import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isCo
 import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
 import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
 import { decompress } from "@/utils/compress";
+import { EMPTY_GRAPH } from "@/utils/graph/emptyGraph";
 import { trackEvent } from "@/utils/window";
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
 import { markEditorAuthoringStarted } from "@/utils/analytics/editorCloseOutcome";
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { mountRoot } from "@/mount-root";
 import { installRestoreDraftBanner } from "@/utils/restoreDraftBanner";
 import ForgeGraphEditor from "@/components/DrawIoExtension/ForgeGraphEditor.vue";
@@ -48,17 +50,6 @@ let originalConfigUuid: string | undefined;
 // the macro XML via view.submit({config:...}).
 let originalCustomContentId: string | undefined;
 let recoveryPageId: string | undefined;
-
-const EMPTY_GRAPH = `<mxfile>
-  <diagram name="Page-1">
-    <mxGraphModel dx="1434" dy="540" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-      </root>
-    </mxGraphModel>
-  </diagram>
-</mxfile>`;
 
 // Returns true when the save was accepted and the redirect (view.submit /
 // close) is scheduled — the caller keeps the "Publishing…" overlay up until the
@@ -269,9 +260,10 @@ async function initializeMacro() {
       reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
-      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(recoveryPageId, customContentId, 'graph', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
     }
   }
 
@@ -442,6 +434,7 @@ async function initializeMacro() {
     surface: 'editor',
     macro_type: 'graph',
     entry_point: isNew ? 'page_editor' : 'macro_toolbar',
+    ...(isNew && getCreationFlowProps()),
   });
 }
 

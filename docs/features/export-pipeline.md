@@ -69,7 +69,7 @@ Confluence export triggered
       /wiki/api/v2/pages/{pageId}/attachments?filename=zenuml-{customContentId}.png
     )
   → if 404: retry with api.asUser() (fallback for restricted pages)
-  → if still not ok → fail 'attachments_api_{status}'
+  → if still not ok → fail 'no_user_credential' (asUser threw NEEDS_AUTHENTICATION_ERR) or 'attachments_api_{status}'
   → if results empty → fail 'attachment_not_found'
   → return createMediaDocument(attachment.downloadLink)   // success
   → catch (unhandled error) → fail 'unexpected_error:{name}'
@@ -100,7 +100,8 @@ const format = payload.exportType           // email, other, etc. — when Confl
 | Value | Cause |
 |---|---|
 | `attachment_not_found` | PNG exists nowhere — viewer never ran for this macro |
-| `attachments_api_404` | Page not accessible even with asUser() fallback |
+| `attachments_api_404` | Page not accessible even with asUser() fallback (asUser also got 404, or threw something other than NEEDS_AUTHENTICATION_ERR) |
+| `no_user_credential` | asApp() got 404 and the asUser() retry threw `NEEDS_AUTHENTICATION_ERR`: no user token (guest, anonymous, server-side export). Not content loss. `http_status` stays 404; `fallback_error_name` is `NEEDS_AUTHENTICATION_ERR` (#654) |
 | `attachments_api_429` | Rate-limited by Confluence attachments API |
 | `needs_authentication` | 401/403 — auth/permission issue |
 | `missing_custom_content_id` | Macro config missing `customContentId` (corrupt install) |
@@ -144,7 +145,7 @@ Confluence calls the export handler for `email` (Send page by email) and `other`
 
 ### attachments_api_404 — page access issues
 
-`asApp()` cannot read the page (space or page restriction), and `asUser()` also fails. Either the exporting user lacks read permission, or the page is in a restricted space the app principal cannot access.
+`asApp()` cannot read the page (space or page restriction), and `asUser()` also returns 404. (When `asUser()` throws `NEEDS_AUTHENTICATION_ERR` instead, the reason is `no_user_credential`, a separate case: the exporter had no user token.) Either the exporting user lacks read permission, or the page is in a restricted space the app principal cannot access.
 
 ---
 

@@ -22,18 +22,21 @@
 // token it received" and "MUST only accept tokens specifically intended for
 // themselves" are both violated the moment the two are allowed to touch.
 //
-// WHY THE USER IS ONLY KNOWN AT STEP 3. We have no session of our own before
-// Atlassian tells us who consented (/me, atlassianLeg.ts). So the consent
-// check cannot happen at /authorize — there is no user yet to check. It
-// happens on the way back, before any code is issued, which is the point that
-// actually matters: an unconsented (user, client) pair never receives a code,
-// even when a live Atlassian grant for that user already exists.
+// WHEN THE USER IS KNOWN. On a first visit we have no session of our own
+// before Atlassian tells us who consented (/me, atlassianLeg.ts), so the
+// consent check happens on the way back, at step 3. A returning user carries
+// a signed cookie from that earlier callback (returningUser.ts); when it
+// verifies and their grant is still live, /authorize skips steps 2-3 and goes
+// straight to step 4 (or 5, if this client is already approved). Either way
+// the point that matters holds: an unconsented (user, client) pair never
+// receives a code, even when a live Atlassian grant for that user exists.
 
 import {
+  AUTHORIZE_PATH,
   CONSENT_PATH,
   DEFAULT_MCP_SCOPE,
-  MCP_SCOPES,
   issuerFor,
+  MCP_SCOPES,
   resourceFor,
 } from './asMetadata';
 import {
@@ -66,6 +69,7 @@ import {
 import { canonicalizeResource } from './protectedResource';
 import { isValidChallenge, verifyPkce } from './pkce';
 import type { RefreshLedger } from './refreshLedger';
+import { json } from '../../OkResponse';
 
 /** Why the token endpoint revoked a refresh chain (agent_link_oauth_chain_revoked's `reason`). */
 export type ChainRevokeReason = 'refresh_reused' | 'client_mismatch';
@@ -81,12 +85,8 @@ export interface AsDeps {
 
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
-}
-
 function oauthError(status: number, error: string, description?: string): Response {
-  return json(status, description ? { error, error_description: description } : { error });
+  return json(description ? { error, error_description: description } : { error }, { status, headers: JSON_HEADERS });
 }
 
 function escapeHtml(raw: string): string {
@@ -174,7 +174,7 @@ export async function handleRegister(request: Request, deps: AsDeps): Promise<Re
   };
   await saveClient(deps.store, client);
 
-  return json(201, {
+  return json({
     client_id: client.clientId,
     client_id_issued_at: Math.floor(now / 1000),
     redirect_uris: client.redirectUris,
@@ -183,7 +183,7 @@ export async function handleRegister(request: Request, deps: AsDeps): Promise<Re
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     scope: DEFAULT_MCP_SCOPE,
-  });
+  }, { status: 201, headers: JSON_HEADERS });
 }
 
 // ------------------------------------------------------------- authorization
@@ -331,6 +331,61 @@ export function consentCookie(pendingId: string, requestUrl: URL, maxAge = CONSE
   return `${CONSENT_COOKIE}=${pendingId}; Path=${CONSENT_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
+/**
+ * Park who is consenting and send the browser to our consent screen.
+ *
+ * Shared by the two ways a user can be known: /callback after Atlassian's /me,
+ * and /authorize from a verified returning-user cookie. Parking `userId` is
+ * what lets the consent screen — a separate request — complete against the
+ * same user rather than trusting anything the browser sends back. The consent
+ * cookie binds the parked authorization to THIS browser; the id also travels
+ * in the URL because the form has to name it, but the URL alone is not enough
+ * to complete a consent.
+ */
+export async function redirectToConsent(
+  deps: AsDeps,
+  requestUrl: URL,
+  pendingId: string,
+  pending: PendingAuthorization,
+  userId: string,
+  options: { recognised?: boolean; extraCookies?: string[] } = {},
+): Promise<Response> {
+  await savePending(deps.store, pendingId, {
+    ...pending,
+    userId,
+    ...(options.recognised ? { recognised: true } : {}),
+  });
+  const headers = new Headers({
+    location: consentUrl(requestUrl.origin, pendingId),
+    'cache-control': 'no-store',
+  });
+  for (const c of options.extraCookies ?? []) headers.append('set-cookie', c);
+  headers.append('set-cookie', consentCookie(pendingId, requestUrl));
+  return new Response(null, { status: 302, headers });
+}
+
+/**
+ * The same authorization request again, but forced through Atlassian.
+ *
+ * Rebuilt from the parked request rather than echoed from a Referer, so it can
+ * only ever name the client and redirect_uri this server already validated.
+ * Following it parks a fresh request; the old one simply expires.
+ */
+export function switchAccountUrl(origin: string, pending: PendingAuthorization): string {
+  const url = new URL(AUTHORIZE_PATH, origin);
+  const q = url.searchParams;
+  q.set('response_type', 'code');
+  q.set('client_id', pending.clientId);
+  q.set('redirect_uri', pending.redirectUri);
+  q.set('code_challenge', pending.codeChallenge);
+  q.set('code_challenge_method', 'S256');
+  q.set('scope', pending.scope);
+  q.set('resource', pending.resource);
+  if (pending.state) q.set('state', pending.state);
+  q.set('prompt', 'login');
+  return url.toString();
+}
+
 export function readCookie(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {
@@ -351,8 +406,14 @@ export function renderConsent(
   pendingId: string,
   scope: string,
   siteUrls: string[],
+  switchUrl?: string,
 ): Response {
   const name = client.clientName?.trim() || 'An application';
+  // Only offered to a recognised user: they skipped Atlassian's screen, which
+  // is the only place an account or a site can be chosen.
+  const switchLink = switchUrl
+    ? `\n<p><small>Not the Atlassian account you meant, or need another site? <a href="${escapeHtml(switchUrl)}">Sign in with Atlassian again</a>.</small></p>`
+    : '';
   const sites = siteUrls.length
     ? `<p>It will act on your behalf on:</p><ul>${siteUrls.map((s) => `<li><code>${escapeHtml(s)}</code></li>`).join('')}</ul>`
     : '';
@@ -367,7 +428,7 @@ ${sites}
   <input type="hidden" name="auth" value="${escapeHtml(pendingId)}">
   <button class="primary" name="decision" value="allow" type="submit">Allow</button>
   <button class="secondary" name="decision" value="deny" type="submit">Cancel</button>
-</form>`,
+</form>${switchLink}`,
   );
 }
 
@@ -524,13 +585,13 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId, ledger: !!deps.refreshLedger },
       now,
     );
-    return json(200, {
+    return json({
       access_token: token,
       token_type: 'Bearer',
       expires_in: expiresInSeconds,
       refresh_token: refresh,
       scope: record.scope,
-    });
+    }, { status: 200, headers: JSON_HEADERS });
   }
 
   if (body.grant_type === 'refresh_token') {
@@ -579,13 +640,13 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
             expiresAtMs: pair.accessExpiresAtMs,
           }, now);
           await completeRefresh({ outcome: result.status, userId: pair.record.userId, reuseAgeMs: result.reuseAgeMs });
-          return json(200, {
+          return json({
             access_token: pair.accessToken,
             token_type: 'Bearer',
             expires_in: Math.max(1, Math.ceil((pair.accessExpiresAtMs - now) / 1000)),
             refresh_token: pair.refreshToken,
             scope: pair.scope,
-          });
+          }, { status: 200, headers: JSON_HEADERS });
         }
         if (result.status === 'client_mismatch' || result.status === 'reused') {
           try {
@@ -642,13 +703,13 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       now,
     );
     const refresh = await issueRefreshToken(deps.store, record);
-    return json(200, {
+    return json({
       access_token: token,
       token_type: 'Bearer',
       expires_in: expiresInSeconds,
       refresh_token: refresh,
       scope: record.scope,
-    });
+    }, { status: 200, headers: JSON_HEADERS });
   }
 
   return oauthError(400, 'unsupported_grant_type', 'supported: authorization_code, refresh_token');

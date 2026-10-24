@@ -19,6 +19,7 @@ import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
 import DiagramTransformViewport from "./Viewer/DiagramTransformViewport.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { viewContentState } from "@/utils/analytics/contentState";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import * as renderPerf from "@/utils/analytics/renderPerf";
 import { configureDiagramFonts } from "@/utils/fonts/configureDiagramFonts";
@@ -92,7 +93,10 @@ export default {
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
       setDiagramFontState(detectDiagramFontState());
-      trackRenderTime('sequence', this.isDisplayMode);
+      trackRenderTime(
+        'sequence', this.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.$store.state.diagram, DiagramType.Sequence),
+      );
       // The awaits above can span seconds (cold ZenUML chunk + render). If the
       // user switched diagram type meanwhile, emitting the sequence `code`
       // with the NEW store diagramType would upload a mislabeled attachment

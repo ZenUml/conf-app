@@ -6,6 +6,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   callHeadlessTool,
   canonicalDiagramType,
+  HEADLESS_TOOLS,
   HeadlessToolError,
   sourceFieldFor,
   spaceKeyFromLinks,
@@ -21,10 +22,18 @@ import type { FetchLike } from './atlassianClient';
 
 const ACCOUNT = '712020:abc';
 const ORIGIN = 'https://conf-stg-lite.zenuml.com';
-const CLOUD = 'cloud-1';
+// A real UUID: analytics only records a cloudId that looks like one.
+const CLOUD = '11111111-2222-4333-8444-555555555555';
 const LITE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const ENV_ID = '26ad8f7e-aa24-4afe-83a3-e8216f9e5220';
 /** Long enough to clear the guard's DATA_LOSS_MIN_CURRENT_NONWS floor. */
+/**
+ * The ZenUML parser's first call loads its grammar and can take several
+ * seconds on a cold worker, which made the guard-touching tests flake against
+ * vitest's 5s default (seen 2026-09-29, 1 in 3 runs).
+ */
+const GUARD_TIMEOUT_MS = 30_000;
+
 const CURRENT_DSL = Array.from({ length: 20 }, (_, i) => `A${i}.method${i}()`).join('\n');
 
 function memoryStore(): { store: GrantStore; kv: Map<string, string> } {
@@ -199,11 +208,13 @@ describe('list_diagrams', () => {
     site.pageAdf.content = [buildMacroNode('zenuml-sequence-macro-lite', 'probe-1')];
     const { ctx } = await contextFor(site);
     const out = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx)) as {
-      variant: string;
+      variants: string[];
       diagrams: Array<{ contentId: string }>;
     };
-    expect(out.variant).toBe('lite');
-    expect(out.diagrams.map((d) => d.contentId)).toEqual(['probe-1']);
+    // The harness answers every variant's content type, so each variant lists
+    // the same row; a real site's types hold distinct content.
+    expect(out.variants).toContain('lite');
+    expect(out.diagrams.map((d) => d.contentId)).toContain('probe-1');
   });
 
   it('asks Confluence for the newest diagrams, not the oldest', async () => {
@@ -244,6 +255,59 @@ describe('update_diagram', () => {
     expect(stored.version.message).toContain('Agent Link');
     expect(stored.version.message).toContain('add a step');
     expect(writes.filter((w) => w.method === 'PUT')).toHaveLength(1);
+  }, GUARD_TIMEOUT_MS);
+
+  describe('title (#789)', () => {
+    // Same shape the viewer rename leaves: the body JSON title AND the record
+    // title move together (renameDiagramTitle -> updateCustomContentV2).
+    const putBody = (writes: Array<{ method: string; body: unknown }>) =>
+      writes.find((w) => w.method === 'PUT')!.body as { title: string; body: { value: string } };
+
+    it('renames the record and the body JSON when title is given, keeping the sent dsl', async () => {
+      const site = emptyPage();
+      const { ctx, writes } = await contextFor(site);
+      const out = (await callHeadlessTool(
+        'update_diagram',
+        { cloudId: CLOUD, contentId: 'cc-1', dsl: CURRENT_DSL, title: '  New name  ', summary: 'rename' },
+        ctx,
+      )) as { result: string; titleChanged?: boolean };
+
+      const put = putBody(writes);
+      expect(put.title).toBe('New name');
+      const written = JSON.parse(put.body.value) as Record<string, unknown>;
+      expect(written.title).toBe('New name');
+      expect(written.code).toBe(CURRENT_DSL);
+      expect(out.titleChanged).toBe(true);
+      const message = (site.content.get('cc-1') as { version: { message: string } }).version.message;
+      expect(message).toContain('Agent Link');
+      expect(message).toContain('New name');
+      expect(message).toContain('rename');
+    }, GUARD_TIMEOUT_MS);
+
+    it.each([undefined, '', '   ', 42])('leaves both titles untouched when title is %j', async (title) => {
+      const site = emptyPage();
+      const { ctx, writes } = await contextFor(site);
+      const out = (await callHeadlessTool(
+        'update_diagram',
+        { cloudId: CLOUD, contentId: 'cc-1', dsl: `${CURRENT_DSL}\nB.extra()`, ...(title === undefined ? {} : { title }) },
+        ctx,
+      )) as { titleChanged?: boolean };
+
+      const put = putBody(writes);
+      expect(put.title).toBe('Checkout');
+      expect((JSON.parse(put.body.value) as Record<string, unknown>).title).toBe('Checkout');
+      expect(out.titleChanged).toBe(false);
+      const message = (site.content.get('cc-1') as { version: { message: string } }).version.message;
+      expect(message).toBe('Updated by ZenUML Agent Link');
+    }, GUARD_TIMEOUT_MS);
+
+    it('advertises an optional title and says it renames the diagram', () => {
+      const tool = HEADLESS_TOOLS.find((t) => t.name === 'update_diagram')!;
+      const schema = tool.inputSchema as { properties: Record<string, unknown>; required: string[] };
+      expect(schema.properties.title).toBeDefined();
+      expect(schema.required).not.toContain('title');
+      expect(tool.description).toMatch(/rename/i);
+    });
   });
 
   it('refuses a change that would truncate the diagram, writing nothing', async () => {
@@ -253,7 +317,7 @@ describe('update_diagram', () => {
       callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl: 'A.one()' }, ctx),
     ).rejects.toMatchObject({ code: 'guardrail_rejected' });
     expect(writes).toHaveLength(0);
-  });
+  }, GUARD_TIMEOUT_MS);
 
   it('refuses a change that does not parse', async () => {
     const site = emptyPage();
@@ -264,7 +328,7 @@ describe('update_diagram', () => {
       callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl: broken }, ctx),
     ).rejects.toBeInstanceOf(HeadlessToolError);
     expect(writes).toHaveLength(0);
-  });
+  }, GUARD_TIMEOUT_MS);
 
   it('reports a concurrent edit as conflict rather than forcing', async () => {
     const site = emptyPage();
@@ -313,14 +377,17 @@ describe('the three blockers found in review', () => {
 
   it('reads the space key off the page, not from an endpoint we lack the scope for', async () => {
     const site = emptyPage();
-    const { ctx, writes } = await contextFor(site, {
+    const { ctx } = await contextFor(site, {
       // Keyed by the space the page's _links.webui names.
       confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) },
     });
-    await expect(
-      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'sequence', dsl: 'A.b()' }, ctx),
-    ).rejects.toMatchObject({ code: 'limit_reached' });
-    expect(writes).toHaveLength(0);
+    const out = (await callHeadlessTool(
+      'create_diagram',
+      { cloudId: CLOUD, pageId: 'page-1', type: 'sequence', dsl: 'A.b()' },
+      ctx,
+    )) as { gate: string };
+    // 'over_limit' is only reachable if the count was read under DESIGN.
+    expect(out.gate).toBe('over_limit');
     // and it never calls the endpoint that 401s on our scopes
     expect(spaceKeyFromLinks({ webui: '/spaces/DESIGN/pages/480411697/Test+page' })).toBe('DESIGN');
     expect(spaceKeyFromLinks(undefined)).toBe('');
@@ -487,17 +554,21 @@ describe('create_diagram', () => {
     expect(countExtensions(site.pageAdf)).toBe(2); // unchanged: the seeded macro and the retry's own
   });
 
-  it('refuses when an unpaid space is at the limit, before creating anything', async () => {
+  it('creates in an unpaid space at the limit, as the UI does', async () => {
     const site = emptyPage();
-    const { ctx, writes } = await contextFor(site, {
+    const { ctx } = await contextFor(site, {
       confluence_plugin_features: {
         get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }),
       },
     });
-    await expect(
-      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' }, ctx),
-    ).rejects.toMatchObject({ code: 'limit_reached' });
-    expect(writes).toHaveLength(0);
+    const out = (await callHeadlessTool(
+      'create_diagram',
+      { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' },
+      ctx,
+    )) as { result: string; gate: string };
+    expect(out.result).toBe('added');
+    expect(out.gate).toBe('over_limit');
+    expect(site.content.has('new-1')).toBe(true);
   });
 
   it('allows creation in a licensed space that is over the limit', async () => {
@@ -551,7 +622,14 @@ describe('write analytics', () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  async function rpcCreate(site: FakeSite, gateEnv: GateEnv) {
+  async function rpcCreate(
+    site: FakeSite,
+    gateEnv: GateEnv,
+    call: { name: string; arguments: Record<string, unknown> } = {
+      name: 'create_diagram',
+      arguments: { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' },
+    },
+  ) {
     const { ctx } = await contextFor(site, gateEnv);
     const events = captureEvents();
     const fetchImpl = ctx.fetchImpl;
@@ -582,10 +660,7 @@ describe('write analytics', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: {
-          name: 'create_diagram',
-          arguments: { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()' },
-        },
+        params: call,
       }),
     });
     const res = await handleHeadlessRpc(request, env, await request.clone().json(), { fetchImpl });
@@ -601,7 +676,20 @@ describe('write analytics', () => {
     expect(events[0].event).toBe('agent_link_diagram_created');
     expect(events[0].properties.result).toBe('added');
     expect(events[0].properties.paywall_gate).toBe('under_limit');
+    expect(events[0].properties.cloud_id).toBe(CLOUD);
   });
+
+  it('records on update_diagram whether the call renamed the diagram (#789)', async () => {
+    const update = (title?: string) => ({
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: 'cc-1', dsl: CURRENT_DSL, ...(title ? { title } : {}) },
+    });
+    const renamed = await rpcCreate(emptyPage(), {}, update('New name'));
+    expect(renamed.events[0].event).toBe('agent_link_diagram_updated');
+    expect(renamed.events[0].properties.title_changed).toBe(true);
+    const plain = await rpcCreate(emptyPage(), {}, update());
+    expect(plain.events[0].properties.title_changed).toBe(false);
+  }, GUARD_TIMEOUT_MS);
 
   it('records the fail-open path distinctly, so its volume is measurable', async () => {
     const { events } = await rpcCreate(emptyPage(), {
@@ -610,13 +698,15 @@ describe('write analytics', () => {
     expect(events[0].properties.paywall_gate).toBe('count_unknown');
   });
 
-  it('records a refusal when the gate actually bites', async () => {
+  it('records a create past the limit as over_limit, not a refusal', async () => {
     const { res, events } = await rpcCreate(emptyPage(), {
       confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) },
     });
-    expect(res.status).toBe(200); // a tool-level refusal, not a transport error
-    expect(events[0].properties.paywall_gate).toBe('limit_reached');
-    expect(events[0].properties.reason).toBe('limit_reached');
+    expect(res.status).toBe(200);
+    expect(events[0].event).toBe('agent_link_diagram_created');
+    expect(events[0].properties.result).toBe('added');
+    expect(events[0].properties.paywall_gate).toBe('over_limit');
+    expect(events[0].properties.cloud_id).toBe(CLOUD);
   });
 });
 
@@ -638,7 +728,7 @@ describe('the paywall gate itself', () => {
     expect(touched).toBe(false);
   });
 
-  it('blocks exactly at the limit', async () => {
+  it('never refuses, and classifies exactly at the limit as over_limit', async () => {
     const at = await checkCreateAllowed(
       { confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT } } }) } },
       base,
@@ -647,8 +737,8 @@ describe('the paywall gate itself', () => {
       { confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: MACROS_LIMIT - 1 } } }) } },
       base,
     );
-    expect(at.allowed).toBe(false);
-    expect(under.allowed).toBe(true);
+    expect(at).toEqual({ allowed: true, reason: 'over_limit', macroCount: MACROS_LIMIT });
+    expect(under).toEqual({ allowed: true, reason: 'under_limit', macroCount: MACROS_LIMIT - 1 });
   });
 
   it('honours a user-scoped license as well as a space one', async () => {
@@ -677,6 +767,6 @@ describe('the paywall gate itself', () => {
       },
       base,
     );
-    expect(decision.allowed).toBe(false);
+    expect(decision).toEqual({ allowed: true, reason: 'over_limit', macroCount: 999 });
   });
 });

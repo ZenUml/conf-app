@@ -30,19 +30,6 @@
                stage is published as data-stage on .viewer-frame. -->
           <div class="viewer-edge-top" :style="headerTitleSpace == null || isFullscreenMode ? null : { '--viewer-title-max': `${headerTitleSpace}px` }">
             <div class="viewer-title-area">
-              <!-- Fullscreen diagram-type chip (Fullscreen Viewer v2). Read-only
-                   type indicator, NOT the editor's TabSwitcher: this surface has
-                   no type to switch to, and TabSwitcher.vue writes the user's
-                   preferred type to localStorage on click. Renders the same
-                   pixels the design system's TabSwitcher produces when handed a
-                   single active tab (tray + accent-tinted pill). Inline macros
-                   keep their current title row untouched. -->
-              <span v-if="fullscreenTypeChip" class="viewer-type-chip-tray" data-testid="viewer-type-chip">
-                <span class="viewer-type-chip" :class="`viewer-type-chip--${fullscreenTypeChip.id}`">
-                  <span class="viewer-type-chip-dot" aria-hidden="true"></span>
-                  {{ fullscreenTypeChip.label }}
-                </span>
-              </span>
               <span v-if="isEmbedded" class="viewer-embed-chip" title="Content is embedded from another page">EMBED</span>
               <LiveBadge
                 v-if="showAgentLinkBadge"
@@ -174,6 +161,7 @@
                   @click="magicActive && toggleMagic('manual')">Original<span class="viewer-version-long"> layout</span></button>
               </div>
               <span v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-header-sep" aria-hidden="true"></span>
+              <span :ref="setZoomHeaderTarget" class="viewer-header-zoom"></span>
               <!-- View Source (#333): visible to ALL viewers, including users without
                    edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
               <button
@@ -277,11 +265,26 @@
                      copyForAi()) — this replaces the old toast confirmation. -->
                 <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
               </div>
+              <!-- Fullscreen: the actions the inline macro keeps in More are
+                   header buttons here (labels by viewport width, see CSS). -->
+              <template v-if="isFullscreenMode">
+                <button v-for="action in fullscreenHeaderActions" :key="action.id" type="button"
+                  class="viewer-btn-ghost viewer-fs-act" :class="`viewer-fs-act--${action.id}`"
+                  :aria-label="action.label" :title="action.label" @click="onFullscreenHeaderAction(action.id)">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" :d="action.icon" />
+                  </svg>
+                  <span class="viewer-btn-label">{{ action.label }}</span>
+                </button>
+              </template>
               <!-- Connect MCP (agent-link flag on, agent-editable types) takes
                    the Copy for AI slot, inline and in fullscreen, and opens
                    ConnectMcpDialog with the headless MCP setup and a prompt
-                   naming this diagram. Inline it is icon-only and stage 3 moves
-                   it into More; fullscreen labels it as it does Copy for AI. -->
+                   naming this diagram. Inline it is labelled "MCP" at stage 0,
+                   icon-only from stage 1, and stage 3 moves it into More; it
+                   reveals on hover like the rest of the header. Fullscreen
+                   always labels it. Tooltip and accessible name say
+                   "Connect MCP". -->
               <button
                 v-if="showAgentLinkConnect"
                 type="button"
@@ -296,21 +299,9 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
                 </svg>
-                <span class="viewer-btn-label">Connect MCP</span>
+                <span class="viewer-btn-label">MCP</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
-              <!-- Fullscreen: the actions the inline macro keeps in More are
-                   header buttons here (labels by viewport width, see CSS). -->
-              <template v-if="isFullscreenMode">
-                <button v-for="action in fullscreenHeaderActions" :key="action.id" type="button"
-                  class="viewer-btn-ghost viewer-fs-act" :class="`viewer-fs-act--${action.id}`"
-                  :aria-label="action.label" :title="action.label" @click="onFullscreenHeaderAction(action.id)">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" :d="action.icon" />
-                  </svg>
-                  <span class="viewer-btn-label">{{ action.label }}</span>
-                </button>
-              </template>
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
                 @opened="onMoreMenuOpened" @closed="moreMenuOpen = false">
                 <template #default="{ close }">
@@ -373,15 +364,6 @@
                 </svg>
                 <span class="viewer-btn-label">Create</span>
               </button>
-              <template v-if="isFullscreenMode">
-                <span class="viewer-header-sep" aria-hidden="true"></span>
-                <button type="button" class="viewer-fs-exit" aria-label="Exit fullscreen" title="Exit fullscreen"
-                  data-testid="fullscreen-exit" @click="exitFullscreen">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </template>
             </div>
           </div>
 
@@ -509,6 +491,7 @@
                 :ready="viewerLoadState === 'ready'"
                 :enabled="architectureTokensEnabled"
                 :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+                :macro-type="diagramType === 'sequence' ? 'sequence' : 'mermaid'"
                 :svg-host="getCaptureNode"
                 :page-id="currentPageId"
               />
@@ -609,7 +592,8 @@
 import {trackEvent} from "@/utils/window";
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
 
-import { markRaw } from 'vue'
+import { computed, markRaw } from 'vue'
+import { VIEWER_ZOOM_HEADER } from '@/utils/viewport/headerZoom'
 import {mapState, mapGetters} from "vuex";
 import EventBus from '../../EventBus'
 import Debug from '@/components/Debug/Debug.vue'
@@ -627,6 +611,7 @@ import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
 import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
+import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -698,14 +683,14 @@ const ICON_PATHS = {
   link: 'M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244',
   // Official Model Context Protocol mark, as its three stroke centerlines
   // scaled to this 24px grid so it takes the same stroke weight as the rest.
+  mcp: 'M2.05 11.25L11.49 1.81C12.79 0.51 14.91 0.51 16.21 1.81C17.51 3.11 17.51 5.23 16.21 6.53L9.08 13.66M9.18 13.56L16.21 6.53C17.51 5.23 19.63 5.23 20.93 6.53L20.98 6.58C22.28 7.88 22.28 10 20.98 11.3L12.44 19.84C12.01 20.27 12.01 20.98 12.44 21.41L14.19 23.17M13.85 4.17L6.87 11.15C5.56 12.46 5.56 14.57 6.87 15.87C8.17 17.18 10.28 17.18 11.59 15.87L18.57 8.89',
   bug: 'M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25',
 };
 const MORE_MENU_META = {
   'source': { label: 'Source', icon: ICON_PATHS.code },
   'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
-  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.spark },
+  'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.mcp },
   'copy-diagram-link': { label: 'Copy diagram link', icon: ICON_PATHS.share },
-  'copy-page-link': { label: 'Copy page link', icon: ICON_PATHS.link },
   'export-png': { label: 'Export PNG', icon: ICON_PATHS.download },
   'versions': { label: 'Versions', icon: ICON_PATHS.clock },
   'debug': { label: 'Download debug info', icon: ICON_PATHS.bug },
@@ -725,6 +710,7 @@ export default {
   },
   emits: ['capture-mode-change', 'magic-highlight-ready', 'magic-highlight-used'],
   data: () => ({
+    zoomHeaderTarget: null,
     canUserEdit: true,
     isHovering: false,
     // Staged header (see updateHeaderStage): collapse stage 0-3 of the inline
@@ -755,6 +741,13 @@ export default {
     copyForAiImpressionTracked: false,
     // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
     showConnectMcpDialog: false,
+    // Per-viewer daily dedupe for agent_link_mcp_button_shown
+    // (connectMcpShown.ts); null until the flag resolves on.
+    connectMcpShownRecord: null,
+    connectMcpShownTracked: false,
+    // Set on unmount so a shown event still waiting for the header layout
+    // is dropped instead of reporting a viewer that no longer exists.
+    connectMcpUnmounted: false,
     connectMcpOpenedAt: 0,
     // Set once isAgentLinkEnabled() settles either way (see copyForAiSlotSettled).
     agentLinkFlagResolved: false,
@@ -810,6 +803,18 @@ export default {
     magicFeedbackPrompted: {},
     magicThanksTimer: null,
   }),
+  provide() {
+    return {
+      [VIEWER_ZOOM_HEADER]: {
+        target: computed(() => this.zoomHeaderTarget),
+        fitControls: computed(() => this.isFullscreenMode),
+        changed: async () => {
+          await this.$nextTick();
+          this.scheduleHeaderLayout();
+        },
+      },
+    };
+  },
   components: {
     Debug,
     ExportModal,
@@ -860,6 +865,7 @@ export default {
         magic: this.showInlineRefined,
         pages: 0,
         hasEdit: this.showEdit && !this.isFullscreenMode,
+        connectMcp: this.showAgentLinkConnect && !this.isFullscreenMode,
       };
     },
     // Anything that changes the header's content without resizing the viewer.
@@ -880,14 +886,11 @@ export default {
     moreMenuMeta() {
       return MORE_MENU_META;
     },
-    // Fullscreen header buttons, in the prototype's order. Source and Copy for
-    // AI keep their own (existing) buttons ahead of these.
+    // Reference and export stay together after Source (and optional Copy for AI).
     fullscreenHeaderActions() {
       const actions = [];
       if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
-      actions.push({ id: 'page-link', label: 'Page link', icon: ICON_PATHS.link });
       actions.push({ id: 'export-png', label: 'Export PNG', icon: ICON_PATHS.download });
-      if (this.isCustomContent) actions.push({ id: 'versions', label: 'Versions', icon: ICON_PATHS.clock });
       return actions;
     },
     isLoadFailed() {
@@ -1034,6 +1037,22 @@ export default {
     showViewSource() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
     },
+    // agent_link_mcp_button_shown: the button is rendered for a viewer.
+    connectMcpShownEligible() {
+      return this.showAgentLinkConnect
+        && this.connectMcpShownRecord !== null
+        && this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed;
+    },
+    // Where the button sits and how it shows, for the analytics properties.
+    connectMcpPlacement() {
+      return !this.isFullscreenMode && this.headerStage >= 3 ? 'more_menu' : 'toolbar';
+    },
+    // Fullscreen headers are always visible; inline ones reveal on hover.
+    connectMcpEffectiveReveal() {
+      return this.isFullscreenMode ? 'always' : 'hover';
+    },
     copyForAiImpressionEligible() {
       return this.copyForAiPermissionResolved
         && this.isDisplayMode
@@ -1042,30 +1061,6 @@ export default {
         && this.showViewSource
         && this.copyForAiSlotSettled
         && !this.showAgentLinkConnect;
-    },
-    // Fullscreen-only diagram-type indicator (Fullscreen Viewer v2). Fullscreen
-    // drops Edit and Fullscreen from the action row and the Confluence modal
-    // owns the close button, so the header has room the inline macro doesn't —
-    // and unlike the inline macro, whose Confluence context surrounds it, the
-    // fullscreen modal is the whole screen with nothing else naming the type.
-    // Only the five types the accent system defines (colors_and_type.css's
-    // --accent-<sequence|mermaid|plantuml|drawio|openapi>-* ramps, which the
-    // design's TABS map names one-for-one). Graph and OpenAPI reach this
-    // component through ForgeGraphViewer.vue / OpenApiViewer.vue, which wrap
-    // GenericViewer for their own chrome, so the chip names them on the same
-    // fullscreen surface. AsyncAPI and Embed have no accent and get no chip
-    // rather than an invented one.
-    fullscreenTypeChip() {
-      if (!this.isFullscreenMode) return null;
-      switch (this.diagramType) {
-        case DiagramType.Sequence: return { id: 'sequence', label: 'Sequence' };
-        case DiagramType.Markdown: return { id: 'markdown', label: 'Markdown' };
-        case DiagramType.Mermaid: return { id: 'mermaid', label: 'Mermaid' };
-        case DiagramType.PlantUml: return { id: 'plantuml', label: 'PlantUML' };
-        case DiagramType.Graph: return { id: 'graph', label: 'Graph' };
-        case DiagramType.OpenApi: return { id: 'openapi', label: 'OpenAPI' };
-        default: return null;
-      }
     },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
@@ -1123,9 +1118,11 @@ export default {
     copyForAiSlotSettled() {
       return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
     },
-    // Connect MCP takes Copy for AI's slot, so it keeps Copy for AI's sparkles.
+    // Connect MCP takes Copy for AI's slot but not its sparkles: with the same
+    // icon, icon-only and hover-revealed, a customer could not find it
+    // (2026-10). It draws the official MCP mark instead.
     connectMcpIcon() {
-      return ICON_PATHS.spark;
+      return ICON_PATHS.mcp;
     },
     // The ids the headless tools take (read_diagram / update_diagram), so the
     // prompt sends the agent straight to this diagram. All synchronous: the
@@ -1275,6 +1272,23 @@ export default {
     'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
+    // Fires once per viewer per UTC day (the shown record dedupes across
+    // every macro), after the header layout has settled so `header_stage` and
+    // the placement are the ones the viewer actually sees.
+    connectMcpShownEligible(eligible) {
+      if (!eligible || this.connectMcpShownTracked) return;
+      this.connectMcpShownTracked = true;
+      const raf = window.requestAnimationFrame?.bind(window) ?? (cb => setTimeout(cb, 16));
+      this.$nextTick(() => raf(() => raf(() => {
+        if (this.connectMcpUnmounted || !this.connectMcpShownEligible) return;
+        if (!this.connectMcpShownRecord?.recordShown()) return;
+        trackAnalyticsEvent('agent_link_mcp_button_shown', this.connectMcpAnalytics({
+          mcp_button_placement: this.connectMcpPlacement,
+          mcp_button_reveal: this.connectMcpEffectiveReveal,
+          ...(this.isFullscreenMode ? {} : { header_stage: this.headerStage }),
+        }));
+      })));
+    },
     copyForAiImpressionEligible: {
       immediate: true,
       handler(eligible) {
@@ -1417,6 +1431,12 @@ export default {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
     } finally {
+      if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
+        this.connectMcpShownRecord = createConnectMcpShownRecord({
+          cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
+          accountId: this.currentAccountId,
+        });
+      }
       this.agentLinkFlagResolved = true;
     }
     try {
@@ -1524,6 +1544,7 @@ export default {
     }
   },
   beforeUnmount() {
+    this.connectMcpUnmounted = true;
     this.headerResizeObserver?.disconnect();
     this.headerResizeObserver = null;
     if (this.magicThanksTimer) {
@@ -1550,6 +1571,9 @@ export default {
     }
   },
   methods: {
+    setZoomHeaderTarget(element) {
+      this.zoomHeaderTarget = element ? markRaw(element) : null;
+    },
     magicIdentity(sourceHash) {
       return { accountId: this.currentAccountId, cloudId: this.magicCloudId,
         contentId: this.diagram?.id, sourceHash };
@@ -2001,7 +2025,6 @@ export default {
         case 'copy-for-ai': this.copyForAi('generic', where); close(); return;
         case 'connect-mcp': close(); this.openConnectMcpDialog(where); return;
         case 'copy-diagram-link': this.copyDeeplink(where); close(); return;
-        case 'copy-page-link': this.copyLink(where); close(); return;
         case 'export-png': close(); this.openExport(where); return;
         case 'versions': close(); this.showContentVersions(where); return;
         case 'debug': this.onDownloadDebugInfo(close, where); return;
@@ -2012,14 +2035,9 @@ export default {
       const where = 'fullscreen_header';
       switch (id) {
         case 'diagram-link': this.copyDeeplink(where); return;
-        case 'page-link': this.copyLink(where); return;
         case 'export-png': this.openExport(where); return;
-        case 'versions': this.showContentVersions(where); return;
         default:
       }
-    },
-    exitFullscreen() {
-      EventBus.$emit('closeFullscreen');
     },
     getCaptureNode() {
       return this.$refs.captureNode ?? null;
@@ -2298,8 +2316,10 @@ export default {
       if (this.showConnectMcpDialog) return;
       this.showConnectMcpDialog = true;
       this.connectMcpOpenedAt = Date.now();
-      trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics(
-        where === 'header_more_menu' ? { action_location: where } : {}));
+      trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics({
+        mcp_button_reveal: this.connectMcpEffectiveReveal,
+        ...(where === 'header_more_menu' ? { action_location: where } : {}),
+      }));
     },
     closeConnectMcpDialog() {
       if (!this.showConnectMcpDialog) return;
@@ -2838,47 +2858,6 @@ export default {
 .viewer-frame--fullscreen .viewer-title-area {
   gap: 12px;
 }
-
-/* Read-only diagram-type indicator. Reproduces what the design system's
-   TabSwitcher renders for a single active tab — tray plus accent-tinted
-   pill — without the editor TabSwitcher's click-to-switch behaviour, which
-   this surface has no use for. Accents are the shared five from DESIGN.md §2
-   (--accent-<type>-50 / -500 / -800). */
-.viewer-type-chip-tray {
-  display: inline-flex;
-  flex-shrink: 0;
-  padding: 3px;
-  background: #F4F5F7;
-  border-radius: 6px;
-}
-.viewer-type-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-}
-.viewer-type-chip-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-}
-.viewer-type-chip--sequence { background: #E8F6FD; color: #054E76; }
-.viewer-type-chip--sequence .viewer-type-chip-dot { background: #0094D9; }
-.viewer-type-chip--mermaid { background: #FFF0F4; color: #8E0F33; }
-.viewer-type-chip--mermaid .viewer-type-chip-dot { background: #FF3670; }
-.viewer-type-chip--plantuml { background: #FDF1E9; color: #6B2900; }
-.viewer-type-chip--plantuml .viewer-type-chip-dot { background: #B84800; }
-.viewer-type-chip--graph { background: #FFF7E8; color: #8A4B00; }
-.viewer-type-chip--graph .viewer-type-chip-dot { background: #F08705; }
-.viewer-type-chip--openapi { background: #F1F8EA; color: #3A5C1D; }
-.viewer-type-chip--openapi .viewer-type-chip-dot { background: #6BA539; }
 
 /* .viewer-frame--auto sizes the frame to fit-content, which in fullscreen made
    it as wide as the diagram — leaving the rest of the window bare (the
@@ -3439,28 +3418,36 @@ export default {
    transient text state (Copying… / Copy failed / Nothing to copy) still
    shows its words briefly. */
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp,
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary {
   min-width: 28px;
   padding: 0;
   color: #6B7280;
 }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source:hover,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp:hover,
 .viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .viewer-btn-label,
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
 .viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell > span:only-child { padding: 0 6px; }
 .copy-for-ai-split-primary[data-copy-state="copied"] .viewer-icon { color: #36B37E; }
 
+/* Inline Connect MCP keeps its label at stage 0 (it is the one header action a
+   viewer has to discover, and an unlabelled icon was missed), and goes
+   icon-only from stage 1 with Edit and Refined. */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp { min-width: 28px; color: #6B7280; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-connect-mcp:hover { color: #374151; }
+.viewer-frame[data-stage="1"] .viewer-act-connect-mcp,
+.viewer-frame[data-stage="2"] .viewer-act-connect-mcp { width: 28px; padding: 0; }
+.viewer-frame[data-stage="1"] .viewer-act-connect-mcp .viewer-btn-label,
+.viewer-frame[data-stage="2"] .viewer-act-connect-mcp .viewer-btn-label { display: none; }
+
 /* Staged collapse (data-stage on .viewer-frame, set by updateHeaderStage).
-   1: Edit + Refined → icon. 2: Fullscreen → icon. 3: Source + Copy for AI
-   move into More (the Copy for AI wrapper stays mounted, visually hidden,
-   so its live region still announces a copy started from the menu). */
+   1: Edit + Refined (+ Connect MCP) → icon. 2: Fullscreen → icon.
+   3: Source + Copy for AI (or Connect MCP) move into More (the Copy for AI
+   wrapper stays mounted, visually hidden, so its live region still announces
+   a copy started from the menu). */
 .viewer-frame[data-stage="1"] .viewer-act-edit .viewer-btn-label,
 .viewer-frame[data-stage="2"] .viewer-act-edit .viewer-btn-label,
 .viewer-frame[data-stage="3"] .viewer-act-edit .viewer-btn-label,
@@ -3514,24 +3501,6 @@ export default {
   .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
   .viewer-frame--fullscreen .viewer-version-long { display: none; }
 }
-.viewer-fs-exit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #44546F;
-  cursor: pointer;
-}
-.viewer-fs-exit svg { width: 20px; height: 20px; }
-.viewer-fs-exit:hover { background: #F3F4F6; color: #172B4D; }
-.viewer-fs-exit:focus-visible { outline: 2px solid #0C66E4; outline-offset: 1px; }
-
 .viewer-load-failed {
   display: flex;
   flex-direction: column;
@@ -3685,4 +3654,32 @@ export default {
   font-weight: revert;
   margin: revert;
 }
+</style>
+
+<style scoped>
+.viewer-header-zoom { display: inline-flex; flex: 0 0 auto; }
+.viewer-header-zoom:empty { display: none; }
+.viewer-frame--fullscreen .viewer-title-area { flex: 1 1 auto; }
+.viewer-frame--fullscreen .viewer-top-actions { gap: 6px; }
+.viewer-frame--fullscreen .viewer-header-zoom,
+.viewer-frame--fullscreen .viewer-act-source,
+.viewer-frame--fullscreen .viewer-fs-act--diagram-link,
+.viewer-frame--fullscreen .viewer-act-connect-mcp,
+.viewer-frame--fullscreen .viewer-act-more { margin-left: 18px; }
+.viewer-frame--fullscreen .viewer-header-zoom:first-child { margin-left: 0; }
+.viewer-frame--fullscreen .viewer-fs-act { padding: 0 8px; }
+.viewer-frame--fullscreen .viewer-fs-act .viewer-btn-label { display: inline; }
+/* Source reserves 45vw beside the viewer. Use compact actions in the remaining
+   desktop column so the title and every action still fit in the same row. */
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-source,
+.generic--source-panel-open .viewer-frame--fullscreen .copy-for-ai-split-primary,
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-fs-act,
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-connect-mcp {
+  min-width: 28px;
+  padding: 0;
+}
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-btn-label,
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
+.generic--source-panel-open .viewer-frame--fullscreen .viewer-version-long { display: none; }
 </style>

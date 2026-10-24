@@ -18,6 +18,7 @@ const panZoom = vi.hoisted(() => ({
   zoom: vi.fn(),
   zoomIn: vi.fn(),
   zoomOut: vi.fn(),
+  center: vi.fn(),
 }));
 vi.mock('svg-pan-zoom', () => ({ default: vi.fn(() => panZoom) }));
 vi.mock('hammerjs', () => ({
@@ -61,6 +62,19 @@ describe('DiagramViewport initial zoom', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete (window as { forgeGlobal?: unknown }).forgeGlobal;
+  });
+
+  it('fits SVG height and width independently using natural bounds after a zoom', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+    panZoom.getSizes.mockReturnValue({ realZoom: 2, width: 800, height: 300, viewBox: { width: 1000, height: 200 } } as any);
+    panZoom.getZoom.mockReturnValue(4);
+    wrapper.vm.fitAxis('height');
+    expect(panZoom.zoom).toHaveBeenLastCalledWith(3);
+    expect(panZoom.center).toHaveBeenCalledTimes(1);
+    wrapper.vm.fitAxis('width');
+    expect(panZoom.zoom).toHaveBeenLastCalledWith(1.6);
+    expect(panZoom.center).toHaveBeenCalledTimes(2);
   });
 
   it('shrinks a diagram the editor pane enlarged back to 1:1', async () => {

@@ -85,6 +85,23 @@ export function buildHeadlessPrompt(target: HeadlessDiagramTarget): string {
   return lines.join('\n')
 }
 
+// The Confluence Home page card's prompt. That surface has no diagram, so
+// instead of naming one the agent lists the viewer's recent diagrams on this
+// site (list_diagrams without a pageId covers the whole site) and asks which
+// one to work on. Like buildHeadlessPrompt, nothing changes without a go-ahead.
+export function buildHomepagePrompt(target: { cloudId?: string } = {}): string {
+  const lines = [`Use the ${mcpServerName()} MCP to work with my ${productLabel()} diagrams in Confluence.`]
+  if (target.cloudId) lines.push(`cloudId: ${target.cloudId}`)
+  else lines.push('Find the site with list_sites.')
+  lines.push(
+    '',
+    '1. List my most recently modified diagrams with list_diagrams.',
+    '2. Summarize what each one shows.',
+    '3. Ask me which one to work on, and wait for my go-ahead before changing it with update_diagram.',
+  )
+  return lines.join('\n')
+}
+
 export function buildConnectPrompt(token: string | null): string {
   return [
     `Connect to my ${productLabel()} diagram via the ${mcpServerName()} MCP.`,

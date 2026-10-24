@@ -86,6 +86,7 @@ import {
   buildHeadlessPrompt,
   mcpAddCommand,
 } from '@/composables/agentLink/connectInstructions'
+import { writeClipboard } from '@/composables/agentLink/clipboard'
 
 // The viewer's "Connect MCP" button opens this over the inline macro. First
 // release: headless MCP only (connectInstructions.ts RELAY_SESSIONS_ENABLED),
@@ -128,31 +129,6 @@ function copyLabel(target: AgentLinkMcpCopyTarget): string {
   if (s === 'copied') return 'Copied'
   if (s === 'failed') return 'Select & copy'
   return 'Copy'
-}
-
-async function writeClipboard(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      /* fall through to the legacy path */
-    }
-  }
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.top = '-9999px'
-    textarea.setAttribute('readonly', '')
-    document.body.appendChild(textarea)
-    textarea.select()
-    const ok = document.execCommand('copy')
-    document.body.removeChild(textarea)
-    return ok
-  } catch {
-    return false
-  }
 }
 
 async function copy(target: AgentLinkMcpCopyTarget, text: string) {

@@ -27,6 +27,7 @@ export const EXPORT_EVENT_SAMPLE_RATES = {
   macro_export_requested: 0.05,
   macro_export_succeeded: 0.05,
   macro_export_failed: 0.1,
+  macro_export_placeholder_shown: 0.05,
 };
 
 /** Keep-probability for an export event name. Unlisted names always emit. */

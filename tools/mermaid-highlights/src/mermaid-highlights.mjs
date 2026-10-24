@@ -11,8 +11,10 @@ export function readMermaidFlowchartModel(diagram) {
     .map(n => ({id:n.id, domId:n.domId}));
   const edges = diagram.db.getEdges().filter(e => e.stroke !== 'invisible')
     .map(e => ({id:e.id, source:e.start, target:e.end}));
+  // `nodes` lists the direct members of a subgraph: vertex ids and the ids of
+  // nested subgraphs. Copy it so the snapshot stays detached from Mermaid state.
   const groups = typeof diagram.db.getSubGraphs === 'function'
-    ? diagram.db.getSubGraphs().map(g => ({id:g.id})) : [];
+    ? diagram.db.getSubGraphs().map(g => ({id:g.id, nodes:[...(g.nodes || [])]})) : [];
   return {type:diagram.type, nodes, edges, groups};
 }
 
@@ -25,12 +27,18 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
   const drawnEdges = [...svg.querySelectorAll('path.flowchart-link')];
   const nodeIds = new Set(), edgeIds = new Set();
   const groupIds = new Set();
+  // Mermaid draws a subgraph as a cluster frame, except one with no members: that is a single plain node.
+  // It binds as the node it is drawn as. A subgraph with members must have been drawn as a frame.
   const groupBindings = (model.groups || []).map(g => {
     if (typeof g.id !== 'string' || !g.id || groupIds.has(g.id)) throw Error('MERMAID_HIGHLIGHTS_GROUP_ID_INVALID');
     groupIds.add(g.id);
-    const matches = drawnGroups.filter(el => el.id === g.id || el.id === `${svg.id}-${g.id}`);
-    if (matches.length !== 1) throw Error(`MERMAID_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:${g.id}`);
-    return {element:matches[0], id:g.id, kind:'group'};
+    const named = el => el.id === g.id || el.id === `${svg.id}-${g.id}`;
+    const frames = drawnGroups.filter(named);
+    if (frames.length === 1) return {element:frames[0], id:g.id, kind:'group'};
+    const empty = !frames.length && !(Array.isArray(g.nodes) && g.nodes.length);
+    const standIns = empty ? drawnNodes.filter(named) : [];
+    if (standIns.length !== 1) throw Error(`MERMAID_HIGHLIGHTS_GROUP_BINDING_UNRESOLVED:${g.id}`);
+    return {element:standIns[0], id:g.id, kind:'node'};
   });
   const nodeBindings = model.nodes.filter(n => !groupIds.has(n.id)).map(n => {
     if (typeof n.id !== 'string' || !n.id || typeof n.domId !== 'string' || !n.domId || nodeIds.has(n.id)) throw Error('MERMAID_HIGHLIGHTS_NODE_ID_INVALID');
@@ -44,7 +52,8 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
     nodeIds.add(group.id);
   }
   nodeBindings.push(...groupBindings);
-  if (drawnNodes.length !== model.nodes.filter(n => !groupIds.has(n.id)).length || drawnGroups.length !== groupBindings.length) {
+  const frameCount = groupBindings.filter(b => b.kind === 'group').length;
+  if (drawnNodes.length !== nodeBindings.length - frameCount || drawnGroups.length !== frameCount) {
     throw Error('MERMAID_HIGHLIGHTS_INCOMPLETE_DRAWING');
   }
   const edgeBindings = model.edges.map(e => {
@@ -57,7 +66,7 @@ export function attachMermaidHighlights(svg, model, {status = null} = {}) {
   });
   if (new Set(nodeBindings.map(n=>n.element)).size!==nodeBindings.length ||
       new Set(edgeBindings.map(e=>e.element)).size!==edgeBindings.length) throw Error('MERMAID_HIGHLIGHTS_AMBIGUOUS_BINDING');
-  return installValidatedBindings(svg, nodeBindings, edgeBindings, status);
+  return installValidatedBindings(svg, nodeBindings, edgeBindings, status, model.groups);
 }
 
 export function requireMountedFlowchart(svg, model) {
@@ -120,13 +129,21 @@ export function attachPreparedSvgHighlights(svg, model, {status = null} = {}) {
   });
   if ([...expected.values()].some(count => count !== 0)) throw Error('MAGIC_HIGHLIGHTS_EDGE_ENDPOINT_MISMATCH');
   if (new Set(nodeBindings.map(n => n.element)).size !== nodeBindings.length) throw Error('MAGIC_HIGHLIGHTS_AMBIGUOUS_BINDING');
-  return installValidatedBindings(svg, nodeBindings, edgeBindings, status);
+  return installValidatedBindings(svg, nodeBindings, edgeBindings, status, model.groups);
 }
 
-export function installValidatedBindings(svg, nodeBindings, edgeBindings, status) {
+export function installValidatedBindings(svg, nodeBindings, edgeBindings, status, groups = []) {
   // Validate the complete binding before changing the displayed diagram.
   const key = Symbol.for('mermaid-highlights.controller');
   svg[key]?.destroy();
+  // Child id -> directly enclosing group id, limited to bound elements. Kept
+  // inside this function: the exporter and the tests inline it via toString().
+  const bound = new Set(nodeBindings.map(n => n.id)), parentOf = new Map();
+  for (const group of groups) {
+    for (const child of Array.isArray(group.nodes) ? group.nodes : []) {
+      if (bound.has(group.id) && bound.has(child) && child !== group.id && !parentOf.has(child)) parentOf.set(child, group.id);
+    }
+  }
   const changes = [];
   const set = (element, name, value) => {
     changes.push([element, name, element.getAttribute(name)]);
@@ -162,7 +179,7 @@ export function installValidatedBindings(svg, nodeBindings, edgeBindings, status
       selectors.split(',').map(s => s.trim().startsWith('.focus-on')
         ? `svg[data-mermaid-highlights]${s.trim()}` : `svg[data-mermaid-highlights] ${s.trim()}`).join(',') + `{${declaration}}`);
     svg.append(style);
-    runtime = installInteractiveSvg(svg, [], status);
+    runtime = installInteractiveSvg(svg, [], status, parentOf);
     svg[key] = controller;
     return controller;
   } catch (error) { destroy(); throw error; }

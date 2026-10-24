@@ -150,6 +150,9 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "viewer_load_failed",
   // Low-volume action signal with an existing E2E wire assertion.
   "copy_for_ai_clicked",
+  // Connect MCP discovery denominator. Deduplicated to one per viewer per
+  // UTC day in the viewer, so it stays low-volume at full rate.
+  "agent_link_mcp_button_shown",
   // Preserve the low-volume paid conversion funnel end to end.
   "upgrade_modal_shown",
   "upgrade_modal_dismissed",

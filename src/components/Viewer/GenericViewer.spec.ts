@@ -1,8 +1,10 @@
 import { mount, flushPromises } from '@vue/test-utils'
+import { h } from 'vue'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
+import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue'
 import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
@@ -865,8 +867,46 @@ describe('GenericViewer (chrome-less)', () => {
         slots: { default: '<div class="diagram-stub" />' },
       })
       expect(wrapper.find('.viewer-frame').exists()).toBe(false)
+      expect(wrapper.find('.viewer-header-zoom').exists()).toBe(false)
       expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
       expect(wrapper.find('.diagram-stub').exists()).toBe(true)
+    })
+
+    it('mounts a renderer zoom toolbar in the header and leaves editor preview controls floating', async () => {
+      const toolbar = () => h(DiagramViewportToolbar, { label: 'Mermaid', macroType: 'mermaid' })
+      const inline = mount(GenericViewer, {
+        attachTo: document.body,
+        global: { plugins: [store] },
+        slots: { default: toolbar },
+      })
+      try {
+        await flushPromises()
+        const headerToolbar = inline.find('.viewer-header-zoom [role="toolbar"]')
+        expect(headerToolbar.exists()).toBe(true)
+        expect(headerToolbar.attributes('aria-label')).toBe('Mermaid zoom controls')
+        expect(headerToolbar.findAll('button').map(button => button.attributes('aria-label'))).toEqual([
+          'Zoom out', 'Zoom in',
+        ])
+      } finally {
+        inline.unmount()
+      }
+
+      const editor = mount(GenericViewer, {
+        attachTo: document.body,
+        props: { hideHeader: true },
+        global: { plugins: [store] },
+        slots: { default: toolbar },
+      })
+      try {
+        await flushPromises()
+        expect(editor.find('.viewer-header-zoom').exists()).toBe(false)
+        expect(editor.find('.diagram-viewport-toolbar').exists()).toBe(true)
+        expect(editor.find('.diagram-viewport-toolbar').findAll('button').map(button => button.attributes('aria-label'))).toEqual([
+          'Zoom out', 'Zoom in',
+        ])
+      } finally {
+        editor.unmount()
+      }
     })
 
     it('mounts RelatedDiagramsFooter only for a ready Mermaid or ZenUML sequence diagram when the flag is on and content id is present', async () => {
@@ -887,12 +927,14 @@ describe('GenericViewer (chrome-less)', () => {
         ready: true,
         enabled: true,
         surface: 'viewer',
+        macroType: 'mermaid',
       })
 
       store.commit('updateDiagramType', DiagramType.Sequence)
       store.commit('updateCode2', '@Actor Customer\nCustomer->Service: request')
       await sequence.vm.$nextTick()
-      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).exists()).toBe(true)
+      // #582: the footer's analytics must say which macro it is on, not assume mermaid
+      expect(sequence.findComponent({ name: 'RelatedDiagramsFooter' }).props('macroType')).toBe('sequence')
 
       store.commit('updateMermaidCode', 'flowchart TD\n  A-->B')
       store.commit('updateDiagramType', DiagramType.Mermaid)
@@ -1545,7 +1587,7 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.vm.$nextTick()
       await openMoreMenu(wrapper)
       expect(moreMenuLabels(wrapper)).toEqual([
-        'Source', 'Copy for AI', 'Copy diagram link', 'Copy page link', 'Export PNG', 'Versions', 'Download debug info',
+        'Source', 'Copy for AI', 'Copy diagram link', 'Export PNG', 'Versions', 'Download debug info',
       ])
       expect(wrapper.findAll('.viewer-act-more [role="separator"]')).toHaveLength(2)
     })
@@ -1806,9 +1848,7 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
-  // Fullscreen Viewer v2 (design handoff). Fullscreen gets its own chrome: a
-  // diagram-type chip beside the title, a Source button that toggles, and
-  // Escape unwinding one layer at a time. The inline macro is unchanged.
+  // Fullscreen Viewer v2: Source toggles and Escape unwinds one layer at a time.
   describe('Fullscreen Viewer v2', () => {
     const asFullscreen = () => {
       ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
@@ -1820,26 +1860,16 @@ describe('GenericViewer (chrome-less)', () => {
 
     describe('diagram-type chip', () => {
       it.each([
-        [DiagramType.Sequence, 'Sequence', 'viewer-type-chip--sequence'],
-        [DiagramType.Mermaid, 'Mermaid', 'viewer-type-chip--mermaid'],
-        [DiagramType.PlantUml, 'PlantUML', 'viewer-type-chip--plantuml'],
-        [DiagramType.Graph, 'Graph', 'viewer-type-chip--graph'],
-        [DiagramType.OpenApi, 'OpenAPI', 'viewer-type-chip--openapi'],
-      ])('labels %s with its accent in fullscreen', async (type, label, accentClass) => {
+        DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+        DiagramType.Graph, DiagramType.OpenApi, DiagramType.AsyncApi,
+      ])('omits the static type chip for %s in fullscreen', async (type) => {
         asFullscreen()
         store.commit('updateDiagramType', type)
         const wrapper = mountViewer()
         await flushPromises()
-
-        const chip = wrapper.find('[data-testid="viewer-type-chip"]')
-        expect(chip.exists()).toBe(true)
-        expect(chip.text()).toBe(label)
-        expect(chip.find('.viewer-type-chip').classes()).toContain(accentClass)
+        expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
       })
 
-      // The chip earns its place by naming the type on a surface that fills the
-      // screen; the inline macro sits in a Confluence page that already frames
-      // it, and its header row is deliberately quiet.
       it('is not rendered on the inline viewer', async () => {
         store.commit('updateDiagramType', DiagramType.Sequence)
         const wrapper = mountViewer()
@@ -1848,17 +1878,6 @@ describe('GenericViewer (chrome-less)', () => {
         expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
       })
 
-      // The accent system (colors_and_type.css) defines five ramps and the
-      // design's TABS map names five types. AsyncAPI and Embed are in neither,
-      // and the chip is not worth inventing an accent for.
-      it('is omitted for a diagram type with no accent', async () => {
-        asFullscreen()
-        store.commit('updateDiagramType', DiagramType.AsyncApi)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
-      })
     })
 
     describe('Source toggle', () => {
@@ -2713,7 +2732,7 @@ describe('GenericViewer (chrome-less)', () => {
       vi.stubEnv('PRODUCT_TYPE', 'lite')
       const wrapper = mountViewer()
       await openMoreMenu(wrapper)
-      expect(moreMenuLabels(wrapper)).toEqual(['Copy diagram link', 'Copy page link', 'Export PNG', 'Versions', 'Download debug info'])
+      expect(moreMenuLabels(wrapper)).toEqual(['Copy diagram link', 'Export PNG', 'Versions', 'Download debug info'])
       expect(wrapper.findAll('.viewer-act-more [role="separator"]')).toHaveLength(1)
     })
 
@@ -2722,7 +2741,7 @@ describe('GenericViewer (chrome-less)', () => {
       store.state.diagram.source = DataSource.MacroBody
       const wrapper = mountViewer()
       await openMoreMenu(wrapper)
-      expect(moreMenuLabels(wrapper)).toEqual(['Copy page link', 'Export PNG', 'Download debug info'])
+      expect(moreMenuLabels(wrapper)).toEqual(['Export PNG', 'Download debug info'])
     })
 
     // asyncapi has no deeplinkHost mapping (embedDeeplink.ts) — deferred, its
@@ -2732,7 +2751,7 @@ describe('GenericViewer (chrome-less)', () => {
       vi.stubEnv('PRODUCT_TYPE', 'asyncapi')
       const wrapper = mountViewer()
       await openMoreMenu(wrapper)
-      expect(moreMenuLabels(wrapper)).toEqual(['Copy page link', 'Export PNG', 'Versions', 'Download debug info'])
+      expect(moreMenuLabels(wrapper)).toEqual(['Export PNG', 'Versions', 'Download debug info'])
     })
 
     it('renders no bottom pill', () => {
@@ -2776,13 +2795,11 @@ describe('GenericViewer (chrome-less)', () => {
       EventBus.$off('fullscreen', handler)
     })
 
-    it('keeps the legacy Versions and Copy page link events, tagged with the menu', async () => {
+    it('keeps the Versions event tagged with the menu', async () => {
       const { trackEvent } = await import('@/utils/window')
       const wrapper = mountViewer()
       await clickMoreItem(wrapper, 'Versions')
       expect(trackEvent).toHaveBeenCalledWith('show_content_versions', 'click', 'viewing', { action_location: 'header_more_menu' })
-      await clickMoreItem(wrapper, 'Copy page link')
-      expect(trackEvent).toHaveBeenCalledWith('copy_link', 'click', 'viewing', { action_location: 'header_more_menu' })
     })
 
     it('opens with the first item focused and moves with the arrow, Home and End keys', async () => {
@@ -2863,8 +2880,8 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
-  // Fullscreen header (staged header prototype): the former pill actions are
-  // buttons; More holds only Download debug info; an Exit button closes.
+  // Fullscreen header: diagram link and export remain buttons; Versions moves
+  // to More, followed by a divider and debug info. Forge owns modal exit.
   describe('Fullscreen header actions', () => {
     beforeEach(() => {
       vi.stubEnv('PRODUCT_TYPE', 'lite')
@@ -2872,44 +2889,43 @@ describe('GenericViewer (chrome-less)', () => {
     })
     afterEach(() => { vi.unstubAllEnvs() })
 
-    it('shows the former pill actions as header buttons in the prototype order', async () => {
+    it('shows only diagram link and export as header action buttons', async () => {
       store.commit('updateDiagramType', DiagramType.Sequence)
       const wrapper = mountViewer()
       await flushPromises()
       const labels = wrapper.findAll('.viewer-top-actions .viewer-fs-act').map(b => b.attributes('aria-label'))
-      expect(labels).toEqual(['Diagram link', 'Page link', 'Export PNG', 'Versions'])
+      expect(labels).toEqual(['Diagram link', 'Export PNG'])
       expect(wrapper.find('.viewer-act-edit').exists()).toBe(false)
       expect(wrapper.find('.viewer-act-fullscreen').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="viewer-type-chip"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="fullscreen-exit"]').exists()).toBe(false)
+      expect(wrapper.find('.viewer-header-zoom').exists()).toBe(true)
     })
 
-    it('keeps only Download debug info in More', async () => {
+    it('puts Versions before a divider and debug info in More', async () => {
       const wrapper = mountViewer()
       await flushPromises()
       await openMoreMenu(wrapper)
-      expect(moreMenuLabels(wrapper)).toEqual(['Download debug info'])
+      expect(moreMenuLabels(wrapper)).toEqual(['Versions', 'Download debug info'])
+      expect(wrapper.findAll('.viewer-act-more [role="separator"]')).toHaveLength(1)
+      expect(wrapper.find('.viewer-act-more [role="separator"]').element.previousElementSibling?.textContent?.trim()).toBe('Versions')
+      expect(wrapper.find('.viewer-act-more [role="separator"]').element.nextElementSibling?.textContent?.trim()).toBe('Download debug info')
     })
 
-    it('opens Export PNG in place and tags header actions with fullscreen_header', async () => {
+    it('opens Export PNG in place and tags Versions with header_more_menu', async () => {
       const { trackEvent } = await import('@/utils/window')
       const wrapper = mountViewer()
       await flushPromises()
       await wrapper.find('.viewer-fs-act[aria-label="Export PNG"]').trigger('click')
       expect((wrapper.vm as any).showExportModal).toBe(true)
-      await wrapper.find('.viewer-fs-act[aria-label="Versions"]').trigger('click')
-      expect(trackEvent).toHaveBeenCalledWith('show_content_versions', 'click', 'viewing', { action_location: 'fullscreen_header' })
+      await clickMoreItem(wrapper, 'Versions')
+      expect(trackEvent).toHaveBeenCalledWith('show_content_versions', 'click', 'viewing', { action_location: 'header_more_menu' })
     })
 
-    it('exits Fullscreen from its own close button', async () => {
+    it('leaves fullscreen dismissal to the modal shell', async () => {
       const wrapper = mountViewer()
       await flushPromises()
-      const emitted: unknown[] = []
-      const handler = () => emitted.push('closeFullscreen')
-      EventBus.$on('closeFullscreen', handler)
-      const close = wrapper.find('[data-testid="fullscreen-exit"]')
-      expect(close.attributes('aria-label')).toBe('Exit fullscreen')
-      await close.trigger('click')
-      expect(emitted).toEqual(['closeFullscreen'])
-      EventBus.$off('closeFullscreen', handler)
+      expect(wrapper.find('[data-testid="fullscreen-exit"]').exists()).toBe(false)
     })
   })
 
@@ -3220,7 +3236,22 @@ describe('GenericViewer (chrome-less)', () => {
   // Flag resolution is async (mounted()), so every assertion here awaits
   // flushPromises() after mount to let that promise settle before asserting.
   describe('Connect MCP (headless only)', () => {
-    afterEach(() => { delete (window as any).forgeGlobal })
+    // agent_link_mcp_button_shown waits two animation frames for the header
+    // layout. Run frames synchronously here so each viewer reports inside its
+    // own test: with real frames, a viewer an earlier test left mounted could
+    // report after the next test cleared the mocks and the per-day dedupe.
+    let rafSpy: ReturnType<typeof vi.spyOn>
+    beforeEach(() => {
+      localStorage.clear()
+      rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => { cb(0); return 0 })
+    })
+    afterEach(() => {
+      rafSpy.mockRestore()
+      delete (window as any).forgeGlobal
+    })
+    const settleLayout = () => flushPromises()
+    const shownCalls = () => vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([name]) => name === 'agent_link_mcp_button_shown')
 
     it('keeps Copy for AI and shows no Connect MCP when the flag resolves false (default)', async () => {
       const wrapper = mountViewer()
@@ -3236,11 +3267,10 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
-      // Inline it is icon-only (CSS hides the label outside fullscreen), with
-      // Copy for AI's sparkles; the accessible name carries the label.
-      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
-      // Same sparkles path the Copy for AI button draws.
-      expect(btn.find('svg path').attributes('d')).toMatch(/^M9\.813 15\.904/)
+      // Labelled at stage 0 (CSS drops the label from stage 1), and drawn
+      // with the MCP mark, not Copy for AI's sparkles.
+      expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
+      expect(btn.find('svg path').attributes('d')).toMatch(/^M2\.05 11\.25/)
       expect(btn.attributes('aria-label')).toBe('Connect MCP')
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
@@ -3314,7 +3344,7 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
-      expect(btn.find('.viewer-btn-label').text()).toBe('Connect MCP')
+      expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
 
@@ -3326,6 +3356,50 @@ describe('GenericViewer (chrome-less)', () => {
         'agent_link_mcp_dialog_opened',
         expect.objectContaining({ feature_area: 'agent_link', surface: 'fullscreen', mcp_mode: 'headless' })
       )
+    })
+
+    it('reveals on hover like the rest of the inline header, also before it is opened', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened',
+        expect.objectContaining({ surface: 'viewer', mcp_button_reveal: 'hover' })
+      )
+    })
+
+    it('reports agent_link_mcp_button_shown once per viewer per day, not per macro', async () => {
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toEqual([[
+        'agent_link_mcp_button_shown',
+        expect.objectContaining({
+          feature_area: 'agent_link',
+          surface: 'viewer',
+          macro_type: DiagramType.Sequence,
+          mcp_mode: 'headless',
+          mcp_button_placement: 'toolbar',
+          mcp_button_reveal: 'hover',
+          header_stage: 0,
+        }),
+      ]])
+
+      // A second macro on the same page (same storage) stays quiet.
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toHaveLength(1)
+    })
+
+    it('does not report agent_link_mcp_button_shown when the flag is off', async () => {
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls()).toHaveLength(0)
     })
 
     it('does not try to reattach a relay session on mount', async () => {

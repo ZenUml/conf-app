@@ -512,6 +512,10 @@ export type AnalyticsEventName =
   // Persisted PNG lifecycle changes and best-effort property failures.
   | "png_export_state_changed"
   | "png_export_state_persistence_failed"
+  // An expected, benign non-write: the page's properties endpoint 404s for
+  // this identity (unpublished draft, deleted page, or a page the app cannot
+  // see). Kept apart from _failed so that event means a real fault.
+  | "png_export_state_persistence_skipped"
   // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
   // (background + note/arrow/callout/watermark overlays), tracked separately
   // from the generic macro_export_* triple above (unused by any call site as

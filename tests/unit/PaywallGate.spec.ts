@@ -1,7 +1,10 @@
-import { beforeEach, describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import PaywallGate from '@/components/UpgradePrompt/PaywallGate.vue';
-import { continueAttemptsKey } from '@/utils/paywall/continueAttempts';
+import {
+  continueAttemptsKey,
+  DEFAULT_CONTINUE_ATTEMPTS,
+} from '@/utils/paywall/continueAttempts';
 
 const identity = {
   clientDomain: 'example-tenant',
@@ -15,6 +18,7 @@ describe('PaywallGate', () => {
   });
 
   it('emits continue-editing only on the explicit continue-editing event from the prompt', async () => {
+    const onContinueEditing = vi.fn();
     const wrapper = mount(PaywallGate, {
       props: {
         macrosCreated: 100,
@@ -22,6 +26,7 @@ describe('PaywallGate', () => {
         upgradeUrl: 'https://example.com/upgrade',
         enterpriseBundleUrl: 'https://example.com/enterprise',
         content: { template: '<div data-testid="content-stub" />' },
+        onContinueEditing,
       },
       global: {
         stubs: {
@@ -40,11 +45,13 @@ describe('PaywallGate', () => {
     // A bare close (Escape, backdrop, ×, dismissal) must NOT grant edit access
     await wrapper.get('[data-testid="close"]').trigger('click');
     expect(wrapper.emitted('continue-editing')).toBeFalsy();
+    expect(onContinueEditing).not.toHaveBeenCalled();
 
     // Only an explicit continueEditing from the prompt unlocks the content
     await wrapper.get('[data-testid="continue"]').trigger('click');
     expect(wrapper.emitted('continue-editing')).toBeTruthy();
     expect(wrapper.emitted('continue-editing')).toHaveLength(1);
+    expect(onContinueEditing).toHaveBeenCalledOnce();
   });
 
   it('initializes local continue attempts and passes the remaining count to the prompt', () => {
@@ -67,9 +74,9 @@ describe('PaywallGate', () => {
       },
     });
 
-    expect(wrapper.get('[data-testid="remaining"]').text()).toBe('15');
+    expect(wrapper.get('[data-testid="remaining"]').text()).toBe(String(DEFAULT_CONTINUE_ATTEMPTS));
     expect(JSON.parse(localStorage.getItem(continueAttemptsKey(identity)) || '{}')).toMatchObject({
-      remainingAttempts: 15,
+      remainingAttempts: DEFAULT_CONTINUE_ATTEMPTS,
       lastUsedAt: null,
       exhaustedAt: null,
     });
@@ -104,7 +111,7 @@ describe('PaywallGate', () => {
     await wrapper.get('[data-testid="continue"]').trigger('click');
 
     expect(JSON.parse(localStorage.getItem(continueAttemptsKey(identity)) || '{}')).toMatchObject({
-      remainingAttempts: 14,
+      remainingAttempts: DEFAULT_CONTINUE_ATTEMPTS - 1,
     });
     expect(wrapper.emitted('continue-editing')).toBeTruthy();
   });

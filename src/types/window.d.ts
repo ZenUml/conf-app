@@ -12,6 +12,7 @@ declare global {
     graphXml?: string;
     graph: any;
     Graph?: any;
+    GraphViewer?: any;
     setGraphStyle?: (styleUrl: string, graph: any) => void;
     setGraphXml?: (xml: string, graph: any) => void;
     updateGraph?: (xml: string) => void;

@@ -35,6 +35,7 @@ import {
   isProbeDue,
   readProbeMarker,
   maybeProbeSpaceAdmin,
+  isCurrentUserSpaceAdmin,
   type SpaceAdminProbeMarker,
 } from './spaceAdminProbe'
 
@@ -84,7 +85,9 @@ describe('isProbeDue', () => {
     expect(isProbeDue(null, NOW)).toBe(true)
   })
   it('is not due within the 30-day window', () => {
-    const recent = { lastProbedAt: new Date(NOW - 1000).toISOString() }
+    // Carries a verdict — i.e. a marker this build wrote. A verdict-less
+    // (Phase-5a) marker is due regardless of age; see the Phase 5b block below.
+    const recent = { lastProbedAt: new Date(NOW - 1000).toISOString(), isAdmin: false }
     expect(isProbeDue(recent, NOW)).toBe(false)
   })
   it('is due once past the window', () => {
@@ -113,7 +116,7 @@ describe('maybeProbeSpaceAdmin', () => {
   it('short-circuits (no init/REST) when already probed within the window', async () => {
     localStorage.setItem(
       spaceAdminProbeKey(h.identity),
-      JSON.stringify({ lastProbedAt: new Date(NOW - 1000).toISOString() })
+      JSON.stringify({ lastProbedAt: new Date(NOW - 1000).toISOString(), isAdmin: false })
     )
     await maybeProbeSpaceAdmin(NOW)
     expect(h.initializeContext).not.toHaveBeenCalled()
@@ -180,7 +183,102 @@ describe('maybeProbeSpaceAdmin', () => {
 
   it('readProbeMarker uses the derived identity by default', async () => {
     expect(readProbeMarker()).toBeNull()
+    localStorage.setItem(spaceAdminProbeKey(h.identity), JSON.stringify({ lastProbedAt: 'x', isAdmin: false }))
+    expect(readProbeMarker()).toEqual({ lastProbedAt: 'x', isAdmin: false })
+  })
+})
+
+// Phase 5b. The banner's visibility gate is synchronous (it runs in setup(),
+// before any await), so the admin verdict has to be readable from localStorage
+// — firing an analytics event is not enough. The probe therefore persists the
+// verdict alongside the throttle timestamp.
+describe('admin verdict persistence (Phase 5b)', () => {
+  it('persists isAdmin=true and the admin count when the user IS an admin', async () => {
+    h.getCurrentSpaceAdmins.mockResolvedValue([
+      { type: 'user', id: 'user-self', displayName: 'Me' },
+      { type: 'user', id: 'someone-else', displayName: 'Other' },
+    ])
+    await maybeProbeSpaceAdmin(NOW)
+    expect(storedMarker()).toEqual({
+      lastProbedAt: new Date(NOW).toISOString(),
+      isAdmin: true,
+      adminCount: 2,
+    })
+  })
+
+  it('persists isAdmin=false when the user is NOT an admin', async () => {
+    h.getCurrentSpaceAdmins.mockResolvedValue([{ type: 'user', id: 'someone-else', displayName: 'Other' }])
+    await maybeProbeSpaceAdmin(NOW)
+    expect(storedMarker()).toEqual({
+      lastProbedAt: new Date(NOW).toISOString(),
+      isAdmin: false,
+      adminCount: 1,
+    })
+  })
+
+  it('parses a marker carrying the verdict, and rejects a non-boolean verdict', () => {
+    expect(parseProbeMarker(JSON.stringify({ lastProbedAt: 'x', isAdmin: true, adminCount: 3 }))).toEqual({
+      lastProbedAt: 'x',
+      isAdmin: true,
+      adminCount: 3,
+    })
+    expect(parseProbeMarker(JSON.stringify({ lastProbedAt: 'x', isAdmin: 'yes' }))).toEqual({
+      lastProbedAt: 'x',
+    })
+  })
+
+  // Phase-5a-era markers carry only a timestamp. Honouring their 30-day
+  // throttle would leave every already-probed admin invisible to the banner for
+  // up to a month after release, so a verdict-less marker counts as due.
+  it('treats a legacy marker with no verdict as due for a re-probe', () => {
+    expect(isProbeDue({ lastProbedAt: new Date(NOW - 1000).toISOString() }, NOW)).toBe(true)
+  })
+
+  it('honours the 30-day throttle once a verdict is present', () => {
+    expect(
+      isProbeDue({ lastProbedAt: new Date(NOW - 1000).toISOString(), isAdmin: false }, NOW)
+    ).toBe(false)
+  })
+})
+
+describe('isCurrentUserSpaceAdmin', () => {
+  it('is false when no marker exists (fail closed — banner stays editor-only)', () => {
+    expect(isCurrentUserSpaceAdmin()).toBe(false)
+  })
+
+  it('is false for a legacy marker with no verdict', () => {
     localStorage.setItem(spaceAdminProbeKey(h.identity), JSON.stringify({ lastProbedAt: 'x' }))
-    expect(readProbeMarker()).toEqual({ lastProbedAt: 'x' })
+    expect(isCurrentUserSpaceAdmin()).toBe(false)
+  })
+
+  it('reads a persisted true verdict', () => {
+    localStorage.setItem(
+      spaceAdminProbeKey(h.identity),
+      JSON.stringify({ lastProbedAt: 'x', isAdmin: true, adminCount: 2 })
+    )
+    expect(isCurrentUserSpaceAdmin()).toBe(true)
+  })
+
+  it('reads a persisted false verdict', () => {
+    localStorage.setItem(
+      spaceAdminProbeKey(h.identity),
+      JSON.stringify({ lastProbedAt: 'x', isAdmin: false, adminCount: 2 })
+    )
+    expect(isCurrentUserSpaceAdmin()).toBe(false)
+  })
+
+  // A stale verdict still beats no verdict: the probe re-runs on this same page
+  // load and corrects it, and hiding the banner from a known admin for one load
+  // is worse than showing it to someone who was an admin last month.
+  it('keeps returning a stale true verdict while the re-probe is in flight', () => {
+    localStorage.setItem(
+      spaceAdminProbeKey(h.identity),
+      JSON.stringify({
+        lastProbedAt: new Date(NOW - SPACE_ADMIN_PROBE_WINDOW_MS - 1).toISOString(),
+        isAdmin: true,
+        adminCount: 2,
+      })
+    )
+    expect(isCurrentUserSpaceAdmin()).toBe(true)
   })
 })

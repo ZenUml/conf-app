@@ -85,21 +85,57 @@ export interface HeadlessContext {
   onGrantEvent?: GrantEventSink;
 }
 
+/**
+ * MCP tool annotations. Both connector directories (Claude's and ChatGPT's)
+ * reject a tool that lacks a `title` and the hint that applies to it, and
+ * Claude derives auto-permissions from them: read-only tools run without a
+ * prompt, destructive ones always ask. So every tool that writes to
+ * Confluence is destructive here, including the two that only add — Claude's
+ * review criteria ask for `destructiveHint: true` on any tool that modifies
+ * data, and a page created or a macro appended is a publish others can see.
+ */
+export interface HeadlessToolAnnotations {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  /** True when a call reaches beyond this server into the user's Confluence. */
+  openWorldHint: boolean;
+}
+
 export interface HeadlessToolDescriptor {
   name: string;
+  title: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations: HeadlessToolAnnotations;
+}
+
+function readOnly(title: string): Pick<HeadlessToolDescriptor, 'title' | 'annotations'> {
+  return {
+    title,
+    annotations: { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  };
+}
+
+function write(title: string, idempotentHint: boolean): Pick<HeadlessToolDescriptor, 'title' | 'annotations'> {
+  return {
+    title,
+    annotations: { title, readOnlyHint: false, destructiveHint: true, idempotentHint, openWorldHint: true },
+  };
 }
 
 export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'list_sites',
+    ...readOnly('List Confluence sites'),
     description:
       'List the Confluence sites your ZenUML authorization can reach, with the cloudId each other tool needs. Start here. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'list_diagrams',
+    ...readOnly('List diagrams'),
     description:
       'List ZenUML diagrams on a site, most-recently-modified first. Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
     inputSchema: {
@@ -114,6 +150,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'read_diagram',
+    ...readOnly('Read diagram'),
     description:
       'Read one diagram’s source (the DSL or spec text) and diagramType by its contentId, as listed by list_diagrams. Edit that source and send all of it back with update_diagram. Read-only.',
     inputSchema: {
@@ -127,6 +164,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'read_page',
+    ...readOnly('Read page'),
     description:
       'Read a Confluence page: its title, version, space, and body in Confluence storage format. Read-only.',
     inputSchema: {
@@ -140,6 +178,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'create_page',
+    ...write('Create page', false),
     description:
       'Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML): paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.',
     inputSchema: {
@@ -156,6 +195,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'update_page',
+    ...write('Update page', true),
     description:
       'Replace a page’s body, and optionally its title. Send the COMPLETE new body — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.',
     inputSchema: {
@@ -177,12 +217,14 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'get_status',
+    ...readOnly('Get connection status'),
     description:
       'Which mode this connection is in, who it acts as, and which ZenUML app each reachable site runs. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'update_diagram',
+    ...write('Update diagram', true),
     description:
       'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change. To rename only, send the unchanged source with the new `title`.',
     inputSchema: {
@@ -202,6 +244,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'create_diagram',
+    ...write('Create diagram on page', false),
     description:
       'Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).',
     inputSchema: {

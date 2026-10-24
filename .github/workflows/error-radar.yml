@@ -34,7 +34,7 @@ jobs:
       - name: Unit tests
         run: |
           python3 -m unittest discover -s .claude/skills/error-radar/scripts -p 'test_*.py'
-          node --test .claude/skills/error-radar/scripts/signature.test.js
+          node --test .claude/skills/error-radar/scripts/signature_test.js
       # Each value may be saved as a repository secret or a repository
       # variable (the Actions settings page has both tabs, and the username is
       # not sensitive). A secret wins when both exist.

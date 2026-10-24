@@ -17,7 +17,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="166.3" y="133"/>
             <line x="339.8" y="133"/>

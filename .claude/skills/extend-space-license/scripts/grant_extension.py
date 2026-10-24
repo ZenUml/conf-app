@@ -25,6 +25,7 @@ The reply message it prints follows the canonical template in the handbook:
 import argparse
 import datetime as dt
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -35,8 +36,13 @@ SPACE_LICENSE_KV_NS = "8969e8528105403bb2d9adca9fc16567"
 KV_FULL_BASE = "https://conf-full.zenuml.com"
 KV_LITE_BASE = "https://conf-lite.zenuml.com"
 STRIPE_BUNDLE_LINK = "https://buy.stripe.com/cNifZifkN7hzavK12H7IY05"
-MARKETPLACE_LINK = "https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram"
+MARKETPLACE_LINK = "https://marketplace.atlassian.com/apps/1218380/zenuml-diagrams-for-confluence"
 ENTERPRISE_BUNDLE_USD = 299  # per space / year, flat
+
+# Override when the repo's node_modules/wrangler is missing or broken (a dangling
+# symlink cost 8 diagnostic calls before the first grant, 2026-08-25):
+#   WRANGLER_CMD="npx --yes wrangler@4" python3 grant_extension.py ...
+WRANGLER_CMD = os.environ.get("WRANGLER_CMD", "npx wrangler").split()
 
 
 def normalize_domain(raw):
@@ -67,7 +73,20 @@ def resolve_cloud_id(full_domain):
 def verify_space(bare_domain, space):
     """Sanity-check the space exists and how many macros it has (so a typo'd /
     truncated space key doesn't silently grant nothing). Returns total or None."""
-    for base, extra in ((KV_LITE_BASE, "&addonKey=zenuml-lite"), (KV_FULL_BASE, "")):
+    # Name the product on BOTH calls: metrics-inspect used to treat an absent
+    # product as `full`, so the fallback quietly read a key the tenant may not own.
+    #
+    # Use `addonKey`, NOT `productType`. `productType` is only honoured by the
+    # metrics-inspect rewrite on `fix/metrics-inspect-explicit-product`, which is
+    # deployed to staging but NOT to prod — and this script talks to PROD. Against
+    # prod, `productType=lite` is ignored, the handler falls back to `full`, and a
+    # variant-migrated tenant gets a fossil count (vin3s VARW: 438 frozen at
+    # 2026-04-24, vs 188 live) — which would silently suppress the under-100 warning
+    # below. `addonKey` is honoured by both the deployed handler and the rewrite
+    # (productFromAddonKey maps '-lite' -> lite, 'confluence-addon' -> full), so this
+    # keeps working after that branch ships. Verified 2026-07-26.
+    for base, extra in ((KV_LITE_BASE, "&addonKey=com.zenuml.confluence-addon-lite"),
+                        (KV_FULL_BASE, "&addonKey=com.zenuml.confluence-addon")):
         try:
             data = http_json(f"{base}/admin/metrics-inspect?domain={bare_domain}{extra}")
         except Exception:
@@ -84,7 +103,7 @@ def verify_space(bare_domain, space):
 
 
 def wrangler_kv_get(key):
-    cmd = ["npx", "wrangler", "kv", "key", "get", key,
+    cmd = WRANGLER_CMD + ["kv", "key", "get", key,
            f"--namespace-id={SPACE_LICENSE_KV_NS}", "--remote"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
@@ -94,21 +113,20 @@ def wrangler_kv_get(key):
 
 
 def wrangler_kv_put(key, value_path):
-    cmd = ["npx", "wrangler", "kv", "key", "put", key, "--path", value_path,
+    cmd = WRANGLER_CMD + ["kv", "key", "put", key, "--path", value_path,
            f"--namespace-id={SPACE_LICENSE_KV_NS}", "--remote"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "wrangler put failed")
 
 
-def full_plan_arr(n):
-    """Full-plan list price/yr via the ARR tier model (docs/pricing-model.yml)."""
-    if n <= 10:
-        return 40.0
-    return (min(n, 100) * 0.44
-            + (min(n, 250) - 100) * 0.33
-            + (min(n, 1000) - 250) * 0.11
-            + max(0, n - 1000) * 0.05) * 10
+# Shared with Marketplace quoting; do not maintain another pricing algorithm.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "marketplace", "scripts"))
+from mp_pricing import live_full_quote, MARKETPLACE_PRICING_URL
+
+
+def full_plan_pricing(n):
+    return live_full_quote(n)
 
 
 def grant(domain, space, days, activated_by, dry_run, user_account_id=None):
@@ -200,19 +218,33 @@ def through_date(expires_at):
     return d.strftime("%-d %B %Y")  # e.g. "7 July 2026"
 
 
-def print_reply(space, expires_at, users, user_scoped=False):
+def print_reply(space, expires_at, users, user_scoped=False, days=7, feedback_days=None):
     if users:
-        price = full_plan_arr(users)
+        p = full_plan_pricing(users)
         users_line = f"~{users:,} users"
-        full_price = f"~${price:,.0f}/year"
+        # Lead with the ANNUAL figure, not the monthly one. Monthly is the smaller number on
+        # its own, but any reader who annualises it lands on monthly*12, which is HIGHER than
+        # the annual price (902 users: $1,983 vs $1,760) — so leading with monthly makes the
+        # app look more expensive to exactly the reader who is costing it out for a purchase
+        # order. What actually shrinks the number is the per-user-per-month rate, and that is
+        # independent of billing cycle. Monthly follows as an option, with its extra cost named.
+        # (No conversion data exists either way; this is the arithmetic, not a tested preference.)
+        annual_extra = p["monthly"] * 12 - p["annual"]
+        full_price = (
+            f"~${p['annual']:,.0f}/year on annual billing "
+            f"(~${p['per_user_month_annual']:.2f} per user per month). "
+            f"Monthly billing is also available at ~${p['monthly']:,.0f}/month"
+            + (f", though it costs about ${annual_extra:,.0f} more over a year"
+               if annual_extra > 0 else "")
+        )
     else:
         users_line = "~{USERS} users (fetch tier from the Marketplace license report)"
-        full_price = "~${FULL_PRICE}/year"
+        full_price = "~${ANNUAL}/year on annual billing (~${PER_USER} per user per month), or ~${MONTHLY}/month"
 
     if user_scoped:
         intro = (
             f"To get you unblocked straight away, we've enabled a temporary extension "
-            f"for your account on {space} for the next 14 days (through {through_date(expires_at)}). "
+            f"for your account on {space} for the next {days} days (through {through_date(expires_at)}). "
             f"You can create and edit diagrams there as normal during this window — nothing to set up "
             f"on your end; just refresh the page if you have an editor open (it can take a few minutes to apply)."
         )
@@ -223,7 +255,7 @@ def print_reply(space, expires_at, users, user_scoped=False):
     else:
         intro = (
             f"To get you unblocked straight away, we've enabled a temporary extension on {space} for the "
-            f"next 14 days (through {through_date(expires_at)}). You can create and edit diagrams there as "
+            f"next {days} days (through {through_date(expires_at)}). You can create and edit diagrams there as "
             f"normal during this window — nothing to set up on your end; just refresh the page if you have "
             f"an editor open (it can take a few minutes to apply)."
         )
@@ -231,6 +263,32 @@ def print_reply(space, expires_at, users, user_scoped=False):
             f"The extension covers {space} specifically. If other spaces are hitting the limit too, "
             f"just reply here and we'll take a look."
         )
+
+    # --feedback-offer: trade a LONGER window for product intel, instead of silently
+    # renewing a repeat asker. Q4 is the commercially load-bearing one — after N free
+    # comps with no conversion we still don't know WHICH wall we're hitting.
+    # Deliberately does NOT mention Draw.io by name: Jira's editor auto-linkifies any
+    # "word.io" into a broken http://Draw.io smart link in the customer's email.
+    if feedback_days:
+        feedback_block = f"""
+That brings me to a request, and an offer. We're deciding what to build next, and candid input from a team using ZenUML this heavily is worth more to us than the license fee. If you reply with answers to these four questions, I'll extend your access to {feedback_days} days instead of {days}:
+
+1. What are you using ZenUML for in {space} — what kind of documents, and where does it sit in your workflow?
+
+2. What made you pick it over Confluence's built-in diagramming tools?
+
+3. What's the most annoying thing about it today, or the thing you keep wishing it did?
+
+4. If you wanted to lift the limit properly, what's the hard part internally — budget, admin approval, procurement, or simply nobody owning it?
+
+Blunt answers are the useful ones — we won't take it badly.
+"""
+        # Decouples the free time from a purchase so the trade can't read as coercion.
+        closing = (f"Either way, the {feedback_days} days is yours for the feedback — "
+                   f"no strings attached to buying anything.")
+    else:
+        feedback_block = ""
+        closing = "Tell us which fits better and we'll send exact pricing and the steps."
 
     print("\n" + "=" * 70)
     print("DRAFT REPLY  (canonical template: paywall/extension-request-replies.md)")
@@ -244,14 +302,14 @@ Thanks for reaching out — glad to see your teams getting so much use out of Ze
 A couple of things worth knowing:
 
 {scope_note}
-
+{feedback_block}
 It's a temporary bridge. For a lasting fix there are two routes — happy to help with either:
 
 Per-space (Enterprise Bundle) — ${ENTERPRISE_BUNDLE_USD}/space/year, unlimited macros and users in that space. It's the quickest path and doesn't require a Confluence admin — you can set it up directly, so it's ideal if you'd like {space} unblocked permanently right away. Purchase here: {STRIPE_BUNDLE_LINK} — just reply with the space key after payment and we'll activate it.
 
-Org-wide (Full plan) — removes the limit across all your spaces and users at once; best value if you want everything covered (you're running a large site with diagrams across many spaces). Based on your site's {users_line}, this works out to {full_price}. You can upgrade on the Atlassian Marketplace here: ZenUML Diagrams for Confluence | Atlassian Marketplace ({MARKETPLACE_LINK}) — this one goes through whoever administers Confluence apps for your site.
+Org-wide (Full plan) — removes the limit across all your spaces and users at once; best value if you want everything covered (you're running a large site with diagrams across many spaces). Based on your site's {users_line}, this works out to {full_price}. Every Marketplace app also carries a 30-day free trial, so you can remove the limit site-wide today and decide afterwards. You can upgrade on the Atlassian Marketplace here: ZenUML Diagrams for Confluence | Atlassian Marketplace ({MARKETPLACE_LINK}) — this one goes through whoever administers Confluence apps for your site.
 
-Tell us which fits better and we'll send exact pricing and the steps.
+{closing}
 
 Best Regards,
 
@@ -263,26 +321,47 @@ def main():
     ap = argparse.ArgumentParser(description="Grant a temporary Lite space-license extension + draft the reply.")
     ap.add_argument("--domain", required=True, help="Client domain (bare, hostname, or URL)")
     ap.add_argument("--space", required=True, help="Confluence space KEY (exact, case-sensitive)")
-    ap.add_argument("--days", type=int, default=14, help="Extension length (default 14)")
+    ap.add_argument("--days", type=int, default=7,
+                    help="Extension length (default 7 — deliberately short so the "
+                         "--feedback-offer trade is worth taking; use 14 for a one-off "
+                         "first-time asker where no feedback is being solicited)")
     ap.add_argument("--users", type=int, help="Site user tier (Marketplace license) → fills Full-plan price in the reply")
     ap.add_argument("--user", dest="user_account_id", default=None,
                     help="Requester's Atlassian accountId (e.g. 712020:...) — scopes the grant to this "
                          "user only. Omit to grant the whole space (manual escalation when multiple "
                          "independent users in the same space have requested).")
-    ap.add_argument("--activated-by", default="support:temp-14d-extension")
+    ap.add_argument("--activated-by", default=None,
+                    help="Provenance string on the record (default support:temp-<days>d-extension). "
+                         "Append the ticket, e.g. support:temp-7d-extension:ZEN-1191, so a grant is "
+                         "traceable to its request even if the sent log misses it.")
+    ap.add_argument("--feedback-offer", dest="feedback_days", type=int, nargs="?", const=60, default=None,
+                    metavar="N",
+                    help="Add the feedback-for-time offer to the reply: grant --days now, promise N days "
+                         "(default 60) in exchange for answers to 4 product questions. Use on a REPEAT "
+                         "asker instead of silently renewing. Does not change what is written to KV — "
+                         "when the feedback arrives, re-run with --days N to extend.")
     ap.add_argument("--dry-run", action="store_true", help="Preview only — no KV writes")
     ap.add_argument("--no-reply", action="store_true", help="Skip the drafted reply")
     args = ap.parse_args()
 
+    if args.feedback_days is not None and args.feedback_days <= args.days:
+        print(f"ERROR: --feedback-offer {args.feedback_days} must exceed --days {args.days} "
+              f"(the offer is a LONGER window in exchange for feedback).", file=sys.stderr)
+        sys.exit(1)
+
+    activated_by = args.activated_by or f"support:temp-{args.days}d-extension"
+
     try:
-        result = grant(args.domain, args.space, args.days, args.activated_by, args.dry_run,
+        result = grant(args.domain, args.space, args.days, activated_by, args.dry_run,
                         user_account_id=args.user_account_id)
     except Exception as e:  # noqa: BLE001
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
     if not args.no_reply:
-        print_reply(result["space"], result["expiresAt"], args.users, user_scoped=bool(args.user_account_id))
+        print_reply(result["space"], result["expiresAt"], args.users,
+                    user_scoped=bool(args.user_account_id), days=args.days,
+                    feedback_days=args.feedback_days)
 
     scope = f"user {args.user_account_id}" if args.user_account_id else "the whole space"
     if result.get("wrote"):

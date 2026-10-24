@@ -1,4 +1,5 @@
 import { reactive, computed, ref, type Ref, type InjectionKey } from 'vue';
+import { useAnnotations, type AnnotationsState } from './useAnnotations';
 
 export interface Point {
   x: number;
@@ -52,6 +53,7 @@ export interface CalloutState {
 }
 
 export interface ExportState {
+  annotations: AnnotationsState;
   background: Ref<string>;
   customBgColor: Ref<string>;
   note: NoteState;
@@ -60,7 +62,6 @@ export interface ExportState {
   callout: CalloutState;
   activeTool: Ref<ActiveTool>;
   arrowPoints: Ref<ArrowPoints | null>;
-  arrowClickCount: Ref<number>;
   arrowInteraction: Ref<ArrowInteractionState>;
   notePoint: Ref<Point | null>;
   noteDragging: Ref<boolean>;
@@ -71,6 +72,9 @@ export interface ExportState {
   previewNaturalHeight: Ref<number>;
   isCapturing: Ref<boolean>;
   isExporting: Ref<boolean>;
+  isCopying: Ref<boolean>;
+  copySucceeded: Ref<boolean>;
+  exportError: Ref<string | null>;
   selectedAnnotation: Ref<'note' | 'arrow' | 'watermark' | 'callout' | null>;
 
   backgrounds: BackgroundOption[];
@@ -91,6 +95,7 @@ export interface ExportState {
 export const exportStateKey: InjectionKey<ExportState> = Symbol('exportState');
 
 export function useExportState(): ExportState {
+  const annotations = useAnnotations();
   const background = ref('white');
   const customBgColor = ref('#ffffff');
   const previewDataUrl = ref<string | null>(null);
@@ -98,9 +103,11 @@ export function useExportState(): ExportState {
   const previewNaturalHeight = ref(400);
   const isCapturing = ref(false);
   const isExporting = ref(false);
+  const isCopying = ref(false);
+  const copySucceeded = ref(false);
+  const exportError = ref<string | null>(null);
   const activeTool = ref<ActiveTool>(null);
   const arrowPoints = ref<ArrowPoints | null>(null);
-  const arrowClickCount = ref(0);
   const arrowInteraction = ref<ArrowInteractionState>('idle');
   const notePoint = ref<Point | null>(null);
   const noteDragging = ref(false);
@@ -185,7 +192,6 @@ export function useExportState(): ExportState {
 
   function resetArrow() {
     arrowPoints.value = null;
-    arrowClickCount.value = 0;
     arrowInteraction.value = 'idle';
   }
 
@@ -206,6 +212,7 @@ export function useExportState(): ExportState {
   }
 
   return {
+    annotations,
     background,
     customBgColor,
     note,
@@ -214,7 +221,6 @@ export function useExportState(): ExportState {
     callout,
     activeTool,
     arrowPoints,
-    arrowClickCount,
     arrowInteraction,
     notePoint,
     noteDragging,
@@ -225,6 +231,9 @@ export function useExportState(): ExportState {
     previewNaturalHeight,
     isCapturing,
     isExporting,
+    isCopying,
+    copySucceeded,
+    exportError,
     selectedAnnotation,
     backgrounds,
     resolvedBgColor,
@@ -238,4 +247,3 @@ export function useExportState(): ExportState {
     removeAnnotation,
   };
 }
-

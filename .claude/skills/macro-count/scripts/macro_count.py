@@ -3,13 +3,13 @@
 
 Sources (they answer THREE DIFFERENT questions — see SKILL.md):
   1. Metrics KV  -> current inventory, reported-on-save, keyed by space KEY
-  2. D1          -> lifetime-created macro rows, keyed by numeric spaceId
+  2. D1          -> successfully synced historical macro rows, keyed by numeric spaceId
   3. Mixpanel    -> distinct macro_uuid VIEWED in last 90d, keyed by space KEY
 
 Why they won't match exactly, and the key-vs-id join trap, are documented in
 SKILL.md. This script just gathers all three and lines up KV + Mixpanel by space
 KEY (they share it), printing D1 separately because it keys by numeric spaceId
-and only scopes to a client for Connect installs.
+and this helper queries legacy AppInstance mappings only.
 
 Usage:
     python3 macro_count.py --domain example-tenant
@@ -56,17 +56,40 @@ def normalize_domain(raw):
 # Source 1: Metrics KV (current inventory, reported-on-save, space KEY)
 # --------------------------------------------------------------------------- #
 def fetch_kv(bare_domain):
-    """Hit metrics-inspect on both full and lite Pages projects. Merge whatever
-    has data (a domain normally lives on exactly one variant).
+    """Hit metrics-inspect on both full and lite Pages projects. Merge on space KEY,
+    preferring the **freshest** record per space.
+
+    A domain can hold more than one product key. That usually is NOT two installs:
+    a since-fixed writer bug mis-stamped `productType`, leaving a frozen snapshot
+    that never updates again (458 of 767 domains carry more than one key). vin3s is
+    Lite-only per Marketplace — no Full license has ever existed — yet
+    `metrics:vin3s:full` still serves 34 spaces frozen at 2026-04-24. Selecting the
+    LARGER total (the rule until 2026-07-26) let that fossil win: VARW reported 438
+    macros from April instead of the live 188, one step from a customer-facing
+    email. Freshness is the tiebreak; `shadowed` keeps whatever lost so divergence
+    stays visible instead of silently vanishing.
 
     NOTE: the KV key is built from `getClientDomain()` = the BARE subdomain
     (e.g. `zenuml`), NOT the full hostname. Passing `zenuml.atlassian.net` here
     silently returns no_data. (The older /metrics skill docs are wrong on this.)
     """
     out = {}  # space KEY -> {total, sequence, graph, mermaid, openapi, plantuml, unknown, lastUpdated, variant}
+    # Always name the product — an absent one used to mean `full`, so a bare URL
+    # silently asked for a key this tenant may never have had. Both hosts read the
+    # same KV namespace, so the host is cosmetic; only the product param selects the
+    # key.
+    #
+    # Use `addonKey`, NOT `productType`. This script talks to PROD, where the older
+    # handler is deployed and ignores `productType` entirely — it would fall back to
+    # `full` and hand the lite target a fossil count, causing the very bug this
+    # function guards against. `addonKey` is honoured by BOTH the deployed handler
+    # (`.includes('-lite')`) and the rewrite (`productFromAddonKey`), so it keeps
+    # working before and after that ships. Verified 2026-07-26.
     targets = [
-        ("full", f"{KV_FULL_BASE}/admin/metrics-inspect?domain={bare_domain}"),
-        ("lite", f"{KV_LITE_BASE}/admin/metrics-inspect?domain={bare_domain}&addonKey=zenuml-lite"),
+        ("full", f"{KV_FULL_BASE}/admin/metrics-inspect?domain={bare_domain}"
+                 "&addonKey=com.zenuml.confluence-addon"),
+        ("lite", f"{KV_LITE_BASE}/admin/metrics-inspect?domain={bare_domain}"
+                 "&addonKey=com.zenuml.confluence-addon-lite"),
     ]
     errors = []
     for variant, url in targets:
@@ -87,10 +110,8 @@ def fetch_kv(bare_domain):
             # flatter. Accept either shape.
             s = entry.get("data", entry) if isinstance(entry, dict) else {}
             total = s.get("total", 0) or 0
-            # Prefer the variant that actually has macros for this space.
-            if key in out and total <= (out[key].get("total") or 0):
-                continue
-            out[key] = {
+            updated = s.get("lastUpdated") or ""
+            row = {
                 "total": total,
                 "sequence": s.get("sequence", 0),
                 "graph": s.get("graph", 0),
@@ -100,7 +121,19 @@ def fetch_kv(bare_domain):
                 "unknown": s.get("unknown", 0),
                 "lastUpdated": s.get("lastUpdated"),
                 "variant": variant,
+                "shadowed": None,
             }
+            prev = out.get(key)
+            if prev is None:
+                out[key] = row
+                continue
+            # Freshest wins; equal timestamps fall back to the larger count.
+            keep, drop = ((row, prev)
+                          if (updated, total) > ((prev.get("lastUpdated") or ""), prev.get("total") or 0)
+                          else (prev, row))
+            keep["shadowed"] = {"variant": drop["variant"], "total": drop["total"],
+                                "lastUpdated": drop["lastUpdated"]}
+            out[key] = keep
     return out, errors
 
 
@@ -117,15 +150,14 @@ def run_d1(sql):
         raise RuntimeError(proc.stderr.strip() or "wrangler failed")
     # wrangler --json prints [{"results":[...], "success":true, ...}]
     payload = json.loads(proc.stdout)
-    if isinstance(payload, list) and payload:
-        return payload[0].get("results", [])
-    return []
+    if (not isinstance(payload, list) or not payload or not isinstance(payload[0], dict) or payload[0].get("success") is not True
+            or not isinstance(payload[0].get("results"), list)):
+        raise RuntimeError("D1 response incomplete or unsuccessful; results unknown")
+    return payload[0]["results"]
 
 
 def fetch_d1(bare_domain):
-    """Connect macros for this client, grouped by numeric spaceId. Forge macros
-    can't be scoped to a client in D1 (UUID appId, no clientDomain) — we detect
-    that case and say so."""
+    """Legacy AppInstance-join coverage only; not complete Forge tenant inventory."""
     result = {"connect_spaces": [], "is_connect": False, "note": None, "error": None}
     try:
         # Is this domain a Connect install at all?
@@ -147,9 +179,8 @@ def fetch_d1(bare_domain):
         result["connect_spaces"] = rows
         if not result["is_connect"]:
             result["note"] = (
-                "No AppInstance row -> not a Connect client. If they're a Forge "
-                "install (most prod tenants), D1 cannot scope macros to this "
-                "client (shared UUID appId, no clientDomain). Use KV + Mixpanel."
+                "No legacy AppInstance mapping found. This query does not cover Forge cloudId mappings. "
+                "Use KV/Mixpanel and verify current deployed schema before a Forge-specific D1 query."
             )
         elif not rows:
             result["note"] = "Connect install present, but 0 macros in CustomContent."
@@ -244,11 +275,17 @@ def print_report(bare, full, kv, kv_errors, d1, mp):
     mp_spaces = (mp or {}).get("spaces", {})
     all_keys = sorted(set(kv_spaces) | set(mp_spaces))
 
-    print("## Per-space (KV inventory + Mixpanel 90d distinct-viewed)\n")
+    print("## Per-space (KV inventory + Mixpanel 90d distinct MACROS viewed)\n")
     if mp.get("window"):
         print(f"_Mixpanel window: {mp['window']} (clamped to tracking start)_\n")
     if all_keys:
-        print(f"| Space KEY | KV total | KV variant | MP {'%dd' % 90} distinct-viewed |")
+        # NOT a user count: the JQL groups by [space, macro_uuid] and counts the
+        # groups, so this is how many DISTINCT MACROS were viewed in the space.
+        # A column reading 383 next to 89 actual viewers is normal. For people,
+        # query Mixpanel directly: macro_viewed unique, broken down by
+        # confluence_space. (Misread as a user count on 2026-08-07, nearly
+        # putting a 4x-wrong figure into a customer email.)
+        print(f"| Space KEY | KV total | KV variant | MP {'%dd' % 90} distinct macros viewed |")
         print("|---|---|---|---|")
         kv_sum = 0
         mp_sum = 0
@@ -262,6 +299,22 @@ def print_report(bare, full, kv, kv_errors, d1, mp):
                 mp_sum += mpv
             print(f"| {k} | {kvt} | {var} | {mpv} |")
         print(f"| **TOTAL** | **{kv_sum}** | | **{mp_sum}** |")
+
+        # A space present on BOTH backends means the tenant migrated variants and the
+        # old backend still serves a frozen snapshot. Show what was discarded — the
+        # gap is the signal, and hiding it once nearly put an April number in a
+        # customer email (vin3s VARW, 2026-07-26).
+        shadowed = [(k, kv_spaces[k]) for k in all_keys
+                    if (kv_spaces.get(k) or {}).get("shadowed")]
+        if shadowed:
+            print("\n_Superseded records (same space on the other variant's backend — "
+                  "freshest kept):_\n")
+            print("| Space KEY | kept | from | superseded | from |")
+            print("|---|---|---|---|---|")
+            for k, row in shadowed:
+                sh = row["shadowed"]
+                print(f"| {k} | {row['total']} ({row['variant']}) | {row['lastUpdated']} "
+                      f"| {sh['total']} ({sh['variant']}) | {sh['lastUpdated']} |")
     else:
         print("_No KV or Mixpanel per-space data._")
     if kv_errors:
@@ -292,11 +345,11 @@ def print_report(bare, full, kv, kv_errors, d1, mp):
           "macros exist right now'.\n"
           "- Mixpanel = distinct `macro_uuid` (Forge localId = per *placement*) "
           "VIEWED in the window. Counts since-deleted and duplicated placements, "
-          "so it can run ABOVE KV; but the Forge **graph** viewer emits no view "
-          "event and never-viewed macros are absent, pulling it DOWN. Net: a "
+          "so it can run ABOVE KV. Current Graph emits views, but historical coverage "
+          "and never-viewed macros still matter. Net: a "
           "usage signal, not an inventory count — don't expect it to equal KV.\n"
-          "- D1 = cumulative rows ever created (may include since-deleted "
-          "macros); per-client only for Connect installs.\n"
+          "- D1 = successfully synced historical rows, potentially incomplete or since deleted. "
+          "This helper only queries legacy AppInstance mappings; no live-inventory bound.\n"
           "The three answer different questions, so divergence is expected and "
           "informative — large gaps are signal, not error.")
 

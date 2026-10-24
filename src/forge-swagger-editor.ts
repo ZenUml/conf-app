@@ -4,26 +4,31 @@ import "./assets/swagger-editor.css";
 import SpecListener from './utils/spec-listener'
 
 import React from 'react';
-import ReactDOM from 'react-dom';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import SwaggerEditor from "@/components/react/SwaggerEditor";
 // @ts-ignore
 import './assets/tailwind.css'
 
 import OpenApiExample from '@/model/OpenApi/OpenApiExample'
-import globals from '@/model/globals';
 import './utils/IgnoreEsc'
-import { Diagram, DataSource, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
-import { saveToPlatform } from "@/model/ContentProvider/Persistence";
-import MacroUtil from "@/model/MacroUtil";
+import { Diagram, DiagramType, NULL_DIAGRAM } from "@/model/Diagram/Diagram";
+import { openDocument } from '@/utils/documentOpening/openDocument';
+import { buildOpenApiEditorTarget } from '@/utils/documentOpening/targets/openApiTarget';
+import { saveToPlatform, LegacyLoadBlockedSaveError } from "@/model/ContentProvider/Persistence";
+import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from "@/model/saveFailureDiagnosis";
+import globals from "@/model/globals";
 import { trackEvent } from '@/utils/window';
 import { toast } from '@/utils/toast';
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { markPublishClicked, trackPublishCompleted } from "@/utils/analytics/publishTiming";
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
+import { markEditorAuthoringStarted, registerEditorCloseTracking, trackEditorClosedWithoutSave } from "@/utils/analytics/editorCloseOutcome";
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus';
 import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney } from '@/utils/journeyTracking';
+import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { createApp } from 'vue';
 import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
@@ -31,11 +36,21 @@ import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
-import { reportOrphanObserved, reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
+import { reportOrphanMacroRepaired } from '@/utils/orphanTelemetry';
 import { isValidCustomContentId } from '@/utils/customContentId';
+import { decideWriteback, deriveWritebackSignals } from "@/model/writebackGate";
 
 installRestoreDraftBanner();
 import SwaggerForgeEditorShell from '@/components/OpenApi/SwaggerForgeEditorShell.vue';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import {
+  buildOpenApiSaveDiagram,
+  captureOpenApiEditorBaseline,
+  createOpenApiEditorState,
+  hasOpenApiEditorChanges,
+  type OpenApiEditorBaseline,
+} from '@/model/OpenApi/OpenApiEditorState';
+import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 
 // Captured at editor open from extension.config.uuid; forwarded back through
 // view.submit's replace-semantics so Connect-era guestParams.uuid survives.
@@ -44,8 +59,13 @@ let originalConfigUuid: string | undefined;
 // ZEN-1170 Defect 2b: captured at editor open so the save callback can detect
 // when the persisted id differs from the macro's stale config id and repair
 // the macro XML via view.submit({config:...}).
-let originalCustomContentId: string | undefined;
-let recoveryPageId: string | undefined;
+//
+// Captured from OpenedDocument.origin once mountEditorDocument's
+// openDocument() call resolves (Slice 1 of the content-opening
+// unification) — replaces the old module-scope originalCustomContentId /
+// recoveryPageId variables the save handler used to read directly.
+let capturedOrigin: { originalCustomContentId?: string; recoveryPageId?: string; recoveredFromOrphan: boolean } =
+  { recoveredFromOrphan: false };
 // True when this editor was opened from the "My API Documents" dashboard's Edit
 // action — a standalone modal carrying the id via modal.customContentId, with no
 // macro on the dashboard space page. On that path the shared loader
@@ -71,6 +91,13 @@ const editorStartTime = Date.now();
 
 let swaggerReactMounted = false;
 let openApiDocumentHydrated = false;
+let isNewOpenApi = true;
+let editorBaseline: OpenApiEditorBaseline | undefined;
+
+function hadEditorChanges(): boolean {
+  return editorBaseline !== undefined
+    && hasOpenApiEditorChanges(editorBaseline, window.specContent, window.diagram);
+}
 
 function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
   if (!mountEl) {
@@ -82,10 +109,13 @@ function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
   }
   swaggerReactMounted = true;
 
-  ReactDOM.render(
-    React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
-    mountEl,
-  );
+  // SwaggerEditorBundle immediately queries the #swagger-editor element that
+  // this shell creates, so the concurrent root must commit before bootstrap.
+  flushSync(() => {
+    createRoot(mountEl).render(
+      React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
+    );
+  });
 
   const editor = SwaggerEditorBundle({
     dom_id: '#swagger-editor',
@@ -103,25 +133,28 @@ async function saveOpenApiAndExit() {
   // click in react/Header.tsx). Stopped at the redirect below.
   markPublishClicked();
   const code = window.specContent;
-  console.log('saveOpenApiAndExit - window.diagram', store.state.diagram);
-  const diagram = {
-    ...window.diagram,
-    code: code,
-    diagramType: DiagramType.OpenApi,
-    source: DataSource.CustomContent,
-    // Dashboard Edit: force an in-place update. CustomContentStorageProvider.save
-    // only updates when (id && !isCopy); the dashboard space page false-positives
-    // isCopy=true, which would otherwise fork a new doc ("editing made a new
-    // diagram"). Pin the known id and clear isCopy — the same guard
-    // buildAsyncApiSaveDiagram applies via pinToId for AsyncAPI dashboard edits.
-    // Gated on dashboardEditDocLoaded so a failed load can't pin + overwrite.
-    ...(isDashboardEdit && dashboardEditDocLoaded && originalCustomContentId
-      ? { id: originalCustomContentId, isCopy: false }
-      : {}),
-  };
-  console.log('saveOpenApiAndExit - diagram', JSON.stringify(diagram, null, 2));
+  // Dashboard Edit: force an in-place update. CustomContentStorageProvider.save
+  // only updates when (id && !isCopy); the dashboard space page false-positives
+  // isCopy=true, which would otherwise fork a new doc ("editing made a new
+  // diagram"). Pin the known id and clear isCopy — the same guard
+  // buildAsyncApiSaveDiagram applies via pinToId for AsyncAPI dashboard edits.
+  // Gated on dashboardEditDocLoaded so a failed load can't pin + overwrite.
+  const diagram = buildOpenApiSaveDiagram({
+    existing: window.diagram,
+    spec: code,
+    pinToId: isDashboardEdit && dashboardEditDocLoaded
+      ? capturedOrigin.originalCustomContentId
+      : undefined,
+  });
   // @ts-ignore
   window.diagram = Object.assign(window.diagram || {}, diagram);
+
+  // Record acceptance while the shared AI-title state still identifies this
+  // as an unmodified generated suggestion. Mirrors the sequence/graph saves.
+  notifyAiTitleSaved({
+    title: window.diagram?.title,
+    contentId: window.diagram?.id,
+  });
 
   // Captured before save. If the returned id differs from sourceId, the save
   // forked a new custom content (cross-page-copy / same-page-duplicate path)
@@ -136,37 +169,60 @@ async function saveOpenApiAndExit() {
     // @ts-ignore
     id = await saveToPlatform(window.diagram);
   } catch (error) {
+    // Persistence layer refused save because the direct fetch came back
+    // indeterminate (forbidden/5xx/malformed) rather than a confirmed
+    // absence — content may still exist, unverified. Retry won't help until
+    // that's resolved — direct the user to refresh / contact support instead
+    // (mirrors forge-graph-editor.ts's own LegacyLoadBlockedSaveError handling,
+    // with wording accurate to OpenAPI, which never used legacy content
+    // properties — see openApiTarget.ts).
+    if (error instanceof LegacyLoadBlockedSaveError) {
+      toast({
+        message: "This diagram's content couldn't be verified — saving is disabled to prevent data loss. Please refresh the page or contact support.",
+        duration: 8000,
+      });
+      EventBus.$emit('save-error', error);
+      return;
+    }
     console.error('saveOpenApiAndExit failed', error);
     // Release the Publish button — editor stays open for retry (react/Header.tsx).
     EventBus.$emit('save-error', error);
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
       http_status: (error as any)?.status || (error as any)?.statusCode || 'unknown',
+      error_code: (error as any)?.code,
+      error_shape: (error as any)?.errorShape,
     });
-    toast({ message: 'Failed to save. Please try again.', duration: 5000 });
+    // A create-time 404 is probed once (save_failed_diagnosed) so the toast can
+    // name a missing space permission instead of inviting a retry that cannot
+    // succeed — see model/saveFailureDiagnosis.ts.
+    const message = await diagnoseSaveFailure(error, { surface: 'editor', macro_type: 'openapi' }, globals.apWrapper);
+    toast({ message, duration: message === GENERIC_SAVE_FAILED_MESSAGE ? 5000 : 12000 });
     // Do NOT end journey, do NOT close — keep editor open so the user can retry.
     return;
   }
-  console.log('saveOpenApiAndExit - id', id);
-
   // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
   }
 
-  // ZEN-1170 Defect 2b: repair stale macro XML when we saved against the
-  // recovered sibling id. Only fires in surfaces where view.submit({config})
-  // actually persists (insert / isConfiguring). See forgeIndex.ts for the
-  // full rationale on viewer-launched modal contexts being a no-op.
-  const macroNeedsRepair = !!(originalCustomContentId && id && id !== originalCustomContentId);
+  // Capture derivation inputs now — window.diagram may move under the
+  // deferred writeback below.
+  const derivationInput = {
+    sourceId,
+    newId: id,
+    originalCustomContentId: capturedOrigin.originalCustomContentId,
+    // @ts-ignore
+    docSource: window.diagram?.source,
+    recoveredFromOrphan: capturedOrigin.recoveredFromOrphan,
+  };
 
   /* eslint-disable no-undef */
   setTimeout(async () => {
     const [inserting, configuring] = await Promise.all([isInserting(), isConfiguring()]);
-    const repairWillPersist = inserting || configuring;
-    const attemptRepair = repairWillPersist && macroNeedsRepair;
-    const idChanged = !!sourceId && !!id && id !== sourceId;
-    const needsWriteback = inserting || idChanged || attemptRepair;
+    const { attemptRepair, needsWriteback } = decideWriteback(
+      deriveWritebackSignals({ ...derivationInput, inserting, configuring })
+    );
     // Redirect starts now (view.submit / view.close below). Stop the clock.
     trackPublishCompleted({
       macro_type: 'openapi',
@@ -192,8 +248,8 @@ async function saveOpenApiAndExit() {
           updatedAt: new Date().toISOString(),
           ...(originalConfigUuid && { uuid: originalConfigUuid }),
         }});
-        if (attemptRepair && originalCustomContentId) {
-          reportOrphanMacroRepaired(recoveryPageId, originalCustomContentId, id, 'openapi');
+        if (attemptRepair && capturedOrigin.originalCustomContentId) {
+          reportOrphanMacroRepaired(capturedOrigin.recoveryPageId, capturedOrigin.originalCustomContentId, id, 'openapi');
         }
       } else {
         await (await getView()).close();
@@ -217,14 +273,13 @@ async function saveOpenApiAndExit() {
 }
 
 async function exit() {
-  const codeChanged = window.diagram?.code !== window.specContent;
+  const hadChanges = hadEditorChanges();
   
   // Prepare event data
-  const isNewOpenApi = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.OpenApi;
   const elapsedTimeMs = Date.now() - editorStartTime;
   
   const eventProps = {
-    had_changes: codeChanged,
+    had_changes: hadChanges,
     source: 'swagger_editor',
     elapsed_time_ms: elapsedTimeMs,
     code_length: store.state.diagram.code?.length || 0,
@@ -232,7 +287,7 @@ async function exit() {
     session_id: getOrCreateSession(),
   };
   
-  if (codeChanged) {
+  if (hadChanges) {
     // Show custom modal dialog for Forge
     const result = await showCloseWithoutSavingDialog();
     
@@ -240,6 +295,7 @@ async function exit() {
       // User confirmed exit - track exit event
       const exitEventAction = isNewOpenApi ? 'create_macro_exit' : 'edit_macro_exit';
       trackEvent('', exitEventAction, DiagramType.OpenApi, eventProps);
+      await trackEditorClosedWithoutSave('discard_dialog');
       
       // End journey on exit
       if (getEditJourneyId()) {
@@ -302,12 +358,24 @@ async function initializeMacro() {
   // reintroduces a dashboard Edit that opens THIS editor as a standalone modal
   // carrying the id via modal.customContentId, so the fallback is required
   // again. saveOpenApiAndExit pins the save for that path (see isDashboardEdit).
+  // configContentId stays a RAW config read: isDashboardEdit means "no config,
+  // came in through the modal", so it must not see any fallback. The pasted
+  // deeplink is folded into customContentId only — a pasted OpenAPI macro is a
+  // page macro, not a dashboard edit.
   const configContentId = context.extension?.config?.customContentId;
   const modalContentId = context.extension?.modal?.customContentId;
-  const customContentId = configContentId || modalContentId;
+  const customContentId = resolveEffectiveCustomContentId(context);
+  isNewOpenApi = !customContentId;
+  // The journey started before this resolved, so tell it what kind of session
+  // it is now that we know. Drives macro_authoring_ended's operation_mode.
+  setEditJourneyMeta({
+    macroType: 'openapi',
+    operationMode: customContentId ? 'edit' : 'create',
+  });
   isDashboardEdit = !configContentId && !!modalContentId;
-  originalCustomContentId = customContentId;
-  recoveryPageId = context.extension?.content?.id;
+  // Passed to openDocument() below as `pageId`; the resolved id/recovery
+  // origin it feeds back is captured into `capturedOrigin`, not this const.
+  const recoveryPageId = context.extension?.content?.id;
   if (isDashboardEdit) {
     // Volume signal for the dashboard-edit path. Was a regression detector when
     // the modal fallback was treated as a bug; now it measures the intended
@@ -326,46 +394,47 @@ async function initializeMacro() {
     }
     openApiDocumentHydrated = true;
 
-    let doc: Diagram | undefined;
-    if (!customContentId) {
-    } else {
-      const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(recoveryPageId, customContentId);
-      console.log('loadDiagram - customContent', loaded.customContent, 'recoveredFromOrphan?', loaded.recoveredFromOrphanId);
-      doc = loaded.customContent?.value;
-      if (loaded.recoveredFromOrphanId && doc) {
-        doc.recoveredFromOrphan = true;
-        doc.recoveredFromOrphanId = loaded.recoveredFromOrphanId;
-        reportOrphanObserved(recoveryPageId, customContentId, 'openapi', loaded.probeResult, {
-          recoveryUsed: true,
-          recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
-        });
-      } else if (!doc) {
-        reportOrphanObserved(recoveryPageId, customContentId, 'openapi', loaded.probeResult, { recoveryUsed: false });
-      }
-    }
+    const outcome = await openDocument({
+      policy: 'write',
+      context,
+      pageId: recoveryPageId,
+      target: buildOpenApiEditorTarget(),
+    });
 
-    // ZEN-1170 Defect 1 sibling (PR #139): cross-page-paste recovery via
-    // uuid → CC title. OpenAPI macros never used content properties (no
-    // step 2 fallback exists), but the Connect-era {uuid, updatedAt}-only
-    // param shape exists for them too — copy-paste leaves the destination
-    // with no customContentId. Without this fallback the editor would
-    // mount OpenApiExample and a first save would wipe the recovered spec.
-    if (!doc) {
-      const storageUuid = context.extension?.config?.uuid;
-      if (storageUuid) {
-        const recovered = await globals.apWrapper.findLegacyCustomContentByUuid(storageUuid);
-        if (recovered?.value) {
-          doc = recovered.value;
-          doc.recoveredFromOrphan = true;
-          trackEvent(storageUuid, 'legacy_custom_content_by_uuid_restored', 'info', {
-            surface: 'editor',
-            macro_type: 'openapi',
-            recovered_id: String(recovered.id ?? ''),
-            is_copy: doc.isCopy ? 'true' : 'false',
-            ...(recoveryPageId && { page_id: recoveryPageId }),
-          });
-        }
-      }
+    let doc: Diagram | undefined;
+    if (outcome.kind === 'opened') {
+      doc = outcome.document.doc;
+      capturedOrigin = {
+        originalCustomContentId: outcome.document.origin.originalCustomContentId,
+        recoveryPageId: outcome.document.origin.recoveryPageId,
+        recoveredFromOrphan: outcome.document.origin.recoveredFromOrphan,
+      };
+    } else if (outcome.error.indeterminate) {
+      // An id existed but the failure was indeterminate (forbidden/5xx/
+      // malformed on the direct fetch) — content may still exist, just
+      // unverifiable right now. Data-integrity guard: mount NULL_DIAGRAM
+      // with legacyLoadBlocked set so saveToPlatform refuses to persist
+      // over it, instead of silently letting Publish overwrite the real
+      // document with a blank template.
+      doc = { ...NULL_DIAGRAM, legacyLoadBlocked: true };
+      capturedOrigin = { recoveredFromOrphan: false };
+    } else {
+      // A clean, confirmed-absent customContentId (deleted, or nothing ever
+      // existed) with nothing left to recover — self-heals like a brand-new
+      // macro: a fresh save creates a new document, and originalCustomContentId
+      // (the now-dead id) still drives deriveWritebackSignals' macroNeedsRepair
+      // so the macro config gets repointed at the replacement, mirroring
+      // forge-graph-editor.ts's own not-found repair path. That repoint only
+      // happens on submittable surfaces (inserting || configuring) though —
+      // in the in-viewer Edit modal, decideWriteback correctly returns
+      // needsWriteback: false (issue #170's pre-existing gate) and the macro
+      // keeps pointing at the dead id.
+      doc = { ...NULL_DIAGRAM };
+      capturedOrigin = {
+        originalCustomContentId: outcome.error.customContentId,
+        recoveryPageId,
+        recoveredFromOrphan: false,
+      };
     }
 
     // Record that a dashboard-edit target actually loaded with content, so
@@ -374,10 +443,19 @@ async function initializeMacro() {
       dashboardEditDocLoaded = true;
     }
 
-    store.state.diagram = doc ?? NULL_DIAGRAM;
+    // Swagger renders OpenApiExample for a new macro. Mirror that visible spec
+    // (and the OpenAPI type) into Vuex so SyntaxErrorBox/AIRepair does not read
+    // an empty code value from the Unknown sentinel diagram.
+    const editorDiagram = createOpenApiEditorState(doc);
+    // Store plain strings before Vuex, Swagger's spec listeners, and React's
+    // title synchronization can mutate this same diagram object.
+    editorBaseline = captureOpenApiEditorBaseline(editorDiagram);
+    store.state.diagram = editorDiagram;
 
-    // @ts-ignore
-    window.diagram = doc;
+    // Header title edits and saveOpenApiAndExit both use window.diagram. New
+    // macros must share this initialized object too, otherwise their title is
+    // visible in React but absent from the custom-content save payload.
+    window.diagram = editorDiagram;
 
     // Telemetry: existing macro (customContentId set) loaded with an empty
     // spec. Wipe-precursor signal aligned with the cross-editor event in
@@ -391,11 +469,9 @@ async function initializeMacro() {
       });
     }
 
-    console.log('-------------- loaded spec:', doc?.code);
     // eslint-disable-next-line
     // @ts-ignore
-    window.updateSpec(doc?.code || OpenApiExample);
-    console.log('-------------- updateSpec with:', doc?.code);
+    window.updateSpec(store.state.diagram.code || OpenApiExample);
 
     // Initialize spec listeners for validation and store sync
     window.specListeners = window.specListeners || [];
@@ -414,26 +490,43 @@ async function initializeMacro() {
     const syntaxErrorBoxContainer = document.getElementById('syntax-error-box');
     if (syntaxErrorBoxContainer) {
       syntaxErrorBoxContainer.style.fontSize = '14px'; // Set a consistent base font size
-      createApp(SyntaxErrorBox).use(store).mount(syntaxErrorBoxContainer);
+      createApp(SyntaxErrorBox, {
+        onRequestAiChatRepair: () => {
+          window.dispatchEvent(new CustomEvent('ai-chat-request-syntax-repair'));
+        },
+      }).use(store).mount(syntaxErrorBoxContainer);
     }
 
     // Track begin event (create or edit)
-    const isNew = await MacroUtil.isCreateNew();
-    if (isNew) {
+    // conf-app: MacroUtil.isCreateNew() reads only extension.config.customContentId
+    // (ApWrapper2.getMacroData), so an existing macro opened from the modal
+    // surface reported as a CREATE. Measured 2026-08-06..09-04: 58 graph and 37
+    // openapi "creates" ended in macro_save_succeeded, versus 1 for the DSL
+    // editor, which has always used the fuller resolver below.
+    markEditorAuthoringStarted();
+    if (isNewOpenApi) {
       trackAnalyticsEvent('macro_create_started', {
         feature_area: 'macro',
         surface: 'editor',
         macro_type: 'openapi',
         entry_point: 'page_editor',
+        ...getCreationFlowProps(),
       });
     } else {
-      trackAnalyticsEvent('macro_edit_opened', {
+      trackAnalyticsEvent('macro_edit_started', {
         feature_area: 'macro',
         surface: 'editor',
         macro_type: 'openapi',
         entry_point: 'macro_toolbar',
       });
     }
+    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled)
+    // on the Atlassian modal X; exit() below covers the in-editor discard.
+    registerEditorCloseTracking({
+      getMacroType: () => 'openapi',
+      operationMode: isNewOpenApi ? 'create' : 'edit',
+      hadChanges: hadEditorChanges,
+    });
 
     // Trigger initial validation after a short delay to ensure everything is set up
     setTimeout(() => {

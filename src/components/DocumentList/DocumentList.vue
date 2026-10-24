@@ -52,8 +52,12 @@
                 :key="containerPage.id"
                 class="block px-6 py-3 bg-white border-t hover:bg-gray-50">
                 <div class="mt-2 text-sm text-gray-600">
+<!-- @click.prevent + openUrl: the Forge iframe sandbox has no
+                       allow-popups, so a bare target="_blank" anchor click is
+                       silently dropped. -->
                   <a :href="`${baseUrl}${containerPage.id}`"
                     target="_blank"
+                    @click.prevent="openUrl(`${baseUrl}${containerPage.id}`)"
                     class="flex items-center justify-between hover:underline group">
                     <span class="inline-block truncate">Page: {{ containerPage.title }}</span>
                     <svg xmlns="http://www.w3.org/2000/svg"
@@ -107,13 +111,13 @@
 
 <script>
 import PublishButton from "@/components/PublishButton.vue";
-import { DiagramType, getDiagramData } from "@/model/Diagram/Diagram";
-import { loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
+import { DiagramType } from "@/model/Diagram/Diagram";
+import { getDiagramData, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { AtlasPage } from "@/model/page/AtlasPage";
 import _ from 'lodash';
 import { trackEvent } from "@/utils/window";
-import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
+import { getContext as initForgeContext, openUrl } from '@/model/globals/forgeGlobal';
 import globals from '@/model/globals';
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { primeCloudId, getCachedCloudId, saveDraftSync } from "@/utils/draftStore";
@@ -142,7 +146,6 @@ export default {
       return DiagramType;
     },
     filteredCustomContentList() {
-      console.debug(`current filterKeyword: ${this.filterKeyword}`);
 
       const results = this.customContentList.filter(item => {
         if (!item?.id) {
@@ -161,7 +164,6 @@ export default {
         }
         return false;
       });
-      console.debug(`filteredCustomContentList:`, results);
       return results;
     },
     filteredPageList() {
@@ -169,7 +171,6 @@ export default {
       const emptyContainer = { id: '', title: '' };
       const pages = Object.keys(map).map(k => Object.assign({}, map[k][0].container || emptyContainer, { customContents: map[k] }));
       const sorted = _.sortBy(pages, [p => p.title?.toLowerCase()]);
-      console.debug(`filteredPageList:`, sorted);
       return sorted;
     },
     previewComponent() {
@@ -202,7 +203,6 @@ export default {
   watch: {
     picked: {
       async handler(newPicked) {
-        console.log('DocumentList - picked', newPicked);
         // Capture the initial selection as the baseline for dirty-state detection.
         // `picked` is set asynchronously by initializeForForge/Connect, so we can't
         // capture in mounted(); the first non-empty value is our baseline.
@@ -263,6 +263,7 @@ export default {
     }
   },
   methods: {
+    openUrl,
     startSaving() {
       this.isSaving = true;
       // Safety net so an unexpected hang can't strand the spinner (embed save
@@ -279,12 +280,10 @@ export default {
       const context = await initForgeContext();
       const customContentId = context.extension?.config?.customContentId;
       
-      console.debug(`Forge mode - custom content id: ${customContentId}`);
       
       if (customContentId) {
         // Load the specific custom content
         const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-        console.debug(`Forge mode - loaded custom content:`, customContent);
         
         if (customContent) {
           this.picked = customContent;
@@ -293,8 +292,7 @@ export default {
       }
       
       // Load all custom content for the list
-      this.customContentList = await globals.apWrapper.searchCustomContentForge();
-      console.debug(`Forge mode - loaded custom content list:`, this.customContentList);
+      this.customContentList = await globals.apWrapper.searchCustomContent();
     },
 
     setFilter(docType) {
@@ -320,11 +318,9 @@ export default {
 
         window.diagram = diagram;
 
-        console.log('DocumentList: Updated store with selected document', diagram);
       }
     },
     async getPreviewComponentForForge(diagramType) {
-      console.log('getPreviewComponentForForge', diagramType);
       if (this.previewComponentCache[diagramType]) {
         return this.previewComponentCache[diagramType];
       }

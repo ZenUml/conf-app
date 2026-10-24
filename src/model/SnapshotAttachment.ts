@@ -23,10 +23,14 @@ import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import global from '@/model/globals';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { MacroTypeValue } from '@/utils/analytics/catalog';
+import { toMacroType } from '@/utils/byline/pageDiagrams';
 import { callRemote } from '@/utils/requestUtil';
+import { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/Attachment';
+import { isSnapshotWriteDenied, markSnapshotWriteDenied } from '@/utils/snapshot/denialMemo';
 
 const SNAPSHOT_TYPES: ReadonlyArray<DiagramType> = [
-  DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml,
+  DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown,
 ];
 
 export interface DiagramSnapshotV1 {
@@ -155,10 +159,82 @@ export async function uploadSnapshot(pageId: string, snapshot: DiagramSnapshotV1
   }
   const result: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
   if (!result?.ok) {
-    throw new Error(
-      `snapshot upload HTTP ${typeof result?.status === 'number' ? result.status : 0}: ${String(result?.body ?? 'backend upload failed')}`,
-    );
+    const status = typeof result?.status === 'number' ? result.status : 0;
+    // Attach the HTTP status so callers can classify an expected best-effort
+    // skip (401/403 no write permission, 404 draft page) apart from a genuine
+    // failure (5xx / transport) without re-parsing the message string.
+    const err = new Error(
+      `snapshot upload HTTP ${status}: ${String(result?.body ?? 'backend upload failed')}`,
+    ) as Error & { status?: number };
+    err.status = status;
+    throw err;
   }
+}
+
+/**
+ * Classify a caught snapshot-upload error into an EXPECTED, by-design skip vs a
+ * genuine failure. The snapshot write is best-effort and must degrade silently
+ * (see the module header), so the two normal outcomes below should not pollute
+ * the `snapshot_create_failed` error signal:
+ *
+ * - `no_write_permission` (401/403): the app-auth upload was denied — typically
+ *   a read-only viewer with no attachment-write permission. This is the
+ *   #211/#162 "viewer-triggered uploads are unreliable" case the original plan
+ *   avoided by writing only from permission-guaranteed surfaces.
+ * - `page_not_published` (404): the host page is an unpublished draft, so there
+ *   is nothing to attach to yet; the save-path/backfill self-heals after
+ *   publish (same benign 404 the PNG backup recovers from).
+ *
+ * Returns `undefined` for anything else (5xx, transport error, unexpected) —
+ * those remain genuine `snapshot_create_failed` failures. Reads a numeric
+ * `.status` off the error when present (set by `uploadSnapshot`), falling back
+ * to parsing `HTTP <nnn>` from the message.
+ */
+/**
+ * Build the analytics failure fields for a snapshot write error (#398).
+ *
+ * `failure_reason` used to be `String(e.message).substring(0, 200)`. The
+ * Confluence v1 error envelope is ~180 chars, so the wrapper consumed the whole
+ * budget and every recorded reason ended mid-sentence inside it
+ * ("...api.PermissionException: Us"). PR #395/#396 fixed exactly this on the
+ * attachment paths; reuse their extractor here rather than duplicating it —
+ * both live in `src/`, so unlike the `functions/` side this is a real import.
+ */
+/**
+ * `confluence_error_class` is ALWAYS returned, using the explicit `'none'`
+ * sentinel when the envelope carries no parseable class — it is never omitted.
+ *
+ * An absent property and an unparseable class are indistinguishable in a
+ * Mixpanel query, which is the exact ambiguity #398 was filed about, and the
+ * reason #435 chose `macro_type: 'none'` over omission. Omission also cannot be
+ * told apart from "this event predates the change". Callers therefore spread
+ * the field unconditionally; do not reintroduce a `? {...} : {}` guard.
+ */
+export const NO_CONFLUENCE_ERROR_CLASS = 'none';
+
+export function snapshotFailureDetail(e: unknown): {
+  failure_reason: string;
+  confluence_error_class: string;
+} {
+  const raw = String(e instanceof Error ? e.message : e);
+  const detail = extractConfluenceMessage(raw);
+  return {
+    failure_reason: detail.substring(0, 200),
+    confluence_error_class: parseConfluenceErrorClass(detail) || NO_CONFLUENCE_ERROR_CLASS,
+  };
+}
+
+export function snapshotSkipReason(
+  e: unknown,
+): 'no_write_permission' | 'page_not_published' | undefined {
+  let status = (e as { status?: number } | undefined)?.status;
+  if (typeof status !== 'number' || status === 0) {
+    const m = /HTTP (\d{3})/.exec(String(e instanceof Error ? e.message : e));
+    status = m ? Number(m[1]) : undefined;
+  }
+  if (status === 401 || status === 403) return 'no_write_permission';
+  if (status === 404) return 'page_not_published';
+  return undefined;
 }
 
 
@@ -213,6 +289,12 @@ export async function fetchSnapshot(pageId: string, ccId: string): Promise<Diagr
  *
  * Either branch skips entirely when a snapshot already exists at least as
  * fresh as the current CC version.
+ *
+ * Viewer surface only, additionally: skips entirely (no fetch, no upload, no
+ * event) when this host page's app-authenticated write is already
+ * known-denied (see `src/utils/snapshot/denialMemo.ts`, #387) — every OTHER
+ * view of a permanently-denied page would otherwise re-attempt and re-403
+ * forever, which is what made `viewer_backfill` 76%+ of `snapshot_create_failed`.
  */
 export async function maybeBackfillSnapshot(opts: {
   hostPageId: string;
@@ -224,10 +306,16 @@ export async function maybeBackfillSnapshot(opts: {
 }): Promise<void> {
   const surface = opts.isDisplayMode ? 'viewer' : 'editor';
   const snapshotTrigger = opts.isDisplayMode ? 'viewer_backfill' : 'editor_backfill';
+  const macroType = toMacroType(opts.diagram?.diagramType ?? '') as MacroTypeValue;
   try {
     if (!opts.isDisplayMode) {
       // Editor surface: cross-page aliases only (see doc comment above).
       if (!opts.ccPageId || String(opts.ccPageId) === String(opts.hostPageId)) return;
+    } else if (isSnapshotWriteDenied(opts.hostPageId)) {
+      // Viewer surface, known-denied page (#387): stop repeat-attempting a
+      // write we already confirmed 401/403s here. Not a permission predictor —
+      // only reached after a REAL denial was already recorded (see below).
+      return;
     }
     // Viewer surface falls through unconditionally — any macro qualifies.
     const existing = await fetchSnapshot(opts.hostPageId, opts.ccId);
@@ -239,25 +327,55 @@ export async function maybeBackfillSnapshot(opts: {
       feature_area: 'macro',
       surface,
       snapshot_trigger: snapshotTrigger,
+      macro_type: macroType,
       custom_content_id: opts.ccId,
       attachment_name: snapshotAttachmentName(opts.ccId),
     });
   } catch (e) {
+    const { failure_reason, confluence_error_class } = snapshotFailureDetail(e);
+    const skipReason = snapshotSkipReason(e);
+    if (skipReason) {
+      if (surface === 'viewer' && skipReason === 'no_write_permission') {
+        // Memo the denial (#387) so every OTHER view of this page stops
+        // re-attempting a write we just confirmed 401/403s — see
+        // denialMemo.ts. Deliberately NOT done for page_not_published: that
+        // 404 is expected to self-heal on the very next view once the page
+        // publishes, and memoing it would defeat the new-page recovery case.
+        markSnapshotWriteDenied(opts.hostPageId);
+      }
+      // Expected best-effort skip (read-only viewer / unpublished draft), not a
+      // failure — record it as such so snapshot_create_failed stays a real
+      // error signal while we keep visibility into the write-coverage gap.
+      trackAnalyticsEvent('snapshot_backfill_skipped', {
+        feature_area: 'macro',
+        surface,
+        snapshot_trigger: snapshotTrigger,
+        macro_type: macroType,
+        custom_content_id: opts.ccId,
+        snapshot_skip_reason: skipReason,
+        failure_reason,
+        confluence_error_class,
+      });
+      return;
+    }
     trackAnalyticsEvent('snapshot_create_failed', {
       feature_area: 'macro',
       surface,
       snapshot_trigger: snapshotTrigger,
+      macro_type: macroType,
       custom_content_id: opts.ccId,
-      failure_reason: String(e instanceof Error ? e.message : e).substring(0, 200),
+      failure_reason,
+      confluence_error_class,
     });
   }
 }
 
 // Verified against Diagram model / DiagramTypeConfig: field is plantUmlCode
 // (capital U), not plantumlCode.
-const DSL_FIELD: Record<string, 'code' | 'mermaidCode' | 'plantUmlCode'> = {
+const DSL_FIELD: Record<string, 'code' | 'mermaidCode' | 'plantUmlCode' | 'markdownCode'> = {
   [DiagramType.Sequence]: 'code',
   [DiagramType.Mermaid]: 'mermaidCode',
+  [DiagramType.Markdown]: 'markdownCode',
   [DiagramType.PlantUml]: 'plantUmlCode',
 };
 

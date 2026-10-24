@@ -3,7 +3,23 @@
  */
 import { SyntaxValidationResult } from '../validate/types';
 
-const loadZenUml = () => import("@zenuml/core").then(module => module.default);
+interface ZenumlErrorDetail {
+  line: number;
+  column: number;
+  msg: string;
+}
+
+interface ZenumlParseResult {
+  pass: boolean;
+  errorDetails: ZenumlErrorDetail[];
+}
+
+// Headless, reentrant parser entry. `new ZenUml(el).parse()` mounts a React
+// root and appends a headlessui portal root to document.body on every call,
+// and neither is ever torn down.
+const loadZenumlParser = () =>
+  // @ts-expect-error -- root tsconfig `moduleResolution: "node"` cannot see `exports` subpaths
+  import('@zenuml/core/parser') as Promise<{ validate(code: string): ZenumlParseResult }>;
 
 /**
  * Function to validate sequence syntax and return validation result
@@ -20,14 +36,12 @@ export const validateSequenceSyntax = async (code: string): Promise<SyntaxValida
   }
 
   try {
-    // Dynamically import sequence parser to access the parse function
-    const ZenUml = await loadZenUml();
-    const zenuml = new ZenUml(document.createElement('div'));
-    const result = await zenuml.parse(code);
+    const { validate } = await loadZenumlParser();
+    const result = validate(code);
 
     if (!result.pass && result.errorDetails && result.errorDetails.length > 0) {
       // 1. Get all error messages and merge them
-      const errorMessages = result.errorDetails.map((err: any) => 
+      const errorMessages = result.errorDetails.map((err) => 
         `at line ${err.line}, column ${err.column}: ${err.msg}`
       );
       const combinedErrorMessage = `Sequence syntax error: ${errorMessages.join('\n')}`;

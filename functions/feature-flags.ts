@@ -23,27 +23,36 @@ async function handleCustomerSuccessService(
   }
 }
 
-async function handleLitePngExport(
-  kvService: KVNamespace,
-  client: string,
-  result: Record<string, unknown>,
-) {
-  const litePngExportKeys = ['LITE_PNG_EXPORT_ENABLED', 'LITE_PNG_EXPORT_TRIAL', 'LITE_PNG_EXPORT_LOCKED'];
-  for (const key of litePngExportKeys) {
-    const raw = await kvService.get(key);
-    const ENABLED_DOMAINS: string[] = raw?.split(',').map((d) => d.trim()) || [];
-    if (ENABLED_DOMAINS.some((d) => d !== '' && client === d)) {
-      const flagType = key.split('_').pop();
-      if (flagType) {
-        result.LITE_PNG_EXPORT = { status: flagType };
-        break;
-      }
-    }
-  }
+/**
+ * Lite paywall default-on exemption decision (docs/superpowers/specs/
+ * 2026-08-04-lite-paywall-default-on-design.md). Reads `PAYWALL_EXEMPTIONS`
+ * — a JSON object keyed by Confluence subdomain prefix, boolean values only,
+ * with `"*"` as the fleet-wide kill switch. On any missing/unreadable/
+ * malformed/non-object/non-boolean-valued input, leave `PAYWALL_EXEMPT`
+ * ABSENT from the result rather than defaulting it to `false` — a missing
+ * result is an unavailable decision, not evidence the tenant is safe to
+ * restrict (the frontend composable turns an absent property into
+ * `fail_open`, which disables the paywall).
+ */
+function isBooleanOnlyObject(value: unknown): value is Record<string, boolean> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.values(value).every((v) => typeof v === 'boolean');
 }
 
-function handleTest(result: Record<string, unknown>) {
-  result.TEST = { enabled: true, data: 'test data' };
+async function handlePaywallExempt(
+  kvService: KVNamespace,
+  clientDomainInQuery: string,
+  result: Record<string, unknown>,
+) {
+  try {
+    const raw = await kvService.get('PAYWALL_EXEMPTIONS');
+    if (!raw) return;
+    const exemptions: unknown = JSON.parse(raw);
+    if (!isBooleanOnlyObject(exemptions)) return;
+    result.PAYWALL_EXEMPT = exemptions['*'] === true || exemptions[clientDomainInQuery] === true;
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 const CORS_HEADERS = {
@@ -73,11 +82,8 @@ export async function onRequestGet({ request, env }: { request: Request; env: En
     if (queryAll || feat === 'CUSTOMER_SUCCESS_SERVICE') {
       await handleCustomerSuccessService(kvService, client, result);
     }
-    if (queryAll || feat === 'LITE_PNG_EXPORT') {
-      await handleLitePngExport(kvService, client, result);
-    }
-    if (queryAll || feat === 'TEST') {
-      handleTest(result);
+    if (queryAll || feat === 'PAYWALL_EXEMPT') {
+      await handlePaywallExempt(kvService, client, result);
     }
   }
 

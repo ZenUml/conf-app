@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Committed, known-good Confluence pages for the `render` suite's per-macro",
+    "fixtures, keyed by APP profile id (config/apps.ts APP_PROFILES) then macro",
+    "type. This file exists ONLY because the project's e2e test pages are never",
+    "deleted: without it, every CI run of the render suite would create 5 brand",
+    "new permanent Confluence pages, forever. tests/render/pages.setup.ts reuses",
+    "an id here after confirming (GET /wiki/api/v2/pages/{id}) it still exists",
+    "and is `status: current`; a stale or missing id self-heals by falling",
+    "through to creating a fresh page.",
+    "",
+    "This file is NOT authoritative by construction — it is authoritative",
+    "because pages.setup.ts prints a loud console line whenever it has to create",
+    "a page a fixture here should have covered. Whoever sees that line is the",
+    "one who keeps this file current; there is no other update path."
+  ],
+  "zenuml-lite@stg": {
+    "sequence": "257589321",
+    "graph": "256868419",
+    "openapi": "257785857",
+    "embed": "256704581",
+    "mermaid": "257687633"
+  }
+}

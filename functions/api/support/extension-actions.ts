@@ -10,20 +10,13 @@ import {
   createExtensionActionRuntime,
   type ExtensionActionEnv,
 } from '../../service/extensionActionRuntime';
+import { json } from '../../OkResponse';
+
+const NO_STORE = { 'Cache-Control': 'no-store' };
 
 interface Env extends ExtensionActionEnv {
   EXTENSION_AUTOMATION_SECRET?: string;
   MIXPANEL_TOKEN?: string;
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  });
 }
 
 function hasValidAutomationSecret(request: Request, env: Env): boolean {
@@ -36,16 +29,16 @@ async function readCommand(request: Request): Promise<ExtensionCommand | Respons
   try {
     body = await request.json();
   } catch {
-    return jsonResponse(400, { outcome: 'validation_failed', error: 'invalid_json' });
+    return json({ outcome: 'validation_failed', error: 'invalid_json' }, { status: 400, headers: NO_STORE });
   }
 
   if (!body || typeof body !== 'object') {
-    return jsonResponse(400, { outcome: 'validation_failed', error: 'invalid_command' });
+    return json({ outcome: 'validation_failed', error: 'invalid_command' }, { status: 400, headers: NO_STORE });
   }
 
   const command = body as Partial<ExtensionCommand>;
   if (command.action !== 'initial' && command.action !== 'feedback') {
-    return jsonResponse(400, { outcome: 'validation_failed', error: 'invalid_action' });
+    return json({ outcome: 'validation_failed', error: 'invalid_action' }, { status: 400, headers: NO_STORE });
   }
 
   if (
@@ -54,10 +47,10 @@ async function readCommand(request: Request): Promise<ExtensionCommand | Respons
     || typeof command.planOptionId !== 'string'
     || typeof command.description !== 'string'
   ) {
-    return jsonResponse(400, { outcome: 'validation_failed', error: 'invalid_command' });
+    return json({ outcome: 'validation_failed', error: 'invalid_command' }, { status: 400, headers: NO_STORE });
   }
   if ('days' in body || 'scope' in body) {
-    return jsonResponse(400, { outcome: 'validation_failed', error: 'policy_override_rejected' });
+    return json({ outcome: 'validation_failed', error: 'policy_override_rejected' }, { status: 400, headers: NO_STORE });
   }
 
   return command as ExtensionCommand;
@@ -85,7 +78,7 @@ function emitEvent(
       extension_days: action === 'initial' ? 7 : 15,
       ...properties,
     },
-  }], env.MIXPANEL_TOKEN).catch((error) => {
+  }], env.MIXPANEL_TOKEN, { runtime: env }).catch((error) => {
     console.warn('[extension-action] Mixpanel delivery failed', {
       event,
       reason: error instanceof Error ? error.name : 'unknown_error',
@@ -97,16 +90,16 @@ function emitEvent(
 
 export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil }) => {
   if (request.method !== 'POST') {
-    return jsonResponse(405, { outcome: 'validation_failed', error: 'method_not_allowed' });
+    return json({ outcome: 'validation_failed', error: 'method_not_allowed' }, { status: 405, headers: NO_STORE });
   }
   if (!env.EXTENSION_AUTOMATION_SECRET) {
-    return jsonResponse(500, { outcome: 'temporary_failure', error: 'server_configuration' });
+    return json({ outcome: 'temporary_failure', error: 'server_configuration' }, { status: 500, headers: NO_STORE });
   }
   if (!hasValidAutomationSecret(request, env)) {
-    return jsonResponse(401, {
+    return json({
       outcome: 'validation_failed',
       error: 'unauthorized',
-    });
+    }, { status: 401, headers: NO_STORE });
   }
 
   const command = await readCommand(request);
@@ -123,7 +116,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
       confluence_space: result.spaceKey,
       duration_ms: Date.now() - startedAt,
     }, waitUntil);
-    return jsonResponse(200, result);
+    return json(result, { status: 200, headers: NO_STORE });
   } catch (error) {
     if (error instanceof ExtensionActionError) {
       emitEvent(env, 'extension_action_failed', command.action, {
@@ -131,11 +124,11 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
         failure_reason: error.code,
         duration_ms: Date.now() - startedAt,
       }, waitUntil);
-      return jsonResponse(error.status, {
+      return json({
         outcome: error.retryable ? 'temporary_failure' : 'validation_failed',
         error: error.code,
         retryable: error.retryable,
-      });
+      }, { status: error.status, headers: NO_STORE });
     }
     emitEvent(env, 'extension_action_failed', command.action, {
       extension_failure_stage: 'unexpected',
@@ -145,10 +138,10 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
     console.error('[extension-action] unexpected failure', {
       reason: error instanceof Error ? error.name : 'unknown_error',
     });
-    return jsonResponse(500, {
+    return json({
       outcome: 'temporary_failure',
       error: 'unexpected_error',
       retryable: true,
-    });
+    }, { status: 500, headers: NO_STORE });
   }
 };

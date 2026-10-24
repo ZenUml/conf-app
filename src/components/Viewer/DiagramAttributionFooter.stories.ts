@@ -6,7 +6,8 @@ import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
  * The attribution footer under a rendered diagram (`data-testid="diagram-attribution"`).
  *
  * The component resolves display names through `forgeRequest` and the audience
- * count through `callRemote`, both of which reach `@forge/bridge`. Storybook
+ * count through getDiagramImpact (services/DiagramImpact.ts, which uses `callRemote`),
+ * both of which reach `@forge/bridge`. Storybook
  * aliases that specifier to `src/stubs/forge-bridge.ts` (see `.storybook/main.ts`),
  * so each story fills `stubResponses` in its own decorator rather than mocking
  * modules — Storybook has no `vi.mock`. `resetStubResponses()` runs first so a

@@ -9,7 +9,7 @@
 // the merged variant's globals + Forge bridge.
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import uuidv4 from '@/utils/uuid'
 import { getContext, getView } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -83,12 +83,11 @@ async function initializeMacro() {
     }
   }
 
-  ReactDOM.render(
+  createRoot(root).render(
     React.createElement(AsyncApiEmbedEditor, {
       onSelect: handleSelect,
       onCancel: handleCancel,
     }),
-    root,
   )
 }
 

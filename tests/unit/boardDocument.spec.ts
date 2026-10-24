@@ -8,7 +8,8 @@ import {
   resolveGraphXmlForMode,
   validateBoardXml,
 } from '@/utils/graph/boardDocument'
-import { DiagramType, getDiagramData } from '@/model/Diagram/Diagram'
+import { DiagramType } from '@/model/Diagram/Diagram'
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig'
 
 const DIAGRAM = '<mxfile><diagram name="Diagram"><mxGraphModel><root /></mxGraphModel></diagram></mxfile>'
 const BOARD = '<mxfile><diagram name="Board"><mxGraphModel><root /></mxGraphModel></diagram></mxfile>'

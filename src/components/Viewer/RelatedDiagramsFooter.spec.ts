@@ -138,6 +138,7 @@ function mountFooter(props: Partial<any> = {}, suppliedHost = host()) {
       ready: true,
       enabled: true,
       surface: 'viewer',
+      macroType: 'mermaid',
       svgHost: () => suppliedHost,
       ...props,
     },
@@ -192,11 +193,15 @@ describe('RelatedDiagramsFooter', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('1 of 2 participants also appear in other diagrams')
+    const formattedIndexedAt = new Date(twoParticipants.indexedAt).toLocaleDateString('en-AU', {
+      day: 'numeric',
+      month: 'short',
+    })
     // the index date is a date with no referent on the line itself; it rides in the tooltip
-    expect(wrapper.text()).not.toMatch(/as of \d{1,2} \w{3}/)
+    expect(wrapper.text()).not.toContain(`as of ${formattedIndexedAt}`)
     expect(
       wrapper.find('[data-testid="related-diagrams-footer"]').attributes('title'),
-    ).toMatch(/^Updated \d{1,2} \w{3}$/)
+    ).toBe(`Updated ${formattedIndexedAt}`)
     expect(pill(h, 'PA')?.textContent?.trim()).toBe('2')
     expect(pill(h, 'U')).toBeNull()
     expect(pill(h, 'RENAMED')).toBeNull()
@@ -222,6 +227,76 @@ describe('RelatedDiagramsFooter', () => {
         ([eventName]) => eventName === 'related_token_indicators_shown',
       ),
     ).toHaveLength(1)
+  })
+
+  // #582: every related_diagrams_* event used to hardcode macro_type 'mermaid', so ZenUML
+  // sequence lookups were invisible in Mixpanel. The footer reports the macro it is mounted on.
+  it.each([
+    ['sequence', 'related_diagrams_lookup_succeeded'],
+    ['sequence', 'related_token_indicators_shown'],
+    ['sequence', 'related_diagram_popover_opened'],
+    ['sequence', 'related_diagram_link_clicked'],
+    ['mermaid', 'related_diagrams_lookup_succeeded'],
+    ['mermaid', 'related_token_indicators_shown'],
+    ['mermaid', 'related_diagram_popover_opened'],
+    ['mermaid', 'related_diagram_link_clicked'],
+  ] as const)('reports macro_type %s on %s', async (macroType, eventName) => {
+    related.value = twoParticipants
+    const { h } = mountFooter({ macroType })
+    await flushPromises()
+    enterDiagram(h)
+    await flushPromises()
+    pill(h, 'PA')!.click()
+    await flushPromises()
+    links()[0].click()
+    await flushPromises()
+
+    expect(propertiesOf(eventName)).toMatchObject({ macro_type: macroType })
+  })
+
+  it('reports macro_type sequence when the lookup fails on a ZenUML sequence', async () => {
+    getRelatedDiagrams.mockRejectedValueOnce(new (RelatedLookupError as any)('network'))
+    mountFooter({ macroType: 'sequence' })
+    await flushPromises()
+
+    expect(propertiesOf('related_diagrams_lookup_failed')).toMatchObject({ macro_type: 'sequence' })
+  })
+
+  // The footer text and the circles come from two different reads of the SVG:
+  // `renderedActorIds()` accepts any element carrying `name`, `actorBox()` additionally
+  // requires `.actor-top`. When only the first matches, the footer promises N participants
+  // and the diagram draws zero circles — the 2026-08-28 shape of this defect. Nothing
+  // recorded that gap, so a live page could not be told apart from a page with no matches.
+  it('reports how many participants were anchored, so a promised-but-undrawn circle is visible in telemetry', async () => {
+    related.value = twoParticipants
+    const unanchorableHost = document.createElement('div')
+    unanchorableHost.style.position = 'relative'
+    // `name` present (so the participant survives the rendered-id filter) but no `.actor-top`.
+    unanchorableHost.innerHTML = '<svg><text name="PA">Partner App</text></svg>'
+    Object.defineProperty(unanchorableHost, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 20, right: 620, top: 10, bottom: 410, width: 600, height: 400 }),
+    })
+    document.body.appendChild(unanchorableHost)
+    mountFooter({}, unanchorableHost)
+    await flushPromises()
+
+    expect(unanchorableHost.querySelector('[data-testid="related-diagrams-pill"]')).toBeNull()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_token_indicators_shown',
+      expect.objectContaining({ participants_with_related: 1, participants_anchored: 0 }),
+    )
+  })
+
+  it('reports every participant as anchored when the SVG carries the matching actor boxes', async () => {
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'related_token_indicators_shown',
+      expect.objectContaining({ participants_with_related: 1, participants_anchored: 1 }),
+    )
   })
 
   it('drops every response participant when the current SVG has no [name] nodes', async () => {

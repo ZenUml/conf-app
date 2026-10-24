@@ -112,6 +112,8 @@ const props = defineProps<{
   ready: boolean
   enabled: boolean
   surface: 'viewer' | 'fullscreen'
+  /** The macro this footer is mounted on: a ZenUML sequence or a Mermaid sequenceDiagram. */
+  macroType: 'sequence' | 'mermaid'
   svgHost: () => HTMLElement | null
   pageId?: string
 }>()
@@ -235,7 +237,7 @@ const highlightStyle = computed(() => {
 const baseProperties = () => ({
   feature_area: 'architecture_tokens' as const,
   surface: props.surface,
-  macro_type: 'mermaid' as const,
+  macro_type: props.macroType,
   // Whether the macro was on screen when the render happened. Without it a
   // render count cannot be read as an opportunity to interact: measured over
   // 2026-08-15..09-02 on the two customer tenants, 54.8% of `macro_viewed`
@@ -378,11 +380,16 @@ async function load() {
   })
 
   if (!withRelated.value.length) return
+  // Lay the circles out first, then report how many actually got an anchor. The footer text
+  // and the circles read the SVG differently — `renderedActorIds()` takes any `name`, while
+  // `actorBox()` also needs `.actor-top` — so the footer can promise N participants while the
+  // diagram draws none. Without this count that gap is invisible: the event fired either way.
+  layoutPills()
   trackAnalyticsEvent('related_token_indicators_shown', {
     ...baseProperties(),
     ...countProperties(),
+    participants_anchored: pills.value.length,
   })
-  layoutPills()
   window.addEventListener('resize', onWindowResize)
   window.addEventListener('scroll', positionPopover, true)
   document.addEventListener('keydown', onKeyDown)

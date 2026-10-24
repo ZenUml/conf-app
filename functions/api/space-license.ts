@@ -1,3 +1,4 @@
+import { json } from '../OkResponse';
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
   ADMIN_API_SECRET: string;
@@ -19,13 +20,6 @@ interface LicenseIndexEntry {
   cloudId: string;
   spaceKey: string;
   userAccountId?: string;
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
 }
 
 function validateAdminAuth(request: Request, env: Env): boolean {
@@ -149,33 +143,33 @@ async function handlePost(
   try {
     body = await request.json();
   } catch {
-    return jsonResponse(400, { error: 'invalid_json', message: 'Invalid JSON body' });
+    return json({ error: 'invalid_json', message: 'Invalid JSON body' }, { status: 400 });
   }
 
   const { cloudId, spaceKey, expiresAt, activatedBy, paymentReference, userAccountId } = body;
 
   if (!cloudId || !spaceKey || !expiresAt || !activatedBy) {
-    return jsonResponse(400, {
+    return json({
       error: 'missing_fields',
       message: 'Required fields: cloudId, spaceKey, expiresAt, activatedBy',
-    });
+    }, { status: 400 });
   }
 
   // Validate expiresAt is a valid date
   if (isNaN(Date.parse(expiresAt))) {
-    return jsonResponse(400, {
+    return json({
       error: 'invalid_date',
       message: 'expiresAt must be a valid ISO 8601 date string',
-    });
+    }, { status: 400 });
   }
 
   // A user-scoped grant with a blank accountId would unlock anyone whose
   // token is missing a principal — refuse rather than write a placeholder key.
   if (userAccountId !== undefined && (typeof userAccountId !== 'string' || !userAccountId.trim())) {
-    return jsonResponse(400, {
+    return json({
       error: 'invalid_user_account_id',
       message: 'userAccountId must be a non-empty string when provided',
-    });
+    }, { status: 400 });
   }
 
   const { record, created } = await upsertSpaceLicense(kv, {
@@ -187,7 +181,7 @@ async function handlePost(
     paymentReference,
   });
 
-  return jsonResponse(created ? 201 : 200, record);
+  return json(record, { status: created ? 201 : 200 });
 }
 
 async function handleGet(
@@ -214,7 +208,7 @@ async function handleGet(
     records.push(record);
   }
 
-  return jsonResponse(200, { licenses: records, total: records.length });
+  return json({ licenses: records, total: records.length }, { status: 200 });
 }
 
 async function handleDelete(
@@ -227,20 +221,20 @@ async function handleDelete(
   const userAccountId = url.searchParams.get('userAccountId') || undefined;
 
   if (!cloudId || !spaceKey) {
-    return jsonResponse(400, {
+    return json({
       error: 'missing_params',
       message: 'Required query params: cloudId, spaceKey',
-    });
+    }, { status: 400 });
   }
 
   const key = kvKey(cloudId, spaceKey, userAccountId);
   const raw = await kv.get(key);
 
   if (!raw) {
-    return jsonResponse(404, {
+    return json({
       error: 'not_found',
       message: 'License not found',
-    });
+    }, { status: 404 });
   }
 
   const record = JSON.parse(raw) as SpaceLicenseRecord;
@@ -249,7 +243,7 @@ async function handleDelete(
 
   await kv.put(key, JSON.stringify(record));
 
-  return jsonResponse(200, record);
+  return json(record, { status: 200 });
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -258,24 +252,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   // Admin auth check — all methods require ADMIN_API_SECRET
   if (!env.ADMIN_API_SECRET) {
     console.error('ADMIN_API_SECRET environment variable is not set');
-    return jsonResponse(500, {
+    return json({
       error: 'server_configuration',
       message: 'ADMIN_API_SECRET not configured',
-    });
+    }, { status: 500 });
   }
 
   if (!validateAdminAuth(request, env)) {
-    return jsonResponse(401, {
+    return json({
       error: 'unauthorized',
       message: 'Invalid or missing admin API secret',
-    });
+    }, { status: 401 });
   }
 
   if (!env.SPACE_LICENSE_KV) {
-    return jsonResponse(500, {
+    return json({
       error: 'server_configuration',
       message: 'SPACE_LICENSE_KV binding not configured',
-    });
+    }, { status: 500 });
   }
 
   switch (request.method) {
@@ -286,9 +280,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     case 'DELETE':
       return handleDelete(request, env.SPACE_LICENSE_KV);
     default:
-      return jsonResponse(405, {
+      return json({
         error: 'method_not_allowed',
         message: 'Method Not Allowed',
-      });
+      }, { status: 405 });
   }
 };

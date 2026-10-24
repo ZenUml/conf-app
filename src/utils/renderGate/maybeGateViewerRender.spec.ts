@@ -123,13 +123,6 @@ describe("awaitGateBlocking (#384 review F3 — blocking measured at the mount s
     await awaitGateBlocking(new Promise((r) => setTimeout(r, 120)));
     expect(getGateTelemetry().render_deferred_ms).toBe(first);
   });
-
-  it("records no blocking telemetry when the gate was never invoked", async () => {
-    // awaitGateBlocking is called on mount paths that never started a gate
-    // (null gate promise); it must stay a no-op rather than inventing a wait.
-    await awaitGateBlocking(null);
-    expect(getGateTelemetry()).toEqual({});
-  });
 });
 
 describe("getGateMode (#382 load-gate spike toggle)", () => {

@@ -50,6 +50,8 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `measured_sum_ms` | Sum of the above four phases; `duration_ms − measured_sum_ms` is the unattributed remainder |
 | `tab_hidden` | `true` when the browser tab was backgrounded during load; exclude from percentile calculations |
 | `space_admin_count` | Count of space admins resolved for the current space (only on `macro_viewed`) |
+| `content_state` | Body classification at render time (#113), by `classifyContentState()` in `src/utils/analytics/contentState.ts`: `"default"` (body equals the bundled starter for the type), `"authored"` (anything else), `"empty"` (type-specific body field null, undefined or whitespace-only). A `custom_content_id` that was once `authored` and is now `empty` is a high-confidence wipe. **Where `empty` is observable:** every body-carrying type reports it, because the viewers' empty-body branches still send `macro_viewed` (with the verdict, once per mount, and without attempting a render): `sequence`, `openapi`, `asyncapi` on their normal path; `mermaid`, `graph` and `markdown` (empty string) from the empty branch; `plantuml` from its loaded body, including direct fetch, SWR cache and revalidation: the existing example fallback still renders, but runtime-only metadata preserves the original empty verdict. Whitespace-only bodies also report `empty`: Mermaid keeps its existing empty branch; PlantUML and Graph report before their existing validation/parsing, even when that path rejects the body; Markdown renders normally and reads `empty` on that path. The empty-branch event fires only for a document that loaded with an empty body of the viewer's own type (`isLoadedEmptyBody`); a never-loaded shell emits nothing. Absent when the load failed or the diagram never loaded (no verdict, never `empty`). `graph` `default` = a byte match of the empty-canvas seed (lzutf8 bodies are decompressed first); it is best-effort and rarely reached, because the editor saves DrawIO's own re-serialised `payload.xml`, not the seed string, so a blank canvas saved through the editor reads `authored`. `embed` has no body of its own: the referenced document's own type component classifies the referenced body |
+| `layout_wait_ms` | Mermaid only. Wall time the viewer waited for a measurable SVG text layout after `mermaid.render()` threw `svg element not in render tree` (collapsed or hidden macro). Absent when no wait happened. Included in `duration_ms`; exclude present values from render-time percentiles (#706) |
 
 ---
 
@@ -63,6 +65,8 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `surface` | `"editor"` |
 | `macro_type` | Diagram type of the new macro |
 | `entry_point` | `"page_editor"` (inserted via slash menu / macro browser) |
+| `creation_origin` | Surface that started the create: `page_editor` (default), `byline_view`, `byline_editor`, `dashboard`, `homepage` (reserved, no create path today), `unknown` (a carried value was not recognised). Separate from `entry_point`, which stays `page_editor` for every editor-hosted create |
+| `creation_flow_id` | UUID generated once per editor iframe and shared by this iframe's start, success and cancel events — the join key for one creation |
 
 ---
 
@@ -78,6 +82,7 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `operation_mode` | `"create"` |
 | `content_id` / `custom_content_id` | The newly-created custom content ID returned by the server |
 | `attachment_name` | `zenuml-{newId}.png` |
+| `creation_origin` / `creation_flow_id` | Same values as on `macro_create_started` for this iframe |
 
 ---
 
@@ -96,14 +101,32 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 ---
 
-### `macro_edit_cancelled`
+### `macro_create_cancelled` / `macro_edit_cancelled`
 
-**Trigger:** An existing Sequence / Mermaid / PlantUML editor has unsaved changes and the user
-confirms **Discard** in the close-without-saving dialog. Merely opening that dialog and choosing to
-keep editing does not fire it.
+**Trigger:** The editor iframe closed without a successful save. Fired from
+`src/utils/analytics/editorCloseOutcome.ts`, which every editor entry (sequence / mermaid /
+plantuml / markdown, graph, openapi, asyncapi, embed) registers on mount. The trigger is
+`view.onClose` — the Atlassian modal X, which is the only close control the Forge editors expose —
+plus the explicit discard dialog where one still exists. `markEditorSaved()` is called by the
+persistence layer at the moment a save is known to have succeeded, so a close that follows a save
+never fires it. At most one event per iframe.
 
-Carries `journey_id`, `session_id`, `had_global_replace`, `global_replace_count`,
-`post_replace_local_edit_count`, and final delta buckets from the active text-editor session.
+| Property | Notes |
+|---|---|
+| `macro_type` | Diagram type in the editor at close time |
+| `operation_mode` | `"create"` / `"edit"` — picks the event name |
+| `close_source` | `host_close` (modal X), `discard_dialog`, `exit_button` |
+| `had_changes` | Content differed from what was loaded; omitted when unknown |
+| `editor_open_duration_ms` | Mount → close |
+| `creation_origin` / `creation_flow_id` | `macro_create_cancelled` only: same values as on `macro_create_started` for this iframe |
+| mutation summary | On text-editor edits, the same `had_global_replace` / delta buckets as `macro_save_succeeded` |
+
+**History:** Until 2026-09-11 `macro_edit_cancelled` fired only when a user confirmed **Discard** in
+the text editors' close-without-saving dialog. That dialog is reached only from an exit button the
+header no longer renders, so the event recorded 0 occurrences in the 12 weeks to 2026-09-11 while
+the customer edit funnel (`macro_edit_started` → `macro_save_succeeded`, 1-hour window) lost ~17%
+of sessions. `macro_create_cancelled` did not exist before this date. Sent with the `sendBeacon`
+transport because the host destroys the iframe right after `view.onClose`.
 
 ---
 
@@ -258,7 +281,9 @@ emitted when the feature flag is off, and `related_token_indicators_shown` is no
 
 ## AI title generation
 
-### `ai_generation_requested`
+Renamed 2026-09-08 from `ai_generation_*`; pre-release data carries the old names.
+
+### `ai_title_generation_requested`
 
 **Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts` for Sequence/Mermaid/PlantUML, Graph and OpenAPI editors.
 
@@ -272,21 +297,21 @@ emitted when the feature flag is off, and `related_token_indicators_shown` is no
 
 ---
 
-### `ai_generation_succeeded`
+### `ai_title_generation_succeeded`
 
 **Trigger:** AI title API returned a non-empty title. Fired in `useAutoTitle.ts` after successful response parse.
 
-Same properties as `ai_generation_requested`.
+Same properties as `ai_title_generation_requested`.
 
 ---
 
-### `ai_generation_failed`
+### `ai_title_generation_failed`
 
 **Trigger:** AI title API returned a non-OK response or threw. Fired in `useAutoTitle.ts`.
 
 | Property | Notes |
 |---|---|
-| (all from `ai_generation_requested`) | |
+| (all from `ai_title_generation_requested`) | |
 | `failure_reason` | Raw error text from the API response or the caught exception message |
 
 ---
@@ -323,12 +348,6 @@ Same properties as `ai_generation_requested`.
 |---|---|
 | `feature_area` | `"ai"` |
 | `surface` | `"editor"` |
-
----
-
-### `ai_editor_opened` / `ai_feedback_submitted`
-
-Backend-declared events in `functions/service/analyticsTypes.ts`. Not emitted by the current client code.
 
 ---
 
@@ -384,12 +403,6 @@ Same properties as `paywall_triggered` with `action_type: "page_editor_create"`.
 
 ---
 
-### `upgrade_feature_enabled`
-
-Declared in `catalog.ts` but not currently emitted by client code. Reserved.
-
----
-
 ### `paywall_continue_used`
 
 **Trigger:** User clicks "Continue editing" in the paywall modal, decrementing the grace-window counter. Fired in `UpgradePrompt.vue`.
@@ -413,7 +426,7 @@ Same properties as `paywall_continue_used` with `remaining_attempts: 0`.
 
 ### `paywall_banner_shown`
 
-**Trigger:** The paywall warning banner (served from the `confluence:pageBanner` iframe) is committed to displaying. Fired in `PaywallWarningBanner.vue` on mount.
+**Trigger:** The paywall warning banner (served from the `confluence:pageBanner` iframe) is committed to displaying. Fired in `PaywallWarningBanner.vue` on every eligible mount. There is no dismissal or impression-frequency suppression. `show_count` and optional `hours_since_last_shown` remain descriptive analytics properties.
 
 | Property | Notes |
 |---|---|
@@ -427,9 +440,7 @@ Same properties as `paywall_continue_used` with `remaining_attempts: 0`.
 
 ### `paywall_banner_dismissed`
 
-**Trigger:** User clicks Dismiss on the paywall warning banner. Fired in `PaywallWarningBanner.vue`.
-
-Same properties as `paywall_banner_shown` plus `snooze_duration_days` (how long the banner is snoozed after dismiss).
+**Historical event:** Previously fired when a user dismissed the paywall warning banner, with the same properties as `paywall_banner_shown`. The persistent banner has no dismissal control and no longer emits this event. Legacy `dismissedAt` values do not suppress it.
 
 ---
 
@@ -492,21 +503,11 @@ Same properties as `paywall_banner_shown` plus `snooze_duration_days` (how long 
 
 ---
 
-## Content / sync
+## Tenant activity (D1 only)
 
-These events are declared in `functions/service/analyticsTypes.ts` and emitted by the backend or by legacy Connect code. The current Forge client does not emit them directly.
+### `page_updated`
 
-### `content_sync_requested` / `content_sync_succeeded` / `content_sync_failed`
-
-Fired by the backend when syncing diagram custom content to the D1 mirror.
-
-### `custom_content_loaded`
-
-Fired by the backend when a custom-content record is loaded from Confluence.
-
-### `confluence_page_viewed` / `confluence_page_updated`
-
-Fired by `forge-user-behavior.ts` (the `avi:confluence:viewed:page` / `avi:confluence:updated:page` product-event trigger) and stored in D1 `AnalyticsEventFact`. **Not** forwarded to Mixpanel (intentionally commented out in `functions/forge-user-behavior.ts`). These are tenant-level activity signals, not macro-view signals. See [reference.md](reference.md) for the distinction.
+Fired by `functions/forge-user-behavior.ts` from the `avi:confluence:updated:page` product-event trigger (mapped in `functions/service/forgeUserBehavior.ts`) and stored in D1 `AnalyticsEventFact`. **Not** forwarded to Mixpanel. This is a tenant-level activity signal, not a macro-view signal. See [reference.md](reference.md) for the distinction. The `avi:confluence:viewed:page` subscription (`page_viewed`) was removed from `manifest.yml` on 2026-06-06; rows with that name predate the removal.
 
 ---
 
@@ -554,6 +555,48 @@ Backend-declared event. Not currently emitted by client code.
 
 ---
 
+## What's new (page banner)
+
+The release-notes strip in the shared `confluence:pageBanner` host (`src/components/WhatsNew/WhatsNewBanner.vue`). Lowest priority in the host; shown only to browsers that rendered one of our macros on the site in the last 90 days, at most 3 times per release, inside the release's 30-day window (`src/utils/whatsNew/`). Every event carries `feature_area: "whats_new"`, `surface: "page_banner"` and `whats_new_release_id`.
+
+### `whats_new_banner_evaluated`
+
+**Trigger:** The banner component mounts — only on loads the host's synchronous gate admitted, never on ordinary page loads.
+
+| Property | Notes |
+|---|---|
+| `result` | `"shown"`, `"yielded_unplaced"` (the page carries the unplaced-diagram property, or the read could not rule it out) or `"failed"` |
+
+### `whats_new_banner_shown`
+
+**Trigger:** The strip is committed to displaying. The impression; denominator for expand and dismiss rates.
+
+| Property | Notes |
+|---|---|
+| `whats_new_show_count` | Which impression of this release this browser is on (1–3) |
+
+### `whats_new_banner_expanded`
+
+**Trigger:** The user clicks "See what's new" and the item list opens inline.
+
+### `whats_new_banner_dismissed`
+
+**Trigger:** The user dismisses the strip. Retires the release for this browser; the next release re-arms it.
+
+| Property | Notes |
+|---|---|
+| `whats_new_expanded` | Whether the list was opened before dismissing |
+
+### `whats_new_link_clicked`
+
+**Trigger:** The user opens an item's "Learn more" link.
+
+| Property | Notes |
+|---|---|
+| `whats_new_item_id` | The item's stable id within its release |
+
+---
+
 ## Error / system
 
 ### `viewer_load_failed`
@@ -566,6 +609,56 @@ Backend-declared event. Not currently emitted by client code.
 | `surface` | `"viewer"` |
 | `macro_type` | Diagram type that failed to render |
 | `failure_reason` | Error message string |
+
+---
+
+### `customcontent_orphan_observed`
+
+**Trigger:** A viewer/editor loaded a macro whose `customContentId` did not yield a document. Fired once per macro load by the owning entry (`forgeIndex.ts`, `forge-graph-*`, `forge-embed-viewer.ts`, `openDocument.ts`) via `reportOrphanObserved`.
+
+| Property | Notes |
+|---|---|
+| `diagram_kind` | `sequence \| graph \| openapi \| embed` |
+| `recoverable` | Probe verdict, or `probe_skipped_no_page_id` / `probe_skipped_no_probe_result` when no probe ran |
+| `recovery_used` | Whether a recovered sibling was used |
+| `direct_fetch_status` | Outcome of the by-id fetch that preceded any probe: `ok \| not_found \| other_error` |
+| `direct_fetch_http_status` | HTTP status from the first structured Confluence error (absent for thrown / malformed) |
+| `direct_fetch_error_code` | API error code, e.g. `NOT_FOUND`, `FORBIDDEN` (absent for thrown / malformed) |
+| `direct_fetch_error_class` | `thrown \| structured \| malformed`; absent when the fetch succeeded or not_found came from an invalid id |
+
+With `recoverable = probe_skipped_no_probe_result` the direct fetch failed for a reason other than a strict 404, so these fields say which one (403 vs 5xx vs thrown vs malformed). Added for #148.
+
+---
+
+### `viewer_render_deferred`
+
+**Trigger:** A Mermaid macro has been waiting more than 10 s for a measurable SVG text layout (`mermaid.render()` threw `svg element not in render tree`: collapsed expand, background tab, `display:none` ancestor). Fired once per wait, by `Mermaid.vue`. The wait itself is unchanged (no forced retry, no blank diagram); this event only makes a hidden macro distinguishable from a silently broken one (#706).
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"macro"` |
+| `surface` | `"viewer"` or `"editor"` |
+| `macro_type` | `"mermaid"` |
+| `reason` | `"no_layout"` |
+| `waited_ms` | Time waited when the event was emitted (about 10 000) |
+| `render_gate`, `visible_at_boot` | Viewport-gate outcome and "on screen at boot" flag, when the gate recorded them; absent otherwise |
+
+The terminal outcome is one of: `macro_viewed` with `layout_wait_ms` (the layout appeared and the render succeeded), `viewer_render_abandoned`, or `viewer_load_failed` with `failure_stage = render_crash` (the post-wait retry failed).
+
+---
+
+### `viewer_render_abandoned`
+
+**Trigger:** The layout wait described above was cancelled before it resolved: the component unmounted, or the diagram was cleared or replaced (#706). Sent with `sendBeacon` (`trackAnalyticsEventBeforeUnload`), since the cancel usually coincides with iframe teardown. Emitted for any cancelled wait, so it can occur without a preceding `viewer_render_deferred` (wait shorter than 10 s).
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"macro"` |
+| `surface` | `"viewer"` or `"editor"` |
+| `macro_type` | `"mermaid"` |
+| `reason` | `"no_layout"` |
+| `waited_ms` | Total time waited before the cancel |
+| `render_gate`, `visible_at_boot` | As on `viewer_render_deferred` |
 
 ---
 
@@ -658,24 +751,6 @@ Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08
 
 ---
 
-### `feature_flags_fetch_failed`
-
-**Trigger:** The feature flag fetch from the backend failed. Declared in catalog and backend types; not currently wired to a `trackAnalyticsEvent` call in the client (may be emitted by legacy code paths or backend).
-
----
-
-### `attachment_create_failed`
-
-**Trigger:** Backend event emitted when creating the PNG attachment for a macro export fails. Not emitted by the client's `trackAnalyticsEvent`.
-
----
-
-### `custom_content_update_failed`
-
-**Trigger:** Backend event emitted when a Confluence custom-content update call fails. Not emitted by the client's `trackAnalyticsEvent`.
-
----
-
 ### `close_guard_rejected`
 
 **Trigger:** `view.onClose()` (the Forge bridge close hook registered in `setupCloseGuard`) threw or returned a rejected Promise — indicating the current Forge bridge version doesn't support `view.onClose` or that the registration itself failed. Fired in `closeGuard.ts`.
@@ -684,3 +759,21 @@ Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08
 |---|---|
 | `feature_area` | `"system"` |
 | `surface` | `"editor"` |
+
+---
+
+Every frontend event carries the `analytics_init_ms` super-property (#707): milliseconds from the iframe’s first retained track call to Mixpanel init completion, including the replay-config wait. It is measured once per iframe with a monotonic clock and reused by later events. It excludes event enrichment and network delivery.
+
+### `analytics_init_degraded`
+
+**Trigger:** The iframe's Mixpanel bootstrap (`_initMixpanel` in `trackAnalyticsEvent.ts`) stopped waiting for the Forge feature-flag download after `SESSION_REPLAY_CONFIG_TIMEOUT_MS` (3000 ms) and initialised Mixpanel with replay off. Fired once per iframe, after `mixpanel.init`, so it actually leaves. Before #707 a hung bridge call kept the init promise pending forever and every event for that iframe was dropped without a log line.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"system"` |
+| `surface` | `"iframe_bootstrap"` |
+| `module_key` | Forge `moduleKey` of the degraded iframe |
+| `reason` | `"session_replay_config_timeout"` |
+| `timeout_ms` | The wait that elapsed (3000) |
+
+Replay for that iframe stays off even if the flag answer arrives later; there is no re-init. Every event from that iframe carries `session_replay_source = "timeout"` (distinct from `"off"`, which means the flag or policy said off).

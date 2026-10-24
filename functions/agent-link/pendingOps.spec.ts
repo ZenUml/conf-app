@@ -61,7 +61,9 @@ describe('PendingOps', () => {
       const promise = ops.register('req-1', 20_000);
 
       await vi.advanceTimersByTimeAsync(19_000);
+      expect(vi.getTimerCount()).toBe(1);
       ops.resolve('req-1', { ok: true, payload: 'in time' });
+      expect(vi.getTimerCount()).toBe(0);
       await vi.advanceTimersByTimeAsync(2_000); // past the original deadline
 
       await expect(promise).resolves.toEqual({ ok: true, payload: 'in time' });
@@ -79,18 +81,26 @@ describe('PendingOps', () => {
   });
 
   describe('cancel', () => {
-    it('removes a pending registration without settling its promise or leaking the timer', () => {
+    it('removes a pending registration without settling its promise or leaking the timer', async () => {
       vi.useFakeTimers();
-      const ops = new PendingOps();
-      ops.register('req-1', 20_000);
-      expect(ops.size).toBe(1);
+      try {
+        const ops = new PendingOps();
+        const settled = vi.fn();
+        const promise = ops.register('req-1', 20_000);
+        void promise.then(settled, settled);
+        expect(ops.size).toBe(1);
+        expect(vi.getTimerCount()).toBe(1);
 
-      ops.cancel('req-1');
-      expect(ops.size).toBe(0);
-      // Resolving after cancel is a no-op — the registration is gone.
-      expect(ops.resolve('req-1', { ok: true, payload: {} })).toBe(false);
-
-      vi.useRealTimers();
+        ops.cancel('req-1');
+        expect(ops.size).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+        // Resolving after cancel is a no-op — the registration is gone.
+        expect(ops.resolve('req-1', { ok: true, payload: {} })).toBe(false);
+        await vi.advanceTimersByTimeAsync(20_001);
+        expect(settled).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('is a safe no-op for an unknown id', () => {

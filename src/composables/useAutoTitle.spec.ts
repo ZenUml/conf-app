@@ -163,7 +163,7 @@ describe('useAutoTitle', () => {
     await p
     expect(fakeStore.state.diagram.title).toBe('')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
-      'ai_generation_failed',
+      'ai_title_generation_failed',
       expect.objectContaining({ failure_reason: 'not_title_like' }),
     )
   })
@@ -282,7 +282,7 @@ describe('useAutoTitle', () => {
     const p2 = generate('user', SEQ)
     await runAnimation('New Title')
     await p2
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_generation_requested', expect.objectContaining({ generation_source: 'regenerate' }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_title_generation_requested', expect.objectContaining({ generation_source: 'regenerate' }))
   })
 
   it('manual edit mid-typewriter stops animation and clears displayedTitle', async () => {

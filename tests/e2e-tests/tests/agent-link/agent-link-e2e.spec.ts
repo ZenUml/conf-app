@@ -9,31 +9,32 @@
  *
  * Gated on the unreleased agent-link build: skips (not fails) when
  * `/agent-link/mcp` isn't routed on conf-stg-lite (shared-alias clobber or the
- * feature simply isn't deployed) — mirrors insert/upgrade-prompt.spec.ts.
+ * feature simply isn't deployed).
  *
  * The relay session is WS-lifetime-bound, so every agent call happens while the
  * Playwright page is open. The edit is restored, so the run is non-destructive.
  *
+ * The first describe covers the headless Connect MCP dialog, which is what
+ * the first release ships; the relay loop below is gated off until relay
+ * sessions are offered again.
+ *
  * Run: APP=zenuml-lite@stg npx playwright test --project=agent-link
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Frame, type Page } from '../../fixtures/mixpanel-test.js';
 import {
   AGENT_LINK_STG_BASE,
   agentLinkMcp,
+  agentLinkMcpUrl,
   clickConnectToAgent,
-  enableAgentLinkOverrides,
+  forgeFrames,
+  openIsolatedAgentLinkPage,
+  disconnectAgentLink,
+  waitForAgentLinkReady,
   isAgentLinkEndpointLive,
-  openMacroPage,
   readPanelClass,
   readSessionToken,
   waitForRenderedMarker,
 } from '../../helpers/agentLink.js';
-
-// Stable lite-stg page carrying a single ZenUML sequence macro ("E2E test page").
-const CLOUD_ID = 'c78e721e-957f-402c-9b70-1df2227c2739'; // lite-stg.atlassian.net
-const TEST_PAGE_ID = '128811025';
-const TEST_CONTENT_ID = '128483345';
-const TEST_PAGE_URL = `https://lite-stg.atlassian.net/wiki/pages/viewpage.action?pageId=${TEST_PAGE_ID}`;
 
 /**
  * A `tools/call` JSON-RPC result carries the tool payload in
@@ -56,7 +57,7 @@ function mcpPayload(res: { result: any }): any {
 }
 
 /**
- * Build an append-only edit so the shared fixture's current diagram is never
+ * Build an append-only edit so the fixture's current diagram is never
  * replaced by a tiny marker DSL that trips update_diagram's data-loss guard.
  */
 function appendMarkerEdit(originalDsl: string, diagramType: string, marker: string): string {
@@ -71,38 +72,78 @@ function appendMarkerEdit(originalDsl: string, diagramType: string, marker: stri
   return `${trimmed}\nAgentX->Server: ${marker}()`;
 }
 
-/**
- * Reattach as the macro peer after the page closes and send the same
- * disconnect envelope as the UI so the shared fixture's per-contentId claim
- * is released before the next serial test starts.
- */
-async function forceReleaseLock(token: string): Promise<void> {
-  const wsUrl =
-    `wss://conf-stg-lite.zenuml.com/agent-link/channel?token=${encodeURIComponent(token)}` +
-    `&peer=macro&cloudId=${encodeURIComponent(CLOUD_ID)}&pageId=${encodeURIComponent(TEST_PAGE_ID)}` +
-    `&contentId=${encodeURIComponent(TEST_CONTENT_ID)}`;
-  try {
-    const ws = new WebSocket(wsUrl);
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('ws open timeout')), 10000);
-      ws.addEventListener('open', () => {
-        clearTimeout(t);
-        resolve();
-      });
-      ws.addEventListener('error', (e) => {
-        clearTimeout(t);
-        reject(e);
-      });
-    });
-    ws.send(JSON.stringify({ kind: 'disconnect' }));
-    await new Promise((r) => setTimeout(r, 1200));
-    ws.close();
-  } catch {
-    // Best-effort cleanup only; the claim self-clears if this reconnect fails.
+async function dialogFrame(page: Page): Promise<Frame | null> {
+  for (const f of forgeFrames(page)) {
+    if (await f.getByTestId('connect-mcp-dialog').count().catch(() => 0)) return f;
   }
+  return null;
 }
 
-test.describe('Live Agent Link — end to end', () => {
+// What ships in the first release: the headless MCP, no relay session. The
+// OAuth sign-in needs a real MCP client and an interactive consent, so it is
+// out of scope; this covers the macro side and the 401 discovery challenge
+// that hands a client to it.
+test.describe('Connect MCP — headless', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@ai'] }, () => {
+  test('the dialog shows the setup command and a prompt for this diagram, and mints nothing', async ({ page }) => {
+    test.skip(
+      !(await isAgentLinkEndpointLive()),
+      `agent-link not routed on ${AGENT_LINK_STG_BASE} (unreleased build or shared-alias clobber)`,
+    );
+
+    await openIsolatedAgentLinkPage(page);
+    expect(await clickConnectToAgent(page), 'macro renders a "Connect MCP" button').toBe(true);
+
+    let frame: Frame | null = null;
+    await expect.poll(async () => (frame = await dialogFrame(page)) !== null, { timeout: 10000 }).toBe(true);
+    const f = frame as unknown as Frame;
+    await expect(f.getByTestId('connect-mcp-dialog')).toHaveAttribute('data-mcp-mode', 'headless');
+    await expect(f.getByTestId('connect-mcp-setup-command')).toHaveText(
+      `claude mcp add --transport http zenuml ${agentLinkMcpUrl()}`,
+    );
+    const prompt = (await f.getByTestId('connect-mcp-prompt').innerText()).trim();
+    expect(prompt).toMatch(/^Use the zenuml MCP to review my ZenUML diagram/);
+    expect(prompt).toMatch(/^cloudId: \S+$/m);
+    expect(prompt).toMatch(/^pageId: \d+$/m);
+    expect(prompt).toMatch(/^contentId: \d+$/m);
+    expect(prompt).not.toContain('session:');
+
+    // No relay session: nothing handed off, so no diagram lock either.
+    const handoffKeys = await f.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('agentLinkSession:')));
+    expect(handoffKeys).toEqual([]);
+    await expect(f.getByTestId('agent-link-disconnect-btn')).toHaveCount(0);
+
+    await f.getByTestId('connect-mcp-done').click();
+    await expect(f.getByTestId('connect-mcp-dialog')).toHaveCount(0);
+  });
+
+  test('a token-less MCP call gets the OAuth discovery challenge', async () => {
+    test.skip(
+      !(await isAgentLinkEndpointLive()),
+      `agent-link not routed on ${AGENT_LINK_STG_BASE} (unreleased build or shared-alias clobber)`,
+    );
+    const res = await fetch(agentLinkMcpUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate') ?? '').toContain(
+      `resource_metadata="${AGENT_LINK_STG_BASE}/.well-known/oauth-protected-resource"`,
+    );
+  });
+});
+
+// lite only: the "Connect to Agent" affordance needs the Agent Link feature
+// flag and the /agent-link/mcp route, which exist on lite-stg alone — on
+// dia-stg and full-stg the macro never renders it (main runs 2026-10-08).
+test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@fullscreen', '@ai'] }, () => {
+  // The relay session UI is not offered in the headless-only first release
+  // (RELAY_SESSIONS_ENABLED=false in src/composables/agentLink/connectInstructions.ts),
+  // so there is no button to start a session. Flip that constant and run
+  // with AGENT_LINK_RELAY=1 to bring these back; the "Connect MCP — headless"
+  // describe in agent-link-e2e.spec.ts covers what ships.
+  test.skip(process.env.AGENT_LINK_RELAY !== '1', 'relay sessions are not offered in the headless-only release');
+
   test('agent connects, reads the page + diagram, edits it live, and the macro shows connected', async ({
     page,
   }: {
@@ -114,18 +155,19 @@ test.describe('Live Agent Link — end to end', () => {
     );
 
     // ---- macro side: Connect -> mint -> waiting ----
-    await enableAgentLinkOverrides(page);
-    await openMacroPage(page, TEST_PAGE_URL);
+    await openIsolatedAgentLinkPage(page);
 
     let token: string | null = null;
     let originalDsl = '';
     try {
       expect(await clickConnectToAgent(page), 'macro renders a "Connect to Agent" affordance').toBe(true);
-      await page.waitForTimeout(9000);
-
-      token = await readSessionToken(page);
+      await expect.poll(async () => {
+        token = await readSessionToken(page);
+        return token;
+      }, { timeout: 20000 }).toBeTruthy();
       expect(token, 'Connect mints a session token').toBeTruthy();
-      expect(await readPanelClass(page), 'Fullscreen shows the waiting prompt').toBe('agent-link-panel--waiting');
+      await expect.poll(() => readPanelClass(page), { timeout: 20000 }).toBe('agent-link-panel--waiting');
+      await waitForAgentLinkReady(token!);
 
       // ---- agent side: read_page (also fires agent_connected) ----
       const rp = await agentLinkMcp(token!, 'read_page');
@@ -160,8 +202,8 @@ test.describe('Live Agent Link — end to end', () => {
       if (token && originalDsl) {
         await agentLinkMcp(token, 'update_diagram', { dsl: originalDsl, summary: 'agent-link e2e restore' }).catch(() => {});
       }
+      if (token) await disconnectAgentLink(page).catch(() => {});
       await page.close().catch(() => {});
-      if (token) await forceReleaseLock(token);
     }
   });
 
@@ -174,15 +216,16 @@ test.describe('Live Agent Link — end to end', () => {
     let token: string | null = null;
     try {
       // ---- macro side: Connect -> mint -> waiting ----
-      await enableAgentLinkOverrides(page);
-      await openMacroPage(page, TEST_PAGE_URL);
+      await openIsolatedAgentLinkPage(page);
 
       expect(await clickConnectToAgent(page), 'macro renders a "Connect to Agent" affordance').toBe(true);
-      await page.waitForTimeout(9000);
-
-      token = await readSessionToken(page);
+      await expect.poll(async () => {
+        token = await readSessionToken(page);
+        return token;
+      }, { timeout: 20000 }).toBeTruthy();
       expect(token, 'Connect mints a session token').toBeTruthy();
-      expect(await readPanelClass(page), 'Fullscreen shows the waiting prompt').toBe('agent-link-panel--waiting');
+      await expect.poll(() => readPanelClass(page), { timeout: 20000 }).toBe('agent-link-panel--waiting');
+      await waitForAgentLinkReady(token!);
 
       const s1 = await agentLinkMcp(token!, 'get_status');
       expect(s1.status, 'get_status HTTP before activity').toBe(200);
@@ -209,8 +252,8 @@ test.describe('Live Agent Link — end to end', () => {
       // staging latency slack while keeping the broken case comfortably below.
       expect(e2).toBeGreaterThan(e1 - 15);
     } finally {
+      if (token) await disconnectAgentLink(page).catch(() => {});
       await page.close().catch(() => {});
-      if (token) await forceReleaseLock(token);
     }
   });
 });

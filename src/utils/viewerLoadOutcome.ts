@@ -1,10 +1,12 @@
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
-import { Diagram, DiagramType, NULL_DIAGRAM, getDiagramData } from '@/model/Diagram/Diagram';
+import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import store from '@/model/store2';
 import type { DiagramLoadError, ViewerLoadState } from '@/model/store2/types';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import { serializeError } from '@/utils/window';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { decompress } from '@/utils/compress';
 import type { DiagramAttribution } from '@/model/DiagramAttribution';
 
@@ -43,7 +45,6 @@ export function publishLoadedDiagram(doc: Diagram | undefined, loadError?: Diagr
   // a terminal error rather than an endless "Loading embedded diagram…".
   store.state.diagramLoadComplete = true;
   window.diagram = diagram;
-  console.log('loadDiagram - window.diagram', window.diagram);
   return diagram;
 }
 
@@ -67,9 +68,12 @@ export interface ViewerLoadOutcome {
   loadError: DiagramLoadError | null;
 }
 
+// Same resolver the viewers load with (config → modal → pasted typed deeplink).
+// Reading config/modal only mis-classified a macro placed by pasting a deeplink
+// as `failed_without_source` when it failed to load, hiding the retry
+// affordance and sending an undefined id to the orphan/related-content paths.
 export function getForgeCustomContentId(): string | undefined {
-  const extension = forgeGlobal.forgeContext?.extension;
-  return extension?.config?.customContentId ?? extension?.modal?.customContentId;
+  return resolveEffectiveCustomContentId(forgeGlobal.forgeContext);
 }
 
 export function isDisplayableDiagram(

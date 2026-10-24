@@ -78,6 +78,46 @@
     >
       View the quick-start guide
     </button>
+
+    <!-- Connect MCP: the same headless setup the macro's Connect MCP dialog
+         offers, inline because this card is a narrow, auto-sized panel with
+         no room for an overlay. Below the action button on purpose: the flag
+         resolves after mount, and a row appearing late must not push the
+         button out from under the pointer. -->
+    <div v-if="mcpEnabled" class="mcp" :class="{ 'mcp--open': mcpOpen }" data-testid="homepage-feed-mcp">
+      <button
+        type="button"
+        class="row row--disclose"
+        style="--spine: #172b4d"
+        :aria-expanded="mcpOpen ? 'true' : 'false'"
+        data-testid="homepage-feed-mcp-toggle"
+        @click="toggleMcp"
+      >
+        <span class="row__body">
+          <span class="row__title">Connect MCP</span>
+          <span class="row__meta">Let AI agents edit your diagrams</span>
+        </span>
+        <svg class="chev" :class="{ 'chev--up': mcpOpen }" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+      <div v-if="mcpOpen" class="disclosure">
+        <p class="mcp__step">1. Add the MCP server <span class="mcp__muted">(once)</span></p>
+        <pre class="mcp__code" data-testid="homepage-feed-mcp-setup">{{ mcpSetupCommand }}</pre>
+        <button type="button" class="mcp__copy" data-testid="homepage-feed-mcp-copy-setup" @click="copyMcp('setup_command', mcpSetupCommand)">
+          {{ copyLabel("setup_command") }}
+        </button>
+        <p>
+          Other clients (Codex, Cursor, VS Code…): add a remote HTTP server named
+          <code>{{ mcpName }}</code> with this URL. You sign in with Atlassian the first time.
+        </p>
+        <p class="mcp__step">2. Paste this prompt into your agent</p>
+        <pre class="mcp__code" data-testid="homepage-feed-mcp-prompt">{{ mcpPrompt }}</pre>
+        <button type="button" class="mcp__copy" data-testid="homepage-feed-mcp-copy-prompt" @click="copyMcp('prompt', mcpPrompt)">
+          {{ copyLabel("prompt") }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -117,12 +157,19 @@
 // Copy stays brand-neutral: this module ships on lite/full/diagramly (asyncapi
 // strips it), so the product name never appears in the body — only the
 // manifest title carries ${LITE_TITLE_SUFFIX}.
-import { onMounted, ref, computed } from "vue";
+import { onMounted, onBeforeUnmount, ref, computed } from "vue";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { navigateToPage, openUrl } from "@/model/globals/forgeGlobal";
 import globals from "@/model/globals";
 import { typeLabel, toMacroType } from "@/utils/byline/pageDiagrams";
 import { DiagramType } from "@/model/Diagram/Diagram";
+import { isAgentLinkEnabled } from "@/apis/aiTitleFeatureFlag";
+import {
+  mcpAddCommand,
+  mcpServerName,
+  buildHomepagePrompt,
+} from "@/composables/agentLink/connectInstructions";
+import { writeClipboard } from "@/composables/agentLink/clipboard";
 
 const QUICK_START_URL = "https://zenuml.atlassian.net/wiki/spaces/Doc/overview";
 
@@ -221,6 +268,17 @@ const diagrams = ref([]);
 const openExample = ref(null);
 const loadedImages = ref({});
 
+// Connect MCP row: hidden until the agent-link flag resolves on, the same
+// flag that gates the macro's Connect MCP button. Fails closed.
+const mcpEnabled = ref(false);
+const mcpOpen = ref(false);
+const mcpSetupCommand = ref("");
+const mcpName = ref("");
+const mcpPrompt = ref("");
+const copyStates = ref({ setup_command: "idle", prompt: "idle" });
+const revertTimers = {};
+let mcpOpenedAt = 0;
+
 const examples = computed(() => {
   const covered = new Set(
     diagrams.value
@@ -266,9 +324,32 @@ async function loadRecent() {
   }
 }
 
+// The macro dialog's agent_link_mcp_dialog_* events, told apart by placement.
+// Their denominator here is homepage_feed_viewed (see catalog.ts).
+function mcpProps(extra = {}) {
+  return {
+    feature_area: "agent_link",
+    surface: "route",
+    entry_point: "route",
+    mcp_mode: "headless",
+    mcp_button_placement: "homepage_feed",
+    ...extra,
+  };
+}
+
+async function loadMcpFlag() {
+  try {
+    mcpEnabled.value = await isAgentLinkEnabled();
+  } catch (e) {
+    console.error("[homepageFeed] agent-link flag lookup failed", e);
+    mcpEnabled.value = false;
+  }
+}
+
 onMounted(() => {
   trackAnalyticsEvent("homepage_feed_viewed", baseProps());
   void loadRecent();
+  void loadMcpFlag();
 });
 
 async function openDiagram(hit) {
@@ -295,6 +376,50 @@ function toggleExample(example) {
   });
 }
 
+function toggleMcp() {
+  if (mcpOpen.value) {
+    mcpOpen.value = false;
+    trackAnalyticsEvent("agent_link_mcp_dialog_closed", mcpProps({
+      dwell_ms: Date.now() - mcpOpenedAt,
+    }));
+    return;
+  }
+  // Read on open, not at setup: the backend URL and cloudId come from the
+  // Forge context, which the route has resolved before mounting this card.
+  mcpSetupCommand.value = mcpAddCommand();
+  mcpName.value = mcpServerName();
+  mcpPrompt.value = buildHomepagePrompt({
+    cloudId: window.forgeGlobal?.forgeContext?.cloudId ?? "",
+  });
+  mcpOpen.value = true;
+  mcpOpenedAt = Date.now();
+  trackAnalyticsEvent("agent_link_mcp_dialog_opened", mcpProps());
+}
+
+function copyLabel(target) {
+  const state = copyStates.value[target];
+  if (state === "copied") return "Copied";
+  if (state === "failed") return "Select & copy";
+  return "Copy";
+}
+
+async function copyMcp(target, text) {
+  const ok = await writeClipboard(text);
+  copyStates.value = { ...copyStates.value, [target]: ok ? "copied" : "failed" };
+  clearTimeout(revertTimers[target]);
+  revertTimers[target] = setTimeout(() => {
+    copyStates.value = { ...copyStates.value, [target]: "idle" };
+  }, 2000);
+  trackAnalyticsEvent("agent_link_mcp_dialog_copied", mcpProps({
+    mcp_copy_target: target,
+    outcome: ok ? "copied" : "clipboard_failed",
+  }));
+}
+
+onBeforeUnmount(() => {
+  for (const t of Object.values(revertTimers)) clearTimeout(t);
+});
+
 async function openQuickStart() {
   trackAnalyticsEvent("homepage_feed_action_clicked", baseProps());
   await openUrl(QUICK_START_URL);
@@ -304,6 +429,10 @@ defineExpose({
   openQuickStart,
   openDiagram,
   toggleExample,
+  toggleMcp,
+  copyMcp,
+  mcpEnabled,
+  mcpOpen,
   QUICK_START_URL,
   EXAMPLES,
   diagrams,
@@ -447,6 +576,60 @@ defineExpose({
 .disclosure b {
   font-weight: 600;
   color: var(--ink);
+}
+
+.mcp {
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.mcp--open {
+  background: var(--wash);
+}
+.disclosure .mcp__step {
+  margin: 4px 0 4px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.mcp__muted {
+  font-weight: 400;
+  color: var(--muted);
+}
+.mcp__code {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.disclosure code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--ink);
+}
+.mcp__copy {
+  margin: 5px 0 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--link);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.mcp__copy:hover {
+  background: #deebff;
+}
+.mcp__copy:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
 }
 
 .row--ghost {

@@ -120,72 +120,13 @@ def wrangler_kv_put(key, value_path):
         raise RuntimeError(proc.stderr.strip() or "wrangler put failed")
 
 
-# Live Marketplace pricing for the Full app (com.zenuml.confluence-addon).
-# Two DIFFERENT published price shapes, and quoting the wrong one misquotes the customer:
-#   perUnitItems (monthsValid=1) -> per-user-per-month rates, charged on the EXACT headcount
-#   items       (monthsValid=12) -> fixed annual price for the user BAND (801-1000, etc.)
-# Verified 2026-08-27 against the public calculator at 902 users:
-#   monthly USD 165.22 ("0.18 per user average"), annual USD 1,760.00 ("User tier: 801-1000").
-# The old `... * 10` model returned 1,652 at 902 users, which is neither published price.
-# It agreed with the annual price only AT a band boundary (n=1000 -> 1,760 both ways).
-MARKETPLACE_PRICING_URL = (
-    "https://marketplace.atlassian.com/rest/2/addons/"
-    "com.zenuml.confluence-addon/pricing/cloud/live"
-)
+# Shared with Marketplace quoting; do not maintain another pricing algorithm.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "marketplace", "scripts"))
+from mp_pricing import live_full_quote, MARKETPLACE_PRICING_URL
 
 
 def full_plan_pricing(n):
-    """Published monthly + annual list price for n users. Raises if Marketplace is unreachable
-    — a wrong price in a customer reply is worse than no reply, so there is no local fallback."""
-    data = http_json(MARKETPLACE_PRICING_URL)
-
-    # unitCount == -1 is the "Unlimited users" sentinel, not a band — it sorts first and
-    # would shift every band boundary by one user (902 users quoted 165.66 instead of 165.22).
-    per_unit = sorted(
-        (i for i in data.get("perUnitItems", [])
-         if i.get("licenseType") == "COMMERCIAL" and i.get("unitCount", 0) > 0),
-        key=lambda i: i["unitCount"],
-    )
-    annual = sorted(
-        (i for i in data.get("items", [])
-         if i.get("licenseType") == "COMMERCIAL" and i.get("monthsValid") == 12
-         and i.get("unitCount", 0) > 0),
-        key=lambda i: i["unitCount"],
-    )
-    if not per_unit or not annual:
-        raise RuntimeError("Marketplace pricing payload missing perUnitItems/items")
-
-    # Monthly: cumulative per-unit rates. Each perUnitItem's unitCount is the TOP of its band,
-    # so users between the previous top and this one bill at this item's rate.
-    monthly, prev_top = 0.0, 0
-    for item in per_unit:
-        top = item["unitCount"]
-        users_in_band = max(0, min(n, top) - prev_top)
-        monthly += users_in_band * item["amount"]
-        prev_top = top
-        if n <= top:
-            break
-    else:
-        monthly += max(0, n - prev_top) * per_unit[-1]["amount"]
-
-    # Annual: flat price of the band that CONTAINS n (smallest published tier >= n).
-    band = next((i for i in annual if i["unitCount"] >= n), annual[-1])
-
-    # Below the first per-unit band the app is flat-rated; the annual band price is authoritative.
-    if n <= 10:
-        monthly = band["amount"] / 12.0
-
-    # TWO per-user rates, one per billing cycle. Quote the one that matches the price in the
-    # same sentence: 902 users is $0.16/user/month on annual ($1,760/902/12) and
-    # $0.18 on monthly ($165.22/902). The Marketplace calculator shows 0.18 because its
-    # default view is Monthly. Pairing the annual price with the monthly rate overstates it.
-    return {
-        "monthly": monthly,
-        "annual": band["amount"],
-        "band": band["unitCount"],
-        "per_user_month_annual": (band["amount"] / n / 12) if n else 0.0,
-        "per_user_month_monthly": (monthly / n) if n else 0.0,
-    }
+    return live_full_quote(n)
 
 
 def grant(domain, space, days, activated_by, dry_run, user_account_id=None):

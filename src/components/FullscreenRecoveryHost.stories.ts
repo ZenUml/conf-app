@@ -16,6 +16,10 @@ const pending: RecoverySnapshot = { state: 'pending_activation', serverNow: '202
   request: { id: 'example-request', scenarios: ['present'], note: '', email: 'reader@example.com', createdAt: '2026-10-24T00:00:00.000Z' },
   grant: { id: 'example-grant', activatedAt: null, expiresAt: null } };
 const active: RecoverySnapshot = { ...pending, state: 'active', grant: { id: 'example-grant', activatedAt: pending.serverNow, expiresAt: '2026-10-31T00:00:00.000Z' } };
+const expiredAt = Date.now() - 24 * 60 * 60 * 1000;
+const expired: RecoverySnapshot = { ...active, state: 'expired', serverNow: new Date().toISOString(),
+  grant: { id: 'example-grant', activatedAt: new Date(expiredAt - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    expiresAt: new Date(expiredAt).toISOString() } };
 const meta: Meta<typeof FullscreenRecoveryHost> = {
   title: 'Viewer/FullscreenRecoveryHost', component: FullscreenRecoveryHost,
   parameters: { layout: 'fullscreen', docs: { description: { component: 'Real Mermaid renderer and display receipt; synthetic access state and Forge responses. No customer data or email.' } } },
@@ -39,7 +43,7 @@ export const SuccessfulDisplay: Story = { play: async ({ canvasElement }) => {
   await waitFor(() => expect(canvas.getByText(/Temporary Fullscreen access ends/)).toBeVisible(), { timeout: 15000 });
 } };
 export const Active: Story = { args: { initialSnapshot: active } };
-export const ExpiredNewOpen: Story = { args: { initialSnapshot: { ...active, state: 'expired' } } };
+export const ExpiredNewOpen: Story = { args: { initialSnapshot: expired } };
 
 /** Uses the same count/paid predicate as the viewer boundary. Old grant state cannot gate an ordinary space. */
 function eligibilityStory(count: number): Story {

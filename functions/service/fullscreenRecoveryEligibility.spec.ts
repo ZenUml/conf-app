@@ -7,7 +7,7 @@ import {
   type RecoveryIdentity,
 } from './fullscreenRecoveryService';
 import { onRequestGet, onRequestPost } from '../api/fullscreen-recovery';
-import { sha256Hex } from '../metrics-cache/snapshot/common';
+import { onRequest as queryMetrics } from '../metrics-cache/query';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 const NOW = new Date('2026-10-25T00:00:00.000Z');
@@ -47,13 +47,10 @@ function localDb() {
 function setup() {
   const { sqlite, db } = localDb();
   const fixture = {
-    counts: { ENG: 100, OTHER: 5 } as Record<string, number>,
+    counts: { ENG: 100, OTHER: 5 } as Record<string, unknown>,
     capturedAt: NOW.toISOString(),
     metricsMissing: false,
-    pointerState: 'completed' as 'completed' | 'committing',
-    manifestState: 'completed' as 'completed' | 'committing',
-    legacyCount: 100,
-    corruptChunkHash: false,
+    snapshotManaged: false,
     exemptions: { '*': false } as Record<string, boolean> | null,
     policy: { enabled: true, exemptionOverrideReviewed: false },
     licenses: {} as Record<string, string>,
@@ -65,41 +62,22 @@ function setup() {
         ? JSON.stringify(fixture.policy)
         : key === 'PAYWALL_EXEMPTIONS'
           ? fixture.exemptions === null ? null : JSON.stringify(fixture.exemptions)
+          : key === 'CUSTOMER_SUCCESS_SERVICE'
+            ? JSON.stringify({ 'example-tenant': fixture.snapshotManaged })
           : null,
     } as KVNamespace,
     SPACE_LICENSE_KV: { get: async (key: string) => fixture.licenses[key] ?? null } as KVNamespace,
     confluence_plugin_features: {
       get: async (key: string) => key === 'metrics:example-tenant:lite' && !fixture.metricsMissing
         ? { domain: 'example-tenant', spaces: Object.fromEntries(
-          Object.entries(fixture.counts).map(([space]) => [space, {
-            space, total: fixture.legacyCount, isLite: true, lastUpdated: fixture.capturedAt,
+          Object.entries(fixture.counts).map(([space, total]) => [space, {
+            space, total, isLite: true, lastUpdated: fixture.capturedAt,
           }]),
         ) } : null,
     } as KVNamespace,
     MACRO_COUNT_SNAPSHOT_BUCKET: {
-      get: async (key: string) => {
-        if (fixture.metricsMissing) return null;
-        const date = fixture.capturedAt.slice(0, 10).replaceAll('-', '/');
-        const prefix = `macro-count/v1/lite/example-cloud-id/${date}/run-1`;
-        const rows = Object.entries(fixture.counts).map(([spaceKey, total]) => ({
-          spaceId: spaceKey, spaceKey, metrics: { total },
-        }));
-        const chunk = JSON.stringify({ schemaVersion: 1, runId: 'run-1', rows });
-        const ref = { key: `${prefix}/spaces-000000.json`, rowCount: rows.length,
-          sha256: fixture.corruptChunkHash ? '0'.repeat(64) : await sha256Hex(chunk) };
-        let content: string | null = null;
-        if (key === 'macro-count/v1/lite/example-cloud-id/latest.json') {
-          content = JSON.stringify({ schemaVersion: 1, runId: 'run-1', capturedAt: fixture.capturedAt,
-            state: fixture.pointerState, cloudId: 'example-cloud-id', productType: 'lite' });
-        } else if (key === `${prefix}/manifest.json`) {
-          content = JSON.stringify({ schemaVersion: 1, runId: 'run-1', capturedAt: fixture.capturedAt,
-            state: fixture.manifestState, cloudId: 'example-cloud-id', productType: 'lite',
-            spaceAggregateChunks: [ref] });
-        } else if (key === ref.key) content = chunk;
-        return content === null ? null : {
-          json: async () => JSON.parse(content), text: async () => content,
-        };
-      },
+      get: async () => fixture.snapshotManaged
+        ? { json: async () => ({ state: 'completed', runId: 'run-1' }) } : null,
     } as unknown as R2Bucket,
   };
   return { sqlite, env, fixture };
@@ -113,7 +91,7 @@ function activeLicense() {
 }
 
 describe('Fullscreen recovery server-side eligibility', () => {
-  it('uses the trusted current Space count; 99 is ordinary and 100 is eligible', async () => {
+  it('uses the existing current Space count; 99 is ordinary and 100 is eligible', async () => {
     const { sqlite, env, fixture } = setup();
     fixture.counts.ENG = 99;
     expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('disabled');
@@ -126,42 +104,44 @@ describe('Fullscreen recovery server-side eligibility', () => {
     expect(requestCount(sqlite)).toBe(1);
   });
 
-  it('fails open on missing context, missing metrics, stale metrics, and missing exemption decision', async () => {
+  it('fails open on missing context, missing or invalid metrics, and missing exemption decision', async () => {
     const { sqlite, env, fixture } = setup();
     expect((await recoverySnapshot(env, IDENTITY, NOW)).state).toBe('unavailable');
     fixture.metricsMissing = true;
     expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('unavailable');
     fixture.metricsMissing = false;
-    fixture.capturedAt = new Date(NOW.getTime() - 24 * 60 * 60 * 1000 - 1).toISOString();
+    fixture.counts.ENG = -1;
     expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('unavailable');
     await expect(createRecoveryRequest(env, IDENTITY, REQUEST, NOW)).rejects.toMatchObject({ code: 'unavailable' });
-    fixture.capturedAt = NOW.toISOString();
+    fixture.counts.ENG = '100';
+    expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('unavailable');
+    fixture.counts.ENG = 100;
+    fixture.capturedAt = new Date(NOW.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('not_requested');
     fixture.exemptions = null;
     expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('unavailable');
     await expect(createRecoveryRequest(env, IDENTITY, REQUEST, NOW)).rejects.toMatchObject({ code: 'unavailable' });
     expect(requestCount(sqlite)).toBe(0);
   });
 
-  it('ignores a tampered browser-writable legacy KV and requires completed server snapshot provenance', async () => {
+  it.each([false, true])('uses the same KV count as existing %s snapshot mode', async (snapshotManaged) => {
     const { sqlite, env, fixture } = setup();
+    fixture.snapshotManaged = snapshotManaged;
+    const read = await queryMetrics({
+      request: new Request('https://api.example.test/metrics-cache/query?contract=2&space=ENG'),
+      env: env as any,
+      data: { forgeContext: { ...IDENTITY, installationId: 'example-installation-id',
+        invocationSource: 'frontend', environmentType: 'STAGING' } },
+    } as any);
+    expect(await read.json()).toMatchObject({ mode: snapshotManaged ? 'snapshot' : 'legacy',
+      metrics: { total: 100 } });
+    // Recovery follows the existing KV count even when no snapshot bucket is bound.
+    env.MACRO_COUNT_SNAPSHOT_BUCKET = undefined;
+    expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('not_requested');
     fixture.counts.ENG = 5;
-    fixture.legacyCount = 100;
     expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('disabled');
     await expect(createRecoveryRequest(env, IDENTITY, REQUEST, NOW)).rejects.toMatchObject({ code: 'not_eligible' });
-    fixture.metricsMissing = true;
-    expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('unavailable');
-    fixture.metricsMissing = false;
-    fixture.pointerState = 'committing';
-    expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('unavailable');
-    fixture.pointerState = 'completed';
-    fixture.manifestState = 'committing';
-    expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('unavailable');
-    fixture.manifestState = 'completed';
-    fixture.corruptChunkHash = true;
-    expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('unavailable');
-    fixture.corruptChunkHash = false;
     fixture.counts.ENG = 100;
-    fixture.legacyCount = 5;
     expect((await recoverySnapshot(env, IDENTITY, NOW, 'ENG')).state).toBe('not_requested');
     expect(requestCount(sqlite)).toBe(0);
   });

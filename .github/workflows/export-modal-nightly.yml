@@ -14,7 +14,7 @@ name: Export modal validation
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**']
+    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**']
   schedule:
     # 04:17 UTC. smoke-test.yml runs at 02:00 and daily-regression.yml at 03:00 (both
     # use the shared robot account / staging), e2e-flake-ranking.yml at 03:00 on

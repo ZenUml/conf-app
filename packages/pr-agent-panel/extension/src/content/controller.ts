@@ -48,12 +48,15 @@ export function createPageController(ctx: ContentScriptContext) {
 
   function readPage(href = location.href): { pr: PrRef | null; changed: boolean } {
     state.viewerLogin = readViewerLogin(document)
-    const pr = parsePrRef(href, document)
+    // Before the URL commits the document still shows the previous page: take only what the URL gives,
+    // and leave title, head and state to refreshPageDetails once GitHub renders the new PR.
+    const committed = href === location.href
+    const pr = parsePrRef(href, committed ? document : undefined)
     const repo = pr ?? parseRepoRef(href)
     const prev = state.pr
     const changed = (prev?.number ?? null) !== (pr?.number ?? null) || (prev && pr ? repoKeyOf(prev) !== repoKeyOf(pr) : false)
     state.pr = pr
-    state.prState = pr ? readPrState(document) : 'unknown'
+    state.prState = pr && committed ? readPrState(document) : 'unknown'
     const repoKey = repo ? repoKeyOf(repo) : null
     if (repoKey !== state.repoKey) {
       state.repoKey = repoKey

@@ -38,10 +38,21 @@ describe('createPageController soft navigation', () => {
     expect(controller.store.state.pr?.number).toBe(7)
     expect(document.querySelector('zenuml-pr-list')).not.toBeNull()
 
-    softNavigate('https://github.com/example-owner/example-repo/pull/8')
-    await frames()
-    await frames()
+    // PR 7's page carries its own title and head; the navigate event for PR 8 fires while it is still shown.
+    const frame = document.getElementById('repo-content-turbo-frame')!
+    frame.innerHTML = `<bdi class="js-issue-title">Seven</bdi><span class="commit-ref"></span><span class="sha">${'7'.repeat(40)}</span>`
+    const event = Object.assign(new Event('navigate'), { destination: { url: 'https://github.com/example-owner/example-repo/pull/8' } })
+    navigation.dispatchEvent(event)
     expect(controller.store.state.pr?.number).toBe(8)
+    expect(controller.store.state.pr?.headSha).toBeUndefined()
+    expect(controller.store.state.pr?.title).toBeUndefined()
+
+    history.pushState(null, '', 'https://github.com/example-owner/example-repo/pull/8')
+    frame.innerHTML = `<bdi class="js-issue-title">Eight</bdi><span class="commit-ref"></span><span class="sha">${'8'.repeat(40)}</span>`
+    await frames()
+    await frames()
+    expect(controller.store.state.pr?.headSha).toBe('8'.repeat(40))
+    expect(controller.store.state.pr?.title).toBe('Eight')
     ctx.notifyInvalidated()
   })
 })

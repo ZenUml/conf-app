@@ -4,6 +4,8 @@ import OpenApiViewer from '@/components/Viewer/OpenApiViewer.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { reportDiagramReady } from '@/utils/fullscreenReady';
+vi.mock('@/utils/fullscreenReady', () => ({ reportDiagramReady: vi.fn() }));
 import { time as timePhase, _resetForTesting } from '@/utils/analytics/renderPerf';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -67,9 +69,22 @@ describe('OpenApiViewer', () => {
       dom_id: '#swagger-ui',
       presets: ['apis'],
       plugins: ['download-url', 'spec-listener'],
+      onComplete: expect.any(Function),
     });
     expect(window.ui).toBeDefined();
     expect(swaggerMock.updateSpec).toHaveBeenCalled();
+  });
+
+  it('reports Fullscreen readiness only after the current spec is parsed without errors', () => {
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code: 'openapi: 3.0.0' };
+    mount(OpenApiViewer, { global: { plugins: [store] } });
+    const onComplete = (swaggerMock.swaggerFactory.mock.calls[0] as unknown as [{onComplete: () => void}])[0].onComplete;
+    expect(reportDiagramReady).not.toHaveBeenCalled();
+    window.ui.specSelectors = { specJson: () => ({ get: () => '3.0.0' }), specStr: () => store.state.diagram.code };
+    window.ui.errSelectors = { allErrors: () => ({ size: 1 }) };
+    onComplete(); expect(reportDiagramReady).not.toHaveBeenCalled();
+    window.ui.errSelectors = { allErrors: () => ({ size: 0 }) };
+    onComplete(); expect(reportDiagramReady).toHaveBeenCalledOnce();
   });
 
   it('updates SwaggerUI when the loaded diagram is published to the store', async () => {

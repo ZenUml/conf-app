@@ -801,6 +801,20 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // Contact recovery: intent, durable request, successful view and support outcomes
+  // stay separate. Never put email addresses or free-form customer text in events.
+  | "fullscreen_recovery_gate_shown"
+  | "fullscreen_recovery_action_selected"
+  | "fullscreen_recovery_request_submitted"
+  | "fullscreen_recovery_request_completed"
+  | "fullscreen_recovery_request_failed"
+  | "fullscreen_view_ready"
+  | "fullscreen_recovery_activation_completed"
+  | "fullscreen_recovery_activation_failed"
+  | "fullscreen_recovery_mail_status_changed"
+  | "fullscreen_recovery_support_outcome_recorded"
+  | "fullscreen_recovery_manual_extension_completed"
+  | "fullscreen_recovery_manual_extension_failed"
   // Diagram viewport (pan/zoom) controls in fullscreen, normal viewer, and editor
   // preview. `macro_type` says which renderer was being zoomed, `viewport_input`
   // which control did it.

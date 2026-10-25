@@ -27,6 +27,7 @@ Bob --&gt; Alice: Hi there!
 </template>
 
 <script>
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 import { plantumlEncode } from '@/utils/plantuml/encode';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
 import { plantUmlRenderer } from '@/utils/plantuml/renderer';
@@ -246,6 +247,10 @@ export default {
         this.$store.dispatch('updateError', this.error);
       } finally {
         this.loading = false;
+        await this.$nextTick();
+        if (!this.error && this.svg && this.plantUmlCode === code) {
+          reportDiagramReady(this.$el, 'plantuml');
+        }
       }
     },
   },

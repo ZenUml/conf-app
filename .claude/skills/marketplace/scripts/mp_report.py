@@ -63,7 +63,10 @@ def export(kind, auth, **filters):
     If a local snapshot is active (`--local`), serve from SQLite instead of the API — the rows
     are the SAME raw dicts, so every downstream command works unchanged (raw-passthrough)."""
     if LOCAL["db"]:
-        return _local_export(kind, filters)
+        data = _local_export(kind, filters)
+        if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+            raise ValueError(f"Unexpected {kind} snapshot shape (expected an array of records)")
+        return data
     qs = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in filters.items() if v is not None)
     path = f"/rest/2/vendors/{VENDOR}/reporting/{kind}/export?accept=json" + (("&" + qs) if qs else "")
     req = urllib.request.Request(BASE + path, headers={
@@ -76,9 +79,9 @@ def export(kind, auth, **filters):
     if resp.headers.get("Content-Encoding") == "gzip":
         raw = gzip.decompress(raw)
     data = json.loads(raw)
-    # export returns a bare array; be defensive if a dict wrapper ever appears
-    if isinstance(data, dict):
-        data = data.get("licenses") or data.get("transactions") or []
+    # The export contract is a bare array. A wrapper or error object is not an empty result.
+    if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+        raise ValueError(f"Unexpected {kind} export shape (expected an array of records)")
     return data
 
 
@@ -618,26 +621,105 @@ def _kv_space_licenses(cloud_id):
     return out
 
 
+def _site_host(value):
+    return (value or "").lower().removesuffix(".atlassian.net").strip(".")
+
+
+def _order_id(t):
+    """Only explicit source identifiers count; do not infer an order from amount or date."""
+    return t.get("transactionId")
+
+
+def _purchase_verification(args, lics, txs, cids, today, source):
+    """Keep a purchase conclusion separate from the legacy lifetime-revenue card."""
+    entitlements = {(r.get("addonKey"), r.get("appEntitlementNumber")) for r in lics
+                    if r.get("appEntitlementNumber") and keep_addon(r, args.app)}
+    def same_site(t):
+        cid = t.get("cloudId")
+        if cid: return cid in cids  # A conflicting cloudId overrides a matching entitlement.
+        return (t.get("addonKey"), t.get("appEntitlementNumber")) in entitlements
+    selected = [t for t in txs if same_site(t) and keep_addon(t, args.app)]
+    order_id = getattr(args, "order_id", None)
+    if order_id:
+        selected = [t for t in selected if str(_order_id(t) or "") == order_id]
+    records = []
+    for t in selected:
+        p = t.get("purchaseDetails") or {}
+        amount = p.get("vendorAmount")
+        try: amount_value = float(amount or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Unexpected transaction vendorAmount") from exc
+        sale_type = str(p.get("saleType") or "")
+        payment_status = t.get("paymentStatus")
+        start, end = p.get("maintenanceStartDate"), p.get("maintenanceEndDate")
+        start_date, end_date = pdate(start), pdate(end)
+        coverage = ("future" if start_date and start_date > today else
+                    "expired" if end_date and end_date < today else
+                    "active" if start_date and end_date and start_date <= today <= end_date else "unknown")
+        excluded = bool(p.get("refundReason") or p.get("creditNoteReason")) or any(
+            word in (sale_type + " " + str(payment_status or "")).lower()
+                       for word in ("refund", "void", "cancel"))
+        valid_sale = sale_type in {"New", "Renewal", "Upgrade", "Downgrade"}
+        classified = bool(_order_id(t)) and (excluded or bool(sale_type and amount is not None))
+        records.append({"order_id": _order_id(t), "cloudId": t.get("cloudId"),
+                        "transactionLineItemId": t.get("transactionLineItemId"),
+                        "appEntitlementNumber": t.get("appEntitlementNumber"),
+                        "addonKey": t.get("addonKey"), "saleType": p.get("saleType"),
+                        "saleDate": p.get("saleDate"), "vendorAmount": amount,
+                        "paymentStatus": payment_status,
+                        "maintenanceStartDate": start, "maintenanceEndDate": end,
+                        "coverage": coverage,
+                        "classification_complete": classified and (valid_sale or excluded),
+                        "purchase_evidence": classified and amount_value > 0 and valid_sale and not excluded})
+    found = any(r["purchase_evidence"] for r in records)
+    complete = bool(cids)  # cloudId export scope supports a meaningful zero-row result.
+    classified = all(r["classification_complete"] for r in records)
+    conclusion = ("PURCHASE_FOUND" if found else "NO_MATCHING_PURCHASE"
+                  if complete and classified else "UNVERIFIED")
+    return {"conclusion": conclusion,
+            "asof_utc_date": str(today), "source": source, "identity_cloudIds": sorted(cids),
+            "identity_entitlements": sorted(x[1] for x in entitlements),
+            "query_status": "complete" if complete and classified else "partial", "product_scope": args.app,
+            "order_id_filter": order_id,
+            "records": records,
+            "reason": ("Matching nonzero purchase order recorded; payment status is source-reported"
+                       if found else "Complete identity and product scoped query found no qualifying purchase"
+                       if complete and classified else "Identity scope or transaction classification is incomplete")}
+
+
 def cmd_whois(args, auth):
     """domain -> one card across ALL apps: cloudId(s), users, STATE (FREE/TRIAL/PAID/LAPSED) with
     expiry, lifetime $, AND the Layer-B (Stripe/KV) space-license check for Lite tenants. Suggests
     near-match hosts on a miss. Marketplace tx join on cloudId (see cmd_client)."""
-    today = datetime.date.today()
+    today = datetime.datetime.now(datetime.timezone.utc).date()
     domain = args.domain
     # The Marketplace text= search matches the tenant SLUG, not the full hostname: passing
     # "subsplash.atlassian.net" returned zero licenses and a "not paying" verdict for a $5,782
     # payer (2026-07-25). Every host this tool prints elsewhere is fully qualified, so strip the
     # suffix before searching and keep `domain` only for display / tenant_info fallback.
     q = domain[: -len(".atlassian.net")] if domain.lower().endswith(".atlassian.net") else domain
-    lics = export("licenses", auth, text=q)
+    searched_lics = export("licenses", auth, text=q)
+    # Marketplace text is broad. A company-name match is not site identity.
+    lics = [r for r in searched_lics if _site_host(r.get("cloudSiteHostname")) == _site_host(domain)]
     cloud_ids = {r.get("cloudId") for r in lics if r.get("cloudId")}
-
-    by_key = {}                                           # dedup: text=slug ∪ per-cloudId
-    for t in export("sales/transactions", auth, text=q):
-        by_key[json.dumps(t, sort_keys=True, default=str)] = t
+    if not cloud_ids and not LOCAL["db"]:
+        edge = _tenant_info_cloudid(domain)
+        if edge: cloud_ids.add(edge)
+    by_key = {}
+    order_id = getattr(args, "order_id", None)
+    if order_id:
+        for t in export("sales/transactions", auth, text=order_id):
+            if str(_order_id(t) or "") == order_id:
+                by_key[json.dumps(t, sort_keys=True, default=str)] = t
     for cid in cloud_ids:
         for t in export("sales/transactions", auth, text=cid):
-            by_key[json.dumps(t, sort_keys=True, default=str)] = t
+            if t.get("cloudId") == cid:
+                by_key[json.dumps(t, sort_keys=True, default=str)] = t
+    for entitlement in sorted({r.get("appEntitlementNumber") for r in lics
+                               if r.get("appEntitlementNumber") and keep_addon(r, args.app)}):
+        for t in export("sales/transactions", auth, text=entitlement):
+            if t.get("appEntitlementNumber") == entitlement:
+                by_key[json.dumps(t, sort_keys=True, default=str)] = t
     # Per (cloudId, addonKey), not per cloudId: maymobility holds a paid Full license AND a
     # zero-transaction Lite listing on one cloudId, so a cloudId-keyed aggregate gave BOTH rows
     # $3,996.30 and summed the verdict to $7,992.60 — double its real lifetime (2026-07-25).
@@ -677,12 +759,19 @@ def cmd_whois(args, auth):
 
     cids = sorted(c for c in cloud_ids if c)
     suggest = []
-    if not cids:                                          # no license -> resolve cloudId off-Marketplace
-        edge = _tenant_info_cloudid(domain)
-        if edge:
-            cids = [edge]
-        if not lics:
-            suggest = _fuzzy_hosts(domain, auth)
+    if not cids and not LOCAL["db"]:
+        suggest = _fuzzy_hosts(domain, auth)
+
+    if cids or any(r.get("appEntitlementNumber") for r in lics):
+        verification = _purchase_verification(args, lics, list(by_key.values()), set(cids), today,
+                                              "local_snapshot" if LOCAL["db"] else "live_export")
+    else:
+        verification = {"conclusion": "UNVERIFIED", "asof_utc_date": str(today),
+                        "source": "local_snapshot" if LOCAL["db"] else "live_export",
+                        "identity_cloudIds": [], "query_status": "not_queried", "product_scope": args.app,
+                        "order_id_filter": getattr(args, "order_id", None), "records": [],
+                        "reason": "Site cloudId could not be resolved"}
+    verification["fetched_at_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds") if not LOCAL["db"] else None
 
     out = {
         "domain": domain, "cloudIds": cids, "apps": apps,
@@ -694,6 +783,7 @@ def cmd_whois(args, auth):
         "payment_interpretation": "Evidence of historical payments; not proof of current paid coverage",
         "total_lifetime_vendor": round(sum(x["lifetime_vendor"] for x in apps), 2),
         "suggestions": (suggest or None),
+        "verification": verification,
     }
     if LOCAL["db"]:                                       # self-document the data vintage (determinism/repro)
         con = sqlite3.connect(LOCAL["db"])
@@ -702,6 +792,7 @@ def cmd_whois(args, auth):
         con.close()
         if m:
             out["_snapshot"] = {"synced_at": m[0], "license_rows": m[1], "tx_rows": m[2]}
+            verification["snapshot_synced_at"] = m[0]
     if args.json:
         print(json.dumps(out, indent=2, default=str)); return
 
@@ -726,12 +817,8 @@ def cmd_whois(args, auth):
                          + (f" via {s['activatedBy']}" if s.get("activatedBy") else "") for s in lb]
                 line += "   [Layer B: " + "; ".join(parts) + "]"
         print(line)
-    verdict = ("PAYMENT RECORD FOUND" if out["paying_any_layer"]
-               else "payment evidence incomplete / unknown" if out["paying_any_layer"] is None
-               else "no payment record found (comped access present)" if b_comped else "no payment record found")
-    extra = (", +Layer B PAID" if b_paying else
-             ", comped Layer-B grant (=$0 revenue)" if b_comped else "")
-    print(f"  VERDICT : {verdict}  (marketplace ${out['total_lifetime_vendor']:,.2f}{extra})")
+    print(f"  PURCHASE: {verification['conclusion']} — {verification['reason']}")
+    print(f"  LIFETIME: marketplace ${out['total_lifetime_vendor']:,.2f}")
     if has_lite and not kv_checked:
         print("  NOTE    : Lite present but Layer-B (KV) not checked "
               + ("(local snapshot)" if LOCAL["db"] else "(--no-kv)") + " — real Lite paid status unknown.")
@@ -811,6 +898,7 @@ def main():
     p = sub.add_parser("whois", parents=[common],
                        help="domain -> cloudId, users, state (FREE/TRIAL/PAID), lifetime $ + Lite KV check")
     p.add_argument("domain", help="tenant domain / slug")
+    p.add_argument("--order-id", default=None, help="exact Marketplace transactionId to verify")
     p.add_argument("--no-kv", action="store_true", help="skip the Layer-B (Stripe/KV) space-license check for Lite")
     p.set_defaults(func=cmd_whois)
 
@@ -819,15 +907,30 @@ def main():
     p.set_defaults(func=cmd_sync)
 
     args = ap.parse_args()
-    if getattr(args, "local", False) and args.cmd != "sync":
-        LOCAL["db"] = args.db or _default_db()
-        if not os.path.exists(LOCAL["db"]):
-            sys.exit(f"no local snapshot at {LOCAL['db']} — run: mp_report.py sync")
-        print(_snapshot_age_note(LOCAL["db"]), file=sys.stderr)
-        args.func(args, None)                            # local mode needs no creds
-    else:
-        email, tok = load_creds(args.env or find_env())
-        args.func(args, _auth_header(email, tok))
+    try:
+        if getattr(args, "local", False) and args.cmd != "sync":
+            LOCAL["db"] = args.db or _default_db()
+            if not os.path.exists(LOCAL["db"]):
+                sys.exit(f"no local snapshot at {LOCAL['db']} — run: mp_report.py sync")
+            print(_snapshot_age_note(LOCAL["db"]), file=sys.stderr)
+            args.func(args, None)                        # local mode needs no creds
+        else:
+            LOCAL["db"] = None
+            email, tok = load_creds(args.env or find_env())
+            args.func(args, _auth_header(email, tok))
+    except (Exception, SystemExit) as exc:
+        if args.cmd != "whois":
+            raise
+        reason = str(exc) or type(exc).__name__
+        result = {"domain": args.domain, "verification": {
+            "conclusion": "UNVERIFIED", "asof_utc_date": str(datetime.datetime.now(datetime.timezone.utc).date()),
+            "source": "local_snapshot" if args.local else "live_export",
+            "identity_cloudIds": [], "query_status": "failed", "product_scope": args.app,
+            "order_id_filter": args.order_id, "records": [],
+            "reason": f"Lookup failed: {reason}", "fetched_at_utc": None}}
+        if args.json: print(json.dumps(result, indent=2))
+        else: print(f"PURCHASE: UNVERIFIED — {reason}")
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

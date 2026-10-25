@@ -35,6 +35,10 @@ Give the customer name, goal, strongest signal, contactability, blocker, one rec
 
 A Full trial approaching expiry is an observation, not urgency or proof of failed conversion. Verify billing/renewal evidence and actual blockers before proposing contact. A payment, a commercial license, a support extension and a communication reply are different facts.
 
+For a purchase/renewal opportunity, a matched valid non-zero order plus an effective commercial license establishes the commercial result: mark **won / 已成交** even when the transaction's payment status is `Open`. Record settlement separately. Exclude refund, cancelled/voided and free-only transactions; a license alone is insufficient. Apply the transaction rules in [shared evidence](../customer-data/evidence.md), including source identifiers and overlapping-order uncertainty.
+
+On an authorised **status-only refresh**, reconcile the existing stage, blocker and next-action text with new facts. An established purchase must not remain “procurement / awaiting approval” solely because settlement is unknown or the last email predates the order. Update those stale statements and append the evidence; do not invent outreach or a new follow-up plan. Preserve user-directed pauses/observation scope and unresolved technical work separately from the commercial result.
+
 Reconsider paused customers only when a subsequent authorised run finds the recorded condition satisfied; record why. This skill does not create background monitoring.
 
 ## Prepare and perform the next step
@@ -47,6 +51,8 @@ Verify the result in the original system. An attempted or ambiguous send is **�
 
 ## Storage
 
-Use [record contract](references/records.md). Locate the selected storage adapter in `private/operations/customer-followup-tracker.md`. Keep real customer data and investigation archives in `private/`. Do not put tracker IDs, contacts or customer examples in public skill files.
+Use [customer-tracker](../customer-tracker/SKILL.md) for tracker writes and saved-result verification. Pass the authorised scope, stable opportunity IDs, verified facts/decisions, original source timestamps and links, and any missing evidence. This flow owns investigation and business decisions; `customer-tracker` owns applying them to the workbook without starting another investigation.
+
+The [record contract](references/records.md) remains authoritative for record meanings; `private/operations/customer-followup-tracker.md` maps them to the current workbook. Keep real customer data and investigation archives in `private/`. Do not put tracker IDs, contacts or customer examples in public skill files.
 
 If there is no storage connection, finish the investigation/draft and prepare an exact pending record privately; clearly distinguish it from a saved update. Do not claim the tracker changed until re-read verification succeeds.

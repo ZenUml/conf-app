@@ -578,6 +578,14 @@ describe('clientDeclaresUi', () => {
 });
 
 describe('macroTypeOf', () => {
+  it('uses the shared vocabulary: embed is reported, unknown types are dropped (#942)', () => {
+    expect(macroTypeOf('read_diagram', {}, { diagramType: 'embed' })).toBe('embed');
+    expect(macroTypeOf('read_diagram', {}, { diagramType: 'bogus' })).toBeUndefined();
+    for (const t of ['sequence', 'mermaid', 'markdown', 'plantuml', 'graph', 'OpenAPI', 'AsyncAPI', 'embed']) {
+      expect(macroTypeOf('read_diagram', {}, { diagramType: t })).toBe(t.toLowerCase());
+    }
+  });
+
   it('takes read_diagram\'s type from the result, folded into the macro_type vocabulary', () => {
     expect(macroTypeOf('read_diagram', {}, { diagramType: 'OpenAPI' })).toBe('openapi');
     expect(macroTypeOf('read_diagram', {}, { diagramType: 'graph' })).toBe('graph');

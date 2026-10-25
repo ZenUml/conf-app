@@ -3,6 +3,7 @@ import api, { route, routeFromAbsolute } from '@forge/api';
 import { readPngDimensions } from './lib/pngDimensions.js';
 import { decideExportSample } from './lib/exportSampling.js';
 import { readPngState, writePngState } from './lib/pngExportState.js';
+import { toMacroType } from './lib/diagramTypeVocabulary.js';
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -26,22 +27,8 @@ import { readPngState, writePngState } from './lib/pngExportState.js';
  * `macro_export_requested`) can carry the join keys we use to correlate
  * with frontend `attachment_upload_*` events.
  */
-// conf-app#435: maps the custom content's `diagramType` field (see
-// src/model/Diagram/Diagram.ts DiagramType, and the same fallback pattern in
-// src/model/ContentProvider/Persistence.ts's DIAGRAM_TYPE_TO_MACRO_TYPE) to the
-// MacroTypeValue used across analytics (src/utils/analytics/catalog.ts). Not
-// imported directly — export.js runs in the Forge functions bundle, kept free
-// of the frontend/Vue module graph — so the mapping is duplicated here.
-const DIAGRAM_TYPE_TO_MACRO_TYPE = {
-  sequence: 'sequence',
-  mermaid: 'mermaid',
-  markdown: 'markdown',
-  plantuml: 'plantuml',
-  graph: 'graph',
-  OpenAPI: 'openapi',
-  AsyncAPI: 'asyncapi',
-  embed: 'embed',
-};
+// conf-app#435: macro_type for the custom content's `diagramType` comes from the
+// shared, import-free vocabulary module (#942), which folds case.
 
 /**
  * Resolves the exported macro's diagram type for analytics sizing (#435:
@@ -97,7 +84,7 @@ export async function fetchCustomContentParsed(customContentId) {
 
 /** Maps an already-parsed body to its macro_type, with the 'none' sentinel. */
 export function macroTypeFromParsed(parsed) {
-  return DIAGRAM_TYPE_TO_MACRO_TYPE[parsed?.diagramType] ?? 'none';
+  return toMacroType(parsed?.diagramType);
 }
 
 export async function resolveMacroType(customContentId) {

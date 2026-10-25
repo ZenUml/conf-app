@@ -46,10 +46,10 @@ export function createPageController(ctx: ContentScriptContext) {
     }
   }
 
-  function readPage(): { pr: PrRef | null; changed: boolean } {
+  function readPage(href = location.href): { pr: PrRef | null; changed: boolean } {
     state.viewerLogin = readViewerLogin(document)
-    const pr = parsePrRef(location.href, document)
-    const repo = pr ?? parseRepoRef(location.href)
+    const pr = parsePrRef(href, document)
+    const repo = pr ?? parseRepoRef(href)
     const prev = state.pr
     const changed = (prev?.number ?? null) !== (pr?.number ?? null) || (prev && pr ? repoKeyOf(prev) !== repoKeyOf(pr) : false)
     state.pr = pr
@@ -226,6 +226,10 @@ export function createPageController(ctx: ContentScriptContext) {
   function ensureList() {
     ensureQueued = false
     watchTurboFrame()
+    if (showsOtherPr()) {
+      applyLocation(location.href)
+      return
+    }
     refreshPageDetails()
     if (!state.pr) {
       removeList()
@@ -252,8 +256,15 @@ export function createPageController(ctx: ContentScriptContext) {
     observer.observe(frame, { childList: true, subtree: true })
   }
 
-  function onLocationChange() {
-    const { changed } = readPage()
+  /** True when the committed URL names another PR (or none) than the one this tab registered. */
+  function showsOtherPr(): boolean {
+    const next = parsePrRef(location.href)
+    const prev = state.pr
+    return (next?.number ?? null) !== (prev?.number ?? null) || (next && prev ? repoKeyOf(next) !== repoKeyOf(prev) : false)
+  }
+
+  function applyLocation(href: string) {
+    const { changed } = readPage(href)
     if (changed) {
       port?.send(envelope({ type: 'unregister' as const, documentId }))
       registerCurrent()
@@ -262,6 +273,16 @@ export function createPageController(ctx: ContentScriptContext) {
     } else {
       queueEnsure()
     }
+  }
+
+  /**
+   * In Chrome WXT fires this from the Navigation API `navigate` event, before the new URL commits,
+   * so read the destination from the event, not from `location`. ensureList re-checks the committed
+   * URL after GitHub renders, in case the event missed a navigation.
+   */
+  function onLocationChange(event: Event) {
+    const newUrl = (event as Event & { newUrl?: URL }).newUrl
+    applyLocation(newUrl?.href ?? location.href)
   }
 
   async function start() {

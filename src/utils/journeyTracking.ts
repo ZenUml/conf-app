@@ -63,8 +63,11 @@ export function getEditJourneyStartTime(): number | null {
  * @param reason - 结束原因：saved（保存）, cancelled（取消）, window_close（窗口关闭）
  */
 export function endEditJourney(reason: 'saved' | 'cancelled' | 'window_close'): void {
-  if (!currentEditJourneyId) return;
-  
+  clearEditJourney();
+}
+
+/** Parent viewers release forwarded context without claiming a child outcome. */
+export function clearEditJourney(): void {
   currentEditJourneyId = null;
   currentMacroUuid = null;
   editJourneyStartTime = null;

@@ -744,3 +744,33 @@ Without this pair, `load_failed_shown` counts impressions only. Measured 2026-08
 |---|---|
 | `feature_area` | `"system"` |
 | `surface` | `"editor"` |
+
+
+### Creation journey correlation (increment to #683)
+
+The text editor snapshots its existing `journey_id` for authoring start and
+snapshots that ID plus create/edit mode before asynchronous persistence. New
+telemetry uses `journey_tracking_version = 1`; `creation_attempt_id` remains a
+compatibility alias of the same ID, not an independently generated identifier.
+Retries and type changes retain identity. Repeated start/success callbacks for
+the same journey are suppressed; explicit cancellation after success is
+suppressed. A reopened editor receives a fresh journey from the existing entry
+lifecycle. Edits retain a journey but no creation-attempt identity.
+
+`journey_link_status` distinguishes `linked`, `missing_journey`, and
+`missing_start`. Missing-ID outcomes remain observable; they are not silently
+assigned a new ID. Filter version 1 and linked create events when measuring the
+journey funnel, and report excluded coverage alongside the rate. An outcome
+arriving after a different journey has started retains its captured ID. The
+iframe keeps its small journey history to deduplicate late callbacks; an ID
+with no observed start is marked `missing_start`. Historical
+events are not backfilled. This does not validate all other editors' new/edit
+classification or define a conversion-window policy.
+
+Confluence persistence with a valid content ID defines success. Macro metadata,
+snapshot, and backend mirror work are supplementary: their failure must not
+turn a committed save into a failed save or invite a duplicate creation retry.
+The editor owns lifecycle outcome events. Viewer `onClose` only clears its local
+journey state; it cannot infer whether the child saved. This PR base does not
+emit `macro_authoring_ended`; when integrating with newer main's terminal-event
+implementation, preserve this parent/child ownership rule and test it there.

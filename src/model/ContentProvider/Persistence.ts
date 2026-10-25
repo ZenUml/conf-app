@@ -1,3 +1,4 @@
+import { getEditJourneyId } from '@/utils/journeyTracking';
 import { trackPublishBlocked } from '@/utils/analytics/publishIntent';
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
 import {CustomContentStorageProvider} from "@/model/ContentProvider/CustomContentStorageProvider";
@@ -37,9 +38,12 @@ export class InvalidSavedContentIdError extends Error {
 }
 
 export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = globals.apWrapper): Promise<string> {
+  const journeyId = getEditJourneyId();
+  const mutationSummary = getEditorMutationSummary();
+  const isNew = !diagram.id;
   const intent = {
     macroType: toMacroType(diagram.diagramType) as MacroTypeValue,
-    operationMode: diagram.id ? 'edit' as const : 'create' as const,
+    operationMode: isNew ? 'create' as const : 'edit' as const,
     titlePresent: !!diagram.title?.trim(),
   };
   const reportFailure = (error: unknown, invalidId = false) => {
@@ -56,7 +60,8 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
       failure_reason: invalidId ? 'invalid_saved_content_id' : httpStatus ? 'http_error' : 'request_failed',
       ...(httpStatus ? { http_status: httpStatus } : {}),
       ...(safeCode ? { error_code: safeCode } : {}),
-      ...getEditorMutationSummary(),
+      ...mutationSummary,
+      journey_id: journeyId,
     });
   };
   // ZEN-1170 Defect 1: refuse to save when the editor was mounted with a
@@ -71,9 +76,8 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   }
 
   // Publish/save latency: start the clock at the top of the real save work so
-  // save_duration_ms reflects the full user-perceived publish (custom-content
-  // save round-trip + getMacroData). Read once, just before emitting the
-  // success event, so the post-event syncCustomContent (D1 mirror) is excluded.
+  // save_duration_ms measures the Confluence persistence round-trip. Read
+  // once before success; metadata, snapshots and the backend mirror are excluded.
   const saveStartedAt = performance.now();
 
   console.log('Saving diagram to platform content provider', diagram);
@@ -99,20 +103,6 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     reportFailure(error, true);
     throw error;
   }
-
-  const macroData = await apWrapper.getMacroData();
-
-  // Identity for the D1 CustomContent mirror's macroUuid column. localId is
-  // the Forge runtime's stable per-macro id (same value Mixpanel uses as
-  // macro_uuid); legacy guestParams.uuid is the Connect-era breadcrumb,
-  // kept as a fallback so long-lived macros stay stitched.
-  const macroUuid =
-    forgeGlobal.forgeContext?.localId
-    || macroData?.uuid
-    || '';
-
-  let isNew;
-  isNew = !diagram.id;
 
   // Analytics: embed editor handles its own tracking
   if (diagram.diagramType !== DiagramType.Embed) {
@@ -147,6 +137,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         macro_type: macroType,
         operation_mode: "create",
         save_duration_ms,
+        journey_id: journeyId,
         ...savedIdProps,
       });
     } else {
@@ -156,7 +147,8 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
         macro_type: macroType,
         operation_mode: "edit",
         save_duration_ms,
-        ...getEditorMutationSummary(),
+        ...mutationSummary,
+        journey_id: journeyId,
         ...savedIdProps,
       });
     }
@@ -226,7 +218,15 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   // editor, tearing down the iframe and killing any in-flight enumeration
   // (which for a large space takes ~10s). It runs at editor-open instead
   // (forgeIndex), where the editing session gives it time to complete.
-  await syncCustomContent(customContent, diagram.diagramType, macroUuid);
+  // This is a best-effort mirror after Confluence has committed. A metadata
+  // or backend failure must not turn the completed save into a retry/create.
+  try {
+    const macroData = await apWrapper.getMacroData();
+    const macroUuid = forgeGlobal.forgeContext?.localId || macroData?.uuid || '';
+    await syncCustomContent(customContent, diagram.diagramType, macroUuid);
+  } catch (error) {
+    console.warn('Custom content mirror sync failed after durable save', error);
+  }
 
   return String(customContent.id);
 }

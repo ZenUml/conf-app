@@ -398,6 +398,7 @@ export async function _awaitableTrackAnalyticsEvent(
     if (!sample.keep) return;
 
     const creationProperties = captureCreationAttemptProperties(eventName, callerProps);
+    if (creationProperties === null) return;
     await _initMixpanel();
     _identify();
     const explicitReplayProperties = _startExplicitReplay(eventName);

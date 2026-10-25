@@ -13,6 +13,7 @@ import {
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { normalizeProductType } from "./productType";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
+import { startEditJourney, continueEditJourney, endEditJourney } from '@/utils/journeyTracking';
 import { EVENT_SAMPLE_RATES } from "./eventSampling";
 
 vi.mock("mixpanel-browser", () => ({
@@ -69,6 +70,7 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     localStorage.clear();
     vi.clearAllMocks();
     _resetForTesting();
+    endEditJourney('window_close');
     // @ts-ignore
     window.globals = mockGlobals;
     vi.mocked(forgeGlobal).isForge = true;
@@ -135,6 +137,7 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     // Iframe 2 (fresh module state, context not resolved yet) — the cache
     // makes its very first event correctly attributed instead of anonymous.
     _resetForTesting();
+    endEditJourney('window_close');
     vi.clearAllMocks();
     // @ts-ignore
     window.globals = { apWrapper: { getMacroData: vi.fn().mockResolvedValue({}) } };
@@ -149,6 +152,7 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     expect(mixpanel.identify).toHaveBeenCalledWith("user-123");
 
     _resetForTesting();
+    endEditJourney('window_close');
     vi.clearAllMocks();
     vi.mocked(getClientDomain).mockReturnValue("other.atlassian.net");
     // @ts-ignore
@@ -173,6 +177,7 @@ describe("trackAnalyticsEvent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetForTesting();
+    endEditJourney('window_close');
     // @ts-ignore
     window.globals = mockGlobals;
     vi.mocked(forgeGlobal).isForge = true;
@@ -691,6 +696,62 @@ describe("trackAnalyticsEvent", () => {
     expect(start).toMatchObject({ initial_macro_type: 'sequence', final_macro_type: 'sequence', creation_event_index: 0 });
     expect(calls.find(([event]) => event === 'macro_type_changed')![1]).toMatchObject({ creation_attempt_id: start.creation_attempt_id, final_macro_type: 'mermaid', creation_event_index: 1 });
     expect(calls.find(([event]) => event === 'macro_create_cancelled')).toEqual(['macro_create_cancelled', expect.objectContaining({ creation_attempt_id: start.creation_attempt_id, initial_macro_type: 'sequence', final_macro_type: 'mermaid', creation_event_index: 2 }), { transport: 'sendBeacon' }]);
+  });
+
+  it("uses the editor journey, suppresses duplicate starts/success and ignores close after success", async () => {
+    const journey = startEditJourney('macro-test', 'macro');
+    const props = { feature_area: 'macro', surface: 'editor', macro_type: 'sequence', operation_mode: 'create' } as const;
+    await _awaitableTrackAnalyticsEvent('macro_create_started', props);
+    await _awaitableTrackAnalyticsEvent('macro_create_started', props);
+    await _awaitableTrackAnalyticsEvent('macro_save_failed', props);
+    await _awaitableTrackAnalyticsEvent('macro_create_succeeded', props);
+    await _awaitableTrackAnalyticsEvent('macro_create_succeeded', props);
+    await trackAnalyticsEventBeforeUnload('macro_create_cancelled', props);
+    const calls = vi.mocked(mixpanel.track).mock.calls;
+    expect(calls.map(([name]) => name)).toEqual(['macro_create_started', 'macro_save_failed', 'macro_create_succeeded']);
+    for (const [, payload] of calls) expect(payload).toMatchObject({ journey_id: journey, creation_attempt_id: journey, journey_link_status: 'linked' });
+  });
+
+  it("captures a continued child journey before enrichment and cleanup", async () => {
+    continueEditJourney('parent-journey', 'macro-test', 1000);
+    let resolveConfig!: (value: any) => void;
+    vi.mocked(getSessionReplayConfig).mockReturnValueOnce(new Promise(resolve => { resolveConfig = resolve; }));
+    const props = { feature_area: 'macro', surface: 'editor', macro_type: 'sequence', operation_mode: 'create' } as const;
+    const start = _awaitableTrackAnalyticsEvent('macro_create_started', props);
+    const success = _awaitableTrackAnalyticsEvent('macro_create_succeeded', props);
+    endEditJourney('saved');
+    endEditJourney('cancelled'); // parent cleanup has no result-event ownership
+    resolveConfig({ percent: 0, source: 'off' });
+    await Promise.all([start, success]);
+    expect(vi.mocked(mixpanel.track).mock.calls).toHaveLength(2);
+    for (const [, payload] of vi.mocked(mixpanel.track).mock.calls) expect(payload).toMatchObject({ journey_id: 'parent-journey', creation_attempt_id: 'parent-journey' });
+  });
+
+  it("keeps edits outside the creation attempt and marks orphan outcomes explicitly", async () => {
+    const props = { feature_area: 'macro', surface: 'editor', macro_type: 'sequence' } as const;
+    const journey = startEditJourney('existing-macro', 'macro');
+    await _awaitableTrackAnalyticsEvent('macro_edit_started', { ...props, operation_mode: 'edit' });
+    await _awaitableTrackAnalyticsEvent('macro_save_succeeded', { ...props, operation_mode: 'edit' });
+    for (const [, payload] of vi.mocked(mixpanel.track).mock.calls) {
+      expect(payload).toMatchObject({ journey_id: journey, operation_mode: 'edit' });
+      expect(payload).not.toHaveProperty('creation_attempt_id');
+    }
+    endEditJourney('window_close');
+    await _awaitableTrackAnalyticsEvent('macro_create_succeeded', { ...props, operation_mode: 'create', journey_id: null });
+    expect(vi.mocked(mixpanel.track).mock.calls.at(-1)?.[1]).toMatchObject({ journey_id: null, journey_link_status: 'missing_journey' });
+  });
+
+  it("retains the captured save journey when another journey has already opened", async () => {
+    const props = { feature_area: 'macro', surface: 'editor', macro_type: 'sequence', operation_mode: 'create' } as const;
+    const first = startEditJourney('first', 'macro');
+    await _awaitableTrackAnalyticsEvent('macro_create_started', props);
+    endEditJourney('window_close');
+    startEditJourney('second', 'macro');
+    await _awaitableTrackAnalyticsEvent('macro_create_started', props);
+    await _awaitableTrackAnalyticsEvent('macro_create_succeeded', { ...props, journey_id: first });
+    expect(vi.mocked(mixpanel.track).mock.calls.at(-1)?.[1]).toMatchObject({ journey_id: first, creation_attempt_id: first, journey_link_status: 'linked' });
+    await _awaitableTrackAnalyticsEvent('macro_create_succeeded', { ...props, journey_id: first });
+    expect(vi.mocked(mixpanel.track).mock.calls.filter(([name]) => name === 'macro_create_succeeded')).toHaveLength(1);
   });
 
   it("forces replay when macro creation starts", async () => {

@@ -18,7 +18,7 @@ import store from './model/store2'
 import Example from "./utils/sequence/Example";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { handleGetStartedRoute } from './routes/getStarted';
-import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
+import { startEditJourney, endEditJourney, clearEditJourney, getOrCreateSession, getEditJourneyId, getEditJourneyStartTime, continueEditJourney } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute } from './routes/pageBanner';
@@ -981,7 +981,9 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
     const macroKind = (doc?.diagramType === DiagramType.Mermaid || context.extension.modal?.diagramType === 'mermaid') ? 'mermaid' : 'sequence';
     const fullscreenMode = await isFullscreenMode();
     const exportEntry = fullscreenMode && (await isExportEntry());
+    let authoringJourneyId = getEditJourneyId();
     const trackPageEditorAuthoringStarted = () => {
+      authoringJourneyId ??= startEditJourney(context.localId ?? '', 'macro');
       const isNew = !customContentId;
       const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
       markEditorAuthoringStarted();
@@ -991,6 +993,8 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
           surface: "editor",
           macro_type: macroType,
           entry_point: "page_editor",
+          operation_mode: "create",
+          journey_id: authoringJourneyId,
         });
       } else {
         trackAnalyticsEvent("macro_edit_started", {
@@ -998,6 +1002,8 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
           surface: "editor",
           macro_type: macroType,
           entry_point: "macro_toolbar",
+          operation_mode: "edit",
+          journey_id: authoringJourneyId,
         });
       }
     };
@@ -1274,7 +1280,8 @@ EventBus.$on('edit', async(params: any) => {
   await openModal({
     resource: 'main',
     onClose: () => {
-      endEditJourney('cancelled');
+      // The child editor owns the outcome. The parent only releases context.
+      clearEditJourney();
       location.reload();
     },
     size: 'fullscreen',

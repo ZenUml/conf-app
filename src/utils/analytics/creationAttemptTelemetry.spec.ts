@@ -1,12 +1,13 @@
+import { startEditJourney, endEditJourney } from '@/utils/journeyTracking';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureCreationAttemptProperties as capture, resetCreationAttemptTelemetry } from './creationAttemptTelemetry';
 import type { AnalyticsEventName } from './catalog';
 import type { AnalyticsProperties } from './types';
 
 const props: AnalyticsProperties = { feature_area: 'macro', surface: 'editor', macro_type: 'sequence', operation_mode: 'create' };
-const event = (name: AnalyticsEventName, overrides: Partial<AnalyticsProperties> = {}) => capture(name, { ...props, ...overrides });
+const event = (name: AnalyticsEventName, overrides: Partial<AnalyticsProperties> = {}) => capture(name, { ...props, ...overrides })!;
 
-beforeEach(() => { resetCreationAttemptTelemetry(); vi.restoreAllMocks(); });
+beforeEach(() => { resetCreationAttemptTelemetry(); endEditJourney('window_close'); vi.restoreAllMocks(); });
 
 describe('creation attempt lifecycle', () => {
   it('pairs a no-switch create with durable success', () => {
@@ -43,22 +44,24 @@ describe('creation attempt lifecycle', () => {
 
   it('does not attach a create ID to edits or unrelated events', () => {
     event('macro_create_started');
-    expect(event('macro_type_changed', { operation_mode: 'edit' })).toEqual({});
+    expect(event('macro_type_changed', { operation_mode: 'edit' })).not.toHaveProperty('creation_attempt_id');
     expect(event('macro_viewed')).toEqual({});
+    startEditJourney('other-macro', 'macro');
     event('macro_edit_started', { operation_mode: 'edit' });
-    expect(event('macro_save_failed')).toEqual({});
+    expect(event('macro_save_failed', { operation_mode: 'edit' })).not.toHaveProperty('creation_attempt_id');
   });
 
   it('does not invent an attempt for orphan outcomes and gives a new editor a new ID', () => {
-    expect(event('macro_create_succeeded')).toEqual({});
+    expect(event('macro_create_succeeded')).toMatchObject({ journey_id: null, journey_link_status: 'missing_journey' });
     const first = event('macro_create_started');
     event('macro_create_cancelled');
+    endEditJourney('cancelled');
     expect(event('macro_create_started').creation_attempt_id).not.toBe(first.creation_attempt_id);
   });
 
   it('copies no raw content, customer identity or replay data into attempt properties', () => {
     const result = event('macro_create_started', { user_account_id: 'secret-account', client_domain: 'secret-tenant', page_id: 'secret-page', custom_content_id: 'secret-content', source: 'secret-source', session_id: 'secret-session' });
-    expect(Object.keys(result).sort()).toEqual(['creation_attempt_id', 'creation_elapsed_ms', 'creation_event_index', 'final_macro_type', 'initial_macro_type']);
+    expect(Object.keys(result).sort()).toEqual(['creation_attempt_id', 'creation_elapsed_ms', 'creation_event_index', 'final_macro_type', 'initial_macro_type', 'journey_id', 'journey_link_status', 'journey_tracking_version']);
     expect(JSON.stringify(result)).not.toContain('secret');
   });
 });

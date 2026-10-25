@@ -71,9 +71,13 @@ export type AnalyticsProperties = {
   confluence_space?: string;
   macro_uuid?: string;
   // Lifecycle
-  // Random per-editor creation identifier. Never derived from account, tenant,
-  // page, content, URL, source or replay identifiers; absent for edit sessions.
+  // Compatibility alias of the random editor journey_id, absent for edit
+  // sessions. Never derived from tenant, content, account or replay data.
   creation_attempt_id?: string;
+  // v1: journey_id is captured before async work; attempt ID is a compatibility
+  // alias, never a second UUID. Missing links stay observable, not invented.
+  journey_tracking_version?: 1;
+  journey_link_status?: 'linked' | 'missing_journey' | 'missing_start';
   // Initial type is frozen at start. Final type is the selection at this event,
   // and becomes final for the attempt only on success or explicit cancellation.
   // macro_type keeps its existing per-event meaning for dashboard migration.

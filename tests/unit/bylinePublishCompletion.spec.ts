@@ -97,7 +97,7 @@ describe.each([
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({ macro_type: macroType, operation_mode: mode, custom_content_id: savedId });
     if (mode === 'create') {
-      expect(captured[0]).toMatchObject({ creation_attempt_id: start.creation_attempt_id, creation_event_index: 2 });
+      expect(captured[0]).toMatchObject({ creation_attempt_id: start!.creation_attempt_id, creation_event_index: 2 });
     } else {
       expect(captured[0]).not.toHaveProperty('creation_attempt_id');
     }

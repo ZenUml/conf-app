@@ -253,8 +253,9 @@ export type AnalyticsEventName =
   // Both authoring-start events force Session Replay at 100% before the event
   // is sent. Editor entries must emit the event from the iframe that owns the
   // interaction; the replay policy itself stays centralized here.
-  // Creation lifecycle pairing (#520): one random creation_attempt_id begins
-  // at macro_create_started and survives type switches and publish retries.
+  // Creation lifecycle pairing: journey_id is the existing editor journey.
+  // creation_attempt_id is its compatibility alias; start/success emit once
+  // per journey, and retries/type switches preserve that identity.
   // Success means Confluence custom content persisted (not macro placement).
   // Explicit close ends the attempt; missing telemetry is not cancellation.
   | "macro_create_started"

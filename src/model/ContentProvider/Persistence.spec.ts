@@ -1,5 +1,6 @@
 import {saveToPlatform, LegacyLoadBlockedSaveError, InvalidSavedContentIdError} from "@/model/ContentProvider/Persistence";
 import {NULL_DIAGRAM, DiagramType} from "@/model/Diagram/Diagram";
+import { startEditJourney, endEditJourney, continueEditJourney } from '@/utils/journeyTracking';
 import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
@@ -15,7 +16,7 @@ import {
 
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
-const mockSave = vi.fn(() => ({id: "mocked_custom_content_id"}));
+const mockSave = vi.fn<() => { id: string } | Promise<{ id: string }>>(() => ({id: "mocked_custom_content_id"}));
 const mockGetMacroData = async () => {
   return {
     "uuid": "uuid_from_macro_data"
@@ -59,6 +60,7 @@ describe('Persistence', function () {
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
     resetEditorMutationSession();
+    endEditJourney('window_close');
   });
 
   it('does NOT report macro metrics on save — the editor iframe is torn down on submit/close, which would kill a long enumeration; reporting is moved to editor-open', async () => {
@@ -160,6 +162,7 @@ describe('Persistence', function () {
 
   it('macro_save_succeeded carries the text editor replacement-session summary', async () => {
     const oldDoc = 'A -> B: hello';
+    continueEditJourney('journey-1', 'macro-test');
     startEditorMutationSession({
       initialCode: oldDoc,
       macroType: 'sequence',
@@ -311,7 +314,7 @@ describe('Persistence', function () {
 
     it('does not report telemetry sync failure as a failed Confluence save', async () => {
       vi.mocked(syncCustomContent).mockRejectedValueOnce(new Error('telemetry unavailable'));
-      await expect(saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper)).rejects.toThrow('telemetry unavailable');
+      await expect(saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper)).resolves.toBe('mocked_custom_content_id');
       expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_create_succeeded', expect.anything());
       expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('macro_save_failed', expect.anything());
     });
@@ -320,6 +323,39 @@ describe('Persistence', function () {
   // conf-app#320: a save whose persistence returned no usable id must NOT be
   // treated as success. Previously String(undefined) === "undefined" leaked into
   // macro_create_succeeded AND back into the macro config (permanent orphan).
+  it('snapshots journey and create mode before persistence awaits or mutates the document', async () => {
+    const journey = startEditJourney('macro-test', 'macro');
+    const diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence };
+    mockSave.mockImplementationOnce(async () => {
+      diagram.id = 'new-id';
+      endEditJourney('window_close');
+      return { id: 'new-id' };
+    });
+    await saveToPlatform(diagram, mockApWrapper);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_create_succeeded', expect.objectContaining({ journey_id: journey, operation_mode: 'create' }));
+  });
+
+  it.each(['success', 'failure'])('keeps the pre-await edit journey on %s when mutation state switches', async (outcome) => {
+    const journey = startEditJourney('existing-macro', 'macro');
+    mockSave.mockImplementationOnce(async () => {
+      endEditJourney('window_close');
+      startEditJourney('next-macro', 'macro');
+      startEditorMutationSession({ macroType: 'sequence', operationMode: 'edit', customContentId: 'next-id', initialCode: '', journeyId: 'next-journey', sessionId: 'next-session', openedAt: Date.now() });
+      if (outcome === 'failure') throw new Error('offline');
+      return { id: 'existing-id' };
+    });
+    const result = saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);
+    if (outcome === 'failure') await expect(result).rejects.toThrow('offline');
+    else await expect(result).resolves.toBe('existing-id');
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(outcome === 'failure' ? 'macro_save_failed' : 'macro_save_succeeded', expect.objectContaining({ journey_id: journey, operation_mode: 'edit' }));
+  });
+
+  it('reports durable success even if later macro metadata lookup fails', async () => {
+    const wrapper = { getMacroData: vi.fn().mockRejectedValue(new Error('metadata unavailable')) } as unknown as ApWrapper2;
+    await expect(saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, wrapper)).resolves.toBe('mocked_custom_content_id');
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('macro_create_succeeded', expect.anything());
+  });
+
   describe('invalid saved id (conf-app#320)', () => {
     for (const badId of [undefined, null, 'undefined', ''] as const) {
       it(`throws InvalidSavedContentIdError when the saved customContent id is ${JSON.stringify(badId)}`, async () => {

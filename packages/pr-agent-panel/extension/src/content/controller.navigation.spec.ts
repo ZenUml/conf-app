@@ -55,4 +55,37 @@ describe('createPageController soft navigation', () => {
     expect(controller.store.state.pr?.title).toBe('Eight')
     ctx.notifyInvalidated()
   })
+
+  it('does nothing, and throws nothing, when the extension was reloaded under an open tab', async () => {
+    vi.resetModules()
+    const { browser } = await import('wxt/browser')
+    const { ContentScriptContext } = await import('wxt/utils/content-script-context')
+    const { createPageController } = await import('./controller')
+    history.replaceState(null, '', 'https://github.com/example-owner/example-repo/pulls')
+    document.body.innerHTML = '<nav aria-label="Repository"></nav><turbo-frame id="repo-content-turbo-frame"></turbo-frame>'
+    const ctx = new ContentScriptContext('github')
+    await createPageController(ctx).start()
+
+    // What an orphaned content script sees after the extension reloads.
+    const id = browser.runtime.id
+    vi.spyOn(browser.runtime, 'getURL').mockImplementation(() => {
+      throw new Error('Extension context invalidated.')
+    })
+    Object.defineProperty(browser.runtime, 'id', { value: undefined, configurable: true })
+    const rejections: unknown[] = []
+    const onRejection = (reason: unknown) => rejections.push(reason)
+    process.on('unhandledRejection', onRejection)
+    try {
+      softNavigate('https://github.com/example-owner/example-repo/pull/7')
+      await frames()
+      await frames()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(rejections).toEqual([])
+      expect(document.querySelector('zenuml-pr-list')).toBeNull()
+    } finally {
+      process.off('unhandledRejection', onRejection)
+      Object.defineProperty(browser.runtime, 'id', { value: id, configurable: true })
+      vi.restoreAllMocks()
+    }
+  })
 })

@@ -52,6 +52,9 @@ export class PanelPort {
       else this.frameListeners.forEach((l) => l(ev.frame))
     })
     port.onDisconnect.addListener(() => {
+      // Reading lastError marks it handled; a back/forward-cache eviction otherwise shows as
+      // "Unchecked runtime.lastError" on the extension's error page. The retry below reconnects.
+      void browser.runtime?.lastError
       this.port = null
       if (this.closed) return
       const delay = BACKOFF_MS[Math.min(this.failures, BACKOFF_MS.length - 1)] ?? 5000

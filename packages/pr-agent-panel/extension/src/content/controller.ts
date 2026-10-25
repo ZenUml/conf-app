@@ -68,7 +68,8 @@ export function createPageController(ctx: ContentScriptContext) {
 
   // ---------------------------------------------------------------- panel
   async function mountPanel() {
-    panelUi = await createShadowRootUi<App>(ctx, {
+    if (ctx.isInvalid) return
+    panelUi = await createOrphanSafeUi<App>({
       name: 'zenuml-pr-panel',
       position: 'overlay',
       anchor: 'body',
@@ -127,14 +128,27 @@ export function createPageController(ctx: ContentScriptContext) {
         app?.unmount()
       },
     })
-    panelUi.mount()
+    panelUi?.mount()
   }
 
   // ---------------------------------------------------------------- list
+  /**
+   * After the extension reloads, the old content script keeps running in open tabs until it notices.
+   * Its runtime calls then throw "Extension context invalidated"; treat that as teardown, not an error.
+   */
+  async function createOrphanSafeUi<T>(options: Parameters<typeof createShadowRootUi<T>>[1]) {
+    try {
+      return await createShadowRootUi<T>(ctx, options)
+    } catch (error) {
+      if (ctx.isInvalid) return null
+      throw error
+    }
+  }
+
   async function mountList() {
     removeList()
-    if (!state.pr) return
-    const ui = await createShadowRootUi<App>(ctx, {
+    if (!state.pr || ctx.isInvalid) return
+    const ui = await createOrphanSafeUi<App>({
       name: 'zenuml-pr-list',
       position: 'inline',
       anchor: 'body',
@@ -168,7 +182,7 @@ export function createPageController(ctx: ContentScriptContext) {
         app?.unmount()
       },
     })
-    if (!state.pr) return
+    if (!ui || !state.pr) return
     removeList()
     listUi = ui
     ui.mount()

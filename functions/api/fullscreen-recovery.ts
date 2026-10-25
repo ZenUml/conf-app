@@ -9,12 +9,13 @@ import {
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
-export const onRequestGet: PagesFunction<RecoveryEnv, string, ForgeRequestData> = async ({ env, data }) => {
+export const onRequestGet: PagesFunction<RecoveryEnv, string, ForgeRequestData> = async ({ request, env, data }) => {
   const fit = data.forgeContext;
   if (!fit || !isRecoveryIdentity(fit)) {
     return json({ snapshot: await recoverySnapshot(env, null) }, { headers: NO_STORE });
   }
-  return json({ snapshot: await recoverySnapshot(env, fit) }, { headers: NO_STORE });
+  const spaceKey = new URL(request.url).searchParams.get('spaceKey') || undefined;
+  return json({ snapshot: await recoverySnapshot(env, fit, new Date(), spaceKey) }, { headers: NO_STORE });
 };
 
 export const onRequestPost: PagesFunction<RecoveryEnv, string, ForgeRequestData> = async ({ request, env, data, waitUntil }) => {

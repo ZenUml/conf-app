@@ -76,12 +76,10 @@ export type AnalyticsProperties = {
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
-  recovery_state?: 'disabled' | 'notice' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
+  recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
   scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'>;
-  notice_version?: string;
-  notice_days_remaining?: number;
   access_source?: 'existing' | 'temporary' | 'fail_open';
   duration_days?: number;
   mail_state?: 'queued' | 'accepted' | 'delivered' | 'bounced' | 'failed' | 'delivery_unknown';

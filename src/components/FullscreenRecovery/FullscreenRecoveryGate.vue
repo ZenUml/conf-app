@@ -4,7 +4,7 @@
 
     <template v-if="view === 'scenarios'">
       <h1 id="recovery-title">How will you use Fullscreen?</h1>
-      <p class="recovery__lead">Tell us what you need. After your request is saved, you can use Fullscreen for 7 days starting with your first successful opening.</p>
+      <p class="recovery__lead">This space has reached the free limit of 100 diagrams. Tell us what you need. After your request is saved, you can use Fullscreen for 7 days starting with your first successful opening.</p>
       <fieldset class="recovery__fieldset">
         <legend>Choose one or more</legend>
         <label v-for="code in scenarioCodes" :key="code" class="recovery__choice">
@@ -106,7 +106,7 @@ type View = 'scenarios' | 'contact' | 'ready' | 'expired' | 'request'
 const props = withDefaults(defineProps<{
   snapshot: RecoverySnapshot
   request?: (input: RecoveryRequestInput) => Promise<RecoveryResult>
-  context?: Pick<RecoveryRequestInput, 'contentId' | 'customContentId' | 'spaceKey'>
+  context?: Partial<Pick<RecoveryRequestInput, 'contentId' | 'customContentId' | 'spaceKey'>>
   initialView?: 'request'
   initialScenarios?: RecoveryScenario[]
   openLabel?: string
@@ -180,11 +180,16 @@ async function submit() {
     emit('requestFailed', 'validation')
     return
   }
+  const spaceKey = props.context?.spaceKey
+  if (!spaceKey) {
+    error.value = 'Return to the diagram to check this space before contacting support.'
+    return
+  }
   const attemptId = crypto.randomUUID()
   const input: RecoveryRequestInput = {
     action: 'request', attemptId, scenarios: [...scenarios.value], note: note.value,
     email: email.value, consent: true, consentVersion: FULLSCREEN_RECOVERY_POLICY_VERSION,
-    ...props.context,
+    ...props.context, spaceKey,
   }
   busy.value = true
   error.value = ''

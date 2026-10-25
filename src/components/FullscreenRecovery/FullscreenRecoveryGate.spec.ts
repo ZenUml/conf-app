@@ -21,7 +21,7 @@ describe('FullscreenRecoveryGate', () => {
       grant: { id: 'grant-1', activatedAt: null, expiresAt: null },
     }
     const request = vi.fn().mockResolvedValue({ snapshot, outcome: 'created' })
-    const wrapper = mount(FullscreenRecoveryGate, { props: { snapshot: base, request } })
+    const wrapper = mount(FullscreenRecoveryGate, { props: { snapshot: base, request, context: { spaceKey: 'ENG' } } })
     expect(wrapper.get('button.recovery__primary').attributes('disabled')).toBeDefined()
     await fillContact(wrapper)
     await wrapper.get('form').trigger('submit')
@@ -37,9 +37,18 @@ describe('FullscreenRecoveryGate', () => {
     expect(wrapper.emitted('openFullscreen')).toHaveLength(1)
   })
 
+  it('does not submit a contact request without a current space key', async () => {
+    const request = vi.fn()
+    const wrapper = mount(FullscreenRecoveryGate, { props: { snapshot: base, request } })
+    await fillContact(wrapper)
+    await wrapper.get('form').trigger('submit')
+    expect(request).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toContain('check this space')
+  })
+
   it('keeps the completed form for retry after a request failure', async () => {
     const request = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ snapshot: { ...base, state: 'pending_activation', request: { id: 'FS-001', scenarios: ['present'], note: '', email: 'reader@example.com', createdAt: base.serverNow } } })
-    const wrapper = mount(FullscreenRecoveryGate, { props: { snapshot: base, request } })
+    const wrapper = mount(FullscreenRecoveryGate, { props: { snapshot: base, request, context: { spaceKey: 'ENG' } } })
     await fillContact(wrapper)
     await wrapper.get('form').trigger('submit')
     await flushPromises()

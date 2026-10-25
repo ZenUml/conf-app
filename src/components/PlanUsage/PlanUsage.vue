@@ -18,10 +18,9 @@
           <p v-if="fullscreenSnapshot.state === 'pending_activation'">Your request {{ fullscreenSnapshot.request?.id }} is saved. Your 7 days begin when the diagram first opens successfully in Fullscreen.</p>
           <p v-else-if="fullscreenSnapshot.state === 'active'">Your temporary Fullscreen access ends {{ fullscreenExpiry }}.</p>
           <p v-else-if="fullscreenSnapshot.state === 'expired'">Your temporary Fullscreen access ended {{ fullscreenExpiry }}. You can continue the same request with support.</p>
-          <p v-else-if="fullscreenSnapshot.state === 'notice'">Fullscreen access will change on {{ fullscreenNoticeDate }}. You can still read diagrams on their pages.</p>
-          <p v-else-if="fullscreenSnapshot.state === 'disabled'">Fullscreen access is currently managed on the diagram page.</p>
+          <p v-else-if="fullscreenSnapshot.state === 'disabled'">This space does not need temporary Fullscreen access. Return to the diagram to open Fullscreen.</p>
           <div class="actions">
-            <button v-if="fullscreenSnapshot.state === 'not_requested' || fullscreenSnapshot.request" type="button" class="btn btn-primary" data-testid="plan-usage-fullscreen-request" @click="openFullscreenRequest">
+            <button v-if="fullscreenSnapshot.state !== 'disabled' && (fullscreenSnapshot.state === 'not_requested' || fullscreenSnapshot.request)" type="button" class="btn btn-primary" data-testid="plan-usage-fullscreen-request" @click="openFullscreenRequest">
               {{ fullscreenSnapshot.request ? 'View your Fullscreen request' : 'Contact support about Fullscreen' }}
             </button>
             <button v-if="diagramReturnPathValue" type="button" class="btn btn-neutral" data-testid="plan-usage-return-diagram" @click="returnToDiagram">Return to diagram</button>
@@ -105,7 +104,7 @@
     <div v-else-if="view === 'fullscreen_request' && fullscreenSnapshot" class="fullscreen-request-view">
       <button type="button" class="back-link" @click="view = 'usage'">← Plan and usage</button>
       <FullscreenRecoveryGate :snapshot="fullscreenSnapshot" :initial-scenarios="fullscreenSource?.scenarios"
-        :context="fullscreenSource?.pageId ? { contentId: fullscreenSource.pageId } : undefined" surface="dashboard"
+        :context="{ contentId: fullscreenSource?.pageId, spaceKey: fullscreenSource?.spaceKey }" surface="dashboard"
         :initial-view="fullscreenRequestInitialView" open-label="Return to diagram"
         @update:snapshot="fullscreenSnapshot = $event" @open-fullscreen="returnToDiagram"
         @return-inline="returnToDiagram" @plan-usage="view = 'usage'" />
@@ -187,7 +186,6 @@ const fullscreenScenarios = computed(() => {
   return scenarios.map(code => scenarioLabels[code]).filter(Boolean).join(', ')
 })
 const fullscreenExpiry = computed(() => fullLocalDate(fullscreenSnapshot.value?.grant?.expiresAt) || 'an unavailable date')
-const fullscreenNoticeDate = computed(() => fullLocalDate(fullscreenSnapshot.value?.enforceAt) || 'a date to be confirmed')
 
 const domain = ref('')
 const loading = ref(true)
@@ -228,7 +226,11 @@ async function loadFullscreenSnapshot() {
   fullscreenLoading.value = true
   fullscreenError.value = false
   try {
-    const snapshot = await getFullscreenRecovery()
+    if (!fullscreenSource.value.spaceKey) {
+      fullscreenSnapshot.value = { state: 'disabled', serverNow: new Date().toISOString(), policyVersion: 'fullscreen-contact-v1' }
+      return
+    }
+    const snapshot = await getFullscreenRecovery(fullscreenSource.value.spaceKey)
     if (snapshot.state === 'unavailable') throw new Error('recovery unavailable')
     fullscreenSnapshot.value = snapshot
   } catch {
@@ -240,7 +242,7 @@ async function loadFullscreenSnapshot() {
 }
 
 function openFullscreenRequest() {
-  if (!fullscreenSnapshot.value) return
+  if (!fullscreenSnapshot.value || fullscreenSnapshot.value.state === 'disabled' || !fullscreenSource.value?.spaceKey) return
   fullscreenRequestInitialView.value = fullscreenSnapshot.value.request ? 'request' : undefined
   view.value = 'fullscreen_request'
 }

@@ -55,7 +55,7 @@ describe('PlanUsage', () => {
   })
 
   it('uses the viewer snapshot, not the query request id, and writes a Fullscreen reason', async () => {
-    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&request=foreign-id&scenes=present&page_id=123' } }
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG&request=foreign-id&scenes=present&page_id=123' } }
     vi.mocked(getFullscreenRecovery).mockResolvedValue({
       state: 'expired', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
       request: { id: 'own-id', scenarios: ['discuss'], note: '', email: 'reader@example.com', createdAt: '2026-10-01T00:00:00Z', mailState: 'queued' },
@@ -71,7 +71,7 @@ describe('PlanUsage', () => {
   })
 
   it('seeds the contact form with allowed scenes and returns to the source page without activating', async () => {
-    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&scenes=present,arbitrary&page_id=123' } }
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG&scenes=present,arbitrary&page_id=123' } }
     vi.mocked(getFullscreenRecovery).mockResolvedValue({ state: 'not_requested', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1' })
     vi.mocked(requestFullscreenRecovery).mockResolvedValue({ snapshot: {
       state: 'pending_activation', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
@@ -87,6 +87,7 @@ describe('PlanUsage', () => {
     await w.get('input[type="checkbox"][required]').setValue(true)
     await w.get('form').trigger('submit')
     await flushPromises()
+    expect(requestFullscreenRecovery).toHaveBeenCalledWith(expect.objectContaining({ spaceKey: 'ENG' }))
     expect(w.text()).toContain('Your 7 days have not started')
     expect(requestFullscreenRecovery).toHaveBeenCalledWith(expect.objectContaining({ contentId: '123' }))
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('fullscreen_recovery_request_submitted', expect.objectContaining({ surface: 'dashboard', scenario_codes: ['present'] }))
@@ -96,8 +97,33 @@ describe('PlanUsage', () => {
     expect(activateFullscreenRecovery).not.toHaveBeenCalled()
   })
 
-  it('shows retry when the recovery API returns unavailable', async () => {
+  it('keeps ordinary space access separate from an old expired site-user grant', async () => {
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=SMALL&page_id=123' } }
+    vi.mocked(getFullscreenRecovery).mockResolvedValue({
+      state: 'disabled', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
+      request: { id: 'old', scenarios: ['present'], email: 'reader@example.com', note: '', createdAt: '2026-10-01T00:00:00Z' },
+      grant: { id: 'old-grant', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
+    })
+    const w = await mountPage(usageBody({ overLimitSpaces: [], totalMacros: 99 }))
+    expect(getFullscreenRecovery).toHaveBeenCalledWith('SMALL')
+    const context = w.get('[data-testid="plan-usage-fullscreen-context"]')
+    expect(context.text()).toContain('does not need temporary Fullscreen access')
+    expect(context.text()).not.toContain('ended')
+    expect(w.find('[data-testid="plan-usage-fullscreen-request"]').exists()).toBe(false)
+    expect(requestFullscreenRecovery).not.toHaveBeenCalled()
+    expect(activateFullscreenRecovery).not.toHaveBeenCalled()
+  })
+
+  it('does not offer a new request without source-space evidence', async () => {
     forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery' } }
+    const w = await mountPage(usageBody())
+    expect(getFullscreenRecovery).not.toHaveBeenCalled()
+    expect(w.find('[data-testid="plan-usage-fullscreen-request"]').exists()).toBe(false)
+    expect(requestFullscreenRecovery).not.toHaveBeenCalled()
+  })
+
+  it('shows retry when the recovery API returns unavailable', async () => {
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG' } }
     vi.mocked(getFullscreenRecovery).mockResolvedValue({ state: 'unavailable', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1' })
     const w = await mountPage(usageBody())
     expect(w.get('[data-testid="plan-usage-fullscreen-context"] [role="alert"]').text()).toContain('could not check')

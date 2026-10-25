@@ -771,7 +771,6 @@ export type AnalyticsEventName =
   | "fullscreen_opened"
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
-  | "fullscreen_recovery_notice_shown"
   | "fullscreen_recovery_gate_shown"
   | "fullscreen_recovery_action_selected"
   | "fullscreen_recovery_request_submitted"

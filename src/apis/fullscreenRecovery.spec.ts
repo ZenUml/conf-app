@@ -9,14 +9,14 @@ describe('fullscreen recovery Forge adapter', () => {
   it('reads the authenticated viewer snapshot through the Forge remote', async () => {
     const snapshot = { state: 'not_requested', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1' }
     vi.mocked(callRemote).mockResolvedValue({ snapshot })
-    await expect(getFullscreenRecovery()).resolves.toEqual(snapshot)
-    expect(callRemote).toHaveBeenCalledWith('/api/fullscreen-recovery', 'GET')
+    await expect(getFullscreenRecovery('SPACE A')).resolves.toEqual(snapshot)
+    expect(callRemote).toHaveBeenCalledWith('/api/fullscreen-recovery?spaceKey=SPACE%20A', 'GET')
   })
 
   it('posts request and activation as separate actions to the same endpoint', async () => {
     vi.mocked(callRemote).mockResolvedValue({ snapshot: { state: 'pending_activation', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1' } })
-    const request = { action: 'request' as const, attemptId: 'request-id', scenarios: ['present'] as const, note: '', email: 'reader@example.com', consent: true as const, consentVersion: 'fullscreen-contact-v1' as const }
-    const activate = { action: 'activate' as const, attemptId: 'activation-id', requestId: 'request-id' }
+    const request = { action: 'request' as const, attemptId: 'request-id', scenarios: ['present'] as const, note: '', email: 'reader@example.com', spaceKey: 'SPACE', consent: true as const, consentVersion: 'fullscreen-contact-v1' as const }
+    const activate = { action: 'activate' as const, attemptId: 'activation-id', requestId: 'request-id', spaceKey: 'SPACE' }
     await requestFullscreenRecovery({ ...request, scenarios: [...request.scenarios] })
     await activateFullscreenRecovery(activate)
     expect(callRemote).toHaveBeenNthCalledWith(1, '/api/fullscreen-recovery', 'POST', { ...request, scenarios: ['present'] })

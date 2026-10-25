@@ -12,11 +12,12 @@ import type { RecoveryScenario } from '../../../shared/fullscreenRecovery';
 export async function mountFullscreenRecovery(opts: {
   doc?: Diagram;
   existingExemption?: boolean;
+  spaceKey: string;
   content: Component;
   contentProps?: Record<string, unknown>;
 }): Promise<'handled' | 'disabled' | 'unavailable'> {
   try {
-    const snapshot = await getFullscreenRecovery();
+    const snapshot = await getFullscreenRecovery(opts.spaceKey);
     if (opts.existingExemption && snapshot.exemptionOverrideReviewed !== true) return 'disabled';
     if (snapshot.state === 'disabled' || snapshot.state === 'unavailable') return snapshot.state;
     const context = await getContext();
@@ -25,11 +26,11 @@ export async function mountFullscreenRecovery(opts: {
       context: {
         contentId: context.extension?.content?.id,
         customContentId: context.extension?.config?.customContentId || context.extension?.modal?.customContentId,
-        spaceKey: context.extension?.space?.key,
+        spaceKey: opts.spaceKey,
       },
       returnInline: async () => { await (await getView()).close(); },
       planUsage: async (requestId?: string, scenarios?: RecoveryScenario[]) => {
-        const query = new URLSearchParams({ source: 'fullscreen_recovery' });
+        const query = new URLSearchParams({ source: 'fullscreen_recovery', space_key: opts.spaceKey });
         if (requestId) query.set('request', requestId);
         const pageId = context.extension?.content?.id;
         if (pageId && /^\d+$/.test(pageId)) query.set('page_id', pageId);

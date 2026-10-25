@@ -37,7 +37,7 @@ const props = withDefaults(defineProps<{
 }>(), { contentProps: () => ({}), context: () => ({}) });
 const host = ref<HTMLElement | null>(null);
 const snapshot = ref(props.initialSnapshot);
-const hasOpened = ref(['active', 'notice'].includes(snapshot.value.state));
+const hasOpened = ref(snapshot.value.state === 'active');
 const showRequest = ref(false), dismissed = ref(false), activating = ref(false);
 const activationError = ref(false), openError = ref(false);
 let disposed = false, rendered = false;
@@ -54,7 +54,7 @@ const stopReady = onVisibleDiagramReady(() => host.value, (macroType: MacroTypeV
   rendered = true;
   trackAnalyticsEvent('fullscreen_view_ready', { ...common(), macro_type: macroType,
     access_source: snapshot.value.state === 'unavailable' ? 'fail_open'
-      : ['notice', 'disabled'].includes(snapshot.value.state) ? 'existing' : 'temporary' });
+      : snapshot.value.state === 'disabled' ? 'existing' : 'temporary' });
   if (snapshot.value.state === 'pending_activation') void activate();
 });
 
@@ -62,7 +62,7 @@ async function activate() {
   if (!rendered || activating.value || snapshot.value.state !== 'pending_activation' || !snapshot.value.request) return;
   activating.value = true;
   try {
-    const result = await activateFullscreenRecovery({ action: 'activate', attemptId, requestId: snapshot.value.request.id });
+    const result = await activateFullscreenRecovery({ action: 'activate', attemptId, requestId: snapshot.value.request.id, spaceKey: props.context.spaceKey! });
     if (disposed) return;
     snapshot.value = result.snapshot;
     serverClockOffset = Date.parse(result.snapshot.serverNow) - Date.now();
@@ -79,12 +79,12 @@ async function open() {
   openError.value = false;
   // Returning to the same mounted view must not force-close it at expiry.
   if (hasOpened.value) { showRequest.value = false; return; }
-  if (!['active', 'pending_activation', 'notice'].includes(snapshot.value.state)) {
-    try { snapshot.value = await getFullscreenRecovery(); }
+  if (!['active', 'pending_activation'].includes(snapshot.value.state)) {
+    try { snapshot.value = await getFullscreenRecovery(props.context.spaceKey); }
     catch { openError.value = true; return; }
     if (disposed) return;
   }
-  if (['active', 'pending_activation', 'notice', 'disabled', 'unavailable'].includes(snapshot.value.state)) {
+  if (['active', 'pending_activation', 'disabled', 'unavailable'].includes(snapshot.value.state)) {
     hasOpened.value = true; showRequest.value = false;
   }
 }
@@ -99,10 +99,6 @@ function dismissNotice() {
   trackAnalyticsEvent('fullscreen_recovery_action_selected', { ...common(), recovery_action: 'dismiss_notice' });
 }
 onMounted(() => {
-  if (snapshot.value.state === 'notice') {
-    trackAnalyticsEvent('fullscreen_recovery_notice_shown', { ...common(), notice_version: snapshot.value.noticeVersion,
-      notice_days_remaining: Math.max(0, Math.ceil((Date.parse(snapshot.value.enforceAt || '') - Date.parse(snapshot.value.serverNow)) / 86400000)) });
-  }
   clock = setInterval(() => {
     if (snapshot.value.state === 'active' && snapshot.value.grant?.expiresAt
       && Date.now() + serverClockOffset >= Date.parse(snapshot.value.grant.expiresAt)) {

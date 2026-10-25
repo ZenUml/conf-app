@@ -3,6 +3,7 @@ import { setup } from '@storybook/vue3-vite';
 import { expect, userEvent, within, waitFor } from 'storybook/test';
 import { markRaw } from 'vue';
 import FullscreenRecoveryHost from './FullscreenRecoveryHost.vue';
+import { isFullscreenRecoveryEligible } from '@/utils/paywall/fullscreenRecoveryEligibility';
 import Mermaid from './Mermaid.vue';
 import store from '@/model/store2';
 import { DiagramType } from '@/model/Diagram/Diagram';
@@ -18,7 +19,7 @@ const active: RecoverySnapshot = { ...pending, state: 'active', grant: { id: 'ex
 const meta: Meta<typeof FullscreenRecoveryHost> = {
   title: 'Viewer/FullscreenRecoveryHost', component: FullscreenRecoveryHost,
   parameters: { layout: 'fullscreen', docs: { description: { component: 'Real Mermaid renderer and display receipt; synthetic access state and Forge responses. No customer data or email.' } } },
-  args: { initialSnapshot: pending, content: markRaw(Mermaid), returnInline: () => {}, planUsage: () => {} },
+  args: { context: { spaceKey: 'EXAMPLE' }, initialSnapshot: pending, content: markRaw(Mermaid), returnInline: () => {}, planUsage: () => {} },
   loaders: [async () => {
     resetStubResponses(); stubResponses.remote.push({ match: '/api/fullscreen-recovery', body: { snapshot: active, outcome: 'activated' } });
     store.commit('updateDiagramType', DiagramType.Mermaid);
@@ -30,6 +31,7 @@ const meta: Meta<typeof FullscreenRecoveryHost> = {
 };
 export default meta;
 type Story = StoryObj<typeof FullscreenRecoveryHost>;
+export const ImmediateContactGate: Story = { args: { initialSnapshot: { state: 'not_requested', serverNow: pending.serverNow, policyVersion: pending.policyVersion } } };
 export const SuccessfulDisplay: Story = { play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   await userEvent.click(canvas.getByRole('button', { name: 'Open Fullscreen' }));
@@ -38,4 +40,26 @@ export const SuccessfulDisplay: Story = { play: async ({ canvasElement }) => {
 } };
 export const Active: Story = { args: { initialSnapshot: active } };
 export const ExpiredNewOpen: Story = { args: { initialSnapshot: { ...active, state: 'expired' } } };
-export const AdvanceNotice: Story = { args: { initialSnapshot: { ...pending, state: 'notice', noticeVersion: 'v1', enforceAt: '2026-10-31T00:00:00.000Z' } } };
+
+/** Uses the same count/paid predicate as the viewer boundary. Old grant state cannot gate an ordinary space. */
+function eligibilityStory(count: number): Story {
+  return { render: args => ({
+    components: { FullscreenRecoveryHost, Mermaid },
+    setup: () => ({ args, eligible: isFullscreenRecoveryEligible({ isLite: true, count, countSource: 'kv',
+      paidKnown: true, paid: false, policySource: 'default_on', spaceKey: 'EXAMPLE' }) }),
+    template: '<FullscreenRecoveryHost v-if="eligible" v-bind="args" /><Mermaid v-else />',
+  }), args: { initialSnapshot: count < 100 ? { ...active, state: 'expired' } : {
+    state: 'not_requested', serverNow: pending.serverNow, policyVersion: pending.policyVersion } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    if (count < 100) {
+      await waitFor(() => expect(canvasElement.querySelector('svg[id^="mermaid-"]')).not.toBeNull(), { timeout: 15000 });
+      await expect(canvas.queryByRole('button', { name: 'Contact support' })).toBeNull();
+      await expect(canvas.queryByText(/Temporary Fullscreen access ended/)).toBeNull();
+    } else {
+      await expect(canvas.getByText(/This space has reached the free limit of 100 diagrams/)).toBeVisible();
+    }
+  } };
+}
+export const BelowLimitOrdinaryFullscreen: Story = eligibilityStory(99);
+export const AtLimitContactRecovery: Story = eligibilityStory(100);

@@ -12,17 +12,17 @@ beforeEach(() => vi.clearAllMocks());
 describe('recovery policy at the viewer boundary', () => {
   it.each([false, undefined])('preserves an existing exemption unless explicitly reviewed: %s', async value => {
     vi.mocked(getFullscreenRecovery).mockResolvedValue({ ...snapshot, exemptionOverrideReviewed: value });
-    expect(await mountFullscreenRecovery({ content: {}, existingExemption: true })).toBe('disabled');
+    expect(await mountFullscreenRecovery({ content: {}, spaceKey: 'SPACE', existingExemption: true })).toBe('disabled');
     expect(mountRoot).not.toHaveBeenCalled();
   });
   it('allows the separately reviewed pilot without changing the editor exemption', async () => {
     vi.mocked(getFullscreenRecovery).mockResolvedValue({ ...snapshot, exemptionOverrideReviewed: true });
-    expect(await mountFullscreenRecovery({ content: {}, existingExemption: true })).toBe('handled');
+    expect(await mountFullscreenRecovery({ content: {}, spaceKey: 'SPACE', existingExemption: true })).toBe('handled');
     expect(mountRoot).toHaveBeenCalledOnce();
   });
   it('leaves the ordinary renderer in control when the policy is unavailable', async () => {
     vi.mocked(getFullscreenRecovery).mockRejectedValue(new Error('offline'));
-    expect(await mountFullscreenRecovery({ content: {} })).toBe('unavailable');
+    expect(await mountFullscreenRecovery({ content: {}, spaceKey: 'SPACE' })).toBe('unavailable');
     expect(mountRoot).not.toHaveBeenCalled();
   });
 });

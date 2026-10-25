@@ -104,10 +104,30 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     vi.mocked(forge.isFullscreenMode).mockResolvedValue(true);
     vi.mocked(forge.isEditorMode).mockResolvedValue(false);
     fakeCS.spacePaid.value = paid; fakeCS.spacePaidStatusKnown.value = known; fakeCS.paywallPolicySource.value = policy;
+    fakeCS.macrosCreated.value = 100; fakeCS.macroCountSource.value = 'kv';
     const { gate } = await imports();
     await gate.tryFullscreenViewerPaywall({ doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence' });
     expect(recoveryMount).toHaveBeenCalledTimes(expected ? 1 : 0);
     if (expected) expect(recoveryMount).toHaveBeenCalledWith(expect.objectContaining({ existingExemption: policy === 'exemption' }));
+  });
+
+  it.each([
+    [99, 'kv', false], [100, 'kv', true], [150, 'undefined', false],
+    [150, 'zero', false], [100, 'collect', true],
+  ])('only requests recovery for confirmed current-space count %s from %s', async (count, source, expected) => {
+    const forge = await import('@/model/globals/forgeGlobal');
+    vi.mocked(forge.isFullscreenMode).mockResolvedValue(true);
+    vi.mocked(forge.isEditorMode).mockResolvedValue(false);
+    fakeCS.spacePaidStatusKnown.value = true;
+    fakeCS.macrosCreated.value = count as number; fakeCS.macroCountSource.value = source as string;
+    // Retired editor blocking must never change ordinary Fullscreen eligibility.
+    fakeCS.shouldBlockActions.value = true;
+    recoveryMount.mockResolvedValue('handled');
+    const { gate } = await imports();
+    const result = await gate.tryFullscreenViewerPaywall({ doc: NULL_DIAGRAM, content: StubContent, macroKind: 'sequence' });
+    expect(result).toBe(expected);
+    expect(recoveryMount).toHaveBeenCalledTimes(expected ? 1 : 0);
+    if (expected) expect(recoveryMount).toHaveBeenCalledWith(expect.objectContaining({ spaceKey: 'OVERLIMIT' }));
   });
 
   it('fires with gate_fired=false + fail-open source on an ungated create mount', async () => {

@@ -2,6 +2,12 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+// Persistence tests isolate the grant transaction; eligibility against real
+// D1/KV sources is exercised in fullscreenRecoveryEligibility.spec.ts.
+vi.mock('./fullscreenRecoveryEligibility', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./fullscreenRecoveryEligibility')>(),
+  recoveryEligibility: vi.fn(async () => 'eligible'),
+}));
 import {
   activateRecovery, createRecoveryRequest, decryptRecoveryField, encryptRecoveryField,
   recoverySnapshot, type RecoveryEnv, type RecoveryIdentity,
@@ -11,9 +17,6 @@ import { onRequestPost as supportPost } from '../api/support/fullscreen-recovery
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 const policy = {
   enabled: true,
-  noticeStartsAt: '2026-10-01T00:00:00.000Z',
-  enforceAt: '2026-10-08T00:00:00.000Z',
-  noticeVersion: 'pilot-1',
 };
 const identity: RecoveryIdentity = {
   cloudId: 'site-a', accountId: 'user-a', forgeAppId: '8ad26115-211f-4216-971b-0540f606303d',
@@ -24,6 +27,7 @@ const requestInput = {
   attemptId: '34307364-d627-453f-948f-3cf183955a81',
   scenarios: ['present' as const], note: 'private context', email: 'person@example.test',
   consent: true as const, consentVersion: 'fullscreen-contact-v1' as const,
+  spaceKey: 'ENG',
 };
 
 function memoryDb() {
@@ -98,7 +102,7 @@ describe('fullscreen recovery persistence', () => {
     const { db } = memoryDb(); const e = env(db);
     const first = await createRecoveryRequest(e, identity, requestInput, new Date('2026-10-10T00:00:00.000Z'));
     const requestId = first.snapshot.request!.id;
-    const activation = { action: 'activate' as const, attemptId: requestInput.attemptId, requestId };
+    const activation = { action: 'activate' as const, attemptId: requestInput.attemptId, requestId, spaceKey: 'ENG' };
     const active = await activateRecovery(e, identity, activation, new Date('2026-10-12T00:00:00.000Z'));
     expect(active.outcome).toBe('activated');
     expect(active.snapshot.grant?.expiresAt).toBe('2026-10-19T00:00:00.000Z');
@@ -118,7 +122,7 @@ describe('fullscreen recovery persistence', () => {
     ]);
     expect([left.outcome, right.outcome].sort()).toEqual(['created', 'reused']);
     expect(sqlite.prepare('SELECT COUNT(*) AS total FROM FullscreenRecoveryRequest').get()).toEqual({ total: 1 });
-    const input = { action: 'activate' as const, attemptId: requestInput.attemptId, requestId: left.snapshot.request!.id };
+    const input = { action: 'activate' as const, attemptId: requestInput.attemptId, requestId: left.snapshot.request!.id, spaceKey: 'ENG' };
     const [first, second] = await Promise.all([
       activateRecovery(e, identity, input, new Date('2026-10-12T00:00:00.000Z')),
       activateRecovery(e, identity, input, new Date('2026-10-13T00:00:00.000Z')),
@@ -127,11 +131,12 @@ describe('fullscreen recovery persistence', () => {
     expect(first.snapshot.grant?.expiresAt).toBe(second.snapshot.grant?.expiresAt);
   });
 
-  it('shows notice only after a full seven-day configured notice period', async () => {
+  it('enables recovery immediately with no scheduled phase', async () => {
     const { db } = memoryDb(); const e = env(db);
-    expect((await recoverySnapshot(e, identity, new Date('2026-09-30T23:59:59.999Z'))).state).toBe('disabled');
-    expect((await recoverySnapshot(e, identity, new Date('2026-10-01T00:00:00.000Z'))).state).toBe('notice');
-    expect((await recoverySnapshot(e, identity, new Date('2026-10-08T00:00:00.000Z'))).state).toBe('not_requested');
+    expect((await recoverySnapshot(e, identity, new Date('2026-09-30T23:59:59.999Z'))).state).toBe('not_requested');
+    const result = await createRecoveryRequest(e, identity, requestInput, new Date('2026-09-30T23:59:59.999Z'));
+    expect(result.snapshot.state).toBe('pending_activation');
+    expect(result.snapshot.grant?.activatedAt).toBeNull();
   });
 
   it('requires an explicit boolean true before overriding a reviewed exemption', async () => {
@@ -189,7 +194,7 @@ describe('fullscreen recovery persistence', () => {
     const { sqlite, db } = memoryDb(); const e = env(db);
     const first = await createRecoveryRequest(e, identity, requestInput, new Date('2026-10-10T00:00:00.000Z'));
     const requestId = first.snapshot.request!.id;
-    await activateRecovery(e, identity, { action: 'activate', attemptId: requestInput.attemptId, requestId },
+    await activateRecovery(e, identity, { action: 'activate', attemptId: requestInput.attemptId, requestId, spaceKey: 'ENG' },
       new Date('2026-10-12T00:00:00.000Z'));
     const command = { action: 'extend', commandId: '26eb4783-0ff2-4380-b9cb-8eeb2e0b6438', requestId, reason: 'Support approved' };
     const firstResponse = await supportCommand(e, command);
@@ -276,7 +281,7 @@ describe('fullscreen recovery persistence', () => {
     const { sqlite, db } = memoryDb(); const e = env(db);
     const first = await createRecoveryRequest(e, identity, requestInput, new Date('2026-10-10T00:00:00.000Z'));
     const requestId = first.snapshot.request!.id;
-    await activateRecovery(e, identity, { action: 'activate', attemptId: requestInput.attemptId, requestId },
+    await activateRecovery(e, identity, { action: 'activate', attemptId: requestInput.attemptId, requestId, spaceKey: 'ENG' },
       new Date('2026-10-12T00:00:00.000Z'));
     const future = new Date(Date.now() + 3 * 86_400_000).toISOString();
     sqlite.prepare('UPDATE FullscreenRecoveryRequest SET expiresAt=?1').run(future);
@@ -316,7 +321,7 @@ describe('fullscreen recovery persistence', () => {
         properties: { failure_reason: 'not_activated', support_command_id: pendingCommand,
           '$insert_id': `${pendingCommand}:extend:failed:not_activated` },
       });
-      await activateRecovery(e, identity, { action: 'activate', attemptId: requestInput.attemptId, requestId },
+      await activateRecovery(e, identity, { action: 'activate', attemptId: requestInput.attemptId, requestId, spaceKey: 'ENG' },
         new Date('2026-10-12T00:00:00.000Z'));
       e.DB = { ...db, batch: async () => { throw new Error('D1 unavailable'); } } as D1Database;
       const failedCommand = '4fe6f29b-97e1-4ef9-8fce-3a52d8aae254';
@@ -336,6 +341,7 @@ describe('fullscreen recovery persistence', () => {
   it('round trips AES-GCM and rejects a different key', async () => {
     const cipher = await encryptRecoveryField('hello', key);
     expect(await decryptRecoveryField(cipher, key)).toBe('hello');
+    expect(await decryptRecoveryField(await encryptRecoveryField('', key), key)).toBe('');
     const otherKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(8)));
     await expect(decryptRecoveryField(cipher, otherKey)).rejects.toThrow();
   });

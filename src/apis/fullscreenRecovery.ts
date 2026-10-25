@@ -8,7 +8,7 @@ import type {
 } from '../../shared/fullscreenRecovery'
 
 const endpoint = '/api/fullscreen-recovery'
-const states = new Set(['disabled', 'notice', 'not_requested', 'pending_activation', 'active', 'expired', 'unavailable'])
+const states = new Set(['disabled', 'not_requested', 'pending_activation', 'active', 'expired', 'unavailable'])
 
 function requireResult(value: unknown): RecoveryResult {
   if (!value || typeof value !== 'object' || !('snapshot' in value)) throw new Error('Invalid Fullscreen recovery response')
@@ -30,8 +30,8 @@ function bounded<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
 }
 
 /** Forge remote requests carry the FIT used by the server to identify this viewer. */
-export async function getFullscreenRecovery(): Promise<RecoverySnapshot> {
-  return requireResult(await bounded(callRemote(endpoint, 'GET'), 8000)).snapshot
+export async function getFullscreenRecovery(spaceKey?: string): Promise<RecoverySnapshot> {
+  return requireResult(await bounded(callRemote(spaceKey ? `${endpoint}?spaceKey=${encodeURIComponent(spaceKey)}` : endpoint, 'GET'), 8000)).snapshot
 }
 
 export async function requestFullscreenRecovery(input: RecoveryRequestInput): Promise<RecoveryResult> {

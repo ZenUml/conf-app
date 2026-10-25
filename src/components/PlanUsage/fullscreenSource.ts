@@ -4,6 +4,7 @@ import type { RecoveryScenario } from '../../../shared/fullscreenRecovery'
 export interface FullscreenSource {
   scenarios: RecoveryScenario[]
   pageId?: string
+  spaceKey?: string
 }
 
 /** Forge global-page location is supplied in extension.location, not the iframe URL. */
@@ -15,7 +16,8 @@ export function parseFullscreenSource(location: unknown): FullscreenSource | nul
   const allowed = new Set<string>(FULLSCREEN_RECOVERY_SCENARIOS)
   const scenarios = [...new Set((url.searchParams.get('scenes') || '').split(',').filter(code => allowed.has(code)))] as RecoveryScenario[]
   const pageId = url.searchParams.get('page_id')
-  return { scenarios, ...(pageId && /^\d+$/.test(pageId) ? { pageId } : {}) }
+  const spaceKey = url.searchParams.get('space_key')
+  return { scenarios, ...(spaceKey && spaceKey.length <= 128 ? { spaceKey } : {}), ...(pageId && /^\d+$/.test(pageId) ? { pageId } : {}) }
 }
 
 export function diagramReturnPath(source: FullscreenSource): string | null {

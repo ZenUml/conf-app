@@ -10,6 +10,7 @@ import {
 } from '../../shared/fullscreenRecovery';
 import { mixpanelImportServiceEvents } from './mixpanelService';
 import type { AnalyticsEventName } from './analyticsTypes';
+import { RECOVERY_SPACE_KEY, recoveryEligibility } from './fullscreenRecoveryEligibility';
 
 export const LITE_FORGE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const DAY_MS = 86_400_000;
@@ -21,6 +22,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export interface RecoveryEnv {
   DB?: D1Database;
   KV_FEATURE_FLAGS?: KVNamespace;
+  SPACE_LICENSE_KV?: KVNamespace;
+  confluence_plugin_features?: KVNamespace;
+  MACRO_COUNT_SNAPSHOT_BUCKET?: R2Bucket;
   FULLSCREEN_RECOVERY_ENCRYPTION_KEY?: string;
   FULLSCREEN_RECOVERY_SUPPORT_TOKENS?: string;
   RESEND_REPLY_TO?: string;
@@ -36,7 +40,7 @@ export interface FullscreenRecoveryRequestRow {
   supportOutcome: RecoverySupportOutcome | null; supportOutcomeAt: string | null;
 }
 export interface RecoveryPolicy {
-  enabled: true; noticeStartsAt: string; enforceAt: string; noticeVersion: string;
+  enabled: true;
   exemptionOverrideReviewed?: boolean;
 }
 export class RecoveryError extends Error {
@@ -69,7 +73,8 @@ export async function encryptRecoveryField(plaintext: string, base64Key: string)
 }
 export async function decryptRecoveryField(ciphertext: string, base64Key: string): Promise<string> {
   const bytes = base64Bytes(ciphertext);
-  if (bytes.length < 29) throw new RecoveryError('invalid_ciphertext', 500);
+  // AES-GCM authenticates even an empty optional note: 12-byte IV + 16-byte tag.
+  if (bytes.length < 28) throw new RecoveryError('invalid_ciphertext', 500);
   const plaintext = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: bytes.slice(0, 12) }, await encryptionKey(base64Key), bytes.slice(12),
   );
@@ -94,12 +99,7 @@ export async function readRecoveryPolicy(env: RecoveryEnv, cloudId: string): Pro
   try {
     const value = JSON.parse(raw) as Partial<RecoveryPolicy>;
     if (value.enabled !== true) return null;
-    if (typeof value.noticeStartsAt !== 'string' || typeof value.enforceAt !== 'string'
-      || typeof value.noticeVersion !== 'string' || !value.noticeVersion.trim()
-      || !Number.isFinite(Date.parse(value.noticeStartsAt))
-      || !Number.isFinite(Date.parse(value.enforceAt))
-      || Date.parse(value.enforceAt) - Date.parse(value.noticeStartsAt) < 7 * DAY_MS
-      || (value.exemptionOverrideReviewed !== undefined && typeof value.exemptionOverrideReviewed !== 'boolean')) return 'unavailable';
+    if (value.exemptionOverrideReviewed !== undefined && typeof value.exemptionOverrideReviewed !== 'boolean') return 'unavailable';
     return value as RecoveryPolicy;
   } catch { return 'unavailable'; }
 }
@@ -114,7 +114,7 @@ async function getOwnRequest(db: D1Database, identity: RecoveryIdentity): Promis
 }
 
 export async function recoverySnapshot(
-  env: RecoveryEnv, identity: RecoveryIdentity | null, now = new Date(),
+  env: RecoveryEnv, identity: RecoveryIdentity | null, now = new Date(), spaceKey?: string,
 ): Promise<RecoverySnapshot> {
   const serverNow = now.toISOString();
   const base: RecoverySnapshot = {
@@ -129,12 +129,12 @@ export async function recoverySnapshot(
     && env.RESEND_REPLY_TO.length <= 254 && EMAIL.test(env.RESEND_REPLY_TO)
     ? env.RESEND_REPLY_TO : undefined;
   const withPolicy: RecoverySnapshot = {
-    ...base, noticeVersion: policy.noticeVersion, enforceAt: policy.enforceAt, supportEmail,
+    ...base, supportEmail,
     exemptionOverrideReviewed: policy.exemptionOverrideReviewed === true,
   };
-  if (now.getTime() < Date.parse(policy.noticeStartsAt)) return withPolicy;
-  if (now.getTime() < Date.parse(policy.enforceAt)) return { ...withPolicy, state: 'notice' };
   if (!env.DB || !env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY) return { ...withPolicy, state: 'unavailable' };
+  const eligibility = await recoveryEligibility(env, identity, spaceKey, policy, now);
+  if (eligibility !== 'eligible') return { ...withPolicy, state: eligibility };
   try {
     const row = await getOwnRequest(env.DB, identity);
     if (!row) return { ...withPolicy, state: 'not_requested' };
@@ -177,14 +177,15 @@ export function parseRecoveryRequest(value: unknown): RecoveryRequestInput {
     || typeof v.email !== 'string' || v.email.length > 254 || !EMAIL.test(v.email)
     || v.consent !== true || v.consentVersion !== FULLSCREEN_RECOVERY_POLICY_VERSION
     || !validOptionalId(v.contentId) || !validOptionalId(v.customContentId)
-    || !validOptionalId(v.spaceKey)) throw new RecoveryError('invalid_request');
+    || typeof v.spaceKey !== 'string' || !RECOVERY_SPACE_KEY.test(v.spaceKey)) throw new RecoveryError('invalid_request');
   return v as RecoveryRequestInput;
 }
 export function parseRecoveryActivation(value: unknown): RecoveryActivateInput {
   if (!value || typeof value !== 'object') throw new RecoveryError('invalid_activation');
   const v = value as Partial<RecoveryActivateInput>;
   if (v.action !== 'activate' || typeof v.attemptId !== 'string' || !UUID.test(v.attemptId)
-    || typeof v.requestId !== 'string' || !UUID.test(v.requestId)) throw new RecoveryError('invalid_activation');
+    || typeof v.requestId !== 'string' || !UUID.test(v.requestId)
+    || typeof v.spaceKey !== 'string' || !RECOVERY_SPACE_KEY.test(v.spaceKey)) throw new RecoveryError('invalid_activation');
   return v as RecoveryActivateInput;
 }
 
@@ -195,7 +196,9 @@ export async function createRecoveryRequest(
   if (!env.DB || !env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY) throw new RecoveryError('unavailable', 503);
   const policy = await readRecoveryPolicy(env, identity.cloudId);
   if (policy === 'unavailable') throw new RecoveryError('unavailable', 503);
-  if (!policy || now.getTime() < Date.parse(policy.enforceAt)) throw new RecoveryError('not_enforced', 409);
+  if (!policy) throw new RecoveryError('not_enforced', 409);
+  const eligibility = await recoveryEligibility(env, identity, input.spaceKey, policy, now);
+  if (eligibility !== 'eligible') throw new RecoveryError(eligibility === 'disabled' ? 'not_eligible' : 'unavailable', eligibility === 'disabled' ? 409 : 503);
   const id = crypto.randomUUID(), grantId = crypto.randomUUID(), createdAt = now.toISOString();
   const [emailCiphertext, noteCiphertext] = await Promise.all([
     encryptRecoveryField(input.email.trim(), env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY),
@@ -210,7 +213,7 @@ export async function createRecoveryRequest(
       input.customContentId || null, input.spaceKey || null, createdAt, grantId).run();
   const row = await getOwnRequest(env.DB, identity);
   if (!row) throw new RecoveryError('unavailable', 503);
-  const snapshot = await recoverySnapshot(env, identity, now);
+  const snapshot = await recoverySnapshot(env, identity, now, input.spaceKey);
   if (snapshot.state === 'unavailable') throw new RecoveryError('unavailable', 503);
   return { snapshot, outcome: inserted.meta.changes === 1 ? 'created' : 'reused' };
 }
@@ -222,7 +225,9 @@ export async function activateRecovery(
   if (!env.DB) throw new RecoveryError('unavailable', 503);
   const policy = await readRecoveryPolicy(env, identity.cloudId);
   if (policy === 'unavailable') throw new RecoveryError('unavailable', 503);
-  if (!policy || now.getTime() < Date.parse(policy.enforceAt)) throw new RecoveryError('not_enforced', 409);
+  if (!policy) throw new RecoveryError('not_enforced', 409);
+  const eligibility = await recoveryEligibility(env, identity, input.spaceKey, policy, now);
+  if (eligibility !== 'eligible') throw new RecoveryError(eligibility === 'disabled' ? 'not_eligible' : 'unavailable', eligibility === 'disabled' ? 409 : 503);
   const current = await getOwnRequest(env.DB, identity);
   if (!current || current.id !== input.requestId) throw new RecoveryError('not_found', 404);
   const activatedAt = now.toISOString();
@@ -231,7 +236,7 @@ export async function activateRecovery(
     SET activatedAt = ?1, expiresAt = ?2
     WHERE id = ?3 AND cloudId = ?4 AND accountId = ?5 AND activatedAt IS NULL`)
     .bind(activatedAt, expiresAt, input.requestId, identity.cloudId, identity.accountId).run();
-  const snapshot = await recoverySnapshot(env, identity, now);
+  const snapshot = await recoverySnapshot(env, identity, now, input.spaceKey);
   if (snapshot.state === 'unavailable') throw new RecoveryError('unavailable', 503);
   return { snapshot, outcome: result.meta.changes === 1 ? 'activated' : 'already_active' };
 }

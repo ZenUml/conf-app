@@ -8,7 +8,6 @@
 // file before frontend/backend drift was even considered.
 export const CANONICAL_EVENT_NAME_LIST = [
   // Fullscreen recovery lifecycle (shared vocabulary with the frontend).
-  "fullscreen_recovery_notice_shown",
   "fullscreen_recovery_gate_shown",
   "fullscreen_recovery_action_selected",
   "fullscreen_recovery_request_submitted",

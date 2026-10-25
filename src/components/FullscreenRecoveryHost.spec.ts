@@ -18,7 +18,7 @@ const Status = defineComponent({ props: ['snapshot'], template: '<aside>{{snapsh
 const Content = defineComponent({ template: '<div data-testid="diagram">Diagram remains visible</div>' });
 let wrapper: ReturnType<typeof mount>;
 function create(snapshot: RecoverySnapshot = base) {
-  wrapper = mount(FullscreenRecoveryHost, { props: { initialSnapshot: snapshot, content: Content, returnInline: vi.fn(), planUsage: vi.fn() },
+  wrapper = mount(FullscreenRecoveryHost, { props: { initialSnapshot: snapshot, context: { spaceKey: 'CURRENT' }, content: Content, returnInline: vi.fn(), planUsage: vi.fn() },
     global: { stubs: { FullscreenRecoveryGate: Gate, FullscreenRecoveryStatus: Status } } });
   return wrapper;
 }
@@ -33,7 +33,7 @@ describe('Fullscreen access lifecycle', () => {
     mocks.activate.mockResolvedValue({ snapshot: { ...base, state: 'active' }, outcome: 'activated' });
     mocks.ready!('mermaid'); await flushPromises();
     expect(mocks.activate).toHaveBeenCalledTimes(1);
-    expect(mocks.activate.mock.calls[0][0]).toMatchObject({ requestId: 'request', action: 'activate' });
+    expect(mocks.activate.mock.calls[0][0]).toMatchObject({ requestId: 'request', action: 'activate', spaceKey: 'CURRENT' });
     expect(wrapper.text()).toContain('active');
   });
   it('leaves the current diagram open on expiry; a fresh expired mount has a gate', async () => {

@@ -132,11 +132,11 @@ const meta: Meta<typeof PlanUsage> = {
   },
 }
 
-/** Fullscreen entry carries only a use-case enum. The request status comes from the Forge-authenticated API. */
+/** Fullscreen entry carries the source space, page and use-case enums. The request status comes from the Forge-authenticated API. */
 export const FullscreenContact: Story = {
   name: 'Fullscreen use — contact support',
   beforeEach: () => {
-    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&scenes=present,discuss&page_id=123' } } as any
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG&scenes=present,discuss&page_id=123' } } as any
     stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
       state: 'not_requested', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
     } } }]
@@ -152,7 +152,7 @@ export const FullscreenContact: Story = {
 export const FullscreenExistingRequest: Story = {
   name: 'Fullscreen use — existing request',
   beforeEach: () => {
-    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&request=untrusted&scenes=present' } } as any
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG&request=untrusted&scenes=present' } } as any
     stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
       state: 'expired', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
       request: { id: 'FS-EXAMPLE-001', scenarios: ['inspect_details'], note: '', email: 'reader@example.com', createdAt: '2026-10-01T00:00:00Z', mailState: 'queued' },
@@ -163,6 +163,24 @@ export const FullscreenExistingRequest: Story = {
     const canvas = within(document.body)
     await expect(await canvas.findByTestId('plan-usage-fullscreen-context')).toHaveTextContent('Inspect details on my own')
     await expect(canvas.getByTestId('plan-usage-return-help')).toHaveTextContent('open the Confluence page where you started')
+  },
+}
+
+export const FullscreenOrdinarySpace: Story = {
+  name: 'Fullscreen use — ordinary space despite old grant',
+  beforeEach: () => {
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=OPS&page_id=123' } } as any
+    stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
+      state: 'disabled', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
+      request: { id: 'FS-EXAMPLE-001', scenarios: ['inspect_details'], note: '', email: 'reader@example.com', createdAt: '2026-10-01T00:00:00Z' },
+      grant: { id: 'grant-example', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
+    } } }]
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('plan-usage-fullscreen-context')).toHaveTextContent('does not need temporary Fullscreen access')
+    await expect(canvas.queryByTestId('plan-usage-fullscreen-request')).toBeNull()
+    await expect(canvas.queryByText(/Your temporary Fullscreen access ended/)).toBeNull()
   },
 }
 

@@ -20,7 +20,7 @@ const expired: RecoverySnapshot = { ...base, state: 'expired', request: { ...req
 const meta: Meta<typeof FullscreenRecoveryGate> = {
   title: 'Viewer/FullscreenRecoveryGate', component: FullscreenRecoveryGate,
   parameters: { layout: 'centered' },
-  args: { snapshot: { ...base, state: 'not_requested' } },
+  args: { context: { spaceKey: 'EXAMPLE' }, snapshot: { ...base, state: 'not_requested' } },
 }
 export default meta
 type Story = StoryObj<typeof FullscreenRecoveryGate>

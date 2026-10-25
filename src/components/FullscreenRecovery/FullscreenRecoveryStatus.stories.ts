@@ -8,6 +8,5 @@ const meta: Meta<typeof FullscreenRecoveryStatus> = {
 }
 export default meta
 type Story = StoryObj<typeof FullscreenRecoveryStatus>
-export const AdvanceNotice: Story = { args: { snapshot: { ...base, state: 'notice', enforceAt: '2026-10-31T08:00:00.000Z', noticeVersion: 'notice-1' } } }
 export const Active: Story = { args: { snapshot: { ...base, state: 'active', grant: { id: 'grant-example', activatedAt: '2026-10-20T08:00:00.000Z', expiresAt: '2026-10-27T08:00:00.000Z' } } } }
 export const Expired: Story = { args: { snapshot: { ...base, state: 'expired', grant: { id: 'grant-example', activatedAt: '2026-10-16T08:00:00.000Z', expiresAt: '2026-10-23T08:00:00.000Z' } } } }

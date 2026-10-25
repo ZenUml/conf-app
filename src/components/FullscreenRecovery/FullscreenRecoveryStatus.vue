@@ -15,7 +15,6 @@ const props = defineProps<{ snapshot: RecoverySnapshot }>()
 defineEmits<{ (event: 'continueRequest'): void; (event: 'dismiss'): void }>()
 const message = computed(() => {
   const snapshot = props.snapshot
-  if (snapshot.state === 'notice' && snapshot.enforceAt) return `Fullscreen access will change on ${fullLocalDate(snapshot.enforceAt)}. Existing diagrams remain readable on the page.`
   if (snapshot.state === 'pending_activation') return 'Your 7 days of Fullscreen begin when the diagram first opens successfully.'
   if (snapshot.state === 'active' && snapshot.grant?.expiresAt) return `Temporary Fullscreen access ends ${fullLocalDate(snapshot.grant.expiresAt)}.`
   if (snapshot.state === 'expired' && snapshot.grant?.expiresAt) return `Temporary Fullscreen access ended ${fullLocalDate(snapshot.grant.expiresAt)}. This open view can continue; access is checked next time you open Fullscreen.`

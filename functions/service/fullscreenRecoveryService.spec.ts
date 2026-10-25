@@ -57,7 +57,7 @@ function env(db: D1Database): RecoveryEnv {
   return {
     DB: db, FULLSCREEN_RECOVERY_ENCRYPTION_KEY: key,
     FULLSCREEN_RECOVERY_SUPPORT_TOKENS: JSON.stringify({ agent1: 'very-long-internal-support-token-123' }),
-    SPACE_LICENSE_KV: { get: async (name: string) => name === 'fullscreen-recovery:policy:site-a' ? JSON.stringify(policy) : null } as KVNamespace,
+    KV_FEATURE_FLAGS: { get: async (name: string) => name === 'fullscreen-recovery:policy:site-a' ? JSON.stringify(policy) : null } as KVNamespace,
   };
 }
 
@@ -139,16 +139,42 @@ describe('fullscreen recovery persistence', () => {
     const e = env(db);
     const now = new Date('2026-10-09T00:00:00.000Z');
     expect((await recoverySnapshot(e, identity, now)).exemptionOverrideReviewed).toBe(false);
-    e.SPACE_LICENSE_KV = {
+    e.KV_FEATURE_FLAGS = {
       get: async () => JSON.stringify({ ...policy, exemptionOverrideReviewed: true }),
     } as KVNamespace;
     expect((await recoverySnapshot(e, identity, now)).exemptionOverrideReviewed).toBe(true);
-    e.SPACE_LICENSE_KV = {
+    e.KV_FEATURE_FLAGS = {
       get: async () => JSON.stringify({ ...policy, exemptionOverrideReviewed: 'true' }),
     } as KVNamespace;
     const malformed = await recoverySnapshot(e, identity, now);
     expect(malformed.state).toBe('unavailable');
     expect(malformed.exemptionOverrideReviewed).toBe(false);
+  });
+
+  it('looks up one site in KV_FEATURE_FLAGS and never falls back to SPACE_LICENSE_KV', async () => {
+    const { db } = memoryDb();
+    const get = vi.fn(async (name: string) => name === 'fullscreen-recovery:policy:site-a' ? JSON.stringify(policy) : null);
+    const e = { ...env(db), KV_FEATURE_FLAGS: { get } as unknown as KVNamespace };
+    const now = new Date('2026-10-09T00:00:00.000Z');
+
+    expect((await recoverySnapshot(e, identity, now)).state).toBe('not_requested');
+    expect(get).toHaveBeenCalledWith('fullscreen-recovery:policy:site-a');
+    expect((await recoverySnapshot(e, { ...identity, cloudId: 'site-b' }, now)).state).toBe('disabled');
+    expect(get).toHaveBeenLastCalledWith('fullscreen-recovery:policy:site-b');
+
+    const legacyGet = vi.fn(async () => JSON.stringify(policy));
+    const legacyOnly = {
+      ...env(db), KV_FEATURE_FLAGS: undefined,
+      SPACE_LICENSE_KV: { get: legacyGet } as unknown as KVNamespace,
+    } as RecoveryEnv & { SPACE_LICENSE_KV: KVNamespace };
+    expect((await recoverySnapshot(legacyOnly, identity, now)).state).toBe('unavailable');
+    expect(legacyGet).not.toHaveBeenCalled();
+
+    const unavailable = {
+      ...env(db),
+      KV_FEATURE_FLAGS: { get: vi.fn(async () => { throw new Error('KV unavailable'); }) } as unknown as KVNamespace,
+    };
+    expect((await recoverySnapshot(unavailable, identity, now)).state).toBe('unavailable');
   });
 
   it('fails open when policy or encryption config is unavailable and never creates a grant', async () => {

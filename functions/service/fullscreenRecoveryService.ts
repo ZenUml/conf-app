@@ -20,7 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export interface RecoveryEnv {
   DB?: D1Database;
-  SPACE_LICENSE_KV?: KVNamespace;
+  KV_FEATURE_FLAGS?: KVNamespace;
   FULLSCREEN_RECOVERY_ENCRYPTION_KEY?: string;
   FULLSCREEN_RECOVERY_SUPPORT_TOKENS?: string;
   RESEND_REPLY_TO?: string;
@@ -86,9 +86,9 @@ export function isRecoveryIdentity(value: unknown): value is RecoveryIdentity {
 
 /** Only a server-managed KV policy can enforce this gate. Malformed policy fails open. */
 export async function readRecoveryPolicy(env: RecoveryEnv, cloudId: string): Promise<RecoveryPolicy | null | 'unavailable'> {
-  if (!env.SPACE_LICENSE_KV) return 'unavailable';
+  if (!env.KV_FEATURE_FLAGS) return 'unavailable';
   let raw: string | null;
-  try { raw = await env.SPACE_LICENSE_KV.get(`fullscreen-recovery:policy:${cloudId}`); }
+  try { raw = await env.KV_FEATURE_FLAGS.get(`fullscreen-recovery:policy:${cloudId}`); }
   catch { return 'unavailable'; }
   if (raw === null) return null;
   try {

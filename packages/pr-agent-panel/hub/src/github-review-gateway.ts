@@ -46,19 +46,36 @@ function validPr(pr: PrRef): void {
   }
 }
 
+export interface RollupCheck { name?: string; context?: string; workflowName?: string; state?: string; status?: string; conclusion?: string }
+
+const FAILED = ['FAILURE', 'ERROR', 'TIMED_OUT', 'ACTION_REQUIRED']
+const RUNNING = ['PENDING', 'EXPECTED', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED']
+const PASSED = ['SUCCESS', 'NEUTRAL', 'SKIPPED']
+
+/**
+ * CI verdict for the list badge. CI here cancels the duplicate `push` run beside a green `pull_request`
+ * run of the same check, so a cancelled check is ignored only when the same check also passed;
+ * any other cancellation leaves the verdict unknown, never success.
+ */
+export function ciFromRollup(checks: RollupCheck[]): 'success' | 'failure' | 'pending' | 'unknown' {
+  if (!checks.length) return 'unknown'
+  const outcome = (check: RollupCheck) => (check.conclusion ?? check.state ?? '').toUpperCase()
+  const key = (check: RollupCheck) => `${check.workflowName ?? ''}/${check.name ?? check.context ?? ''}`
+  if (checks.some((check) => FAILED.includes(outcome(check)))) return 'failure'
+  if (checks.some((check) => RUNNING.includes((check.status ?? check.state ?? '').toUpperCase()))) return 'pending'
+  const passed = new Set(checks.filter((check) => PASSED.includes(outcome(check))).map(key))
+  const decisive = checks.filter((check) => outcome(check) !== 'CANCELLED' || !passed.has(key(check)))
+  return decisive.length && decisive.every((check) => PASSED.includes(outcome(check))) ? 'success' : 'unknown'
+}
+
 export class GhReviewGateway implements ReviewGateway {
   async readCi(pr: PrRef): Promise<'success' | 'failure' | 'pending' | 'unknown'> {
     validPr(pr)
     const { stdout } = await execFile('gh', ['pr', 'view', String(pr.number), '--repo', `${pr.owner}/${pr.repo}`, '--json', 'statusCheckRollup'], {
       timeout: 20_000, maxBuffer: 2 * 1024 * 1024,
     })
-    const raw = JSON.parse(stdout) as { statusCheckRollup?: Array<{ state?: string; status?: string; conclusion?: string }> }
-    const checks = raw.statusCheckRollup ?? []
-    if (!checks.length) return 'unknown'
-    if (checks.some((check) => ['FAILURE', 'ERROR', 'TIMED_OUT', 'ACTION_REQUIRED'].includes((check.conclusion ?? check.state ?? '').toUpperCase()))) return 'failure'
-    if (checks.some((check) => ['PENDING', 'EXPECTED', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED'].includes((check.status ?? check.state ?? '').toUpperCase()))) return 'pending'
-    const decisive = checks.filter((check) => (check.conclusion ?? check.state ?? '').toUpperCase() !== 'CANCELLED')
-    return decisive.length && decisive.every((check) => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes((check.conclusion ?? check.state ?? '').toUpperCase())) ? 'success' : 'unknown'
+    const raw = JSON.parse(stdout) as { statusCheckRollup?: RollupCheck[] }
+    return ciFromRollup(raw.statusCheckRollup ?? [])
   }
 
   async read(pr: PrRef): Promise<RemotePr> {

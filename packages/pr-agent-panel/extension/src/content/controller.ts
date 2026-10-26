@@ -294,7 +294,7 @@ export function createPageController(ctx: ContentScriptContext) {
     observedFrame = frame
     if (!frame) return
     observer = new MutationObserver(queueEnsure)
-    observer.observe(frame, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-status', 'title', 'class'] })
+    observer.observe(frame, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-status', 'title'] })
   }
 
   /** True when the committed URL names another PR (or none) than the one this tab registered. */

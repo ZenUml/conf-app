@@ -94,4 +94,26 @@ describe('createPageController soft navigation', () => {
       vi.restoreAllMocks()
     }
   })
+
+  it('ignores class flips inside the PR content but still reacts to a state change', async () => {
+    vi.resetModules()
+    const { ContentScriptContext } = await import('wxt/utils/content-script-context')
+    const { createPageController } = await import('./controller')
+    history.replaceState(null, '', 'https://github.com/example-owner/example-repo/pull/7')
+    document.body.innerHTML = '<nav aria-label="Repository"></nav><turbo-frame id="repo-content-turbo-frame"><span data-component="StateLabel" data-status="pullOpened">Open</span><div id="hover-target"></div></turbo-frame>'
+    const ctx = new ContentScriptContext('github')
+    await createPageController(ctx).start()
+    await frames()
+
+    const raf = vi.spyOn(window, 'requestAnimationFrame')
+    document.getElementById('hover-target')!.className = 'is-hovered'
+    await Promise.resolve()
+    expect(raf, 'a class flip scheduled a page re-check').not.toHaveBeenCalled()
+
+    document.querySelector('[data-component="StateLabel"]')!.setAttribute('data-status', 'pullMerged')
+    await Promise.resolve()
+    expect(raf).toHaveBeenCalled()
+    raf.mockRestore()
+    ctx.notifyInvalidated()
+  })
 })

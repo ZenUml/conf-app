@@ -67,16 +67,6 @@ async function disable() {
   port.post({ kind: 'setMcpAccess', value: 'disabled' })
 }
 
-async function setBool(key: 'panelCollapsed' | 'preferencesHidden', value: boolean) {
-  prefs[key] = value
-  await setPref(key, value)
-  port.send(
-    buildTelemetryFrame('pr_panel_preferences_changed', {
-      preference_key: key === 'panelCollapsed' ? 'panel_collapsed' : 'preferences_hidden',
-    }),
-  )
-}
-
 onMounted(async () => {
   Object.assign(prefs, await getPrefs())
   await refreshPermission()
@@ -98,8 +88,8 @@ onBeforeUnmount(() => {
     <header>
       <h1>ZenUML PR Agent Panel</h1>
       <p class="lede">
-        Shows completed AI reviews beside GitHub pull requests and lets you message the Claude Code or Codex
-        session you already have open, through a small Hub on this machine.
+        Shows the current finite PR review round beside its member pull requests. The local Hub keeps the round
+        and lets your Claude Code or Codex session prepare evidence and confirm results.
       </p>
     </header>
 
@@ -128,28 +118,17 @@ onBeforeUnmount(() => {
           <pre><code>{{ pluginCommand }}</code></pre>
           Run it from the root of the conf-app checkout, or replace <code>$PWD</code> with that path.
         </li>
-        <li>Codex: add the <code>{{ MCP_SERVER_NAME }}</code> MCP server (<code>npx pr-panel-mcp</code>). Codex has no hooks, so it reads your messages through the MCP tools only.</li>
-        <li>The first agent to connect starts the Hub. Open a pull request on github.com; the panel's MCP badge turns green.</li>
+        <li>Codex: register the built <code>packages/pr-agent-panel/hub/dist/cli.mjs</code> as the <code>{{ MCP_SERVER_NAME }}</code> stdio MCP server.</li>
+        <li>The first agent to connect starts the Hub. Ask it to prepare a finite review round; use the extension popup to continue after closing a tab.</li>
       </ol>
-    </section>
-
-    <section>
-      <h2>Preferences</h2>
-      <label class="check">
-        <input type="checkbox" :checked="prefs.panelCollapsed" @change="setBool('panelCollapsed', ($event.target as HTMLInputElement).checked)" />
-        Start with the panel collapsed
-      </label>
-      <label class="check">
-        <input type="checkbox" :checked="prefs.preferencesHidden" @change="setBool('preferencesHidden', ($event.target as HTMLInputElement).checked)" />
-        Hide the Preferences section in the panel
-      </label>
     </section>
 
     <section>
       <h2>Privacy</h2>
       <p class="note">
-        Reviews, messages and PR titles stay on this machine. If the Hub has analytics turned on, it receives only counts,
-        outcomes and durations; never a repository name, PR title, diff or review text.
+        The round and its progress stay on this machine. Preparing or refreshing a selected PR writes marked review
+        material above its original GitHub body. Optional analytics receives counts and outcomes, never a repository,
+        PR title, diff, or review text.
       </p>
     </section>
   </main>

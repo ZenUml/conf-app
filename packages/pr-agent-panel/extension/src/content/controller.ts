@@ -1,8 +1,4 @@
-/**
- * Wires one GitHub tab: two shadow-root UIs (the floating Agent Panel and the
- * left review list), the `pr-panel` port to the broker, prefs, telemetry and
- * GitHub's soft navigation (Turbo / React router).
- */
+/** Wires the request-scoped review list to one GitHub tab and its broker port. */
 import { createApp, h, type App } from 'vue'
 import { repoKeyOf, type PrRef, type ReviewGroupItem } from '@zenuml/pr-panel-shared'
 import type { ContentScriptContext } from 'wxt/utils/content-script-context'
@@ -72,7 +68,7 @@ export function createPageController(ctx: ContentScriptContext) {
     return { pr, changed }
   }
 
-  // ---------------------------------------------------------------- panel
+  // The legacy panel is retained for compatibility but is not mounted in this flow.
   async function mountPanel() {
     if (ctx.isInvalid) return
     panelUi = await createOrphanSafeUi<App>({
@@ -298,7 +294,7 @@ export function createPageController(ctx: ContentScriptContext) {
     observedFrame = frame
     if (!frame) return
     observer = new MutationObserver(queueEnsure)
-    observer.observe(frame, { childList: true, subtree: true })
+    observer.observe(frame, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-status', 'title', 'class'] })
   }
 
   /** True when the committed URL names another PR (or none) than the one this tab registered. */
@@ -366,6 +362,10 @@ export function createPageController(ctx: ContentScriptContext) {
     else if (/^close pull request/.test(text)) nativeAction = 'close'
   }
 
+  function onUserInteraction(event: Event) {
+    if (nextTimer && (!resultNotice || !event.composedPath().includes(resultNotice))) clearNextTimer()
+  }
+
   /**
    * In Chrome WXT fires this from the Navigation API `navigate` event, before the new URL commits,
    * so read the destination from the event, not from `location`. ensureList re-checks the committed
@@ -417,7 +417,9 @@ export function createPageController(ctx: ContentScriptContext) {
 
     await mountList()
     ctx.addEventListener(document, 'click', onPageClick, { capture: true })
-    ctx.addEventListener(document, 'keydown', () => { if (nextTimer) clearNextTimer() }, { capture: true })
+    ctx.addEventListener(document, 'pointerdown', onUserInteraction, { capture: true })
+    ctx.addEventListener(document, 'keydown', onUserInteraction, { capture: true })
+    ctx.addEventListener(document, 'wheel', onUserInteraction, { capture: true, passive: true })
     watchTurboFrame()
     ctx.addEventListener(window, 'wxt:locationchange', onLocationChange)
     ctx.addEventListener(window, 'pagehide', () => port?.send(envelope({ type: 'unregister' as const, documentId })))

@@ -52,6 +52,18 @@ alive. A foreground Hub (`--hub`) never idles out unless
 | `hub.json` | `{pid, port, hubVersion, socket, startedAt}` of the running Hub, 0600 |
 | `analytics-id` | random Mixpanel `distinct_id`, only when analytics is on |
 
+## Current round and legacy review store
+
+The current finite group is stored atomically at `~/.zenuml-pr-panel/store/review-group.json`
+(or under the configured store). The Hub's `start_review_group` and
+`publish_review_group` tools prepare and replace that group. `publish_review_group` verifies
+selected PR heads, then writes marked decision material at the top of their GitHub bodies while
+preserving the original text. `refresh_review_material` updates one pending member. The Hub
+polls pending members' GitHub state and CI every 60 seconds. A confirmed external merge or close
+updates the group without browser navigation. See `../ARCHITECTURE.zh-CN.md` for the protocol.
+
+The older ReviewStore remains for compatibility, but no longer supplies the visible left list.
+
 ## Review store
 
 Review runs are kept data, so they live outside the OS temp directory, which the system may clear:
@@ -73,8 +85,8 @@ of every distinct GitHub PR with a saved completed review. It queries those
 identities in GraphQL batches of 20 on start, then every five minutes while the
 Hub is running. Reconnects, list requests and new reviews request a coalesced
 refresh (at most once per 30 seconds, with up to 30 minutes of backoff after
-GitHub errors). It does not list all repository PRs or
-write to GitHub. Current observations are cached in `pr-status.json` (0600),
+GitHub errors). This legacy sync does not list all repository PRs. Its current
+observations are cached in `pr-status.json` (0600),
 separate from historical review runs, and changed repositories are broadcast
 through the existing `reviews` frame. A failed or inaccessible query keeps the
 last known state; it never marks the PR closed. The Hub's idle lifetime above

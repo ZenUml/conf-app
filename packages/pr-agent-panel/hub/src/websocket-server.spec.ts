@@ -75,7 +75,7 @@ describe('WebSocket server', () => {
   it('answers the probe with HubProbeResponse JSON and 404s anything else', async () => {
     const { port } = await start()
     const res = await fetch(`http://127.0.0.1:${port}/`)
-    expect(await res.json()).toEqual({ service: HUB_PROBE_SERVICE, protocolVersion: 1, hubVersion: '0.1.0' })
+    expect(await res.json()).toEqual({ service: HUB_PROBE_SERVICE, protocolVersion: 2, hubVersion: '0.1.0' })
     expect((await fetch(`http://127.0.0.1:${port}/other`)).status).toBe(404)
   })
 
@@ -94,7 +94,7 @@ describe('WebSocket server', () => {
     const c = collector(ws)
     await new Promise((r) => ws.once('open', r))
     expect(ws.protocol).toBe(BRIDGE_SUBPROTOCOL)
-    ws.send(JSON.stringify({ ...base('h1'), type: 'hello', extVersion: '0.1.0', protocolVersion: 1 }))
+    ws.send(JSON.stringify({ ...base('h1'), type: 'hello', extVersion: '0.1.0', protocolVersion: 2 }))
     const registered = await c.next('registered')
     expect(registered.inReplyTo).toBe('h1')
     expect((await c.next('state')).sessions).toEqual([])

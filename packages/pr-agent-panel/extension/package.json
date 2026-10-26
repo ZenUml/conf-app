@@ -2,7 +2,7 @@
   "name": "@zenuml/pr-panel-extension",
   "version": "0.1.0",
   "private": true,
-  "description": "Chrome extension (WXT + Vue 3): left review list and floating ZenUML Agent Panel on github.com pull-request pages.",
+  "description": "Chrome extension (WXT + Vue 3): request-scoped PR review list and continuation popup on github.com.",
   "type": "module",
   "scripts": {
     "dev": "wxt",

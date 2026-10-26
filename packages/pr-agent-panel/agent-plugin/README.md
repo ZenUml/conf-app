@@ -7,7 +7,7 @@ Claude Code plugin that connects your session to the ZenUML PR Agent Panel
 |---|---|
 | `.mcp.json` | Starts the `pr-panel` MCP server: `node ../hub/dist/cli.mjs` (the Hub's stdio shim). The shim starts the shared Hub on first use. |
 | `hooks/hooks.json` | Runs `clients/shared/lifecycle.mjs` on `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` and `SessionEnd`. The script asks the Hub for messages queued in the panel and returns them as `additionalContext`, or as a Stop-hook `block` reason once per turn. |
-| `skills/review-pr` | The review workflow: `get_active_pr` → `begin_task` → read with `gh` → `report_progress` → `publish_review` → `complete_task`. |
+| `skills/review-pr` | The current round workflow: `start_review_group` → investigate selected PRs → `publish_review_group`. It also documents single-item refresh and action confirmation. |
 
 ## Use
 
@@ -18,8 +18,9 @@ pnpm --filter @zenuml/pr-panel-hub build
 claude --plugin-dir "$PWD/packages/pr-agent-panel/agent-plugin"
 ```
 
-Then open a PR on github.com with the extension loaded, turn on MCP access in
-the panel's Preferences, and ask Claude to "review the PR in the panel".
+Then enable MCP access in the extension options and ask Claude to prepare a
+finite PR review round. Open a selected PR on github.com to see its left list
+and evidence notice, or use the extension popup to continue the round.
 
 Claude Code names the tools `mcp__plugin_pr-panel_pr-panel__<tool>`. To skip the
 permission prompt per call, allow the whole server, for example
@@ -27,11 +28,8 @@ permission prompt per call, allow the whole server, for example
 
 ## Notes
 
-- Verified live on 2026-10-23 (Claude Code `-p`, sonnet, real github.com PR page):
-  the MCP tools update the panel and the left list, and a message typed in the
-  panel mid-turn reaches the session through `PreToolUse` `additionalContext`.
-  Claude Code passes an MCP tool's result to `PostToolUse` as a JSON string;
-  `lifecycle.mjs` parses it to bind the session to the task.
+- The lifecycle hooks and legacy panel message tools remain for compatibility.
+  The request-scoped left list is driven by the Hub's latest review group.
 - `.mcp.json` points at `../hub/dist`, so the plugin works from this repo
   (`--plugin-dir`). A marketplace install would copy the plugin without the Hub
   and needs a published `pr-panel-mcp` package instead.

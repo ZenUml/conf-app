@@ -17,7 +17,7 @@ const base = { v: 1 as const, id: 'f1', ts: 1 }
 describe('bridge frames', () => {
   it('round-trips every extension frame type', () => {
     const frames = [
-      { ...base, type: 'hello', extVersion: '0.1.0', protocolVersion: 1 },
+      { ...base, type: 'hello', extVersion: '0.1.0', protocolVersion: 2 },
       { ...base, type: 'register', documentId: 'd1', pr: { host: 'github.com', owner: 'o', repo: 'r', number: 5 } },
       { ...base, type: 'unregister', documentId: 'd1' },
       { ...base, type: 'activate', documentId: 'd1' },

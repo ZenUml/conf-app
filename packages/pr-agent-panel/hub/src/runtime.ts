@@ -578,6 +578,14 @@ export class HubRuntime {
       }
     }
     try {
+      // Preflight the entire selection before the first GitHub write. Every write
+      // checks again, since a PR can change between this read and its update.
+      for (const item of input.items) {
+        const remote = await this.reviewGateway.read(item.pr)
+        if (remote.state !== 'open' || remote.headSha.toLowerCase() !== item.materialHeadSha.toLowerCase()) {
+          throw new Error(`PR #${item.pr.number} is no longer open at the prepared head.`)
+        }
+      }
       for (const item of input.items) {
         if (this.preparation?.requestId !== input.requestId) throw new Error('A newer review request replaced this one.')
         await this.reviewGateway.writeMaterials(item.pr, item.materialHeadSha, item.materialsMarkdown,

@@ -33,8 +33,9 @@ const END = '<!-- zenuml-pr-review:end -->'
 export function withReviewMaterials(original: string, markdown: string): string {
   const start = original.indexOf(START)
   const end = original.indexOf(END)
+  const after = start >= 0 && end > start ? original.slice(end + END.length) : ''
   const body = start >= 0 && end > start
-    ? (original.slice(0, start) + original.slice(end + END.length)).trimStart()
+    ? original.slice(0, start) + (after.startsWith('\n\n') ? after.slice(2) : after)
     : original
   return `${START}\n${markdown.trim()}\n${END}\n\n${body}`
 }
@@ -54,9 +55,10 @@ export class GhReviewGateway implements ReviewGateway {
     const raw = JSON.parse(stdout) as { statusCheckRollup?: Array<{ state?: string; status?: string; conclusion?: string }> }
     const checks = raw.statusCheckRollup ?? []
     if (!checks.length) return 'unknown'
-    if (checks.some((check) => ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED'].includes((check.conclusion ?? check.state ?? '').toUpperCase()))) return 'failure'
+    if (checks.some((check) => ['FAILURE', 'ERROR', 'TIMED_OUT', 'ACTION_REQUIRED'].includes((check.conclusion ?? check.state ?? '').toUpperCase()))) return 'failure'
     if (checks.some((check) => ['PENDING', 'EXPECTED', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED'].includes((check.status ?? check.state ?? '').toUpperCase()))) return 'pending'
-    return checks.every((check) => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes((check.conclusion ?? check.state ?? '').toUpperCase())) ? 'success' : 'unknown'
+    const decisive = checks.filter((check) => (check.conclusion ?? check.state ?? '').toUpperCase() !== 'CANCELLED')
+    return decisive.length && decisive.every((check) => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes((check.conclusion ?? check.state ?? '').toUpperCase())) ? 'success' : 'unknown'
   }
 
   async read(pr: PrRef): Promise<RemotePr> {

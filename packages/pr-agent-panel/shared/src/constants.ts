@@ -10,7 +10,7 @@
  */
 
 /** Bump when a frame shape changes incompatibly. Hub and extension refuse mismatches. */
-export const PROTOCOL_VERSION = 1 as const
+export const PROTOCOL_VERSION = 2 as const
 
 /** Sec-WebSocket-Protocol value; the Hub rejects handshakes that name a different one. */
 export const BRIDGE_SUBPROTOCOL = 'zenuml-pr-panel'

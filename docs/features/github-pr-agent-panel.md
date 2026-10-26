@@ -1,27 +1,27 @@
 # GitHub PR Agent Panel
 
-A Chrome extension for github.com pull-request pages plus a local Hub that
-connects the page to the agent session the user already has open (Claude Code
-or Codex). It lives in its own workspace, `packages/pr-agent-panel/`, and runs
-nothing inside the Confluence app; the only shared code is a type-only import
-of the analytics catalog.
+A local Chrome extension and Hub connect an existing Claude Code or Codex
+session to a finite, explicitly requested PR review round. The latest round
+has selected PRs, a product, an optional focus, and progress. Only a pending
+member PR shows the left list; detailed decision material sits above the
+original PR body. The extension popup can resume the round after a tab closes.
 
-Source of truth for architecture, message channels, security and privacy:
-[packages/pr-agent-panel/README.md](../../packages/pr-agent-panel/README.md).
+The code is isolated under `packages/pr-agent-panel/`. It does not run in
+the Confluence app. See the [architecture](../../packages/pr-agent-panel/ARCHITECTURE.zh-CN.md)
+for components, models, communication and completion rules, and the
+[user guide](../../packages/pr-agent-panel/USER_GUIDE.zh-CN.md) for setup.
 
-## Decisions (2026-10-23)
+## Current decisions
 
-| Decision | Choice | Why |
-|---|---|---|
-| Agent runtime | The user's own interactive Claude Code / Codex session; the Hub never starts a model | Keeps the user's subscription login and permissions; no second session on the quota |
-| Extension ↔ Hub transport | Loopback WebSocket on `127.0.0.1`, port probe + fixed subprotocol (TemPad Dev's design, MIT) | Chrome ≥116 keeps the MV3 service worker alive while a WebSocket is active; native messaging needs a per-profile host manifest and caps host→extension messages at 1 MB |
-| Hub access check | TemPad default: Origin `chrome-extension://<32 letters>`, path `/`, subprotocol; no pairing token, no fixed extension ID | Same-user processes can read any token file anyway; optional exact allowlist via `PR_PANEL_ALLOWED_EXTENSION_ORIGINS` |
-| User → agent push | Hooks (`additionalContext` mid-turn, `Stop` `decision: block` at turn end, prompt context on the next prompt) plus a `wait_for_panel_messages` long-poll tool | MCP is pull-only; Claude Code has no other inbound channel. Idle sessions receive nothing until their next turn |
-| Review storage | JSON files under the OS temp dir, latest completed run per PR | No native dependencies; the left list needs only completed runs |
-| Analytics | Hub emits `pr_panel_*` events (`feature_area: pr_agent_panel`, `surface: github_pr`) to Mixpanel, off without `PR_PANEL_MIXPANEL_TOKEN` | Counts and outcomes only; never a repo name, PR title, diff or review text |
+| Area | Decision |
+|---|---|
+| Agent | The user's existing interactive Claude Code or Codex session; the Hub never starts a model. |
+| Transport | Extension ↔ Hub over a loopback WebSocket with an extension Origin check, fixed subprotocol and protocol-version handshake; MCP shim ↔ Hub over a local socket. |
+| Access | MCP access is an optional browser permission and is off by default. The Hub accepts only local connections. |
+| Group storage | Latest group in an atomic local JSON file; extension caches it for offline reading. Historical local review runs remain for compatibility but do not feed the left list. |
+| GitHub writes | Only an explicit group preparation or single-member material refresh writes marked evidence to selected PR bodies. The original body is preserved. |
+| Completion | A merge or close removes a pending item only after a remote GitHub read confirms it. Native, Agent and external sources have distinct navigation rules. |
+| Analytics | Optional Hub events carry counts and outcomes, excluding PR identity, title, body, diff and SHA. |
 
-## Left list rule
-
-Only PRs of the current repository that have a *completed* AI review appear,
-latest run per PR. A row whose reviewed head no longer matches the PR's head
-keeps its verdict and is marked stale. No all-PR heading and no count.
+The original 2026-10-23 permanent-list and right-panel design was superseded
+by the request-scoped review-round design.

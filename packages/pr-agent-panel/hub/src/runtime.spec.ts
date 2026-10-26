@@ -19,7 +19,7 @@ describe('HubRuntime: page sessions', () => {
 
     const bad = fakeConnection('bad')
     runtime.attachExtension(bad)
-    const result = runtime.handleExtensionFrame(bad.id, frame('hello', { extVersion: '1', protocolVersion: 2 }))
+    const result = runtime.handleExtensionFrame(bad.id, frame('hello', { extVersion: '1', protocolVersion: 3 }))
     expect(result.close).toBe(true)
     expect(bad.last('error')?.code).toBe('protocol_mismatch')
 

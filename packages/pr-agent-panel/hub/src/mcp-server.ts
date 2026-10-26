@@ -29,7 +29,7 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
       instructions: [
         'Bridge to the ZenUML PR Agent Panel on GitHub pull-request pages.',
         'For a new review request call start_review_group, prepare a bounded finite set, then publish_review_group. A later request replaces the earlier group. Use bind_review_action before any merge or close and confirm_review_action only after GitHub confirms it.',
-        'Messages the user types in the panel arrive as hook context, a Stop-hook reason, or from list_panel_messages / wait_for_panel_messages.',
+        'The current UI has a member-only left list and an extension popup; legacy task, review, and panel-message tools remain for compatibility but do not populate the current list.',
         UNTRUSTED_NOTE,
       ].join(' '),
     },
@@ -38,7 +38,7 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
   server.registerTool(
     'get_active_pr',
     {
-      description: 'The pull request shown in the active GitHub tab (the one whose panel badge is solid green), plus other open PR tabs.',
+      description: 'The pull request shown in the active GitHub tab, plus other open PR tabs. Opening or switching tabs registers their PRs automatically.',
       inputSchema: TOOL_SCHEMAS.get_active_pr.input,
       outputSchema: TOOL_SCHEMAS.get_active_pr.output,
     },
@@ -46,7 +46,7 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
       const out = runtime.getActivePr()
       const summary = out.pr
         ? `Active PR: ${out.pr.owner}/${out.pr.repo}#${out.pr.number}.`
-        : 'No GitHub PR tab is active. Ask the user to open a PR page and enable the panel.'
+        : 'No GitHub PR tab is active. Open a PR page and enable MCP access in the extension options.'
       return toolResult('get_active_pr', out, summary)
     },
   )
@@ -55,7 +55,7 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
     'begin_task',
     {
       description:
-        'Start a task on one PR. The panel on that PR shows the task row. Returns the taskId (pass it to every later call) and messages the user already queued for this PR.',
+        'Legacy task API. Returns the taskId and any queued messages; it does not add a member to the current review round.',
       inputSchema: TOOL_SCHEMAS.begin_task.input,
       outputSchema: TOOL_SCHEMAS.begin_task.output,
     },
@@ -72,7 +72,7 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
   server.registerTool(
     'report_progress',
     {
-      description: 'Update the task label the panel shows (e.g. "Reading the diff").',
+      description: 'Legacy task progress API; it does not change the current review round.',
       inputSchema: TOOL_SCHEMAS.report_progress.input,
       outputSchema: TOOL_SCHEMAS.report_progress.output,
     },
@@ -82,7 +82,7 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
   server.registerTool(
     'post_message',
     {
-      description: 'Show a short message from the agent to the user in the panel.',
+      description: 'Legacy panel message API; the current request-scoped UI has no permanent panel.',
       inputSchema: TOOL_SCHEMAS.post_message.input,
       outputSchema: TOOL_SCHEMAS.post_message.output,
     },
@@ -93,7 +93,7 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
     'publish_review',
     {
       description:
-        'Publish a completed review of the task\'s PR to the panel and the repository review list. Stored on this machine only; nothing is posted to GitHub.',
+        'Legacy local review history API. It does not add a member to the current review round or write GitHub evidence.',
       inputSchema: TOOL_SCHEMAS.publish_review.input,
       outputSchema: TOOL_SCHEMAS.publish_review.output,
     },

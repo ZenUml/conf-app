@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ExtensionFrame, HubFrame, PrRef } from '@zenuml/pr-panel-shared'
+import { PROTOCOL_VERSION, type ExtensionFrame, type HubFrame, type PrRef } from '@zenuml/pr-panel-shared'
 import { ReviewStore } from './review-store'
 import { HubRuntime, type RuntimeOptions } from './runtime'
 
@@ -59,6 +59,6 @@ export function makeRuntime(options: Partial<RuntimeOptions> = {}): { runtime: H
 export function connectExtension(runtime: HubRuntime, id = 'conn-1'): FakeConnection {
   const conn = fakeConnection(id)
   runtime.attachExtension(conn)
-  runtime.handleExtensionFrame(conn.id, frame('hello', { extVersion: '0.1.0', protocolVersion: 1 }))
+  runtime.handleExtensionFrame(conn.id, frame('hello', { extVersion: '0.1.0', protocolVersion: PROTOCOL_VERSION }))
   return conn
 }

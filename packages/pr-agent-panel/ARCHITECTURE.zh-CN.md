@@ -1,183 +1,110 @@
-# GitHub PR Agent Panel 架构设计
+# GitHub PR Agent Panel 架构
 
-本文描述当前源码实现。插件由 Chrome 扩展、本机 Hub、MCP shim 和 Claude Code 插件组成；Codex 使用同一个 MCP shim。扩展负责识别当前 GitHub PR 并显示状态，Agent 用自己的 GitHub 权限读取代码；Hub 还通过本机 `gh` 登录刷新已保存评审的 PR 状态。
+该插件由 Chrome 扩展、本机 Hub、MCP stdio shim 和 Agent 技能组成。产品单位是**一次明确请求形成的有限 PR 组**。只有最新组会持久化；旧的本机评审历史继续保存以兼容旧工具，但不驱动当前左栏。
 
 ## 组件
 
 ```mermaid
 flowchart LR
-  subgraph Chrome["Chrome 扩展"]
-    Page["GitHub PR 内容脚本<br/>账号识别、仅我的 PR 列表、右下角面板"]
-    Broker["Service Worker / McpBroker<br/>多标签页汇聚、权限、重连"]
-    Prefs["Options / extension storage<br/>MCP 开关、界面偏好"]
-    Page <-->|"runtime Port"| Broker
-    Prefs --> Broker
-  end
-
-  subgraph Local["用户本机"]
-    Hub["HubRuntime<br/>会话、任务、消息队列"]
-    Store[("ReviewStore<br/>JSON 评审历史")]
-    Sync["PrStatusSync<br/>定时批量读取"]
-    Current[("PrStatusStore<br/>当前状态、head、作者")]
-    Gh["gh CLI"]
-    Shim["MCP stdio shim"]
-    Hooks["Claude 生命周期 hooks"]
-    Hub --> Store
-    Hub --> Sync
-    Sync --> Current
-    Sync --> Gh
-    Shim <-->|"Unix socket / Windows pipe"| Hub
-    Hooks <-->|"一次性 JSON-RPC"| Hub
-  end
-
-  Broker <-->|"127.0.0.1 WebSocket"| Hub
-  Agent["Claude Code / Codex"] <-->|"MCP stdio"| Shim
-  Agent -->|"自有 GitHub 凭据读取 PR/diff"| GitHub["GitHub"]
-  Gh -->|"GraphQL 只读查询已保存 PR"| GitHub
-  Hooks -->|"仅 Claude"| Agent
+  Chat["Claude Code / Codex<br/>请求、分析、确认动作"] <-->|"MCP stdio"| Shim["MCP shim"]
+  Shim <-->|"本机 socket"| Hub["HubRuntime<br/>请求组、动作锁定、远端确认"]
+  Hub --> Group[("ReviewGroupStore<br/>最新一轮 JSON")]
+  Hub --> Gateway["GitHub gateway<br/>本机 gh CLI"]
+  Gateway <-->|"读取状态 / 写所选正文"| GitHub["GitHub"]
+  Hub <-->|"loopback WebSocket"| Broker["扩展 Service Worker<br/>连接、离线缓存、所属标签"]
+  Broker <-->|"runtime Port"| Page["PR 内容脚本<br/>左栏、材料提示、原生结果"]
+  Broker <-->|"runtime Port"| Popup["扩展弹窗<br/>恢复 / 连接状态"]
+  Broker --> Cache[("extension storage<br/>最近组、所属标签")]
 ```
 
-| 组件 | 职责 | 主要实现 |
-| --- | --- | --- |
-| 内容脚本 | 从 URL/页面读取 `PrRef`；在 Shadow DOM 中放置面板和评审列表；GitHub 软导航后重新注册 PR | `extension/src/content/controller.ts`, `extension/src/pr/identity.ts` |
-| Service Worker | 每个浏览器配置一条 Hub 连接，汇聚各标签页的 runtime Port；缓存最近状态；断线后重注册页面 | `extension/src/bridge/broker.ts`, `extension/src/bridge/hub-client.ts` |
-| Hub | 校验扩展帧、维护活动页面和 Agent 任务、分发消息、提供 MCP 工具 | `hub/src/runtime.ts`, `hub/src/websocket-server.ts`, `hub/src/mcp-server.ts` |
-| MCP shim | 在 Agent 的 stdio 与 Hub 的本机 socket 之间转发 MCP JSON-RPC；必要时按需启动 Hub | `hub/src/cli.ts`, `hub/src/consumer-transport.ts` |
-| Claude hooks | 在 Claude 生命周期边界读取面板消息、绑定任务、处理 Stop；Codex 没有这一路径 | `agent-plugin/hooks/hooks.json`, `agent-plugin/clients/shared/lifecycle.mjs` |
-| ReviewStore | 把已发布的评审运行记录写入本机 JSON 文件，并按 PR 提供历史和最新摘要 | `hub/src/review-store.ts` |
-| PrStatusSync / PrStatusStore | 枚举有已完成评审的 PR，以 `gh` 批量读取其当前状态和 head SHA；单独缓存并广播变更 | `hub/src/pr-status-sync.ts`, `hub/src/github-pr-reader.ts`, `hub/src/pr-status-store.ts` |
+内容脚本仅在当前 PR 是最新组的待处理成员时挂载左栏；不挂永久网页聊天面板。`ReviewGroupList.vue` 只呈现决策标题、CI 和当前项高亮。材料提示插在 PR 正文之前。弹窗负责恢复当前轮次与连接设置。Service Worker 汇聚多个页面连接，只允许它创建和更新评审所属标签。Hub 校验请求版本、保存状态，并在必要时使用本机 `gh` 访问 GitHub。
 
 ## 数据模型
 
 ```mermaid
 erDiagram
-  PR_REF ||--o{ PAGE_SESSION : "由标签页展示"
-  PR_REF ||--o{ TASK : "被处理"
-  PR_REF ||--o{ REVIEW_RUN : "有评审历史"
-  PR_REF ||--o| OBSERVED_PR : "有当前观测"
-  PR_REF ||--o{ PANEL_MESSAGE : "有面板消息"
-  AGENT_CLIENT ||--o{ TASK : "执行"
-  TASK o|--o{ PANEL_MESSAGE : "可绑定"
-  REVIEW_RUN ||--o{ FINDING : "包含"
+  REVIEW_GROUP ||--o{ REVIEW_GROUP_ITEM : contains
+  PR_REF ||--o{ REVIEW_GROUP_ITEM : identifies
+  PR_REF ||--o{ PAGE_SESSION : appears_in
+  REVIEW_GROUP ||--o{ BOUND_ACTION : scopes
 
+  REVIEW_GROUP {
+    string groupId PK
+    string product
+    string focus
+    int requestedCount
+    string status "ready|zero|completed"
+    number createdAt
+    number updatedAt
+  }
+  REVIEW_GROUP_ITEM {
+    string decisionTitle
+    string ci "success|failure|pending|unknown"
+    string materialHeadSha
+    number materialUpdatedAt
+    string outcome "pending|merged|closed"
+  }
   PR_REF {
     string host
     string owner
     string repo
     int number
     string headSha
-    string title
   }
   PAGE_SESSION {
     string documentId PK
     number registeredAt
   }
-  AGENT_CLIENT {
-    string kind
-    string sessionId
-    number connectedAt
-  }
-  TASK {
-    string taskId PK
-    string kind
-    string status
+  BOUND_ACTION {
+    string actionId PK
+    string groupId
     string repoKey
     int prNumber
+    string expectedHeadSha
+    string action "merge|close"
     string documentId
-  }
-  PANEL_MESSAGE {
-    string messageId PK
-    string taskId
-    string documentId
-    string text
-    number deliveredAt
-  }
-  REVIEW_RUN {
-    string runId PK
-    string reviewedHeadSha
-    string status
-    string headline
-    string summary
-  }
-  OBSERVED_PR {
-    string state
-    string headSha
-    string readiness
-    string readinessReason
-    string authorLogin
-  }
-  FINDING {
-    string id PK
-    string severity
-    string filePath
-    int line
   }
 ```
 
-`PrRef` 是页面身份：`host/owner/repo/number`；`repoKey` 是前三项的小写组合。`PageSession` 用 `documentId` 区分标签页。Hub 只维护一个全局 `activeDocumentId`，因此 `get_active_pr` 返回当前激活标签页的 PR，不是每个 Agent 会话各自固定的 PR。`Task` 记录 Agent、PR、进度和状态；它的运行时 `runId` 指向最近一次发布的评审，持久化的 `ReviewRun` 没有任务外键。`PanelMessage` 可绑定任务，也可只绑定 PR。`ReviewRun` 记录一次评审及其 findings；左侧列表由每个 PR 最新的 `completed` 记录派生。`ObservedPr` 是 GitHub 当前状态、head SHA 与合并信号，覆盖列表摘要中的当前字段；当前 head 与评审时不同则标记 stale。评审历史保持原值。`P0` 是评审输入中的显式业务优先级，不由合并状态自动推导。
+`ReviewGroupPreparation` 是内存中的准备态，含最新 `requestId`、产品、请求数量、开始时间和可选错误。开始新请求不删除已发布的组；只有对应的最新 `requestId` 成功发布才会原子替换 `review-group.json`。空选择发布 `zero` 组。组完成后状态为 `completed`，不会自动补足新 PR。`BoundAction` 在 Hub 内存中锁住组、PR 和 head；重启后必须重新绑定，避免旧动作误用。
 
-`ReviewRun` 持久化到 `~/.zenuml-pr-panel/store/reviews/`，`ObservedPr` 缓存在同一 store 下的 `pr-status.json`（或配置的 store 目录）。页面会话、任务和面板消息保存在 Hub 内存中；浏览器偏好另存于 Chrome extension storage。`publish_review` 写本机记录，不创建 GitHub 评论。
+Hub 将最新组原子写入 `~/.zenuml-pr-panel/store/review-group.json`（测试可用 `PR_PANEL_RUNTIME_DIR` 隔离）。扩展缓存 `group` 帧，供 Hub 离线时显示和弹窗恢复。PR 正文的材料采用 `<!-- zenuml-pr-review:start -->` / `end` 标记；更新只替换标记区，保留原正文。当前 head 与 `materialHeadSha` 不同为 stale；当前 head 缺失为 unknown，不能证明材料有效。PR 身份、标题、正文和 SHA 不进入统计属性。
 
-左侧列表默认只显示当前 GitHub 登录账号创建的已保存评审。内容脚本从 GitHub 页面的 `user-login`／`octolytics-actor-login` 元数据识别账号，Hub 用 `gh` GraphQL 同步 PR 作者。两个元数据值冲突、身份缺失或 PR 作者信息缺失时，内容脚本不显示该条目；筛选在每次 Hub 列表广播后重新执行。Assignee 和 Requested reviewer 不计入此范围。Hub 仍同步所有已保存 PR 的状态，不因分页或个人筛选跳过历史记录。
-
-## 通信
+## 通信与顺序
 
 ```mermaid
 zenuml
 @Actor User
-Page as "GitHub PR page"
+Agent
+Hub
+GitHub
 Worker as "Extension worker"
-Hub as "Local Hub"
-Shim as "MCP shim"
-Agent as "Claude or Codex"
-Gh as "gh CLI"
-GitHub as "GitHub API"
-
-User -> Page: open PR
-Page -> Worker: register PR
-Worker -> Hub: register frame
-Agent -> Shim.get_active_pr() {
-  Shim -> Hub.get_active_pr() {
-    return active PR
-  }
-  return active PR
+Page as "PR page"
+User -> Agent: 明确准备
+Agent -> Hub.startReviewGroup() {
+  Hub -> Worker: 旧组与准备态
+  return requestId
 }
-Agent -> Shim.begin_task() {
-  Shim -> Hub.begin_task() {
-    @return Worker: task state
-    return taskId
-  }
-  return taskId
+Agent -> GitHub: 核实候选与证据
+Agent -> Hub.publishReviewGroup() {
+  Hub -> GitHub: 逐项核实 head
+  Hub -> GitHub: 写标记材料
+  Hub -> Worker: 发布新组
+  return savedRound
 }
-Agent -> Shim.publish_review() {
-  Shim -> Hub.publish_review() {
-    @return Worker: review summary
-    return runId
-  }
-  return runId
+Worker -> Page: 打开首项
+User -> GitHub: 合并或关闭
+Page -> Hub.nativeResultHint() {
+  Hub -> GitHub: 确认远端结果
+  Hub -> Worker: 剩余组与结果
 }
-Hub -> Gh.readSavedPRs() {
-  Gh -> GitHub.query() {
-    return state, head, author
-  }
-  return observations
-}
-Hub -> Worker: updated reviews
-Worker -> Page: render state
+Worker -> Page: 显示 Next / Stay
 ```
 
-1. **扩展 → Hub。** 用户开启 MCP access 并批准 `http://127.0.0.1/*` 后，Service Worker 探测 47391–47394 端口的 `GET /`，核对服务和协议版本，再以 `zenuml-pr-panel` 子协议建立 WebSocket。扩展和 Hub 交换带 `v=1`、`id`、`ts` 的 JSON 帧：`register/activate/listReviews/userMessage/cancelTask` 等请求，以及 `state/reviews/taskEvent/messageQueued/messageDelivered` 等响应。一个 WebSocket 承载同一浏览器配置中的多个标签页。
-2. **Agent → Hub。** Claude Code 或 Codex 启动 `cli.mjs` 作为 MCP stdio server。shim 用启动锁复用同一 Hub，把 MCP 流经 Unix socket（Windows 为 named pipe）转发；Hub 暴露 `get_active_pr`、`begin_task`、`report_progress`、`post_message`、`publish_review`、`complete_task`、`read_review_history`、`delete_review_entry`、`list_panel_messages`、`wait_for_panel_messages` 十个工具。`delete_review_entry` 按明确的仓库和 PR 编号删除该 PR 的全部本机评审运行记录，然后广播更新后的列表；旧评审不会重新成为可见条目。
-3. **面板消息 → Agent。** 消息先按 PR 进入 Hub 内存队列。Claude hooks 可在提示、工具调用和停止等生命周期边界领取；Codex 必须主动调用 `list_panel_messages` 或最长 25 秒的 `wait_for_panel_messages`。领取时同步标记 `deliveredAt`，避免两个通道重复领取；未绑定任务的消息仍可能由先轮询的会话取得。
-4. **评审结果 → 页面。** Agent 自己读取 GitHub PR 和 diff，然后调用 `publish_review`。Hub 写入 ReviewStore，广播评审摘要和任务事件；Service Worker 转发给内容脚本更新界面。扩展本身不调用 GitHub API 读取代码。
-5. **当前状态 → 左侧列表。** Hub 启动后及运行期间每五分钟枚举全部有已完成评审的 PR，用本机 `gh` 登录按每批最多 20 个 GraphQL 别名读取当前状态、草稿标志、head SHA、`mergeable`、`mergeStateStatus` 和作者。重连、列表请求和新评审可触发合并刷新；失败后退避，保留最近一次已知值。变更按仓库广播现有 `reviews` 帧。GitHub 明确返回 `MERGEABLE` 且 `CLEAN` 的开放非草稿 PR 才标为 `ready`；有冲突或明确阻塞标为 `blocked`；检查状态不明或 `UNSTABLE` 标为 `unknown`。这一保守映射依据 [GitHub 的 MergeStateStatus 定义](https://docs.github.com/en/graphql/reference/pulls#mergestatestatus)。内容脚本先按当前 GitHub 账号筛出“仅我的 PR”，再将显式 P0 固定在顶部，并按可用高度和实际行高分页其余条目；分页只改变本地显示范围，不改变后台同步范围。
+扩展先用 `GET /` 识别本机 Hub，再用 WebSocket 和子协议 `zenuml-pr-panel` 交换 JSON 帧。握手协议版本为 2；不匹配时拒绝连接。页面通过 `register` 和浏览器标签激活事件更新当前 PR，Agent 无需手动点“设为活动”。`listGroup` 取完整快照；Hub 在组状态变化时广播 `group`。断线时浏览器缓存最近组；重连后 Hub 的持久化快照为准。
 
-## 边界与运行约束
+MCP 工具负责 `start_review_group`、`publish_review_group`、`fail_review_group`、`get_review_group`、`bind_review_action`、`confirm_review_action` 和 `refresh_review_material`。材料写入只发生在显式准备或刷新工具调用。发布前先预检所选 PR，写每个 PR 时再核实 head；若任一步失败，保留旧组并显示错误。GitHub 不提供多 PR 正文事务，因此发生中途失败时，已写入的材料可能留在先前选中 PR；组仍不会切换。
 
-- Hub WebSocket 只绑定 `127.0.0.1`，要求 Chrome 扩展 Origin、固定路径和子协议；默认允许任意格式合法的 Chrome 扩展 Origin，部署者可用 `PR_PANEL_ALLOWED_EXTENSION_ORIGINS` 收紧到具体扩展 ID。当前协议没有配对令牌。
-- MCP access 默认关闭；未取得本机 host permission 时，扩展不探测 Hub。Hub 与扩展的协议版本不匹配时拒绝连接。
-- Hub 的 socket、锁和运行状态默认放在操作系统临时目录，评审历史默认放在用户主目录。不同 Agent 若使用不同 `TMPDIR`，可能连接到两个 Hub；可统一 `PR_PANEL_RUNTIME_DIR`。
-- 同一 PR 可同时存在多个任务；面板优先显示最近开始的进行中任务。多个 Agent 同时评审同一 PR 时，消息归属和最新结果容易混淆。
-- Hub 仅在配置 `PR_PANEL_MIXPANEL_TOKEN` 时发送白名单统计属性；仓库名、PR 标题、diff 和评审文本不在该属性白名单中。
+Hub 以远端 GitHub 状态作为合并/关闭结果依据：未确认则项目留在组内；已确认则移除待处理集合，重复通知不会重复完成。原生操作仅原操作标签可倒计时跳转，任何页面交互取消；AI 操作只有所属评审标签仍显示绑定目标时才可更新 URL，且不激活窗口或其他标签。定时远端同步发现的外部变化只更新组，不导航。CI 同步只改行内状态，不重写材料。
 
-模型和代码读取由运行 Agent 的 Claude Code/Codex 环境负责。Hub 使用其进程可访问的本机 `gh` 登录仅读取已评审 PR 的元数据；它不启动模型，也不向 GitHub 发布评审。
+旧 `ReviewStore`、任务和消息工具仍供兼容读取；网页不再展示它们形成的永久清单。Hub 不启动模型，也不授予合并权限。

@@ -1,12 +1,12 @@
 # Review round verification — 2026-10-27
 
-Candidate: the source in this branch. The fixture completion screenshots use its final extension build. The real GitHub screenshot was captured from the earlier `7dbf59bb` build, before the completion-state UI change; ordinary pending-state list layout was unchanged.
+Candidate: the source in this branch. The R3 native-result screenshots below use the R3 extension and Hub build. The real GitHub screenshot was captured from the earlier `7dbf59bb` build, before the completion-state UI change; ordinary pending-state list layout was unchanged.
 
 ## Automated checks
 
 - Shared: TypeScript check and 10 Vitest tests passed.
-- Hub: TypeScript check, 74 Vitest tests, and production build passed.
-- Extension: TypeScript check, 120 Vitest tests, and MV3 production build passed.
+- Hub: TypeScript check, 78 Vitest tests, and production build passed.
+- Extension: TypeScript check, 123 Vitest tests, and MV3 production build passed.
 - Mermaid component and ER diagrams parsed, and the ZenUML sequence diagram parsed.
 
 These checks cover protocol validation, group replacement, GitHub body preservation, navigation rules, and UI components. They do not replace browser observation.
@@ -20,9 +20,13 @@ An isolated local Hub used a fixture `gh` command and its own runtime directory.
 | [Real GitHub PR page](screenshots/review-round-real-github.png) | On the actual public PR #917 page, the extension rendered the two-item left column and a stale-material notice above the existing body. The fixture group referred to an older head, so the stale notice was expected. This page was read before the PR description below was updated. |
 | [Fixture material](screenshots/review-round-fixture-materials.png) | A published two-item round showed the left list and marked decision material above the preserved PR body. |
 | [Fixture native result](screenshots/review-round-fixture-native-result.png) | The simulated native merge was confirmed through the Hub's fixture gateway. The left column retained the completed item, highlighted the next item, and showed primary **Next PR** and secondary **Stay** actions. Stay cancelled automatic advance. |
+| [R3 native result](screenshots/review-round-r3-native-result.png) | On the R3 build, the isolated browser observed the merged item, next item, and Next/Stay controls after a trusted native button click and fixture GitHub confirmation. |
+| [R3 Stay](screenshots/review-round-r3-native-stay.png) | Stay changed the feedback to “Staying here”; after more than three seconds the browser remained on fixture PR #917. |
 | [Fixture final item](screenshots/review-round-fixture-round-complete.png) | Closing the last item kept an explicit **Round complete** state with no next action or automatic refill. |
 | [Fixture zero result](screenshots/review-round-fixture-zero.png) | Publishing zero items removed the left list. |
 
 The same isolated runtime also exercised preparation failure (old group retained), changed-head stale detection, three-second automatic advance, **Stay** cancelling that advance, **Next PR** opening the next item, AI action confirmation with an open PR (no advance), AI confirmation after remote merge (owned tab advanced without focus change), and an externally observed merge (group updated without navigation). These observations use fixture GitHub state. Actual authenticated GitHub merge/close behavior has not been exercised.
+
+The R3 browser run used the production JavaScript bundles with a test-only manifest copy that made loopback permission required, because headless Chrome did not present the optional-permission prompt. It connected to the isolated protocol-2 Hub on port 47392 while the daily protocol-1 Hub stayed on port 47391. This verifies the R3 UI and Hub path, but does not verify the normal optional-permission grant flow or an installed daily-profile upgrade. The R3 race tests cover superseding material writes, completion during refresh, poll-before-native feedback, bounded native confirmation retry, and delayed feedback after navigation.
 
 This is a Chrome extension and local Hub change. It does not change the Confluence UI, so the Confluence Storybook → Forge Tunnel → staging path does not apply.

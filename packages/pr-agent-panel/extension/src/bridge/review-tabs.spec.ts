@@ -40,7 +40,7 @@ describe('owned review tab navigation', () => {
     const fake = fakeTabs()
     const nav = new ReviewTabs(fake.api)
     await nav.openInitial(group)
-    expect(fake.created).toEqual([{ url: 'https://github.com/acme/widgets/pull/8', active: true }])
+    expect(fake.created).toEqual([{ url: 'https://github.com/acme/widgets/pull/8', active: false }])
     await nav.continue(group)
     expect(fake.updated).toEqual([{ id: fake.owned(), url: 'https://github.com/acme/widgets/pull/8' }])
   })
@@ -57,6 +57,7 @@ describe('owned review tab navigation', () => {
     expect(fake.updated).toEqual([])
     await nav.continue(group)
     expect(fake.created).toHaveLength(2)
+    expect(fake.created[1]?.active).toBe(true)
   })
 
   it('advances without requesting browser activation when the owned tab still shows the target', async () => {

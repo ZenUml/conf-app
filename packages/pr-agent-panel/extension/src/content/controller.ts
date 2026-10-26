@@ -27,6 +27,8 @@ export function createPageController(ctx: ContentScriptContext) {
   let observedFrame: Element | null = null
   let ensureQueued = false
   let nativeAction: 'merge' | 'close' | null = null
+  let nativeContext: { groupId: string; repoKey: string; prNumber: number; generation: number } | null = null
+  let navigationGeneration = 0
   let resultHintSent = false
   let nextTimer: ReturnType<typeof setTimeout> | null = null
   const completionFeedback = ref<CompletionFeedback | null>(null)
@@ -267,9 +269,11 @@ export function createPageController(ctx: ContentScriptContext) {
     const next = parsePrRef(location.href, document)
     if (!next || next.number !== prev.number || repoKeyOf(next) !== repoKeyOf(prev)) return
     state.prState = readPrState(document)
-    if (nativeAction && !resultHintSent && state.group && ((nativeAction === 'merge' && state.prState === 'merged') || (nativeAction === 'close' && state.prState === 'closed'))) {
+    if (nativeAction && nativeContext && !resultHintSent && state.group?.groupId === nativeContext.groupId
+      && nativeContext.generation === navigationGeneration && nativeContext.repoKey === repoKeyOf(next) && nativeContext.prNumber === next.number
+      && ((nativeAction === 'merge' && state.prState === 'merged') || (nativeAction === 'close' && state.prState === 'closed'))) {
       resultHintSent = true
-      port?.send(envelope({ type: 'nativeResultHint' as const, documentId, groupId: state.group.groupId, pr: next, action: nativeAction }))
+      port?.send(envelope({ type: 'nativeResultHint' as const, documentId, groupId: nativeContext.groupId, pr: next, action: nativeAction }))
     }
     if (next.title !== prev.title || next.headSha !== prev.headSha) {
       state.pr = next
@@ -323,7 +327,9 @@ export function createPageController(ctx: ContentScriptContext) {
   function applyLocation(href: string) {
     const { changed } = readPage(href)
     if (changed) {
+      navigationGeneration += 1
       nativeAction = null
+      nativeContext = null
       resultHintSent = false
       clearNextTimer()
       completionFeedback.value = null
@@ -349,16 +355,23 @@ export function createPageController(ctx: ContentScriptContext) {
     if (completionFeedback.value) completionFeedback.value = { ...completionFeedback.value, autoAdvance: false }
   }
 
-  function showNativeResult(outcome: 'merged' | 'closed') {
+  function showNativeResult(outcome: 'merged' | 'closed', pr: PrRef, groupId: string) {
     clearNextTimer()
-    if (!state.group || !state.pr) return
+    if (!state.group || !state.pr || state.group.groupId !== groupId || repoKeyOf(state.pr) !== repoKeyOf(pr) || state.pr.number !== pr.number) return
+    const generation = navigationGeneration
     const next = store.pendingGroupItems.value[0]
-    completionFeedback.value = { groupId: state.group.groupId, pr: state.pr, outcome, autoAdvance: !!next }
+    completionFeedback.value = { groupId, pr, outcome, autoAdvance: !!next }
     // Start the 3-second advance only once Next / Stay are on screen.
     void mountList().then(() => {
-      if (!next || !completionFeedback.value?.autoAdvance) return
+      if (!next || !completionFeedback.value?.autoAdvance || generation !== navigationGeneration || state.group?.groupId !== groupId
+        || !state.pr || repoKeyOf(state.pr) !== repoKeyOf(pr) || state.pr.number !== pr.number) return
       clearNextTimer()
-      nextTimer = setTimeout(() => { nextTimer = null; location.assign(next.pr.url ?? `https://${next.pr.host}/${next.pr.owner}/${next.pr.repo}/pull/${next.pr.number}`) }, 3000)
+      nextTimer = setTimeout(() => {
+        nextTimer = null
+        if (generation !== navigationGeneration || state.group?.groupId !== groupId || !state.pr
+          || repoKeyOf(state.pr) !== repoKeyOf(pr) || state.pr.number !== pr.number || !completionFeedback.value?.autoAdvance) return
+        location.assign(next.pr.url ?? `https://${next.pr.host}/${next.pr.owner}/${next.pr.repo}/pull/${next.pr.number}`)
+      }, 3000)
     })
   }
 
@@ -366,8 +379,13 @@ export function createPageController(ctx: ContentScriptContext) {
     if (!store.currentGroupItem.value || !event.isTrusted) return
     const button = (event.target as Element | null)?.closest('button, summary')
     const text = button?.textContent?.trim().toLowerCase() ?? ''
-    if (/^(confirm merge|merge pull request|squash and merge|rebase and merge)/.test(text)) nativeAction = 'merge'
-    else if (/^close pull request/.test(text)) nativeAction = 'close'
+    const action = /^(confirm merge|merge pull request|squash and merge|rebase and merge)/.test(text) ? 'merge'
+      : /^close pull request/.test(text) ? 'close' : null
+    if (action && state.group && state.pr) {
+      nativeAction = action
+      nativeContext = { groupId: state.group.groupId, repoKey: repoKeyOf(state.pr), prNumber: state.pr.number, generation: navigationGeneration }
+      resultHintSent = false
+    }
   }
 
   function onUserInteraction() {
@@ -396,13 +414,26 @@ export function createPageController(ctx: ContentScriptContext) {
     port = new PanelPort({ getRepoKey: () => state.repoKey ?? undefined, onReconnect: () => registerCurrent() })
     port.onStatus((s) => (state.status = s))
     port.onFrame((f) => {
+      if (f.type === 'group') {
+        if (state.group?.groupId && f.group?.groupId !== state.group.groupId) {
+          navigationGeneration += 1
+          nativeAction = null
+          nativeContext = null
+          resultHintSent = false
+          clearNextTimer()
+          completionFeedback.value = null
+        }
+      }
       store.applyFrame(f)
       if (f.type === 'group') {
         void mountList()
         updateMaterialNotice()
       }
       if (f.type === 'reviewItemResult' && f.documentId === documentId && f.source === 'native') {
-        showNativeResult(f.outcome)
+        if (nativeContext?.groupId === f.groupId && nativeContext.generation === navigationGeneration
+          && nativeContext.repoKey === repoKeyOf(f.pr) && nativeContext.prNumber === f.pr.number) {
+          showNativeResult(f.outcome, f.pr, f.groupId)
+        }
       }
       if (f.type === 'reviews') {
         telemetry('pr_panel_review_scope_applied', {

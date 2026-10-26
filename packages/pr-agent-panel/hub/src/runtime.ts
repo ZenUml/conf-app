@@ -135,6 +135,8 @@ export class HubRuntime {
   private group: ReviewGroup | null
   private preparation: ReviewGroupPreparation | null = null
   private readonly boundActions = new Map<string, BoundReviewAction>()
+  private readonly materialWrites = new Map<string, Promise<void>>()
+  private readonly nativeFeedbackSent = new Set<string>()
 
   private readonly connections = new Map<string, ExtensionConnection>()
   private readonly helloed = new Set<string>()
@@ -298,7 +300,7 @@ export class HubRuntime {
         if (!session || repoKeyOf(session.pr) !== repoKeyOf(frame.pr) || session.pr.number !== frame.pr.number) {
           this.sendTo(conn, { type: 'error', code: 'unknown_document', message: 'PR tab is not registered.', inReplyTo: frame.id })
         } else {
-          void this.confirmRemoteResult(frame.groupId, frame.pr, frame.action, 'native', frame.documentId)
+          void this.confirmNativeResult(frame.groupId, frame.pr, frame.action, frame.documentId)
             .catch(() => undefined)
         }
         return { close: false }
@@ -588,8 +590,11 @@ export class HubRuntime {
       }
       for (const item of input.items) {
         if (this.preparation?.requestId !== input.requestId) throw new Error('A newer review request replaced this one.')
-        await this.reviewGateway.writeMaterials(item.pr, item.materialHeadSha, item.materialsMarkdown,
-          () => this.preparation?.requestId === input.requestId)
+        await this.withMaterialWrite(item.pr, async () => {
+          if (this.preparation?.requestId !== input.requestId) throw new Error('A newer review request replaced this one.')
+          await this.reviewGateway.writeMaterials(item.pr, item.materialHeadSha, item.materialsMarkdown,
+            () => this.preparation?.requestId === input.requestId)
+        })
       }
       if (this.preparation?.requestId !== input.requestId) throw new Error('A newer review request replaced this one.')
       const now = this.now()
@@ -608,6 +613,7 @@ export class HubRuntime {
       this.groupStore?.put(group)
       this.group = group
       this.preparation = null
+      this.nativeFeedbackSent.clear()
       this.broadcast(this.groupBody())
       this.analytics?.track('pr_panel_group_published', {
         requested_pr_count: prep.requestedCount,
@@ -659,12 +665,32 @@ export class HubRuntime {
   async refreshReviewMaterial(input: RefreshReviewMaterialArgs): Promise<{ item: ReviewGroupItem }> {
     const repoKey = repoKeyOf(input.repo)
     const item = this.pendingGroupItem(input.groupId, repoKey, input.prNumber)
-    await this.reviewGateway.writeMaterials(item.pr, input.expectedHeadSha, input.materialsMarkdown,
-      () => this.group?.groupId === input.groupId && this.group.items.some((x) => repoKeyOf(x.pr) === repoKey && x.pr.number === input.prNumber && x.outcome === 'pending'))
+    await this.withMaterialWrite(item.pr, async () => {
+      const current = this.pendingGroupItem(input.groupId, repoKey, input.prNumber)
+      await this.reviewGateway.writeMaterials(current.pr, input.expectedHeadSha, input.materialsMarkdown,
+        () => this.group?.groupId === input.groupId && this.group.items.some((x) => repoKeyOf(x.pr) === repoKey && x.pr.number === input.prNumber && x.outcome === 'pending'))
+    })
     if (this.group?.groupId !== input.groupId) throw new Error('Review group changed during material refresh.')
-    const updated = { ...item, pr: { ...item.pr, headSha: input.expectedHeadSha }, materialHeadSha: input.expectedHeadSha, materialUpdatedAt: this.now(), ci: input.ci }
+    const current = this.group.items.find((x) => repoKeyOf(x.pr) === repoKey && x.pr.number === input.prNumber)
+    if (!current) throw new Error('Review item changed during material refresh.')
+    if (current.outcome !== 'pending') return { item: current }
+    const updated = { ...current, pr: { ...current.pr, headSha: input.expectedHeadSha }, materialHeadSha: input.expectedHeadSha, materialUpdatedAt: this.now(), ci: input.ci }
     this.replaceGroupItem(updated)
     return { item: updated }
+  }
+
+  private async withMaterialWrite<T>(pr: PrRef, write: () => Promise<T>): Promise<T> {
+    const key = `${repoKeyOf(pr)}#${pr.number}`
+    const previous = this.materialWrites.get(key) ?? Promise.resolve()
+    let release!: () => void
+    const turn = new Promise<void>((resolve) => { release = resolve })
+    this.materialWrites.set(key, turn)
+    await previous
+    try { return await write() }
+    finally {
+      release()
+      if (this.materialWrites.get(key) === turn) this.materialWrites.delete(key)
+    }
   }
 
   /** Poll remote facts for this finite set; external completions never carry an originating tab. */
@@ -721,19 +747,44 @@ export class HubRuntime {
     groupId: string, pr: PrRef, action: 'merge' | 'close', source: 'native' | 'ai' | 'external',
     documentId?: string, expectedHeadSha?: string,
   ): Promise<'merged' | 'closed' | null> {
-    const item = this.pendingGroupItem(groupId, repoKeyOf(pr), pr.number)
+    const item = this.group?.groupId === groupId
+      ? this.group.items.find((x) => repoKeyOf(x.pr) === repoKeyOf(pr) && x.pr.number === pr.number)
+      : undefined
+    if (!item || (source !== 'native' && item.outcome !== 'pending')) return null
     const remote = await this.reviewGateway.read(item.pr)
-    if (this.group?.groupId !== groupId || item.outcome !== 'pending') return null
+    const current = this.group?.groupId === groupId
+      ? this.group.items.find((x) => repoKeyOf(x.pr) === repoKeyOf(pr) && x.pr.number === pr.number)
+      : undefined
+    if (!current) return null
     if (expectedHeadSha && remote.headSha.toLowerCase() !== expectedHeadSha.toLowerCase()) return null
     const outcome = remote.state === 'merged' ? 'merged' : remote.state === 'closed' ? 'closed' : null
     if (!outcome || (action === 'merge' && outcome !== 'merged') || (action === 'close' && outcome !== 'closed')) return null
-    this.replaceGroupItem({ ...item, outcome })
-    this.broadcast({ type: 'reviewItemResult', groupId, pr: item.pr, outcome, source, ...(documentId ? { documentId } : {}) })
-    this.analytics?.track('pr_panel_group_item_completed', {
-      completion_source: source, completion_outcome: outcome,
-      remaining_pr_count: this.group?.items.filter((x) => x.outcome === 'pending').length ?? 0,
-    })
+    if (current.outcome !== 'pending' && (source !== 'native' || current.outcome !== outcome)) return null
+    if (current.outcome === 'pending') {
+      this.replaceGroupItem({ ...current, outcome })
+      this.analytics?.track('pr_panel_group_item_completed', {
+        completion_source: source, completion_outcome: outcome,
+        remaining_pr_count: this.group?.items.filter((x) => x.outcome === 'pending').length ?? 0,
+      })
+    }
+    const feedbackKey = documentId ? `${groupId}/${repoKeyOf(pr)}#${pr.number}/${documentId}/${action}` : null
+    if (!feedbackKey || !this.nativeFeedbackSent.has(feedbackKey)) {
+      if (feedbackKey) this.nativeFeedbackSent.add(feedbackKey)
+      this.broadcast({ type: 'reviewItemResult', groupId, pr: current.pr, outcome, source, ...(documentId ? { documentId } : {}) })
+    }
     return outcome
+  }
+
+  private async confirmNativeResult(groupId: string, pr: PrRef, action: 'merge' | 'close', documentId: string): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (this.group?.groupId !== groupId) return
+      const session = this.sessions.get(documentId)?.session
+      if (!session || repoKeyOf(session.pr) !== repoKeyOf(pr) || session.pr.number !== pr.number) return
+      try {
+        if (await this.confirmRemoteResult(groupId, pr, action, 'native', documentId)) return
+      } catch { /* GitHub can briefly lag the page; retry this bounded confirmation. */ }
+      if (attempt < 2) await new Promise<void>((resolve) => setTimeout(resolve, (attempt + 1) * 500))
+    }
   }
 
   private groupBody(): Extract<HubFrameBody, { type: 'group' }> {

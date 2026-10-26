@@ -29,10 +29,10 @@ export function urlMatchesPr(url: string | undefined, pr: PrRef): boolean {
 export class ReviewTabs {
   constructor(private readonly api: ReviewTabApi) {}
 
-  async openInitial(group: ReviewGroup): Promise<void> {
+  async openInitial(group: ReviewGroup, active = false): Promise<void> {
     const first = group.items.find((item) => item.outcome === 'pending')
     if (!first) return
-    const tab = await this.api.create(itemUrl(first), true)
+    const tab = await this.api.create(itemUrl(first), active)
     if (tab.id !== undefined) await this.api.setOwnedId(tab.id)
   }
 
@@ -41,7 +41,7 @@ export class ReviewTabs {
     if (!next) return
     const owned = await this.ownedGroupTab(group)
     if (owned?.id !== undefined) await this.api.update(owned.id, itemUrl(next))
-    else await this.openInitial(group)
+    else await this.openInitial(group, true)
   }
 
   async ownedTabId(): Promise<number | null> { return this.api.getOwnedId() }

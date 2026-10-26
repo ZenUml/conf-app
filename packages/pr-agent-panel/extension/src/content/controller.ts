@@ -1,5 +1,5 @@
 /** Wires the request-scoped review list to one GitHub tab and its broker port. */
-import { createApp, h, type App } from 'vue'
+import { createApp, h, ref, type App } from 'vue'
 import { repoKeyOf, type PrRef, type ReviewGroupItem } from '@zenuml/pr-panel-shared'
 import type { ContentScriptContext } from 'wxt/utils/content-script-context'
 import { createShadowRootUi, type ShadowRootContentScriptUi } from 'wxt/utils/content-script-ui/shadow-root'
@@ -10,6 +10,7 @@ import { parsePrRef, parseRepoRef, readPrState, readViewerLogin } from '../pr/id
 import { getPrefs, onPrefsChanged, setPref } from '../state/prefs'
 import AgentPanel from '../ui/AgentPanel.vue'
 import ReviewGroupList from '../ui/ReviewGroupList.vue'
+import { completedItemForPage, shouldShowReviewList, type CompletionFeedback } from './review-group-page'
 import { createPageStore } from './store'
 
 export function createPageController(ctx: ContentScriptContext) {
@@ -28,8 +29,11 @@ export function createPageController(ctx: ContentScriptContext) {
   let nativeAction: 'merge' | 'close' | null = null
   let resultHintSent = false
   let nextTimer: ReturnType<typeof setTimeout> | null = null
-  let resultNotice: HTMLElement | null = null
+  const completionFeedback = ref<CompletionFeedback | null>(null)
   let materialNotice: HTMLElement | null = null
+  let listMountGeneration = 0
+
+  const listVisible = () => shouldShowReviewList(state.group, state.pr, completionFeedback.value)
 
   function telemetry(event: TelemetryEvent, props: TelemetryProps = {}) {
     try {
@@ -148,8 +152,9 @@ export function createPageController(ctx: ContentScriptContext) {
   }
 
   async function mountList() {
+    const generation = ++listMountGeneration
     removeList()
-    if (!state.pr || !store.currentGroupItem.value || !state.group || ctx.isInvalid) return
+    if (!listVisible() || !state.group || ctx.isInvalid) return
     const ui = await createOrphanSafeUi<App>({
       name: 'zenuml-pr-list',
       position: 'inline',
@@ -166,10 +171,18 @@ export function createPageController(ctx: ContentScriptContext) {
               group: state.group!,
               preparation: state.preparation,
               currentPrNumber: state.pr?.number ?? 0,
+              completedItem: completedItemForPage(state.group, state.pr, completionFeedback.value),
+              autoAdvance: completionFeedback.value?.autoAdvance ?? false,
               offline: state.status.state !== 'connected',
               onOpen: (item: ReviewGroupItem) => {
                 location.assign(item.pr.url ?? `https://${item.pr.host}/${item.pr.owner}/${item.pr.repo}/pull/${item.pr.number}`)
               },
+              onNext: () => {
+                clearNextTimer()
+                const next = store.pendingGroupItems.value[0]
+                if (next) location.assign(next.pr.url ?? `https://${next.pr.host}/${next.pr.owner}/${next.pr.repo}/pull/${next.pr.number}`)
+              },
+              onStay: cancelAdvance,
             }),
         })
         app.mount(container)
@@ -179,7 +192,10 @@ export function createPageController(ctx: ContentScriptContext) {
         app?.unmount()
       },
     })
-    if (!ui || !store.currentGroupItem.value) return
+    if (!ui || generation !== listMountGeneration || !listVisible()) {
+      ui?.remove()
+      return
+    }
     removeList()
     listUi = ui
     ui.mount()
@@ -271,7 +287,7 @@ export function createPageController(ctx: ContentScriptContext) {
       return
     }
     refreshPageDetails()
-    if (!state.pr || !store.currentGroupItem.value) {
+    if (!listVisible()) {
       removeList()
       if (!store.currentGroupItem.value) materialNotice?.remove()
       return
@@ -310,7 +326,7 @@ export function createPageController(ctx: ContentScriptContext) {
       nativeAction = null
       resultHintSent = false
       clearNextTimer()
-      resultNotice?.remove()
+      completionFeedback.value = null
       materialNotice?.remove()
       port?.send(envelope({ type: 'unregister' as const, documentId }))
       registerCurrent()
@@ -326,35 +342,24 @@ export function createPageController(ctx: ContentScriptContext) {
     nextTimer = null
   }
 
+  function cancelAdvance() {
+    if (!nextTimer) return
+    clearNextTimer()
+    if (completionFeedback.value) completionFeedback.value = { ...completionFeedback.value, autoAdvance: false }
+  }
+
   function showNativeResult(outcome: 'merged' | 'closed') {
     clearNextTimer()
-    resultNotice?.remove()
+    if (!state.group || !state.pr) return
     const next = store.pendingGroupItems.value[0]
-    const notice = document.createElement('div')
-    notice.id = 'zenuml-review-result'
-    notice.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483000;padding:15px 18px;border:1px solid #d0d7de;border-radius:8px;background:white;box-shadow:0 8px 28px #1f232833;color:#1f2328;font:13px system-ui,sans-serif'
-    const label = document.createElement('span')
-    label.textContent = outcome === 'merged' ? 'Merged. ' : 'Closed. '
-    notice.append(label)
+    completionFeedback.value = { groupId: state.group.groupId, pr: state.pr, outcome, autoAdvance: !!next }
+    void mountList()
     if (next) {
-      const go = document.createElement('button')
-      go.type = 'button'
-      go.textContent = 'Next'
-      go.style.cssText = 'margin-left:8px;margin-right:8px'
-      go.onclick = (event) => { event.stopPropagation(); clearNextTimer(); location.assign(next.pr.url ?? `https://${next.pr.host}/${next.pr.owner}/${next.pr.repo}/pull/${next.pr.number}`) }
-      const stay = document.createElement('button')
-      stay.type = 'button'
-      stay.textContent = 'Stay'
-      stay.onclick = (event) => { event.stopPropagation(); clearNextTimer(); label.textContent = 'Staying on this PR. ' }
-      notice.append(go, stay)
       nextTimer = setTimeout(() => { nextTimer = null; location.assign(next.pr.url ?? `https://${next.pr.host}/${next.pr.owner}/${next.pr.repo}/pull/${next.pr.number}`) }, 3000)
-    } else label.textContent += 'Round complete.'
-    document.body.append(notice)
-    resultNotice = notice
+    }
   }
 
   function onPageClick(event: PointerEvent) {
-    if (nextTimer && resultNotice && !event.composedPath().includes(resultNotice)) clearNextTimer()
     if (!store.currentGroupItem.value || !event.isTrusted) return
     const button = (event.target as Element | null)?.closest('button, summary')
     const text = button?.textContent?.trim().toLowerCase() ?? ''
@@ -362,8 +367,8 @@ export function createPageController(ctx: ContentScriptContext) {
     else if (/^close pull request/.test(text)) nativeAction = 'close'
   }
 
-  function onUserInteraction(event: Event) {
-    if (nextTimer && (!resultNotice || !event.composedPath().includes(resultNotice))) clearNextTimer()
+  function onUserInteraction() {
+    cancelAdvance()
   }
 
   /**
@@ -411,6 +416,7 @@ export function createPageController(ctx: ContentScriptContext) {
       port?.send(envelope({ type: 'unregister' as const, documentId }))
       port?.disconnect()
       observer?.disconnect()
+      clearNextTimer()
       // WXT removes the shadow-root UIs itself, but not the page-level content shift or the wheel guard.
       removeList()
     })

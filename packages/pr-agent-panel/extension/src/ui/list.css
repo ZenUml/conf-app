@@ -11,11 +11,25 @@
 .rg-row:hover { background: #f6f8fa; }
 .rg-row:focus-visible { outline: 2px solid #0969da; outline-offset: -2px; }
 .rg-row-current, .rg-row-current:hover { background: #ddf4ff; }
+.rg-row-next, .rg-row-next:hover { background: #ddf4ff; box-shadow: inset 3px 0 #0969da; }
+.rg-row-completed { background: #dafbe1; cursor: default; }
+.rg-completed-label { color: #1a7f37; font-size: 12px; font-weight: 600; }
 .rg-title { color: #1f2328; font-size: 13px; line-height: 1.35; font-weight: 600; overflow-wrap: anywhere; }
 .rg-ci { color: #59636e; font-size: 12px; line-height: 1.3; }
 .rg-ci-success { color: #1a7f37; }
 .rg-ci-failure { color: #cf222e; }
 .rg-ci-pending { color: #9a6700; }
+.rg-completion { margin-top: auto; padding: 18px; border-top: 1px solid #d0d7de; background: #f6f8fa; }
+.rg-completion strong { color: #1a7f37; font-size: 15px; }
+.rg-completion-next { margin: 6px 0 0; color: #1f2328; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.rg-completion-hint { margin: 6px 0 0; color: #59636e; font-size: 12px; }
+.rg-completion-actions { display: flex; gap: 8px; margin-top: 14px; }
+.rg-completion-actions button { min-height: 34px; padding: 6px 12px; border: 1px solid #d0d7de; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.rg-completion-actions button:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+.rg-next { color: #fff; background: #1f883d; border-color: #1a7f37 !important; }
+.rg-next:hover { background: #1a7f37; }
+.rg-stay { color: #1f2328; background: #fff; }
+.rg-stay:hover { background: #f3f4f6; }
 :host(zenuml-pr-list) {
   all: initial;
   display: block;

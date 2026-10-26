@@ -144,3 +144,13 @@ test('main and nightly keep their independent coverage policies', () => {
     assert.ok(!caller.with['pr-number']);
   }
 });
+
+
+test('ignored label updates cannot replace the authoritative Pipeline outcome check', () => {
+  const expression = pr.jobs['pr-pipeline-outcome'].name.replace(/^\s*\$\{\{\s*|\s*\}\}\s*$/g, '');
+  const evaluate = (action, label) => Function(`return (${expression.replace(/github\.event_name/g, JSON.stringify('pull_request')).replace(/github\.event\.action/g, JSON.stringify(action)).replace(/github\.event\.label\.name/g, JSON.stringify(label))})`)();
+  assert.equal(evaluate('opened', ''), 'Pipeline outcome');
+  assert.equal(evaluate('synchronize', ''), 'Pipeline outcome');
+  assert.equal(evaluate('labeled', 'test:run'), 'Pipeline outcome');
+  for (const label of ['test:triage', 'test:selected', 'test:all-approved', 'bug']) assert.notEqual(evaluate('labeled', label), 'Pipeline outcome');
+});

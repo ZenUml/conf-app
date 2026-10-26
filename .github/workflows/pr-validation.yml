@@ -370,7 +370,8 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   pr-pipeline-outcome:
-    name: Pipeline outcome
+    # Ignored label events must not overwrite the real PR verdict with a skipped check.
+    name: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'test:run' && 'Ignored label update' || 'Pipeline outcome' }}
     if: ${{ always() && needs.gate.outputs.run == 'true' }}
     needs: [gate, build, preview-e2e, export-e2e, select, staging-lite, e2e-auth-lite, pr-e2e-validation]
     runs-on: ubuntu-latest

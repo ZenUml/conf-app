@@ -1200,4 +1200,10 @@ export type AnalyticsProperties = {
   message_length_bucket?: 'short' | 'medium' | 'long';
   delivery_channel?: PrPanelDeliveryChannel;
   preference_key?: PrPanelPreferenceKey;
+  requested_pr_count?: number; // explicit request limit
+  prepared_pr_count?: number; // published decision-ready entries
+  remaining_pr_count?: number; // unresolved entries in the current group
+  group_outcome?: 'ready' | 'zero' | 'failed';
+  completion_source?: 'native' | 'ai' | 'external';
+  completion_outcome?: 'merged' | 'closed';
 };

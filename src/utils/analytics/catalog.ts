@@ -1707,7 +1707,15 @@ export type AnalyticsEventName =
   | "pr_panel_message_sent"
   | "pr_panel_message_queued"
   | "pr_panel_message_delivered"
-  | "pr_panel_preferences_changed";
+  | "pr_panel_preferences_changed"
+  // Request-scoped PR review group: explicit prepare, atomic publication,
+  // confirmed completion, and resumability. Counts/outcomes only.
+  | "pr_panel_group_prepare_requested"
+  | "pr_panel_group_published"
+  | "pr_panel_group_prepare_failed"
+  | "pr_panel_group_item_completed"
+  | "pr_panel_group_resumed"
+  | "pr_panel_material_stale_shown";
 
 /**
  * How one Diagram-locations batch resolved. `ok` listed at least one row;

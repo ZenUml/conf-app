@@ -1,76 +1,40 @@
 ---
 name: ready-pr
-description: Mark a Draft PR as Ready for Review on ZenUml/conf-app so the next CI run includes E2E. Use when the user says "mark ready", "ready PR", "ready for review", "trigger e2e", "run e2e on this PR", "open it up for review", or wants to verify with E2E without committing to a merge yet. Useful mid-development when you don't want to wait until the last minute to find out if E2E passes.
+description: Mark a conf-app PR Ready for Review after validating its current E2E decision, or run its approved E2E scope while keeping it Draft.
 ---
 
 # Ready PR
 
-Flip a Draft PR to Ready for Review on `ZenUml/conf-app`. This kicks off a fresh `Build, Test and Draft Release` CI run that includes `E2E: Lite` (which is gated to only run on non-Draft PRs).
-
-## When to use
-
-- You want E2E to verify your changes but you're not yet committing to a merge.
-- You want to share the PR with a reviewer.
-- The CI signal you'd otherwise wait until merge time for.
-
-## When NOT to use
-
-- You're ready to merge — use `/land-branch` or `/land-pr` instead. Both auto-flip Draft → Ready as part of their flow.
-- You want to rebuild without changing PR state — push an empty commit or re-run the workflow manually.
+Ready for Review is the author's review choice. A current test decision authorizes E2E separately, including on Draft PRs. Marking Ready cannot bypass test triage.
 
 ## Steps
 
-### 1. Resolve which PR
+1. Resolve the PR from the user's number or the current branch:
 
-In priority order:
-1. Explicit PR number from the user (e.g. `#123`).
-2. PR for the current branch: `gh pr view --json number,isDraft,headRefName`.
+   ```bash
+   gh pr view --json number,isDraft,headRefName,headRefOid,title,url
+   ```
 
-If no PR is found, tell the user and stop.
+2. Validate and reconcile the current decision:
 
-### 2. Check current state
+   ```bash
+   node scripts/test-selection/pr-decision.mjs sync --pr <PR_NUMBER> --repo ZenUml/conf-app
+   ```
 
-```bash
-gh pr view <PR_NUMBER> --json number,isDraft,title,url --repo ZenUml/conf-app
-```
+   If there is no executable decision, use `pr-labeling` to inspect the current commit. If it requires triage, report the reason and keep the PR Draft. `pr-triage` runs only on an explicit user request. A manually applied label or previous-commit approval is insufficient.
 
-If `isDraft === false`, the PR is already Ready — report that and stop. (No need to spend a CI run for nothing.)
+3. If the user requested review readiness and the current decision is executable, mark Ready:
 
-### 3. Mark Ready
+   ```bash
+   gh pr ready <PR_NUMBER> --repo ZenUml/conf-app
+   ```
 
-```bash
-gh pr ready <PR_NUMBER> --repo ZenUml/conf-app
-```
+   If the request is only to run E2E, retain Draft and request a fresh PR-associated validation run instead:
 
-### 4. Babysit CI (always)
+   ```bash
+   node scripts/test-selection/request-pr-e2e.mjs --pr <PR_NUMBER> --repo ZenUml/conf-app
+   ```
 
-The whole point of flipping to Ready is the `E2E: Lite` signal, so **always** carry through to that
-signal — invoke the `babysit-pr` skill with the PR number:
+4. Invoke `babysit-pr` for the matching current-commit run unless the user explicitly asked to skip monitoring. An executable subset or approved full decision determines the E2E expectations; Draft state does not.
 
-```
-/babysit-pr <PR_NUMBER>
-```
-
-It monitors the new `Build, Test and Draft Release` run, diagnoses any failure, and attempts fixes
-(up to 3 attempts). On a Ready PR the expected jobs are `Build and Unit Test`, `Deploy: Lite / deploy`
-and `E2E: Lite / test` — all three must reach success; Full/Diagramly/AsyncAPI still skip on a feature
-branch. Do not stop at "marked Ready"; carry through until babysit-pr reports PASSED or exhausts its
-retry budget.
-
-Skip this step only if the user explicitly said "don't babysit" / "just mark it ready".
-
-### 5. Report
-
-Tell the user:
-
-- The PR is now Ready for Review (with the URL).
-- The full pipeline including `E2E: Lite` takes ~14 min wall-clock.
-- **The babysit-pr result** (PASSED / failures + fixes / retries exhausted).
-
-## Does NOT
-
-- Push commits (use `/submit-branch`)
-- Merge (use `/land-pr` or `/land-branch`)
-- Convert back to Draft — that's a separate action; use `gh pr ready --undo <PR>` directly if needed
-
-CI watching and fixing is delegated to `babysit-pr` in Step 4, not done by this skill directly.
+Report the PR URL, Draft/Ready state, current decision, and actual build/unit-test/E2E results. This skill does not merge or publish commits.

@@ -1,6 +1,7 @@
+import process from 'node:process';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { select } from '../e2e-select.mjs';
+import { select, selectAgentFloor } from '../e2e-select.mjs';
 import { CATEGORIES, CATEGORY_VERSION } from '../../tests/e2e-tests/config/categories.mjs';
 import { CATEGORY_SELECTION_THRESHOLD, POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
@@ -8,7 +9,8 @@ import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config
 export const categoryGrep = categories => categories.map(tag => `(?:^|\\s)${tag}(?=\\s|$)`).join('|');
 
 export function decisionError({ selection, head, tree }) {
-  if (!selection || selection.schema_version !== 1 || selection.head_sha !== head || selection.tested_tree !== tree || selection.policy_version !== POLICY_VERSION || selection.category_version !== CATEGORY_VERSION || selection.selector_catalog_version !== EXECUTION_SELECTOR_CATALOG_VERSION || selection.selector_catalog_fingerprint !== EXECUTION_SELECTOR_CATALOG_FINGERPRINT) return 'invalid-or-stale-jev-selection';
+  if (!selection || selection.schema_version !== 1 || selection.head_sha !== head || selection.tested_tree !== tree || selection.policy_version !== POLICY_VERSION || selection.category_version !== CATEGORY_VERSION || selection.selector_catalog_version !== EXECUTION_SELECTOR_CATALOG_VERSION || selection.selector_catalog_fingerprint !== EXECUTION_SELECTOR_CATALOG_FINGERPRINT) return selection?.decision_source === 'agent' ? 'invalid-or-stale-agent-selection' : 'invalid-or-stale-jev-selection';
+  if (selection.decision_source === 'agent') return agentDecisionError(selection);
   if (selection.execution_mode !== 'enabled' || selection.mode !== 'selected' || selection.fallback_reason || selection.diff_complete !== true || selection.request?.outcome !== 'success' || (!Array.isArray(selection.required) || !selection.required.includes('smoke'))) return 'jev-full-fallback';
   const categories = selection.categories;
   if (!categories || typeof categories !== 'object' || Array.isArray(categories) || Object.keys(categories).length !== CATEGORIES.length || CATEGORIES.some(c => {
@@ -20,9 +22,67 @@ export function decisionError({ selection, head, tree }) {
   return null;
 }
 
+const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
+const nonempty = value => typeof value === 'string' && value.trim().length > 0;
+export function agentDecisionError(selection) {
+  if (selection.selection_scope !== 'pr' || selection.execution_mode !== 'enabled'
+      || !['selected', 'all'].includes(selection.mode) || selection.fallback_reason
+      || selection.diff_complete !== true || (!Array.isArray(selection.required) || !selection.required.includes('smoke'))
+      || !Number.isSafeInteger(selection.decision_id) || selection.decision_id < 1
+      || !Number.isSafeInteger(selection.pr_number) || selection.pr_number < 1
+      || !sha(selection.pr_head_sha) || !sha(selection.base_sha)
+      || !['labeling', 'triage'].includes(selection.source)
+      || !Array.isArray(selection.source_paths) || !selection.source_paths.length
+      || selection.source_paths.some(path => !nonempty(path) || /[\r\n]/.test(path))
+      || !Array.isArray(selection.removed_paths) || selection.removed_paths.some(path => !selection.source_paths.includes(path))) return 'invalid-agent-decision';
+  if (selection.mode === 'all' && (selection.source !== 'triage' || !nonempty(selection.full_reason))) return 'full-requires-triage';
+  const categories = selection.categories;
+  if (!categories || typeof categories !== 'object' || Array.isArray(categories)
+      || Object.keys(categories).length !== CATEGORIES.length
+      || CATEGORIES.some(c => typeof categories[c.id]?.selected !== 'boolean')) return 'invalid-agent-categories';
+  return null;
+}
+
+// Dependencies in the behavior catalog are required even when the agent only
+// names the changed behavior. They widen the decision without invoking a model.
+export function agentCategoryTags(selection) {
+  const selected = new Set(CATEGORIES.filter(c => selection.categories[c.id].selected).map(c => c.id));
+  const byId = new Map(CATEGORIES.map(c => [c.id, c]));
+  const visit = id => {
+    for (const dependency of byId.get(id)?.dependencies ?? []) {
+      if (!byId.has(dependency)) throw new Error('PR test decision blocked: unknown category dependency');
+      if (!selected.has(dependency)) { selected.add(dependency); visit(dependency); }
+    }
+  };
+  [...selected].forEach(visit);
+  return CATEGORIES.filter(c => selected.has(c.id)).map(c => `@test:${c.id}`);
+}
+
+export function resolveAgentSelection({ selection, files, head, tree }) {
+  const invalid = decisionError({ selection, head, tree });
+  if (invalid || selection?.decision_source !== 'agent') throw new Error(`PR test decision blocked: ${invalid || 'missing-agent-decision'}`);
+  if (!Array.isArray(files) || JSON.stringify([...files].sort()) !== JSON.stringify([...selection.source_paths].sort())) throw new Error('PR test decision blocked: changed paths differ');
+  const floor = selectAgentFloor(files, { removedPaths: selection.removed_paths });
+  const chosen = agentCategoryTags(selection);
+  const agentGrep = categoryGrep(chosen);
+  return {
+    mode: selection.mode, selection_scope: 'pr', decision_source: 'agent', decision_id: selection.decision_id,
+    pr_number: selection.pr_number, pr_head_sha: selection.pr_head_sha, base_sha: selection.base_sha,
+    head_sha: head, tested_tree: tree, policy_version: POLICY_VERSION,
+    selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT,
+    source_paths: [...files], removed_paths: [...selection.removed_paths], direct_test_files: floor.direct_test_files,
+    deterministic_tags: floor.tags, deterministic_grep: floor.tags.join('|'),
+    agent_categories: chosen, agent_grep: agentGrep,
+    tags: selection.mode === 'all' ? [] : [...new Set([...floor.tags, ...chosen])].sort(),
+    grep: selection.mode === 'all' ? '' : [...floor.tags, ...(agentGrep ? [agentGrep] : [])].join('|'),
+    reasons: selection.mode === 'all' ? ['triage-approved-full', selection.full_reason] : ['agent-selected-categories', ...floor.reasons],
+  };
+}
+
 // Jev can add coverage, but cannot remove the established deterministic floor.
 // The high-confidence threshold is a precision policy, not a calibration claim.
 export function resolveSelection({ selection, files, head, tree, humanFull = false, scope = 'pr' }) {
+  if (selection?.decision_source === 'agent') return resolveAgentSelection({ selection, files, head, tree });
   const source_paths = Array.isArray(files) ? [...files] : [];
   const full = reason => ({ mode: 'all', tags: [], grep: '', reasons: [reason], source_paths, direct_test_files: [], policy_version: POLICY_VERSION });
   if (humanFull) return full('human-test-all');

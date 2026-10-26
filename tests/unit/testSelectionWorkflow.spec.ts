@@ -16,7 +16,7 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('staging-deploy')).toContain("github.workflow == 'Staging Deploy' && 'conf-app-staging'");
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });
-  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  evidence:')[1].split('  merge-reports:')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'test-selection-labels']) expect(workflow(name)).toContain('package-manager-cache: false'); });
+  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  evidence:')[1].split('  merge-reports:')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'pr-test-decision']) expect(workflow(name)).toContain('package-manager-cache: false'); });
   it('measures setup time on each test shard runner', () => {
     const testJob = workflow('e2e-test').split('  test:')[1].split('  evidence:')[0];
     expect(testJob).toContain('name: Start shard timing');
@@ -29,8 +29,9 @@ describe('staging workflow safety contracts', () => {
     expect(main.on).not.toHaveProperty('pull_request');
     expect(main.on.push.branches).toEqual(['main']);
     expect(pr.on).toHaveProperty('pull_request');
-    expect(pr.on.workflow_dispatch.inputs['force-all']).toMatchObject({ type: 'boolean', default: false });
+    expect(pr.on.workflow_dispatch.inputs).not.toHaveProperty('force-all');
     expect(pr.on.workflow_dispatch.inputs['pr-number'].type).toBe('string');
+    expect(pr.on.pull_request.types).toContain('labeled');
     expect((main.on.workflow_dispatch?.inputs || {})).not.toHaveProperty('pr-number');
     expect((main.on.workflow_dispatch?.inputs || {})).not.toHaveProperty('force-all');
     for (const name of ['build-test-deploy', 'pr-validation']) {
@@ -62,7 +63,7 @@ describe('staging workflow safety contracts', () => {
       expect(dispatches.length).toBeGreaterThan(0);
       for (const step of dispatches) {
         expect(children).toContain(step.env.CHILD_WORKFLOW.replace(/\.yml$/, ''));
-        expect(step.env.SOURCE_SHA).toBe(name === 'pr-validation' ? '${{ github.sha }}' : '${{ inputs.source-sha }}');
+        expect(step.env.SOURCE_SHA).toBe(name === 'pr-validation' ? '${{ needs.gate.outputs.candidate }}' : '${{ inputs.source-sha }}');
       }
     }
     const staging = structure('main-staging-validation');
@@ -174,20 +175,21 @@ describe('staging workflow safety contracts', () => {
       expect(checkout.with.ref).toBe('${{ inputs.ref || github.sha }}');
     }
   });
-  it('keeps classification and privileged publication on trusted code', () => {
-    expect(workflow('pr-validation')).toContain('ref: ${{ github.event.pull_request.base.sha || github.sha }}');
-    expect(workflow('pr-validation')).toContain('ref: ${{ github.event.pull_request.base.sha }}');
-    expect(workflow('pr-validation')).toContain('--mode enabled');
-    expect(workflow('test-selection-labels')).toContain('ref: ${{ github.event.repository.default_branch }}');
-    expect(workflow('test-all-override')).not.toContain('actions/checkout');
-    expect(workflow('test-all-override')).toContain('"force-all":"true"');
-    expect(workflow('test-all-override')).toContain('actions/workflows/pr-validation.yml/dispatches');
-    expect(workflow('test-all-override')).not.toContain('actions/workflows/build-test-deploy.yml/dispatches');
+  it('keeps PR authorization and metadata publication on trusted code', () => {
+    const pr = workflow('pr-validation');
+    expect(pr).toContain('ref: ${{ github.event.repository.default_branch }}');
+    expect(pr).toContain('node scripts/test-selection/pr-decision.mjs check --pr "$PR" --candidate "$CANDIDATE"');
+    expect(pr).not.toContain('classify.mjs');
+    const decision = workflow('pr-test-decision');
+    expect(decision).toContain('ref: ${{ github.event.repository.default_branch }}');
+    expect(decision).toContain('node scripts/test-selection/pr-decision.mjs sync --pr "$PR"');
   });
-  it('routes label publication and bounded recovery only from staging-owning parents', () => {
-    for (const name of ['test-selection-labels', 'e2e-rerun']) {
-      expect(structure(name).on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation']);
-    }
+  it('publishes trusted PR decisions and routes bounded recovery only from staging-owning parents', () => {
+    const decision = structure('pr-test-decision');
+    expect(decision.on.pull_request_target.types).toContain('opened');
+    expect(decision.on.issue_comment.types).toContain('deleted');
+    expect(Object.values(decision.jobs).flatMap((job: any) => job.steps || []).some((step: any) => step.run?.includes('pr-decision.mjs sync'))).toBe(true);
+    expect(structure('e2e-rerun').on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation']);
     const recovery = structure('e2e-rerun').jobs.rerun;
     expect(recovery.if).toContain("github.event.workflow_run.run_attempt == 1");
     expect(recovery.if).toContain("github.event.workflow_run.conclusion == 'failure'");
@@ -211,8 +213,8 @@ describe('staging workflow safety contracts', () => {
     expect(script).not.toContain('--failed');
     expect(script).toContain('node scripts/ci/phase-recovery.mjs');
   });
-  it('preserves manual full coverage and succeeds with legitimate skips while rejecting reuse', () => {
-    const yaml = workflow('pr-validation'); expect(yaml).toContain("contains(github.event.pull_request.labels.*.name, 'test:all')"); expect(yaml).toContain('Human test:all override: full E2E coverage');
+  it('preserves guarded coverage and succeeds with legitimate skips while rejecting reuse', () => {
+    const yaml = workflow('pr-validation'); expect(yaml).not.toContain("contains(github.event.pull_request.labels.*.name, 'test:all')"); expect(yaml).not.toContain('Human test:all override: full E2E coverage'); expect(yaml).not.toContain('force-all');
     expect(workflow('e2e-test')).toContain('if(!e.execution_succeeded) process.exit(1)');
     expect(workflow('daily-regression')).toContain("cron: '0 3 * * *'");
     expect(workflow('daily-regression')).toContain("timezone: 'Australia/Melbourne'");

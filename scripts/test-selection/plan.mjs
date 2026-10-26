@@ -1,3 +1,4 @@
+import process from 'node:process';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -43,7 +44,7 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   const authorizedIds = testIds && !reasons.length && selection.mode === 'selected' && selection.execution_mode === 'enabled' ? testIds : null;
   const selected = applicable.filter(t => authorizedIds ? authorizedIds.includes(t.id) : full || t.tags.includes('@smoke') || [...changedFiles, ...(selection?.changed_tests ?? [])].some(f => f.endsWith(t.file)) || t.tags.some(tag => tag.startsWith('@test:') && selection.categories?.[tag.slice(6)]?.selected));
   // File groups conservatively retain serial suites and file-scoped shared state.
-  if (!selected.length && !(allowEmpty && authorizedIds && selection.selection_scope === 'main' && ['render', 'regression-render'].includes(scope))) throw new Error('Empty test plan');
+  if (!selected.length && !(allowEmpty && authorizedIds && (selection.selection_scope === 'main' || selection.decision_source === 'agent') && ['render', 'regression-render'].includes(scope))) throw new Error('Empty test plan');
   selected.forEach(t => { t.execution_tier = t.tags.includes('@smoke') ? 'smoke' : 'regression'; });
   const groups = new Map();
   for (const t of selected) {const sourcePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../tests/e2e-tests/tests', t.file); const parallel = fs.existsSync(sourcePath) && /test\.describe\.configure\(\{\s*mode:\s*['"]parallel['"]/.test(fs.readFileSync(sourcePath,'utf8')); const key = parallel ? t.id : `${t.project}:${t.serial_group}`; groups.set(key, [...(groups.get(key) ?? []), t]);}

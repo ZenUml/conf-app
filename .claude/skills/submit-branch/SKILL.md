@@ -1,11 +1,11 @@
 ---
 name: submit-branch
-description: Push the current branch and create or reuse a PR on ZenUml/conf-app. Use when the user says "submit", "create PR", "push and PR", "open a pull request", "submit branch", or wants to publish their work as a PR without merging. After the PR exists it always babysits CI (via babysit-pr — monitor + auto-fix). Does not merge — use land-pr for that.
+description: Push the current branch and create or reuse a PR on ZenUml/conf-app. Use when the user says "submit", "create PR", "push and PR", "open a pull request", "submit branch", or wants to publish their work as a PR without merging. Classify its E2E scope with pr-labeling, then babysit executable CI; unresolved scope enters manual test triage. Does not merge — use land-pr for that.
 ---
 
 # Submit Branch
 
-Publish the current branch as a pull request on `ZenUml/conf-app`, then babysit its CI. Reuses an existing PR if one already exists for this branch.
+Publish the current branch as a Draft pull request on `ZenUml/conf-app`, decide its E2E scope with `pr-labeling`, then babysit executable CI. Reuse an existing PR for the branch.
 
 **Tip:** Run `/validate-branch` first to catch lint, test, and build failures before pushing.
 
@@ -47,42 +47,36 @@ Check if a PR already exists:
 gh pr view --json number,title,url 2>/dev/null
 ```
 
-If a PR exists, note its URL and **proceed to Step 4** (babysit it). Do not stop here.
+If a PR exists, note its URL and proceed to Step 4 to classify the current commit. A new push invalidates the previous test decision.
 
 If no PR exists, create one targeting `main` **as Draft**:
 
 ```bash
-gh pr create --base main --draft --title "<concise title>" --body "$(cat <<'EOF'
-## Summary
-<bullet points — mention which variant(s) are affected: lite/full/diagramly>
-
-## Test plan
-<what was tested>
-EOF
-)"
+gh pr create --base main --draft --title "<concise title>" --body-file <PR_BODY_FILE>
 ```
 
-**Why Draft:** the `Build, Test and Draft Release` workflow skips `E2E: Lite` (the ~10-minute job) on Draft PRs. Iterate on the branch without paying the E2E cost on every push. When you want E2E to run, use `/ready-pr` (verify only) or `/land-branch` / `/land-pr` (which auto-flip as part of merging).
+Every new PR starts Draft. E2E is authorized by a current test decision, independently of Draft status. If the user requested Ready, first create Draft, complete labeling, and only then use `ready-pr` when the decision is executable.
 
-If the user explicitly says "submit as ready" or "open as ready", omit `--draft`.
+### 4. Label the current commit
 
-### 4. Babysit CI (always)
+Invoke `pr-labeling` with the PR number. It inspects the complete diff, publishes a commit-bound decision and requests a fresh PR-associated validation run for executable decisions.
 
-After the PR exists (created or reused), **always** babysit its CI by invoking the `babysit-pr` skill with the PR number:
+If the result is `test:triage`, finish the independent build/unit-test checks and report **TRIAGE — E2E blocked** with the reason. Keep the PR Draft. Manual `pr-triage` needs an explicit user request; submission does not invoke it automatically.
 
-```
-/babysit-pr <PR_NUMBER>
-```
+### 5. Babysit executable CI
 
-This monitors the `Build, Test and Draft Release` run, diagnoses any failure, and attempts fixes (up to 3 attempts). For a **Draft** PR it expects `Build and Unit Test` + `Deploy: Lite` to pass and `E2E: Lite` to be skipped — that skip is by design, not a failure. Do not stop at "PR created"; carry through until babysit-pr reports PASSED or exhausts its retry budget.
+For an executable decision, invoke `babysit-pr` with the PR number. It monitors the matching candidate, diagnoses failures and attempts fixes within its retry budget. E2E can run while the PR remains Draft; a valid decision determines the expected tests.
 
-Skip this step only if the user explicitly said "submit only" / "don't babysit" / "just push".
+After every fix push, run `pr-labeling` again before waiting for E2E. A full-suite result returns to manual triage for each new commit.
+
+Skip monitoring only if the user explicitly requested “submit only”, “don't babysit” or “just push”. Labeling still records the scope when creating or updating the PR.
 
 ## Output
 
 Report:
 
-- **SUBMITTED** — PR number, URL, branch name, whether it was opened as Draft (note "mark Ready for Review when you want E2E to run"), **and the babysit-pr result** (PASSED / failures + fixes / retries exhausted).
+- **SUBMITTED** — PR number, URL, branch, Draft/Ready state, current test decision and the babysit result.
+- **TRIAGE** — PR URL and commit, why scope is unresolved or requires full coverage, E2E blocked, and independent build/unit-test results.
 - **FAILED** — what went wrong (dirty worktree, push conflict, gh error).
 
 ## Does NOT
@@ -90,4 +84,4 @@ Report:
 - Run tests or lint before pushing (use `/validate-branch` for that)
 - Merge the PR (use `/land-pr` for that)
 
-CI fixing is delegated to `babysit-pr` in Step 4, not done by this skill directly.
+CI fixing is delegated to `babysit-pr` in Step 5, not done by this skill directly.

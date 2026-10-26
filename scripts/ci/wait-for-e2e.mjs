@@ -28,7 +28,11 @@ export function dispatchBody(env) {
     if (env.STAGING_RUN_ID) inputs['staging-run-id'] = env.STAGING_RUN_ID;
   } else {
     inputs.grep = env.GREP || '';
-    if (env.CHILD_KIND === 'pr') inputs.mode = env.MODE;
+    if (env.CHILD_KIND === 'pr') {
+      inputs.mode = env.MODE;
+      inputs['pr-number'] = env.PR_NUMBER;
+      inputs['decision-id'] = env.DECISION_ID;
+    }
     else {
       inputs.suite = env.SUITE || 'insert';
       inputs.timeout = env.TEST_TIMEOUT || '11';

@@ -2,17 +2,18 @@ name: PR validation
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**']
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
 
   workflow_dispatch:
     inputs:
-      force-all:
-        type: boolean
-        default: false
       pr-number:
         type: string
         required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
 
 concurrency:
   group: conf-app-staging
@@ -22,11 +23,14 @@ concurrency:
 jobs:
   gate:
     name: Select authoritative event
+    if: ${{ github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'test:run' }}
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
     outputs:
       run: ${{ steps.gate.outputs.run }}
+      candidate: ${{ steps.gate.outputs.candidate }}
+      pr-number: ${{ steps.gate.outputs.pr-number }}
     steps:
       - id: gate
         env:
@@ -34,13 +38,19 @@ jobs:
           EVENT: ${{ github.event_name }}
           BRANCH: ${{ github.ref_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR: ${{ github.event.pull_request.number || inputs.pr-number }}
+          EVENT_CANDIDATE: ${{ github.sha }}
         run: |
-          SHOULD_RUN=true
-          if [ "$EVENT" = push ] && [ "$BRANCH" != "$DEFAULT_BRANCH" ]; then
-            COUNT=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq "[.[] | select(.head.ref == env.BRANCH)] | length")
-            [ "$COUNT" = 0 ] || SHOULD_RUN=false
-          fi
-          echo "run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          [[ "$PR" =~ ^[1-9][0-9]*$ ]]
+          PR_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")
+          [ "$(jq -r .state <<<"$PR_JSON")" = open ]
+          CANDIDATE=$(jq -r .merge_commit_sha <<<"$PR_JSON")
+          if [ "$EVENT" = pull_request ]; then CANDIDATE="$EVENT_CANDIDATE"; fi
+          [[ "$CANDIDATE" =~ ^[a-f0-9]{40}$ ]]
+          echo "candidate=$CANDIDATE" >> "$GITHUB_OUTPUT"
+          echo "pr-number=$PR" >> "$GITHUB_OUTPUT"
+          echo 'run=true' >> "$GITHUB_OUTPUT"
 
   build:
     if: needs.gate.outputs.run == 'true'
@@ -52,6 +62,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.gate.outputs.candidate }}
         # Skip submodules at checkout — `submodules: recursive` tries to clone
         # the `private` submodule (ZenUml/conf-app-private) which the default
         # GITHUB_TOKEN cannot access ("Repository not found"), aborting checkout
@@ -119,15 +131,10 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: "true"
 
   preview-e2e:
-    if: needs.gate.outputs.run == 'true'
-    needs: gate
-    # The one E2E project that needs no Confluence site, no Forge app and no
-    # OTP: the viewer/editor preview specs drive a local Vite dev server, so
-    # they cost a runner and nothing else. That makes this the cheapest real
-    # gate in the pipeline, which is why — unlike the staging suites below — it
-    # runs on EVERY push, drafts included. Before this job the `preview` project
-    # was collected but never gated: it only ran when someone remembered to
-    # start Vite and run it by hand.
+    if: needs.gate.outputs.run == 'true' && needs.select.result == 'success'
+    needs: [gate, select]
+    # Browser E2E, including local preview, requires a current test decision.
+    # Approved selections can run while the author keeps the PR in Draft.
     name: "E2E: Viewer preview"
     runs-on: ubuntu-latest
     # Generous next to a ~2 min expectation: the whole point of this job is to
@@ -135,6 +142,20 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.gate.outputs.candidate }}
+      - name: Check out trusted PR test controller
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .pr-test-controller
+      - name: Recheck PR preview authorization
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.gate.outputs.pr-number }}
+          CANDIDATE: ${{ needs.gate.outputs.candidate }}
+          DECISION_ID: ${{ needs.select.outputs.decision-id }}
+        run: node .pr-test-controller/scripts/test-selection/pr-decision.mjs check --pr "$PR" --candidate "$CANDIDATE" --decision-id "$DECISION_ID"
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
@@ -232,149 +253,72 @@ jobs:
   # Gated exactly like the suites that consume them, so a draft PR (which runs
   # no E2E) logs in to nothing.
   e2e-auth-lite:
-    needs: gate
-    if: ${{ needs.gate.outputs.run == 'true' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '')) }}
+    needs: [gate, select]
+    if: ${{ needs.gate.outputs.run == 'true' && needs.select.result == 'success' }}
     name: "E2E auth: Lite"
     uses: ./.github/workflows/e2e-auth.yml
     with:
       app: zenuml-lite@stg
       artifact-name: auth-state-pre-lite-stg
-    # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
-  jev-classify:
-    needs: gate
-    name: Jev category selection
-    if: ${{ needs.gate.outputs.run == 'true' && github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          # Run only classifier code already on the trusted PR base.
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          fetch-depth: 0
-      - name: Classify candidate tree
-        env:
-          TYPESAFE_API_KEY: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.TYPESAFE_API_KEY || (github.event_name != 'pull_request' && secrets.TYPESAFE_API_KEY) || '' }}
-          CANDIDATE: ${{ github.sha }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HUMAN_FULL: ${{ inputs.force-all || contains(github.event.pull_request.labels.*.name, 'test:all') }}
-        run: |
-          git fetch origin "$CANDIDATE"
-          if [ -f scripts/test-selection/classify.mjs ]; then
-            BASE_SHA="$BASE"
-            # Main may have collapsed pending runs: absent proven baseline, full fallback.
-            [ -n "$BASE_SHA" ] || BASE_SHA="$CANDIDATE"
-            node scripts/test-selection/classify.mjs --base "$BASE_SHA" --head "$CANDIDATE" \
-              --pr-head "$PR_HEAD" --pr "$PR_NUMBER" --human-full "$HUMAN_FULL" \
-              --mode enabled --output test-selection.json
-          else
-            # Bootstrap PR: trusted base predates the classifier; never execute candidate code with the key.
-            node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('test-selection.json',JSON.stringify({schema_version:1,head_sha:process.env.CANDIDATE,pr_head_sha:process.env.PR_HEAD,mode:'all',execution_mode:'observe',categories:{},required:['smoke'],fallback_reason:'trusted-base-predates-classifier'}));"
-          fi
-          cat test-selection.json >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v6
-        with:
-          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
-          path: test-selection.json
-          retention-days: 30
-
   select:
-    needs: [gate, jev-classify]
-    # The trusted resolver unions smoke, Jev categories and the established
-    # deterministic coverage floor. Missing/failed Jev means full coverage.
-    # Main skips this job and always runs full normal suites.
+    needs: gate
     name: "Select E2E for this PR"
-    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && (github.event_name == 'pull_request' || inputs.pr-number != '') }}
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
     outputs:
       mode: ${{ steps.select.outputs.mode }}
       grep: ${{ steps.select.outputs.grep }}
+      decision-id: ${{ steps.select.outputs.decision-id }}
     steps:
       - uses: actions/checkout@v5
         with:
-          # Selection code, like classifier code, comes from the trusted base.
-          ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 0
-      - uses: actions/download-artifact@v6
-        continue-on-error: true
-        with:
-          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
-          path: jev-selection
+          # Never execute candidate selection code with the controller token.
+          ref: ${{ github.event.repository.default_branch }}
       - uses: actions/setup-node@v5
         with:
-          node-version: "24"
-          # No install here — the selector has no dependencies — and the
-          # default `package-manager-cache: true` fails without pnpm on PATH.
+          node-version: '24.x'
           package-manager-cache: false
-      - name: Select specs from the PR's changed files
+      - name: Authorize the current commit's test decision
         id: select
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-          CANDIDATE: ${{ github.sha }}
-          SELECTION_PATH: jev-selection/test-selection.json
-          HUMAN_FULL: ${{ inputs.force-all || contains(github.event.pull_request.labels.*.name, 'test:all') }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.gate.outputs.pr-number }}
+          CANDIDATE: ${{ needs.gate.outputs.candidate }}
         run: |
-          set -euo pipefail
-          if [ "$HUMAN_FULL" = true ]; then
-            echo 'mode=all' >> "$GITHUB_OUTPUT"
-            echo 'grep=' >> "$GITHUB_OUTPUT"
-            echo '{"mode":"all","grep":"","reasons":["human-test-all"]}' > selection.json
-            touch changed-files.txt
-            echo 'Human test:all override: full E2E coverage' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          # The PR's file list from the API (base...head), not a checkout diff:
-          # the merge ref's depth games are not worth it. Paginated: up to 3000.
-          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > changed-files.txt; then
-            echo 'mode=all' >> "$GITHUB_OUTPUT"
-            echo 'grep=' >> "$GITHUB_OUTPUT"
-            echo '{"mode":"all","grep":"","reasons":["changed-files-api-failure"]}' > selection.json
-            echo 'Changed file discovery failed: running full coverage' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          git fetch origin "$CANDIDATE"
-          export CANDIDATE_TREE=$(git rev-parse "$CANDIDATE^{tree}")
-          if [ -f scripts/test-selection/resolve.mjs ]; then
-            node scripts/test-selection/resolve.mjs > selection.json
-          else
-            # Activation bootstrap: old trusted base cannot authorize selection.
-            echo 'mode=all' >> "$GITHUB_OUTPUT"
-            echo 'grep=' >> "$GITHUB_OUTPUT"
-            echo '{"mode":"all","grep":"","reasons":["trusted-base-predates-activation"]}' > selection.json
-          fi
-          MODE=$(jq -r .mode selection.json); GREP=$(jq -r .grep selection.json)
-          {
-            if [ "$MODE" = "selected" ]; then
-              echo "### E2E selection: \`--grep=$GREP\`"
-            else
-              echo "### E2E selection: full suite"
-            fi
-            echo; echo "<details><summary>$(wc -l < changed-files.txt) changed files</summary>"; echo; echo '```'
-            jq -r '.reasons[]' selection.json; echo '```'; echo "</details>"
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "mode=$MODE grep=$GREP"
-      - name: Keep the file list for the AI pass
-        uses: actions/upload-artifact@v4
+          node scripts/test-selection/pr-decision.mjs check --pr "$PR" --candidate "$CANDIDATE"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: test-selection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-selection.json
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v6
         with:
           name: e2e-selection-${{ github.run_id }}
           path: |
-            changed-files.txt
             selection.json
-          retention-days: 3
+            changed-files.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  export-e2e:
+    name: "E2E: Export modal"
+    needs: [gate, select]
+    if: needs.gate.outputs.run == 'true' && needs.select.result == 'success'
+    uses: ./.github/workflows/export-modal-nightly.yml
+    with:
+      ref: ${{ needs.gate.outputs.candidate }}
+      pr-number: ${{ needs.gate.outputs.pr-number }}
+      decision-id: ${{ needs.select.outputs.decision-id }}
 
   staging-lite:
     if: needs.gate.outputs.run == 'true'
@@ -382,6 +326,7 @@ jobs:
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
     with:
+      ref: ${{ needs.gate.outputs.candidate }}
       variant: lite
       license: lite
       project: conf-stg-lite
@@ -390,7 +335,7 @@ jobs:
 
   pr-e2e-validation:
     name: "E2E validation"
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.pr-number != '') && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' && needs.e2e-auth-lite.result == 'success' && (github.event.pull_request.draft == false || inputs.pr-number != '') }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.pr-number != '') && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' && needs.e2e-auth-lite.result == 'success' }}
     needs: [gate, staging-lite, select, e2e-auth-lite]
     runs-on: ubuntu-latest
     permissions:
@@ -399,6 +344,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - name: Dispatch and wait for E2E
         if: ${{ !cancelled() }}
         env:
@@ -406,8 +353,10 @@ jobs:
           CHILD_WORKFLOW: pr-e2e-validation.yml
           CHILD_TITLE: PR E2E
           CHILD_KIND: pr
-          DISPATCH_REF: ${{ github.head_ref || github.ref_name }}
-          SOURCE_SHA: ${{ github.sha }}
+          DISPATCH_REF: ${{ github.event.repository.default_branch }}
+          SOURCE_SHA: ${{ needs.gate.outputs.candidate }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr-number }}
+          DECISION_ID: ${{ needs.select.outputs.decision-id }}
           MODE: ${{ needs.select.outputs.mode }}
           GREP: ${{ needs.select.outputs.grep }}
         run: node scripts/ci/wait-for-e2e.mjs
@@ -417,13 +366,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CHILD_WORKFLOW: pr-e2e-validation.yml
           CHILD_TITLE: PR E2E
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ needs.gate.outputs.candidate }}
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   pr-pipeline-outcome:
     name: Pipeline outcome
     if: ${{ always() && needs.gate.outputs.run == 'true' }}
-    needs: [gate, build, preview-e2e, jev-classify, select, staging-lite, e2e-auth-lite, pr-e2e-validation]
+    needs: [gate, build, preview-e2e, export-e2e, select, staging-lite, e2e-auth-lite, pr-e2e-validation]
     runs-on: ubuntu-latest
     steps:
       - name: Report the pipeline result
@@ -436,5 +385,5 @@ jobs:
           const results = JSON.parse(process.env.RESULTS);
           const rows = Object.entries(results).map(([job, value]) => `| ${job} | ${value.result} |`);
           appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Pipeline outcome\n\nE2E selection: **${process.env.MODE || 'not resolved'}**. Open **E2E validation** for the child run link and shard details.\n\n| Stage | Result |\n|---|---|\n${rows.join('\n')}\n`);
-          if (Object.values(results).some(value => ['failure', 'cancelled'].includes(value.result))) process.exitCode = 1;
+          if (Object.values(results).some(value => ['failure', 'cancelled'].includes(value.result)) || results.select.result !== 'success' || results['pr-e2e-validation'].result !== 'success' || results['preview-e2e'].result !== 'success' || results['export-e2e'].result !== 'success') process.exitCode = 1;
           NODE

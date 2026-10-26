@@ -18,8 +18,10 @@ export function urlMatchesPr(url: string | undefined, pr: PrRef): boolean {
   if (!url) return false
   try {
     const parsed = new URL(url)
+    const path = parsed.pathname.toLowerCase()
+    const expected = `/${pr.owner}/${pr.repo}/pull/${pr.number}`.toLowerCase()
     return parsed.hostname.toLowerCase() === pr.host.toLowerCase()
-      && parsed.pathname.toLowerCase().startsWith(`/${pr.owner}/${pr.repo}/pull/${pr.number}`.toLowerCase())
+      && (path === expected || path.startsWith(`${expected}/`))
   } catch { return false }
 }
 

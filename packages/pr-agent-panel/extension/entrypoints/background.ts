@@ -25,7 +25,7 @@ export default defineBackground(() => {
     reviewTabs: new ReviewTabs({
       create: (url, active) => browser.tabs.create({ url, active }),
       get: (id) => browser.tabs.get(id),
-      update: async (id, url) => { await browser.tabs.update(id, { url }) },
+      update: async (id, url, active) => { await browser.tabs.update(id, active ? { url, active } : { url }) },
       getOwnedId: async () => {
         const value = (await browser.storage.local.get('ownedReviewTabId')).ownedReviewTabId
         return typeof value === 'number' ? value : null

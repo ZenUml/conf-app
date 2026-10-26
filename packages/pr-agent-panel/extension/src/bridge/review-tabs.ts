@@ -4,7 +4,7 @@ export interface BrowserTab { id?: number; url?: string }
 export interface ReviewTabApi {
   create(url: string, active: boolean): Promise<BrowserTab>
   get(id: number): Promise<BrowserTab>
-  update(id: number, url: string): Promise<void>
+  update(id: number, url: string, active: boolean): Promise<void>
   getOwnedId(): Promise<number | null>
   setOwnedId(id: number): Promise<void>
 }
@@ -40,7 +40,8 @@ export class ReviewTabs {
     const next = group.items.find((item) => item.outcome === 'pending')
     if (!next) return
     const owned = await this.ownedGroupTab(group)
-    if (owned?.id !== undefined) await this.api.update(owned.id, itemUrl(next))
+    // The owned tab may still be the background tab openInitial created, so bring it forward.
+    if (owned?.id !== undefined) await this.api.update(owned.id, itemUrl(next), true)
     else await this.openInitial(group, true)
   }
 
@@ -54,7 +55,7 @@ export class ReviewTabs {
     try {
       const tab = await this.api.get(id)
       if (!urlMatchesPr(tab.url, completed)) return false
-      await this.api.update(id, itemUrl(next))
+      await this.api.update(id, itemUrl(next), false)
       return true
     } catch { return false }
   }

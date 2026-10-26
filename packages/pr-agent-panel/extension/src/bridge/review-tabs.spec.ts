@@ -15,7 +15,7 @@ function fakeTabs() {
   let ownedId: number | null = null
   const tabs = new Map<number, BrowserTab>()
   const created: Array<{ url: string; active: boolean }> = []
-  const updated: Array<{ id: number; url: string }> = []
+  const updated: Array<{ id: number; url: string; active: boolean }> = []
   const api: ReviewTabApi = {
     create: async (url, active) => {
       const id = tabs.size + 10
@@ -28,7 +28,7 @@ function fakeTabs() {
       if (!tab) throw new Error('closed')
       return tab
     },
-    update: async (id, url) => { tabs.set(id, { id, url }); updated.push({ id, url }) },
+    update: async (id, url, active) => { tabs.set(id, { id, url }); updated.push({ id, url, active }) },
     getOwnedId: async () => ownedId,
     setOwnedId: async (id) => { ownedId = id },
   }
@@ -36,13 +36,13 @@ function fakeTabs() {
 }
 
 describe('owned review tab navigation', () => {
-  it('opens the first pending item and resumes in the same owned tab', async () => {
+  it('opens the first pending item in the background, then Continue resumes and focuses the same owned tab', async () => {
     const fake = fakeTabs()
     const nav = new ReviewTabs(fake.api)
     await nav.openInitial(group)
     expect(fake.created).toEqual([{ url: 'https://github.com/acme/widgets/pull/8', active: false }])
     await nav.continue(group)
-    expect(fake.updated).toEqual([{ id: fake.owned(), url: 'https://github.com/acme/widgets/pull/8' }])
+    expect(fake.updated).toEqual([{ id: fake.owned(), url: 'https://github.com/acme/widgets/pull/8', active: true }])
   })
 
   it('does not advance an unrelated tab or a tab that left the target', async () => {
@@ -67,7 +67,7 @@ describe('owned review tab navigation', () => {
     await nav.openInitial(pending)
     const id = fake.owned()!
     expect(await nav.advanceAfterAi(group, pending.items[0]!.pr, id)).toBe(true)
-    expect(fake.updated).toEqual([{ id, url: 'https://github.com/acme/widgets/pull/8' }])
+    expect(fake.updated).toEqual([{ id, url: 'https://github.com/acme/widgets/pull/8', active: false }])
   })
 })
 

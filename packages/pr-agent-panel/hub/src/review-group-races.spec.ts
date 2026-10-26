@@ -61,6 +61,19 @@ describe('review group races', () => {
     expect(conn.of('reviewItemResult').map((x) => x.source)).toEqual(['external', 'native'])
   })
 
+  it('still replays native feedback for a tab after the agent confirmed the same merge', async () => {
+    const f = fixture(); const { runtime } = makeRuntime({ reviewGateway: f.gh }); const conn = connectExtension(runtime)
+    runtime.handleExtensionFrame(conn.id, frame('register', { documentId: 'origin', pr: PR }))
+    const a = runtime.startReviewGroup({ product: 'A', requestedCount: 1 })
+    await runtime.publishReviewGroup({ requestId: a.requestId, items: [selection('initial')] })
+    const binding = runtime.bindReviewAction({ groupId: a.requestId, repo: REPO, prNumber: PR.number, expectedHeadSha: PR.headSha!, action: 'merge' })
+    expect(binding.documentId).toBe('origin')
+    f.set({ state: 'merged' })
+    expect(await runtime.confirmReviewAction(binding.actionId)).toEqual({ confirmed: true, outcome: 'merged' })
+    runtime.handleExtensionFrame(conn.id, frame('nativeResultHint', { documentId: 'origin', groupId: a.requestId, pr: PR, action: 'merge' }))
+    await vi.waitFor(() => expect(conn.of('reviewItemResult').map((x) => x.source)).toEqual(['ai', 'native']), { timeout: 1500 })
+  })
+
   it('retries a native result while GitHub briefly still reports open', async () => {
     const f = fixture(); const { runtime } = makeRuntime({ reviewGateway: f.gh }); const conn = connectExtension(runtime)
     runtime.handleExtensionFrame(conn.id, frame('register', { documentId: 'origin', pr: PR }))

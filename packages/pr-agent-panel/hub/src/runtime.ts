@@ -767,7 +767,8 @@ export class HubRuntime {
         remaining_pr_count: this.group?.items.filter((x) => x.outcome === 'pending').length ?? 0,
       })
     }
-    const feedbackKey = documentId ? `${groupId}/${repoKeyOf(pr)}#${pr.number}/${documentId}/${action}` : null
+    // Only native replays are deduplicated: an AI confirmation for the same tab must not hide a later native result.
+    const feedbackKey = source === 'native' && documentId ? `${groupId}/${repoKeyOf(pr)}#${pr.number}/${documentId}/${action}` : null
     if (!feedbackKey || !this.nativeFeedbackSent.has(feedbackKey)) {
       if (feedbackKey) this.nativeFeedbackSent.add(feedbackKey)
       this.broadcast({ type: 'reviewItemResult', groupId, pr: current.pr, outcome, source, ...(documentId ? { documentId } : {}) })

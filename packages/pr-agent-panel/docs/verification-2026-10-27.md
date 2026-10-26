@@ -1,11 +1,11 @@
 # Review round verification — 2026-10-27
 
-Candidate: the source and screenshots in this branch. The screenshots use the same final extension build as the completion-state code.
+Candidate: the source in this branch. The fixture completion screenshots use its final extension build. The real GitHub screenshot was captured from the earlier `7dbf59bb` build, before the completion-state UI change; ordinary pending-state list layout was unchanged.
 
 ## Automated checks
 
 - Shared: TypeScript check and 10 Vitest tests passed.
-- Hub: TypeScript check, 71 Vitest tests, and production build passed.
+- Hub: TypeScript check, 74 Vitest tests, and production build passed.
 - Extension: TypeScript check, 120 Vitest tests, and MV3 production build passed.
 - Mermaid component and ER diagrams parsed, and the ZenUML sequence diagram parsed.
 

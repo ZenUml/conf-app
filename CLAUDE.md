@@ -226,7 +226,7 @@ Every push to a PR branch fires the `Build, Test and Draft Release` workflow (`.
 So when checking a PR before merge:
 - `gh pr view <pr> --json mergeStateStatus` showing **`UNSTABLE`** with some `CANCELLED` contexts is **expected and mergeable** — it is not a real failure.
 - The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
-- `.md` / `docs/**` / `.claude/**` / `.cursor/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
+- `.md` / `docs/**` / `.claude/**` / `.cursor/**` / `packages/pr-agent-panel/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
 
 ### Release order — diagramly → lite → full
 

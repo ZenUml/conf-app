@@ -31,6 +31,12 @@ describe('createPageController soft navigation', () => {
     await controller.start()
     expect(document.querySelector('zenuml-pr-list')).toBeNull()
 
+    controller.store.applyFrame({
+      v: 1, id: 'group-frame', ts: Date.now(), type: 'group', preparation: null,
+      group: { groupId: 'g1', product: 'Example', requestedCount: 1, status: 'ready', createdAt: 1, updatedAt: 1,
+        items: [{ pr: { host: 'github.com', owner: 'example-owner', repo: 'example-repo', number: 7 }, decisionTitle: 'Review seven', ci: 'pending', materialHeadSha: '7777777', materialUpdatedAt: 1, outcome: 'pending' }] },
+    })
+
     softNavigate('https://github.com/example-owner/example-repo/pull/7')
     await frames()
     await frames()

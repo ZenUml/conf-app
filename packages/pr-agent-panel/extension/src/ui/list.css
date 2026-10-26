@@ -1,4 +1,21 @@
 /* The review rail follows GitHub's typography, controls and surface colours. */
+/* Request-scoped group rows intentionally contain only a decision title and CI. */
+.rg-header { padding: 20px 18px 14px; border-bottom: 1px solid #d0d7de; }
+.rg-eyebrow { color: #59636e; font-size: 10px; font-weight: 700; letter-spacing: .1em; }
+.rg-header h2 { margin: 5px 0 8px; font-size: 17px; line-height: 1.25; font-weight: 700; }
+.rg-note { margin: 0; color: #59636e; font-size: 12px; }
+.rg-error { margin: 0; color: #b42318; font-size: 12px; }
+.rg-rows { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.rg-rows li { margin: 0; padding: 0; }
+.rg-row { display: flex; flex-direction: column; width: 100%; gap: 7px; padding: 15px 18px; border: 0; border-bottom: 1px solid #d8dee4; background: #fff; text-align: left; cursor: pointer; font: inherit; }
+.rg-row:hover { background: #f6f8fa; }
+.rg-row:focus-visible { outline: 2px solid #0969da; outline-offset: -2px; }
+.rg-row-current, .rg-row-current:hover { background: #ddf4ff; }
+.rg-title { color: #1f2328; font-size: 13px; line-height: 1.35; font-weight: 600; overflow-wrap: anywhere; }
+.rg-ci { color: #59636e; font-size: 12px; line-height: 1.3; }
+.rg-ci-success { color: #1a7f37; }
+.rg-ci-failure { color: #cf222e; }
+.rg-ci-pending { color: #9a6700; }
 :host(zenuml-pr-list) {
   all: initial;
   display: block;

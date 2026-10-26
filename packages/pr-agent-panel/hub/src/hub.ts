@@ -13,6 +13,7 @@ import { Analytics } from './analytics'
 import { listenConsumerSocket } from './consumer-transport'
 import { createLogger } from './log'
 import { ReviewStore } from './review-store'
+import { ReviewGroupStore } from './review-group-store'
 import { PrStatusStore } from './pr-status-store'
 import { PrStatusSync } from './pr-status-sync'
 import { HUB_VERSION, HubRuntime } from './runtime'
@@ -94,10 +95,11 @@ async function main(): Promise<void> {
     if (moved > 0) log.info(`Copied ${moved} review file(s) from ${paths.legacyStoreDir} to ${paths.storeDir}`)
   }
   const store = new ReviewStore(paths.storeDir)
+  const groupStore = new ReviewGroupStore(paths.storeDir)
   const statuses = new PrStatusStore(paths.storeDir)
   const analytics = new Analytics({ token: process.env.PR_PANEL_MIXPANEL_TOKEN, idPath: paths.analyticsId })
   let statusSync: PrStatusSync | undefined
-  const runtime = new HubRuntime({ store, statuses, analytics, hubVersion: HUB_VERSION, requestStatusSync: () => statusSync?.request() })
+  const runtime = new HubRuntime({ store, groupStore, statuses, analytics, hubVersion: HUB_VERSION, requestStatusSync: () => statusSync?.request() })
   statusSync = new PrStatusSync({ reviews: store, statuses, analytics, onChanged: (repoKey) => runtime.refreshReviews(repoKey) })
 
   let ws: StartedWebSocketServer | null = null
@@ -149,6 +151,9 @@ async function main(): Promise<void> {
   )
   log.info(`Hub ${HUB_VERSION} ready: socket ${paths.socket}, ws://127.0.0.1:${ws.port}/`)
   statusSync.start()
+  const groupSyncTimer = setInterval(() => void runtime.refreshGroupFacts(), 60_000)
+  groupSyncTimer.unref()
+  void runtime.refreshGroupFacts()
 
   const idleMs = idleExitMs(foreground)
   if (idleMs > 0) {

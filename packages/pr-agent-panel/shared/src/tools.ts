@@ -15,6 +15,9 @@ import {
   FindingInputSchema,
   PanelMessageSchema,
   PrRefSchema,
+  ReviewGroupItemSchema,
+  ReviewGroupSchema,
+  ReviewGroupPreparationSchema,
   PrStateSchema,
   PrioritySchema,
   RepoRefSchema,
@@ -36,6 +39,13 @@ export const TOOL_NAMES = [
   'delete_review_entry',
   'list_panel_messages',
   'wait_for_panel_messages',
+  'start_review_group',
+  'publish_review_group',
+  'fail_review_group',
+  'get_review_group',
+  'bind_review_action',
+  'confirm_review_action',
+  'refresh_review_material',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -127,6 +137,42 @@ export const WaitForPanelMessagesInput = z.object({
 })
 export const WaitForPanelMessagesOutput = ListPanelMessagesOutput
 
+export const StartReviewGroupInput = z.object({
+  product: z.string().min(1).max(120),
+  focus: z.string().max(500).optional(),
+  requestedCount: z.number().int().min(0).max(50),
+})
+export const StartReviewGroupOutput = z.object({ requestId: z.string().min(1), previousGroup: ReviewGroupSchema.nullable() })
+
+export const PreparedReviewItemSchema = ReviewGroupItemSchema.pick({ pr: true, decisionTitle: true, ci: true, materialHeadSha: true }).extend({
+  /** The five evidence sections, written above the original PR body. */
+  materialsMarkdown: z.string().min(1).max(40_000),
+})
+export const PublishReviewGroupInput = z.object({
+  requestId: z.string().min(1),
+  items: z.array(PreparedReviewItemSchema).max(50),
+})
+export const PublishReviewGroupOutput = z.object({ group: ReviewGroupSchema })
+export const FailReviewGroupInput = z.object({ requestId: z.string().min(1), reason: z.string().min(1).max(500) })
+export const FailReviewGroupOutput = z.object({ ok: z.literal(true) })
+export const GetReviewGroupInput = z.object({})
+export const GetReviewGroupOutput = z.object({ group: ReviewGroupSchema.nullable(), preparation: ReviewGroupPreparationSchema.nullable() })
+
+export const BindReviewActionInput = z.object({
+  groupId: z.string().min(1), repo: RepoRefSchema, prNumber: z.number().int().positive(),
+  expectedHeadSha: ShaSchema,
+  action: z.enum(['merge', 'close']),
+})
+export const BindReviewActionOutput = z.object({ actionId: z.string().min(1), documentId: z.string().nullable() })
+export const ConfirmReviewActionInput = z.object({ actionId: z.string().min(1) })
+export const ConfirmReviewActionOutput = z.object({ confirmed: z.boolean(), outcome: z.enum(['merged', 'closed']).optional() })
+export const RefreshReviewMaterialInput = z.object({
+  groupId: z.string().min(1), repo: RepoRefSchema, prNumber: z.number().int().positive(),
+  expectedHeadSha: ShaSchema, ci: z.enum(['success', 'failure', 'pending', 'unknown']),
+  materialsMarkdown: z.string().min(1).max(40_000),
+})
+export const RefreshReviewMaterialOutput = z.object({ item: ReviewGroupItemSchema })
+
 export const TOOL_SCHEMAS = {
   get_active_pr: { input: GetActivePrInput, output: GetActivePrOutput },
   begin_task: { input: BeginTaskInput, output: BeginTaskOutput },
@@ -138,4 +184,11 @@ export const TOOL_SCHEMAS = {
   delete_review_entry: { input: DeleteReviewEntryInput, output: DeleteReviewEntryOutput },
   list_panel_messages: { input: ListPanelMessagesInput, output: ListPanelMessagesOutput },
   wait_for_panel_messages: { input: WaitForPanelMessagesInput, output: WaitForPanelMessagesOutput },
+  start_review_group: { input: StartReviewGroupInput, output: StartReviewGroupOutput },
+  publish_review_group: { input: PublishReviewGroupInput, output: PublishReviewGroupOutput },
+  fail_review_group: { input: FailReviewGroupInput, output: FailReviewGroupOutput },
+  get_review_group: { input: GetReviewGroupInput, output: GetReviewGroupOutput },
+  bind_review_action: { input: BindReviewActionInput, output: BindReviewActionOutput },
+  confirm_review_action: { input: ConfirmReviewActionInput, output: ConfirmReviewActionOutput },
+  refresh_review_material: { input: RefreshReviewMaterialInput, output: RefreshReviewMaterialOutput },
 } as const

@@ -33,12 +33,22 @@ import {
   WaitForPanelMessagesInput,
   GetActivePrOutput,
   BeginTaskOutput,
+  type ReviewGroup,
+  type ReviewGroupPreparation,
+  type ReviewGroupItem,
+  StartReviewGroupInput,
+  PublishReviewGroupInput,
+  FailReviewGroupInput,
+  BindReviewActionInput,
+  RefreshReviewMaterialInput,
 } from '@zenuml/pr-panel-shared'
 import { ClientHooks } from './hooks'
 import { MessageQueue, type MessagePredicate } from './message-queue'
 import type { ReviewStore } from './review-store'
 import type { PrStatusStore } from './pr-status-store'
 import type { Analytics } from './analytics'
+import type { ReviewGroupStore } from './review-group-store'
+import { GhReviewGateway, type ReviewGateway } from './github-review-gateway'
 
 export const HUB_VERSION = '0.1.0'
 /** Ended tasks kept in the `state` frame (working tasks are always included). */
@@ -78,6 +88,8 @@ interface SessionRecord {
 
 export interface RuntimeOptions {
   store: ReviewStore
+  groupStore?: Pick<ReviewGroupStore, 'get' | 'put'>
+  reviewGateway?: ReviewGateway
   statuses?: PrStatusStore
   requestStatusSync?: () => void
   analytics?: Analytics
@@ -93,6 +105,20 @@ type ReadReviewHistoryArgs = z.output<typeof ReadReviewHistoryInput>
 type DeleteReviewEntryArgs = z.output<typeof DeleteReviewEntryInput>
 type ListPanelMessagesArgs = z.output<typeof ListPanelMessagesInput>
 type WaitForPanelMessagesArgs = z.output<typeof WaitForPanelMessagesInput>
+type StartReviewGroupArgs = z.output<typeof StartReviewGroupInput>
+type PublishReviewGroupArgs = z.output<typeof PublishReviewGroupInput>
+type FailReviewGroupArgs = z.output<typeof FailReviewGroupInput>
+type BindReviewActionArgs = z.output<typeof BindReviewActionInput>
+type RefreshReviewMaterialArgs = z.output<typeof RefreshReviewMaterialInput>
+
+interface BoundReviewAction {
+  groupId: string
+  repoKey: string
+  prNumber: number
+  expectedHeadSha: string
+  action: 'merge' | 'close'
+  documentId?: string
+}
 
 export class HubRuntime {
   readonly store: ReviewStore
@@ -104,6 +130,11 @@ export class HubRuntime {
   private readonly requestStatusSync: (() => void) | undefined
   private readonly now: () => number
   private readonly createId: () => string
+  private readonly groupStore: RuntimeOptions['groupStore']
+  private readonly reviewGateway: ReviewGateway
+  private group: ReviewGroup | null
+  private preparation: ReviewGroupPreparation | null = null
+  private readonly boundActions = new Map<string, BoundReviewAction>()
 
   private readonly connections = new Map<string, ExtensionConnection>()
   private readonly helloed = new Set<string>()
@@ -117,6 +148,9 @@ export class HubRuntime {
 
   constructor(options: RuntimeOptions) {
     this.store = options.store
+    this.groupStore = options.groupStore
+    this.reviewGateway = options.reviewGateway ?? new GhReviewGateway()
+    this.group = options.groupStore?.get() ?? null
     this.statuses = options.statuses
     this.requestStatusSync = options.requestStatusSync
     this.analytics = options.analytics
@@ -210,6 +244,7 @@ export class HubRuntime {
           inReplyTo: frame.id,
         })
         this.sendTo(conn, this.stateBody())
+        this.sendTo(conn, this.groupBody())
         this.requestStatusSync?.()
         return { close: false }
       }
@@ -218,6 +253,8 @@ export class HubRuntime {
           connId,
           session: { documentId: frame.documentId, pr: frame.pr, registeredAt: this.now() },
         })
+        // Kept as a fallback for older extension clients; current clients send activate
+        // for the foreground browser tab immediately after registration.
         if (this.activeDocumentId === null) this.activeDocumentId = frame.documentId
         // A tab that shows the PR of a working task without a tab gets that task.
         for (const record of this.tasks.values()) {
@@ -244,9 +281,26 @@ export class HubRuntime {
         this.pushState()
         return { close: false }
       }
+      case 'clearActive':
+        this.activeDocumentId = null
+        this.pushState()
+        return { close: false }
       case 'listReviews': {
         this.sendTo(conn, this.reviewsBody(frame.repoKey, frame.currentHeadSha, frame.id))
         this.requestStatusSync?.()
+        return { close: false }
+      }
+      case 'listGroup':
+        this.sendTo(conn, { ...this.groupBody(), inReplyTo: frame.id })
+        return { close: false }
+      case 'nativeResultHint': {
+        const session = this.sessions.get(frame.documentId)?.session
+        if (!session || repoKeyOf(session.pr) !== repoKeyOf(frame.pr) || session.pr.number !== frame.pr.number) {
+          this.sendTo(conn, { type: 'error', code: 'unknown_document', message: 'PR tab is not registered.', inReplyTo: frame.id })
+        } else {
+          void this.confirmRemoteResult(frame.groupId, frame.pr, frame.action, 'native', frame.documentId)
+            .catch(() => undefined)
+        }
         return { close: false }
       }
       case 'userMessage':
@@ -495,6 +549,187 @@ export class HubRuntime {
 
   getTask(taskId: string): Task | undefined {
     return this.tasks.get(taskId)?.task
+  }
+
+  getReviewGroup(): { group: ReviewGroup | null; preparation: ReviewGroupPreparation | null } {
+    return { group: this.group, preparation: this.preparation }
+  }
+
+  startReviewGroup(input: StartReviewGroupArgs): { requestId: string; previousGroup: ReviewGroup | null } {
+    const requestId = this.createId()
+    const previousGroup = this.group
+    this.preparation = { requestId, product: input.product, ...(input.focus ? { focus: input.focus } : {}), requestedCount: input.requestedCount, startedAt: this.now() }
+    this.broadcast(this.groupBody())
+    this.analytics?.track('pr_panel_group_prepare_requested', { requested_pr_count: input.requestedCount })
+    return { requestId, previousGroup }
+  }
+
+  async publishReviewGroup(input: PublishReviewGroupArgs): Promise<{ group: ReviewGroup }> {
+    const prep = this.preparation
+    if (!prep || prep.requestId !== input.requestId || prep.error) throw new Error('This preparation is no longer current.')
+    if (input.items.length > prep.requestedCount) throw new Error('Prepared items exceed the requested count.')
+    const seen = new Set<string>()
+    for (const item of input.items) {
+      const key = `${repoKeyOf(item.pr)}#${item.pr.number}`
+      if (seen.has(key)) throw new Error(`Duplicate PR ${key}.`)
+      seen.add(key)
+      if (item.pr.headSha && item.pr.headSha.toLowerCase() !== item.materialHeadSha.toLowerCase()) {
+        throw new Error(`PR #${item.pr.number} material head differs from its prepared head.`)
+      }
+    }
+    try {
+      for (const item of input.items) {
+        if (this.preparation?.requestId !== input.requestId) throw new Error('A newer review request replaced this one.')
+        await this.reviewGateway.writeMaterials(item.pr, item.materialHeadSha, item.materialsMarkdown,
+          () => this.preparation?.requestId === input.requestId)
+      }
+      if (this.preparation?.requestId !== input.requestId) throw new Error('A newer review request replaced this one.')
+      const now = this.now()
+      const group: ReviewGroup = {
+        groupId: input.requestId,
+        product: prep.product,
+        ...(prep.focus ? { focus: prep.focus } : {}),
+        requestedCount: prep.requestedCount,
+        status: input.items.length ? 'ready' : 'zero',
+        items: input.items.map(({ materialsMarkdown: _markdown, ...item }) => ({
+          ...item, pr: { ...item.pr, headSha: item.materialHeadSha }, materialUpdatedAt: now, outcome: 'pending' as const,
+        })),
+        createdAt: prep.startedAt,
+        updatedAt: now,
+      }
+      this.groupStore?.put(group)
+      this.group = group
+      this.preparation = null
+      this.broadcast(this.groupBody())
+      this.analytics?.track('pr_panel_group_published', {
+        requested_pr_count: prep.requestedCount,
+        prepared_pr_count: group.items.length,
+        group_outcome: group.status,
+      })
+      return { group }
+    } catch (error) {
+      if (this.preparation?.requestId === input.requestId) {
+        this.preparation = { ...prep, error: error instanceof Error ? error.message.slice(0, 500) : 'Preparation failed.' }
+        this.broadcast(this.groupBody())
+        this.analytics?.track('pr_panel_group_prepare_failed', { group_outcome: 'failed' })
+      }
+      throw error
+    }
+  }
+
+  failReviewGroup(input: FailReviewGroupArgs): { ok: true } {
+    if (this.preparation?.requestId !== input.requestId) throw new Error('This preparation is no longer current.')
+    this.preparation = { ...this.preparation, error: input.reason }
+    this.broadcast(this.groupBody())
+    this.analytics?.track('pr_panel_group_prepare_failed', { group_outcome: 'failed' })
+    return { ok: true }
+  }
+
+  bindReviewAction(input: BindReviewActionArgs): { actionId: string; documentId: string | null } {
+    const item = this.pendingGroupItem(input.groupId, repoKeyOf(input.repo), input.prNumber)
+    if (item.materialHeadSha.toLowerCase() !== input.expectedHeadSha.toLowerCase()) throw new Error('The prepared head changed. Refresh the material first.')
+    const session = this.sessionShowing(repoKeyOf(input.repo), input.prNumber)
+    const actionId = this.createId()
+    this.boundActions.set(actionId, {
+      groupId: input.groupId, repoKey: repoKeyOf(input.repo), prNumber: input.prNumber,
+      expectedHeadSha: input.expectedHeadSha, action: input.action,
+      ...(session ? { documentId: session.documentId } : {}),
+    })
+    return { actionId, documentId: session?.documentId ?? null }
+  }
+
+  async confirmReviewAction(actionId: string): Promise<{ confirmed: boolean; outcome?: 'merged' | 'closed' }> {
+    const bound = this.boundActions.get(actionId)
+    if (!bound) throw new Error('Unknown action. Bind the target before acting.')
+    const item = this.pendingGroupItem(bound.groupId, bound.repoKey, bound.prNumber)
+    if (item.materialHeadSha.toLowerCase() !== bound.expectedHeadSha.toLowerCase()) throw new Error('The target head changed.')
+    const outcome = await this.confirmRemoteResult(bound.groupId, item.pr, bound.action, 'ai', bound.documentId, bound.expectedHeadSha)
+    if (outcome) this.boundActions.delete(actionId)
+    return outcome ? { confirmed: true, outcome } : { confirmed: false }
+  }
+
+  async refreshReviewMaterial(input: RefreshReviewMaterialArgs): Promise<{ item: ReviewGroupItem }> {
+    const repoKey = repoKeyOf(input.repo)
+    const item = this.pendingGroupItem(input.groupId, repoKey, input.prNumber)
+    await this.reviewGateway.writeMaterials(item.pr, input.expectedHeadSha, input.materialsMarkdown,
+      () => this.group?.groupId === input.groupId && this.group.items.some((x) => repoKeyOf(x.pr) === repoKey && x.pr.number === input.prNumber && x.outcome === 'pending'))
+    if (this.group?.groupId !== input.groupId) throw new Error('Review group changed during material refresh.')
+    const updated = { ...item, pr: { ...item.pr, headSha: input.expectedHeadSha }, materialHeadSha: input.expectedHeadSha, materialUpdatedAt: this.now(), ci: input.ci }
+    this.replaceGroupItem(updated)
+    return { item: updated }
+  }
+
+  /** Poll remote facts for this finite set; external completions never carry an originating tab. */
+  async refreshGroupFacts(): Promise<void> {
+    const group = this.group
+    if (!group || group.status !== 'ready') return
+    for (const item of group.items.filter((value) => value.outcome === 'pending')) {
+      if (this.group?.groupId !== group.groupId) return
+      try {
+        const remote = await this.reviewGateway.read(item.pr)
+        if (this.group?.groupId !== group.groupId) return
+        const current = this.group.items.find((value) => repoKeyOf(value.pr) === repoKeyOf(item.pr) && value.pr.number === item.pr.number)
+        if (!current || current.outcome !== 'pending') continue
+        if (remote.state === 'merged' || remote.state === 'closed') {
+          this.replaceGroupItem({ ...current, outcome: remote.state })
+          this.broadcast({ type: 'reviewItemResult', groupId: group.groupId, pr: current.pr, outcome: remote.state, source: 'external' })
+          this.analytics?.track('pr_panel_group_item_completed', {
+            completion_source: 'external', completion_outcome: remote.state,
+            remaining_pr_count: this.group?.items.filter((value) => value.outcome === 'pending').length ?? 0,
+          })
+          continue
+        }
+        const ci = await this.reviewGateway.readCi?.(item.pr)
+        if (ci && this.group?.groupId === group.groupId) {
+          const latest = this.group.items.find((value) => repoKeyOf(value.pr) === repoKeyOf(item.pr) && value.pr.number === item.pr.number)
+          if (latest?.outcome === 'pending' && ci !== latest.ci) this.replaceGroupItem({ ...latest, ci })
+        }
+      } catch { /* Offline or rate limited: preserve the last known state. */ }
+    }
+  }
+
+  private pendingGroupItem(groupId: string, repoKey: string, prNumber: number): ReviewGroupItem {
+    const item = this.group?.groupId === groupId
+      ? this.group.items.find((x) => repoKeyOf(x.pr) === repoKey && x.pr.number === prNumber)
+      : undefined
+    if (!item || item.outcome !== 'pending') throw new Error('PR is not pending in the current review group.')
+    return item
+  }
+
+  private replaceGroupItem(updated: ReviewGroupItem): void {
+    if (!this.group) return
+    const group: ReviewGroup = {
+      ...this.group,
+      items: this.group.items.map((x) => repoKeyOf(x.pr) === repoKeyOf(updated.pr) && x.pr.number === updated.pr.number ? updated : x),
+      updatedAt: this.now(),
+    }
+    group.status = group.items.every((x) => x.outcome !== 'pending') ? 'completed' : 'ready'
+    this.groupStore?.put(group)
+    this.group = group
+    this.broadcast(this.groupBody())
+  }
+
+  private async confirmRemoteResult(
+    groupId: string, pr: PrRef, action: 'merge' | 'close', source: 'native' | 'ai' | 'external',
+    documentId?: string, expectedHeadSha?: string,
+  ): Promise<'merged' | 'closed' | null> {
+    const item = this.pendingGroupItem(groupId, repoKeyOf(pr), pr.number)
+    const remote = await this.reviewGateway.read(item.pr)
+    if (this.group?.groupId !== groupId || item.outcome !== 'pending') return null
+    if (expectedHeadSha && remote.headSha.toLowerCase() !== expectedHeadSha.toLowerCase()) return null
+    const outcome = remote.state === 'merged' ? 'merged' : remote.state === 'closed' ? 'closed' : null
+    if (!outcome || (action === 'merge' && outcome !== 'merged') || (action === 'close' && outcome !== 'closed')) return null
+    this.replaceGroupItem({ ...item, outcome })
+    this.broadcast({ type: 'reviewItemResult', groupId, pr: item.pr, outcome, source, ...(documentId ? { documentId } : {}) })
+    this.analytics?.track('pr_panel_group_item_completed', {
+      completion_source: source, completion_outcome: outcome,
+      remaining_pr_count: this.group?.items.filter((x) => x.outcome === 'pending').length ?? 0,
+    })
+    return outcome
+  }
+
+  private groupBody(): Extract<HubFrameBody, { type: 'group' }> {
+    return { type: 'group', group: this.group, preparation: this.preparation }
   }
 
   // ------------------------------------------------------------ internals

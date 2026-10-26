@@ -28,7 +28,7 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
     {
       instructions: [
         'Bridge to the ZenUML PR Agent Panel on GitHub pull-request pages.',
-        'Start with get_active_pr, then begin_task before working on a PR; report_progress while working; publish_review for a review; complete_task at the end.',
+        'For a new review request call start_review_group, prepare a bounded finite set, then publish_review_group. A later request replaces the earlier group. Use bind_review_action before any merge or close and confirm_review_action only after GitHub confirms it.',
         'Messages the user types in the panel arrive as hook context, a Stop-hook reason, or from list_panel_messages / wait_for_panel_messages.',
         UNTRUSTED_NOTE,
       ].join(' '),
@@ -176,6 +176,48 @@ export function createMcpServer(runtime: HubRuntime, consumerId: string): McpSer
       )
     },
   )
+
+  server.registerTool('start_review_group', {
+    description: 'Start a new explicit finite review request. The prior group remains visible until publication succeeds. Returns a requestId; only the newest requestId may publish.',
+    inputSchema: TOOL_SCHEMAS.start_review_group.input,
+    outputSchema: TOOL_SCHEMAS.start_review_group.output,
+  }, (args) => toolResult('start_review_group', runtime.startReviewGroup(args), 'Review preparation started.'))
+
+  server.registerTool('publish_review_group', {
+    description: 'Publish only the selected, fully prepared PRs. Writes each selected PR\'s review materials above its unchanged original body, checking its head first, then atomically replaces the local group. An empty selection clears the sidebar. Materials must cover problem/value, Before/After, verified commands and head, unverified areas, risks and suggested decision. Do not call for incidental questions or tests on real PRs.',
+    inputSchema: TOOL_SCHEMAS.publish_review_group.input,
+    outputSchema: TOOL_SCHEMAS.publish_review_group.output,
+  }, async (args) => toolResult('publish_review_group', await runtime.publishReviewGroup(args), 'Review group published.'))
+
+  server.registerTool('fail_review_group', {
+    description: 'Show a preparation failure while preserving the previously published group.',
+    inputSchema: TOOL_SCHEMAS.fail_review_group.input,
+    outputSchema: TOOL_SCHEMAS.fail_review_group.output,
+  }, (args) => toolResult('fail_review_group', runtime.failReviewGroup(args), 'Preparation failure recorded.'))
+
+  server.registerTool('get_review_group', {
+    description: 'Read the latest finite group and any preparation or failure, including after a browser or agent restart.',
+    inputSchema: TOOL_SCHEMAS.get_review_group.input,
+    outputSchema: TOOL_SCHEMAS.get_review_group.output,
+  }, () => toolResult('get_review_group', runtime.getReviewGroup(), 'Current review group.'))
+
+  server.registerTool('bind_review_action', {
+    description: 'Lock the exact group, repository, PR, and prepared head before taking an AI merge or close action. This tool does not authorize the action.',
+    inputSchema: TOOL_SCHEMAS.bind_review_action.input,
+    outputSchema: TOOL_SCHEMAS.bind_review_action.output,
+  }, (args) => toolResult('bind_review_action', runtime.bindReviewAction(args), 'Review action target bound.'))
+
+  server.registerTool('confirm_review_action', {
+    description: 'After a bound AI action, read GitHub to confirm merge or close; only a confirmed outcome removes the pending item. False means leave it in place.',
+    inputSchema: TOOL_SCHEMAS.confirm_review_action.input,
+    outputSchema: TOOL_SCHEMAS.confirm_review_action.output,
+  }, async (args) => toolResult('confirm_review_action', await runtime.confirmReviewAction(args.actionId), 'Remote outcome checked.'))
+
+  server.registerTool('refresh_review_material', {
+    description: 'Update evidence for one pending item in the same group after verifying its current head. Preserves group order and progress.',
+    inputSchema: TOOL_SCHEMAS.refresh_review_material.input,
+    outputSchema: TOOL_SCHEMAS.refresh_review_material.output,
+  }, async (args) => toolResult('refresh_review_material', await runtime.refreshReviewMaterial(args), 'Review material refreshed.'))
 
   return server
 }

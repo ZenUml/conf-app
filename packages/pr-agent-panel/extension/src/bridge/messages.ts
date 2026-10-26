@@ -29,6 +29,7 @@ export const PortRequestSchema = z.discriminatedUnion('kind', [
   /** Options page, after the user granted the permission: probe now. */
   z.object({ kind: z.literal('reconnect') }),
   z.object({ kind: z.literal('openOptions') }),
+  z.object({ kind: z.literal('continueGroup') }),
 ])
 export type PortRequest = z.infer<typeof PortRequestSchema>
 

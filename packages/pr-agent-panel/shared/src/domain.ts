@@ -207,3 +207,36 @@ export const PageSessionSchema = z.object({
   registeredAt: z.number(),
 })
 export type PageSession = z.infer<typeof PageSessionSchema>
+
+/** One finite review request. Only its latest published snapshot is persisted. */
+export const ReviewGroupItemSchema = z.object({
+  pr: PrRefSchema,
+  decisionTitle: z.string().min(1).max(300),
+  ci: z.enum(['success', 'failure', 'pending', 'unknown']),
+  materialHeadSha: ShaSchema,
+  materialUpdatedAt: z.number(),
+  outcome: z.enum(['pending', 'merged', 'closed']).default('pending'),
+})
+export type ReviewGroupItem = z.infer<typeof ReviewGroupItemSchema>
+
+export const ReviewGroupSchema = z.object({
+  groupId: z.string().min(1),
+  product: z.string().min(1).max(120),
+  focus: z.string().max(500).optional(),
+  requestedCount: z.number().int().min(0).max(50),
+  status: z.enum(['ready', 'zero', 'completed']),
+  items: z.array(ReviewGroupItemSchema).max(50),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type ReviewGroup = z.infer<typeof ReviewGroupSchema>
+
+export const ReviewGroupPreparationSchema = z.object({
+  requestId: z.string().min(1),
+  product: z.string().min(1).max(120),
+  focus: z.string().max(500).optional(),
+  requestedCount: z.number().int().min(0).max(50),
+  startedAt: z.number(),
+  error: z.string().max(500).optional(),
+})
+export type ReviewGroupPreparation = z.infer<typeof ReviewGroupPreparationSchema>

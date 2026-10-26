@@ -4,7 +4,7 @@
  * render. Pure and DOM-free apart from Vue reactivity, so it is unit-testable.
  */
 import { computed, reactive } from 'vue'
-import { repoKeyOf, type HubFrame, type PrRef, type PrState, type ReviewSummary, type Task } from '@zenuml/pr-panel-shared'
+import { repoKeyOf, type HubFrame, type PrRef, type PrState, type ReviewSummary, type Task, type ReviewGroup, type ReviewGroupPreparation } from '@zenuml/pr-panel-shared'
 import type { HubStatusMessage } from '../bridge/messages'
 import { DEFAULT_PREFS, type Prefs } from '../state/prefs'
 import { visibleReviewsForViewer } from '../pr/ownership'
@@ -24,6 +24,8 @@ export function createPageStore(documentId: string) {
     reviews: [] as ReviewSummary[],
     viewerLogin: null as string | null,
     reviewsLoaded: false,
+    group: null as ReviewGroup | null,
+    preparation: null as ReviewGroupPreparation | null,
     prefs: { ...DEFAULT_PREFS } as Prefs,
     messages: [] as PanelMessageView[],
     dismissedTaskIds: [] as string[],
@@ -57,6 +59,11 @@ export function createPageStore(documentId: string) {
   })
 
   const visibleReviews = computed(() => visibleReviewsForViewer(state.reviews, state.viewerLogin))
+  const pendingGroupItems = computed(() => state.group?.items.filter((item) => item.outcome === 'pending') ?? [])
+  const currentGroupItem = computed(() => {
+    const pr = state.pr
+    return pr ? pendingGroupItems.value.find((item) => repoKeyOf(item.pr) === repoKeyOf(pr) && item.pr.number === pr.number) ?? null : null
+  })
 
   /** The open PR's review for the Agent Panel. "My PRs" scopes the list only, never the PR the user is looking at. */
   const review = computed<ReviewSummary | null>(() => {
@@ -88,6 +95,10 @@ export function createPageStore(documentId: string) {
           state.reviews = frame.items
           state.reviewsLoaded = true
         }
+        return
+      case 'group':
+        state.group = frame.group
+        state.preparation = frame.preparation
         return
       case 'taskEvent': {
         if (!isOurTask(frame.taskId, frame.documentId)) return
@@ -165,7 +176,7 @@ export function createPageStore(documentId: string) {
     if (!state.dismissedTaskIds.includes(taskId)) state.dismissedTaskIds.push(taskId)
   }
 
-  return { state, connection, task, review, visibleReviews, applyFrame, addUserMessage, noteCancel, dismissTask }
+  return { state, connection, task, review, visibleReviews, pendingGroupItems, currentGroupItem, applyFrame, addUserMessage, noteCancel, dismissTask }
 }
 
 export type PageStore = ReturnType<typeof createPageStore>

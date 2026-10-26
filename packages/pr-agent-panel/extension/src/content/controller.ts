@@ -4,7 +4,7 @@
  * GitHub's soft navigation (Turbo / React router).
  */
 import { createApp, h, type App } from 'vue'
-import { repoKeyOf, type PrRef } from '@zenuml/pr-panel-shared'
+import { repoKeyOf, type PrRef, type ReviewGroupItem } from '@zenuml/pr-panel-shared'
 import type { ContentScriptContext } from 'wxt/utils/content-script-context'
 import { createShadowRootUi, type ShadowRootContentScriptUi } from 'wxt/utils/content-script-ui/shadow-root'
 import { buildTelemetryFrame, messageLengthBucket, type TelemetryEvent, type TelemetryProps } from '../analytics/telemetry'
@@ -13,7 +13,7 @@ import { containWheel, installContentShift, listColumnTop } from '../pr/page-col
 import { parsePrRef, parseRepoRef, readPrState, readViewerLogin } from '../pr/identity'
 import { getPrefs, onPrefsChanged, setPref } from '../state/prefs'
 import AgentPanel from '../ui/AgentPanel.vue'
-import ReviewList from '../ui/ReviewList.vue'
+import ReviewGroupList from '../ui/ReviewGroupList.vue'
 import { createPageStore } from './store'
 
 export function createPageController(ctx: ContentScriptContext) {
@@ -29,6 +29,11 @@ export function createPageController(ctx: ContentScriptContext) {
   let observer: MutationObserver | null = null
   let observedFrame: Element | null = null
   let ensureQueued = false
+  let nativeAction: 'merge' | 'close' | null = null
+  let resultHintSent = false
+  let nextTimer: ReturnType<typeof setTimeout> | null = null
+  let resultNotice: HTMLElement | null = null
+  let materialNotice: HTMLElement | null = null
 
   function telemetry(event: TelemetryEvent, props: TelemetryProps = {}) {
     try {
@@ -43,6 +48,7 @@ export function createPageController(ctx: ContentScriptContext) {
     if (state.pr) {
       port.send(envelope({ type: 'register' as const, documentId, pr: state.pr }))
       port.send(envelope({ type: 'listReviews' as const, repoKey: repoKeyOf(state.pr), currentHeadSha: state.pr.headSha }))
+      port.send(envelope({ type: 'listGroup' as const }))
     }
   }
 
@@ -147,7 +153,7 @@ export function createPageController(ctx: ContentScriptContext) {
 
   async function mountList() {
     removeList()
-    if (!state.pr || ctx.isInvalid) return
+    if (!state.pr || !store.currentGroupItem.value || !state.group || ctx.isInvalid) return
     const ui = await createOrphanSafeUi<App>({
       name: 'zenuml-pr-list',
       position: 'inline',
@@ -160,18 +166,13 @@ export function createPageController(ctx: ContentScriptContext) {
         host.style.top = `${listColumnTop(document)}px`
         const app = createApp({
           render: () =>
-            h(ReviewList, {
-              items: store.visibleReviews.value,
-              currentPrNumber: state.pr?.number ?? null,
-              emptyText:
-                state.status.state === 'connected'
-                  ? state.viewerLogin ? undefined : 'Sign in to GitHub to see only your PRs.'
-                  : state.prefs.mcpAccess !== 'enabled' || state.status.needsPermission
-                    ? 'Enable MCP access in the ZenUML panel to see AI reviews.'
-                    : 'The ZenUML Hub is not running. Start your agent session to see AI reviews.',
-              onOpen: (item: { url: string; stale: boolean }, index: number) => {
-                telemetry('pr_panel_review_row_clicked', { row_index: index, is_stale: item.stale })
-                location.assign(item.url)
+            h(ReviewGroupList, {
+              group: state.group!,
+              preparation: state.preparation,
+              currentPrNumber: state.pr?.number ?? 0,
+              offline: state.status.state !== 'connected',
+              onOpen: (item: ReviewGroupItem) => {
+                location.assign(item.pr.url ?? `https://${item.pr.host}/${item.pr.owner}/${item.pr.repo}/pull/${item.pr.number}`)
               },
             }),
         })
@@ -182,7 +183,7 @@ export function createPageController(ctx: ContentScriptContext) {
         app?.unmount()
       },
     })
-    if (!ui || !state.pr) return
+    if (!ui || !store.currentGroupItem.value) return
     removeList()
     listUi = ui
     ui.mount()
@@ -192,6 +193,7 @@ export function createPageController(ctx: ContentScriptContext) {
     window.addEventListener('resize', queuePlaceList, { passive: true })
     listShownSent = false
     maybeSendListShown()
+    updateMaterialNotice()
   }
 
   function removeList() {
@@ -217,9 +219,29 @@ export function createPageController(ctx: ContentScriptContext) {
   }
 
   function maybeSendListShown() {
-    if (listShownSent || !listUi || !state.reviewsLoaded) return
+    if (listShownSent || !listUi || !state.group) return
     listShownSent = true
-    telemetry('pr_panel_review_list_shown', { review_count: store.visibleReviews.value.length })
+    telemetry('pr_panel_review_list_shown', { review_count: store.pendingGroupItems.value.length })
+  }
+
+  function updateMaterialNotice() {
+    materialNotice?.remove()
+    materialNotice = null
+    const item = store.currentGroupItem.value
+    if (!item) return
+    const body = document.querySelector<HTMLElement>('.comment-body, [data-testid="issue-body"]')
+    if (!body?.parentElement) return
+    const note = document.createElement('div')
+    note.id = 'zenuml-review-material-notice'
+    note.style.cssText = 'padding:10px 14px;margin:0 0 12px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;color:#1f2328;font:12px system-ui,sans-serif'
+    const current = state.pr?.headSha
+    const stale = current && current.toLowerCase() !== item.materialHeadSha.toLowerCase()
+    note.textContent = stale ? 'Review material is stale: this PR head changed. Ask the agent to refresh the evidence.'
+      : current ? `Review material verified at ${item.materialHeadSha.slice(0, 8)}.`
+        : 'Review material head is unconfirmed. Verify the current PR head before deciding.'
+    body.parentElement.insertBefore(note, body)
+    materialNotice = note
+    if (stale) telemetry('pr_panel_material_stale_shown', { is_stale: true })
   }
 
   /**
@@ -233,9 +255,14 @@ export function createPageController(ctx: ContentScriptContext) {
     const next = parsePrRef(location.href, document)
     if (!next || next.number !== prev.number || repoKeyOf(next) !== repoKeyOf(prev)) return
     state.prState = readPrState(document)
+    if (nativeAction && !resultHintSent && state.group && ((nativeAction === 'merge' && state.prState === 'merged') || (nativeAction === 'close' && state.prState === 'closed'))) {
+      resultHintSent = true
+      port?.send(envelope({ type: 'nativeResultHint' as const, documentId, groupId: state.group.groupId, pr: next, action: nativeAction }))
+    }
     if (next.title !== prev.title || next.headSha !== prev.headSha) {
       state.pr = next
       registerCurrent()
+      updateMaterialNotice()
     }
   }
 
@@ -248,8 +275,9 @@ export function createPageController(ctx: ContentScriptContext) {
       return
     }
     refreshPageDetails()
-    if (!state.pr) {
+    if (!state.pr || !store.currentGroupItem.value) {
       removeList()
+      if (!store.currentGroupItem.value) materialNotice?.remove()
       return
     }
     const host = listUi?.shadowHost
@@ -283,6 +311,11 @@ export function createPageController(ctx: ContentScriptContext) {
   function applyLocation(href: string) {
     const { changed } = readPage(href)
     if (changed) {
+      nativeAction = null
+      resultHintSent = false
+      clearNextTimer()
+      resultNotice?.remove()
+      materialNotice?.remove()
       port?.send(envelope({ type: 'unregister' as const, documentId }))
       registerCurrent()
       state.messages.splice(0)
@@ -290,6 +323,47 @@ export function createPageController(ctx: ContentScriptContext) {
     } else {
       queueEnsure()
     }
+  }
+
+  function clearNextTimer() {
+    if (nextTimer) clearTimeout(nextTimer)
+    nextTimer = null
+  }
+
+  function showNativeResult(outcome: 'merged' | 'closed') {
+    clearNextTimer()
+    resultNotice?.remove()
+    const next = store.pendingGroupItems.value[0]
+    const notice = document.createElement('div')
+    notice.id = 'zenuml-review-result'
+    notice.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483000;padding:15px 18px;border:1px solid #d0d7de;border-radius:8px;background:white;box-shadow:0 8px 28px #1f232833;color:#1f2328;font:13px system-ui,sans-serif'
+    const label = document.createElement('span')
+    label.textContent = outcome === 'merged' ? 'Merged. ' : 'Closed. '
+    notice.append(label)
+    if (next) {
+      const go = document.createElement('button')
+      go.type = 'button'
+      go.textContent = 'Next'
+      go.style.cssText = 'margin-left:8px;margin-right:8px'
+      go.onclick = (event) => { event.stopPropagation(); clearNextTimer(); location.assign(next.pr.url ?? `https://${next.pr.host}/${next.pr.owner}/${next.pr.repo}/pull/${next.pr.number}`) }
+      const stay = document.createElement('button')
+      stay.type = 'button'
+      stay.textContent = 'Stay'
+      stay.onclick = (event) => { event.stopPropagation(); clearNextTimer(); label.textContent = 'Staying on this PR. ' }
+      notice.append(go, stay)
+      nextTimer = setTimeout(() => { nextTimer = null; location.assign(next.pr.url ?? `https://${next.pr.host}/${next.pr.owner}/${next.pr.repo}/pull/${next.pr.number}`) }, 3000)
+    } else label.textContent += 'Round complete.'
+    document.body.append(notice)
+    resultNotice = notice
+  }
+
+  function onPageClick(event: PointerEvent) {
+    if (nextTimer && resultNotice && !event.composedPath().includes(resultNotice)) clearNextTimer()
+    if (!store.currentGroupItem.value || !event.isTrusted) return
+    const button = (event.target as Element | null)?.closest('button, summary')
+    const text = button?.textContent?.trim().toLowerCase() ?? ''
+    if (/^(confirm merge|merge pull request|squash and merge|rebase and merge)/.test(text)) nativeAction = 'merge'
+    else if (/^close pull request/.test(text)) nativeAction = 'close'
   }
 
   /**
@@ -315,6 +389,13 @@ export function createPageController(ctx: ContentScriptContext) {
     port.onStatus((s) => (state.status = s))
     port.onFrame((f) => {
       store.applyFrame(f)
+      if (f.type === 'group') {
+        void mountList()
+        updateMaterialNotice()
+      }
+      if (f.type === 'reviewItemResult' && f.documentId === documentId && f.source === 'native') {
+        showNativeResult(f.outcome)
+      }
       if (f.type === 'reviews') {
         telemetry('pr_panel_review_scope_applied', {
           scope_mode: 'mine',
@@ -334,8 +415,9 @@ export function createPageController(ctx: ContentScriptContext) {
       removeList()
     })
 
-    await mountPanel()
     await mountList()
+    ctx.addEventListener(document, 'click', onPageClick, { capture: true })
+    ctx.addEventListener(document, 'keydown', () => { if (nextTimer) clearNextTimer() }, { capture: true })
     watchTurboFrame()
     ctx.addEventListener(window, 'wxt:locationchange', onLocationChange)
     ctx.addEventListener(window, 'pagehide', () => port?.send(envelope({ type: 'unregister' as const, documentId })))

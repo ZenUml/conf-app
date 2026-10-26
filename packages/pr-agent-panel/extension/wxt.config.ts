@@ -10,11 +10,11 @@ export default defineConfig({
     name: 'ZenUML PR Agent Panel',
     description:
       'Shows completed AI reviews beside GitHub pull requests and connects the page to your local Claude Code or Codex session.',
-    permissions: ['storage'],
+    permissions: ['storage', 'tabs'],
     host_permissions: ['https://github.com/*'],
     optional_host_permissions: [LOCAL_HOST_ORIGIN],
     minimum_chrome_version: '116',
     options_ui: { page: 'options.html', open_in_tab: true },
-    action: { default_title: 'ZenUML PR Agent Panel' },
+    action: { default_title: 'ZenUML PR Agent Panel', default_popup: 'popup.html' },
   },
 })

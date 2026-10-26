@@ -45,6 +45,12 @@ export const ALLOWED_PROPERTY_KEYS: ReadonlySet<string> = new Set([
   'finding_count',
   'turn_count',
   'delivery_channel',
+  'requested_pr_count',
+  'prepared_pr_count',
+  'group_outcome',
+  'completion_source',
+  'completion_outcome',
+  'remaining_pr_count',
 ])
 
 export const MIXPANEL_TRACK_URL = 'https://api.mixpanel.com/track'

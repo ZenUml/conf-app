@@ -14,14 +14,17 @@ import { buildTelemetryFrame, type TelemetryFrameT } from '../analytics/telemetr
 import type { HubClient, HubStatus } from './hub-client'
 import { parsePortRequest, type HubStatusMessage, type PortEvent, type PortRequest } from './messages'
 import type { McpAccess } from '../state/prefs'
+import type { ReviewTabs } from './review-tabs'
 
 type RegisterFrame = Extract<ExtensionFrame, { type: 'register' }>
 type ListReviewsFrame = Extract<ExtensionFrame, { type: 'listReviews' }>
 type StateFrame = Extract<HubFrame, { type: 'state' }>
 type ReviewsFrame = Extract<HubFrame, { type: 'reviews' }>
+type GroupFrame = Extract<HubFrame, { type: 'group' }>
 
 /** The subset of `runtime.Port` the broker uses. */
 export interface BrokerPort {
+  sender?: { tab?: { id?: number; active?: boolean } }
   postMessage(message: unknown): void
   onMessage: { addListener(cb: (message: unknown) => void): void }
   onDisconnect: { addListener(cb: () => void): void }
@@ -33,6 +36,9 @@ export interface BrokerDeps {
   getMcpAccess: () => Promise<McpAccess>
   setMcpAccess: (value: McpAccess) => Promise<void>
   openOptions: () => Promise<void> | void
+  reviewTabs?: ReviewTabs
+  loadSavedGroup?: () => Promise<GroupFrame | null>
+  saveGroup?: (group: GroupFrame) => Promise<void>
 }
 
 interface PortEntry {
@@ -48,11 +54,19 @@ export class McpBroker {
   private ports = new Map<BrokerPort, PortEntry>()
   private lastState: StateFrame | null = null
   private lastReviews = new Map<string, ReviewsFrame>()
+  private lastGroup: GroupFrame | null = null
+  private preparingRequestId: string | null = null
   private pendingTelemetry: TelemetryFrameT[] = []
   private status: HubStatusMessage = { state: 'disabled' }
   private disconnectReported = false
 
   constructor(private readonly deps: BrokerDeps) {
+    void deps.loadSavedGroup?.().then((saved) => {
+      if (saved && !this.lastGroup) {
+        this.lastGroup = saved
+        this.broadcast({ kind: 'frame', frame: saved })
+      }
+    }).catch(() => undefined)
     deps.client.on('status', (s) => this.onClientStatus(s))
     deps.client.on('frame', (f) => this.onHubFrame(f))
     deps.client.on('connected', ({ connectMs }) => {
@@ -115,10 +129,14 @@ export class McpBroker {
         if (this.lastState) this.post(port, { kind: 'frame', frame: this.lastState })
         const reviews = req.repoKey ? this.lastReviews.get(req.repoKey) : undefined
         if (reviews) this.post(port, { kind: 'frame', frame: reviews })
+        if (this.lastGroup) this.post(port, { kind: 'frame', frame: this.lastGroup })
         return
       }
       case 'frame':
         this.forward(entry, req.frame)
+        if (req.frame.type === 'register' && port.sender?.tab?.active) {
+          this.deps.client.send({ v: 1, id: crypto.randomUUID(), ts: Date.now(), type: 'activate', documentId: req.frame.documentId })
+        }
         return
       case 'setMcpAccess':
         if (req.value === 'enabled' && !(await this.deps.hasHostPermission())) {
@@ -136,6 +154,13 @@ export class McpBroker {
       case 'openOptions':
         await this.deps.openOptions()
         return
+      case 'continueGroup': {
+        if (!this.lastGroup?.group || !this.deps.reviewTabs) return
+        await this.deps.reviewTabs.continue(this.lastGroup.group)
+        const remaining = this.lastGroup.group.items.filter((item) => item.outcome === 'pending').length
+        this.sendTelemetry(buildTelemetryFrame('pr_panel_group_resumed', { remaining_pr_count: remaining }))
+        return
+      }
     }
   }
 
@@ -164,6 +189,12 @@ export class McpBroker {
     this.deps.client.send(frame)
   }
 
+  activateBrowserTab(tabId: number): void {
+    const entry = [...this.ports.entries()].find(([port, value]) => port.sender?.tab?.id === tabId && value.register)?.[1]
+    if (entry?.documentId) this.deps.client.send({ v: 1, id: crypto.randomUUID(), ts: Date.now(), type: 'activate', documentId: entry.documentId })
+    else this.deps.client.send({ v: 1, id: crypto.randomUUID(), ts: Date.now(), type: 'clearActive' })
+  }
+
   private sendTelemetry(frame: TelemetryFrameT): void {
     if (this.deps.client.send(frame)) return
     this.pendingTelemetry.push(frame)
@@ -177,6 +208,21 @@ export class McpBroker {
   private onHubFrame(frame: HubFrame): void {
     if (frame.type === 'state') this.lastState = frame
     if (frame.type === 'reviews') this.lastReviews.set(frame.repoKey, frame)
+    if (frame.type === 'group') {
+      const shouldOpen = frame.group?.status === 'ready' && frame.group.groupId === this.preparingRequestId
+      this.lastGroup = frame
+      void this.deps.saveGroup?.(frame).catch(() => undefined)
+      if (frame.preparation && !frame.preparation.error) this.preparingRequestId = frame.preparation.requestId
+      if (shouldOpen && frame.group) {
+        this.preparingRequestId = null
+        void this.deps.reviewTabs?.openInitial(frame.group)
+      }
+    }
+    if (frame.type === 'reviewItemResult' && frame.source === 'ai' && frame.documentId && this.lastGroup?.group) {
+      const origin = [...this.ports.values()].find((entry) => entry.documentId === frame.documentId)
+      const tabId = origin ? [...this.ports.entries()].find(([, entry]) => entry === origin)?.[0].sender?.tab?.id : undefined
+      void this.deps.reviewTabs?.advanceAfterAi(this.lastGroup.group, frame.pr, tabId)
+    }
     this.broadcast({ kind: 'frame', frame })
   }
 

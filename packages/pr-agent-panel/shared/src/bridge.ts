@@ -10,6 +10,8 @@ import {
   DeliveryChannelSchema,
   PageSessionSchema,
   PrRefSchema,
+  ReviewGroupPreparationSchema,
+  ReviewGroupSchema,
   ReviewSummarySchema,
   TaskSchema,
 } from './domain'
@@ -45,6 +47,7 @@ export const ActivateFrame = Base.extend({
   type: z.literal('activate'),
   documentId: z.string().min(1),
 })
+export const ClearActiveFrame = Base.extend({ type: z.literal('clearActive') })
 
 export const ListReviewsFrame = Base.extend({
   type: z.literal('listReviews'),
@@ -67,6 +70,17 @@ export const CancelTaskFrame = Base.extend({
 
 export const PingFrame = Base.extend({ type: z.literal('ping') })
 
+export const ListGroupFrame = Base.extend({ type: z.literal('listGroup') })
+
+/** A native GitHub action is a hint only; the Hub confirms its remote outcome. */
+export const NativeResultHintFrame = Base.extend({
+  type: z.literal('nativeResultHint'),
+  documentId: z.string().min(1),
+  groupId: z.string().min(1),
+  pr: PrRefSchema,
+  action: z.enum(['merge', 'close']),
+})
+
 /**
  * UI analytics the Hub forwards to Mixpanel under feature_area=pr_agent_panel,
  * surface=github_pr. Only these events and only bounded properties: the Hub
@@ -83,10 +97,13 @@ export const TelemetryFrame = Base.extend({
     'pr_panel_hub_disconnected',
     'pr_panel_message_sent',
     'pr_panel_preferences_changed',
+    'pr_panel_material_stale_shown',
+    'pr_panel_group_resumed',
   ]),
   props: z
     .object({
       review_count: z.number().int().nonnegative().optional(),
+      remaining_pr_count: z.number().int().nonnegative().optional(),
       scope_mode: z.literal('mine').optional(),
       scope_outcome: z.enum(['resolved', 'identity_unavailable']).optional(),
       visible_review_count: z.number().int().nonnegative().optional(),
@@ -110,10 +127,13 @@ export const ExtensionFrameSchema = z.discriminatedUnion('type', [
   RegisterFrame,
   UnregisterFrame,
   ActivateFrame,
+  ClearActiveFrame,
   ListReviewsFrame,
   UserMessageFrame,
   CancelTaskFrame,
   PingFrame,
+  ListGroupFrame,
+  NativeResultHintFrame,
   TelemetryFrame,
 ])
 export type ExtensionFrame = z.infer<typeof ExtensionFrameSchema>
@@ -141,6 +161,23 @@ export const ReviewsFrame = Base.extend({
   repoKey: z.string().min(1),
   items: z.array(ReviewSummarySchema),
   inReplyTo: z.string().optional(),
+})
+
+export const GroupFrame = Base.extend({
+  type: z.literal('group'),
+  group: ReviewGroupSchema.nullable(),
+  preparation: ReviewGroupPreparationSchema.nullable(),
+  inReplyTo: z.string().optional(),
+})
+
+export const ReviewItemResultFrame = Base.extend({
+  type: z.literal('reviewItemResult'),
+  groupId: z.string().min(1),
+  pr: PrRefSchema,
+  outcome: z.enum(['merged', 'closed']),
+  /** Only the originating tab may offer automatic next navigation. */
+  documentId: z.string().optional(),
+  source: z.enum(['native', 'ai', 'external']),
 })
 
 export const TaskEventPayload = z.discriminatedUnion('kind', [
@@ -198,6 +235,8 @@ export const HubFrameSchema = z.discriminatedUnion('type', [
   RegisteredFrame,
   StateFrame,
   ReviewsFrame,
+  GroupFrame,
+  ReviewItemResultFrame,
   TaskEventFrame,
   MessageQueuedFrame,
   MessageDeliveredFrame,

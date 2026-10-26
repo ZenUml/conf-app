@@ -24,7 +24,7 @@ describe('HubRuntime: page sessions', () => {
     expect(bad.last('error')?.code).toBe('protocol_mismatch')
 
     const conn = connectExtension(runtime)
-    expect(conn.frames.map((f) => f.type)).toEqual(['registered', 'state'])
+    expect(conn.frames.map((f) => f.type)).toEqual(['registered', 'state', 'group'])
   })
 
   it('register makes the first tab active, activate switches, unregister clears; every change pushes state', () => {

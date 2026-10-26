@@ -217,6 +217,8 @@ export type AnalyticsProperties = {
   png_export_placeholder_reason?: 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'missing';
   /** Property operation whose failure did not interrupt saving or export. */
   png_export_property_operation?: 'read' | 'create' | 'update';
+  /** Why a PNG state property write was skipped rather than failed. */
+  png_export_skip_reason?: 'page_unavailable';
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
   // _failed), plus the benign ordinary-chat ai_chat_no_change outcome.
   // `duration_ms` below is click-to-visible-result wall time;

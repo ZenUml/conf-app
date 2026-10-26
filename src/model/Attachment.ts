@@ -10,7 +10,7 @@ import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import { writePngState } from '@/lib/pngExportState.js';
+import { describePngStateFailure, writePngState } from '@/lib/pngExportState.js';
 import { rateLimitCooldownRemainingMs, startRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 type PngState = 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready';
@@ -23,11 +23,14 @@ async function recordPngState(
 ): Promise<void> {
   try {
   const { requestConfluence } = await import('@forge/bridge');
+  // Full reason (`post_http_409`, `property_timeout`) plus `http_status`, the
+  // same vocabulary as the backend surfaces. A 404 page is a skip, not a fault.
   const reportFailure = (operation: 'read' | 'create' | 'update', error: unknown) => {
-    trackAnalyticsEvent('png_export_state_persistence_failed', {
+    const { outcome, ...failure } = describePngStateFailure(operation, error);
+    trackAnalyticsEvent(outcome === 'skipped' ? 'png_export_state_persistence_skipped' : 'png_export_state_persistence_failed', {
       feature_area: 'macro', surface, page_id: pageId,
       custom_content_id: customContentId, png_export_property_operation: operation,
-      failure_reason: error instanceof Error ? error.message.split('_')[0] : 'unknown',
+      ...failure,
     });
   };
   const ok = await writePngState(
@@ -35,7 +38,12 @@ async function recordPngState(
       method: method as 'GET' | 'POST' | 'PUT',
       ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
     }),
-    { pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt },
+    {
+      pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt,
+      // The editor's save blocks on this write under a 6s cap that must also
+      // cover the PNG capture, so it gets no conflict-retry time beyond one request.
+      ...(surface === 'editor' ? { deadlineMs: 1500 } : {}),
+    },
     reportFailure,
   );
   if (ok) trackAnalyticsEvent('png_export_state_changed', {

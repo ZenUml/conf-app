@@ -14,8 +14,13 @@ export function completedItemForPage(group: ReviewGroup | null, pr: PrRef | null
   return group.items.find((item) => repoKeyOf(item.pr) === repoKeyOf(pr) && item.pr.number === pr.number && item.outcome === feedback.outcome) ?? null
 }
 
-export function shouldShowReviewList(group: ReviewGroup | null, pr: PrRef | null, feedback: CompletionFeedback | null): boolean {
+/**
+ * `awaitingNativeResult`: this page saw the user confirm a native merge or close and is waiting for the
+ * Hub's result frame. The updated group arrives first, so keep the rail for this member PR until then.
+ */
+export function shouldShowReviewList(group: ReviewGroup | null, pr: PrRef | null, feedback: CompletionFeedback | null, awaitingNativeResult = false): boolean {
   if (!group || !pr) return false
+  if (awaitingNativeResult && group.items.some((item) => repoKeyOf(item.pr) === repoKeyOf(pr) && item.pr.number === pr.number)) return true
   return group.items.some((item) => repoKeyOf(item.pr) === repoKeyOf(pr) && item.pr.number === pr.number && item.outcome === 'pending')
     || completedItemForPage(group, pr, feedback) !== null
 }

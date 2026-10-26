@@ -5,7 +5,7 @@
 .rg-header h2 { margin: 5px 0 8px; font-size: 17px; line-height: 1.25; font-weight: 700; }
 .rg-note { margin: 0; color: #59636e; font-size: 12px; }
 .rg-error { margin: 0; color: #b42318; font-size: 12px; }
-.rg-rows { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.rg-rows { flex: 1 1 auto; min-height: 0; list-style: none; margin: 0; padding: 0; overflow-y: auto; }
 .rg-rows li { margin: 0; padding: 0; }
 .rg-row { display: flex; flex-direction: column; width: 100%; gap: 7px; padding: 15px 18px; border: 0; border-bottom: 1px solid #d8dee4; background: #fff; text-align: left; cursor: pointer; font: inherit; }
 .rg-row:hover { background: #f6f8fa; }

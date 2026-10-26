@@ -29,4 +29,12 @@ describe('review group page visibility', () => {
     expect(shouldShowReviewList(done, second, { groupId: group.groupId, pr: second, outcome: 'closed', autoAdvance: false })).toBe(true)
     expect(shouldShowReviewList(done, second, null)).toBe(false)
   })
+
+  it('keeps the rail while a native merge or close it saw on this page waits for its result frame', () => {
+    const completed: ReviewGroup = { ...group, items: [{ ...group.items[0]!, outcome: 'merged' }, group.items[1]!] }
+    // The updated group arrives before reviewItemResult, so there is no completion feedback yet.
+    expect(shouldShowReviewList(completed, first, null, true)).toBe(true)
+    expect(shouldShowReviewList(completed, first, null, false)).toBe(false)
+    expect(shouldShowReviewList(completed, { ...first, number: 99 }, null, true)).toBe(false)
+  })
 })

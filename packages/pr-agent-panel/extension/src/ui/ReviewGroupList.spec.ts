@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import type { ReviewGroup } from '@zenuml/pr-panel-shared'
@@ -37,5 +38,15 @@ describe('ReviewGroupList completion transition', () => {
     expect(wrapper.findAll('[data-testid="completed-row"]')).toHaveLength(1)
     expect(wrapper.find('.rg-next').exists()).toBe(false)
     expect(wrapper.find('.rg-stay').exists()).toBe(false)
+  })
+})
+
+describe('review rail layout', () => {
+  it('lets the round rows shrink and scroll so the completion actions stay on screen', () => {
+    const css = readFileSync('src/ui/list.css', 'utf8')
+    const rows = css.match(/\.rg-rows\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(rows).toMatch(/overflow-y:\s*auto/)
+    expect(rows).toMatch(/flex:\s*1 1 auto/)
+    expect(rows).toMatch(/min-height:\s*0/)
   })
 })

@@ -33,7 +33,7 @@ export function createPageController(ctx: ContentScriptContext) {
   let materialNotice: HTMLElement | null = null
   let listMountGeneration = 0
 
-  const listVisible = () => shouldShowReviewList(state.group, state.pr, completionFeedback.value)
+  const listVisible = () => shouldShowReviewList(state.group, state.pr, completionFeedback.value, resultHintSent && !completionFeedback.value)
 
   function telemetry(event: TelemetryEvent, props: TelemetryProps = {}) {
     try {
@@ -343,7 +343,8 @@ export function createPageController(ctx: ContentScriptContext) {
   }
 
   function cancelAdvance() {
-    if (!nextTimer) return
+    // Also covers the moment before the timer starts, while Next / Stay are still mounting.
+    if (!nextTimer && !completionFeedback.value?.autoAdvance) return
     clearNextTimer()
     if (completionFeedback.value) completionFeedback.value = { ...completionFeedback.value, autoAdvance: false }
   }
@@ -353,10 +354,12 @@ export function createPageController(ctx: ContentScriptContext) {
     if (!state.group || !state.pr) return
     const next = store.pendingGroupItems.value[0]
     completionFeedback.value = { groupId: state.group.groupId, pr: state.pr, outcome, autoAdvance: !!next }
-    void mountList()
-    if (next) {
+    // Start the 3-second advance only once Next / Stay are on screen.
+    void mountList().then(() => {
+      if (!next || !completionFeedback.value?.autoAdvance) return
+      clearNextTimer()
       nextTimer = setTimeout(() => { nextTimer = null; location.assign(next.pr.url ?? `https://${next.pr.host}/${next.pr.owner}/${next.pr.repo}/pull/${next.pr.number}`) }, 3000)
-    }
+    })
   }
 
   function onPageClick(event: PointerEvent) {

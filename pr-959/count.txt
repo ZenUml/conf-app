@@ -1,0 +1,4 @@
+assignments to forgeGlobal / globals.apWrapper members in story files (src/**/*.stories.ts + fixtures), merge-base vs head
+merge-base:       83
+head:        6
+stories with a hand-written snapshot/restore (afterEach/onUnmounted restoring forgeGlobal), merge-base:        1 head:        0

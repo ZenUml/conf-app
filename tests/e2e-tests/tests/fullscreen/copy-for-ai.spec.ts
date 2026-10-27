@@ -42,7 +42,7 @@ function writeEvidence(name: string, body: string | Buffer): void {
   fs.writeFileSync(path.join(EVIDENCE_DIR, name), body);
 }
 
-test.describe('Copy for AI button', { tag: ['@test:copy-for-ai', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@ai'] }, () => {
+test.describe('Copy for AI button', { tag: ['@test:copy-for-ai', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@ai', '@feature:copy-for-ai', '@interface:inline-viewer', '@scenario:copy-for-ai:inline-viewer'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('mermaid'), 'mermaid not in profile');
 

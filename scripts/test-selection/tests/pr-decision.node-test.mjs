@@ -1,10 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { MARKER, catalog, readContext, validateDecision, findDecision, authorize, publish, synchronize, recordDeletedDecision } from '../pr-decision.mjs';
 import { CATEGORIES } from '../../../tests/e2e-tests/config/categories.mjs';
 
 const HEAD = 'a'.repeat(40), BASE = 'b'.repeat(40), MERGE = 'c'.repeat(40), TREE = 'd'.repeat(40);
 const category = CATEGORIES[0].id;
+const pair = { feature: 'rendering', interface: 'inline-viewer' };
 const comment = (decision, id = 10, overrides = {}) => ({
   id, body: `${MARKER}\n\`\`\`json\n${JSON.stringify(decision)}\n\`\`\``, user: { login: 'maintainer' },
   created_at: '2026-10-27T00:00:00Z', updated_at: '2026-10-27T00:00:00Z', html_url: `https://github.com/example/repo/pull/42#issuecomment-${id}`, ...overrides,
@@ -43,9 +48,9 @@ async function fixture() {
   };
   const context = await readContext(api, 42);
   const decision = {
-    schema_version: 1, ...catalog, pr_number: 42, head_sha: HEAD, base_sha: BASE, diff_fingerprint: context.diff_fingerprint,
-    mode: 'selected', source: 'labeling', categories: [], reason: 'Documentation does not change runtime behavior.',
-    evidence: [{ paths: context.paths, categories: [], reason: 'Reviewed the complete documentation diff.' }],
+    schema_version: 2, ...catalog, pr_number: 42, head_sha: HEAD, base_sha: BASE, diff_fingerprint: context.diff_fingerprint,
+    mode: 'selected', source: 'labeling', scenarios: [], reason: 'Documentation does not change runtime behavior.',
+    evidence: [{ paths: context.paths, scenarios: [], reason: 'Reviewed the complete documentation diff.' }],
   };
   return { state, api, context, decision };
 }
@@ -91,7 +96,7 @@ test('full execution requires explicit triage source and explanation', async () 
   assert.equal(validateDecision({ ...f.decision, mode: 'all', source: 'triage', full_reason: ' ' }, f.context).valid, false);
   const full = { ...f.decision, mode: 'all', source: 'triage', full_reason: 'All rendering and persistence contracts changed.' };
   assert.equal(validateDecision(full, f.context).valid, true);
-  assert.equal(validateDecision({ ...f.decision, categories: CATEGORIES.map(c => c.id) }, f.context).reason, 'all-categories-need-triage');
+  assert.equal(validateDecision({ ...f.decision, categories: [category] }, f.context).reason, 'invalid-decision');
   f.state.comments = [comment(full)];
   const authorized = await authorize(f.api, 42);
   assert.equal(authorized.resolved.mode, 'all'); assert.equal(authorized.resolved.grep, '');
@@ -101,8 +106,8 @@ test('every changed path needs evidence and evidence may only name selected cate
   const f = await fixture();
   assert.equal(validateDecision({ ...f.decision, evidence: [] }, f.context).reason, 'missing-path-evidence');
   assert.equal(validateDecision(f.decision, { ...f.context, paths: [...f.context.paths, 'src/extra.ts'] }).reason, 'unreviewed-path');
-  assert.equal(validateDecision({ ...f.decision, evidence: [{ paths: ['unrelated'], categories: [], reason: 'Reviewed' }] }, f.context).reason, 'invalid-path-evidence');
-  assert.equal(validateDecision({ ...f.decision, evidence: [{ ...f.decision.evidence[0], categories: [category] }] }, f.context).reason, 'evidence-category-not-selected');
+  assert.equal(validateDecision({ ...f.decision, evidence: [{ paths: ['unrelated'], scenarios: [], reason: 'Reviewed' }] }, f.context).reason, 'invalid-path-evidence');
+  assert.equal(validateDecision({ ...f.decision, evidence: [{ ...f.decision.evidence[0], scenarios: [pair] }] }, f.context).reason, 'evidence-scenario-not-selected');
 });
 
 test('incomplete file discovery rejects even an otherwise approved PR', async () => {
@@ -117,7 +122,7 @@ test('renames require review evidence for both original and new paths', async ()
   assert.deepEqual(context.paths, ['docs/new.md', 'docs/old.md']);
   assert.deepEqual(context.removed_paths, ['docs/old.md']);
   const decision = { ...f.decision, diff_fingerprint: context.diff_fingerprint,
-    evidence: [{ paths: ['docs/new.md'], categories: [], reason: 'Reviewed destination.' }] };
+    evidence: [{ paths: ['docs/new.md'], scenarios: [], reason: 'Reviewed destination.' }] };
   assert.equal(validateDecision(decision, context).reason, 'unreviewed-path');
   decision.evidence[0].paths = context.paths;
   assert.equal(validateDecision(decision, context).valid, true);
@@ -132,7 +137,7 @@ test('removed and renamed original paths are stamped into the authorized selecti
   const context = await readContext(f.api, 42);
   assert.deepEqual(context.removed_paths, ['docs/deleted.md', 'docs/old.md']);
   f.state.comments = [comment({ ...f.decision, diff_fingerprint: context.diff_fingerprint,
-    evidence: [{ paths: context.paths, categories: [], reason: 'Reviewed removed and moved documentation.' }] })];
+    evidence: [{ paths: context.paths, scenarios: [], reason: 'Reviewed removed and moved documentation.' }] })];
   const authorized = await authorize(f.api, 42);
   assert.deepEqual(authorized.selection.removed_paths, context.removed_paths);
 });
@@ -197,8 +202,8 @@ test('synchronization replaces generated labels, preserves unrelated labels and 
 
 test('a valid decision updates selected labels without automatically making a Draft Ready', async () => {
   const f = await fixture(); f.state.labels = ['test:triage', 'test:jev-all'];
-  const result = await synchronize(f.api, f.context, { valid: true, decision: { ...f.decision, categories: [category] }, comment_id: 10 });
-  assert.equal(result.executable, true); assert.deepEqual(f.state.labels.sort(), [`test:${category}`, 'test:selected'].sort());
+  const result = await synchronize(f.api, f.context, { valid: true, decision: { ...f.decision, scenarios: [pair] }, comment_id: 10 });
+  assert.equal(result.executable, true); assert.deepEqual(f.state.labels.sort(), ['feature:rendering', 'interface:inline-viewer', 'test:selected'].sort());
   assert.equal(f.state.pr.draft, true); assert.equal(f.state.calls.some(c => c.path === 'graphql'), false);
 });
 
@@ -302,5 +307,97 @@ test('deletions without verifiable author permission cannot write a blocker', as
     return f.api(path, ...args);
   };
   assert.equal(await recordDeletedDecision(unavailable, f.context, event, 'issue_comment'), false);
+  assert.equal(f.state.calls.some(c => c.method !== 'GET'), false);
+});
+
+test('pair authorization rejects legacy, cross-pair, unused and stale coverage decisions', async () => {
+  const f = await fixture();
+  const other = { feature: 'editing', interface: 'fullscreen-editor' };
+  const accepted = { ...f.decision, scenarios: [pair], evidence: [{ ...f.decision.evidence[0], scenarios: [pair] }] };
+  assert.equal(validateDecision(accepted, f.context).valid, true);
+  assert.equal(validateDecision({ ...accepted, scenario_coverage_fingerprint: 'old' }, f.context).reason, 'stale-policy-or-catalog');
+  assert.equal(validateDecision({ ...accepted, schema_version: 1 }, f.context).reason, 'missing-or-stale-decision');
+  assert.equal(validateDecision({ ...accepted, scenarios: [pair, other] }, f.context).reason, 'unused-selected-scenario');
+  assert.equal(validateDecision({ ...accepted, evidence: [{ ...accepted.evidence[0], scenarios: [other] }] }, f.context).reason, 'evidence-scenario-not-selected');
+  assert.equal(validateDecision({ ...accepted, scenarios: [{ feature: pair.feature, interface: other.interface }] }, f.context).valid, false);
+});
+
+test('a newer trusted v1 comment blocks an older approval', async () => {
+  const f = await fixture();
+  f.state.comments = [comment(f.decision), comment(f.decision, 11, { body: '<!-- pr-test-decision:v1 -->\n```json\n{}\n```' })];
+  assert.equal((await findDecision(f.api, f.context)).reason, 'edited-or-malformed-decision');
+});
+
+test('a valid pair with only AsyncAPI coverage cannot authorize the Lite PR inventory', async () => {
+  const f = await fixture();
+  const asyncPair = {feature:'diagram-discovery', interface:'api-dashboard'};
+  const decision = {...f.decision, scenarios:[asyncPair], evidence:[{...f.decision.evidence[0], scenarios:[asyncPair]}]};
+  assert.equal(validateDecision(decision, f.context).reason, 'scenario-without-e2e-coverage');
+});
+
+
+test('published full approval survives a candidate product and coverage catalog change through planning', async () => {
+  const f = await fixture();
+  const approval = {...f.decision, mode:'all', source:'triage', full_reason:'Catalog maintenance requires the full candidate inventory.'};
+  const published = await publish(f.api, f.context, approval);
+  assert.equal(published.executable, true);
+  const {selection} = await authorize(f.api, 42);
+  const temp = mkdtempSync(join(tmpdir(), 'pr-candidate-catalog-'));
+  try {
+    const root = resolve('.');
+    for (const path of ['scripts/test-selection', 'scripts/e2e-select.mjs', 'tests/e2e-tests/config', 'tests/e2e-tests/tests', 'IMPACT-MAP.md']) {
+      mkdirSync(join(temp, path, '..'), {recursive:true});
+      cpSync(join(root, path), join(temp, path), {recursive:true});
+    }
+    const map = join(temp, 'IMPACT-MAP.md');
+    writeFileSync(map, readFileSync(map, 'utf8') + '\n');
+    const spec = join(temp, 'tests/e2e-tests/tests/render/sequence.spec.ts');
+    const original = readFileSync(spec, 'utf8');
+    const changed = original.replace("'@scenario:rendering:inline-viewer'", "'@scenario:rendering:inline-viewer', '@scenario:feedback-report:inline-viewer'");
+    assert.notEqual(changed, original);
+    writeFileSync(spec, changed);
+    const script = `
+      import { resolveSelection } from './scripts/test-selection/resolve.mjs';
+      import { scopedPlan } from './scripts/test-selection/scoped-plan.mjs';
+      import { PRODUCT_IMPACT_FINGERPRINT } from './tests/e2e-tests/config/product-impact.mjs';
+      import { SCENARIO_COVERAGE, API_LANES } from './tests/e2e-tests/config/scenario-coverage.mjs';
+      import { createHash } from 'node:crypto';
+      let input=''; for await (const chunk of process.stdin) input+=chunk;
+      const selection=JSON.parse(input), files=selection.source_paths, head=selection.head_sha, tree=selection.tested_tree;
+      const resolved=resolveSelection({selection,files,head,tree});
+      const discovery={config:{projects:[{name:'fullscreen'}]},suites:[{title:'tests',specs:[{id:'one',file:'fullscreen/example.spec.ts',line:1,title:'example',tags:['@test:sequence','@variant:lite','@smoke'],tests:[{projectName:'fullscreen'}]}]}]};
+      const plan=scopedPlan({discover:()=>discovery,selection,resolved,head,tree,policy:selection.policy_version,variant:'lite',scope:'all',shards:1,grep:resolved.grep,sourcePaths:files,selectionScope:'pr',requireAgentDecision:true});
+      let selectedError=''; try { resolveSelection({selection:{...selection,mode:'selected'},files,head,tree}); } catch(e) { selectedError=e.message; }
+      process.stdout.write(JSON.stringify({resolved, count:plan.tests.length, currentProduct:PRODUCT_IMPACT_FINGERPRINT, currentCoverage:createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex'), selectedError}));
+    `;
+    const result = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], {cwd:temp, input:JSON.stringify(selection), encoding:'utf8'}));
+    assert.notEqual(result.currentProduct, selection.product_impact_fingerprint);
+    assert.notEqual(result.currentCoverage, selection.scenario_coverage_fingerprint);
+    assert.equal(result.resolved.product_impact_fingerprint, selection.product_impact_fingerprint);
+    assert.equal(result.resolved.scenario_coverage_fingerprint, selection.scenario_coverage_fingerprint);
+    assert.equal(result.count, 1);
+    assert.match(result.selectedError, /invalid-agent-decision/);
+  } finally { rmSync(temp, {recursive:true, force:true}); }
+});
+
+
+test('removing a triage comment marker leaves a durable blocker before old approval can revive', async () => {
+  const f = await fixture();
+  const old = comment(f.decision);
+  const triage = comment({ ...f.decision, mode: 'triage' }, 11);
+  const edited = { ...triage, body: 'Ordinary text', updated_at: '2026-10-27T00:00:01Z' };
+  f.state.comments = [old, edited]; f.state.actor = 'github-actions[bot]';
+  const event = { action: 'edited', issue: { number: 42, pull_request: {} }, comment: edited, changes: { body: { from: triage.body } } };
+  assert.equal(await recordDeletedDecision(f.api, f.context, event, 'issue_comment'), true);
+  await assert.rejects(authorize(f.api, 42), /decision-deleted/);
+  assert.equal(await recordDeletedDecision(f.api, f.context, event, 'issue_comment'), false);
+  f.state.comments.push(comment(f.decision, 21));
+  assert.equal((await findDecision(f.api, f.context)).valid, true);
+});
+
+test('editing an ordinary comment cannot manufacture a revocation', async () => {
+  const f = await fixture();
+  const event = { action: 'edited', issue: { number: 42, pull_request: {} }, comment: comment(f.decision), changes: { body: { from: 'Ordinary text' } } };
+  assert.equal(await recordDeletedDecision(f.api, f.context, event, 'issue_comment'), false);
   assert.equal(f.state.calls.some(c => c.method !== 'GET'), false);
 });

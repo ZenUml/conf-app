@@ -51,6 +51,17 @@ jobs:
           echo "candidate=$CANDIDATE" >> "$GITHUB_OUTPUT"
           echo "pr-number=$PR" >> "$GITHUB_OUTPUT"
           echo 'run=true' >> "$GITHUB_OUTPUT"
+      - name: Record parent candidate provenance
+        env:
+          PR: ${{ steps.gate.outputs.pr-number }}
+          CANDIDATE: ${{ steps.gate.outputs.candidate }}
+        run: |
+          jq -n --arg pr "$PR" --arg candidate "$CANDIDATE" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" '{pr: $pr, candidate: $candidate, run: $run, attempt: $attempt}' > pr-parent-provenance.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pr-parent-provenance-${{ github.run_attempt }}
+          path: pr-parent-provenance.json
+          if-no-files-found: error
 
   build:
     if: needs.gate.outputs.run == 'true'

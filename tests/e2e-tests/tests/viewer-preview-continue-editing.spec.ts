@@ -1,5 +1,6 @@
 /**
- * Editor-modal paywall gate — retired block, SPA test against the local Vite dev server.
+ * Editor-modal non-blocking regression, SPA test against the local Vite dev server.
+ * The former blocking capability is retired; the current absence-of-blocking assertions remain valid.
  *
  * Drives the real `tryPageEditorPaywall` gate (src/utils/paywall/mountPaywallGate.ts)
  * through the editor-preview.html harness — the editor-modal counterpart to
@@ -28,7 +29,7 @@ import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('editor-preview.html')
 
-test.describe('Editor-modal paywall gate — retired block', { tag: ['@editor', '@paywall'] }, () => {
+test.describe('Editor mounts without a blocking paywall', { tag: ['@editor', '@paywall', '@check:negative-regression', '@execution:preview'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } })
 
   test('Over-limit space still mounts the editor directly; no paywall gate appears', async ({ page }) => {

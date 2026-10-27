@@ -25,7 +25,7 @@ import {
   readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Forge bridge fullscreen modal — cross-cutting chrome', { tag: ['@test:cross-cutting', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@modal', '@sequence'] }, () => {
+test.describe('Forge bridge fullscreen modal — cross-cutting chrome', { tag: ['@test:cross-cutting', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@modal', '@sequence', '@feature:draft-recovery', '@interface:editor', '@scenario:draft-recovery:editor'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only; Connect uses different chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required to mount the modal');
 

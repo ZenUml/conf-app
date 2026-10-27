@@ -1,10 +1,14 @@
 import process from 'node:process';
+import { createHash } from 'node:crypto';
+import { SCENARIO_COVERAGE, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { select, selectAgentFloor } from '../e2e-select.mjs';
 import { CATEGORIES, CATEGORY_VERSION } from '../../tests/e2e-tests/config/categories.mjs';
 import { CATEGORY_SELECTION_THRESHOLD, POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
+import { dependencyTagsForScenarios } from '../../tests/e2e-tests/config/scenario-dependencies.mjs';
+import { validScenarios, scenarioKey, scenarioTag, PRODUCT_IMPACT_FINGERPRINT } from '../../tests/e2e-tests/config/product-impact.mjs';
 
 export const categoryGrep = categories => categories.map(tag => `(?:^|\\s)${tag}(?=\\s|$)`).join('|');
 
@@ -23,9 +27,12 @@ export function decisionError({ selection, head, tree }) {
 }
 
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
+const fingerprint = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const structuralScenarios = value => Array.isArray(value) && value.every(pair => pair && typeof pair === 'object' && Object.keys(pair).sort().join(',') === 'feature,interface' && typeof pair.feature === 'string' && typeof pair.interface === 'string' && /^[a-z0-9-]+$/.test(pair.feature) && /^[a-z0-9-]+$/.test(pair.interface)) && new Set(value.map(scenarioKey)).size === value.length;
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 export function agentDecisionError(selection) {
-  if (selection.selection_scope !== 'pr' || selection.execution_mode !== 'enabled'
+  if (!fingerprint(selection.scenario_coverage_fingerprint) || !fingerprint(selection.product_impact_fingerprint) || selection.decision_schema_version !== 2 || !structuralScenarios(selection.scenarios)
+      || selection.selection_scope !== 'pr' || selection.execution_mode !== 'enabled'
       || !['selected', 'all'].includes(selection.mode) || selection.fallback_reason
       || selection.diff_complete !== true || (!Array.isArray(selection.required) || !selection.required.includes('smoke'))
       || !Number.isSafeInteger(selection.decision_id) || selection.decision_id < 1
@@ -35,27 +42,14 @@ export function agentDecisionError(selection) {
       || !Array.isArray(selection.source_paths) || !selection.source_paths.length
       || selection.source_paths.some(path => !nonempty(path) || /[\r\n]/.test(path))
       || !Array.isArray(selection.removed_paths) || selection.removed_paths.some(path => !selection.source_paths.includes(path))) return 'invalid-agent-decision';
+  if (selection.mode === 'selected' && (selection.product_impact_fingerprint !== PRODUCT_IMPACT_FINGERPRINT || selection.scenario_coverage_fingerprint !== createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex') || !validScenarios(selection.scenarios))) return 'invalid-agent-decision';
+  if (selection.mode === 'selected' && selection.scenarios.some(pair => !hasPrCoverage(pair))) return 'scenario-without-e2e-coverage';
   if (selection.mode === 'all' && (selection.source !== 'triage' || !nonempty(selection.full_reason))) return 'full-requires-triage';
   const categories = selection.categories;
   if (!categories || typeof categories !== 'object' || Array.isArray(categories)
       || Object.keys(categories).length !== CATEGORIES.length
-      || CATEGORIES.some(c => typeof categories[c.id]?.selected !== 'boolean')) return 'invalid-agent-categories';
+      || CATEGORIES.some(c => categories[c.id]?.selected !== false)) return 'invalid-agent-categories';
   return null;
-}
-
-// Dependencies in the behavior catalog are required even when the agent only
-// names the changed behavior. They widen the decision without invoking a model.
-export function agentCategoryTags(selection) {
-  const selected = new Set(CATEGORIES.filter(c => selection.categories[c.id].selected).map(c => c.id));
-  const byId = new Map(CATEGORIES.map(c => [c.id, c]));
-  const visit = id => {
-    for (const dependency of byId.get(id)?.dependencies ?? []) {
-      if (!byId.has(dependency)) throw new Error('PR test decision blocked: unknown category dependency');
-      if (!selected.has(dependency)) { selected.add(dependency); visit(dependency); }
-    }
-  };
-  [...selected].forEach(visit);
-  return CATEGORIES.filter(c => selected.has(c.id)).map(c => `@test:${c.id}`);
 }
 
 export function resolveAgentSelection({ selection, files, head, tree }) {
@@ -63,8 +57,9 @@ export function resolveAgentSelection({ selection, files, head, tree }) {
   if (invalid || selection?.decision_source !== 'agent') throw new Error(`PR test decision blocked: ${invalid || 'missing-agent-decision'}`);
   if (!Array.isArray(files) || JSON.stringify([...files].sort()) !== JSON.stringify([...selection.source_paths].sort())) throw new Error('PR test decision blocked: changed paths differ');
   const floor = selectAgentFloor(files, { removedPaths: selection.removed_paths });
-  const chosen = agentCategoryTags(selection);
-  const agentGrep = categoryGrep(chosen);
+  const chosen = selection.mode === 'all' ? [] : selection.scenarios.map(scenarioTag);
+  const dependencies = selection.mode === 'all' ? [] : dependencyTagsForScenarios(selection.scenarios, { directFiles: floor.direct_test_files, floorTags: floor.tags });
+  const agentGrep = categoryGrep([...chosen, ...dependencies]);
   return {
     mode: selection.mode, selection_scope: 'pr', decision_source: 'agent', decision_id: selection.decision_id,
     pr_number: selection.pr_number, pr_head_sha: selection.pr_head_sha, base_sha: selection.base_sha,
@@ -72,10 +67,11 @@ export function resolveAgentSelection({ selection, files, head, tree }) {
     selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT,
     source_paths: [...files], removed_paths: [...selection.removed_paths], direct_test_files: floor.direct_test_files,
     deterministic_tags: floor.tags, deterministic_grep: floor.tags.join('|'),
-    agent_categories: chosen, agent_grep: agentGrep,
-    tags: selection.mode === 'all' ? [] : [...new Set([...floor.tags, ...chosen])].sort(),
+    agent_categories: dependencies, agent_scenarios: selection.scenarios, agent_scenario_tags: chosen, agent_grep: agentGrep,
+    decision_schema_version: 2, product_impact_fingerprint: selection.product_impact_fingerprint, scenario_coverage_fingerprint: selection.scenario_coverage_fingerprint,
+    tags: selection.mode === 'all' ? [] : [...new Set([...floor.tags, ...chosen, ...dependencies])].sort(),
     grep: selection.mode === 'all' ? '' : [...floor.tags, ...(agentGrep ? [agentGrep] : [])].join('|'),
-    reasons: selection.mode === 'all' ? ['triage-approved-full', selection.full_reason] : ['agent-selected-categories', ...floor.reasons],
+    reasons: selection.mode === 'all' ? ['triage-approved-full', selection.full_reason] : ['agent-selected-scenarios', ...floor.reasons],
   };
 }
 

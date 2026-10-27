@@ -154,3 +154,29 @@ test('ignored label updates cannot replace the authoritative Pipeline outcome ch
   assert.equal(evaluate('labeled', 'test:run'), 'Pipeline outcome');
   for (const label of ['test:triage', 'test:selected', 'test:all-approved', 'bug']) assert.notEqual(evaluate('labeled', label), 'Pipeline outcome');
 });
+
+test('API integration is selected by the trusted controller and rechecks before candidate execution', () => {
+  const parent = child.jobs.parent, lane = child.jobs['oauth-token-integration'];
+  assert.match(runText(parent), /api-plan\.mjs plan test-selection\.json/);
+  assert.equal(parent.outputs['oauth-token'], '${{ steps.api-plan.outputs.oauth-token }}');
+  assert.ok(needs(lane).includes('parent'));
+  assert.equal(allows(lane, {'needs.parent.outputs.oauth-token':'true'}), true);
+  assert.equal(allows(lane, {'needs.parent.outputs.oauth-token':'false'}), false);
+  const checkout = steps(lane).filter(step => step.uses?.startsWith('actions/checkout@'));
+  assert.equal(checkout[0].with.ref, defaultRef);
+  assert.equal(checkout[1].with.ref, '${{ inputs.source-sha }}');
+  assert.ok(steps(lane).indexOf(authorization(lane)) < steps(lane).indexOf(checkout[1]));
+  assert.match(runText(lane), /api-plan\.mjs verify oauth-token candidate/);
+  assert.match(runText(lane), /pnpm test:oauth-integration/);
+});
+
+test('parent gate records PR and candidate provenance for child verification', () => {
+  const gate = pr.jobs.gate;
+  const record = steps(gate).find(step => step.name === 'Record parent candidate provenance');
+  assert.equal(record.env.PR, '${{ steps.gate.outputs.pr-number }}');
+  assert.equal(record.env.CANDIDATE, '${{ steps.gate.outputs.candidate }}');
+  assert.match(runText(gate), /pr-parent-provenance\.json/);
+  const guard = steps(child.jobs.parent).find(step => /--verify-parent/.test(step.run ?? ''));
+  assert.equal(guard.env.PR_NUMBER, '${{ inputs.pr-number }}');
+  assert.equal(guard.env.SOURCE_SHA, '${{ inputs.source-sha }}');
+});

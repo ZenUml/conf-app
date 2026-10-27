@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { expect, it } from 'vitest';
+import { SCENARIOS } from '../e2e-tests/config/product-impact.mjs';
+import { hasPrCoverage } from '../e2e-tests/config/scenario-coverage.mjs';
+import { catalog } from '../../scripts/test-selection/pr-decision.mjs';
 import { resolveSelection } from '../../scripts/test-selection/resolve.mjs';
 import { scopedPlan } from '../../scripts/test-selection/scoped-plan.mjs';
 import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from '../../scripts/test-selection/classify.mjs';
@@ -23,13 +26,14 @@ function discover(scope: string) {
   }
   return inventories.get(scope);
 }
-function selection(chosen = ['mermaid']) {
-  return {schema_version:1, category_version:CATEGORY_VERSION, policy_version:POLICY_VERSION,
+const pair = { feature:'create-diagram', interface:'editor' };
+function selection(chosen: typeof pair[] = [pair]) {
+  return {schema_version:1, ...catalog, decision_schema_version:2, scenarios:chosen, category_version:CATEGORY_VERSION, policy_version:POLICY_VERSION,
     selector_catalog_version:EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint:EXECUTION_SELECTOR_CATALOG_FINGERPRINT,
     head_sha:head, tested_tree:tree, pr_head_sha:head, base_sha:'c'.repeat(40), pr_number:42, decision_id:100,
     selection_scope:'pr', decision_source:'agent', source:'labeling', source_paths:paths, removed_paths:[],
     mode:'selected',execution_mode:'enabled',diff_complete:true,required:['smoke'],fallback_reason:null,
-    request:{outcome:'not-requested'},model:null,categories:Object.fromEntries(CATEGORIES.map(c=>[c.id,{selected:chosen.includes(c.id)}]))};
+    request:{outcome:'not-requested'},model:null,categories:Object.fromEntries(CATEGORIES.map(c=>[c.id,{selected:false}]))};
 }
 function plan(raw: any, scope: string, overrides = {}) {
   const resolved = resolveSelection({selection:raw,files:paths,head,tree});
@@ -40,11 +44,12 @@ const ids = (tests: any[]) => tests.map(test=>test.id).sort();
 it('agent plans exact smoke, directly changed specs, helper dependencies and behavior dependencies from real Lite inventories', () => {
   const raw=selection();
   const resolved=resolveSelection({selection:raw,files:paths,head,tree});
-  expect(resolved.agent_categories).toEqual(expect.arrayContaining(['@test:mermaid','@test:mermaid-render']));
+  expect(resolved.agent_scenario_tags).toEqual(['@scenario:create-diagram:editor']);
+  expect(resolved.agent_categories).toContain('@test:mermaid-render');
   for (const scope of ['all','render']) {
     const subset=plan(raw,scope);
     const full=plan({...raw,mode:'all',source:'triage',full_reason:'Inventory reference for a verified full decision.'},scope);
-    const expected=full.tests.filter((test:any)=>test.tags.includes('@smoke') || resolved.direct_test_files.includes(test.file) || test.tags.some((tag:string)=>resolved.agent_categories.includes(tag)));
+    const expected=full.tests.filter((test:any)=>test.tags.includes('@smoke') || resolved.direct_test_files.includes(test.file) || test.tags.some((tag:string)=>[...resolved.agent_categories, ...resolved.agent_scenario_tags].includes(tag)));
     expect(ids(subset.tests)).toEqual(ids(expected));
     expect(subset.tests.length).toBeGreaterThan(0);
     expect(subset.tests.length).toBeLessThan(full.tests.length);
@@ -73,11 +78,11 @@ it('triage-approved full plans retain complete real regression and render invent
   }
 });
 
-it('zero-category render stays empty and stale or missing authorization blocks rather than widening real inventories', () => {
+it('zero-scenario render keeps direct-spec dependencies and stale or missing authorization blocks', () => {
   const raw=selection([]);
   const empty=plan(raw,'render');
-  expect(empty.tests).toEqual([]);
-  expect(empty.shards).toEqual([]);
+  expect(empty.tests.length).toBeGreaterThan(0);
+  expect(empty.tests.every((test:any)=>test.tags.includes('@test:sequence-render'))).toBe(true);
   expect(empty.selection_metrics.full_count).toBeGreaterThan(0);
   expect(()=>plan(raw,'all',{resolved:null})).toThrow(/blocked/);
   expect(()=>plan(raw,'all',{head:'d'.repeat(40)})).toThrow(/blocked/);
@@ -120,3 +125,16 @@ it('real AsyncAPI-only direct specs do not block Lite selected or triage-approve
     expect(planned.tests.every((test:any)=>test.tags.includes('@variant:lite'))).toBe(true);
   }
 });
+
+
+it('every advertised default PR pair is present in actual configured test inventories', () => {
+  for (const scenario of SCENARIOS.filter(hasPrCoverage)) {
+    for (const scope of ['all','render']) {
+      const planned = plan(selection([scenario]), scope, {inventoryProjects:scope === 'all' ? ['auth','insert','feedback','syntax-validation','fullscreen','agent-link','asyncapi'] : ['auth','pages','render']});
+      expect(planned.selection_metrics.mode).toBe('selected');
+      expect(planned.selection_metrics.missing_floor_ids).toEqual([]);
+      expect(new Set(planned.tests.map((test: any) => test.id)).size).toBe(planned.tests.length);
+    }
+  }
+  expect(() => plan(selection([{feature:'prepared-diagram-activation',interface:'byline-activation'}]),'all')).toThrow(/scenario-without-e2e-coverage/);
+},15000);

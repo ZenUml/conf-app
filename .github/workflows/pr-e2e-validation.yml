@@ -39,6 +39,8 @@ jobs:
   parent:
     name: Verify staging ownership
     runs-on: ubuntu-latest
+    outputs:
+      oauth-token: ${{ steps.api-plan.outputs.oauth-token }}
     permissions:
       actions: read
       contents: read
@@ -53,6 +55,8 @@ jobs:
           PARENT_RUN_ID: ${{ inputs.parent-run-id }}
           PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
           EXPECTED_PARENT_JOBS: '["E2E validation"]'
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          PR_NUMBER: ${{ inputs.pr-number }}
         run: node scripts/ci/wait-for-e2e.mjs --verify-parent
       - name: Recheck PR authorization before starting E2E
         env:
@@ -63,6 +67,12 @@ jobs:
           MODE: ${{ inputs.mode }}
           GREP: ${{ inputs.grep }}
         run: node scripts/test-selection/pr-decision.mjs check --pr "$PR" --candidate "$CANDIDATE" --decision-id "$DECISION_ID" --mode "$MODE" --grep "$GREP"
+      - name: Plan API integration lanes
+        id: api-plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ inputs.source-sha }}
+        run: node scripts/test-selection/api-plan.mjs plan test-selection.json "$CANDIDATE"
   lite:
     needs: parent
     uses: ./.github/workflows/e2e-test.yml
@@ -108,3 +118,70 @@ jobs:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
       password: ${{ vars.ZENUML_STAGE_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
+
+  oauth-token-integration:
+    name: OAuth token HTTP integration (authorized)
+    needs: parent
+    if: needs.parent.outputs.oauth-token == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: controller
+          persist-credentials: false
+      - name: Recheck authorization
+        working-directory: controller
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr-number }}
+          CANDIDATE: ${{ inputs.source-sha }}
+          DECISION_ID: ${{ inputs.decision-id }}
+          MODE: ${{ inputs.mode }}
+          GREP: ${{ inputs.grep }}
+        run: |
+          node scripts/test-selection/pr-decision.mjs check --pr "$PR" --candidate "$CANDIDATE" --decision-id "$DECISION_ID" --mode "$MODE" --grep "$GREP"
+          node scripts/test-selection/api-plan.mjs plan test-selection.json "$CANDIDATE" | grep -q '"oauth-token"'
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+          path: candidate
+          persist-credentials: false
+      - name: Verify candidate manifest against trusted registry
+        run: node controller/scripts/test-selection/api-plan.mjs verify oauth-token candidate
+      - uses: pnpm/action-setup@v5
+        with:
+          package_json_file: candidate/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: candidate/pnpm-lock.yaml
+      - name: Install locked dependencies
+        working-directory: candidate
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Test OAuth token lifecycle over HTTP
+        working-directory: candidate
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: >-
+          pnpm test:oauth-integration
+          --reporter=default --reporter=json --reporter=junit
+          --outputFile.json=artifacts/oauth-token/results.json
+          --outputFile.junit=artifacts/oauth-token/junit.xml
+      - name: Record tested candidate and scope
+        if: always()
+        working-directory: candidate
+        run: |
+          mkdir -p artifacts/oauth-token
+          git rev-parse HEAD 'HEAD^{tree}' > artifacts/oauth-token/candidate.txt
+          cp tests/integration/oauth-token/scenarios.json artifacts/oauth-token/scenarios.json
+      - name: Upload HTTP integration evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: oauth-token-http-authorized-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate/artifacts/oauth-token/
+          if-no-files-found: error
+          retention-days: 14

@@ -76,6 +76,15 @@ export function verifyParent(parent, attempt, jobs, expectedJobs, provenance = {
   }
 }
 
+export function verifyPrProvenance(record, parent, runId, attempt, pr, source) {
+  if (parent.path !== '.github/workflows/pr-validation.yml' || String(parent.id) !== String(runId)
+      || !/^[1-9][0-9]*$/.test(String(pr)) || !/^[a-f0-9]{40}$/.test(source ?? '')
+      || record?.run !== String(runId) || record?.attempt !== String(attempt)
+      || record?.pr !== String(pr) || record?.candidate !== source) {
+    throw new Error('PR child candidate does not match the staging parent provenance');
+  }
+}
+
 const STALE_PARENT_ERROR = 'Child E2E requires an active staging parent for this attempt';
 
 // GitHub's run/jobs API can return stale state for a few seconds after a dispatcher job
@@ -201,6 +210,13 @@ async function main() {
     let verified;
     await verifyParentWithRetry(() => (verified = fetchState()), 6, pause, line => console.error(line));
     const { parent } = verified;
+    if (parent.path === '.github/workflows/pr-validation.yml') {
+      const directory = mkdtempSync(join(tmpdir(), 'pr-parent-provenance-'));
+      execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,
+        '--name', `pr-parent-provenance-${env.PARENT_ATTEMPT}`, '--dir', directory]);
+      verifyPrProvenance(JSON.parse(readFileSync(join(directory, 'pr-parent-provenance.json'), 'utf8')),
+        parent, env.PARENT_RUN_ID, env.PARENT_ATTEMPT, env.PR_NUMBER, env.SOURCE_SHA);
+    }
     if (parent.path === '.github/workflows/build-test-deploy.yml') {
       const directory = mkdtempSync(join(tmpdir(), 'main-root-options-'));
       execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,

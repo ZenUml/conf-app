@@ -18,7 +18,7 @@ import {
 const test = createMacroTest('mermaid');
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Mermaid pan/zoom viewport', { tag: ['@test:viewport-mermaid', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@viewport', '@mermaid'] }, () => {
+test.describe('Mermaid pan/zoom viewport', { tag: ['@test:viewport-mermaid', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@viewport', '@mermaid', '@feature:viewport-controls', '@interface:inline-viewer', '@scenario:viewport-controls:inline-viewer'] }, () => {
   test('offers zoom controls on the rendered macro', async ({ macroPage }) => {
     await expectZoomControls(macroPage.getSequenceMacroFrame(), 'Mermaid');
   });

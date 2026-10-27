@@ -1,5 +1,8 @@
 import { createPlan, fingerprint } from './plan.mjs';
 import { categoryGrep, decisionError, resolveAgentSelection } from './resolve.mjs';
+import { isDefaultPrSpec } from '../../tests/e2e-tests/config/test-discovery-policy.mjs';
+import { SCENARIO_TESTS } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
+import { scenarioKey, scenarioTag } from '../../tests/e2e-tests/config/product-impact.mjs';
 import { CATEGORIES } from '../../tests/e2e-tests/config/categories.mjs';
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 import { EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
@@ -22,8 +25,8 @@ const inScope = (file, scope) => {
 
 // Discovery is performed independently for each filter. In particular, an
 // empty auxiliary legacy scope widens before its IDs become the safety floor.
-export function scopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep = '', sourcePaths = [], selectionScope = 'pr', requireAgentDecision = false, inventoryProjects = null }) {
-  if (requireAgentDecision || selection?.decision_source === 'agent') return agentScopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep, sourcePaths, selectionScope, inventoryProjects });
+export function scopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep = '', sourcePaths = [], selectionScope = 'pr', requireAgentDecision = false, inventoryProjects = null, scenarioInventory = SCENARIO_TESTS }) {
+  if (requireAgentDecision || selection?.decision_source === 'agent') return agentScopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep, sourcePaths, selectionScope, inventoryProjects, scenarioInventory });
   const options = { selection, variant, tree, policy, scope, shards };
   const fullDiscovery = discover('');
   const full = createPlan({ ...options, discovery: fullDiscovery });
@@ -96,7 +99,7 @@ export function scopedPlan({ discover, selection, resolved, head, tree, policy, 
   return { ...plan, plan_fingerprint: fingerprint(plan) };
 }
 // PR agent authorization is fail-closed. It never shares Jev's fail-full path.
-function agentScopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep, sourcePaths, selectionScope, inventoryProjects }) {
+function agentScopedPlan({ discover, selection, resolved, head, tree, policy, variant, scope, shards, grep, sourcePaths, selectionScope, inventoryProjects, scenarioInventory }) {
   if (selectionScope !== 'pr' || selection?.decision_source !== 'agent') throw new Error('PR test decision blocked: missing agent authorization');
   const expected = resolveAgentSelection({ selection, files: sourcePaths, head, tree });
   if (policy !== selection.policy_version || !resolved
@@ -132,8 +135,16 @@ function agentScopedPlan({ discover, selection, resolved, head, tree, policy, va
     // variant's validation. Missing specs still reach the blocking check below.
     && (!discoveredVariants.has(file) || discoveredVariants.get(file).has(variant)));
   if (direct.some(file => !full.tests.some(test => test.file === file))) throw new Error('PR test decision blocked: directly changed spec absent from inventory');
+  if (selection.mode === 'selected') for (const pair of expected.agent_scenarios) {
+    const registered = scenarioInventory.filter(test => isDefaultPrSpec(test.file) && test.variants.includes(variant)
+      && (inventoryProjects === null ? inScope(test.file, scope) : inventoryProjects.includes(test.file.split('/')[0]))
+      && test.scenarios.some(candidate => scenarioKey(candidate) === scenarioKey(pair)));
+    for (const test of registered) if (!full.tests.some(actual => actual.file === test.file && actual.tags.includes(scenarioTag(pair)))) {
+      throw new Error(`PR test decision blocked: scenario absent from inventory: ${scenarioKey(pair)} in ${test.file}`);
+    }
+  }
   const floor = full.tests.filter(test => test.tags.some(tag => expected.deterministic_tags.includes(tag)) || direct.includes(test.file));
-  const selected = selection.mode === 'all' ? full.tests : full.tests.filter(test => floor.includes(test) || test.tags.some(tag => expected.agent_categories.includes(tag)));
+  const selected = selection.mode === 'all' ? full.tests : full.tests.filter(test => floor.includes(test) || test.tags.some(tag => expected.agent_categories.includes(tag) || expected.agent_scenario_tags.includes(tag)));
   const final = selection.mode === 'all' ? full : createPlan({ ...options, discovery, testIds: selected.map(test => test.id), legacyGrep: grep, allowEmpty: true });
   const ids = final.tests.map(test => test.id);
   if (floor.some(test => !ids.includes(test.id))) throw new Error('PR test decision blocked: required coverage lost');
@@ -142,7 +153,8 @@ function agentScopedPlan({ discover, selection, resolved, head, tree, policy, va
     policy_version: policy, tested_tree: tree, variant, scope, mode: selection.mode,
     source_paths: sourcePaths, deterministic_behavior_selectors: expected.deterministic_tags,
     direct_test_files: direct, direct_test_count: final.tests.filter(test => direct.includes(test.file)).length,
-    agent_behavior_selectors: expected.agent_categories, jev_behavior_selectors: [],
+    agent_behavior_selectors: [...expected.agent_scenario_tags, ...expected.agent_categories],
+    impact_scenarios: expected.agent_scenarios, jev_behavior_selectors: [],
     full_count: full.tests.length, legacy_count: floor.length, jev_count: null,
     final_count: ids.length, final_test_ids: ids, smoke_count: final.tests.filter(test => test.tags.includes('@smoke')).length,
     missing_floor_ids: [], added_to_legacy_ids: ids.filter(id => !floor.some(test => test.id === id)), retained_from_legacy_ids: [],

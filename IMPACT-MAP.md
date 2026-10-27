@@ -2,7 +2,7 @@
 
 产品能力 × 交互面的代码地图。用于产品设计、变更影响判断、实现定位和测试覆盖分析。每个格子是一对明确的 `(feature, interface)`。
 
-本轮基线：`47e2c375`，审阅日期：2026-10-27。盘点第一方入口、组件、关键依赖、Forge 模块、变体生成路径、后端产品能力、外部 MCP 和运维页面；当前登记 **74 个 Feature、44 个 Interface**。
+本轮基线：`47e2c375`，审阅日期：2026-10-27。盘点第一方入口、组件、关键依赖、Forge 模块、变体生成路径、后端产品能力、外部 MCP 和运维页面；当前登记 **77 个 Feature、49 个 Interface**。
 
 这里的“接入”指该版本代码中存在可追踪的入口/调用链。它不证明某个生产租户已启用开关，也不替代实际 UI 或端到端验证。第三方 DrawIO/Studio 的内部菜单不逐项展开；记录其第一方宿主、模式、读写和边界。
 
@@ -12,6 +12,7 @@
 
 - **Macro（宏）**是跨类型操作的统称；**Diagram（图表）**只指图形内容。OpenAPI/AsyncAPI 是 API 规范，Markdown 是文本文档；宏实例、内容文档与引用关系分别描述。通用操作写“编辑宏”或“编辑宏内容”，具体操作再写“编辑图表源码”“编辑 API 规范”或“更换引用”。现有 ID、代码符号和产品 UI 名称中的 diagram 保留，不据此把所有宏归类为图表。
 - **Feature（产品能力）**是行轴，**Interface（交互面）**是列轴；图种、产品变体、身份和状态是适用条件。
+- **Interface 不限于 Web UI**：也可表示命令行、API／MCP 或其他人机、系统间交互边界。是否单列及拆到什么粒度，以能否帮助判断 E2E 覆盖和选择范围为依据，不机械地逐条枚举 endpoint。若独立入口在行为契约、身份／权限、失败方式或测试路径上需要区别验证，就单列；同一流程中的内部路由或实现细节先记为依赖，不自动增加列。产品能力图仍不限于测试用途，测试选择是其投影。新增非 UI 场景时必须明确对应测试通道，浏览器验证不能替代该入口的契约验证。
 - **Impact scenario（影响场景）**是一对明确的 `(feature, interface)`；**Impact scope（影响范围）**是这些明确场景的集合。单对按 AND 匹配，多对按 OR 匹配；维度标签不能代替配对记录，也不生成笛卡尔积。
 - **Surface** 是埋点与 UI 组织的分类，不是 Interface ID。两者不要求一一对应，不能按字符串替换或父子界面关系自动推导；具体事件按其分类契约记录。例如 `page-banner` 是 Interface ID，而 `page_banner` 是 Surface 值；它们名称接近不构成通用转换规则。
 - `paywall` 指非阻断的用量提示与付费引导；`fullscreen-access-recovery` 是独立的访问恢复能力。准确的已登记示例为 `(editing, editor)` 与 `(paywall, page-banner)`，不从示例补出未登记关系。
@@ -19,7 +20,7 @@
 
 ## 阅读方式
 
-- 同一张矩阵按界面家族分成五个视图。行始终是 Feature，列始终是 Interface；每个视图省略全空行。
+- 同一张矩阵按界面家族分成六个视图。行始终是 Feature，列始终是 Interface；每个视图省略全空行。
 - `●`：该交互面直接提供实现；`↗`：入口/交接，实际操作转到另一个交互面；`G`：有明确开关、身份、类型、状态或生成路径条件；`A`：该交互面的自动流程；`B`：独立构建/静态运维入口，产品导航或部署授权另述。
 - `·`：本轮在该交互面未找到直接实现关系。它不等于产品承诺“永不支持”，也不表示“缺测试”。保留/关闭/未挂载的代码单列，不填成当前能力。
 - 非空格子表示至少一个适用图种/变体的实现；具体支持范围、排除条件和证据见该行链接的 Feature 契约。
@@ -78,6 +79,11 @@
 | OA | `analytics-console` — 运维 Analytics 页面 | 构建出的 analytics.html；未找到 Forge 菜单接入，部署访问权限待另验。 | [src/components/Analytics/AnalyticsDashboard.vue:20](src/components/Analytics/AnalyticsDashboard.vue#L20) |
 | SLA | `space-license-admin` — 运维 Space License Admin | 独立 /admin/ 页面，以运维凭证操作空间许可证。 | [public/admin/index.html:70](public/admin/index.html#L70) |
 | OM | `metrics-inspector` — 运维 Metrics Inspector | 独立 /admin/metrics.html 的缓存和诊断查看。 | [public/admin/metrics.html:100](public/admin/metrics.html#L100) |
+| OP | `oauth-protocol` — OAuth 协议入口 | OAuth discovery、注册、授权跳转、回调、code／refresh token 交换的协议边界；与用户看到的 consent 页面分开。公开 discovery 不要求令牌，后续各步骤按客户端、PKCE、redirect 和 grant 分别校验。 | [functions/agent-link/oauth/discovery.ts:1](functions/agent-link/oauth/discovery.ts#L1) |
+| FRA | `forge-remote-api` — Forge Remote API | 由 Forge invokeRemote 调用的应用 API 家族。共同入口是 FIT 校验，具体能力可能还要求 user／system credential；逐 Feature 记录业务拒绝和响应体语义，不把 HTTP 200 一律当成功。 | [functions/_middleware.ts:131](functions/_middleware.ts#L131) |
+| OAA | `operator-admin-api` — 运维管理 API | 运维服务调用边界，按具体能力使用各自 Bearer 凭证及授权策略；Space License admin secret 与 Fullscreen support operator tokens 不可互换，也不等于 Forge FIT。 | [functions/api/space-license.ts:202](functions/api/space-license.ts#L202) |
+| OSC | `operator-support-cli` — 运维支持命令行 | 本仓库的 Fullscreen recovery 本地运维客户端。可读列表／个案／邮件预览／状态；写操作默认 dry-run，必须显式确认才发请求。不是客户分发 CLI，也不是 Forge／wrangler 开发命令。 | [scripts/fullscreen-recovery-support.mjs:1](scripts/fullscreen-recovery-support.mjs#L1) |
+| PW | `provider-webhook` — 第三方回调接收 | 第三方服务主动调用的入站边界。Stripe 支付与邮件投递分别验签、解析；重放／重复保证需按 Feature 分别核实，具体身份和状态契约按 Feature 区分，不共享浏览器／Forge 登录身份。 | [functions/api/fullscreen-recovery-webhook.ts:12](functions/api/fullscreen-recovery-webhook.ts#L12) |
 
 ## 矩阵 A · 创作、配置与编辑子界面
 
@@ -165,6 +171,8 @@
 | [F68 MCP Apps 工具结果预览](#f68) | · | · | · | · | · | ● | · | · |
 | [F70 下载诊断信息](#f70) | ● | ● | · | G | · | · | · | · |
 | [F71 宏内容独立查看与全屏导航](#f71) | ↗ | ● | ● | G | · | · | · | · |
+| [F76 渲染事件与阶段遥测](#f76) | A | · | · | · | · | · | · | · |
+| [F77 渲染器资源空闲预取](#f77) | A | · | · | · | · | · | · | · |
 
 ## 矩阵 C · Dashboard、Get Started、页面与管理入口
 
@@ -200,6 +208,8 @@
 | [F64 外部 MCP 接入设置](#f64) | · | · | · | · | · | · | G | · | · | · | · | · | · | · |
 | [F69 空间演示页 enrollment](#f69) | · | · | · | · | · | · | · | · | · | · | · | · | G | · |
 | [F71 宏内容独立查看与全屏导航](#f71) | · | · | ↗ | · | · | · | · | ↗ | · | · | · | · | · | · |
+| [F75 应用首次出现上报](#f75) | · | · | · | · | · | · | · | · | · | · | A | · | · | · |
+| [F77 渲染器资源空闲预取](#f77) | · | · | · | · | · | · | · | · | · | · | G | · | · | · |
 
 ## 矩阵 D · 专用工作区、反馈与 Agent
 
@@ -230,6 +240,20 @@
 | [F72 运维分析与报表](#f72) | B | · | · |
 | [F73 运维空间许可证操作](#f73) | · | B | · |
 | [F74 运维缓存诊断](#f74) | · | · | B |
+
+## 矩阵 F · 协议、API、命令行与回调
+
+| Feature | OP • oauth-protocol | FRA • forge-remote-api | OAA • operator-admin-api | OSC • operator-support-cli | PW • provider-webhook |
+| --- | --- | --- | --- | --- | --- |
+| [F27 Mermaid Refined 布局](#f27) | · | G | · | · | · |
+| [F33 临时富分享预览](#f33) | · | G | · | · | · |
+| [F39 Confluence PDF / Word 导出](#f39) | · | A | · | · | · |
+| [F40 源文快照与附件后备](#f40) | · | A | · | · | · |
+| [F57 Fullscreen 访问恢复](#f57) | · | G | G | G | A |
+| [F58 空间 Bundle 购买](#f58) | · | · | · | · | A |
+| [F59 反馈报告](#f59) | · | G | · | · | · |
+| [F65 Agent 用户授权](#f65) | G | · | · | · | · |
+| [F73 运维空间许可证操作](#f73) | · | · | G | · | · |
 
 ## Feature 契约与代码证据
 
@@ -526,11 +550,11 @@
 
 **能力**：在已准备的安全布局产物与原始图之间切换并反馈偏好。
 
-**交互面**：`inline-viewer` G；`fullscreen-viewer` G；`page-editor-preview` G。
+**交互面**：`inline-viewer` G；`fullscreen-viewer` G；`page-editor-preview` G；`forge-remote-api` G。
 
-**契约与边界**：读取并校验已存 artifact，不由查看器发起新模型生成。缺失/过期时可请求 writeback；guest/anonymous、复制、孤儿或 Workspace 内 hideHeader/非 display 预览等有排除条件。失败保留原始图。 Confluence page-editor-preview 只带 isEditing 的分支不等于 Workspace 预览，需按实际 display/header 条件评估。
+**契约与边界**：读取并校验已存 artifact，不由查看器发起新模型生成。缺失/过期时可请求 writeback；guest/anonymous、复制、孤儿或 Workspace 内 hideHeader/非 display 预览等有排除条件。失败保留原始图。 Confluence page-editor-preview 只带 isEditing 的分支不等于 Workspace 预览，需按实际 display/header 条件评估。 FRA 单列 /magic-writeback 的调用契约：POST、已验证的 app／tenant／environment、用户凭证与读取权限、source hash／版本新鲜度。无 user credential 是 403，不能用系统 token 替用户写回。源文写回成功与布局呈现仍是不同完成条件。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[src/components/Viewer/GenericViewer.vue:127](src/components/Viewer/GenericViewer.vue#L127)；[src/components/Viewer/GenericViewer.vue:1603](src/components/Viewer/GenericViewer.vue#L1603)；[src/components/Viewer/GenericViewer.vue:1657](src/components/Viewer/GenericViewer.vue#L1657)；[src/components/Viewer/GenericViewer.vue:1878](src/components/Viewer/GenericViewer.vue#L1878)；[functions/magic-writeback.ts:53](functions/magic-writeback.ts#L53)。
+**代码证据**：[src/components/Viewer/GenericViewer.vue:127](src/components/Viewer/GenericViewer.vue#L127)；[src/components/Viewer/GenericViewer.vue:1603](src/components/Viewer/GenericViewer.vue#L1603)；[src/components/Viewer/GenericViewer.vue:1657](src/components/Viewer/GenericViewer.vue#L1657)；[src/components/Viewer/GenericViewer.vue:1878](src/components/Viewer/GenericViewer.vue#L1878)；[functions/magic-writeback.ts:53](functions/magic-writeback.ts#L53)；[functions/magic-writeback.ts:37](functions/magic-writeback.ts#L37)。
 
 <a id="f28"></a>
 ### F28 · 查看与复制源码 — `view-source`
@@ -592,11 +616,11 @@
 
 **能力**：生成带 PNG 的短期外部链接及原页面回链。
 
-**交互面**：`byline-activation` G；`external-share-preview` ●。
+**交互面**：`byline-activation` G；`external-share-preview` ●；`forge-remote-api` G。
 
-**契约与边界**：预制图接受后可采图并铸造签名票据；PNG TTL 为 600 秒。无效/缺失票据给说明页，过期给失效页；采图或铸造失败可保留普通链接。GenericViewer 的普通 Copy link 不具有此生命周期。
+**契约与边界**：预制图接受后可采图并铸造签名票据；PNG TTL 为 600 秒。无效/缺失票据给说明页，过期给失效页；采图或铸造失败可保留普通链接。GenericViewer 的普通 Copy link 不具有此生命周期。 FRA 表示 /deeplink-ticket 的受验证 FIT 约束的票据铸造；公开分享票据的消费仍在 ESP。签发与消费属于不同身份／失败边界，不能用公开预览通过证明签发授权正确。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[src/components/Byline/BylineActivationDialog.vue:225](src/components/Byline/BylineActivationDialog.vue#L225)；[functions/deeplink-ticket.ts:140](functions/deeplink-ticket.ts#L140)；[functions/d/[[path]].ts:23](functions/d/[[path]].ts#L23)；[functions/utils/deeplink.ts:17](functions/utils/deeplink.ts#L17)。
+**代码证据**：[src/components/Byline/BylineActivationDialog.vue:225](src/components/Byline/BylineActivationDialog.vue#L225)；[functions/deeplink-ticket.ts:140](functions/deeplink-ticket.ts#L140)；[functions/d/[[path]].ts:23](functions/d/[[path]].ts#L23)；[functions/utils/deeplink.ts:17](functions/utils/deeplink.ts#L17)；[functions/deeplink-ticket.ts:59](functions/deeplink-ticket.ts#L59)。
 
 <a id="f34"></a>
 ### F34 · PNG 导出 — `export-image`
@@ -658,22 +682,22 @@
 
 **能力**：在宿主导出的文档中输出图像或 API 规范。
 
-**交互面**：`document-export` ●；`inline-viewer` A；`editor` A；`fullscreen-editor` A；`embedded-viewer` A；`page-editor-preview` A。
+**交互面**：`document-export` ●；`inline-viewer` A；`editor` A；`fullscreen-editor` A；`embedded-viewer` A；`page-editor-preview` A；`forge-remote-api` A。
 
-**契约与边界**：普通 Diagram/Graph/OpenAPI/Embed 的 adfExport 使用 Confluence PNG 附件作为 native media；缺图、未发布、生成/权限失败用占位状态。AsyncAPI 分支导出规范内容。图像附件由渲染/保存路径维护；不等于用户下载的标注 PNG。PEP 在仅 extension.isEditing、无 configuring/inserting 的条件下仍是 display 模式，可触发 PNG 维护；EV 也有独立 afterLoad PNG 路径。两者均受模式、正文、权限及附件上传结果限制，存在调用不等于附件生成成功。MCP 创建／更新不直接维护这些附件，见 F67。
+**契约与边界**：普通 Diagram/Graph/OpenAPI/Embed 的 adfExport 使用 Confluence PNG 附件作为 native media；缺图、未发布、生成/权限失败用占位状态。AsyncAPI 分支导出规范内容。图像附件由渲染/保存路径维护；不等于用户下载的标注 PNG。PEP 在仅 extension.isEditing、无 configuring/inserting 的条件下仍是 display 模式，可触发 PNG 维护；EV 也有独立 afterLoad PNG 路径。两者均受模式、正文、权限及附件上传结果限制，存在调用不等于附件生成成功。MCP 创建／更新不直接维护这些附件，见 F67。 FRA 表示 PNG 附件上传契约：先按用户身份验证页面可读，再使用 app/system credential 写附件。上传 API 的很多失败以 HTTP 200 内嵌 ok:false／status 返回；缺少用户凭证则可直接返回 HTTP 403。传输成功不代表附件上传或 PDF／Word 导出成功。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[manifest.yml:211](manifest.yml#L211)；[manifest.yml:332](manifest.yml#L332)；[src/export.js:373](src/export.js#L373)；[src/export.js:585](src/export.js#L585)；[src/asyncapi-export.js:30](src/asyncapi-export.js#L30)；[src/model/Attachment.ts:425](src/model/Attachment.ts#L425)；[src/forge-embed-viewer.ts:145](src/forge-embed-viewer.ts#L145)。[src/model/ApWrapper2.ts:1508](src/model/ApWrapper2.ts#L1508)；[src/forgeIndex.ts:1232](src/forgeIndex.ts#L1232)。
+**代码证据**：[manifest.yml:211](manifest.yml#L211)；[manifest.yml:332](manifest.yml#L332)；[src/export.js:373](src/export.js#L373)；[src/export.js:585](src/export.js#L585)；[src/asyncapi-export.js:30](src/asyncapi-export.js#L30)；[src/model/Attachment.ts:425](src/model/Attachment.ts#L425)；[src/forge-embed-viewer.ts:145](src/forge-embed-viewer.ts#L145)。[src/model/ApWrapper2.ts:1508](src/model/ApWrapper2.ts#L1508)；[src/forgeIndex.ts:1232](src/forgeIndex.ts#L1232)；[functions/forge-upload-attachment.ts:438](functions/forge-upload-attachment.ts#L438)；[functions/utils/forgeUserToken.ts:16](functions/utils/forgeUserToken.ts#L16)。
 
 <a id="f40"></a>
 ### F40 · 源文快照与附件后备 — `source-snapshots`
 
 **能力**：给适用文字图表保留 Confluence 源文附件，并在读取失败时回退。
 
-**交互面**：`inline-viewer` A；`fullscreen-viewer` A；`editor` A；`fullscreen-editor` A；`page-editor-preview` A。
+**交互面**：`inline-viewer` A；`fullscreen-viewer` A；`editor` A；`fullscreen-editor` A；`page-editor-preview` A；`forge-remote-api` A。
 
-**契约与边界**：ZenUML/Mermaid/PlantUML/Markdown 的 zenuml-ID.json 与 PNG 附件有不同用途。快照失败软降级；Graph/OpenAPI/AsyncAPI 不属于这条文字快照管线。D1/Cloudflare 镜像不是用户图表正文的必需存储。PEP 的上述 display 模式会单独进入 forgeIndex 的 maybeBackfillSnapshot；该函数检查源版本、适用格式与已知拒绝状态，非 display 分支仅补跨页引用。EV 的 PNG 路径没有对应 JSON 快照调用，故不新增 EV 快照关系。MCP 写入后的 JSON 更新依赖适用读取／保存路径再触发，并非任意一次渲染都保证补齐。
+**契约与边界**：ZenUML/Mermaid/PlantUML/Markdown 的 zenuml-ID.json 与 PNG 附件有不同用途。快照失败软降级；Graph/OpenAPI/AsyncAPI 不属于这条文字快照管线。D1/Cloudflare 镜像不是用户图表正文的必需存储。PEP 的上述 display 模式会单独进入 forgeIndex 的 maybeBackfillSnapshot；该函数检查源版本、适用格式与已知拒绝状态，非 display 分支仅补跨页引用。EV 的 PNG 路径没有对应 JSON 快照调用，故不新增 EV 快照关系。MCP 写入后的 JSON 更新依赖适用读取／保存路径再触发，并非任意一次渲染都保证补齐。 FRA 复用附件 API 的 JSON 上传分支；格式、命名、版本和恢复用途与 PNG 分开。正文快照写入的权限／内嵌失败要单独验证，不能因 PNG 导出通过就声称 JSON 快照后备通过。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[src/model/SnapshotAttachment.ts:32](src/model/SnapshotAttachment.ts#L32)；[src/model/SnapshotAttachment.ts:115](src/model/SnapshotAttachment.ts#L115)；[src/model/ContentProvider/Persistence.ts:151](src/model/ContentProvider/Persistence.ts#L151)；[src/forgeIndex.ts:519](src/forgeIndex.ts#L519)；[src/forgeIndex.ts:638](src/forgeIndex.ts#L638)。[src/forgeIndex.ts:638](src/forgeIndex.ts#L638)；[src/model/SnapshotAttachment.ts:299](src/model/SnapshotAttachment.ts#L299)。
+**代码证据**：[src/model/SnapshotAttachment.ts:32](src/model/SnapshotAttachment.ts#L32)；[src/model/SnapshotAttachment.ts:115](src/model/SnapshotAttachment.ts#L115)；[src/model/ContentProvider/Persistence.ts:151](src/model/ContentProvider/Persistence.ts#L151)；[src/forgeIndex.ts:519](src/forgeIndex.ts#L519)；[src/forgeIndex.ts:638](src/forgeIndex.ts#L638)。[src/forgeIndex.ts:638](src/forgeIndex.ts#L638)；[src/model/SnapshotAttachment.ts:299](src/model/SnapshotAttachment.ts#L299)；[functions/forge-upload-attachment.ts:438](functions/forge-upload-attachment.ts#L438)。
 
 <a id="f41"></a>
 ### F41 · 加载与内容恢复 — `content-recovery`
@@ -856,33 +880,33 @@
 
 **能力**：为符合 Lite 试点策略的空间申请、激活和查看临时全屏访问。
 
-**交互面**：`fullscreen-viewer` G；`fullscreen-recovery` ●；`plan-usage` G；`request-full` G。
+**交互面**：`fullscreen-viewer` G；`fullscreen-recovery` ●；`plan-usage` G；`request-full` G；`forge-remote-api` G；`operator-admin-api` G；`operator-support-cli` G；`provider-webhook` A。
 
-**契约与边界**：已知 unpaid、有效计数 >=100、空间及后端策略满足条件才进入；请求选择场景、邮箱与同意，首次成功渲染后激活 7 天。请求保存、pending_activation、active、expired 是不同状态。已打开页面到期不强制关闭；不可用/策略关闭有 fail-open/正常路径。既有豁免需 reviewed override。AsyncAPI 的 tryFullscreenViewerPaywall 调用位于非 modal 分支，未覆盖 raw fullscreen 分支，不能计作已接入 RC；源码已确认接线缺口，实际访问恢复表现**待 UI 验证**，见下方边界表。RC 有两个宿主：FullscreenRecoveryHost，以及 PU 的 fullscreen_request 视图（surface=dashboard），后者也能承载申请。RF 的 G 仅表示保留 Fullscreen 场景的文案／理由及 Marketplace 引导；RF 不提交临时访问申请，也不等于 RC 表单。导航 URL 虽带 request 参数，fullscreenSource 解析器只读取来源、场景和页面／空间字段；实际 request 来自后端 snapshot，不能写成按 URL request ID 直接载入申请。跨宿主导航、参数保留和实际申请结果**待 UI 验证**。
+**契约与边界**：已知 unpaid、有效计数 >=100、空间及后端策略满足条件才进入；请求选择场景、邮箱与同意，首次成功渲染后激活 7 天。请求保存、pending_activation、active、expired 是不同状态。已打开页面到期不强制关闭；不可用/策略关闭有 fail-open/正常路径。既有豁免需 reviewed override。AsyncAPI 的 tryFullscreenViewerPaywall 调用位于非 modal 分支，未覆盖 raw fullscreen 分支，不能计作已接入 RC；源码已确认接线缺口，实际访问恢复表现**待 UI 验证**，见下方边界表。RC 有两个宿主：FullscreenRecoveryHost，以及 PU 的 fullscreen_request 视图（surface=dashboard），后者也能承载申请。RF 的 G 仅表示保留 Fullscreen 场景的文案／理由及 Marketplace 引导；RF 不提交临时访问申请，也不等于 RC 表单。导航 URL 虽带 request 参数，fullscreenSource 解析器只读取来源、场景和页面／空间字段；实际 request 来自后端 snapshot，不能写成按 URL request ID 直接载入申请。跨宿主导航、参数保留和实际申请结果**待 UI 验证**。 FRA 是已验证 Forge 身份的 request／activate／snapshot；OAA 是独立 operator token 的个案处理、override 与邮件预览／发送／重试；OSC 是其本地客户端，默认 dry-run、输入严格校验且限制目标 origin。PW 接受 Svix 签名的邮件投递回调，区分无效签名、重放、未知消息与不可用；邮件投递状态更新不激活临时访问。不能把支持 API、CLI 或回调的成功当成用户在 RC 完成了申请。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[src/utils/paywall/fullscreenRecoveryEligibility.ts:4](src/utils/paywall/fullscreenRecoveryEligibility.ts#L4)；[src/utils/paywall/fullscreenRecoveryGate.ts:13](src/utils/paywall/fullscreenRecoveryGate.ts#L13)；[src/components/FullscreenRecovery/FullscreenRecoveryGate.vue:1](src/components/FullscreenRecovery/FullscreenRecoveryGate.vue#L1)；[src/components/FullscreenRecoveryHost.vue:61](src/components/FullscreenRecoveryHost.vue#L61)；[src/components/FullscreenRecoveryHost.vue:110](src/components/FullscreenRecoveryHost.vue#L110)；[src/components/PlanUsage/PlanUsage.vue:7](src/components/PlanUsage/PlanUsage.vue#L7)。[src/forge-asyncapi-viewer.ts:92](src/forge-asyncapi-viewer.ts#L92)；[src/forge-asyncapi-viewer.ts:155](src/forge-asyncapi-viewer.ts#L155)；[src/forge-asyncapi-viewer.ts:171](src/forge-asyncapi-viewer.ts#L171)；[src/forgeIndex.ts:1643](src/forgeIndex.ts#L1643)。[src/components/PlanUsage/fullscreenSource.ts:11](src/components/PlanUsage/fullscreenSource.ts#L11)；[src/components/PlanUsage/PlanUsage.vue:233](src/components/PlanUsage/PlanUsage.vue#L233)；[src/components/PlanUsage/PlanUsage.vue:104](src/components/PlanUsage/PlanUsage.vue#L104)；[src/components/PlanUsage/PlanUsage.vue:123](src/components/PlanUsage/PlanUsage.vue#L123)；[src/utils/paywall/fullscreenRecoveryGate.ts:32](src/utils/paywall/fullscreenRecoveryGate.ts#L32)。
+**代码证据**：[src/utils/paywall/fullscreenRecoveryEligibility.ts:4](src/utils/paywall/fullscreenRecoveryEligibility.ts#L4)；[src/utils/paywall/fullscreenRecoveryGate.ts:13](src/utils/paywall/fullscreenRecoveryGate.ts#L13)；[src/components/FullscreenRecovery/FullscreenRecoveryGate.vue:1](src/components/FullscreenRecovery/FullscreenRecoveryGate.vue#L1)；[src/components/FullscreenRecoveryHost.vue:61](src/components/FullscreenRecoveryHost.vue#L61)；[src/components/FullscreenRecoveryHost.vue:110](src/components/FullscreenRecoveryHost.vue#L110)；[src/components/PlanUsage/PlanUsage.vue:7](src/components/PlanUsage/PlanUsage.vue#L7)。[src/forge-asyncapi-viewer.ts:92](src/forge-asyncapi-viewer.ts#L92)；[src/forge-asyncapi-viewer.ts:155](src/forge-asyncapi-viewer.ts#L155)；[src/forge-asyncapi-viewer.ts:171](src/forge-asyncapi-viewer.ts#L171)；[src/forgeIndex.ts:1643](src/forgeIndex.ts#L1643)。[src/components/PlanUsage/fullscreenSource.ts:11](src/components/PlanUsage/fullscreenSource.ts#L11)；[src/components/PlanUsage/PlanUsage.vue:233](src/components/PlanUsage/PlanUsage.vue#L233)；[src/components/PlanUsage/PlanUsage.vue:104](src/components/PlanUsage/PlanUsage.vue#L104)；[src/components/PlanUsage/PlanUsage.vue:123](src/components/PlanUsage/PlanUsage.vue#L123)；[src/utils/paywall/fullscreenRecoveryGate.ts:32](src/utils/paywall/fullscreenRecoveryGate.ts#L32)；[functions/api/fullscreen-recovery.ts:12](functions/api/fullscreen-recovery.ts#L12)；[functions/api/support/fullscreen-recovery.ts:25](functions/api/support/fullscreen-recovery.ts#L25)；[scripts/fullscreen-recovery-support.mjs:14](scripts/fullscreen-recovery-support.mjs#L14)；[functions/api/fullscreen-recovery-webhook.ts:12](functions/api/fullscreen-recovery-webhook.ts#L12)。
 
 <a id="f58"></a>
 ### F58 · 空间 Bundle 购买 — `space-checkout`
 
 **能力**：为符合条件的空间管理员打开空间级 checkout。
 
-**交互面**：`page-banner` G。
+**交互面**：`page-banner` G；`provider-webhook` A。
 
-**契约与边界**：Page banner 的空间管理员路径带 tenant/space 归因。它不是站点管理员购买 Marketplace Full，也不代表普通成员有空间购买操作。旧 UpgradePrompt 中的同类按钮另列为保留实现。
+**契约与边界**：Page banner 的空间管理员路径带 tenant/space 归因。它不是站点管理员购买 Marketplace Full，也不代表普通成员有空间购买操作。旧 UpgradePrompt 中的同类按钮另列为保留实现。 PW 表示 Stripe 签名事件对空间许可的履约：处理 checkout.session.completed，校验对应的 metadata／client reference，写入 active 许可及索引。浏览器打开 checkout 不等于已完成支付、回调已接受或许可已生效。当前 Stripe handler 的时间戳参与签名计算，但未找到时间窗口检查或事件 ID 去重；不能套用邮件 webhook 的重放保证。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[src/components/UpgradePrompt/PaywallWarningBanner.vue:204](src/components/UpgradePrompt/PaywallWarningBanner.vue#L204)；[src/composables/useCustomerSuccessService.ts:80](src/composables/useCustomerSuccessService.ts#L80)。
+**代码证据**：[src/components/UpgradePrompt/PaywallWarningBanner.vue:204](src/components/UpgradePrompt/PaywallWarningBanner.vue#L204)；[src/composables/useCustomerSuccessService.ts:80](src/composables/useCustomerSuccessService.ts#L80)；[functions/api/stripe-webhook.ts:135](functions/api/stripe-webhook.ts#L135)。
 
 <a id="f59"></a>
 ### F59 · 反馈报告 — `feedback-report`
 
 **能力**：描述问题、可选截图/上传、披露上下文、保存引用和支持接续。
 
-**交互面**：`inline-viewer` ↗；`editor` ↗；`fullscreen-editor` ↗；`fullscreen-viewer` ↗；`openapi-editor` ↗；`graph-editor` ↗；`asyncapi-editor` ↗；`export-workspace` ↗；`dashboard` ↗；`get-started` ↗；`api-dashboard` ↗；`plan-usage` ↗；`feedback-dialog` ●；`api-document-viewer` G；`page-editor-preview` ↗；`embedded-viewer` ↗；`admin-demo` G。
+**交互面**：`inline-viewer` ↗；`editor` ↗；`fullscreen-editor` ↗；`fullscreen-viewer` ↗；`openapi-editor` ↗；`graph-editor` ↗；`asyncapi-editor` ↗；`export-workspace` ↗；`dashboard` ↗；`get-started` ↗；`api-dashboard` ↗；`plan-usage` ↗；`feedback-dialog` ●；`api-document-viewer` G；`page-editor-preview` ↗；`embedded-viewer` ↗；`admin-demo` G；`forge-remote-api` G。
 
-**契约与边界**：真实安装由 feedbackSurfaceForContext 判定；排除 contentBylineItem/pageBanner/Home feed，因此保留父 byline 类型的 modal 也可能被排除。图片只能一张，可预览/重拍/替换/删除；current-view capture 限当前 ZenUML 视图。支持 handoff 与失败重试。 API Dashboard 的 viewer modal 若仍带 spacePage 上下文，也会按 dashboard 分类。宏 moduleKey 判定涵盖 PEP／EV；Diagramly Admin 在保留 globalSettings 的生成包中也安装反馈宿主，并归为 get_started。DA 的 G 保留 CI／本地 wizard 差异。此处确认分类和安装接线，新增宿主中的按钮、截图与提交交互**待 UI 验证**。
+**契约与边界**：真实安装由 feedbackSurfaceForContext 判定；排除 contentBylineItem/pageBanner/Home feed，因此保留父 byline 类型的 modal 也可能被排除。图片只能一张，可预览/重拍/替换/删除；current-view capture 限当前 ZenUML 视图。支持 handoff 与失败重试。 API Dashboard 的 viewer modal 若仍带 spacePage 上下文，也会按 dashboard 分类。宏 moduleKey 判定涵盖 PEP／EV；Diagramly Admin 在保留 globalSettings 的生成包中也安装反馈宿主，并归为 get_started。DA 的 G 保留 CI／本地 wizard 差异。此处确认分类和安装接线，新增宿主中的按钮、截图与提交交互**待 UI 验证**。 FRA 表示反馈 API 的验证和存储契约，按 FIT 身份、报告／截图字段、存储可用性区分失败；截图许可与用户填写仍在 FD。组件提交成功不覆盖所有真实 FIT／网关错误。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[src/forgeIndex.ts:1204](src/forgeIndex.ts#L1204)；[src/features/feedback/feedbackContext.ts:11](src/features/feedback/feedbackContext.ts#L11)；[src/features/feedback/mountFeedback.ts:1](src/features/feedback/mountFeedback.ts#L1)；[src/features/feedback/FeedbackDialog.vue:34](src/features/feedback/FeedbackDialog.vue#L34)；[src/features/feedback/FeedbackDialog.vue:58](src/features/feedback/FeedbackDialog.vue#L58)；[src/features/feedback/FeedbackDialog.vue:192](src/features/feedback/FeedbackDialog.vue#L192)。
+**代码证据**：[src/forgeIndex.ts:1204](src/forgeIndex.ts#L1204)；[src/features/feedback/feedbackContext.ts:11](src/features/feedback/feedbackContext.ts#L11)；[src/features/feedback/mountFeedback.ts:1](src/features/feedback/mountFeedback.ts#L1)；[src/features/feedback/FeedbackDialog.vue:34](src/features/feedback/FeedbackDialog.vue#L34)；[src/features/feedback/FeedbackDialog.vue:58](src/features/feedback/FeedbackDialog.vue#L58)；[src/features/feedback/FeedbackDialog.vue:192](src/features/feedback/FeedbackDialog.vue#L192)；[functions/api/feedback-report.ts:137](functions/api/feedback-report.ts#L137)。
 
 <a id="f60"></a>
 ### F60 · 满意度调查 — `csat`
@@ -944,11 +968,11 @@
 
 **能力**：登录 Atlassian、按客户端允许/拒绝、返回账户与切换账户。
 
-**交互面**：`oauth-consent` ●；`external-agent` G。
+**交互面**：`oauth-consent` ●；`external-agent` G；`oauth-protocol` G。
 
-**契约与边界**：浏览器绑定同意；read/write scopes 分离，访问范围是同意用户可访问的 site/page。令牌刷新、客户端身份和 grant 检查是写入前置，不是 app-wide 越权访问。
+**契约与边界**：浏览器绑定同意；read/write scopes 分离，访问范围是同意用户可访问的 site/page。令牌刷新、客户端身份和 grant 检查是写入前置，不是 app-wide 越权访问。 OP 把授权协议与 OS 的 consent UI、AM 的 Bearer MCP 调用分开：公开发现文档、客户端注册、PKCE code／redirect 绑定及 refresh ledger 各有失败与重放契约。MCP 未授权请求返回 discovery challenge 只验证 AM 的挑战响应，未读取发现文档，不能算 OP 的完整 E2E。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[functions/agent-link/oauth/consent.ts:43](functions/agent-link/oauth/consent.ts#L43)；[functions/agent-link/oauth/authServer.ts:374](functions/agent-link/oauth/authServer.ts#L374)；[functions/agent-link/oauth/authorize.ts:1](functions/agent-link/oauth/authorize.ts#L1)；[functions/agent-link/oauth/headlessMcp.ts:589](functions/agent-link/oauth/headlessMcp.ts#L589)。
+**代码证据**：[functions/agent-link/oauth/consent.ts:43](functions/agent-link/oauth/consent.ts#L43)；[functions/agent-link/oauth/authServer.ts:374](functions/agent-link/oauth/authServer.ts#L374)；[functions/agent-link/oauth/authorize.ts:1](functions/agent-link/oauth/authorize.ts#L1)；[functions/agent-link/oauth/headlessMcp.ts:589](functions/agent-link/oauth/headlessMcp.ts#L589)；[functions/agent-link/oauth/discovery.ts:1](functions/agent-link/oauth/discovery.ts#L1)；[functions/agent-link/oauth/token.ts:1](functions/agent-link/oauth/token.ts#L1)。
 
 <a id="f66"></a>
 ### F66 · Agent 发现与读取 — `agent-read`
@@ -1032,11 +1056,11 @@
 
 **能力**：激活、列出、过滤、停用、重新激活空间许可证。
 
-**交互面**：`space-license-admin` B。
+**交互面**：`space-license-admin` B；`operator-admin-api` G。
 
-**契约与边界**：/admin/ 使用运维凭证，不等于 Confluence space-admin UI；具体权限取后端认证，禁止在本文记录真实客户、凭证或操作记录。
+**契约与边界**：/admin/ 使用运维凭证，不等于 Confluence space-admin UI；具体权限取后端认证，禁止在本文记录真实客户、凭证或操作记录。 OAA 表示 Space License 的 GET／POST／DELETE 运维 API：独立 admin Bearer 校验，配置缺失、认证失败、方法不支持分别返回错误。与 Fullscreen support API 虽同属运维入口分类，凭证与授权规则仍按能力隔离；HTML 管理页通过不代表直接 API 的拒绝路径已覆盖。 **验证状态**：关系登记核实了源码及已有测试边界；候选 API 集成证据见非 UI 覆盖边界追加说明，未验证生产或第三方链路。
 
-**代码证据**：[public/admin/index.html:70](public/admin/index.html#L70)；[public/admin/index.html:149](public/admin/index.html#L149)；[public/admin/index.html:213](public/admin/index.html#L213)；[public/admin/index.html:256](public/admin/index.html#L256)；[public/admin/index.html:279](public/admin/index.html#L279)；[functions/api/space-license.ts:1](functions/api/space-license.ts#L1)。
+**代码证据**：[public/admin/index.html:70](public/admin/index.html#L70)；[public/admin/index.html:149](public/admin/index.html#L149)；[public/admin/index.html:213](public/admin/index.html#L213)；[public/admin/index.html:256](public/admin/index.html#L256)；[public/admin/index.html:279](public/admin/index.html#L279)；[functions/api/space-license.ts:1](functions/api/space-license.ts#L1)；[functions/api/space-license.ts:202](functions/api/space-license.ts#L202)。
 
 <a id="f74"></a>
 ### F74 · 运维缓存诊断 — `metrics-inspection`
@@ -1048,6 +1072,39 @@
 **契约与边界**：独立 metrics-inspect 入口；与产品内的站点用量/图表清单功能区分。本文只记录接口与契约，不保存任何实际租户查询结果。
 
 **代码证据**：[public/admin/metrics.html:100](public/admin/metrics.html#L100)；[public/admin/metrics.html:140](public/admin/metrics.html#L140)；[functions/admin/metrics-inspect/index.ts:1](functions/admin/metrics-inspect/index.ts#L1)。
+
+<a id="f75"></a>
+### F75 · 应用首次出现上报 — `first-seen-telemetry`
+
+**能力**：在共享 Page banner 生命周期中发送带应用身份的 app_first_seen，支撑活动识别与首次出现统计。
+
+**交互面**：`page-banner` A。
+
+**契约与边界**：源码在决定是否显示 banner 前调用，不要求页面存在宏；账号缺失不发送，30 天 marker、失败 backoff 和响应状态分别控制重试／落标。它不是 paywall 或 onboarding UI。现有远端 relay 测试确认目标 app 的请求与成功响应；synthetic relay predicate 仅为测试适配器检查，不冒充该产品场景。未在本轮执行真实请求。
+
+**代码证据**：[src/forgeIndex.ts:221](src/forgeIndex.ts#L221)；[src/utils/firstSeen/firstSeenPing.ts:137](src/utils/firstSeen/firstSeenPing.ts#L137)。
+
+<a id="f76"></a>
+### F76 · 渲染事件与阶段遥测 — `render-telemetry`
+
+**能力**：在宏查看器记录 macro_viewed 的身份、渲染耗时及可用的内容加载阶段。
+
+**交互面**：`inline-viewer` A。
+
+**契约与边界**：事件不是渲染成功证明；OpenAPI 内容失败也可上报，时序需等内容加载结算。Graph／OpenAPI 的 fetch_ms 归实际读取方，正文读取与异步 PNG 附件工作分开。现有测试检查一次事件、product_type、duration_ms、fetch_ms 及 custom_content_fetch_ms，不等于检查图像可见。这里只登记已追踪的内联宿主，其他宿主不因引用同一个 helper 自动扩列；本轮未运行浏览器遥测验证。
+
+**代码证据**：[src/utils/analytics/trackRenderTime.ts:75](src/utils/analytics/trackRenderTime.ts#L75)；[src/utils/viewerBootstrap.ts:156](src/utils/viewerBootstrap.ts#L156)；[src/components/Viewer/OpenApiViewer.vue:87](src/components/Viewer/OpenApiViewer.vue#L87)；[src/components/Viewer/ForgeGraphViewer.vue:209](src/components/Viewer/ForgeGraphViewer.vue#L209)。
+
+<a id="f77"></a>
+### F77 · 渲染器资源空闲预取 — `renderer-prefetch`
+
+**能力**：在宏完成渲染后的空闲时段，或共享 Page banner 空槽关闭前，预热后续渲染器资源。
+
+**交互面**：`inline-viewer` A；`page-banner` G。
+
+**契约与边界**：宏宿主排除自己的已加载图种；PB 只在 banner 与 survey 均未占位的 none 分支运行。受每部署／浏览器 throttle、saveData、网络与可见性等守卫限制，无现行 Forge flag 门槛。DrawIO 资源、ZenUML／OpenAPI chunk 和 Mermaid import-warm 各有路径；PlantUML 无对应浏览器渲染包。local preview 测试直接调用 host=macro 的真实 helper，验证资源响应、Mermaid warming 和二次 no-op；未验证 Forge 的自动调度、生产 CDN 或 PB 入口。
+
+**代码证据**：[src/utils/analytics/trackRenderTime.ts:104](src/utils/analytics/trackRenderTime.ts#L104)；[src/forgeIndex.ts:244](src/forgeIndex.ts#L244)；[src/utils/prefetch/rendererPrefetch.ts:93](src/utils/prefetch/rendererPrefetch.ts#L93)。
 
 ## 跨 Feature 的共同边界
 
@@ -1061,7 +1118,7 @@
 | 后端路由 | 外部 Agent、OAuth、分享、writeback、附件等必须在 Pages allowlist 中；有函数文件不等于入口可路由。 | [public/_routes.json:1](public/_routes.json#L1) |
 | 查看器的实际模式门槛 | PEP 仅 isEditing 且无 configuring/inserting 可仍是 display 模式；Workspace hideHeader 预览另算。ADV 的 macroMode=viewer 即使承载 OpenAPI GenericViewer 也不显示通用工具栏。 | [src/model/ApWrapper2.ts:1508](src/model/ApWrapper2.ts#L1508)；[src/model/globals/forgeGlobal.ts:227](src/model/globals/forgeGlobal.ts#L227)；[src/components/Viewer/GenericViewer.vue:12](src/components/Viewer/GenericViewer.vue#L12) |
 | 数据与页面一致性 | 正文保存、PNG/JSON 附件、页面放置、索引、计数、后端镜像是不同完成条件；列表可能给出延迟/部分数据。 | [src/model/Attachment.ts:425](src/model/Attachment.ts#L425)；[src/components/PlanUsage/DiagramLocations.vue:202](src/components/PlanUsage/DiagramLocations.vue#L202)；[src/components/AsyncApiDashboard/AsyncApiDashboard.vue:557](src/components/AsyncApiDashboard/AsyncApiDashboard.vue#L557) |
-| 后台运行面 | 安装/卸载、page capture、macro count、Full presence、Lite→Full conversion、architecture indexing、邮件/webhook 都是前述能力的后端依赖，不伪装成客户 UI 列。 | [manifest.yml:726](manifest.yml#L726)；[src/full-presence.ts:1](src/full-presence.ts#L1)；[src/lite-full-conversion.ts:1](src/lite-full-conversion.ts#L1)；[functions/architecture-tokens/indexOnSave.ts:1](functions/architecture-tokens/indexOnSave.ts#L1) |
+| 后台运行面 | 安装/卸载、page capture、macro count、Full presence、Lite→Full conversion、architecture indexing、邮件/webhook 通常先作为前述能力的后端依赖记录；若其中某个对外入口有独立契约，且单列有助于界定 E2E 覆盖，则可登记为非 UI Interface，不因其属于后台就排除。 | [manifest.yml:726](manifest.yml#L726)；[src/full-presence.ts:1](src/full-presence.ts#L1)；[src/lite-full-conversion.ts:1](src/lite-full-conversion.ts#L1)；[functions/architecture-tokens/indexOnSave.ts:1](functions/architecture-tokens/indexOnSave.ts#L1) |
 
 ## 保留实现、源文漂移与尚未验证的边界
 
@@ -1097,9 +1154,27 @@
 | 6 · BA 完成链接 | 补 F30／F32 的 BA；F50 明确三段 Embed 引用及票据 fallback。未采用“永远只读”的绝对表述，见 F31 的 Edit 边界。 | 实际粘贴和后续编辑。 |
 | 7 · RC 宿主及 RF | 补 RC 双宿主定义；F57 的 RF 仅表示场景上下文与升级引导，不代表 RF 提交临时访问请求。 | 跨宿主导航、参数保留和申请结果。 |
 | 8 · MCP 写入依赖 | F67 补非原子写入、尽力回滚及附件不随写入同步刷新的边界；关联 F49／F39／F40。 | 孤儿的 byline 可发现性、后续附件补齐及导出结果。 |
-| 9 · 跨轴同名 ID | 确认四组同名，但命名空间无冲突；保留 ID，要求标签保留前缀、场景元数据保留 feature／interface 字段。Interface 短码仍全局唯一。 | 无需 UI 验证；当前 CI 尚未实现完整两轴投影，见下节。 |
+| 9 · 跨轴同名 ID | 确认四组同名，但命名空间无冲突；保留 ID，要求标签保留前缀、场景元数据保留 feature／interface 字段。Interface 短码仍全局唯一。 | 无需 UI 验证；本次已接入显式场景投影；可信 controller 的激活状态与真实执行另验，见下节。 |
 
 另已将 `RELAY_SESSIONS_ENABLED` 的两处引用更正到定义行 81。源码链接存在及行号范围有效仅是文档检查，不代表每个链接所述交互均已验证。
+
+## 非 UI 入口的覆盖边界（2026-10-27）
+
+**候选验证追加**：OAuth token 重构候选新增了 [真实 HTTP 集成测试](https://github.com/ZenUml/conf-app/blob/37c2513e72ac32bed480c544c438cb1694646ea5/tests/integration/oauth-token/oauth.test.ts)，[独立 CI 通道已通过](https://github.com/ZenUml/conf-app/actions/runs/40428690131)，共 14 个用例，覆盖 `agent-authorization × oauth-protocol` 与 `agent-authorization × external-agent` 的 token 生命周期服务边界。使用实际 Pages router／middleware、本地 D1／KV，并从 MCP HTTP 校验后续访问；授权码 fixture 不验证浏览器 consent、真实 Atlassian SSO、生产部署或 Cloudflare edge。该证据属于关联候选 PR，尚未合并到本文源码基线；可信选择策略将这两对场景登记到 `oauth-token` API 集成通道；策略尚需先进入可信默认分支，候选代码也必须包含匹配的场景清单，才能在授权的 PR 子工作流中实际执行。独立的路径触发集成工作流可以自行运行，但不能代替该授权通道或浏览器 E2E。
+
+本轮按“能否区分端到端覆盖”补充五类接口，而非枚举所有路由。新增矩阵格是源契约登记，不是 E2E 已覆盖声明；现有标签不自动从 UI 扩大到 API、CLI 或回调，缺少对应执行通道／断言时进入 triage。
+
+| 入口 | 为什么独立 | 现有验证层级与缺口 |
+| --- | --- | --- |
+| OP · OAuth 协议 | 公共发现、PKCE、token／refresh 与浏览器 consent、MCP challenge 分别验证。 | tokenRoute／authServer 是 mock／handler 检查；liveSmoke 是 opt-in、已有 grant 的凭证读取集成，不是完整 consent／授权协议 E2E。 |
+| FRA · Forge Remote API | FIT、user/system credential、业务 payload 与内嵌错误构成独立边界。 | writeback／upload／feedback handler 测试使用替身；UI E2E 不自动证明真实网关、缺 user credential 或全部 API 错误分支通过。 |
+| OAA · 运维管理 API | 采用运维 Bearer 凭证，身份来源与 Forge 用户完全不同。 | Space License、recovery support API 有 handler／service 检查；未确认真实运营服务端到端覆盖，各能力凭证不可互换。 |
+| OSC · 运维支持 CLI | 参数、origin 限制、dry-run／显式确认和退出状态需要独立验证。 | CLI node-test 注入 fetch／文件，属于 CLI 逻辑与边界检查；未执行真实写请求、发信或扩期，不宣称 live CLI→API→存储 E2E。 |
+| PW · 第三方回调 | 服务提供商签名、重复／重放和异步状态不依赖交互用户。 | Stripe handler 使用替身，源码未见时间窗口或事件 ID 去重；邮件 webhook 有独立的验签／重放处理及签名／配置失败检查。尚未验证真实 provider→回调→许可／邮件状态链路。 |
+
+没有为 Forge CLI、wrangler、build/test 脚本各增一列：它们目前是开发／部署或测试编排工具，未发现需要在本产品能力矩阵中单列的客户业务契约。外部 Agent 已代表 MCP 工具调用；同一 MCP 契约从命令行或 GUI 客户端发起，不据外壳重复建列。运维支持 CLI 则确有独立参数和 dry-run 合同，因此单列。
+
+相关测试入口：`functions/agent-link/oauth/tokenRoute.spec.ts`、`functions/agent-link/oauth/liveSmoke.spec.ts`、`functions/magic-writeback.spec.ts`、`functions/forge-upload-attachment.spec.ts`、`functions/api/feedback-report.spec.ts`、`tests/unit/space-license.spec.ts`、`scripts/fullscreen-recovery-support.node-test.mjs`、`functions/api/fullscreen-recovery-webhook.spec.ts`。本轮没有把这些较低层检查改称 E2E，也没有新增不存在的浏览器标签。
 
 ## 标签、精确场景与测试投影
 
@@ -1108,7 +1183,11 @@
 3. 一个测试可关联多对场景；与 PR 的场景集合有交集就选入一次。标签列表只展示维度，不能据此生成全部笛卡尔积；父/子界面也不自动扩大。
 4. 场景选择叠加已约定的 smoke、直接修改且仍存在的 specs、已知依赖最低覆盖。未知映射、代码不可达、身份/变体/状态边界无法判断时进入 triage；全量决定仍由手动 triage 对当前 commit 作出。
 5. `pr-triage` 沉淀可复用的**产品契约与依赖**、更新证据；`pr-labeling` 先读对应 Feature/Interface。产品支持和测试覆盖分栏记录：支持但无测试、已有测试但入口已退役是不同状态。
-6. 当前选择器仍使用 [flat category catalog](tests/e2e-tests/config/categories.mjs) 和 [路径影响投影](tests/e2e-tests/config/impact-map.mjs)。现有 [descriptive tags](tests/e2e-tests/config/tags.ts) 还没有按本文完整迁移；本文重写不声称已经改变 CI 执行逻辑。
+6. PR 选择器直接读取本文登记的精确场景；测试使用 [维度与原子场景标签](tests/e2e-tests/config/tags.ts)，[覆盖登记](tests/e2e-tests/config/scenario-coverage.mjs) 由实际测试断言和标签约束。`@scenario:<feature>:<interface>` 保留配对，维度标签只展示。未覆盖场景进入 triage；产品有接线不等于已有 E2E。原 [category catalog](tests/e2e-tests/config/categories.mjs) 继续服务 main 的 Jev 和已知依赖最低覆盖；[路径影响投影](tests/e2e-tests/config/impact-map.mjs) 保留原有 floor／上下文用途。实现接入不等于已在 GitHub 激活；授权仍依赖默认分支的可信 controller 与一致的目录指纹。
+
+## 未配对 E2E 的逐项核实
+
+原 12 组的逐项结论、保留原因和源码证据见 [E2E 场景核实登记](docs/policies/e2e-scenario-audit.md)。能确认的产品契约加精确场景标签；开发宿主同时注明 local preview／组件级检查。retired relay、测试适配器、宿主契约、测试编排和当前非阻断行为的负向回归分别登记，不把它们硬套到现行产品能力。标签声明测试覆盖意图，不代表本轮浏览器验证通过。
 
 ## 测试证据的定位
 

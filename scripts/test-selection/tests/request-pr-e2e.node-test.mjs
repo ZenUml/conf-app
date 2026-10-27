@@ -32,9 +32,9 @@ async function fixture({ existingRunLabel = false, repoLabelExists = true } = {}
   };
   const context = await readContext(api, 42);
   const decision = {
-    schema_version: 1, ...catalog, pr_number: 42, head_sha: HEAD, base_sha: BASE, diff_fingerprint: context.diff_fingerprint,
-    mode: 'selected', source: 'labeling', categories: [], reason: 'Documentation only; smoke is sufficient.',
-    evidence: [{ paths: context.paths, categories: [], reason: 'Reviewed the complete documentation change.' }],
+    schema_version: 2, ...catalog, pr_number: 42, head_sha: HEAD, base_sha: BASE, diff_fingerprint: context.diff_fingerprint,
+    mode: 'selected', source: 'labeling', scenarios: [], reason: 'Documentation only; smoke is sufficient.',
+    evidence: [{ paths: context.paths, scenarios: [], reason: 'Reviewed the complete documentation change.' }],
   };
   const makeComment = (id, value) => ({ id, user: { login: 'maintainer' },
     body: `${MARKER}\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\``, created_at: '2026-10-27T00:00:00Z', updated_at: '2026-10-27T00:00:00Z' });

@@ -4,7 +4,7 @@ import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test('selects the modal Insert action when a search result also contains Insert', { tag: ['@test:sequence', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@sequence'] }, async ({ page }) => {
+test('selects the modal Insert action when a search result also contains Insert', { tag: ['@test:sequence', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@sequence', '@check:adapter'] }, async ({ page }) => {
   // Minimal DOM observed in the failed CI trace. It guards our locator adapter
   // against this ambiguity; it does not assert live Atlassian behavior.
   await page.setContent(`

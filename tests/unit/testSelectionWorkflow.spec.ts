@@ -45,9 +45,12 @@ describe('staging workflow safety contracts', () => {
       expect(child.permissions.actions).toBe('read');
       const testJobs = Object.entries(child.jobs).filter(([id]) => id !== 'parent');
       expect(testJobs.length).toBeGreaterThan(0);
-      for (const [, job] of testJobs as [string, any][]) {
-        expect(job.uses).toBe('./.github/workflows/e2e-test.yml');
+      for (const [id, job] of testJobs as [string, any][]) {
         expect([job.needs].flat()).toContain('parent');
+        if (name === 'pr-e2e-validation' && id === 'oauth-token-integration') {
+          expect(job.if).toBe("needs.parent.outputs.oauth-token == 'true'");
+          expect(job.steps.some((step: any) => /pr-decision\.mjs check/.test(step.run || ''))).toBe(true);
+        } else expect(job.uses).toBe('./.github/workflows/e2e-test.yml');
       }
       const verifier = child.jobs.parent.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --verify-parent');
       expect(verifier.env.PARENT_RUN_ID).toBe('${{ inputs.parent-run-id }}');

@@ -1,4 +1,7 @@
 import test from 'node:test';
+import { createHash } from 'node:crypto';
+import { SCENARIO_COVERAGE, API_LANES } from '../../../tests/e2e-tests/config/scenario-coverage.mjs';
+import { PRODUCT_IMPACT_FINGERPRINT, scenarioTag } from '../../../tests/e2e-tests/config/product-impact.mjs';
 import assert from 'node:assert/strict';
 import { selectAgentFloor } from '../../e2e-select.mjs';
 import { decisionError, resolveSelection } from '../resolve.mjs';
@@ -7,14 +10,16 @@ import { CATEGORIES, CATEGORY_VERSION } from '../../../tests/e2e-tests/config/ca
 import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from '../classify.mjs';
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../../tests/e2e-tests/config/impact-map.mjs';
 const head = 'a'.repeat(40), tree = 'b'.repeat(40);
+const pair = { feature:'connect-mcp', interface:'connect-mcp-dialog' };
 const names = CATEGORIES.slice(0, 3).map(c => c.id);
 const files = ['src/model/Example.ts', 'tests/e2e-tests/tests/fullscreen/direct.spec.ts'];
 function selection(overrides = {}) {
   return { schema_version: 1, category_version: CATEGORY_VERSION, policy_version: POLICY_VERSION,
     selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION, selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT,
+    decision_schema_version: 2, product_impact_fingerprint: PRODUCT_IMPACT_FINGERPRINT, scenario_coverage_fingerprint: createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex'), scenarios: [pair],
     selection_scope: 'pr', decision_source: 'agent', decision_id: 12, pr_number: 9, pr_head_sha: head, base_sha: 'c'.repeat(40),
     head_sha: head, tested_tree: tree, source: 'labeling', source_paths: files, removed_paths: [], mode: 'selected', execution_mode: 'enabled',
-    categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { selected: c.id === names[0] }])),
+    categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { selected: false }])),
     required: ['smoke'], diff_complete: true, fallback_reason: null, request: { outcome: 'not-requested' }, model: null, ...overrides };
 }
 function spec(id, file, category, smoke = false) {
@@ -22,13 +27,14 @@ function spec(id, file, category, smoke = false) {
 }
 const inventory = { config: { projects: [{name:'fullscreen',dependencies:['auth']}, {name:'render',dependencies:['pages']}] }, suites: [{title:'tests', specs: [
   spec('smoke', 'fullscreen/smoke.spec.ts', names[2], true),
-  spec('chosen', 'fullscreen/chosen.spec.ts', names[0]),
+  {...spec('chosen', 'fullscreen/chosen.spec.ts', names[0]), tags: [`@test:${names[0]}`, scenarioTag(pair), '@variant:lite']},
   spec('direct', 'fullscreen/direct.spec.ts', names[1]),
   spec('unrelated', 'fullscreen/unrelated.spec.ts', names[2]),
 ]}] };
+const fixtureCoverage = [{file:'fullscreen/chosen.spec.ts',variants:['lite'],scenarios:[pair]}];
 function plan(raw = selection(), overrides = {}) {
   const resolved = resolveSelection({ selection: raw, files: raw.source_paths, head, tree });
-  return scopedPlan({discover: () => inventory, selection: raw, resolved, head, tree, policy: POLICY_VERSION, variant:'lite', scope:'all', shards:2, grep:resolved.grep, sourcePaths:raw.source_paths, selectionScope:'pr', requireAgentDecision:true, ...overrides});
+  return scopedPlan({discover: () => inventory, selection: raw, resolved, head, tree, policy: POLICY_VERSION, variant:'lite', scope:'all', shards:2, grep:resolved.grep, sourcePaths:raw.source_paths, selectionScope:'pr', requireAgentDecision:true, scenarioInventory:fixtureCoverage, ...overrides});
 }
 
 test('agent subset keeps smoke, direct changes and project dependencies without all fallback for shared code', () => {
@@ -49,7 +55,7 @@ test('agent floor keeps explicit helper-dependent specs even beside shared paths
   assert.ok(floor.reasons.every(reason=>!/(runs everything|Jev)/.test(reason)));
 });
 test('zero selected categories retains only mandatory coverage', () => {
-  const raw = selection({categories:Object.fromEntries(CATEGORIES.map(c => [c.id,{selected:false}]))});
+  const raw = selection({scenarios:[]});
   assert.deepEqual(plan(raw).tests.map(t => t.id), ['smoke','direct']);
 });
 test('triage-approved full selection retains full inventory', () => {
@@ -82,7 +88,7 @@ test('artifact path list and grep cannot be changed independently of authorizati
   assert.throws(() => plan(selection(), {grep:'@smoke'}), /blocked/);
 });
 test('empty auxiliary render subset remains empty rather than becoming full', () => {
-  const raw = selection({source_paths:['src/components/Sequence.vue'], categories:Object.fromEntries(CATEGORIES.map(c => [c.id,{selected:false}]))});
+  const raw = selection({source_paths:['src/components/Sequence.vue'], scenarios:[]});
   const renderInventory = {config:{projects:[]}, suites:[{title:'tests',specs:[spec('render-other','render/other.spec.ts',names[2])]}]};
   const result = plan(raw, {scope:'render',discover:()=>renderInventory});
   assert.deepEqual(result.tests, []);
@@ -111,21 +117,6 @@ test('removed and renamed-away specs require evidence but are not executable flo
 test('removed-path metadata cannot exclude a different path from direct coverage', () => {
   assert.throws(()=>plan(selection({removed_paths:['not-a-changed-path.spec.ts']})), /invalid-agent-decision/);
 });
-test('known category dependencies widen a subset automatically', () => {
-  const raw = selection({source_paths:['src/components/Mermaid.vue'],categories:Object.fromEntries(CATEGORIES.map(c=>[c.id,{selected:c.id==='mermaid'}]))});
-  const resolved = resolveSelection({selection:raw,files:raw.source_paths,head,tree});
-  assert.ok(resolved.agent_categories.includes('@test:mermaid'));
-  assert.ok(resolved.agent_categories.includes('@test:mermaid-render'));
-  const dependencyInventory = {config:{projects:[]},suites:[{title:'tests',specs:[
-    spec('smoke','fullscreen/smoke.spec.ts',names[2],true),
-    spec('mermaid','fullscreen/mermaid.spec.ts','mermaid'),
-    spec('render','render/mermaid.spec.ts','mermaid-render'),
-    spec('unrelated','fullscreen/unrelated.spec.ts',names[2]),
-  ]}]};
-  assert.deepEqual(plan(raw,{discover:()=>dependencyInventory}).tests.map(t=>t.id),['smoke','mermaid','render']);
-});
-
-
 test('direct render specs belong only to the render inventory even when regression keeps legacy all scope', () => {
   const renderPath = 'tests/e2e-tests/tests/render/changed.spec.ts';
   const raw = selection({source_paths:[renderPath]});
@@ -154,4 +145,63 @@ test('direct specs explicitly targeting another variant do not block selected or
   const missingMetadata={...inventory,suites:[...inventory.suites,{title:'asyncapi',specs:[invalid]}]};
   assert.throws(()=>plan(raw,{discover:()=>missingMetadata}),/Invalid or missing variant/);
   assert.throws(()=>plan(raw),/directly changed spec absent/);
+});
+
+test('scenario grep matches atomic tokens and rejects prefixes and cross-pairs', () => {
+  const raw = selection();
+  const resolved = resolveSelection({ selection: raw, files, head, tree });
+  const regex = new RegExp(resolved.agent_grep);
+  assert.match(`case ${scenarioTag(pair)} @variant:lite`, regex);
+  assert.doesNotMatch(`case ${scenarioTag(pair)}-extra`, regex);
+  assert.doesNotMatch('case @scenario:connect-mcp:editor', regex);
+  assert.deepEqual(resolved.agent_scenarios, [pair]);
+  assert.deepEqual(resolved.agent_scenario_tags, [scenarioTag(pair)]);
+  assert.throws(() => resolveSelection({selection:selection({product_impact_fingerprint:'stale'}),files,head,tree}), /invalid-agent-decision/);
+});
+
+test('exact pair union excludes crossed combinations and selects a multi-pair test once', () => {
+  const a = {feature:'create-diagram',interface:'editor'};
+  const b = {feature:'publishing',interface:'fullscreen-editor'};
+  const raw = selection({source_paths:['src/Workspace.vue'],scenarios:[a,b]});
+  const tagged = (id, pairs, extra=[]) => ({...spec(id, `fullscreen/${id}.spec.ts`, names[0]), tags:[
+    `@test:${names[0]}`, '@variant:lite', ...pairs.map(p=>`@scenario:${p.feature}:${p.interface}`), ...extra,
+  ]});
+  const data={config:{projects:[]},suites:[{title:'tests',specs:[
+    tagged('required',[],['@smoke']), tagged('a',[a]), tagged('b',[b]), tagged('shared',[a,b]),
+    tagged('wrong-cross-a',[{feature:'create-diagram',interface:'fullscreen-editor'}]),
+    tagged('wrong-cross-b',[{feature:'publishing',interface:'editor'}]),
+  ]}]};
+  const result=plan(raw,{discover:()=>data,scenarioInventory:[{file:'fullscreen/a.spec.ts',variants:['lite'],scenarios:[a]},{file:'fullscreen/b.spec.ts',variants:['lite'],scenarios:[b]}]});
+  assert.deepEqual(result.tests.map(t=>t.id),['required','a','b','shared']);
+  assert.equal(result.tests.filter(t=>t.id==='shared').length,1);
+});
+
+test('manual full survives candidate product catalog drift while selected fails closed', () => {
+  const stale = { product_impact_fingerprint: 'e'.repeat(64), scenario_coverage_fingerprint: 'f'.repeat(64), scenarios: [{feature:'removed-feature',interface:'removed-interface'}] };
+  assert.throws(() => plan(selection(stale)), /invalid-agent-decision/);
+  const full = selection({...stale, mode:'all', source:'triage', full_reason:'Catalog maintenance requires the full candidate inventory.'});
+  const resolved = resolveSelection({selection:full,files,head,tree});
+  assert.equal(resolved.mode, 'all');
+  assert.equal(resolved.product_impact_fingerprint, stale.product_impact_fingerprint);
+  assert.equal(resolved.scenario_coverage_fingerprint, stale.scenario_coverage_fingerprint);
+  assert.deepEqual(resolved.agent_scenario_tags, []);
+  assert.deepEqual(resolved.agent_categories, []);
+  assert.equal(plan(full).tests.length, 4);
+  assert.throws(() => plan({...full, product_impact_fingerprint:'bad'}), /invalid-agent-decision/);
+});
+
+test('directly changed sequence edit spec retains rendering dependency', () => {
+  const raw = selection({scenarios:[], source_paths:['tests/e2e-tests/tests/fullscreen/sequence-edit.spec.ts']});
+  const resolved = resolveSelection({selection:raw,files:raw.source_paths,head,tree});
+  assert.ok(resolved.agent_categories.includes('@test:sequence-render'));
+});
+
+test('registered runnable scenario missing from actual discovery blocks instead of silently running smoke', () => {
+  const missing=structuredClone(inventory);
+  for (const test of missing.suites[0].specs) test.tags=test.tags.filter(tag=>!tag.startsWith('@scenario:'));
+  assert.throws(()=>plan(selection(),{discover:()=>missing}),/scenario absent from inventory/);
+});
+
+test('partial scenario inventory loss blocks when another file still matches the same pair', () => {
+  assert.throws(()=>plan(selection(),{scenarioInventory:[...fixtureCoverage,{file:'fullscreen/missing.spec.ts',variants:['lite'],scenarios:[pair]}]}),/scenario absent from inventory.*missing/);
 });

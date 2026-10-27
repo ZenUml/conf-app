@@ -10,17 +10,21 @@ import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config
 import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { selectAgentFloor } from '../e2e-select.mjs';
 import { resolveSelection } from './resolve.mjs';
+import { SCENARIO_COVERAGE, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
+import { FEATURES, INTERFACES, SCENARIOS, scenarioKey, validScenarios, PRODUCT_IMPACT_FINGERPRINT } from '../../tests/e2e-tests/config/product-impact.mjs';
 
-export const MARKER = '<!-- pr-test-decision:v1 -->';
+export const MARKER = '<!-- pr-test-decision:v2 -->';
+const MARKER_PREFIX = '<!-- pr-test-decision:';
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 const text = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 20000;
 const categoryIds = new Set(CATEGORIES.map(c => c.id));
-const categoriesValid = value => Array.isArray(value) && new Set(value).size === value.length && value.every(id => categoryIds.has(id));
 const identity = pr => ({ pr_number: pr.number, head_sha: pr.head.sha, base_sha: pr.base.sha });
 const sameIdentity = (a, b) => a.pr_number === b.pr_number && a.head_sha === b.head_sha && a.base_sha === b.base_sha;
 export const catalog = {
   category_version: CATEGORY_VERSION,
   category_catalog_fingerprint: createHash('sha256').update(JSON.stringify(CATEGORIES)).digest('hex'),
+  product_impact_fingerprint: PRODUCT_IMPACT_FINGERPRINT,
+  scenario_coverage_fingerprint: createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex'),
   policy_version: POLICY_VERSION,
   selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION,
   selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT,
@@ -65,27 +69,31 @@ export async function readContext(api, number) {
 
 export function validateDecision(decision, context) {
   const fail = reason => ({ valid: false, reason });
-  if (!decision || decision.schema_version !== 1 || !sameIdentity(decision, identity(context.pr))) return fail('missing-or-stale-decision');
+  if (!decision || decision.schema_version !== 2 || !sameIdentity(decision, identity(context.pr))) return fail('missing-or-stale-decision');
   if (Object.entries(catalog).some(([key, value]) => decision[key] !== value)) return fail('stale-policy-or-catalog');
   if (decision.diff_fingerprint !== context.diff_fingerprint) return fail('changed-diff');
-  if (!['selected', 'all', 'triage'].includes(decision.mode) || !['labeling', 'triage'].includes(decision.source) || !text(decision.reason) || !categoriesValid(decision.categories)) return fail('invalid-decision');
+  if (!['selected', 'all', 'triage'].includes(decision.mode) || !['labeling', 'triage'].includes(decision.source) || !text(decision.reason) || !validScenarios(decision.scenarios) || 'categories' in decision) return fail('invalid-decision');
+  if (decision.mode === 'selected' && decision.scenarios.some(pair => !hasPrCoverage(pair))) return fail('scenario-without-e2e-coverage');
   if (decision.mode === 'triage') return fail('triage-requested');
   if (decision.mode === 'all' && (decision.source !== 'triage' || !text(decision.full_reason))) return fail('full-needs-triage-approval');
-  if (decision.mode === 'selected' && decision.categories.length === CATEGORIES.length) return fail('all-categories-need-triage');
   if (!Array.isArray(decision.evidence) || !decision.evidence.length) return fail('missing-path-evidence');
   const covered = new Set();
+  const used = new Set();
+  const selected = new Set(decision.scenarios.map(scenarioKey));
   for (const item of decision.evidence) {
-    if (!Array.isArray(item.paths) || !item.paths.length || !item.paths.every(p => context.paths.includes(p)) || !text(item.reason) || !categoriesValid(item.categories)) return fail('invalid-path-evidence');
-    if (decision.mode === 'selected' && item.categories.some(id => !decision.categories.includes(id))) return fail('evidence-category-not-selected');
+    if (!Array.isArray(item.paths) || !item.paths.length || !item.paths.every(p => context.paths.includes(p)) || !text(item.reason) || !validScenarios(item.scenarios) || 'categories' in item) return fail('invalid-path-evidence');
+    if (decision.mode === 'selected' && item.scenarios.some(pair => !selected.has(scenarioKey(pair)))) return fail('evidence-scenario-not-selected');
+    item.scenarios.forEach(pair => used.add(scenarioKey(pair)));
     item.paths.forEach(p => covered.add(p));
   }
+  if (decision.mode === 'selected' && [...selected].some(key => !used.has(key))) return fail('unused-selected-scenario');
   if (context.paths.some(p => !covered.has(p))) return fail('unreviewed-path');
   return { valid: true, reason: 'current-collaborator-decision' };
 }
 
 export function parseComment(comment) {
   if (!comment.body?.startsWith(`${MARKER}\n`) || comment.created_at !== comment.updated_at) return null;
-  const match = /^<!-- pr-test-decision:v1 -->\n```json\n([\s\S]+)\n```\s*$/.exec(comment.body);
+  const match = /^<!-- pr-test-decision:v2 -->\n```json\n([\s\S]+)\n```\s*$/.exec(comment.body);
   if (!match) return null;
   try { return JSON.parse(match[1]); } catch { return null; }
 }
@@ -94,11 +102,12 @@ const isControllerComment = comment => comment.user?.login === 'github-actions[b
   && comment.performed_via_github_app?.slug === 'github-actions';
 
 export async function recordDeletedDecision(api, context, event, eventName) {
-  // Only the controller's trusted webhook payload supplies deletion evidence.
+  // Only the controller's trusted webhook payload supplies revocation evidence.
   // Leave a durable blocker: deleting a newer decision must not expose an older approval.
-  if (eventName !== 'issue_comment' || event?.action !== 'deleted'
+  const revokedBody = event?.action === 'edited' ? event.changes?.body?.from : event?.comment?.body;
+  if (eventName !== 'issue_comment' || !['deleted', 'edited'].includes(event?.action)
       || event.issue?.number !== context.pr.number || !event.issue?.pull_request
-      || !event.comment?.body?.startsWith(MARKER)
+      || !revokedBody?.startsWith(MARKER_PREFIX)
       || !Number.isSafeInteger(event.comment.id) || event.comment.id < 1) return false;
   if (!isControllerComment(event.comment)) {
     const login = event.comment.user?.login;
@@ -111,9 +120,9 @@ export async function recordDeletedDecision(api, context, event, eventName) {
   const comments = await paginate(api, `/issues/${context.pr.number}/comments`);
   if (comments.some(c => isControllerComment(c) && parseComment(c)?.revoked_comment_id === event.comment.id)) return false;
   const decision = {
-    schema_version: 1, ...identity(context.pr), ...catalog, diff_fingerprint: context.diff_fingerprint,
-    mode: 'triage', source: 'triage', categories: [], evidence: [],
-    reason: 'A PR test decision was deleted; publish a fresh decision before running E2E.',
+    schema_version: 2, ...identity(context.pr), ...catalog, diff_fingerprint: context.diff_fingerprint,
+    mode: 'triage', source: 'triage', scenarios: [], evidence: [],
+    reason: `A PR test decision was ${event.action}; publish a fresh decision before running E2E.`,
     revoked_comment_id: event.comment.id,
   };
   await api(`/issues/${context.pr.number}/comments`, 'POST', {
@@ -127,7 +136,7 @@ export async function findDecision(api, context) {
   const permissions = new Map();
   // The newest trusted decision supersedes older decisions, including a triage request.
   for (const comment of comments.sort((a, b) => b.id - a.id)) {
-    if (!comment.body?.startsWith(MARKER)) continue;
+    if (!comment.body?.startsWith(MARKER_PREFIX)) continue;
     const login = comment.user?.login;
     if (!login) continue;
     if (isControllerComment(comment)) {
@@ -156,7 +165,7 @@ export async function synchronize(api, context, result) {
   const current = await api(`/pulls/${number}`);
   if (!sameIdentity(identity(current), identity(context.pr))) throw new Error('PR changed before synchronization; retry');
   const desired = result.valid
-    ? result.decision.mode === 'all' ? ['test:all-approved'] : ['test:selected', ...result.decision.categories.map(id => `test:${id}`)]
+    ? result.decision.mode === 'all' ? ['test:all-approved'] : ['test:selected', ...new Set(result.decision.scenarios.flatMap(pair => [`feature:${pair.feature}`, `interface:${pair.interface}`]))]
     : ['test:triage'];
   const managed = new Set(['test:triage', 'test:selected', 'test:all-approved', 'test:jev-all', 'test:all', ...[...categoryIds].map(id => `test:${id}`)]);
   const existing = await paginate(api, `/issues/${number}/labels`);
@@ -168,7 +177,7 @@ export async function synchronize(api, context, result) {
   }
   const added = desired.filter(name => !existing.some(label => label.name === name));
   if (added.length) await api(`/issues/${number}/labels`, 'POST', { labels: added });
-  for (const label of existing) if (managed.has(label.name) && !desired.includes(label.name)) await api(`/issues/${number}/labels/${encodeURIComponent(label.name)}`, 'DELETE');
+  for (const label of existing) if ((managed.has(label.name) || label.name.startsWith('feature:') || label.name.startsWith('interface:')) && !desired.includes(label.name)) await api(`/issues/${number}/labels/${encodeURIComponent(label.name)}`, 'DELETE');
   if (!result.valid && !current.draft) await api('graphql', 'POST', {
     query: 'mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{id}}}', variables: { id: current.node_id },
   });
@@ -197,7 +206,7 @@ export function selectionFromDecision(context, result, candidate, tree) {
     schema_version: 1, ...catalog, selection_scope: 'pr', decision_source: 'agent', decision_id: comment_id,
     pr_number: context.pr.number, pr_head_sha: context.pr.head.sha, base_sha: context.pr.base.sha,
     head_sha: candidate, tested_tree: tree, source_paths: context.paths, removed_paths: context.removed_paths, source: d.source,
-    mode: d.mode, execution_mode: 'enabled', categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { selected: d.categories.includes(c.id) }])),
+    mode: d.mode, execution_mode: 'enabled', decision_schema_version: 2, scenarios: d.scenarios, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { selected: false }])),
     required: ['smoke'], full_reason: d.full_reason ?? null, reason: d.reason, evidence: d.evidence,
     model: null, request: { outcome: 'not-requested', source: 'agent-skill' }, fallback_reason: null, diff_complete: true,
   };
@@ -259,8 +268,8 @@ async function main() {
   if (a.command === 'inspect') {
     // The full diff is obtained separately with gh pr diff; this is its complete file inventory.
     console.log(JSON.stringify({ repo, ...identity(context.pr), files: context.files, source_paths: context.paths, removed_paths: context.removed_paths,
-      floor: selectAgentFloor(context.paths, { removedPaths: context.removed_paths }), categories: CATEGORIES,
-      decision_template: { schema_version: 1, ...identity(context.pr), mode: 'triage', source: 'labeling', categories: [], reason: '', evidence: [] } }, null, 2));
+      floor: selectAgentFloor(context.paths, { removedPaths: context.removed_paths }), features: FEATURES, interfaces: INTERFACES, scenarios: SCENARIOS, uncovered_scenarios: SCENARIOS.filter(pair => !hasPrCoverage(pair)), ...catalog,
+      decision_template: { schema_version: 2, ...identity(context.pr), mode: 'triage', source: 'labeling', scenarios: [], reason: '', evidence: [] } }, null, 2));
   } else if (a.command === 'publish') console.log(JSON.stringify(await publish(api, context, JSON.parse(readFileSync(a.file, 'utf8')))));
   else if (a.command === 'sync') {
     if (!discoveryFailure && process.env.GITHUB_EVENT_NAME === 'issue_comment' && process.env.GITHUB_EVENT_PATH) {

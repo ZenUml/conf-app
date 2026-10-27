@@ -9,14 +9,7 @@ Read [shared evidence and source rules](../customer-data/evidence.md). Scope by 
 
 ## Run contract
 
-Invoking this skill authorises a read of every source below. Do not stop to ask before querying them.
-
-- **Attempt all four sources in the same run:** Marketplace, Mixpanel, D1, Gmail/support. Querying D1 alone is an incomplete run, not a finished one.
-- **Default scope when the user gives none:** all registered products and sites, the last 30 days, ending today. State this scope in the result. Do not ask for a site or window.
-- **`not_queried` is allowed only for a source the user excluded.** A source you did not try is a failed run. After a real attempt, record `failed` or `unavailable` with the concrete error, then try the documented fallback (for Mixpanel, the MCP when the JQL runner fails).
-- **Gmail paging:** a first page is not coverage. Page through results, or state how many threads were read out of the estimated total.
-- **Do not end the run with a question** such as "query the other sources?". Report what was found and what is missing, then stop.
-- Ask the user only when a source needs credentials or approval you cannot obtain, or when the scope they gave is ambiguous in a way that changes the answer.
+Run all four sources (Marketplace, Mixpanel, D1, Gmail/support) in one pass without asking. Default scope: all products and sites, last 30 days. A source is `not_queried` only if the user excluded it; otherwise report `failed`/`unavailable` with the error. Read Gmail past the first page, or state threads read / estimated total. Do not end with a question.
 
 ## Sources
 

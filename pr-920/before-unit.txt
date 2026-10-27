@@ -1,0 +1,9 @@
+   × classifyContentState for a Board graph (#918) > classifies the Board document, not the untouched Diagram sample 4ms
+     → expected 'default' to be 'authored' // Object.is equality
+   × classifyContentState for a Board graph (#918) > reports an emptied Board as empty even when graphXml still holds a drawing 0ms
+     → expected 'authored' to be 'empty' // Object.is equality
+   × extractDiagram > takes a Markdown record's markdownCode, not the stale code draft (#918) 4ms
+     → expected 'A->B: stale zenuml draft' to be '# Notes' // Object.is equality
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  3 failed | 91 passed (94)

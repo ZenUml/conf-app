@@ -1,0 +1,30 @@
+  ✘   3 tests/ui-details/busy-cue.spec.ts:46:5 › a fast copy shows no busy cue at all (7.0s)
+  ✘   2 tests/ui-details/busy-cue.spec.ts:54:5 › a slow copy shows the cue after the delay, without moving the tools (7.4s)
+  ✘   4 tests/ui-details/collapse.spec.ts:86:5 › collapsed content is hidden from assistive tech and tab order (7.9s)
+  ✘   5 tests/ui-details/collapse.spec.ts:36:5 › disclosure collapses with a grid-rows transition, not instant display toggling (7.9s)
+  ✘   1 tests/ui-details/collapse.spec.ts:108:5 › prefers-reduced-motion: height is final immediately (7.9s)
+  ✓   8 tests/ui-details/copy.spec.ts:65:9 › AdvocacyButton: reduced motion resets by 2.6 s without fading (1.1s)
+  ✘   9 tests/ui-details/focus.spec.ts:36:7 › publish button: no ring on click, offset ring on keyboard focus (967ms)
+  ✓   7 tests/ui-details/copy.spec.ts:65:9 › ExportModal: reduced motion resets by 2.6 s without fading (1.6s)
+  ✘  10 tests/ui-details/copy.spec.ts:65:9 › AdvocacyButton: holds 2.5 s, fades, then resets (2.0s)
+  ✘  11 tests/ui-details/focus.spec.ts:36:7 › unlock-space button: no ring on click, offset ring on keyboard focus (1.5s)
+  ✘  13 tests/ui-details/focus.spec.ts:36:7 › request-extension button: no ring on click, offset ring on keyboard focus (1.0s)
+  ✘  12 tests/ui-details/focus.spec.ts:80:5 › document list search input: keeps its border colour, gains soft ring (1.7s)
+  ✘  14 tests/ui-details/focus.spec.ts:90:5 › diagram title input: no blue border on focus, gains soft ring (1.1s)
+  ✘  15 tests/ui-details/press.spec.ts:35:7 › publish: scales to 0.95 while pressed (922ms)
+  ✓  16 tests/ui-details/press.spec.ts:44:7 › publish: no scale under reduced motion (989ms)
+  ✘  17 tests/ui-details/press.spec.ts:35:7 › unlock-space: scales to 0.95 while pressed (1.1s)
+  ✘   6 tests/ui-details/copy.spec.ts:65:9 › ExportModal: holds 2.5 s, fades, then resets (5.9s)
+  ✓  19 tests/ui-details/press.spec.ts:44:7 › request-extension: no scale under reduced motion (1.1s)
+  ✓  18 tests/ui-details/press.spec.ts:44:7 › unlock-space: no scale under reduced motion (1.2s)
+  ✓  21 tests/ui-details/press.spec.ts:54:5 › icon-only spark button does not scale (1.2s)
+  ✓  23 tests/ui-details/press.spec.ts:65:7 › shared-publishbutton--disabled: disabled button does not scale when pressed (1.2s)
+  ✓  22 tests/ui-details/press.spec.ts:65:7 › shared-publishbutton--publishing: disabled button does not scale when pressed (1.1s)
+  ✘  20 tests/ui-details/press.spec.ts:35:7 › request-extension: scales to 0.95 while pressed (1.9s)
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+  15 failed
+  8 passed (20.1s)
+ ELIFECYCLE  Command failed with exit code 1.

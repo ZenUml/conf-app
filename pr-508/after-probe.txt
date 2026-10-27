@@ -1,0 +1,1 @@
+"{\"forgeBadge\":false,\"hrefHashLinks\":0,\"createExamplesButton\":true,\"spaceKeyInput\":true,\"buttons\":[\"Set string\",\"Set string\",\"Set string\",\"Create examples page\"]}"

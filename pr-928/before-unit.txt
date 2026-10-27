@@ -1,0 +1,8 @@
+ Test Files  2 failed (2)
+      Tests  3 failed | 25 passed (28)
+   × ActivationPrepared > fetchPreparedDiagram > rethrows an untyped error even when its text mentions HTTP 404 (#927) 2ms
+     → promise resolved "undefined" instead of rejecting
+   × callRemote > throws a typed RemoteCallError carrying the status and the backend error code (#927) 3ms
+     → expected Error: HTTP 403: {"error":"no_user_creden… { status: … } to be an instance of RemoteCallError
+   × callRemote > leaves errorCode unset for a non-JSON body and keeps only a short body prefix 0ms
+     → expected Error: HTTP 502: <html>xxxxxxxxxxxxxxxxxx… { status: … } to be an instance of RemoteCallError

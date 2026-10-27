@@ -1,0 +1,27 @@
+{
+  "atConsent": [
+    {
+      "name": "agent_link_consent",
+      "path": "/agent-link/oauth/consent",
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "agent_link_user",
+      "path": "/agent-link/oauth",
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "afterAllow": [
+    {
+      "name": "agent_link_user",
+      "path": "/agent-link/oauth",
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ]
+}

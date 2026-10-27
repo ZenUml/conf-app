@@ -1,0 +1,38 @@
+{
+  "before": {
+    "checks": {
+      "First client: real Atlassian approval, own consent, PKCE exchange": true,
+      "Returning approved client: code and token without consent": true,
+      "Returning user, new client: consent and Allow": true,
+      "Returning user, new client: Cancel returns access_denied, no token": true,
+      "MCP initialize, site discovery, diagram discovery and read": true,
+      "MCP update persists and Confluence UI shows edited title": true,
+      "Restore original source and observe restored Confluence UI": true,
+      "Refresh token rotates through deployed D1-backed endpoint": true
+    },
+    "passed": 8,
+    "total": 8,
+    "originalVersion": 1,
+    "editedVersion": 2,
+    "restoredVersion": 3,
+    "restoredSourceSha256": "bf3c8cdb4f885affdb8add427a1e1f2d908c78f97bc5b615286ab8ae5ba7196f"
+  },
+  "after": {
+    "checks": {
+      "First client: real Atlassian approval, own consent, PKCE exchange": true,
+      "Returning approved client: code and token without consent": true,
+      "Returning user, new client: consent and Allow": true,
+      "Returning user, new client: Cancel returns access_denied, no token": true,
+      "MCP initialize, site discovery, diagram discovery and read": true,
+      "MCP update persists and Confluence UI shows edited title": true,
+      "Restore original source and observe restored Confluence UI": true,
+      "Refresh token rotates through deployed D1-backed endpoint": true
+    },
+    "passed": 8,
+    "total": 8,
+    "originalVersion": 3,
+    "editedVersion": 4,
+    "restoredVersion": 5,
+    "restoredSourceSha256": "bf3c8cdb4f885affdb8add427a1e1f2d908c78f97bc5b615286ab8ae5ba7196f"
+  }
+}

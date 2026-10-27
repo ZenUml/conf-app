@@ -1,0 +1,101 @@
+name: Lite Deploy Benchmark
+run-name: "PR988 real OAuth acceptance — exclusive staging"
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: conf-app-staging
+  cancel-in-progress: false
+  queue: max
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.record.outputs.sha }}
+    steps:
+      - id: record
+        run: |
+          set -euo pipefail
+          SHA=$(curl --fail --silent --show-error https://conf-stg-lite.zenuml.com/__ci-version.json | jq -er 'select(.variant == "lite") | .sha')
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Restore target: $SHA" >> "$GITHUB_STEP_SUMMARY"
+  before:
+    needs: capture
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: lite
+      license: lite
+      project: conf-stg-lite
+      environment: staging-lite
+      ref: 595c403c9cbd0f077f5c020fed390b23d7505ddd
+      workflow-ref: ${{ github.sha }}
+      skip-migrations: true
+      preparation-mode: candidate
+      benchmark-sample: pr988-before
+    secrets: inherit
+  before-observe:
+    needs: before
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Hold exclusive staging for real browser acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 450); do
+            SIGNAL=$(gh api -X GET 'repos/ZenUml/conf-app/contents/docs/pr988-control.md' -f ref=evidence/pr988-real-e2e-20261027 --jq '.content | @base64d')
+            if grep -qx 'before-complete' <<< "$SIGNAL"; then exit 0; fi
+            sleep 5
+          done
+          echo 'Browser acceptance window expired; restore staging.' >&2
+          exit 1
+  after:
+    needs: before-observe
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: lite
+      license: lite
+      project: conf-stg-lite
+      environment: staging-lite
+      ref: 5a100e698ed521a7804870149cebcfe9af8da1d8
+      workflow-ref: ${{ github.sha }}
+      skip-migrations: true
+      preparation-mode: candidate
+      benchmark-sample: pr988-after
+    secrets: inherit
+  after-observe:
+    needs: after
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Hold exclusive staging for real browser acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 450); do
+            SIGNAL=$(gh api -X GET 'repos/ZenUml/conf-app/contents/docs/pr988-control.md' -f ref=evidence/pr988-real-e2e-20261027 --jq '.content | @base64d')
+            if grep -qx 'after-complete' <<< "$SIGNAL"; then exit 0; fi
+            sleep 5
+          done
+          echo 'Browser acceptance window expired; restore staging.' >&2
+          exit 1
+  restore:
+    needs: [capture, before, before-observe, after, after-observe]
+    if: ${{ always() && needs.capture.result == 'success' }}
+    uses: ./.github/workflows/staging-deploy.yml
+    with:
+      variant: lite
+      license: lite
+      project: conf-stg-lite
+      environment: staging-lite
+      ref: ${{ needs.capture.outputs.sha }}
+      workflow-ref: ${{ github.sha }}
+      skip-migrations: true
+      preparation-mode: candidate
+      benchmark-sample: pr988-restore
+    secrets: inherit

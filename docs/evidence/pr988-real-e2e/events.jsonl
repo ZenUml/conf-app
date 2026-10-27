@@ -1,0 +1,32 @@
+{"time":"2026-10-27T12:06:30.816Z","arm":"before","which":"first","step":"DCR","status":201}
+{"time":"2026-10-27T12:07:29.559Z","arm":"before","which":"first","step":"PKCE token exchange","status":200,"accessTokenPresent":true,"refreshTokenPresent":true}
+{"time":"2026-10-27T12:07:30.106Z","arm":"before","step":"initialize","status":200,"isError":false}
+{"time":"2026-10-27T12:07:30.823Z","arm":"before","step":"list_sites","status":200,"isError":false}
+{"time":"2026-10-27T12:07:39.148Z","arm":"before","which":"returning","step":"PKCE token exchange","status":200,"accessTokenPresent":true,"refreshTokenPresent":true}
+{"time":"2026-10-27T12:07:47.407Z","arm":"before","step":"list_diagrams","status":200,"isError":false}
+{"time":"2026-10-27T12:07:48.412Z","arm":"before","step":"refresh","status":200,"isError":false}
+{"time":"2026-10-27T12:07:53.162Z","arm":"before","which":"deny","step":"DCR","status":201}
+{"time":"2026-10-27T12:07:59.495Z","arm":"before","step":"read_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:08:05.783Z","arm":"before","which":"deny","step":"callback","error":"access_denied"}
+{"time":"2026-10-27T12:08:07.312Z","arm":"before","which":"new","step":"DCR","status":201}
+{"time":"2026-10-27T12:08:32.626Z","arm":"before","which":"new","step":"PKCE token exchange","status":200,"accessTokenPresent":true,"refreshTokenPresent":true}
+{"time":"2026-10-27T12:08:41.356Z","arm":"before","step":"update_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:09:17.611Z","arm":"before","step":"read_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:09:19.207Z","arm":"before","step":"update_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:09:26.486Z","arm":"before","step":"read_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:13:44.310Z","arm":"after","which":"first","step":"DCR","status":201}
+{"time":"2026-10-27T12:16:04.116Z","arm":"after","which":"first","step":"PKCE token exchange","status":200,"accessTokenPresent":true,"refreshTokenPresent":true}
+{"time":"2026-10-27T12:16:21.781Z","arm":"after","step":"initialize","status":200,"isError":false}
+{"time":"2026-10-27T12:16:22.465Z","arm":"after","step":"list_sites","status":200,"isError":false}
+{"time":"2026-10-27T12:16:24.229Z","arm":"after","step":"list_diagrams","status":200,"isError":false}
+{"time":"2026-10-27T12:16:25.548Z","arm":"after","step":"refresh","status":200,"isError":false}
+{"time":"2026-10-27T12:16:31.305Z","arm":"after","which":"returning","step":"PKCE token exchange","status":200,"accessTokenPresent":true,"refreshTokenPresent":true}
+{"time":"2026-10-27T12:16:35.374Z","arm":"after","which":"deny","step":"DCR","status":201}
+{"time":"2026-10-27T12:16:47.224Z","arm":"after","which":"deny","step":"callback","error":"access_denied"}
+{"time":"2026-10-27T12:16:51.057Z","arm":"after","which":"new","step":"DCR","status":201}
+{"time":"2026-10-27T12:16:58.274Z","arm":"after","step":"read_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:16:58.800Z","arm":"after","which":"new","step":"PKCE token exchange","status":200,"accessTokenPresent":true,"refreshTokenPresent":true}
+{"time":"2026-10-27T12:17:00.687Z","arm":"after","step":"update_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:17:16.778Z","arm":"after","step":"read_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:18:01.762Z","arm":"after","step":"update_diagram","status":200,"isError":false}
+{"time":"2026-10-27T12:18:02.735Z","arm":"after","step":"read_diagram","status":200,"isError":false}

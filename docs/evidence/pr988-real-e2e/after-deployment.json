@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "runner_label": "ubuntu-24.04-arm",
+    "platform": "linux",
+    "arch": "arm64",
+    "node": "v24.22.1"
+  },
+  "source_sha": "5a100e698ed521a7804870149cebcfe9af8da1d8",
+  "tooling_sha": "2d52fa27c57c464d994ff88ff70f4ccf2d0ba3a1",
+  "mode": "candidate",
+  "sample": "pr988-after",
+  "manifest_sha256": "56322edf09f7e300e034c420ccb94f10d4051b855ff122b9c0ad408398b66510",
+  "assets_sha256": "2964e63d33852e30d8d9666d64382310e559657a17c17af1c8991cdfba9cffa5",
+  "cache": {
+    "dependencies": {
+      "installed_dependencies_hit": false,
+      "pnpm_store_requested": true,
+      "pnpm_store_hit": false
+    },
+    "studio": {
+      "studio_output_hit": true,
+      "studio_legacy_cache_hit": false
+    },
+    "permission_specs": {
+      "permission_specs_hit": true
+    }
+  },
+  "deployment_completed_at": "2026-10-27T12:13:07.732Z",
+  "backend_marker_verified": true,
+  "forge_attempts": [
+    {
+      "attempt": 1,
+      "duration_ms": 74827,
+      "exit_code": 0,
+      "typescript_single_run": true,
+      "phases": [
+        {
+          "phase": "startup",
+          "offset_ms": 0
+        },
+        {
+          "phase": "lint",
+          "offset_ms": 1994
+        },
+        {
+          "phase": "packaging",
+          "offset_ms": 26641
+        },
+        {
+          "phase": "resource_archive",
+          "offset_ms": 29690
+        },
+        {
+          "phase": "upload",
+          "offset_ms": 33719
+        },
+        {
+          "phase": "manifest_validation",
+          "offset_ms": 38017
+        },
+        {
+          "phase": "server_deployment",
+          "offset_ms": 42517
+        },
+        {
+          "phase": "complete",
+          "offset_ms": 74352
+        }
+      ]
+    }
+  ]
+}

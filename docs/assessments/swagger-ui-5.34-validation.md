@@ -12,3 +12,7 @@
 ## Decision and remaining work
 
 Do not accept or deploy the upgrade until large-document capture/export preserves the required content. Investigate a supported way to render all operations and schemas for capture without breaking interactive virtualization; verify both the PNG output and Confluence export. Repeat Storybook validation on the final candidate, including schema expansion, spec updates and Try it out. Then complete Forge Tunnel and CI-deployed Staging in order, with actual UI evidence for create, edit, save, reopen, and export. Filtering is not enabled by the current integration; any product change to enable it is a separate decision.
+
+## Capture experiment (not a fix)
+
+The installed 5.34.0 browser bundle enables operation virtualization at 150 flattened rows and schema virtualization at 100 schemas. In the Storybook fixture, temporarily overriding `window.innerHeight` to 30,000 pixels, dispatching `resize`, and expanding `.models-scroll` to 20,000 pixels caused all 201 operations and 200 schemas to appear. `html-to-image.toSvg` then included the last operation, referenced operation, and `Order199`; the capture node was 32,393 pixels tall. This is an isolated browser experiment, not a production change: overriding global viewport state and relying on asynchronous resize/layout has unresolved concurrency, scroll-position, nested scroll-container, background Forge iframe throttling, restoration, and canvas size concerns. Do not use this as an implementation without resolving and testing those cases.

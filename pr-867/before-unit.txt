@@ -1,0 +1,5 @@
+stderr | src/components/Byline/UnplacedDiagramsBanner.spec.ts > UnplacedDiagramsBanner > placing the diagram > still reports success through the execCommand fallback when the async clipboard rejects
+    at startTests (file:///Users/pengxiao/workspaces/zenuml/conf-app-pr867/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+   × UnplacedDiagramsBanner > placing the diagram > still reports success through the execCommand fallback when the async clipboard rejects 4ms
+     → expected "spy" to be called with arguments: [ 'copy' ]
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯

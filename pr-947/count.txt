@@ -1,0 +1,15 @@
+waitForTimeout( occurrences, merge-base (595c403c) vs head (1f4a626e)
+tests/e2e-tests/helpers/DiagramTestHelper.ts | 11 -> 9
+tests/e2e-tests/pages/EditorPage.ts | 20 -> 14
+tests/e2e-tests/tests/insert/editor-page-insert-button.spec.ts | 0 -> 0
+named *_MS constants added by the PR in the two helpers:
+const VALIDATION_SETTLE_MS = 2000;
+const EDITOR_CLEAR_SETTLE_MS = 500;
+const EDITOR_CLICK_SETTLE_MS = 200;
+const EDITOR_DELETE_SETTLE_MS = 300;
+const EDITOR_KEY_PACING_MS = 100;
+const EDITOR_FOCUS_SETTLE_MS = 300;
+const SLASH_MENU_KEY_PACING_MS = 200;
+const ARROW_DOWN_PACING_MS = 100;
+const TITLE_FILL_SETTLE_MS = 500;
+const DRAWIO_SHAPE_SETTLE_MS = 1000;

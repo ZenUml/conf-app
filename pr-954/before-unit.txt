@@ -1,0 +1,6 @@
+ Test Files  2 failed | 1 passed (3)
+      Tests  2 failed | 33 passed (35)
+   × executePrefetch — outcome classification > leaves no pending timer once a mermaid warm settles before the deadline (#952) 3ms
+     → expected 1 to be +0 // Object.is equality
+   × forgeIndex Publish handler — per-step publish timing > does not report a timeout for a backup that failed fast: the race settled before the cap 21ms
+     → expected 1 to be +0 // Object.is equality

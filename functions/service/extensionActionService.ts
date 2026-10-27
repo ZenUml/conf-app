@@ -1,3 +1,5 @@
+import { toSiteHost } from '../../src/lib/clientDomain.js';
+
 export type ExtensionAction = 'initial' | 'feedback';
 
 export interface ExtensionCommand {
@@ -112,7 +114,7 @@ function normalizeDomain(value: string): string {
   if (!bare || bare.length > 180 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(bare)) {
     throw new ExtensionActionError(400, 'invalid_client_domain', 'request_validation');
   }
-  return `${bare}.atlassian.net`;
+  return toSiteHost(bare);
 }
 
 function parseInitialRequest(description: string): ParsedRequest {

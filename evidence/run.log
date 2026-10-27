@@ -1,0 +1,37 @@
+before http PASS First sign-in: state cookie survives cross-site return; consent and user cookies set
+before http PASS Allow consent: client receives code; consent cookie cleared; replay refused
+before http PASS Returning approved client: cross-site navigation skips upstream and consent
+before http PASS Returning user with new client: consent required; cancel returns access_denied
+before http PASS Tampered returning-user cookie: cleared; sign-in falls back to upstream
+agent-link oauth callback failed atlassian_denied access_denied
+before http PASS Upstream denial: error page displayed and state cookie cleared
+agent-link oauth callback failed state_mismatch 
+before http PASS Callback with mismatched state: rejected and state cookie cleared
+before https PASS First sign-in: state cookie survives cross-site return; consent and user cookies set
+before https PASS Allow consent: client receives code; consent cookie cleared; replay refused
+before https PASS Returning approved client: cross-site navigation skips upstream and consent
+before https PASS Returning user with new client: consent required; cancel returns access_denied
+before https PASS Tampered returning-user cookie: cleared; sign-in falls back to upstream
+agent-link oauth callback failed atlassian_denied access_denied
+before https PASS Upstream denial: error page displayed and state cookie cleared
+agent-link oauth callback failed state_mismatch 
+before https PASS Callback with mismatched state: rejected and state cookie cleared
+after http PASS First sign-in: state cookie survives cross-site return; consent and user cookies set
+after http PASS Allow consent: client receives code; consent cookie cleared; replay refused
+after http PASS Returning approved client: cross-site navigation skips upstream and consent
+after http PASS Returning user with new client: consent required; cancel returns access_denied
+after http PASS Tampered returning-user cookie: cleared; sign-in falls back to upstream
+agent-link oauth callback failed atlassian_denied access_denied
+after http PASS Upstream denial: error page displayed and state cookie cleared
+agent-link oauth callback failed state_mismatch 
+after http PASS Callback with mismatched state: rejected and state cookie cleared
+after https PASS First sign-in: state cookie survives cross-site return; consent and user cookies set
+after https PASS Allow consent: client receives code; consent cookie cleared; replay refused
+after https PASS Returning approved client: cross-site navigation skips upstream and consent
+after https PASS Returning user with new client: consent required; cancel returns access_denied
+after https PASS Tampered returning-user cookie: cleared; sign-in falls back to upstream
+agent-link oauth callback failed atlassian_denied access_denied
+after https PASS Upstream denial: error page displayed and state cookie cleared
+agent-link oauth callback failed state_mismatch 
+after https PASS Callback with mismatched state: rejected and state cookie cleared
+{"passed":28,"failed":0}

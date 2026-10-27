@@ -1,0 +1,198 @@
+[
+  {
+    "label": "before",
+    "protocol": "http",
+    "name": "First sign-in: state cookie survives cross-site return; consent and user cookies set",
+    "status": "PASS",
+    "durationMs": 90
+  },
+  {
+    "label": "before",
+    "protocol": "http",
+    "name": "Allow consent: client receives code; consent cookie cleared; replay refused",
+    "status": "PASS",
+    "durationMs": 56
+  },
+  {
+    "label": "before",
+    "protocol": "http",
+    "name": "Returning approved client: cross-site navigation skips upstream and consent",
+    "status": "PASS",
+    "durationMs": 69
+  },
+  {
+    "label": "before",
+    "protocol": "http",
+    "name": "Returning user with new client: consent required; cancel returns access_denied",
+    "status": "PASS",
+    "durationMs": 46
+  },
+  {
+    "label": "before",
+    "protocol": "http",
+    "name": "Tampered returning-user cookie: cleared; sign-in falls back to upstream",
+    "status": "PASS",
+    "durationMs": 33
+  },
+  {
+    "label": "before",
+    "protocol": "http",
+    "name": "Upstream denial: error page displayed and state cookie cleared",
+    "status": "PASS",
+    "durationMs": 32
+  },
+  {
+    "label": "before",
+    "protocol": "http",
+    "name": "Callback with mismatched state: rejected and state cookie cleared",
+    "status": "PASS",
+    "durationMs": 76
+  },
+  {
+    "label": "before",
+    "protocol": "https",
+    "name": "First sign-in: state cookie survives cross-site return; consent and user cookies set",
+    "status": "PASS",
+    "durationMs": 84
+  },
+  {
+    "label": "before",
+    "protocol": "https",
+    "name": "Allow consent: client receives code; consent cookie cleared; replay refused",
+    "status": "PASS",
+    "durationMs": 58
+  },
+  {
+    "label": "before",
+    "protocol": "https",
+    "name": "Returning approved client: cross-site navigation skips upstream and consent",
+    "status": "PASS",
+    "durationMs": 68
+  },
+  {
+    "label": "before",
+    "protocol": "https",
+    "name": "Returning user with new client: consent required; cancel returns access_denied",
+    "status": "PASS",
+    "durationMs": 37
+  },
+  {
+    "label": "before",
+    "protocol": "https",
+    "name": "Tampered returning-user cookie: cleared; sign-in falls back to upstream",
+    "status": "PASS",
+    "durationMs": 35
+  },
+  {
+    "label": "before",
+    "protocol": "https",
+    "name": "Upstream denial: error page displayed and state cookie cleared",
+    "status": "PASS",
+    "durationMs": 30
+  },
+  {
+    "label": "before",
+    "protocol": "https",
+    "name": "Callback with mismatched state: rejected and state cookie cleared",
+    "status": "PASS",
+    "durationMs": 73
+  },
+  {
+    "label": "after",
+    "protocol": "http",
+    "name": "First sign-in: state cookie survives cross-site return; consent and user cookies set",
+    "status": "PASS",
+    "durationMs": 71
+  },
+  {
+    "label": "after",
+    "protocol": "http",
+    "name": "Allow consent: client receives code; consent cookie cleared; replay refused",
+    "status": "PASS",
+    "durationMs": 56
+  },
+  {
+    "label": "after",
+    "protocol": "http",
+    "name": "Returning approved client: cross-site navigation skips upstream and consent",
+    "status": "PASS",
+    "durationMs": 69
+  },
+  {
+    "label": "after",
+    "protocol": "http",
+    "name": "Returning user with new client: consent required; cancel returns access_denied",
+    "status": "PASS",
+    "durationMs": 37
+  },
+  {
+    "label": "after",
+    "protocol": "http",
+    "name": "Tampered returning-user cookie: cleared; sign-in falls back to upstream",
+    "status": "PASS",
+    "durationMs": 31
+  },
+  {
+    "label": "after",
+    "protocol": "http",
+    "name": "Upstream denial: error page displayed and state cookie cleared",
+    "status": "PASS",
+    "durationMs": 34
+  },
+  {
+    "label": "after",
+    "protocol": "http",
+    "name": "Callback with mismatched state: rejected and state cookie cleared",
+    "status": "PASS",
+    "durationMs": 73
+  },
+  {
+    "label": "after",
+    "protocol": "https",
+    "name": "First sign-in: state cookie survives cross-site return; consent and user cookies set",
+    "status": "PASS",
+    "durationMs": 70
+  },
+  {
+    "label": "after",
+    "protocol": "https",
+    "name": "Allow consent: client receives code; consent cookie cleared; replay refused",
+    "status": "PASS",
+    "durationMs": 57
+  },
+  {
+    "label": "after",
+    "protocol": "https",
+    "name": "Returning approved client: cross-site navigation skips upstream and consent",
+    "status": "PASS",
+    "durationMs": 61
+  },
+  {
+    "label": "after",
+    "protocol": "https",
+    "name": "Returning user with new client: consent required; cancel returns access_denied",
+    "status": "PASS",
+    "durationMs": 37
+  },
+  {
+    "label": "after",
+    "protocol": "https",
+    "name": "Tampered returning-user cookie: cleared; sign-in falls back to upstream",
+    "status": "PASS",
+    "durationMs": 31
+  },
+  {
+    "label": "after",
+    "protocol": "https",
+    "name": "Upstream denial: error page displayed and state cookie cleared",
+    "status": "PASS",
+    "durationMs": 36
+  },
+  {
+    "label": "after",
+    "protocol": "https",
+    "name": "Callback with mismatched state: rejected and state cookie cleared",
+    "status": "PASS",
+    "durationMs": 73
+  }
+]

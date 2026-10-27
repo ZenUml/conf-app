@@ -1,0 +1,158 @@
+[
+  {
+    "path": "/agent-link/oauth/register",
+    "status": 201,
+    "receivedCookies": [],
+    "setCookies": []
+  },
+  {
+    "path": "/agent-link/oauth/authorize",
+    "status": 302,
+    "receivedCookies": [],
+    "setCookies": [
+      "agent_link_oauth_state=<redacted>; Path=/agent-link/oauth; Max-Age=1800; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/callback",
+    "status": 302,
+    "receivedCookies": [
+      "agent_link_oauth_state"
+    ],
+    "setCookies": [
+      "agent_link_oauth_state=<redacted>; Path=/agent-link/oauth; Max-Age=0; HttpOnly; SameSite=Lax",
+      "agent_link_user=<redacted>; Path=/agent-link/oauth; Max-Age=7776000; HttpOnly; SameSite=Lax",
+      "agent_link_consent=<redacted>; Path=/agent-link/oauth/consent; Max-Age=600; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/consent",
+    "status": 200,
+    "receivedCookies": [
+      "agent_link_consent",
+      "agent_link_user"
+    ],
+    "setCookies": []
+  },
+  {
+    "path": "/agent-link/oauth/consent",
+    "status": 302,
+    "receivedCookies": [
+      "agent_link_consent",
+      "agent_link_user"
+    ],
+    "setCookies": [
+      "agent_link_consent=<redacted>; Path=/agent-link/oauth/consent; Max-Age=0; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/consent",
+    "status": 400,
+    "receivedCookies": [
+      "agent_link_user"
+    ],
+    "setCookies": []
+  },
+  {
+    "path": "/agent-link/oauth/authorize",
+    "status": 302,
+    "receivedCookies": [
+      "agent_link_user"
+    ],
+    "setCookies": [
+      "agent_link_user=<redacted>; Path=/agent-link/oauth; Max-Age=7776000; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/register",
+    "status": 201,
+    "receivedCookies": [
+      "agent_link_user"
+    ],
+    "setCookies": []
+  },
+  {
+    "path": "/agent-link/oauth/authorize",
+    "status": 302,
+    "receivedCookies": [
+      "agent_link_user"
+    ],
+    "setCookies": [
+      "agent_link_user=<redacted>; Path=/agent-link/oauth; Max-Age=7776000; HttpOnly; SameSite=Lax",
+      "agent_link_consent=<redacted>; Path=/agent-link/oauth/consent; Max-Age=600; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/consent",
+    "status": 200,
+    "receivedCookies": [
+      "agent_link_consent",
+      "agent_link_user"
+    ],
+    "setCookies": []
+  },
+  {
+    "path": "/agent-link/oauth/consent",
+    "status": 302,
+    "receivedCookies": [
+      "agent_link_consent",
+      "agent_link_user"
+    ],
+    "setCookies": [
+      "agent_link_consent=<redacted>; Path=/agent-link/oauth/consent; Max-Age=0; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/register",
+    "status": 201,
+    "receivedCookies": [
+      "agent_link_user"
+    ],
+    "setCookies": []
+  },
+  {
+    "path": "/agent-link/oauth/authorize",
+    "status": 302,
+    "receivedCookies": [
+      "agent_link_user"
+    ],
+    "setCookies": [
+      "agent_link_oauth_state=<redacted>; Path=/agent-link/oauth; Max-Age=1800; HttpOnly; SameSite=Lax",
+      "agent_link_user=<redacted>; Path=/agent-link/oauth; Max-Age=0; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/callback",
+    "status": 400,
+    "receivedCookies": [
+      "agent_link_oauth_state"
+    ],
+    "setCookies": [
+      "agent_link_oauth_state=<redacted>; Path=/agent-link/oauth; Max-Age=0; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/register",
+    "status": 201,
+    "receivedCookies": [],
+    "setCookies": []
+  },
+  {
+    "path": "/agent-link/oauth/authorize",
+    "status": 302,
+    "receivedCookies": [],
+    "setCookies": [
+      "agent_link_oauth_state=<redacted>; Path=/agent-link/oauth; Max-Age=1800; HttpOnly; SameSite=Lax"
+    ]
+  },
+  {
+    "path": "/agent-link/oauth/callback",
+    "status": 400,
+    "receivedCookies": [
+      "agent_link_oauth_state"
+    ],
+    "setCookies": [
+      "agent_link_oauth_state=<redacted>; Path=/agent-link/oauth; Max-Age=0; HttpOnly; SameSite=Lax"
+    ]
+  }
+]

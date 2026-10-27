@@ -1,4 +1,5 @@
 import { captureBlob } from '@/model/captureBlob';
+import { computeExportPixelRatio } from './exportPixelRatio';
 import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
 import { saveAs } from 'file-saver';
 import {
@@ -488,9 +489,14 @@ async function acquireBaseBlob(
   // captureBlob, not htmlToImage.toBlob: the library's raster step resolves
   // only from inside a requestAnimationFrame callback, which a rendering-
   // throttled (offscreen) Forge iframe never services — see model/captureBlob.ts.
+  // pixelRatio, not captureBlob's default: the default sizes the canvas from
+  // the node's CSS box, which throws away everything a vector diagram carries
+  // beyond its on-screen size — see exportPixelRatio.ts. The page-snapshot
+  // caller in Attachment.ts deliberately keeps the cheap default.
   const blob = await captureBlob(captureNode, {
     backgroundColor: effectiveBg ?? undefined,
     skipFonts: true,
+    pixelRatio: computeExportPixelRatio(captureNode),
   });
   if (!blob) {
     console.warn('[useExportEngine] capture returned null');

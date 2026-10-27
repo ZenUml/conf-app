@@ -1,0 +1,16 @@
+ Test Files  1 failed | 7 passed (8)
+      Tests  14 failed | 41 passed (55)
+   × diagramly routes share one shell > chat > answers 400 for a body that is not JSON
+   × diagramly routes share one shell > chat > answers 405 for GET
+   × diagramly routes share one shell > chat-modify > answers 400 for a body that is not JSON
+   × diagramly routes share one shell > chat-modify > answers 405 for GET
+   × diagramly routes share one shell > ensure-diagram > answers 400 for a body that is not JSON
+   × diagramly routes share one shell > ensure-diagram > answers 405 for GET
+   × diagramly routes share one shell > fix-diagram > answers 400 for a body that is not JSON
+   × diagramly routes share one shell > fix-diagram > answers 405 for GET
+   × diagramly routes share one shell > job-status > answers 400 for a body that is not JSON
+   × diagramly routes share one shell > job-status > answers 405 for GET
+   × diagramly routes share one shell > restore-version > answers 400 for a body that is not JSON
+   × diagramly routes share one shell > restore-version > answers 405 for GET
+   × diagramly routes share one shell > versions > answers 400 for a body that is not JSON
+   × diagramly routes share one shell > versions > answers 405 for GET

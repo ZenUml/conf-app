@@ -1,0 +1,8 @@
+ Test Files  3 failed | 1 passed (4)
+      Tests  6 failed | 97 passed (103)
+   × Attachment > createAttachmentIfContentChanged > opts.customContentId override (save path) > uses opts.renderedPng (graph save path) instead of capturing via toPng 2ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+   × ForgeGraphEditor — DrawIO PNG export glue (graph save-time backup) > dataUriToBlob converts a base64 PNG data URI to an image/png Blob 10ms
+     → wrapper.vm.dataUriToBlob is not a function
+   × ForgeGraphEditor — DrawIO PNG export glue (graph save-time backup) > exportPng resolves with a Blob when DrawIO returns an export message 3ms
+     → wrapper.vm.exportPng is not a function

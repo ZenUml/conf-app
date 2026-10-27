@@ -1,0 +1,4 @@
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 41 passed (42)
+   × EventBus events (#936) > has a listener for every emitted event 3ms
+     → expected [ 'draft-discard', 'highlight' ] to deeply equal []

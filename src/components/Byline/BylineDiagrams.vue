@@ -355,6 +355,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { writeClipboard } from '@/utils/clipboard'
 import globals from '@/model/globals'
 import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -984,14 +985,13 @@ async function onAddToPage(d: PageDiagram) {
 
 async function onCopySource(d: PageDiagram) {
   acted = true
-  try {
-    await navigator.clipboard.writeText(d.source)
+  if (await writeClipboard(d.source)) {
     copiedId.value = d.id
     setTimeout(() => {
       if (copiedId.value === d.id) copiedId.value = null
     }, 2000)
-  } catch (e) {
-    console.error('[byline] clipboard write failed', e)
+  } else {
+    console.error('[byline] clipboard write failed')
   }
   // Its own event, not byline_diagram_opened: copying the DSL is not opening
   // the diagram, and counting both as index engagement would make that number
@@ -1026,7 +1026,7 @@ async function onCopyUrl(d: PageDiagram) {
     })
     return
   }
-  const copied = await copyText(link)
+  const copied = await copyLinkText(link)
   if (copied) {
     copiedId.value = d.id
     setTimeout(() => {
@@ -1220,14 +1220,10 @@ function onRetryCreate() {
   void afterEditorClosed(before, macroType)
 }
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch (e) {
-    console.error('[byline] clipboard write failed', e)
-    return false
-  }
+async function copyLinkText(text: string): Promise<boolean> {
+  const ok = await writeClipboard(text)
+  if (!ok) console.error('[byline] clipboard write failed')
+  return ok
 }
 
 function flashCopied() {
@@ -1251,7 +1247,7 @@ function flashCopied() {
  */
 async function copyCreatedLink(trigger: 'auto' | 'manual'): Promise<boolean> {
   if (!createdLink.value) return false
-  const copied = await copyText(createdLink.value)
+  const copied = await copyLinkText(createdLink.value)
   createdCopied.value = copied
   if (copied) flashCopied()
   trackAnalyticsEvent('advocacy_message_copied', {

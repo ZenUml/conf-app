@@ -1,0 +1,8 @@
+ Test Files  1 failed (1)
+      Tests  9 failed | 38 passed (47)
+   × forge-upload-attachment > uploads a NEW attachment as the app and returns the parsed id 7ms
+     → expected "spy" to be called 4 times, but got 3 times
+   × forge-upload-attachment > skips the write when the APP cannot access the page (issue #211) 3ms
+     → expected { ok: true, …(2) } to match object { ok: false, status: 404 }
+   × forge-upload-attachment > targets the /data endpoint for a NEW VERSION and keeps the known id 1ms
+     → expected 'https://api.atlassian.com/ex/confluen…' to be 'https://api.atlassian.com/ex/confluen…' // Object.is equality

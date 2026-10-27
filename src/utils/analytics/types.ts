@@ -802,7 +802,7 @@ export type AnalyticsProperties = {
   annotation_count?: number;
   annotation_type?: 'note' | 'arrow' | 'callout' | 'rectangle' | 'watermark';
   annotation_change?: 'move' | 'resize' | 'text' | 'style';
-  // export_annotation_tool_clicked (ExportPreview.vue). Which annotation tool
+  // export_annotation_tool_clicked (ExportWorkspace.vue). Which annotation tool
   // the user reached for. Fired on activation only, not on turning a tool back
   // off: the intent is already recorded by then.
   tool?: 'arrow' | 'callout' | 'note' | 'rectangle' | 'watermark';

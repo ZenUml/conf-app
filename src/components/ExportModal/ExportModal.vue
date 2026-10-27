@@ -454,8 +454,7 @@ export default defineComponent({
 
 <style scoped>
 /* ─── CSS Variables ─── */
-/* Defined once here; .export-modal and its descendants (ExportPreview's
-   .export-preview-pane, ExportSidebar's .export-sidebar) inherit these
+/* Defined once here; .export-modal and its descendants inherit these
    custom properties from the DOM tree — no need to redeclare per selector. */
 .export-modal-backdrop {
   --modal-bg: #ffffff;

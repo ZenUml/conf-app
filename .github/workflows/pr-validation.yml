@@ -387,15 +387,28 @@ jobs:
     needs: [gate, build, preview-e2e, export-e2e, select, staging-lite, e2e-auth-lite, pr-e2e-validation]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+        with:
+          # Reporting only (read-only token, no secrets). Authorization stays in `select`,
+          # which runs default-branch code; this job merely reads the controller's presence there.
+          ref: ${{ needs.gate.outputs.candidate }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+      - name: Probe the trusted controller on the default branch
+        id: controller
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/contents/scripts/test-selection/pr-decision.mjs?ref=$DEFAULT_BRANCH" >/dev/null 2>probe.err; then STATE=present
+          elif grep -q "HTTP 404" probe.err; then STATE=absent
+          else STATE=unknown; fi
+          echo "state=$STATE" >> "$GITHUB_OUTPUT"
       - name: Report the pipeline result
         env:
           MODE: ${{ needs.select.outputs.mode }}
           RESULTS: ${{ toJSON(needs) }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync } from 'node:fs';
-          const results = JSON.parse(process.env.RESULTS);
-          const rows = Object.entries(results).map(([job, value]) => `| ${job} | ${value.result} |`);
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Pipeline outcome\n\nE2E selection: **${process.env.MODE || 'not resolved'}**. Open **E2E validation** for the child run link and shard details.\n\n| Stage | Result |\n|---|---|\n${rows.join('\n')}\n`);
-          if (Object.values(results).some(value => ['failure', 'cancelled'].includes(value.result)) || results.select.result !== 'success' || results['pr-e2e-validation'].result !== 'success' || results['preview-e2e'].result !== 'success' || results['export-e2e'].result !== 'success') process.exitCode = 1;
-          NODE
+          CONTROLLER_STATE: ${{ steps.controller.outputs.state }}
+        run: node scripts/ci/pipeline-outcome.mjs

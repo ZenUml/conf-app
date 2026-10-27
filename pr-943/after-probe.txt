@@ -1,0 +1,1 @@
+PROBE {"marks":{"after_5s":"pending","after_10s":"rejected","after_11s":"rejected","after_60s":"rejected","after_600s":"rejected"},"detail":"UpstreamTimeoutError: Upstream \"confluence.as-user\" (example.invalid) timed out after 10000ms"}

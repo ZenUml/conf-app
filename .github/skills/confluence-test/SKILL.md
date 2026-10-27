@@ -19,7 +19,7 @@ Examples:
 |------|---------------|-----------|------------------|----------------|
 | `yanhui` (default) | `whimet4.atlassian.net` | `WHIMET4` | Test pages | `649953281` |
 | `zenuml-stg` | `zenuml-stg.atlassian.net` | `ZS` | Before release test pages | `177176629` |
-| `lite-stg` | `lite-stg.atlassian.net` | `SD` | Before release test pages | `524297` |
+| `lite-stg` | `lite-stg.atlassian.net` | `SD` | E2E test pages 2026-10-27 | `366149957` |
 
 When processing the arguments:
 1. Parse the site name from the arguments (e.g., `on zenuml-stg` → `zenuml-stg`)

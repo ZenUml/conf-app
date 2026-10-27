@@ -1,0 +1,1 @@
+"{\"htmlColorMode\":\"dark\",\"frameHasDarkClass\":false,\"frameBg\":\"rgb(255, 255, 255)\",\"nodeLabelColor\":\"rgb(0, 0, 0)\"}"

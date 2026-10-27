@@ -1,0 +1,4 @@
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+TypeError: withMermaidTheme is not a function
+TypeError: withMermaidTheme is not a function
+TypeError: withMermaidTheme is not a function

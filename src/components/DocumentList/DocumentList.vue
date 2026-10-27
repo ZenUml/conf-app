@@ -45,7 +45,7 @@
             <div class="flex flex-shrink-0 items-center px-4 py-2 justify-between border-b">
               <input v-model="filterKeyword"
                 placeholder="search in title and content"
-                class="block p-2 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
+                class="block p-2 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:outline-none focus:shadow-[inset_0_0_0_1px_rgba(9,30,66,.16),0_0_0_1px_rgba(9,30,66,.55),0_2px_10px_rgba(9,30,66,.06)] dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white">
             </div>
             <div class="flex-1 overflow-y-auto">
               <div v-for="containerPage in filteredPageList"

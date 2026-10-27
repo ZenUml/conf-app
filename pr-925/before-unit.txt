@@ -1,0 +1,4 @@
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 8 passed (9)
+   × functions routes (#924) > proxies only paths that have a handler in local dev 3ms
+     → expected [ '/api/metrics/evaluation', …(1) ] to deeply equal []

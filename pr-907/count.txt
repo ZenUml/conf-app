@@ -1,0 +1,8 @@
+occurrences in the three workflows (pr-validation, e2e-test, e2e-auth): merge-base c8779af9 vs head 2eacbba9
+pnpm/action-setup@ | 6 -> 0
+actions/setup-node@ | 8 -> 2
+actions/cache@ | 5 -> 1
+playwright install | 3 -> 0
+setup-node-pnpm | 0 -> 6
+asyncapi-studio-cache | 0 -> 1
+e2e-toolchain | 0 -> 3

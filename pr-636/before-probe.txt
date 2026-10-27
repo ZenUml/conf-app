@@ -1,0 +1,2 @@
+[log] [PNGPROBE] source 4647x1469, stage 562px, devicePixelRatio 1, exported 562x178
+[log] [PNGPROBE] source 4647x1469, stage 562px, devicePixelRatio 1, exported 562x178

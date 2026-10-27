@@ -1,0 +1,4 @@
+     → expected "spy" to be called with arguments: [ <div><svg …(1)></svg></div>, …(1) ]
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 55 passed (56)

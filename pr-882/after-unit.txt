@@ -1,0 +1,4 @@
+stdout | src/utils/analytics/renderPerf.integration.spec.ts > renderPerf × getContext (integration) > records context_ms once and it survives repeated (memoized) getContext calls
+stdout | src/utils/analytics/renderPerf.integration.spec.ts > renderPerf × getContext (integration) > populates all four phase timers through the real call order
+ Test Files  22 passed (22)
+      Tests  356 passed (356)

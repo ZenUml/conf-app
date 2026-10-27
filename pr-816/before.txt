@@ -1,0 +1,7 @@
+== before
+     → expected undefined to be 'ui://zenuml/diagram' // Object.is equality
+     → expected undefined to be 'ui://zenuml/diagram' // Object.is equality
+UIMETA {"ui":{"resourceUri":"ui://zenuml/diagram"}}
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed | 18 passed | 1 skipped (21)
+      Tests  2 failed | 347 passed | 3 skipped (352)

@@ -1,0 +1,4 @@
+private dismissPaywall definitions / dismissPaywallGate calls in the three specs
+fullscreen/draft-only-binding-fork | merge-base: def=1 shared=0 | head: def=0 shared=3
+fullscreen/draft-only-binding-samepage | merge-base: def=1 shared=0 | head: def=0 shared=2
+fullscreen/writeback-gate-non-submittable | merge-base: def=1 shared=0 | head: def=0 shared=2

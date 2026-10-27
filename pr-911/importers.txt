@@ -1,0 +1,8 @@
+importers of each deleted module (files outside the module itself, its spec and its story), at merge-base vs head
+ExportSidebar | merge-base: [] | head: []
+ExportPreview | merge-base: [] | head: []
+shareCardImage | merge-base: [tests/e2e-tests/config/impact-map.mjs ] | head: []
+BasePromptModal | merge-base: [] | head: []
+MermaidHighlightFeedbackPrototype | merge-base: [] | head: []
+MacroUtil | merge-base: [] | head: []
+MacroIdentifier | merge-base: [] | head: []

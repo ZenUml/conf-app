@@ -1,0 +1,32 @@
+   × AIRepair analytics > fires ai_repair_succeeded when job completes 4ms
+     → expected "spy" to be called with arguments: [ 'ai_repair_succeeded', …(1) ]
+   × AIRepair analytics > fires ai_repair_failed when job fails 2ms
+     → expected "spy" to be called with arguments: [ 'ai_repair_failed', …(1) ]
+   × AIRepair analytics > shows a retry state after a timeout without treating the error as repaired code 4ms
+     → expected '!\n           AI Repair couldn\'t fin…' to contain 'ran out of time'
+   × AIRepair analytics > waits for the user before retrying a failed repair ({"status":"FAILED","message":"Failed","progress":0,"output":{"durationMs":100000,"llmDurationMs":88000,"repairAttempts":2,"model":"a
+     → expected "spy" to be called 1 times, but got 0 times
+   × AIRepair analytics > waits for the user before retrying a failed repair ({"status":"FAILED","message":"Failed","progress":0,"output":{"durationMs":8000,"llmDurationMs":7600,"repairAttempts":2,"model":"anth
+     → expected "spy" to be called 1 times, but got 0 times
+   × AIRepair analytics > does not start another request when the retry button is clicked twice quickly 2ms
+     → expected "spy" to be called 2 times, but got 0 times
+   × AIRepair analytics > allows one retry again after closing and reopening the dialog 2ms
+     → Cannot read properties of undefined (reading 'trigger')
+   × AIRepair analytics > fires ai_repair_failed when startFixDiagram throws 1ms
+     → expected "spy" to be called with arguments: [ 'ai_repair_failed', …(1) ]
+   × AIRepair analytics > fires ai_repair_applied when user clicks Apply Code 3ms
+     → expected "spy" to be called with arguments: [ 'ai_repair_applied', …(1) ]
+   × AIRepair analytics > fires ai_repair_dismissed when dialog is closed after a successful repair without applying 2ms
+     → expected "spy" to be called with arguments: [ 'ai_repair_dismissed', …(1) ]
+   × AIRepair analytics > polls again after one second so completed repairs become visible promptly 1ms
+     → expected "spy" to be called 1 times, but got 0 times
+   × AIRepair analytics > uses one wall-clock budget instead of a fixed poll-attempt limit 1ms
+     → expected "spy" to be called 120 times, but got 0 times
+   × AIRepair analytics > stops polling on a CANCELLED job and reports a server outcome, not client_timeout 1ms
+     → expected "spy" to be called 1 times, but got 0 times
+   × runAIChatSession > uses one wall-clock timeout budget for polling 3ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+   × runAIChatSession > bounds an in-flight status request by the session deadline 5003ms
+     → Test timed out in 5000ms.
+ Test Files  2 failed | 2 passed (4)
+      Tests  15 failed | 40 passed (55)

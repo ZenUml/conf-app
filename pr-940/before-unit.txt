@@ -1,0 +1,16 @@
+   × zaraz postData (#939) > sends valid JSON even when a value contains a double quote 3ms
+     → Expected ',' or '}' after property value in JSON at position 170 (line 6 column 40)
+   × zaraz postData (#939) > gives the request a timeout 1ms
+     → expected undefined to be an instance of AbortSignal
+   × analytics ingest endpoints (#939) > uninstalled records the D1 fact even when the Zaraz call fails 6ms
+     → expected "spy" to be called 1 times, but got 0 times
+   × analytics ingest endpoints (#939) > uninstalled does not wait for a slow Zaraz call before responding 5002ms
+     → Test timed out in 5000ms.
+   × analytics ingest endpoints (#939) > forge-installed records the D1 fact even when the installation upsert fails 1ms
+     → expected "spy" to be called 1 times, but got 0 times
+   × recordAnalyticsEvent (#939) > still inserts the fact, without an R2 key, when the archive fails 1ms
+     → recordAnalyticsEvent is not a function
+   × recordAnalyticsEvent (#939) > never rejects the waitUntil promise when the insert fails 1ms
+     → recordAnalyticsEvent is not a function
+ Test Files  2 failed (2)
+      Tests  7 failed (7)

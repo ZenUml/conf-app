@@ -1,0 +1,1 @@
+"{\"menuItems\":1,\"focusedRole\":\"menuitem\",\"focusedText\":\"Download debug info\"}"

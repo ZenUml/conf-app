@@ -1,0 +1,1 @@
+PROBE {"https://example-tenant.atlassian.net":"example-tenant","https://x.atlassian.net.evil.com":"x","https://evil.com/x.atlassian.net":"","https://a.b.atlassian.net":"","https://wiki.example.com":""}

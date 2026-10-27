@@ -1,0 +1,4 @@
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 66 passed (67)
+   × Forge export resolver (src/export.js) > sends client_domain null (not the cloudId) when the payload has no siteUrl, and keeps cloud_id (#955) 1ms
+     → expected 'cloud-nosite' to be null

@@ -1,0 +1,6 @@
+console.log( occurrences: origin/main vs head
+functions/_middleware.ts | 1 -> 0
+functions/forge-installed.ts | 3 -> 2
+functions/utils/R2Bucket.ts | 2 -> 0
+functions/utils/authenticate.ts | 2 -> 2
+functions/utils/dbUtils.ts | 3 -> 3

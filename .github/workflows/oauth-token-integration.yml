@@ -1,0 +1,84 @@
+name: OAuth token HTTP integration
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'functions/agent-link/**'
+      - 'functions/_middleware.ts'
+      - 'functions/utils/**'
+      - 'functions/OkResponse.ts'
+      - 'functions/service/mixpanelService.ts'
+      - 'functions/migrations/**'
+      - 'public/_routes.json'
+      - 'wrangler-stg.toml'
+      - 'tests/integration/oauth-token/**'
+      - 'vitest.oauth-integration.config.ts'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/oauth-token-integration.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'functions/agent-link/**'
+      - 'functions/_middleware.ts'
+      - 'functions/utils/**'
+      - 'functions/OkResponse.ts'
+      - 'functions/service/mixpanelService.ts'
+      - 'functions/migrations/**'
+      - 'public/_routes.json'
+      - 'wrangler-stg.toml'
+      - 'tests/integration/oauth-token/**'
+      - 'vitest.oauth-integration.config.ts'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/oauth-token-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oauth-token-http-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oauth-token-http:
+    name: OAuth token HTTP integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      # Local HTTP + workerd + D1/KV only. No deployment, remote grant, secrets,
+      # browser, or global/full E2E approval is required by this narrow lane.
+      - name: Test OAuth token lifecycle over HTTP
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: >-
+          pnpm test:oauth-integration
+          --reporter=default --reporter=json --reporter=junit
+          --outputFile.json=artifacts/oauth-token/results.json
+          --outputFile.junit=artifacts/oauth-token/junit.xml
+      - name: Record tested candidate and scope
+        if: always()
+        run: |
+          mkdir -p artifacts/oauth-token
+          git rev-parse HEAD 'HEAD^{tree}' > artifacts/oauth-token/candidate.txt
+          cp tests/integration/oauth-token/scenarios.json artifacts/oauth-token/scenarios.json
+      - name: Upload HTTP integration evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: oauth-token-http-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/oauth-token/
+          if-no-files-found: error
+          retention-days: 14

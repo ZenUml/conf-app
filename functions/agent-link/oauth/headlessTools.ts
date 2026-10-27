@@ -16,9 +16,9 @@
 //     refusal, exactly as addToPage.ts does (design §7). An agent that retries
 //     must not duplicate a diagram, and an agent racing a human editor must
 //     lose.
-//   - `create_diagram` consults the server-side paywall gate first (§9.1,
-//     headlessGate.ts). The frontend's gate never runs for a headless call, so
-//     without this, creation here would be a revenue bypass.
+//   - `create_diagram` classifies the space against the Lite limit first
+//     (§9.1, headlessGate.ts) for analytics. It never refuses, matching the
+//     UI, whose paywall block was retired in 2026-09.
 
 import { listAccessibleSites, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
 import { confluenceReaderFor } from './confluenceReader';
@@ -85,23 +85,59 @@ export interface HeadlessContext {
   onGrantEvent?: GrantEventSink;
 }
 
+/**
+ * MCP tool annotations. Both connector directories (Claude's and ChatGPT's)
+ * reject a tool that lacks a `title` and the hint that applies to it, and
+ * Claude derives auto-permissions from them: read-only tools run without a
+ * prompt, destructive ones always ask. So every tool that writes to
+ * Confluence is destructive here, including the two that only add — Claude's
+ * review criteria ask for `destructiveHint: true` on any tool that modifies
+ * data, and a page created or a macro appended is a publish others can see.
+ */
+export interface HeadlessToolAnnotations {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  /** True when a call reaches beyond this server into the user's Confluence. */
+  openWorldHint: boolean;
+}
+
 export interface HeadlessToolDescriptor {
   name: string;
+  title: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations: HeadlessToolAnnotations;
+}
+
+function readOnly(title: string): Pick<HeadlessToolDescriptor, 'title' | 'annotations'> {
+  return {
+    title,
+    annotations: { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  };
+}
+
+function write(title: string, idempotentHint: boolean): Pick<HeadlessToolDescriptor, 'title' | 'annotations'> {
+  return {
+    title,
+    annotations: { title, readOnlyHint: false, destructiveHint: true, idempotentHint, openWorldHint: true },
+  };
 }
 
 export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'list_sites',
+    ...readOnly('List Confluence sites'),
     description:
       'List the Confluence sites your ZenUML authorization can reach, with the cloudId each other tool needs. Start here. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'list_diagrams',
+    ...readOnly('List diagrams'),
     description:
-      'List ZenUML diagrams on a site, most-recently-modified first. Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
+      'List ZenUML diagrams on a site, most-recently-modified first, each with its diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -114,6 +150,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'read_diagram',
+    ...readOnly('Read diagram'),
     description:
       'Read one diagram’s source (the DSL or spec text) and diagramType by its contentId, as listed by list_diagrams. Edit that source and send all of it back with update_diagram. Read-only.',
     inputSchema: {
@@ -127,6 +164,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'read_page',
+    ...readOnly('Read page'),
     description:
       'Read a Confluence page: its title, version, space, and body in Confluence storage format. Read-only.',
     inputSchema: {
@@ -140,6 +178,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'create_page',
+    ...write('Create page', false),
     description:
       'Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML): paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.',
     inputSchema: {
@@ -156,6 +195,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'update_page',
+    ...write('Update page', true),
     description:
       'Replace a page’s body, and optionally its title. Send the COMPLETE new body — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.',
     inputSchema: {
@@ -177,14 +217,16 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'get_status',
+    ...readOnly('Get connection status'),
     description:
       'Which mode this connection is in, who it acts as, and which ZenUML app each reachable site runs. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'update_diagram',
+    ...write('Update diagram', true),
     description:
-      'Replace a diagram’s source with new DSL. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change.',
+      'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change. To rename only, send the unchanged source with the new `title`.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -192,12 +234,17 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
         contentId: { type: 'string', description: 'From list_diagrams.' },
         dsl: { type: 'string', description: 'The complete new source. Not a patch.' },
         summary: { type: 'string', description: 'Optional. Note for the version history.' },
+        title: {
+          type: 'string',
+          description: 'Optional. Renames the diagram to this title. Omit or leave blank to keep the current title.',
+        },
       },
       required: ['cloudId', 'contentId', 'dsl'],
     },
   },
   {
     name: 'create_diagram',
+    ...write('Create diagram on page', false),
     description:
       'Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).',
     inputSchema: {
@@ -229,8 +276,7 @@ export class HeadlessToolError extends Error {
       | 'bad_params'
       | 'forbidden'
       | 'conflict'
-      | 'guardrail_rejected'
-      | 'limit_reached',
+      | 'guardrail_rejected',
     readonly detail?: unknown,
   ) {
     super(message);
@@ -289,6 +335,7 @@ interface CustomContentRow {
   version?: { createdAt?: unknown; number?: unknown };
   pageId?: unknown;
   spaceId?: unknown;
+  body?: { raw?: { value?: unknown } };
 }
 
 /** The site row for `cloudId`, or a refusal. Every write path starts here. */
@@ -385,6 +432,14 @@ function parseStoredDiagram(value: unknown): {
 function summaryFor(summary: unknown, title?: string): string {
   const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
   return title ? `Added ZenUML diagram "${title}" via Agent Link${note}` : `Updated by ZenUML Agent Link${note}`;
+}
+
+/** The update_diagram version message; names the new title when the call renamed the diagram. */
+function updateSummaryFor(summary: unknown, renamedTo?: string): string {
+  const base = summaryFor(summary);
+  if (!renamedTo) return base;
+  const note = typeof summary === 'string' && summary.trim() ? ` — ${summary.trim().slice(0, 200)}` : '';
+  return `${base.slice(0, base.length - note.length)}, renamed to "${renamedTo}"${note}`;
 }
 
 /**
@@ -566,11 +621,35 @@ function guardPageBody(current: string, next: string): { ok: true } | { ok: fals
   return { ok: true };
 }
 
+/**
+ * Is this the graph-only custom-content type? lite/full store graphs under
+ * their own `-graph` type and every other diagram type under the other one
+ * (customContentTypeFor here; DIAGRAM_TYPE_TO_CONTENT_KEY in ApWrapper2.ts).
+ * The reverse does not hold: older graphs sit under the sequence type too.
+ */
+function isGraphContentType(type: unknown): boolean {
+  return typeof type === 'string' && type.endsWith('-graph');
+}
+
+/**
+ * What kind of diagram a listed row is. The custom-content type cannot say:
+ * the sequence type holds mermaid, plantuml, OpenAPI and older graphs alike,
+ * and listing it as `type` led an agent to call a Mermaid flowchart a sequence
+ * diagram (zenuml-review, 2026-10-24). Graph-type rows are fetched without a
+ * body, so their (possibly large) XML never travels.
+ */
+function listedDiagramType(row: CustomContentRow): string | null {
+  if (isGraphContentType(row.type)) return 'graph';
+  const stored = parseStoredDiagram(row.body?.raw?.value).diagramType;
+  if (!stored) return null;
+  return canonicalDiagramType(stored) ?? stored;
+}
+
 function diagramRow(row: CustomContentRow) {
   return {
     contentId: typeof row.id === 'string' ? row.id : String(row.id ?? ''),
     title: typeof row.title === 'string' ? row.title : '',
-    type: typeof row.type === 'string' ? row.type : '',
+    diagramType: listedDiagramType(row),
     pageId: typeof row.pageId === 'string' ? row.pageId : undefined,
     modifiedAt: typeof row.version?.createdAt === 'string' ? row.version.createdAt : undefined,
   };
@@ -650,7 +729,8 @@ export async function callHeadlessTool(
       const rows: CustomContentRow[] = [];
       if (pageId) {
         // The page-scoped endpoint takes no type filter, so filter on the way out.
-        const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250`);
+        // Bodies come along for the diagram type; one page's worth is small.
+        const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250&body-format=raw`);
         if (res.status !== 200) {
           throw new HeadlessToolError('Confluence refused the listing.', 'upstream', { status: res.status });
         }
@@ -662,7 +742,8 @@ export async function callHeadlessTool(
           // Newest first at the source: the default is oldest first, and the
           // sort below only reorders what came back — so without this the tool
           // returned each type's OLDEST `limit` rows as "most recent".
-          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&${NEWEST_FIRST}`);
+          const body = isGraphContentType(type) ? '' : '&body-format=raw';
+          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&${NEWEST_FIRST}${body}`);
           // A 404 is Confluence saying this variant never wrote that type —
           // information, not a failure (the same rule macroIdentity applies).
           if (res.status === 404) continue;
@@ -770,7 +851,13 @@ export async function callHeadlessTool(
       }
 
       const versionNumber = Number(current.version?.number);
-      const nextBody = { ...stored.raw, [stored.field]: dsl };
+      // A rename sets the record title AND the body JSON title, as the viewer's
+      // rename does (renameDiagramTitle -> updateCustomContentV2). Blank or
+      // non-string = no rename, both stay as stored.
+      const requestedTitle = typeof args.title === 'string' ? args.title.trim() : '';
+      const currentTitle = typeof current.title === 'string' ? current.title : 'Untitled diagram';
+      const nextBody: Record<string, unknown> = { ...stored.raw, [stored.field]: dsl };
+      if (requestedTitle) nextBody.title = requestedTitle;
       const write = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}`, {
         method: 'PUT',
         body: {
@@ -778,12 +865,12 @@ export async function callHeadlessTool(
           type: current.type,
           status: typeof current.status === 'string' ? current.status : 'current',
           pageId: current.pageId,
-          title: typeof current.title === 'string' ? current.title : 'Untitled diagram',
+          title: requestedTitle || currentTitle,
           body: { value: JSON.stringify(nextBody), representation: 'raw' },
           version: {
             number: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
             // §9.3: page history must show which edits an agent made.
-            message: summaryFor(args.summary),
+            message: updateSummaryFor(args.summary, requestedTitle || undefined),
           },
         },
       });
@@ -806,6 +893,7 @@ export async function callHeadlessTool(
         version: (Number.isFinite(versionNumber) ? versionNumber : 0) + 1,
         diff: verdict.diff,
         unvalidated: verdict.unvalidated,
+        titleChanged: !!requestedTitle && requestedTitle !== currentTitle,
       };
     }
 
@@ -883,7 +971,7 @@ export async function callHeadlessTool(
       }
       if (!Array.isArray(adf.content)) throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
 
-      // §9.1, blocking: the frontend paywall never runs for a headless call.
+      // §9.1: classify for analytics only; the limit no longer blocks, as in the UI.
       const spaceKey = spaceKeyFromLinks(page._links);
       const gate = await checkCreateAllowed(ctx.gateEnv ?? {}, {
         variant: identity.identity.variant,
@@ -892,13 +980,6 @@ export async function callHeadlessTool(
         spaceKey,
         accountId: ctx.userId,
       });
-      if (!gate.allowed) {
-        throw new HeadlessToolError(
-          `This space is on the free plan and already has ${gate.macroCount} of ${gate.limit} diagrams. Upgrade the space to add more.`,
-          'limit_reached',
-          gate,
-        );
-      }
 
       const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'Untitled diagram';
       const created = await request('/wiki/api/v2/custom-content', {

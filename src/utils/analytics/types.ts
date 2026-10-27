@@ -6,16 +6,23 @@ import type {
   MacroTypeValue,
   Surface,
   EntryPoint,
+  CreationOrigin,
   OperationMode,
   RenderMode,
   RenderGateMode,
   RenderGateOutcome,
   CacheState,
+  ContentState,
   CacheSource,
+  PlantUmlRenderer,
+  PlantUmlLocalFailureReason,
+  PlantUmlUnresolvedInclude,
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
   DashboardFormatFilter,
+  DiagramLocationsLoadOutcome,
+  DiagramLocationsFilter,
   AgentLinkDisconnectReason,
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
@@ -66,6 +73,23 @@ import type {
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
+  feature?: 'fullscreen';
+  policy_version?: 'fullscreen-contact-v1';
+  attempt_id?: string;
+  recovery_request_id?: string;
+  recovery_grant_id?: string;
+  recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
+  recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
+  recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
+  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'>;
+  access_source?: 'existing' | 'temporary' | 'fail_open';
+  duration_days?: number;
+  mail_state?: 'queued' | 'accepted' | 'delivered' | 'bounced' | 'failed' | 'delivery_unknown';
+  template_version?: string;
+  recovery_mail_id?: string;
+  support_outcome?: 'customer_replied' | 'next_step_agreed' | 'closed';
+
   /** Markdown render outcomes; counts only, never document contents. */
   markdown_mermaid_blocks?: number;
   markdown_failed_blocks?: number;
@@ -128,6 +152,15 @@ export type AnalyticsProperties = {
   // the same one event and the two are directly comparable.
   viewport_input?: "toolbar" | "wheel";
   entry_point?: EntryPoint;
+  // Create funnel only (macro_create_started / macro_create_succeeded /
+  // macro_create_cancelled). `creation_origin` names the surface that started
+  // the create (see CreationOrigin). `creation_flow_id` is generated once per
+  // editor iframe, the first time a create event is emitted, and shared by that
+  // iframe's start, success and cancel events; it is the join key for one
+  // creation. It is not `macro_uuid` (absent for a byline create: there is no
+  // macro yet) and not `journey_id` (only on macro_authoring_ended).
+  creation_origin?: CreationOrigin;
+  creation_flow_id?: string;
   confluence_space?: string;
   macro_uuid?: string;
   // Lifecycle
@@ -159,6 +192,15 @@ export type AnalyticsProperties = {
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
+  // Milliseconds from the first retained track call to Mixpanel init completion.
+  // Registered once per iframe as a super-property (#707).
+  analytics_init_ms?: number;
+  // analytics_init_degraded (#707): the Forge moduleKey of the iframe whose
+  // Mixpanel init degraded, the closed-vocabulary `reason` (shared `reason`
+  // field below; today only 'session_replay_config_timeout') and the timeout
+  // that elapsed, in ms.
+  module_key?: string;
+  timeout_ms?: number;
   // Format slice chosen on the dual-format "My API Documents" dashboard
   // (dashboard_format_filtered). "all" = both AsyncAPI and OpenAPI shown.
   format_filter?: DashboardFormatFilter;
@@ -175,6 +217,8 @@ export type AnalyticsProperties = {
   png_export_placeholder_reason?: 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'missing';
   /** Property operation whose failure did not interrupt saving or export. */
   png_export_property_operation?: 'read' | 'create' | 'update';
+  /** Why a PNG state property write was skipped rather than failed. */
+  png_export_skip_reason?: 'page_unavailable';
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
   // _failed), plus the benign ordinary-chat ai_chat_no_change outcome.
   // `duration_ms` below is click-to-visible-result wall time;
@@ -288,6 +332,14 @@ export type AnalyticsProperties = {
   // PlantUML paste normalisation (conf-app#632)
   diagrams_pasted?: number;
   paste_truncated?: boolean;
+  // ADR-0010 self-hosted PlantUML rendering
+  plantuml_renderer?: PlantUmlRenderer;
+  plantuml_failure_reason?: PlantUmlLocalFailureReason;
+  plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
+  // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
+  // library for this render. On macro_viewed (local renders) and on
+  // plantuml_local_render_failed. Absent when nothing was rewritten.
+  plantuml_include_rewritten?: boolean;
 
   // AI
   prompt_length?: number;
@@ -555,6 +607,15 @@ export type AnalyticsProperties = {
   // ('page_read_failed', 'page_write_failed'). Absent for the others, which
   // never made a request that returned one.
   http_status?: number;
+  // Diagram locations (Plan and usage, plan_usage_locations_*). Counts and
+  // outcomes only: no page ids, page titles, search text or space keys, which
+  // are customer content. `page_index` counts fetched batches from 0.
+  load_outcome?: DiagramLocationsLoadOutcome;
+  locations_filter?: DiagramLocationsFilter;
+  listed_count?: number;
+  hidden_count?: number;
+  has_more?: boolean;
+  page_index?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser
@@ -770,6 +831,8 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
+  // #113: body classification at render time (default starter / authored / empty). Wipe detection.
+  content_state?: ContentState;
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.
@@ -865,6 +928,14 @@ export type AnalyticsProperties = {
   // duration_ms includes exactly this much gate-induced delay — subtracting
   // it (or splitting by render_gate) is legitimate.
   render_deferred_ms?: number;
+  // Hidden-Mermaid wait (#706). `layout_wait_ms` (on macro_viewed): wall time the
+  // viewer waited for a measurable SVG text layout after mermaid.render() threw
+  // `svg element not in render tree`; absent when no wait happened. Unlike
+  // render_deferred_ms it is not gate-induced, but duration_ms includes it, so
+  // subtract it (or exclude present values) in percentile work. `waited_ms` (on
+  // viewer_render_deferred / viewer_render_abandoned): the wait so far / in total.
+  layout_wait_ms?: number;
+  waited_ms?: number;
   // Strict (no-margin) top-level-viewport intersection at first observation.
   // The direct client-side measure of "was this macro on screen at boot".
   visible_at_boot?: boolean;
@@ -976,6 +1047,9 @@ export type AnalyticsProperties = {
   // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // agent_link_diagram_updated only: true when the call renamed the diagram
+  // (a non-blank `title` that differs from the stored one, #789).
+  title_changed?: boolean;
   // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
   // dialog connects the agent (headless only, for now); `mcp_copy_target` says
   // which block a Copy click targeted. The copy outcome rides the shared
@@ -1059,6 +1133,16 @@ export type AnalyticsProperties = {
   // (401/403) that triggered the fallback.
   via_app_fallback?: boolean;
   fallback_from_status?: number;
+  // `attachment_upload_succeeded` only: the create POST 400'd with v1's "Cannot
+  // add a new attachment with same file name" (the v2 existence gate missed an
+  // attachment v1 already holds — visibility lag or a concurrent upload from
+  // another iframe, #75) and the upload then landed as a new version. Absent on
+  // every ordinary create/update.
+  recovered_from?: 'same_name_400';
+  // `attachment_upload_succeeded` with `recovered_from: 'same_name_400'` only:
+  // the v1 re-read showed another writer had already stored this upload's
+  // metaKey (racing iframes), so no new version was POSTed.
+  skipped_duplicate?: boolean;
   // Low-cardinality Confluence exception class parsed out of the error
   // envelope — PermissionException / NotFoundException / BadRequestException.
   // The raw `error_message` is capped at 200 chars and the envelope prefix
@@ -1075,6 +1159,45 @@ export type AnalyticsProperties = {
   // field, which is the ambiguity #398 was filed about and the reason #435
   // chose `macro_type: 'none'` over omission.
   confluence_error_class?: string;
+  // attachment_upload_failed, only when `forgeRequest` threw ForgeRequestError:
+  // a non-JSON body (an HTML error/login page instead of JSON) or, for callers
+  // that opt in, a JSON body with a non-2xx status (e.g. the properties PUT).
+  // `failed_request` is the templated call that got it, e.g.
+  // `GET /wiki/api/v2/pages/{id}/attachments` vs the properties PUT;
+  // `response_content_type` / `response_title` say what the page was ('none'
+  // when absent). The status itself rides on `http_status`.
+  failed_request?: string;
+  response_content_type?: string;
+  response_title?: string;
+  // attachment_upload_rate_limited / attachment_upload_deferred. The cooldown
+  // after a 429 comes from the response's Retry-After header when the bridge
+  // passes one through ('header', with `retry_after_s`), else a fixed default
+  // ('default'); `cooldown_ms` is what was applied after clamping.
+  // `cooldown_remaining_ms` is how long a skipped view still had to wait.
+  retry_after_source?: 'header' | 'default';
+  retry_after_s?: number;
+  cooldown_ms?: number;
+  cooldown_remaining_ms?: number;
+  // load_custom_content_v2_missing: why the custom content could not be
+  // loaded. `load_status` is 'not_found' only for an all-404 NOT_FOUND
+  // envelope (the case that triggers recovery), else 'other_error';
+  // `error_class` is 'structured' for a Confluence `{ errors: [...] }` body
+  // and 'malformed' for a body with no `body.raw.value`. `http_status` /
+  // `error_code` come from the first structured error.
+  load_status?: 'not_found' | 'other_error';
+  error_class?: 'structured' | 'malformed';
+  // customcontent_orphan_observed: the by-id GET (the "direct fetch") that ran
+  // before any probe. Without these, `recoverable: 'probe_skipped_no_probe_result'`
+  // could not say whether the fetch hit a 403, a 5xx, a thrown request or a
+  // malformed body — they all collapsed to "no probe result" (#148).
+  // `direct_fetch_status` mirrors fetchCustomContentByIdV2WithStatus;
+  // `direct_fetch_http_status` / `direct_fetch_error_code` come from the first
+  // structured Confluence error (absent for thrown/malformed);
+  // `direct_fetch_error_class` is 'thrown' | 'structured' | 'malformed'.
+  direct_fetch_status?: 'ok' | 'not_found' | 'other_error';
+  direct_fetch_http_status?: number;
+  direct_fetch_error_code?: string;
+  direct_fetch_error_class?: 'thrown' | 'structured' | 'malformed';
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

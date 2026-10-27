@@ -14,6 +14,7 @@ import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
 import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
+import { resolveEffectiveCustomContentId } from "@/utils/effectiveCustomContentId";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -35,6 +36,54 @@ type ExplicitReplayProperties = Pick<
 // `macro_*_started` also loses the replay-to-event join for that session.
 const DEMO_PAGE_TELEMETRY_TIMEOUT_MS = 750;
 const DEMO_PAGE_TELEMETRY_TIMED_OUT = Symbol("demo_page_telemetry_timed_out");
+
+// Upper bound on how long the FIRST event of an iframe waits for the Forge
+// feature-flag download (getSessionReplayConfig -> FeatureFlags.initialize, a
+// bare bridge postMessage round trip that @forge/bridge never times out). That
+// flag only chooses the replay sampling rate, so a late answer must never cost
+// the iframe its events (#707: a hung call left the memoised init promise
+// pending forever, so mixpanel.init never ran and every event was dropped
+// silently). 3s sits well above the normal bridge round trip (tens to a few
+// hundred ms) so ordinary iframes keep their flag-driven replay, and well below
+// the point where an iframe is likely to be torn down.
+export const SESSION_REPLAY_CONFIG_TIMEOUT_MS = 3000;
+const SESSION_REPLAY_CONFIG_TIMED_OUT = Symbol("session_replay_config_timed_out");
+const REPLAY_OFF = { percent: 0, source: "off" as const };
+// Distinct from REPLAY_OFF so session_replay_source separates "the flag said
+// off" from "the flag wait was cut short" (#707).
+const REPLAY_TIMEOUT = { percent: 0, source: "timeout" as const };
+
+// Resolve the replay config with a bounded wait. Never rejects and never
+// hangs: a throw falls back to replay off (source 'off') and a timeout to replay off
+// with source 'timeout', and the timer is
+// cleared on every path. If the real answer arrives after the timeout it is
+// ignored (no re-init), so replay for that iframe stays off.
+async function _resolveSessionReplayConfig(): Promise<{
+  config: Awaited<ReturnType<typeof getSessionReplayConfig>>;
+  timedOut: boolean;
+}> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const config = await Promise.race([
+      getSessionReplayConfig(),
+      new Promise<typeof SESSION_REPLAY_CONFIG_TIMED_OUT>((resolve) => {
+        timeout = setTimeout(
+          () => resolve(SESSION_REPLAY_CONFIG_TIMED_OUT),
+          SESSION_REPLAY_CONFIG_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (config === SESSION_REPLAY_CONFIG_TIMED_OUT) {
+      return { config: REPLAY_TIMEOUT, timedOut: true };
+    }
+    return { config, timedOut: false };
+  } catch (error) {
+    console.debug("[session-replay] off: config lookup threw", error);
+    return { config: REPLAY_OFF, timedOut: false };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 // Share of authoring sessions that record. Authoring replay used to be forced
 // on every create/edit; measured over the 30 days to 2026-09-07 that was 13,905
@@ -136,6 +185,7 @@ function _startExplicitReplay(
 
 function _initMixpanel(): Promise<void> {
   if (!_initPromise) {
+    const startedAt = performance.now();
     _initPromise = (async () => {
       // The page-banner iframe is short-lived and has no macro context — session
       // replay there adds noise without value, so it never records and we skip
@@ -173,6 +223,10 @@ function _initMixpanel(): Promise<void> {
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
+      let replayConfigTimedOut = false;
+      // NOTE (#707): this short-circuit runs before _resolveSessionReplayConfig,
+      // so the bounded flag wait below is inactive while the October budget
+      // branch is taken and becomes live on 2026-11-01 UTC.
       const { percent, source } = isOctoberReplayBudgetActive()
         ? { percent: 0, source: "off" as const }
         : isPageBanner
@@ -181,7 +235,10 @@ function _initMixpanel(): Promise<void> {
         ? { percent: 100, source: "plan_usage_page" as const }
         : isFullscreen
         ? { percent: 100, source: "fullscreen" as const }
-        : await getSessionReplayConfig();
+        : await _resolveSessionReplayConfig().then((resolved) => {
+            replayConfigTimedOut = resolved.timedOut;
+            return resolved.config;
+          });
 
       mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, {
         debug: true,
@@ -200,12 +257,24 @@ function _initMixpanel(): Promise<void> {
         record_console: true,
         record_network: true,
       });
+      mixpanel.register({ analytics_init_ms: performance.now() - startedAt });
       // Stamp every event with the resolved rate + why, so the throttle and
       // targeting can be confirmed live in Mixpanel.
       mixpanel.register({
         session_replay_percent: percent,
         session_replay_source: source,
       });
+      if (replayConfigTimedOut) {
+        // Fired after init so it actually leaves; not awaited because it
+        // awaits this very promise.
+        void _awaitableTrackAnalyticsEvent("analytics_init_degraded", {
+          feature_area: "system",
+          surface: "iframe_bootstrap",
+          module_key: moduleKey,
+          reason: "session_replay_config_timeout",
+          timeout_ms: SESSION_REPLAY_CONFIG_TIMEOUT_MS,
+        });
+      }
     })();
   }
   return _initPromise;
@@ -337,10 +406,12 @@ function _getContentIdentifiers(): {
 } {
   const extension = forgeGlobal.forgeContext?.extension as any;
   const pageId = extension?.content?.id ?? null;
+  // The id the viewer actually loaded: config, then modal, then a pasted typed
+  // deeplink. A macro placed by autoConvert has no config, so reading config and
+  // modal alone left every event from it (macro_viewed included) with an empty
+  // custom_content_id although the diagram rendered (#561).
   const customContentId =
-    extension?.config?.customContentId ??
-    extension?.modal?.customContentId ??
-    null;
+    resolveEffectiveCustomContentId(forgeGlobal.forgeContext) ?? null;
   const attachmentName = customContentId ? `zenuml-${customContentId}.png` : null;
   return {
     page_id: pageId,

@@ -311,3 +311,30 @@ describe("scheduleRendererPrefetch (post-render hook)", () => {
     expect(runRendererPrefetchIfDue).not.toHaveBeenCalled();
   });
 });
+
+describe("trackRenderTime content_state (#113)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.__macroLoadStart = performance.now();
+  });
+
+  afterEach(() => {
+    delete (window as { __macroLoadStart?: number }).__macroLoadStart;
+  });
+
+  it("adds content_state to macro_viewed when the caller supplies one", () => {
+    trackRenderTime("sequence", true, "live_render", "none", "authored");
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ content_state: "authored" })
+    );
+  });
+
+  it("omits the key entirely when there is no verdict", () => {
+    trackRenderTime("sequence", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[0];
+    expect(props).not.toHaveProperty("content_state");
+  });
+});

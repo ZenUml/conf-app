@@ -1,3 +1,4 @@
+import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
@@ -35,6 +36,7 @@ import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { handleHomepageFeedRoute } from './routes/homepageFeed';
 import { type MacroTypeValue } from '@/utils/analytics/catalog';
+import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution, setSequenceViewerLoadState } from '@/utils/viewerLoadOutcome';
 import { attributionFromCustomContent, type DiagramAttribution } from '@/model/DiagramAttribution';
@@ -505,9 +507,10 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
         reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, {
           recoveryUsed: true,
           recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+          directFetch: loaded,
         });
       } else if (!loaded.customContent?.value) {
-        reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+        reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       }
       const fresh = loaded.customContent?.value;
       if (!fresh) return; // content unreadable now — keep the last-known-good cached render
@@ -529,7 +532,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       if (hashContent(serialized) !== cachedHash) {
         renderPerf.markContentSource('fetch');
         // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
-        const freshDoc: Diagram = fresh.plantUmlCode ? fresh : { ...fresh, plantUmlCode: Example.PlantUml };
+        const freshDoc: Diagram = withPlantUmlViewerFallback(fresh);
         await mountSequenceViewer(freshDoc, freshAttribution);
       }
     } catch (e) {
@@ -543,7 +546,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       try {
         const cachedDoc = JSON.parse(cached.doc) as Diagram;
         // @ts-ignore - cachedDoc may be a partial spread type; matches the happy-path mount below
-        const viewerDoc: Diagram = cachedDoc.plantUmlCode ? cachedDoc : { ...cachedDoc, plantUmlCode: Example.PlantUml };
+        const viewerDoc: Diagram = withPlantUmlViewerFallback(cachedDoc);
         renderPerf.markContentSource('swr_cache');
         // Revalidate BEFORE the (possibly gated) mount: an offscreen macro
         // must not delay its freshness check / orphan reporting / snapshot
@@ -613,13 +616,14 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
       // ZEN-1170: the referenced customContent failed to load AND no page
       // child was a confident match. Don't assign doc here — let the legacy
       // content-property fallback below try storageUuid before we mount an
       // empty/example doc and risk a destructive save.
-      reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false });
+      reportOrphanObserved(recoveryPageId, customContentId, 'sequence', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
       ccLoadError = mapCustomContentLoadError(loaded);
     }
 
@@ -878,7 +882,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
   // support. `doc` is only populated for the sequence family above; non-sequence
   // types leave it undefined (the dedicated entry loads their doc), so guard.
   if (doc && !doc.plantUmlCode) {
-    doc = { ...doc, plantUmlCode: Example.PlantUml };
+    doc = withPlantUmlViewerFallback(doc);
   }
 
   // Start journey tracking for editor mode
@@ -1016,6 +1020,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
           surface: "editor",
           macro_type: macroType,
           entry_point: "page_editor",
+          ...getCreationFlowProps(),
         });
       } else {
         trackAnalyticsEvent("macro_edit_started", {
@@ -1047,6 +1052,15 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       })) return;
     }
 
+    const mountDoc = editable
+      ? doc
+      : applyViewerLoadOutcome({
+          doc,
+          customContentId,
+          loadError: ccLoadError,
+          macroKind,
+        });
+
     // Fullscreen viewer paywall: blocking modal over the read-only diagram.
     // Fires only when the user clicked Fullscreen on a saturated Lite space.
     // Not for an export-entry open: the user pressed Export PNG, which is
@@ -1056,25 +1070,19 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
       if (await tryFullscreenViewerPaywall({
         // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
-        doc,
+        doc: mountDoc,
         content: DiagramPortal,
         contentProps: { autoResize: false },
         macroKind,
-      })) return;
+      })) {
+        publishDiagramAttribution(diagramAttribution);
+        return;
+      }
     }
 
     const component = editable
     ? (await import("@/components/Workspace.vue")).default
     : (await import("@/components/DiagramPortal.vue")).default;
-
-    const mountDoc = editable
-      ? doc
-      : applyViewerLoadOutcome({
-          doc,
-          customContentId,
-          loadError: ccLoadError,
-          macroKind,
-        });
 
     //@ts-ignore
     mountRoot(mountDoc, component, { autoResize: !editable && !fullscreenMode });

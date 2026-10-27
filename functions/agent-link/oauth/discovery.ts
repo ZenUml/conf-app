@@ -13,6 +13,7 @@
 
 import { AS_METADATA_PATH, buildAuthServerMetadata, buildResourceMetadata, issuerFor } from './asMetadata';
 import { PROTECTED_RESOURCE_METADATA_PATH } from './protectedResource';
+import { json } from '../../OkResponse';
 
 const HEADERS = {
   'content-type': 'application/json',
@@ -35,10 +36,10 @@ export function oauthDiscoveryResponse(url: string): Response | null {
   const origin = issuerFor(url);
 
   if (pathname === PROTECTED_RESOURCE_METADATA_PATH) {
-    return new Response(JSON.stringify(buildResourceMetadata(origin)), { headers: HEADERS });
+    return json(buildResourceMetadata(origin), { headers: HEADERS });
   }
   if (pathname === AS_METADATA_PATH) {
-    return new Response(JSON.stringify(buildAuthServerMetadata(origin)), { headers: HEADERS });
+    return json(buildAuthServerMetadata(origin), { headers: HEADERS });
   }
   return null;
 }

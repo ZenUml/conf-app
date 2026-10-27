@@ -6,6 +6,8 @@ const h = vi.hoisted(() => ({
   graphViewerImported: vi.fn(),
   reportOrphanObserved: vi.fn(),
   mountRoot: vi.fn(),
+  fullscreen: false,
+  fullscreenGate: vi.fn().mockResolvedValue(false),
 }));
 
 vi.mock('@/model/globals', () => ({
@@ -23,7 +25,7 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
   default: { forgeContext: { localId: 'macro-1' } },
   getContext: vi.fn(async () => h.context),
   isEditorMode: vi.fn(async () => false),
-  isFullscreenMode: vi.fn(async () => false),
+  isFullscreenMode: vi.fn(async () => h.fullscreen),
   isExportEntry: vi.fn(async () => false),
   isInserting: vi.fn(async () => false),
   isConfiguring: vi.fn(async () => false),
@@ -51,6 +53,7 @@ vi.mock('@/utils/orphanTelemetry', () => ({
   reportOrphanMacroRepaired: vi.fn(),
 }));
 vi.mock('@/model/Attachment', () => ({ default: vi.fn() }));
+vi.mock('@/utils/paywall/mountPaywallGate', () => ({ tryFullscreenViewerPaywall: h.fullscreenGate, tryPageEditorPaywall: vi.fn().mockResolvedValue(false) }));
 vi.mock('@/mount-root', () => ({ mountRoot: h.mountRoot }));
 vi.mock('@/components/DiagramPortal.vue', () => ({ default: {} }));
 vi.mock('@/forge-graph-viewer', () => {
@@ -71,6 +74,8 @@ describe('shared Forge entrypoint orphan routing', () => {
     vi.clearAllMocks();
     vi.resetModules();
     localStorage.clear();
+    h.fullscreen = false;
+    h.fullscreenGate.mockResolvedValue(false);
     h.context = {
       moduleKey: 'zenuml-graph-macro-lite',
       extension: {
@@ -79,6 +84,18 @@ describe('shared Forge entrypoint orphan routing', () => {
         config: { customContentId: 'orphan-1' },
       },
     };
+  });
+
+  it('preserves the failed-load state when recovery handles a fullscreen open', async () => {
+    h.fullscreen = true;
+    h.fullscreenGate.mockResolvedValue(true);
+    h.context.moduleKey = 'zenuml-sequence-macro-lite';
+    h.loadCustomContentWithOrphanRecovery.mockResolvedValue({ customContent: undefined, directFetchStatus: 'not_found', directFetchHttpStatus: 404 });
+    const { default: initialized } = await import('@/forgeIndex'); await initialized;
+    const { default: store } = await import('@/model/store2');
+    expect(h.fullscreenGate).toHaveBeenCalledOnce();
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    expect(h.mountRoot).not.toHaveBeenCalled();
   });
 
   it('delegates graph without loading or reporting it as a sequence orphan', async () => {
@@ -111,6 +128,9 @@ describe('shared Forge entrypoint orphan routing', () => {
     h.loadCustomContentWithOrphanRecovery.mockResolvedValue({
       customContent: undefined,
       directFetchStatus: 'not_found',
+      directFetchHttpStatus: 404,
+      directFetchErrorCode: 'NOT_FOUND',
+      directFetchErrorClass: 'structured',
       probeResult,
     });
 
@@ -123,7 +143,16 @@ describe('shared Forge entrypoint orphan routing', () => {
     );
     expect(h.reportOrphanObserved).toHaveBeenCalledTimes(1);
     expect(h.reportOrphanObserved).toHaveBeenCalledWith(
-      'page-1', 'orphan-1', 'sequence', probeResult, { recoveryUsed: false },
+      'page-1', 'orphan-1', 'sequence', probeResult,
+      {
+        recoveryUsed: false,
+        directFetch: expect.objectContaining({
+          directFetchStatus: 'not_found',
+          directFetchHttpStatus: 404,
+          directFetchErrorCode: 'NOT_FOUND',
+          directFetchErrorClass: 'structured',
+        }),
+      },
     );
     expect(h.graphViewerImported).not.toHaveBeenCalled();
     expect(h.mountRoot).toHaveBeenCalledTimes(1);

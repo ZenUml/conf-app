@@ -29,6 +29,8 @@ const policySource = ref<PaywallPolicySource>('fail_open')
 // only when `policySource` is 'default_on'.
 const customerSuccessServiceEnabled = ref<boolean>(false)
 const spacePaidStatus = ref<boolean>(false)
+// The recovery gate needs a positive unpaid verdict; an outage is not unpaid.
+const spacePaidStatusKnown = ref(false)
 // Which grant satisfied spacePaidStatus — 'user_license' (per-requester
 // extension), 'space_license' (whole-space extension or a paid plan), or
 // 'paid_rail' (D1 ForgeInstallation trial-window suppression — see
@@ -209,6 +211,7 @@ export function useCustomerSuccessService() {
 
     if (!globals.apWrapper.isLite()) {
       spacePaidStatus.value = true;
+      spacePaidStatusKnown.value = true;
       spacePaidStatusLoaded = true;
       return;
     }
@@ -229,6 +232,7 @@ export function useCustomerSuccessService() {
 
       if (response && typeof response.isPaid === 'boolean') {
         spacePaidStatus.value = response.isPaid
+        spacePaidStatusKnown.value = response.decisionKnown === true && !response.error
         spacePaidSource.value = response.isPaid ? response.source : undefined
         console.log('💳 Space paid status:', {
           isPaid: response.isPaid,
@@ -285,6 +289,7 @@ export function useCustomerSuccessService() {
     enterpriseBundleUrl,
     learnMoreUrl,
     spacePaid: spacePaidStatus,
+    spacePaidStatusKnown,
     spacePaidSource,
     // Legacy-named alias of the effective paywall-enabled boolean, kept for
     // saved-query compatibility until downstream consumers migrate to
@@ -301,6 +306,7 @@ export function useCustomerSuccessService() {
   policySource.value = 'fail_open'
   customerSuccessServiceEnabled.value = false
   spacePaidStatus.value = false
+  spacePaidStatusKnown.value = false
   spacePaidSource.value = undefined
   currentSpaceKey.value = ''
   macroMetricsLoaded = false

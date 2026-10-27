@@ -2,7 +2,7 @@
 import api, { route, routeFromAbsolute } from '@forge/api';
 import { readPngDimensions } from './lib/pngDimensions.js';
 import { decideExportSample } from './lib/exportSampling.js';
-import { readPngState, writePngState } from './lib/pngExportState.js';
+import { describePngStateFailure, readPngState, writePngState } from './lib/pngExportState.js';
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -436,9 +436,17 @@ export const handler = async (payload) => {
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`Export: attachments API ${response.status} for ${attachmentName} on page ${pageId}`, errorBody);
-      const failureReason = response.status === 401 || response.status === 403
-        ? 'needs_authentication'
-        : `attachments_api_${response.status}`;
+      // #654: when the asUser() retry threw NEEDS_AUTHENTICATION_ERR there was no user
+      // credential (guest, anonymous, or server-side export). That says nothing about the
+      // page, so it must not be recorded as a missing/unreadable page (`attachments_api_404`).
+      let failureReason;
+      if (response.status === 401 || response.status === 403) {
+        failureReason = 'needs_authentication';
+      } else if (fallbackInfo?.error_name === 'NEEDS_AUTHENTICATION_ERR') {
+        failureReason = 'no_user_credential';
+      } else {
+        failureReason = `attachments_api_${response.status}`;
+      }
       // Failure path — resolve the type here so this event is sizeable by
       // diagram type. The success path never reaches this and never reads.
       await ensureCustomContentParsed(ctx);
@@ -467,13 +475,14 @@ export const handler = async (payload) => {
       const propertyFailures = [];
       const propertyFailure = (operation, error) => {
         console.warn(`Export: PNG state ${operation} failed: ${error?.message}`);
-        propertyFailures.push({ operation, reason: /^\w+_http_\d+$/.test(error?.message ?? '') ? error.message : 'request_error' });
+        propertyFailures.push({ operation, error });
       };
       const reportPropertyFailures = async () => {
         for (const failure of propertyFailures.splice(0)) {
-          await trackExportEvent('png_export_state_persistence_failed', {
+          const { outcome, ...described } = describePngStateFailure(failure.operation, failure.error);
+          await trackExportEvent(outcome === 'skipped' ? 'png_export_state_persistence_skipped' : 'png_export_state_persistence_failed', {
             ...joinKeyProps(ctx), png_export_property_operation: failure.operation,
-            failure_reason: failure.reason, surface: 'backend',
+            ...described, surface: 'backend',
           });
         }
       };

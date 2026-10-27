@@ -5,6 +5,7 @@ import {
   relatedDiagrams,
 } from '../../architecture-tokens/service';
 import type { ForgeRequestData } from '../../utils/authenticate';
+import { requireForgeUserToken } from '../../utils/forgeUserToken';
 
 interface Env {
   DB: D1Database;
@@ -32,8 +33,9 @@ export const onRequest = async ({
 
   const cloudId = data.forgeContext?.cloudId;
   const apiBaseUrl = data.forgeContext?.apiBaseUrl;
-  const user = request.headers.get('x-forge-oauth-user');
-  if (!cloudId || !apiBaseUrl || !user) return response(401, 'forge_context_missing');
+  if (!cloudId || !apiBaseUrl) return response(401, 'forge_context_missing');
+  const user = requireForgeUserToken(request);
+  if (user instanceof Response) return user;
 
   const params = new URL(request.url).searchParams;
   const id = params.get('customContentId') ?? '';

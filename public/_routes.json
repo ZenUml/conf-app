@@ -35,12 +35,17 @@
     "/agent-link/*",
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-authorization-server",
+    "/.well-known/openai-apps-challenge",
     "/d/*",
     "/i/*",
     "/deeplink-ticket",
     "/activation-prepared",
     "/magic-writeback",
-    "/conversion/*"
+    "/conversion/*",
+    "/api/fullscreen-recovery",
+    "/api/support/fullscreen-recovery",
+    "/api/support/fullscreen-recovery-mail",
+    "/api/fullscreen-recovery-webhook"
   ],
   "exclude": []
 }

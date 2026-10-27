@@ -30,14 +30,18 @@ import { loadClient, type McpTokenRecord } from './asStore';
 import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
 import { issuerFor } from './asMetadata';
+import { json } from '../../OkResponse';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
  *
- * A set rather than a condition: the first version was an || of two names and
- * silently left new write tools on the read scope when the page tools landed.
+ * Derived from each tool's own `readOnlyHint` rather than listed by name: the
+ * first version was an || of two names and silently left new write tools on
+ * the read scope when the page tools landed. Every descriptor must carry
+ * annotations, so a new tool cannot reach this set by omission, and the scope
+ * check can never disagree with what the tool tells the host about itself.
  */
-const WRITE_TOOLS = new Set(['create_diagram', 'update_diagram', 'create_page', 'update_page']);
+const WRITE_TOOLS = new Set(HEADLESS_TOOLS.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name));
 
 /** The relay's own token shape. Anything else is ours to answer. */
 const RELAY_TOKEN_RE = /^CL-[A-Z0-9]{4}-[A-Z0-9]{4}$/i;
@@ -62,7 +66,7 @@ const RPC_TOOL_ERROR = -32003;
 type JsonRpcId = string | number | null;
 
 function result(id: JsonRpcId, value: unknown): Response {
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: value }), {
+  return json({ jsonrpc: '2.0', id, result: value }, {
     status: 200,
     headers: JSON_HEADERS,
   });
@@ -71,7 +75,7 @@ function result(id: JsonRpcId, value: unknown): Response {
 function error(status: number, id: JsonRpcId, code: number, message: string, extra?: { headers?: Record<string, string>; data?: unknown }): Response {
   const body: Record<string, unknown> = { code, message };
   if (extra?.data !== undefined) body.data = extra.data;
-  return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: body }), {
+  return json({ jsonrpc: '2.0', id, error: body }, {
     status,
     headers: { ...JSON_HEADERS, ...(extra?.headers ?? {}) },
   });
@@ -95,11 +99,11 @@ export interface HeadlessEnv extends OAuthEnv, GateEnv {
 /**
  * Emit the write events (design §10).
  *
- * The one that matters is `paywall_gate` on a create: the §9.1 gate fails OPEN
- * when a space's macro count cannot be read, so the share of creates reporting
- * 'count_unknown' is the only measure of how often the Lite limit is skipped
- * rather than applied. Nothing else answers that — the frontend's gate never
- * runs on this path, so its own paywall_gate_evaluated is silent here.
+ * The one that matters is `paywall_gate` on a create: it says whether the
+ * space was paid, under the Lite limit, over it ('over_limit' — allowed, since
+ * the limit no longer blocks), or uncounted ('count_unknown'). Nothing else
+ * answers that — the frontend's gate never runs on this path, so its own
+ * paywall_gate_evaluated is silent here.
  *
  * Analytics never fails a write and never delays one: the tool has already
  * succeeded by the time this runs, so a slow or unreachable Mixpanel must not
@@ -133,7 +137,7 @@ async function trackWrite(
   value: unknown,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
-  const out = (value ?? {}) as { result?: unknown; gate?: unknown };
+  const out = (value ?? {}) as { result?: unknown; gate?: unknown; titleChanged?: unknown };
   const event = WRITE_EVENT_BY_TOOL[tool];
   if (!event) return;
   try {
@@ -146,6 +150,8 @@ async function trackWrite(
         cloud_id: cloudId,
         result: typeof out.result === 'string' ? out.result : undefined,
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
+        // update_diagram only: did the call rename the diagram (#789)?
+        title_changed: typeof out.titleChanged === 'boolean' ? out.titleChanged : undefined,
       },
       env.MIXPANEL_TOKEN,
       env,
@@ -307,9 +313,8 @@ async function trackGrantEvent(env: HeadlessEnv, userId: string, event: GrantEve
 }
 
 /**
- * A refusal is as informative as a success here: 'limit_reached' is the gate
- * actually biting, and `guardrail_rejected` is the write guard refusing a
- * truncation. Both are invisible if only successes are counted.
+ * A refusal is as informative as a success here: `guardrail_rejected` is the
+ * write guard refusing a truncation, invisible if only successes are counted.
  */
 async function trackWriteRefusal(
   env: HeadlessEnv,
@@ -333,7 +338,6 @@ async function trackWriteRefusal(
         // can quote a Confluence error.
         reason: failure.code,
         guardrail_rejected: failure.code === 'guardrail_rejected' || undefined,
-        paywall_gate: failure.code === 'limit_reached' ? 'limit_reached' : undefined,
       },
       env.MIXPANEL_TOKEN,
       env,

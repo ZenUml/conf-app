@@ -7,6 +7,7 @@ import forgeGlobal from "@/model/globals/forgeGlobal";
 import {
   _awaitableTrackAnalyticsEvent,
   _resetForTesting,
+  SESSION_REPLAY_CONFIG_TIMEOUT_MS,
   trackAnalyticsEvent,
   trackAnalyticsEventBeforeUnload,
 } from "./trackAnalyticsEvent";
@@ -623,6 +624,89 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  // #561: a macro placed by pasting a typed deeplink (byline paste-to-place) has
+  // no config at all; its id lives only in the autoConvert link. Reading config
+  // and modal only left every macro_viewed from such a macro with an empty
+  // custom_content_id, although the viewer rendered the diagram fine.
+  it("resolves custom_content_id from a pasted autoConvert deeplink when config has no id", async () => {
+    const cloudId = "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a";
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId,
+      extension: {
+        content: { id: "page-789" },
+        parameters: {
+          autoConvertLink: `https://confluence.zenuml.com/d/graph/${cloudId}/425987`,
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "graph",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({
+        content_id: "425987",
+        custom_content_id: "425987",
+        attachment_name: "zenuml-425987.png",
+      })
+    );
+  });
+
+  it("does not take a custom_content_id from a pasted deeplink that belongs to another site", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId: "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a",
+      extension: {
+        parameters: {
+          autoConvertLink:
+            "https://confluence.zenuml.com/d/graph/11111111-2222-3333-4444-555555555555/425987",
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ custom_content_id: null })
+    );
+  });
+
+  it("keeps the saved config id ahead of a pasted deeplink", async () => {
+    const cloudId = "bc8bb5b3-09d2-4932-b68c-9b56fab8e34a";
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-abc",
+      environmentType: "production",
+      cloudId,
+      extension: {
+        config: { customContentId: "cc-456" },
+        parameters: {
+          autoConvertLink: `https://confluence.zenuml.com/d/graph/${cloudId}/425987`,
+        },
+      },
+    } as any;
+
+    await _awaitableTrackAnalyticsEvent("macro_viewed", {
+      feature_area: "macro",
+      surface: "viewer",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ custom_content_id: "cc-456" })
+    );
+  });
+
   it("sets page_id, custom_content_id, attachment_name to null when forgeContext fields are missing", async () => {
     vi.mocked(forgeGlobal).forgeContext = {
       localId: "macro-abc",
@@ -856,6 +940,172 @@ describe("trackAnalyticsEvent", () => {
     const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
     expect(properties).not.toHaveProperty("session_replay_source", "authoring");
     expect(properties).not.toHaveProperty("session_replay_start_call_outcome");
+  });
+
+  // #707: the flag download is a bare Forge-bridge postMessage round trip with
+  // no timeout. A call that never settles used to leave the memoised init
+  // promise pending forever, so mixpanel.init never ran and every event for the
+  // iframe was dropped without a log line.
+  describe("session-replay config wait is bounded (#707)", () => {
+    const macroContext = () => {
+      vi.mocked(forgeGlobal).forgeContext = {
+        localId: undefined,
+        moduleKey: "zenuml-sequence-macro",
+        environmentType: "production",
+      } as any;
+    };
+    const viewerProps = {
+      feature_area: "macro",
+      surface: "viewer",
+      macro_type: "sequence",
+    } as const;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      macroContext();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("registers the first retained track-to-init duration once for concurrent and later events", async () => {
+      let elapsed = 100;
+      const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+      let resolveConfig!: (v: { percent: number; source: "off" }) => void;
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise((resolve) => (resolveConfig = resolve)),
+      );
+      vi.mocked(mixpanel.init).mockImplementationOnce(() => { elapsed += 5; });
+      try {
+        const first = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        elapsed = 250;
+        const concurrent = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        elapsed = 350;
+        resolveConfig({ percent: 0, source: "off" });
+        await Promise.all([first, concurrent]);
+        elapsed = 900;
+        await _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+        expect(mixpanel.register).toHaveBeenCalledWith({ analytics_init_ms: 255 });
+        expect(vi.mocked(mixpanel.register).mock.calls.filter(
+          ([props]) => "analytics_init_ms" in props,
+        )).toHaveLength(1);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("inits Mixpanel with replay off and still tracks when the config never settles", { timeout: 1000 }, async () => {
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise(() => {}),
+      );
+
+      const tracking = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+      await vi.advanceTimersByTimeAsync(SESSION_REPLAY_CONFIG_TIMEOUT_MS);
+      await tracking;
+
+      expect(mixpanel.init).toHaveBeenCalledTimes(1);
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      );
+      expect(mixpanel.register).toHaveBeenCalledWith({
+        session_replay_percent: 0,
+        session_replay_source: "timeout",
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "macro_viewed",
+        expect.objectContaining({ macro_type: "sequence" }),
+      );
+    });
+
+    it("reports the degradation exactly once, after init, with the reason and the timeout", { timeout: 1000 }, async () => {
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise(() => {}),
+      );
+
+      const first = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+      const second = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+      await vi.advanceTimersByTimeAsync(SESSION_REPLAY_CONFIG_TIMEOUT_MS);
+      await Promise.all([first, second]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const degraded = vi
+        .mocked(mixpanel.track)
+        .mock.calls.filter(([name]) => name === "analytics_init_degraded");
+      expect(degraded).toHaveLength(1);
+      expect(degraded[0][1]).toEqual(
+        expect.objectContaining({
+          reason: "session_replay_config_timeout",
+          timeout_ms: SESSION_REPLAY_CONFIG_TIMEOUT_MS,
+        }),
+      );
+      // Sent AFTER init, so it actually leaves the iframe.
+      const initOrder = vi.mocked(mixpanel.init).mock.invocationCallOrder[0];
+      const degradedOrder = vi.mocked(mixpanel.track).mock.invocationCallOrder[
+        vi
+          .mocked(mixpanel.track)
+          .mock.calls.findIndex(([name]) => name === "analytics_init_degraded")
+      ];
+      expect(initOrder).toBeLessThan(degradedOrder);
+    });
+
+    it("does not wait the full timeout when the config resolves promptly, and applies it", async () => {
+      vi.mocked(getSessionReplayConfig).mockResolvedValue({
+        percent: 100,
+        source: "targeted",
+      });
+
+      await _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 100 }),
+      );
+      expect(
+        vi
+          .mocked(mixpanel.track)
+          .mock.calls.some(([name]) => name === "analytics_init_degraded"),
+      ).toBe(false);
+      // No dangling timer keeps the iframe or the test alive.
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("keeps replay off, reports nothing and leaves no timer when the config throws", async () => {
+      vi.mocked(getSessionReplayConfig).mockRejectedValue(new Error("bridge"));
+
+      await _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      );
+      expect(
+        vi
+          .mocked(mixpanel.track)
+          .mock.calls.some(([name]) => name === "analytics_init_degraded"),
+      ).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("does not re-init when the config finally resolves after the timeout", async () => {
+      let resolveConfig!: (v: { percent: number; source: "targeted" }) => void;
+      vi.mocked(getSessionReplayConfig).mockImplementation(
+        () => new Promise((resolve) => (resolveConfig = resolve)),
+      );
+
+      const tracking = _awaitableTrackAnalyticsEvent("macro_viewed", viewerProps);
+      await vi.advanceTimersByTimeAsync(SESSION_REPLAY_CONFIG_TIMEOUT_MS);
+      await tracking;
+      resolveConfig({ percent: 100, source: "targeted" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(mixpanel.init).toHaveBeenCalledTimes(1);
+      expect(mixpanel.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ record_sessions_percent: 0 }),
+      );
+    });
   });
 
   it("starts replay before tracking an opened feedback report even when baseline replay is off", async () => {

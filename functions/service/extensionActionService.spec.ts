@@ -20,6 +20,29 @@ function requestDescription(): string {
   ].join('\n');
 }
 
+// Mirrors the full field set src/components/UpgradePrompt/buildExtensionRequest.ts writes into the
+// JSM description today, plus the `Survey ID:` line the in-app pricing-survey flow adds after
+// `Macro type:` when the customer skipped the survey and fell through to "Request extension" instead.
+function requestDescriptionWithSurveyId(surveyId: string): string {
+  return [
+    'Request: Temporary Lite editing extension',
+    '',
+    'Client domain: example-tenant.atlassian.net',
+    'Space key: ENGINEERING',
+    'Macro count: 120',
+    'Limit: 100',
+    'Product: ZenUML lite',
+    'App version: test',
+    'User account ID: 712020:example-account',
+    'Page ID: 456',
+    'Macro type: sequence',
+    `Survey ID: ${surveyId}`,
+    '',
+    'Reason:',
+    'This Confluence space has reached the ZenUML Lite diagram limit and editing may be disabled. Please temporarily extend editing access while our team reviews upgrade options.',
+  ].join('\n');
+}
+
 function runtime(): ExtensionActionRuntime & { records: Map<string, ExtensionActionRecord> } {
   const records = new Map<string, ExtensionActionRecord>();
   return {
@@ -72,7 +95,7 @@ describe('executeExtensionAction', () => {
       expiresAt: '2026-08-26T23:59:59Z',
     });
     expect(result.reply).toContain('your account on ENGINEERING');
-    expect(result.reply).toContain('60 days');
+    expect(result.reply).toContain('15 days');
     expect(result.reply).toContain('no strings attached to buying anything');
     expect(result.reply).toContain('$299/space/year');
     expect(result.reply).toContain('https://buy.stripe.com/');
@@ -83,6 +106,30 @@ describe('executeExtensionAction', () => {
       userAccountId: '712020:example-account',
       expiresAt: '2026-08-26T23:59:59Z',
       activatedBy: 'support:auto:temp-7d-extension:ZEN-1234',
+    }));
+  });
+
+  it('tolerates a "Survey ID:" line placed after "Macro type:" (added by the in-app pricing-survey skip path)', async () => {
+    const rt = runtime();
+
+    const result = await executeExtensionAction({
+      action: 'initial',
+      ticketKey: 'ZEN-9001',
+      requestTypeId: '9',
+      planOptionId: '10037',
+      description: requestDescriptionWithSurveyId('9f2b1c3a-7d4e-4a11-9c9b-9a8b7c6d5e4f'),
+    }, rt);
+
+    expect(result).toMatchObject({
+      outcome: 'applied',
+      action: 'initial',
+      clientDomain: 'example-tenant.atlassian.net',
+      spaceKey: 'ENGINEERING',
+    });
+    expect(rt.applyLicense).toHaveBeenCalledWith(expect.objectContaining({
+      cloudId: 'cloud-example',
+      spaceKey: 'ENGINEERING',
+      userAccountId: '712020:example-account',
     }));
   });
 
@@ -110,7 +157,7 @@ describe('executeExtensionAction', () => {
     expect(rt.applyLicense).not.toHaveBeenCalled();
   });
 
-  it('applies sixty days to the same initial target after feedback is confirmed', async () => {
+  it('applies fifteen days to the same initial target after feedback is confirmed', async () => {
     const rt = runtime();
     await executeExtensionAction({
       action: 'initial',
@@ -132,15 +179,15 @@ describe('executeExtensionAction', () => {
     expect(result).toMatchObject({
       outcome: 'applied',
       action: 'feedback',
-      expiresAt: '2026-10-18T23:59:59Z',
+      expiresAt: '2026-09-03T23:59:59Z',
     });
     expect(result.reply).toContain('Thanks for the candid feedback');
     expect(rt.applyLicense).toHaveBeenCalledWith(expect.objectContaining({
       cloudId: 'cloud-example',
       spaceKey: 'ENGINEERING',
       userAccountId: '712020:example-account',
-      expiresAt: '2026-10-18T23:59:59Z',
-      activatedBy: 'support:auto:feedback-60d-extension:ZEN-1234',
+      expiresAt: '2026-09-03T23:59:59Z',
+      activatedBy: 'support:auto:feedback-15d-extension:ZEN-1234',
     }));
   });
 

@@ -1,0 +1,12 @@
+BEFORE (stack base): lines / files with a literal Forge app id in functions/ (non-spec)
+      19
+functions/agent-link/macroIdentity.ts
+functions/api/space-status.ts
+functions/api/targeted-survey.ts
+functions/magic-writeback.ts
+functions/metrics-cache/snapshot/common.ts
+functions/metrics-cache/snapshot/test-helpers.ts
+functions/service/extensionActionRuntime.ts
+AFTER (head):
+       4
+functions/utils/variants.ts

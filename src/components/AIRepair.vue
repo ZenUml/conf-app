@@ -196,6 +196,7 @@ import * as Diff from 'diff';
 import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService";
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
+import { withTimeout } from '@/lib/withTimeout.js';
 import {
   AI_REPAIR_MODEL_STORAGE_KEY,
   AI_REPAIR_RETRY_MODEL,
@@ -515,16 +516,7 @@ const withRepairDeadline = async <T,>(operation: () => Promise<T>, deadlineMs: n
   const remainingMs = deadlineMs - Date.now();
   if (remainingMs <= 0) throw new RepairTimeoutError();
 
-  let timeoutId: number | null = null;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = window.setTimeout(() => reject(new RepairTimeoutError()), remainingMs);
-  });
-
-  try {
-    return await Promise.race([operation(), timeoutPromise]);
-  } finally {
-    if (timeoutId !== null) window.clearTimeout(timeoutId);
-  }
+  return withTimeout(operation(), remainingMs, () => new RepairTimeoutError());
 };
 
 const backendAnalytics = (status?: RepairJobStatus) => {

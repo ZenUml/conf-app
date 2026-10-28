@@ -1,5 +1,7 @@
 // Shared by the browser, Forge export function, and Cloudflare upload worker.
 // The caller supplies its own authenticated Confluence requester.
+import { withTimeout } from './withTimeout.js';
+
 export const PNG_STATE_SCHEMA = 1;
 const IN_PROGRESS_TTL_MS = 10 * 60 * 1000;
 const TERMINAL_TTL_MS = 24 * 60 * 60 * 1000;
@@ -65,13 +67,7 @@ function fresh(value, now) {
 async function bounded(operation, deadline) {
   const remaining = Math.min(REQUEST_TIMEOUT_MS, deadline - Date.now());
   if (remaining <= 0) throw new Error('property_timeout');
-  let timer;
-  try {
-    return await Promise.race([
-      operation(),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('property_timeout')), remaining); }),
-    ]);
-  } finally { clearTimeout(timer); }
+  return withTimeout(operation(), remaining, () => new Error('property_timeout'));
 }
 
 /** A 200 with results:[] is absent; any failed GET remains unknown. */

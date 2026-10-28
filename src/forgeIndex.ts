@@ -1330,6 +1330,7 @@ EventBus.$on('edit', async(params: any) => {
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from '@/model/saveFailureDiagnosis';
+import { withTimeout } from '@/lib/withTimeout.js';
 installRestoreDraftBanner();
 
 EventBus.$on('save', async () => {
@@ -1447,7 +1448,7 @@ EventBus.$on('save', async () => {
     let attachmentTimedOut = false;
     try {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
-      await Promise.race([
+      await withTimeout(
         createAttachmentIfContentChanged(getDiagramData(store.state.diagram), savedDiagramType, {
           customContentId: String(id),
           fromSave: true,
@@ -1458,16 +1459,17 @@ EventBus.$on('save', async () => {
         // attachment.ts). So this await only bounds the client-side PNG capture
         // + a fast backend ack (~1.5–3.5s), not the full upload. The cap is a
         // hang-guard for a wedged capture; 6s is generous headroom.
-        new Promise<never>((_, reject) => setTimeout(() => {
+        6000,
+        () => {
           attachmentTimedOut = true;
-          reject(new Error('save-attachment timeout'));
-        }, 6000)),
-      ]);
+          return new Error('save-attachment timeout');
+        },
+      );
     } catch (e) {
       console.warn('save-time attachment creation skipped (non-fatal):', (e as Error)?.message ?? e);
     } finally {
-      // Read here, when the race settles. The cap timer is never cleared, so
-      // it can fire later and flip the flag after a backup that finished first.
+      // Read here, when the race settles. withTimeout clears the cap timer, so
+      // the flag cannot flip later after an upload that finished first.
       recordPublishStep('attachment_ack_ms', attachmentStartedAt);
       recordPublishFlag('attachment_timed_out', attachmentTimedOut);
     }

@@ -24,7 +24,7 @@ Run the applicable validation workflow; for Confluence UI the order remains Stor
 
 ## 3. Publish evidence reviewers can open
 
-Use the repository's evidence convention: `pr-evidence/pr-<number>` branch (examples: #951 and #816), or an existing durable artifact destination. Reuse an existing evidence branch without force-pushing; keep screenshots/logs off the product branch unless this repository already requires otherwise. Pin links to the evidence commit SHA so later uploads do not silently replace proof.
+Use the repository's evidence convention: `pr-evidence` branch, directory `pr-<number>/` (examples: #951 and #816), or an existing durable artifact destination. Inspect the ref and directory separately: `/tree/pr-evidence/pr-951` means branch `pr-evidence`, directory `pr-951`. Reuse that branch without force-pushing; keep screenshots/logs off the product branch unless this repository already requires otherwise. Pin links to the evidence commit SHA so later uploads do not silently replace proof.
 
 Include a small README with baseline/candidate SHAs, capture steps, environment/viewport, fixtures, observed results, and limitations. Include reproducible capture/probe scripts and relevant logs where useful. Inspect all content before uploading to this public repository: use fictional fixture data; omit customer identifiers, private screenshots, credentials, tokens, and unrelated logs.
 

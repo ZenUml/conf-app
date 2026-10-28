@@ -106,8 +106,6 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
   data,
 }) => {
   try {
-    console.log('Function request url:', redactedRequestUrlForLogging(request.url));
-
     const { pathname } = new URL(request.url);
 
     // The two OAuth discovery documents are served from here rather than from

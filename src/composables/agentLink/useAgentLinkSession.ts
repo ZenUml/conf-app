@@ -50,6 +50,7 @@ import {
   type AgentLinkHandoffSession,
   type AgentLinkHandoffThinking,
 } from './sessionHandoff'
+import { rememberAgentLinkClient } from './clientMemory'
 
 export interface AgentLinkActivityEntry {
   summary: string
@@ -68,7 +69,7 @@ const TIMEOUT_FEED_SUMMARY = '⚠ Agent stopped responding — timed out'
 // contract (h-design-bundle/ui_kits/agent-link/README.md's "Activity feed
 // rows" table).
 const SUSPENDED_FEED_SUMMARY = 'Connection paused'
-const RESUMED_FEED_SUMMARY = 'Reconnected · resumed session'
+const RESUMED_FEED_SUMMARY = 'Connection restored'
 
 // PR1 status bus (spec 2026-07-13 §4.4/§5): guardrail rejects — previously
 // invisible (the guard runs relay-side, the macro never sees the op) — get an
@@ -349,6 +350,59 @@ export function useAgentLinkSession(
   // sending its first 'op'. onAgentConnected() already no-ops once already
   // 'connected' (see below), so firing this on every subsequent op is safe.
   function handleRelayStateEvent(event: RelayStateEvent): void {
+    // Record literal browser/retry signals only. The WebSocket error message
+    // is intentionally excluded: browsers may include implementation details
+    // or a URL, and neither is needed for this low-cardinality lifecycle.
+    // The existing suspended/resumed events below remain the evidence that a
+    // user-visible pause actually occurred.
+    if (event.type === 'error') {
+      if (event.unexpected === true) {
+        trackAnalyticsEvent('agent_link_connection_diagnostic', {
+          feature_area: 'agent_link',
+          surface: 'fullscreen',
+          macro_type: macroType,
+          diagnostic_origin: 'error',
+          reconnect_attempt: event.reconnectAttempt ?? 0,
+        })
+      }
+      return
+    }
+
+    if (event.type === 'reconnecting') {
+      trackAnalyticsEvent('agent_link_connection_diagnostic', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: macroType,
+        diagnostic_origin: 'reconnect_attempt',
+        reconnect_attempt: event.attempt,
+      })
+      return
+    }
+
+    if (event.type === 'reconnect_failed') {
+      trackAnalyticsEvent('agent_link_connection_diagnostic', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: macroType,
+        diagnostic_origin: 'reconnect_exhausted',
+        reconnect_attempt: event.attempt ?? 0,
+        reconnect_outcome: 'exhausted',
+      })
+      if (state.value === 'suspended') {
+        state.value = nextClientState(state.value, 'reconnect_failed')
+        if (boundContext && token.value) {
+          persistSession({
+            ...boundContext,
+            token: token.value,
+            state: 'recovery_exhausted',
+            ...handoffFeedFields(),
+          })
+        }
+        return
+      }
+      return
+    }
+
     if (event.type === 'status') {
       lastActivityAt.value = now()
       // Relay-originated status bus (Task 7 → spec §4.4): mirror the DO's
@@ -395,6 +449,29 @@ export function useAgentLinkSession(
           { summary: GUARDRAIL_REJECTED_FEED_SUMMARY, at: now() },
         ]
       }
+      if (event.activity?.type === 'client_identified') {
+        // mcp.ts already reduced initialize.clientInfo to a safe display
+        // label. Normalize again at the storage edge and retain no raw MCP
+        // identity, version, token, endpoint or internal session identifier.
+        rememberAgentLinkClient(event.activity.detail, now())
+      }
+      if (
+        event.activity?.type === 'protocol_incompatible' &&
+        (state.value === 'waiting' || state.value === 'timeout')
+      ) {
+        state.value = nextClientState(state.value, 'protocol_incompatible')
+        if (boundContext && token.value) {
+          persistSession({
+            ...boundContext,
+            token: token.value,
+            state: 'incompatible',
+            ...handoffFeedFields(),
+          })
+        }
+        // Do not let the generic status republisher overwrite this terminal
+        // state with its connected handoff record.
+        return
+      }
       // Republish so a separate Fullscreen mirror gets the new deadline + feed
       // row through the existing handoff path (no new plumbing — spec §4.4);
       // currentThinkingFlag() preserves any genuinely in-flight thinking cue.
@@ -420,6 +497,20 @@ export function useAgentLinkSession(
     // 'connected' only — a drop while 'waiting'/'timeout' (the agent never
     // paired yet) isn't a meaningful interruption to surface as "paused".
     if (event.type === 'close') {
+      if (event.unexpected === true) {
+        trackAnalyticsEvent('agent_link_connection_diagnostic', {
+          feature_area: 'agent_link',
+          surface: 'fullscreen',
+          macro_type: macroType,
+          diagnostic_origin: 'close',
+          reconnect_attempt: event.reconnectAttempt ?? 0,
+          ...(typeof event.code === 'number' ? { close_code: event.code } : {}),
+          ...(typeof event.wasClean === 'boolean' ? { was_clean: event.wasClean } : {}),
+        })
+      }
+      // close()/disconnect() can still cause an onclose callback. That signal
+      // is intentional and terminal, even if it races an outer state update.
+      if (event.unexpected === false) return
       if (state.value !== 'connected') return
       suspendedAt = now()
       state.value = nextClientState(state.value, 'ws_drop')
@@ -442,6 +533,16 @@ export function useAgentLinkSession(
     // FROM 'suspended': the very first 'open' (initial connect) fires here
     // too but is a no-op since state is still 'waiting' at that point.
     if (event.type === 'open') {
+      if ((event.reconnectAttempt ?? 0) > 0) {
+        trackAnalyticsEvent('agent_link_connection_diagnostic', {
+          feature_area: 'agent_link',
+          surface: 'fullscreen',
+          macro_type: macroType,
+          diagnostic_origin: 'reconnect_succeeded',
+          reconnect_attempt: event.reconnectAttempt,
+          reconnect_outcome: 'succeeded',
+        })
+      }
       if (state.value !== 'suspended') return
       const resumeLatencyMs = suspendedAt != null ? Math.max(0, now() - suspendedAt) : undefined
       suspendedAt = null
@@ -1247,6 +1348,18 @@ export function useAgentLinkSession(
       // Mirror the relay owner's own resume (see handleRelayStateEvent's
       // 'open' branch) onto this display-only instance.
       state.value = nextClientState(state.value, 'resumed')
+    } else if (
+      state.value === 'suspended' &&
+      session.state === 'recovery_exhausted' &&
+      token.value === session.token
+    ) {
+      state.value = nextClientState(state.value, 'reconnect_failed')
+    } else if (
+      (state.value === 'waiting' || state.value === 'timeout') &&
+      session.state === 'incompatible' &&
+      token.value === session.token
+    ) {
+      state.value = nextClientState(state.value, 'protocol_incompatible')
     } else if (
       (state.value === 'connected' ||
         state.value === 'suspended' ||

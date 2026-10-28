@@ -24,6 +24,10 @@ import type { AgentLinkBridgeOps } from './bridgeOps'
 import type { RelayClient, RelayConnectionState, RelayStateEvent } from './relayClient'
 import { readSession, persistSession } from './sessionHandoff'
 import type { AgentLinkHandoffSession } from './sessionHandoff'
+import {
+  AGENT_LINK_CLIENT_MEMORY_KEY,
+  readAgentLinkClientMemory,
+} from './clientMemory'
 
 function makeBridgeOps(
   overrides: Partial<AgentLinkBridgeOps> = {}
@@ -550,32 +554,84 @@ describe('useAgentLinkSession', () => {
       return { session, boundContext, fakeClient, emit: () => capturedOnStateEvent! }
     }
 
-    it('an unexpected close while connected suspends, feeds "Connection paused", and fires agent_link_session_suspended', async () => {
+    it('an unexpected close records safe diagnostics, suspends, and fires the user-visible pause outcome', async () => {
       const { session, boundContext, emit } = await connectedSession()
 
-      emit()({ type: 'close', code: 1006, wasClean: false })
+      emit()({
+        type: 'close',
+        code: 1006,
+        wasClean: false,
+        reconnectAttempt: 0,
+        unexpected: true,
+      })
 
       expect(session.state.value).toBe('suspended')
       expect(session.activityFeed.value.at(-1)?.summary).toBe('Connection paused')
       expect(readSession(boundContext.pageId)).toMatchObject({ state: 'suspended' })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('agent_link_connection_diagnostic', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: 'sequence',
+        diagnostic_origin: 'close',
+        reconnect_attempt: 0,
+        close_code: 1006,
+        was_clean: false,
+      })
       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
         'agent_link_session_suspended',
         expect.objectContaining({ macro_type: 'sequence', reason: 'ws_drop' })
       )
     })
 
-    it('a reconnect (open) while suspended resumes, feeds "Reconnected", and fires agent_link_session_resumed with latency', async () => {
+    it('records an unexpected browser error without forwarding its message or any secret-bearing field', async () => {
+      const { session, emit } = await connectedSession()
+
+      emit()({
+        type: 'error',
+        message: 'WebSocket failed for wss://relay.example/?token=secret',
+        reconnectAttempt: 0,
+        unexpected: true,
+      })
+
+      expect(session.state.value).toBe('connected')
+      expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('agent_link_connection_diagnostic', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: 'sequence',
+        diagnostic_origin: 'error',
+        reconnect_attempt: 0,
+      })
+    })
+
+    it('a reconnect (open) while suspended resumes, feeds "Connection restored", and fires agent_link_session_resumed with latency', async () => {
       const { session, boundContext, emit } = await connectedSession()
-      emit()({ type: 'close' })
+      emit()({ type: 'close', unexpected: true, reconnectAttempt: 0 })
       expect(session.state.value).toBe('suspended')
       vi.mocked(trackAnalyticsEvent).mockClear()
 
       await vi.advanceTimersByTimeAsync(1500)
-      emit()({ type: 'open' })
+      emit()({ type: 'reconnecting', attempt: 1 })
+      emit()({ type: 'open', reconnectAttempt: 1 })
 
       expect(session.state.value).toBe('connected')
-      expect(session.activityFeed.value.at(-1)?.summary).toBe('Reconnected · resumed session')
+      expect(session.activityFeed.value.at(-1)?.summary).toBe('Connection restored')
       expect(readSession(boundContext.pageId)).toMatchObject({ state: 'connected' })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('agent_link_connection_diagnostic', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: 'sequence',
+        diagnostic_origin: 'reconnect_attempt',
+        reconnect_attempt: 1,
+      })
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('agent_link_connection_diagnostic', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: 'sequence',
+        diagnostic_origin: 'reconnect_succeeded',
+        reconnect_attempt: 1,
+        reconnect_outcome: 'succeeded',
+      })
       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
         'agent_link_session_resumed',
         expect.objectContaining({ macro_type: 'sequence', resume_latency_ms: expect.any(Number) })
@@ -584,6 +640,26 @@ describe('useAgentLinkSession', () => {
         .mocked(trackAnalyticsEvent)
         .mock.calls.find(([name]) => name === 'agent_link_session_resumed')!
       expect((props as any).resume_latency_ms).toBeGreaterThanOrEqual(1500)
+    })
+
+    it('records retry exhaustion as the single terminal diagnostic outcome', async () => {
+      const { session, emit } = await connectedSession()
+      emit()({ type: 'close', unexpected: true, reconnectAttempt: 0 })
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      emit()({ type: 'reconnect_failed', attempt: 5 })
+
+      expect(session.state.value).toBe('recovery_exhausted')
+      expect(readSession('p1')).toMatchObject({ state: 'recovery_exhausted' })
+      expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('agent_link_connection_diagnostic', {
+        feature_area: 'agent_link',
+        surface: 'fullscreen',
+        macro_type: 'sequence',
+        diagnostic_origin: 'reconnect_exhausted',
+        reconnect_attempt: 5,
+        reconnect_outcome: 'exhausted',
+      })
     })
 
     it('a close while only "waiting" (agent never paired) does not suspend — no meaningful interruption yet', async () => {
@@ -619,12 +695,28 @@ describe('useAgentLinkSession', () => {
     })
 
     it('disconnect() while connected calls relayClient.disconnect() (explicit), not close() (accidental)', async () => {
-      const { session, fakeClient } = await connectedSession()
+      const { session, fakeClient, emit } = await connectedSession()
 
       session.disconnect('user')
+      emit()({
+        type: 'close',
+        code: 1000,
+        wasClean: true,
+        reconnectAttempt: 0,
+        unexpected: false,
+      })
 
+      expect(session.state.value).toBe('closed')
       expect(fakeClient.disconnect).toHaveBeenCalledTimes(1)
       expect(fakeClient.close).not.toHaveBeenCalled()
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+        'agent_link_connection_diagnostic',
+        expect.anything()
+      )
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith(
+        'agent_link_session_suspended',
+        expect.anything()
+      )
     })
 
     it('revokeAndRelink() disconnects the current session and immediately mints a fresh one', async () => {
@@ -2137,7 +2229,7 @@ describe('useAgentLinkSession', () => {
     // Captures the relay's onStateEvent so a test can push status envelopes
     // verbatim; `advance` drives the SAME global fake-timer clock the
     // composable's default now() reads (outer beforeEach's vi.useFakeTimers()).
-    async function mountWithRelay(opts: { expiresInSec?: number; pageId?: string } = {}) {
+    async function mountWithRelay(opts: { expiresInSec?: number; pageId?: string; pair?: boolean } = {}) {
       const bridgeOps = makeBridgeOps()
       let onStateEvent: ((e: RelayStateEvent) => void) | undefined
       const connect = (
@@ -2158,7 +2250,7 @@ describe('useAgentLinkSession', () => {
       })
       session.startConnect()
       await vi.advanceTimersByTimeAsync(0) // resolve mint → expiresAt set, watchdog armed
-      onStateEvent!({ type: 'op', op: 'read_page' }) // agent pairs → connected
+      if (opts.pair !== false) onStateEvent!({ type: 'op', op: 'read_page' }) // agent pairs → connected
       return {
         api: session,
         emitStateEvent: (e: RelayStateEvent) => onStateEvent!(e),
@@ -2253,6 +2345,44 @@ describe('useAgentLinkSession', () => {
 
       expect(h.api.activityFeed.value.length).toBe(before + 1)
       expect(h.api.activityFeed.value.at(-1)?.summary).toBe(GUARDRAIL_REJECTED_FEED_SUMMARY)
+    })
+
+    it('a compatible initialize stores only the normalized display label and recency', async () => {
+      const h = await mountWithRelay({ pageId: 'status-client-memory', pair: false })
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'client_identified', detail: 'Claude Code' },
+      })
+
+      expect(readAgentLinkClientMemory(h.now())).toEqual({
+        label: 'Claude Code',
+        connectedAt: h.now(),
+      })
+      expect(Object.keys(JSON.parse(localStorage.getItem(AGENT_LINK_CLIENT_MEMORY_KEY)!)).sort()).toEqual([
+        'connectedAt',
+        'label',
+      ])
+    })
+
+    it('an unknown client label is normalized again at the browser storage edge', async () => {
+      const h = await mountWithRelay({ pageId: 'status-client-unknown', pair: false })
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'client_identified', detail: 'raw-untrusted-client' },
+      })
+      expect(readAgentLinkClientMemory(h.now())?.label).toBe('an AI agent')
+      expect(localStorage.getItem(AGENT_LINK_CLIENT_MEMORY_KEY)).not.toContain('raw-untrusted-client')
+    })
+
+    it('protocol incompatibility moves waiting to a terminal recovery state without retrying', async () => {
+      const h = await mountWithRelay({ pageId: 'status-protocol-incompatible', pair: false })
+      expect(h.api.state.value).toBe('waiting')
+      h.emitStateEvent({
+        type: 'status',
+        activity: { type: 'protocol_incompatible' },
+      })
+      expect(h.api.state.value).toBe('incompatible')
+      expect(readSession('status-protocol-incompatible')).toMatchObject({ state: 'incompatible' })
     })
 
     it('expiry after a capped status reports expiry_cause: absolute_cap and hit_cap: true', async () => {

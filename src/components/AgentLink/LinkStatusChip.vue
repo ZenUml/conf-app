@@ -9,19 +9,7 @@
     :class="[`agent-chip--${variant}`, { 'agent-chip--warn-ttl': isWarnTtl }]"
     data-testid="agent-link-status-chip"
   >
-    <!-- live / disconnected: a status dot; suspended: a spinner -->
-    <svg
-      v-if="variant === 'suspended'"
-      class="agent-chip__spin"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      aria-hidden="true"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-    </svg>
-    <span v-else class="agent-chip__dot" aria-hidden="true"></span>
+    <span class="agent-chip__dot" aria-hidden="true"></span>
 
     <template v-if="variant === 'live'">
       <b>Linked</b>
@@ -36,7 +24,7 @@
         </span>
       </template>
     </template>
-    <template v-else-if="variant === 'suspended'">Reconnecting…</template>
+    <template v-else-if="variant === 'suspended'">Connecting</template>
     <template v-else-if="variant === 'expired'">Expired</template>
     <template v-else>Disconnected</template>
   </span>
@@ -151,11 +139,6 @@ const ttlText = computed(() => {
   border-radius: 50%;
   flex: 0 0 auto;
 }
-.agent-chip__spin {
-  width: 13px;
-  height: 13px;
-  animation: agent-chip-spin 1.1s linear infinite;
-}
 .agent-chip__title {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -189,6 +172,10 @@ const ttlText = computed(() => {
   background: #fbf3d6;
   color: #8a6d00;
 }
+.agent-chip--suspended .agent-chip__dot {
+  background: #c4761f;
+  animation: agent-chip-pulse 1.6s ease-in-out infinite;
+}
 
 .agent-chip--dead {
   background: #f1f2f4;
@@ -208,13 +195,12 @@ const ttlText = computed(() => {
   background: #97a0af;
 }
 
-@keyframes agent-chip-spin {
-  to {
-    transform: rotate(360deg);
-  }
+@keyframes agent-chip-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .agent-chip__spin {
+  .agent-chip--suspended .agent-chip__dot {
     animation: none;
   }
 }

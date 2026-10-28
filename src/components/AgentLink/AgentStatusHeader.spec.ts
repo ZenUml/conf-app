@@ -61,4 +61,30 @@ describe('AgentStatusHeader', () => {
 
     expect(sublineText(wrapper)).toBe('Connected · reads & edits')
   })
+
+  it.each(['Claude Code', 'Cursor'] as const)(
+    'shows the shipped brand mark and accessible text label for recognized client %s',
+    (clientName) => {
+      const wrapper = mount(AgentStatusHeader, { props: { state: 'connected', clientName } })
+      expect(wrapper.find('[data-testid="agent-link-client-brand-icon"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe(clientName)
+      expect(wrapper.find('[data-client-brand]').attributes('data-client-brand')).toBe(clientName)
+    }
+  )
+
+  it.each(['an AI agent', 'Untrusted raw client', ''])(
+    'uses the neutral connection glyph without guessing a mark for %s',
+    (clientName) => {
+      const wrapper = mount(AgentStatusHeader, { props: { state: 'connected', clientName } })
+      expect(wrapper.find('[data-testid="agent-link-client-generic-icon"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="agent-link-client-brand-icon"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Connected')
+    }
+  )
+
+  it('keeps the recognized Codex label with a neutral glyph when no licensed Codex mark is shipped', () => {
+    const wrapper = mount(AgentStatusHeader, { props: { state: 'connected', clientName: 'Codex' } })
+    expect(wrapper.find('[data-testid="agent-link-status-header-name"]').text()).toBe('Codex')
+    expect(wrapper.find('[data-testid="agent-link-client-generic-icon"]').exists()).toBe(true)
+  })
 })

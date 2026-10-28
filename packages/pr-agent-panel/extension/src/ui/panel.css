@@ -1,0 +1,194 @@
+/* Agent Panel layout derives from the TemPad reference; its surface follows GitHub. */
+:host(zenuml-pr-panel) { all: initial; }
+
+/* TemPad Dev's layout structure (MIT, see THIRD_PARTY_NOTICES.md) with GitHub surface tokens. */
+.tempad {
+  --font-family-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --color-bg: #fff; --color-text: #1f2328; --color-text-secondary: #57606a; --color-text-tertiary: #6e7781;
+  --color-text-brand: #0969da; --color-border: #d0d7de; --color-border-selected: #0969da; --color-border-code-well: #d0d7de;
+  --color-bg-hover: #f6f8fa; --color-bg-transparent-hover: #f6f8fa; --color-bg-selected: #ddf4ff; --color-bg-selected-secondary: #b6e3ff;
+  --color-bg-secondary: #f6f8fa; --color-bg-pressed: #eaeef2; --color-icon: #1f2328; --color-icon-hover: #1f2328;
+  --color-icon-brand: #0969da; --color-icon-secondary: #57606a; --color-icon-disabled: #8c959f; --color-icon-success: #1a7f37;
+  --color-codevalue: #8250df; --color-codestring: #0969da; --color-codeaccent: #9a6700;
+  --radius-medium: 6px; --radius-large: 8px;
+  --elevation-100: 0 8px 24px #140d221f;
+  --spacer-0: 2px /* not read; assumed */; --spacer-1: 4px; --spacer-2: 8px; --spacer-3: 16px; --spacer-4: 24px;
+  --text-body-medium-font-size: 12px; --text-body-medium-line-height: 18px; --text-body-medium-font-weight: 500; --text-body-medium-letter-spacing: 0;
+  --text-body-large-strong-font-size: 13px; --text-body-large-strong-font-weight: 600; --text-body-large-strong-line-height: 20px; --text-body-large-strong-letter-spacing: 0;
+}
+@media (prefers-color-scheme: dark) {  .tempad {
+  --color-bg: #0d1117; --color-text: #e6edf3; --color-text-secondary: #8b949e; --color-text-tertiary: #7d8590; --color-border: #30363d; --color-border-code-well: #30363d;
+  --color-bg-hover: #161b22; --color-bg-transparent-hover: #21262d; --color-bg-secondary: #161b22; --color-icon: #e6edf3; --color-icon-hover: #e6edf3;
+  --color-icon-secondary: #8b949e; --color-icon-disabled: #6e7681; --color-bg-selected: #1f6feb33; --color-text-brand: #58a6ff; --color-icon-brand: #58a6ff;
+  --elevation-100: 0 8px 24px #010409b3; } }
+.tempad[data-theme="dark"] {
+  --color-bg: #0d1117; --color-text: #e6edf3; --color-text-secondary: #8b949e; --color-text-tertiary: #7d8590; --color-border: #30363d; --color-border-code-well: #30363d;
+  --color-bg-hover: #161b22; --color-bg-transparent-hover: #21262d; --color-bg-secondary: #161b22; --color-icon: #e6edf3; --color-icon-hover: #e6edf3;
+  --color-icon-secondary: #8b949e; --color-icon-disabled: #6e7681; --color-bg-selected: #1f6feb33; --color-text-brand: #58a6ff; --color-icon-brand: #58a6ff;
+  --elevation-100: 0 8px 24px #010409b3; }
+
+/* style.css (the <tempad> root) */
+.tempad { position: fixed; inset: 0; z-index: 2147483000; pointer-events: none; isolation: isolate; font-family: var(--font-family-ui); font-size: 12px;
+  color: var(--color-text); cursor: default; user-select: none; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+.tempad > * { pointer-events: auto; }
+.tempad *, .tempad *::before, .tempad *::after { box-sizing: border-box; }
+/* undo this page's own section layout (flex + 14px gap) inside the panel */
+.tempad section { display: block; gap: 0; }
+.tempad .tp-row { display: flex; align-items: center; justify-content: flex-start; }
+.tempad .tp-row-justify { justify-content: space-between; }
+.tempad .tp-grid { display: grid; align-items: center; column-gap: var(--spacer-2); grid-auto-rows: minmax(32px, auto); }
+.tempad .tp-grid-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tempad .tp-grid-end { justify-self: end; }
+.tempad .tp-shrink { flex-shrink: 1; min-width: 0; }
+.tempad .tp-gap { gap: 0; }
+.tempad .tp-gap-l { gap: var(--spacer-1); }
+.tempad .tp-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tempad button { display: inline-flex; place-items: center; margin: 0; padding: 0; font: inherit; letter-spacing: inherit; text-align: inherit; border: none; background: none; color: inherit; user-select: none; }
+
+/* Panel.vue */
+.tp-panel { position: fixed; right: 24px; bottom: 24px; z-index: 10; display: flex; flex-direction: column; width: 280px; min-height: 40px; max-height: calc(100vh - 48px);
+  background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-large); box-shadow: var(--elevation-100); }
+.tp-panel-wrapper { display: flex; flex-direction: column; border-radius: inherit; overflow: hidden; flex: 1 1 auto; min-height: 0; }
+.tp-panel-resize-handle { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 10; touch-action: none; user-select: none; }
+.tp-panel-resize-handle-left { left: -8px; cursor: ew-resize; } .tp-panel-resize-handle-right { right: -8px; cursor: ew-resize; }
+.tp-panel-header { flex: 0 0 auto; height: 41px; border-bottom: 1px solid var(--color-border); padding: 4px 8px 4px 16px; font-weight: 600; user-select: none; cursor: default; white-space: nowrap; background: var(--color-bg-secondary); }
+.tp-panel-minimized .tp-panel-header { border-bottom-color: transparent; }
+.tp-panel-main { flex: 1 1 auto; overflow-y: auto; }
+/* App.vue */
+.tp-main { transition: height 250ms ease-out; }
+.tp-main.tp-panel-minimized { height: 41px; }
+.tp-main.tp-panel-dragging { transition: none; }
+.tp-mcp-badge { gap: 4px; }
+.tp-mcp-badge-inactive .tp-mcp-dot { background-color: var(--color-icon-disabled); }
+.tp-mcp-badge-connected:hover { border-style: solid; }
+.tp-mcp-dot { width: 6px; height: 6px; border-radius: 50%; background-color: var(--color-icon-disabled, #9ba1a6); }
+.tp-mcp-badge-active .tp-mcp-dot { background-color: var(--color-icon-success, #1bc47d); }
+@keyframes tp-mcp-dot-pulse { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+/* Badge.vue */
+.tp-badge { display: flex; align-items: center; padding: 0 5px; border-width: 1px; border-radius: 6px; line-height: 18px; white-space: nowrap; font-size: 12px; letter-spacing: 0; }
+.tp-badge-solid { border-style: solid; } .tp-badge-dashed { border-style: dashed; }
+.tp-badge-brand { color: var(--color-text-brand); border-color: var(--color-text-brand); }
+.tp-badge-neutral { color: var(--color-text-secondary); border-color: var(--color-icon-disabled); }
+.tp-badge-success { color: var(--color-text); border-color: var(--color-icon-success); }
+/* IconButton.vue */
+.tp-button { --icon-button-size: 24px; --icon-button-color-bg: transparent; --icon-button-icon: var(--color-icon);
+  width: var(--icon-button-size); height: var(--icon-button-size); min-width: var(--icon-button-size); padding: 0; border-radius: var(--radius-medium);
+  background: var(--icon-button-color-bg) !important; outline: transparent solid 1px; outline-offset: -1px; display: grid !important; color: var(--icon-button-icon) !important;
+  transition: none; }
+.tp-button svg { width: 24px; height: 24px; }
+.tp-button:focus-visible { outline-color: var(--color-border-selected); }
+.tp-button:hover { --icon-button-color-bg: var(--color-bg-transparent-hover); --icon-button-icon: var(--color-icon-hover); }
+.tp-button-selected { --icon-button-color-bg: var(--color-bg-selected); --icon-button-icon: var(--color-icon-brand); }
+.tp-button-selected:hover { --icon-button-color-bg: var(--color-bg-selected-secondary); --icon-button-icon: var(--color-icon-brand); }
+/* Section.vue */
+.tp-section { --tp-section-padding-top: 8px; --tp-section-padding-bottom: 8px; padding-top: var(--tp-section-padding-top); padding-bottom: var(--tp-section-padding-bottom); overflow: hidden; }
+.tp-section:not(:first-child) { border-top: 1px solid var(--color-border, rgba(0,0,0,.1)); }
+.tp-section-flat { --tp-section-padding-top: 0 !important; --tp-section-padding-bottom: 0 !important; }
+.tp-section-header { height: 32px; padding-right: 8px; padding-left: 16px; font-weight: 600; user-select: none; cursor: default; line-height: 16px; }
+.tp-section-flat > .tp-section-header { min-height: 40px; }
+.tp-section-content { padding: 0 16px; }
+.tp-section-content > .tp-section { margin-right: -16px; margin-left: -16px; }
+.tp-section-content > .tp-section:last-child { padding-bottom: 0; }
+/* PrefSection.vue + AgentIntegrationSection.vue (only Agent integration kept) */
+.tp-pref { --tp-section-padding-bottom: 0; }
+.tp-pref label, .tp-agent-integration label { cursor: default; color: var(--color-text-secondary); }
+.tp-pref-agent-integration { margin-top: 12px; border-top: 1px solid var(--color-border); }
+.tp-pref-field label { color: var(--color-text-secondary); }
+.tp-agent-setup-button { width: 100%; }
+/* TemPad's Plugins section (margin-top 12px) follows here; it is left out, so keep its 12px of space */
+.tp-pref-agent-integration { padding-bottom: 12px; }
+/* SegmentedControl.vue */
+.tp-segmented-control { display: inline-flex; padding: var(--spacer-0); border-radius: var(--radius-medium); background-color: var(--color-bg-secondary); }
+.tp-segmented-control-option { position: relative; display: inline-block; flex: 1; }
+.tp-segmented-control-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; }
+.tp-segmented-control-icon { display: flex; justify-content: center; align-items: center; min-width: 24px; padding: var(--spacer-0); border-radius: var(--radius-medium); background-color: transparent; color: var(--color-icon); }
+.tp-segmented-control-icon svg { width: 24px; height: 24px; }
+.tp-segmented-control-input:checked + .tp-segmented-control-icon { background-color: var(--color-bg); box-shadow: inset 0 0 0 1px var(--color-border); }
+.tp-segmented-control-input:not(:checked) + .tp-segmented-control-icon { color: var(--color-icon-secondary); }
+.tp-segmented-control-label { position: absolute; clip-path: inset(50%); margin: -1px; width: 1px; height: 1px; overflow: hidden; white-space: nowrap; }
+/* Button.vue */
+.tp-action-button { display: inline-flex !important; align-items: center; justify-content: center; gap: var(--spacer-1); min-height: 28px; padding: 0 var(--spacer-2) !important;
+  border-radius: var(--radius-medium); color: var(--color-text); font-family: var(--font-family-ui) !important; font-size: var(--text-body-medium-font-size) !important;
+  font-weight: var(--text-body-medium-font-weight) !important; letter-spacing: var(--text-body-medium-letter-spacing) !important; line-height: var(--text-body-medium-line-height) !important;
+  outline: 1px solid transparent; outline-offset: -1px; }
+.tp-action-button-secondary { background: transparent; outline-color: var(--color-border); }
+.tp-action-button-secondary:hover { background: var(--color-bg-hover) !important; }
+.tp-action-button-secondary:active { background: var(--color-bg-pressed) !important; }
+/* Copyable.vue */
+.tp-copyable { border-radius: 2px; cursor: default; }
+.tp-copyable:hover { background: var(--color-bg-hover); }
+.tp-copyable-m:not(.tp-copyable-block) { margin-right: -4px; margin-left: -4px; padding: 0 4px; }
+/* MetaSection.vue */
+.tp-meta-title { font-family: var(--font-family-ui); font-size: var(--text-body-large-strong-font-size); font-weight: var(--text-body-large-strong-font-weight);
+  letter-spacing: var(--text-body-large-strong-letter-spacing); line-height: var(--text-body-large-strong-line-height); color: var(--color-text); }
+.tp-meta-title-aux { color: var(--color-text-secondary); }
+.tp-meta-section .tp-section-header { height: auto; min-height: 40px; padding-top: 8px; padding-bottom: 8px; align-items: flex-start; }
+.tp-meta-section .tp-meta-title { width: 100%; align-items: flex-start; }
+.tp-meta-section .tp-pr-label { flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; cursor: copy; user-select: text; }
+.tp-meta-section .tp-pr-label:focus-visible { outline: 1px solid var(--color-border-selected); outline-offset: 1px; }
+.tp-meta-section .tp-copyable-block { flex: 0 0 auto; }
+/* CodeSection.vue + Code.vue */
+.tp-code-code { margin-bottom: 8px; }
+.tp-code-header { width: 100%; min-height: 32px; padding: 0; background-color: var(--color-bg); overflow: hidden; white-space: nowrap; }
+.tp-code-title { padding: 8px 0; font-weight: 400; color: var(--color-text); margin: 0; font-size: inherit; }
+.tp-code-block { display: flex; flex-direction: row; background-color: transparent; border-radius: var(--radius-medium, 2px); box-shadow: 0 0 0 1px var(--color-border-code-well);
+  margin: 1px 0; padding: 8px 0 0; font-family: "Roboto Mono", Monaco, "Courier New", monospace; font-weight: 400; line-height: 18px; font-size: 12px; letter-spacing: .005em; }
+.tp-code-line-numbers { display: flex; flex-direction: column; min-width: 20px; flex-shrink: 0; margin-top: -8px; padding-top: 8px; border-right: 1px solid var(--color-border-code-well); }
+.tp-code-line-number { min-width: 12px; color: var(--color-text-tertiary); display: flex; align-items: center; justify-content: end; padding: 0 4px; }
+.tp-code-content { margin: 0; padding: 0 8px 8px; overflow-x: auto; user-select: text; cursor: text; color: var(--color-text); font: inherit; }
+.tp-code-content .tok-arrow { color: var(--color-codeaccent); }
+.tp-code-content .tok-msg { color: var(--color-codestring); }
+/* DesignTaskStatus.vue */
+.tp-design-task-section .tp-section-content { padding: 0; }
+.tp-design-panel-status { display: flex; align-items: center; gap: var(--spacer-2, 8px); min-height: 40px; padding: var(--spacer-2, 8px) var(--spacer-3, 16px); }
+.tp-design-locate { display: flex !important; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; margin: 0 -4px !important; padding: 0 4px !important; border-radius: 2px;
+  font-size: 12px; line-height: 18px; text-align: left; cursor: default; }
+.tp-design-locate > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-design-locate:hover:not(:disabled) { background: var(--color-bg-hover) !important; }
+.tp-design-anchor { position: absolute; border: 1px solid var(--color-border-selected, #0d99ff); opacity: .45; border-radius: 4px; background: transparent; pointer-events: none; }
+.tp-design-anchor-working { opacity: 1; }
+.tp-design-feedback { position: absolute; width: 360px; height: 36px; display: flex; align-items: center; gap: 8px; padding: 5px; overflow: hidden;
+  border: 1px solid var(--color-border, #e6e6e6); border-radius: calc(var(--radius-medium, 4px) + 5px); background: var(--color-bg, #fff); color: var(--color-text, #333);
+  font: 11px/16px var(--font-family-ui, Inter, sans-serif); }
+.tp-design-logo { display: flex; width: 20px; height: 20px; flex-shrink: 0; margin: 0 2px; }
+.tp-design-feedback-content { display: flex; align-items: center; gap: 5px; width: calc(360px - 44px); flex-shrink: 0; }
+.tp-design-anchor-label { flex: 1; min-width: 0; color: inherit; font-size: 12px; white-space: nowrap; overflow: hidden; }
+.tp-design-label-text { display: block; width: fit-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.tp-design-stop, .tp-design-done { height: 24px; flex: none; }
+.tp-design-shimmer { color: transparent; background-color: var(--color-text, #222);
+  background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-text, #222) 50%, white) 25%, color-mix(in srgb, var(--color-text, #222) 15%, white) 45%, color-mix(in srgb, var(--color-text, #222) 15%, white) 55%, color-mix(in srgb, var(--color-text, #222) 50%, white) 75%, transparent);
+  background-position: 250% 0; background-repeat: no-repeat; background-size: 180% 100%; -webkit-background-clip: text; background-clip: text; animation: tp-design-shimmer 2.8s linear infinite; }
+@keyframes tp-design-shimmer { to { background-position: -150% 0; } }
+.tp-logo-loading .tp-logo-plane { animation: tp-logo-overlap 2s cubic-bezier(.45,0,.2,1) infinite; }
+@media (prefers-reduced-motion: reduce) { .tp-design-shimmer { animation: none; color: inherit; background: none; } .tp-mcp-badge-inactive .tp-mcp-dot, .tp-logo-loading .tp-logo-plane { animation: none; } }
+
+/* ===== Additions for the GitHub PR panel (not in TemPad): task actions in the panel row,
+   PR state badge, Review and Messages sections. Built from the same tokens. ===== */
+.tempad .tp-panel-header { cursor: grab; }
+.tempad .tp-main.tp-panel-dragging .tp-panel-header { cursor: grabbing; }
+.tp-mcp-badge { cursor: default; }
+.tp-mcp-badge-inactive { cursor: pointer; }
+.tp-design-panel-status { justify-content: space-between; }
+.tp-design-panel-status .tp-design-logo { margin: 0; }
+.tp-design-panel-actions { display: flex; gap: var(--spacer-1); flex: none; }
+.tp-badge-warning { color: var(--color-codeaccent); border-color: var(--color-codeaccent); }
+.tp-badge-danger { color: #e03e1a; border-color: #e03e1a; }
+.tp-review { display: flex; flex-direction: column; gap: var(--spacer-1); padding-bottom: 4px; }
+.tp-review-headline { font-weight: 550; color: var(--color-text); line-height: 16px; user-select: text; }
+.tp-review-summary { color: var(--color-text-secondary); line-height: 16px; overflow-wrap: anywhere; white-space: pre-line; user-select: text; }
+.tp-review-meta { color: var(--color-text-secondary); gap: 6px; flex-wrap: wrap; }
+.tp-review-empty { color: var(--color-text-secondary); padding-bottom: 4px; }
+.tp-messages { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; }
+.tp-message-list { display: flex; flex-direction: column; gap: 6px; }
+.tp-message { display: flex; flex-direction: column; line-height: 16px; user-select: text; }
+.tp-message-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-message-agent { color: var(--color-text); }
+.tp-message-progress { color: var(--color-text-secondary); }
+.tp-message-user { align-self: flex-end; max-width: 90%; min-width: 0; padding: 4px 8px; border-radius: var(--radius-medium); background: var(--color-bg-secondary); color: var(--color-text); }
+.tp-message-status { font-size: 12px; color: var(--color-text-tertiary); text-align: right; }
+.tp-message-compose { display: flex; align-items: flex-end; gap: var(--spacer-1); }
+.tp-message-input { flex: 1 1 auto; min-width: 0; height: 28px; max-height: 96px; resize: none; margin: 0; padding: 5px 7px; border: 1px solid var(--color-border); border-radius: var(--radius-medium);
+  background: var(--color-bg); color: var(--color-text); font: inherit; font-size: 12px; line-height: 18px; outline: none; user-select: text; cursor: text; overflow-y: auto; }
+.tp-message-input:focus { border-color: var(--color-border-selected); }
+.tp-message-input::placeholder { color: var(--color-text-tertiary); }
+.tp-action-button:disabled { color: var(--color-text-tertiary); }

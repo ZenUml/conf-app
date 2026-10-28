@@ -1,0 +1,29 @@
+{
+  "name": "@zenuml/pr-panel-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension (WXT + Vue 3): request-scoped PR review list and continuation popup on github.com.",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "prepare:wxt": "wxt prepare"
+  },
+  "dependencies": {
+    "@zenuml/pr-panel-shared": "workspace:*",
+    "vue": "^3.5.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@vue/test-utils": "^2.4.6",
+    "@wxt-dev/module-vue": "^1.0.3",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.9",
+    "vue-tsc": "^2.2.0",
+    "wxt": "^0.21.4"
+  }
+}

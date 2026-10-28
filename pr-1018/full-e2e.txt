@@ -1,0 +1,7 @@
+✓ Parent page loaded
+✓ Editor ready: "Smoke Test 2026-10-28T18-00-14 848l2"
+✓ Sequence macro inserted
+✓ Page published
+✓ 1 macro iframe(s) visible on published page [frame_visible_ms=60]
+✓ macro rendered content verified (inside iframe) [content_verify_ms=18]
+1 passed (27.8s)

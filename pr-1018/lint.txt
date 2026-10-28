@@ -1,0 +1,7 @@
+   58:12  warning  'e' is defined but never used                                                                                        @typescript-eslint/no-unused-vars
+  160:5   warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  173:3   warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  230:12  warning  'e' is defined but never used                                                                                        @typescript-eslint/no-unused-vars
+
+✖ 138 problems (0 errors, 138 warnings)
+  0 errors and 13 warnings potentially fixable with the `--fix` option.

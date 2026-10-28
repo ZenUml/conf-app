@@ -1,0 +1,7 @@
+
+ ✓ functions/utils/authenticate.spec.ts (11 tests) 294ms
+
+ Test Files  439 passed | 1 skipped (440)
+      Tests  5896 passed | 3 skipped (5899)
+   Start at  05:30:29
+   Duration  37.97s (transform 12.53s, setup 4.54s, collect 43.29s, tests 66.19s, environment 139.50s, prepare 19.54s)

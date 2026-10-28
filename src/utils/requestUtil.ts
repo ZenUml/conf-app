@@ -38,22 +38,13 @@ function isStandaloneEnv(): boolean {
   }
 }
 
-let _mockAp: any = null;
-async function getMockAp() {
-  if (!_mockAp) {
-    const { default: MockAp } = await import('@/model/MockAp');
-    _mockAp = new MockAp();
-  }
-  return _mockAp;
-}
-
 export interface ForgeRequestOptions {
   /**
    * Throw `ForgeRequestError` (with `status`) when the response is not 2xx,
    * even if the body parses as JSON. Off by default: most callers read a 4xx
    * `{ errors: [...] }` envelope as data (404 orphan recovery, version
    * conflicts, paginated counts). Opt in only where a failed status must not
-   * be mistaken for success. Not applied in the standalone (MockAp) branch,
+   * be mistaken for success. Not applied in the standalone branch,
    * which has no HTTP status.
    */
   throwOnHttpError?: boolean;
@@ -61,10 +52,9 @@ export interface ForgeRequestOptions {
 
 export async function forgeRequest(url: string, method: string = 'GET', data: any = undefined, options: ForgeRequestOptions = {}): Promise<any> {
   if (isStandaloneEnv()) {
-    const mockAp = await getMockAp();
+    const { standaloneRequest } = await import('@/dev/standaloneConfluence');
     const apiUrl = url.startsWith('/wiki') ? url.substring(5) : url;
-    const response = await mockAp.request({ url: apiUrl, type: method, body: data ? JSON.stringify(data) : undefined });
-    return response ? JSON.parse(response.body) : undefined;
+    return standaloneRequest(apiUrl, method, data ? JSON.stringify(data) : undefined);
   }
   const { requestConfluence } = await import("@forge/bridge");
   const response = await requestConfluence(url, {

@@ -1,12 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import yaml from 'js-yaml';
+import { expandedSteps } from './workflow-steps.mjs';
 
 for (const name of ['pr-validation', 'main-build-preparation']) {
   test(`${name} gates on the offline Mixpanel browser regression with installed Chromium`, () => {
-    const workflow = yaml.load(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
-    const steps = workflow.jobs['preview-e2e'].steps;
+    const steps = expandedSteps(name, 'preview-e2e');
     const index = stepName => steps.findIndex(step => step.name === stepName);
     const isolation = index('Verify Mixpanel isolation without network egress');
     assert.ok(isolation >= 0);

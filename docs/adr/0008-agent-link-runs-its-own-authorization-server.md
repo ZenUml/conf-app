@@ -133,6 +133,21 @@ What already exists, and bears on the choice:
    prove that every KV reader has observed the latest state. The cutover does not alter storage of the
    separate upstream Atlassian grant.
 
+   *Amended 2026-10-28:* a used refresh token presented again by the SAME
+   client after the 300-second window is rejected (`invalid_grant`, analytics
+   reason `stale`), and the chain is NOT revoked. Agent clients run many
+   processes on one sign-in; a process that slept for hours presents the token
+   another process already rotated. Revoking signed the user out of every live
+   process: 4 production revocations for 3 customer accounts between
+   2026-10-14 and 2026-10-26, replay ages 1 h, 4 h and 47 h. The cost is
+   theft detection: if a copied refresh token is redeemed BEFORE the
+   legitimate holder's next refresh, the holder's token is now refused as
+   stale and the copier keeps the chain until it expires or the user revokes
+   it. Before, that second presentation revoked the chain and cut the copier
+   off too. A copy redeemed AFTER the holder rotated is refused either way. A
+   refresh token under a different client still revokes the chain. This applies to the D1 ledger path only;
+   the legacy KV path keeps revoking.
+
 3. **Our consent screen is the security boundary, not a formality.** The
    spec's rule exists because one static upstream client id (ours at
    Atlassian) fronts many dynamically registered MCP clients. Without a

@@ -4,13 +4,9 @@ import {postData} from "./utils/zaraz";
 import {saveToBucket} from "./utils/R2Bucket";
 import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
-import {
-  archiveAnalyticsEvent,
-  insertAnalyticsEventFact,
-  normalizeUninstallAnalyticsEvent,
-} from "./utils/analytics";
+import { normalizeUninstallAnalyticsEvent, recordAnalyticsEvent } from "./utils/analytics";
 
-export const onRequest: PagesFunction = async ({ request, env }) => {
+export const onRequest: PagesFunction = async ({ request, env, waitUntil }) => {
   try {
     const authHeader = getAuthorizationHeader(request);
     const allowedForgeAppIds = (env as any).ALLOWED_FORGE_APP_IDS;
@@ -29,12 +25,15 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     captureUninstalledMessage(body.key, body.clientKey, body.baseUrl);
 
     const domain = body.baseUrl ? new URL(body.baseUrl).hostname : 'unknown';
-    await postData(body.eventType || 'uninstalled', body.key, body.clientKey, domain);
+    // The canonical record first, and independent of Zaraz and the legacy
+    // `<domain>/lifecycle/` copy, which used to run ahead of it inline (#939).
+    recordAnalyticsEvent({ waitUntil }, env as any, normalizeUninstallAnalyticsEvent(body), body);
+    waitUntil(postData(body.eventType || 'uninstalled', body.key, body.clientKey, domain).catch((e) => {
+      console.log(`uninstalled Zaraz post failed: ${e}`);
+      captureError(e);
+    }));
     // @ts-ignore
-    await saveToBucket(env.EVENT_BUCKET, domain, body);
-    const analyticsEvent = normalizeUninstallAnalyticsEvent(body);
-    const r2Key = await archiveAnalyticsEvent((env as any).EVENT_BUCKET, analyticsEvent, body);
-    await insertAnalyticsEventFact((env as any).DB, analyticsEvent, r2Key);
+    waitUntil(saveToBucket(env.EVENT_BUCKET, domain, body));
   } catch (e: unknown) {
     console.log(`Error: ${e}`);
     captureError(e)

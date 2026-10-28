@@ -93,6 +93,23 @@ async () => {
 
 Parse the returned JSON to extract the data fields.
 
+## Step 1.5 — Emit the Ops Console revenue vital
+
+Using the Step 1 data, persist the revenue headline so the Handbook **Ops Console** cockpit ("Today" → Live Vitals → *30-Day Revenue*) shows it instead of a placeholder. Write `private/src/data/revenue.json` (Write tool) with this exact shape:
+
+```json
+{
+  "asOf": "<endDate from Step 1>",
+  "rev30dUsd": <totalRevenue>,
+  "vendorUsd": <vendorRevenue>,
+  "newCustomers": <newCustomers.length>,
+  "lost": <downgradedCustomers.length>,
+  "largestDealUsd": <largestCustomers[0].total>
+}
+```
+
+The cockpit reads `rev30dUsd` + `newCustomers` + `lost` and stamps `asOf`. It's committed alongside `index.html` in Step 4.
+
 ## Step 2 — Build the Weekly Meeting HTML section
 
 Using the data from Step 1, build the replacement HTML block. The section is identified by the comment `<!-- Weekly Meeting Prep — updated by /weekly-meeting skill -->` in `index.html`.
@@ -126,7 +143,7 @@ Edit `private/client-profiles/index.html` using the Edit tool.
 
 ```bash
 cd ~/workspaces/zenuml/conf-app/private
-git add client-profiles/index.html
+git add client-profiles/index.html src/data/revenue.json
 git commit -m "chore(client-profiles): weekly meeting prep $(date +%Y-%m-%d)"
 ```
 

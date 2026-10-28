@@ -28,7 +28,11 @@ export function dispatchBody(env) {
     if (env.STAGING_RUN_ID) inputs['staging-run-id'] = env.STAGING_RUN_ID;
   } else {
     inputs.grep = env.GREP || '';
-    if (env.CHILD_KIND === 'pr') inputs.mode = env.MODE;
+    if (env.CHILD_KIND === 'pr') {
+      inputs.mode = env.MODE;
+      inputs['pr-number'] = env.PR_NUMBER;
+      inputs['decision-id'] = env.DECISION_ID;
+    }
     else {
       inputs.suite = env.SUITE || 'insert';
       inputs.timeout = env.TEST_TIMEOUT || '11';
@@ -69,6 +73,15 @@ export function verifyParent(parent, attempt, jobs, expectedJobs, provenance = {
     }
   } else if (parent.path === '.github/workflows/build-test-deploy.yml' && provenance.sourceSha && parent.head_sha !== provenance.sourceSha) {
     throw new Error('Phase source does not match its root');
+  }
+}
+
+export function verifyPrProvenance(record, parent, runId, attempt, pr, source) {
+  if (parent.path !== '.github/workflows/pr-validation.yml' || String(parent.id) !== String(runId)
+      || !/^[1-9][0-9]*$/.test(String(pr)) || !/^[a-f0-9]{40}$/.test(source ?? '')
+      || record?.run !== String(runId) || record?.attempt !== String(attempt)
+      || record?.pr !== String(pr) || record?.candidate !== source) {
+    throw new Error('PR child candidate does not match the staging parent provenance');
   }
 }
 
@@ -197,6 +210,13 @@ async function main() {
     let verified;
     await verifyParentWithRetry(() => (verified = fetchState()), 6, pause, line => console.error(line));
     const { parent } = verified;
+    if (parent.path === '.github/workflows/pr-validation.yml') {
+      const directory = mkdtempSync(join(tmpdir(), 'pr-parent-provenance-'));
+      execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,
+        '--name', `pr-parent-provenance-${env.PARENT_ATTEMPT}`, '--dir', directory]);
+      verifyPrProvenance(JSON.parse(readFileSync(join(directory, 'pr-parent-provenance.json'), 'utf8')),
+        parent, env.PARENT_RUN_ID, env.PARENT_ATTEMPT, env.PR_NUMBER, env.SOURCE_SHA);
+    }
     if (parent.path === '.github/workflows/build-test-deploy.yml') {
       const directory = mkdtempSync(join(tmpdir(), 'main-root-options-'));
       execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,

@@ -4,7 +4,7 @@ name: Export modal validation
 # against the standalone Vite dev server. It needs no Confluence site, no Forge app,
 # no secrets and no OTP, so it costs one runner.
 #
-# Every code PR gets this independent check, including drafts. Keeping the suite
+# PR validation calls this suite only after test-scope authorization, including drafts. Keeping the suite
 # in its own job avoids holding the build/unit gate or staging deployment behind
 # a browser test timeout (the original #649 failure mode).
 #
@@ -12,9 +12,11 @@ name: Export modal validation
 # once this file is on main. The suite is only green with the #649 fix in place
 # (PR #840); do not merge this ahead of it.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**']
+  workflow_call:
+    inputs:
+      ref: {type: string, default: ''}
+      pr-number: {type: string, default: ''}
+      decision-id: {type: string, default: ''}
   schedule:
     # 04:17 UTC. smoke-test.yml runs at 02:00 and daily-regression.yml at 03:00 (both
     # use the shared robot account / staging), e2e-flake-ranking.yml at 03:00 on
@@ -22,6 +24,8 @@ on:
     # GitHub delays scheduled runs the most.
     - cron: '17 4 * * *'
   workflow_dispatch:
+    inputs:
+      pr-number: {type: string, default: ''}
 
 # A manual dispatch replaces a stale run of the same workflow instead of queueing
 # behind it. Not the `conf-app-staging` group: this suite never touches staging.
@@ -31,9 +35,40 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      candidate: ${{ steps.authorize.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Authorize PR E2E or the independent default-branch nightly
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr-number }}
+          CANDIDATE: ${{ inputs.ref }}
+          DECISION_ID: ${{ inputs.decision-id }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DEFAULT_SHA: ${{ github.sha }}
+        run: |
+          if [ -n "$PR" ]; then
+            if [ -n "$DECISION_ID" ]; then
+              node scripts/test-selection/pr-decision.mjs check --pr "$PR" --candidate "$CANDIDATE" --decision-id "$DECISION_ID"
+            else
+              node scripts/test-selection/pr-decision.mjs check --pr "$PR"
+            fi
+          else
+            [ "$BRANCH" = "$DEFAULT_BRANCH" ] || { echo 'Branch E2E requires a current PR decision'; exit 1; }
+            echo "candidate=$DEFAULT_SHA" >> "$GITHUB_OUTPUT"
+          fi
   export-modal:
+    needs: authorize
     name: "Export modal (standalone dev server)"
     runs-on: ubuntu-latest
     # The suite takes about 5.5 min once dependencies are in. 20 min leaves room for a
@@ -46,6 +81,8 @@ jobs:
       DEV_PORT: "8080"
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.authorize.outputs.candidate }}
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5

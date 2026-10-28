@@ -185,3 +185,15 @@ test('parent verification does not retry real provenance errors', async () => {
   assert.equal(fetches, 1);
   assert.equal(pauses, 0);
 });
+
+test('PR child rejects another PR or candidate despite an active parent', async () => {
+  const { verifyPrProvenance } = await import('./wait-for-e2e.mjs');
+  const source = 'a'.repeat(40), other = 'b'.repeat(40);
+  const parent = { id: 12, path: '.github/workflows/pr-validation.yml' };
+  const record = { run: '12', attempt: '2', pr: '42', candidate: source };
+  verifyPrProvenance(record, parent, '12', '2', '42', source);
+  for (const [run, attempt, pr, sha] of [['12','2','43',source], ['12','2','42',other], ['12','1','42',source], ['13','2','42',source]]) {
+    assert.throws(() => verifyPrProvenance(record, parent, run, attempt, pr, sha), /staging parent provenance/);
+  }
+  assert.throws(() => verifyPrProvenance({}, parent, '12', '2', '42', source), /staging parent provenance/);
+});

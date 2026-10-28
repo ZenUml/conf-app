@@ -24,7 +24,7 @@ import {
 } from '../../helpers/CloseGuardHelper.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
 
-test.describe('Sequence — Create flow', { tag: ['@test:sequence-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@sequence'] }, () => {
+test.describe('Sequence — Create flow', { tag: ['@test:sequence-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@sequence', '@feature:create-diagram', '@interface:editor', '@scenario:create-diagram:editor', '@feature:publishing', '@scenario:publishing:editor'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence not in profile');
 

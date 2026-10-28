@@ -1,9 +1,9 @@
+// @vitest-environment node
 /**
  * Every E2E spec carries the closed tag taxonomy (ADR-0007 §5).
  *
- * The impact-based selection on PRs runs only the specs whose tags match the
- * changed source paths (plus `@smoke`), so a spec with a missing or misspelt
- * tag is a spec that is silently never selected for the change it covers.
+ * Scenario-based PR selection matches explicitly paired product tags (plus
+ * required baseline coverage). A missing tag can leave coverage unselected.
  * This guard makes that impossible to land: every top-level `test.describe`
  * / `test` block in tests/e2e-tests/tests must declare a `{ tag: [...] }`
  * details object whose tags all come from `tests/e2e-tests/config/tags.ts`,
@@ -20,6 +20,10 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ALL_TAGS, BEHAVIOR_TAGS, CONCERN_TAGS, SURFACE_TAGS, TYPE_TAGS } from '../e2e-tests/config/tags';
 import { CATEGORIES } from '../e2e-tests/config/categories.mjs';
+import { SCENARIOS } from '../e2e-tests/config/product-impact.mjs';
+import { OPT_IN_TESTS } from '../e2e-tests/config/test-discovery-policy.mjs';
+import { TEST_DISPOSITIONS } from '../e2e-tests/config/test-dispositions.mjs';
+import { SCENARIO_TESTS, SCENARIO_COVERAGE } from '../e2e-tests/config/scenario-coverage.mjs';
 
 const ROOT = path.resolve(__dirname, '../e2e-tests/tests');
 
@@ -113,4 +117,71 @@ describe('Live Agent Link E2E applies to lite only', () => {
       expect(CATEGORIES.find((c) => c.id === id)?.variants, id).toEqual(['lite']);
     }
   });
+});
+
+
+describe('E2E product scenario coverage', () => {
+  it('matches the explicit scenario pairs and their dimension tags on every block', () => {
+    const valid = new Set(SCENARIOS.map((s: { feature: string; interface: string }) => `${s.feature}:${s.interface}`));
+    const observed = new Map<string, Set<string>>();
+    for (const file of files) {
+      for (const block of topLevelBlocks(fs.readFileSync(file, 'utf8'))) {
+        const tags = block.tags ?? [];
+        const pairs = tags.filter(t => t.startsWith('@scenario:')).map(t => t.slice('@scenario:'.length));
+        const dimensions = new Set<string>();
+        for (const pair of pairs) {
+          expect(valid.has(pair), `${file}: ${pair}`).toBe(true);
+          const [feature, surface] = pair.split(':');
+          dimensions.add(`@feature:${feature}`);
+          dimensions.add(`@interface:${surface}`);
+        }
+        expect(tags.filter(t => t.startsWith('@feature:') || t.startsWith('@interface:')).sort()).toEqual([...dimensions].sort());
+        for (const category of tags.filter(t => t.startsWith('@test:')).map(t => t.slice(6))) {
+          const set = observed.get(category) ?? new Set<string>();
+          pairs.forEach(pair => set.add(pair));
+          observed.set(category, set);
+        }
+      }
+    }
+    expect(SCENARIO_COVERAGE.map((entry: { category: string }) => entry.category).sort()).toEqual(CATEGORIES.map(c => c.id).sort());
+    for (const entry of SCENARIO_COVERAGE) {
+      const declared = entry.scenarios.map((s: { feature: string; interface: string }) => `${s.feature}:${s.interface}`);
+      expect(new Set(declared).size, entry.category).toBe(declared.length);
+      expect(declared.sort(), entry.category).toEqual([...(observed.get(entry.category) ?? [])].sort());
+    }
+  });
+});
+
+
+describe('unpaired test dispositions', () => {
+  it('requires a reviewed reason for each unpaired group and keeps retired groups separate', () => {
+    const key = (row: {file:string; title?:string}) => `${row.file}:${row.title}`;
+    expect(new Set(TEST_DISPOSITIONS.map(key)).size).toBe(TEST_DISPOSITIONS.length);
+    const unpaired = SCENARIO_TESTS.filter((row: any) => row.scenarios.length === 0);
+    expect(unpaired.map(key).sort()).toEqual(TEST_DISPOSITIONS.map(key).sort());
+    for (const disposition of TEST_DISPOSITIONS) {
+      const row = SCENARIO_TESTS.find((candidate: any) => key(candidate) === key(disposition));
+      expect(row, key(disposition)).toBeTruthy();
+      expect([...row.checks, ...row.statuses]).toContain(disposition.tag);
+      expect(disposition.reason.length).toBeGreaterThan(30);
+      expect(disposition.evidence.length).toBeGreaterThan(0);
+      for (const ref of disposition.evidence) expect(fs.existsSync(path.resolve(ROOT, '../../..', ref.split(':')[0]))).toBe(true);
+    }
+    for (const row of SCENARIO_TESTS.filter((row: any) => row.statuses.includes('@status:retired'))) expect(row.scenarios).toEqual([]);
+  });
+  it('labels local shared-component checks separately from real host interaction', () => {
+    for (const row of SCENARIO_TESTS.filter((row: any) => row.file.startsWith('viewer-preview'))) {
+      expect(row.execution).toContain('@execution:preview');
+      if (row.scenarios.length) expect(row.checks).toContain('@check:component');
+    }
+  });
+});
+
+
+it('keeps opt-in execution labels aligned with actual collection policy', () => {
+  for (const row of SCENARIO_TESTS) {
+    const optIn = OPT_IN_TESTS.some((entry: any) => entry.file === row.file);
+    expect(row.execution.includes('@execution:opt-in'), row.file).toBe(optIn);
+    expect(row.default_pr_collection, row.file).toBe(!optIn);
+  }
 });

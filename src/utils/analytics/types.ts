@@ -73,6 +73,16 @@ import type {
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  /** Opaque ID shared by the opening, actual diagram-ready and closing events. */
+  fullscreen_session_id?: string;
+  /** Elapsed modal lifetime; diagram durations are absent until ready. */
+  fullscreen_modal_duration_ms?: number;
+  fullscreen_diagram_duration_ms?: number;
+  /** Time the ready diagram spent in a visible document, not attention time. */
+  fullscreen_visible_duration_ms?: number;
+  fullscreen_close_reason?: 'return_inline' | 'export_dismissed' | 'page_unload' | 'unknown';
+  fullscreen_phase?: 'request' | 'expired' | 'diagram' | 'loading' | 'unknown';
+  fullscreen_close_delivery?: 'normal' | 'best_effort';
   /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
   feature?: 'fullscreen';
   policy_version?: 'fullscreen-contact-v1';

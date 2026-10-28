@@ -804,7 +804,12 @@ export type AnalyticsEventName =
   | "graph_board_document_invalid"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
+  // Fullscreen lifecycle: opened = user requests the modal; view_ready = a
+  // diagram is actually visible; closed = the modal closes (best effort on
+  // unload). Pair on fullscreen_session_id using one session-wide sample.
+  // Never attach diagram source or questionnaire free text.
   | "fullscreen_opened"
+  | "fullscreen_closed"
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
   | "fullscreen_recovery_gate_shown"

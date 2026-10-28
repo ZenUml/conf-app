@@ -7,6 +7,7 @@ import {
 import { getAuthorizationHeader } from '../../utils/requestUtils';
 import { hasForgeUserToken } from '../../utils/forgeUserToken';
 import { json } from '../../OkResponse';
+import { mixpanelImportServiceEvents } from '../../service/mixpanelService';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 export const SNAPSHOT_PREFIX = 'macro-count/v1';
@@ -407,6 +408,198 @@ export async function sha256Hex(value: string): Promise<string> {
     .join('');
 }
 
-export function boundedString(value: unknown, allowed: readonly string[], fallback: string): string {
-  return typeof value === 'string' && allowed.includes(value) ? value : fallback;
+export function boundedString<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === 'string' && allowed.includes(value as T) ? value as T : fallback;
+}
+
+export const JSON_METADATA = { contentType: 'application/json' };
+export const MAX_CHUNK_BODY_BYTES = 450 * 1024;
+
+export type FailureStage =
+  'claim' | 'scan' | 'pagination' | 'space_map' | 'chunk_upload' | 'commit' | 'unknown';
+export type FailureReason =
+  | 'confluence_429' | 'confluence_4xx' | 'confluence_5xx' | 'confluence_network'
+  | 'invalid_pagination' | 'missing_space_id' | 'unresolved_space_id'
+  | 'invalid_chunk' | 'r2_write_failed' | 'kv_write_failed' | 'timeout' | 'unknown';
+
+export interface ChunkReference {
+  key: string;
+  rowCount: number;
+  sha256: string;
+}
+
+export interface RunManifest {
+  schemaVersion: 1;
+  runId: string;
+  capturedAt: string;
+  state: 'running' | 'snapshots_complete' | 'committing' | 'completed' | 'failed';
+  appId: string;
+  installationId: string;
+  cloudId: string;
+  productType: 'lite';
+  expectedTypes: string[];
+  completedTypes: string[];
+  spaceCount: number;
+  contentCount: number;
+  chunkCount: number;
+  aggregateMetrics: MacroCounts;
+  spaceAggregateChunks: ChunkReference[];
+  failureStage?: FailureStage;
+  failureReason?: FailureReason;
+  updatedAt: string;
+}
+
+export function nowIso(): string {
+  return new Date().toISOString();
+}
+
+export function safeDuration(value: unknown, capturedAt: string): number {
+  if (Number.isFinite(value) && (value as number) >= 0) return Math.round(value as number);
+  return Math.max(0, Date.now() - Date.parse(capturedAt));
+}
+
+export function scheduleAnalytics(
+  env: SnapshotEnv,
+  waitUntil: ((promise: Promise<unknown>) => void) | undefined,
+  events: Parameters<typeof mixpanelImportServiceEvents>[0],
+): void {
+  if (!env.MIXPANEL_TOKEN || events.length === 0) return;
+  const delivery = mixpanelImportServiceEvents(events, env.MIXPANEL_TOKEN, { runtime: env }).catch((error) => {
+    console.warn('[macro-count:snapshot] Mixpanel delivery failed', {
+      reason: error instanceof Error ? error.name : 'unknown_error',
+      eventCount: events.length,
+    });
+  });
+  if (waitUntil) waitUntil(delivery);
+  else void delivery;
+}
+
+export function emptyCounts(): MacroCounts {
+  return {
+    total: 0,
+    sequence: 0,
+    graph: 0,
+    openapi: 0,
+    mermaid: 0,
+    plantuml: 0,
+    asyncapi: 0,
+    unknown: 0,
+  };
+}
+
+export function addCounts(target: MacroCounts, source: MacroCounts): void {
+  target.total += source.total;
+  // countBucket, not source[field]: a client predating a bucket omits it, and
+  // `+= undefined` would poison the whole aggregate with NaN.
+  for (const field of COUNT_FIELDS) target[field] += countBucket(source, field);
+}
+
+export function safeIdentifier(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9._~-]{1,200}$/.test(value)) {
+    throw new HttpError(400, `Invalid ${field}`);
+  }
+  return value;
+}
+
+export function safeHash(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new HttpError(400, 'Invalid SHA-256 hash');
+  }
+  return value;
+}
+
+export function safeRowCount(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new HttpError(400, 'Invalid row count');
+  }
+  return value as number;
+}
+
+export async function parseBody<T extends Record<string, unknown>>(request: Request): Promise<T> {
+  const contentLength = Number(request.headers.get('content-length') || 0);
+  if (contentLength > MAX_CHUNK_BODY_BYTES) {
+    throw new HttpError(413, 'Snapshot request body is too large');
+  }
+  try {
+    return await request.json<T>();
+  } catch {
+    throw new HttpError(400, 'Invalid JSON body');
+  }
+}
+
+export function requirePost(request: Request): void {
+  if (request.method !== 'POST') throw new HttpError(405, 'Method Not Allowed');
+}
+
+export function initialRunManifest(claim: DailyClaim): RunManifest {
+  return {
+    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+    runId: claim.runId,
+    capturedAt: claim.capturedAt,
+    state: 'running',
+    appId: claim.appId,
+    installationId: claim.installationId,
+    cloudId: claim.cloudId,
+    productType: 'lite',
+    expectedTypes: [],
+    completedTypes: [],
+    spaceCount: 0,
+    contentCount: 0,
+    chunkCount: 0,
+    aggregateMetrics: emptyCounts(),
+    spaceAggregateChunks: [],
+    updatedAt: claim.updatedAt,
+  };
+}
+
+export async function putJson(
+  bucket: R2Bucket,
+  key: string,
+  value: unknown,
+  onlyIf?: R2Conditional,
+): Promise<R2Object | null> {
+  return bucket.put(key, JSON.stringify(value), {
+    ...(onlyIf ? { onlyIf } : {}),
+    httpMetadata: JSON_METADATA,
+  });
+}
+
+export async function findActiveClaim(
+  env: SnapshotEnv,
+  context: AuthenticatedMetricsContext,
+  runId: unknown,
+  allowedStates: DailyClaim['state'][] = ['running'],
+): Promise<{ claim: DailyClaim; object: R2ObjectBody; key: string }> {
+  const id = safeIdentifier(runId, 'runId');
+  // A run is always claimed for the current UTC date. A Forge invocation is
+  // at most 15 minutes, so crossing midnight is handled by checking today and
+  // yesterday without accepting an arbitrary body-supplied R2 prefix.
+  const dates = [new Date(), new Date(Date.now() - 24 * 60 * 60 * 1000)];
+  for (const date of dates) {
+    const capturedAt = date.toISOString();
+    const key = claimKey(context.productType, context.cloudId, capturedAt);
+    const object = await env.MACRO_COUNT_SNAPSHOT_BUCKET.get(key);
+    if (!object) continue;
+    let claim: DailyClaim;
+    try {
+      claim = await object.json<DailyClaim>();
+    } catch {
+      throw new HttpError(409, 'Daily claim is malformed');
+    }
+    if (claim.runId === id) {
+      if (!allowedStates.includes(claim.state)) {
+        throw new HttpError(409, 'Run no longer owns the daily claim');
+      }
+      if (
+        claim.cloudId !== context.cloudId
+        || claim.installationId !== context.installationId
+        || claim.appId !== context.appId
+        || claim.productType !== context.productType
+      ) {
+        throw new HttpError(403, 'Run claim identity mismatch');
+      }
+      return { claim, object, key };
+    }
+  }
+  throw new HttpError(409, 'Active run claim not found');
 }

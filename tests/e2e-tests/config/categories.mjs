@@ -983,5 +983,13 @@ export const CATEGORIES = [
     "negative_examples": [
       "Changes confined to a different diagram format and not shared rendering, persistence, or UI controls."
     ]
+  },
+  {
+    "id": "template-offer",
+    "description": "Lite space-admin page-banner offer to create a Diagram page template.",
+    "variants": ["lite"],
+    "dependencies": ["sequence-render"],
+    "positive_examples": ["insert/template-offer.spec.ts", "create Diagram page template from the page banner"],
+    "negative_examples": ["Changes unrelated to the Lite page banner or space templates."]
   }
 ];

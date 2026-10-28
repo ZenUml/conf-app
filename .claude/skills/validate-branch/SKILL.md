@@ -9,6 +9,8 @@ Run local checks before shipping. For Confluence app UI changes, complete the vi
 
 Run from the repository root. Stop at the first failure. Do not report complete validation when only local checks have passed.
 
+Before running checks, read `../pr-review-support-materials/SKILL.md` and plan the BEFORE/AFTER comparison. Retain the tested SHA, reproducible steps, and evidence as you go. When reporting validation on an existing PR, use that skill to publish the results at the top of its description, including blocked or failed checks. Do not leave the only screenshots or logs on the local machine.
+
 ## 1. Lint, unit tests, and build
 
 Run these in order:

@@ -1,28 +1,21 @@
 <template>
   <div class="locations" data-testid="diagram-locations">
-    <div class="step-row">
-      <button type="button" class="back-link" data-testid="diagram-locations-back" @click="emit('back')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-        Plan and usage
-      </button>
-    </div>
+    <button type="button" class="back-link" data-testid="diagram-locations-back" @click="emit('back')">← Plan and usage</button>
 
     <h1 class="locations-title">Diagram locations</h1>
     <p class="locations-intro">Find a diagram and open the page that owns it.</p>
 
-    <section class="coverage-note" data-testid="diagram-locations-coverage">
-      <p class="coverage-title">Available locations · partial coverage</p>
-      <p>This list may be incomplete and may not match the reported site count of {{ totalMacros.toLocaleString() }}. Updates can take a few hours.</p>
-      <p>Owning pages are shown here. Other pages that embed or reuse these diagrams are not included.</p>
-    </section>
+    <p class="coverage-note" data-testid="diagram-locations-coverage">
+      This list can miss diagrams and may not match the site count of {{ totalMacros.toLocaleString() }}. It shows the page that owns each diagram, not pages that embed it.
+    </p>
 
     <div class="controls">
       <input
         v-model="queryInput"
         type="search"
         class="search-input"
-        placeholder="Search diagrams or owning pages"
-        aria-label="Search diagrams or owning pages"
+        placeholder="Search diagrams or pages"
+        aria-label="Search diagrams or pages"
         data-testid="diagram-locations-search"
         @keydown.enter.prevent="applyQuery"
       >
@@ -63,10 +56,9 @@
 
     <!-- Settled with nothing listable: the empty state, never a failure in disguise. -->
     <section v-else-if="!rows.length" class="empty-state" data-testid="diagram-locations-none">
-      <p class="empty-kicker">No available locations</p>
       <h2>No diagram locations available yet</h2>
       <p>Location details may still be catching up. A reported site count can exist without available locations.</p>
-      <button type="button" class="btn btn-outline" @click="emit('back')">Back to Plan and usage</button>
+      <button type="button" class="btn btn-secondary" @click="emit('back')">Back to Plan and usage</button>
     </section>
 
     <template v-else>
@@ -79,13 +71,11 @@
       >
         {{ summaryLine }}
       </h2>
-      <p class="results-sub">Available locations you can access.</p>
 
       <section v-if="!filtered.length" class="empty-state" data-testid="diagram-locations-no-match">
-        <p class="empty-kicker">No search results</p>
         <h3>No matching diagrams</h3>
         <p>Try a different search or clear the space and type filters.</p>
-        <button type="button" class="btn btn-outline" data-testid="diagram-locations-clear" @click="clearFilters">
+        <button type="button" class="btn btn-secondary" data-testid="diagram-locations-clear" @click="clearFilters">
           Clear filters
         </button>
       </section>
@@ -99,7 +89,6 @@
                 <th>Type</th>
                 <th>Space</th>
                 <th>Owning page</th>
-                <th>Last updated</th>
                 <th class="action-col"><span class="sr-only">Action</span></th>
               </tr>
             </thead>
@@ -109,7 +98,6 @@
                 <td>{{ typeLabel(row.diagramType) }}</td>
                 <td>{{ row.spaceName || row.spaceKey }}</td>
                 <td class="page-cell">{{ pageLabel(row) }}</td>
-                <td class="date-cell">{{ formatDate(row.updatedAt) }}</td>
                 <td class="action-col">
                   <button
                     v-if="row.pageUrl"
@@ -120,7 +108,6 @@
                     @click="openPage(row)"
                   >
                     Open page
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>
                   </button>
                 </td>
               </tr>
@@ -130,21 +117,12 @@
 
         <div class="pager" data-testid="diagram-locations-pager">
           <span class="range" data-testid="diagram-locations-range">{{ rangeLine }}</span>
-          <label class="rows-per-page">
-            Rows per page
-            <select v-model.number="pageSize" data-testid="diagram-locations-page-size" @change="onFilterChange('page_size')">
-              <option :value="10">10</option>
-              <option :value="25">25</option>
-              <option :value="50">50</option>
-            </select>
-          </label>
           <div class="pager-nav">
-            <button type="button" class="btn btn-outline" data-testid="diagram-locations-prev" :disabled="page <= 1" @click="goTo(page - 1)">
-              ← Previous
+            <button type="button" class="btn btn-secondary" data-testid="diagram-locations-prev" :disabled="page <= 1" @click="goTo(page - 1)">
+              Previous
             </button>
-            <span class="page-pos" data-testid="diagram-locations-page-pos">Page {{ page }} of {{ pageCount }}</span>
-            <button type="button" class="btn btn-outline" data-testid="diagram-locations-next" :disabled="page >= pageCount" @click="goTo(page + 1)">
-              Next →
+            <button type="button" class="btn btn-secondary" data-testid="diagram-locations-next" :disabled="page >= pageCount" @click="goTo(page + 1)">
+              Next
             </button>
           </div>
         </div>
@@ -222,7 +200,7 @@ const query = ref('')
 const spaceFilter = ref('')
 const typeFilter = ref('')
 const page = ref(1)
-const pageSize = ref(10)
+const PAGE_SIZE = 10
 const resultsHeading = ref<HTMLElement | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -382,8 +360,6 @@ function reportFilter(kind: DiagramLocationsFilter) {
   track('plan_usage_locations_filtered', { locations_filter: kind, listed_count: filtered.value.length })
 }
 
-const filtersActive = computed(() => Boolean(query.value || spaceFilter.value || typeFilter.value))
-
 const typeOptions = computed(() => {
   const seen = new Set(rows.value.map((r) => r.diagramType))
   return Object.keys(TYPE_LABELS).filter((t) => seen.has(t)).concat(seen.has(DiagramType.Unknown) ? [DiagramType.Unknown] : [])
@@ -399,7 +375,7 @@ const filtered = computed(() => {
     .sort((a, b) => a.diagramTitle.localeCompare(b.diagramTitle, undefined, { sensitivity: 'base' }) || a.contentId.localeCompare(b.contentId))
 })
 
-const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize.value)))
+const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)))
 
 // Out-of-range recovery: when rows or filters change under the pager, fall back
 // to the last valid page instead of showing a false empty page.
@@ -408,8 +384,8 @@ watch(pageCount, (count) => {
 })
 
 const pageRows = computed(() => {
-  const from = (page.value - 1) * pageSize.value
-  return filtered.value.slice(from, from + pageSize.value)
+  const from = (page.value - 1) * PAGE_SIZE
+  return filtered.value.slice(from, from + PAGE_SIZE)
 })
 
 function plural(n: number, one: string, many: string): string {
@@ -420,16 +396,14 @@ const summaryLine = computed(() => {
   const list = filtered.value
   const pages = new Set(list.filter((r) => r.pageId).map((r) => `${r.containerKind}:${r.pageId}`)).size
   const spaces = new Set(list.map((r) => r.spaceKey)).size
-  const noun = filtersActive.value ? ['matching diagram', 'matching diagrams'] : ['available diagram', 'available diagrams']
-  return `${plural(list.length, noun[0], noun[1])} · ${plural(pages, 'owning page', 'owning pages')} · ${plural(spaces, 'space', 'spaces')}`
+  return `${plural(list.length, 'diagram', 'diagrams')} on ${plural(pages, 'page', 'pages')} in ${plural(spaces, 'space', 'spaces')}`
 })
 
 const rangeLine = computed(() => {
   const total = filtered.value.length
-  const from = total === 0 ? 0 : (page.value - 1) * pageSize.value + 1
-  const to = Math.min(total, page.value * pageSize.value)
-  const noun = filtersActive.value ? 'matching diagrams' : 'available diagrams'
-  return `${from}–${to} of ${total.toLocaleString()} ${noun}`
+  const from = total === 0 ? 0 : (page.value - 1) * PAGE_SIZE + 1
+  const to = Math.min(total, page.value * PAGE_SIZE)
+  return `${from}–${to} of ${total.toLocaleString()}`
 })
 
 // --- Rows -------------------------------------------------------------------
@@ -462,13 +436,6 @@ function pageLabel(row: DiagramLocationRow): string {
   return row.containerKind === 'space' ? 'Not on a page' : 'Untitled page'
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
 function formatTime(iso: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -478,132 +445,107 @@ function formatTime(iso: string | null): string {
 </script>
 
 <style scoped>
-/* Tokens follow PlanUsage.vue (DESIGN.md colors_and_type, inlined); layout
-   copies the Diagram-locations frame in the Conf App Figma file (#848). */
-.locations { color: #172B4D; }
-.step-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+/* Same tokens as PlanUsage.vue (Radix slate/amber, Atlaskit blue); the root
+   re-declares them so this component also renders on its own. */
+.locations {
+  --pu-text-high: #1C2024; /* Radix slate12 */
+  --pu-text-low: #60646C; /* Radix slate11 */
+  --pu-text-disabled: #8B8D98; /* Radix slate9 */
+  --pu-hairline: #D9D9E0; /* Radix slate6 */
+  --pu-control-border: #CDCED6; /* Radix slate7 */
+  --pu-bg-subtle: #F9F9FB; /* Radix slate2 */
+  --pu-warning: #AB6400; /* Radix amber11 */
+  --pu-primary: #0C66E4; /* Atlaskit blue */
+  color: var(--pu-text-high);
+  font-size: 14px;
+  line-height: 20px;
+}
 .back-link {
   font: inherit;
-  font-size: 13px;
   font-weight: 500;
-  color: #2563EB;
+  color: var(--pu-text-low);
   background: none;
   border: none;
+  padding: 0;
+  margin: 0 0 16px;
   cursor: pointer;
-  padding: 4px 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
-.back-link:hover { text-decoration: underline; }
-.locations-title { font-size: 28px; font-weight: 600; line-height: 1.2; margin: 0 0 8px; }
-.locations-intro { font-size: 14px; color: #6B778C; line-height: 1.6; margin: 0 0 20px; }
+.back-link:hover { color: var(--pu-text-high); }
+.locations-title { font-size: 24px; font-weight: 600; line-height: 32px; margin: 0; }
+.locations-intro { color: var(--pu-text-low); margin: 8px 0 12px; }
+.coverage-note { font-size: 12px; line-height: 16px; color: var(--pu-text-low); max-width: 640px; margin: 0 0 16px; }
 
-.coverage-note {
-  background: #F9FAFB;
-  border: 1px solid #E5E7EB;
-  border-radius: 8px;
-  padding: 14px 16px;
-  font-size: 13px;
-  color: #6B778C;
-  line-height: 1.6;
-  margin: 0 0 24px;
-}
-.coverage-note p { margin: 0; }
-.coverage-title { font-size: 14px; font-weight: 600; color: #172B4D; margin: 0 0 4px !important; }
-
-.controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 24px; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
 .search-input {
-  flex: 1 1 320px;
-  min-width: 220px;
+  width: 400px;
+  max-width: 100%;
+  height: 32px;
+  box-sizing: border-box;
   font: inherit;
-  font-size: 14px;
-  color: #172B4D;
+  color: var(--pu-text-high);
   background: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  border: 0.5px solid var(--pu-control-border);
   border-radius: 6px;
-  padding: 10px 14px;
+  padding: 0 12px;
 }
-.search-input::placeholder { color: #9CA3AF; }
-.filter-select, .rows-per-page select {
+.search-input::placeholder { color: var(--pu-text-disabled); }
+.filter-select {
+  height: 32px;
+  box-sizing: border-box;
   font: inherit;
-  font-size: 14px;
-  color: #172B4D;
+  color: var(--pu-text-high);
   background: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  border: 0.5px solid var(--pu-control-border);
   border-radius: 6px;
-  padding: 9px 12px;
+  padding: 0 8px;
   min-width: 150px;
 }
-.search-input:focus-visible, .filter-select:focus-visible, .rows-per-page select:focus-visible,
-.btn:focus-visible, .link-btn:focus-visible, .page-link:focus-visible, .back-link:focus-visible,
-.results-heading:focus-visible { outline: 2px solid #3B82F6; outline-offset: 2px; }
+.search-input:focus-visible, .filter-select:focus-visible, .btn:focus-visible, .link-btn:focus-visible,
+.page-link:focus-visible, .back-link:focus-visible, .results-heading:focus-visible {
+  outline: 2px solid var(--pu-primary);
+  outline-offset: 2px;
+}
 
-.results-heading { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
-.results-sub { font-size: 12px; color: #6B778C; margin: 0 0 12px; }
-.skeleton { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
-.skeleton span { display: block; height: 10px; border-radius: 9999px; background: #E5E7EB; }
+.results-heading { font-size: 12px; font-weight: 400; line-height: 16px; color: var(--pu-text-low); margin: 0 0 8px; }
+.skeleton { display: flex; flex-direction: column; gap: 12px; margin: 16px 0; }
+.skeleton span { display: block; height: 12px; background: var(--pu-hairline); }
 .skeleton span:nth-child(1) { width: 100%; }
 .skeleton span:nth-child(2) { width: 85%; }
 .skeleton span:nth-child(3) { width: 70%; }
 
 .empty-state {
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  padding: 24px;
+  background: var(--pu-bg-subtle);
+  border: 0.5px solid var(--pu-control-border);
+  border-radius: 6px;
+  padding: 16px;
   margin: 0 0 16px;
 }
-.empty-kicker {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.025em;
-  color: #6B778C;
-  margin: 0 0 12px;
-}
-.empty-state h2, .empty-state h3 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
-.empty-state p { font-size: 14px; color: #6B778C; line-height: 1.6; margin: 0 0 16px; max-width: 58ch; }
-.empty-state p.empty-kicker { color: #6B778C; }
+.empty-state h2, .empty-state h3 { font-size: 14px; font-weight: 600; line-height: 20px; margin: 0 0 4px; }
+.empty-state p { color: var(--pu-text-low); max-width: 560px; margin: 0 0 12px; }
 
-.table-wrap {
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  overflow-x: auto;
-  margin: 0 0 16px;
-}
-table.locations-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table-wrap { overflow-x: auto; margin: 0 0 16px; }
+table.locations-table { width: 100%; border-collapse: collapse; }
 .locations-table th {
+  height: 32px;
   text-align: left;
   white-space: nowrap;
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.025em;
-  color: #6B778C;
-  background: #F9FAFB;
-  padding: 12px 16px;
-  border-bottom: 1px solid #E5E7EB;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--pu-text-low);
+  padding: 0 16px 0 0;
+  border-bottom: 0.5px solid var(--pu-control-border);
 }
-.locations-table td { padding: 12px 16px; border-bottom: 1px solid #F3F4F6; vertical-align: top; }
-.locations-table tr:last-child td { border-bottom: none; }
+.locations-table td { height: 40px; padding: 0 16px 0 0; border-bottom: 0.5px solid var(--pu-hairline); vertical-align: middle; }
 .diagram-cell { font-weight: 500; }
 .page-cell { max-width: 260px; }
-.date-cell { white-space: nowrap; color: #6B778C; font-variant-numeric: tabular-nums; }
-.action-col { text-align: right; white-space: nowrap; }
+.action-col { text-align: right; white-space: nowrap; padding-right: 0 !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .page-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   font: inherit;
-  font-size: 13px;
   font-weight: 500;
-  color: #2563EB;
+  color: var(--pu-primary);
   background: none;
   border: none;
   padding: 0;
@@ -611,39 +553,23 @@ table.locations-table { width: 100%; border-collapse: collapse; font-size: 13px;
 }
 .page-link:hover { text-decoration: underline; }
 
-.pager { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: #6B778C; margin: 0 0 12px; }
-.range { flex: 1 1 auto; }
-.rows-per-page { display: inline-flex; align-items: center; gap: 8px; }
-.rows-per-page select { min-width: 72px; padding: 7px 10px; }
-.pager-nav { display: inline-flex; align-items: center; gap: 12px; }
-.page-pos { color: #172B4D; font-weight: 500; }
+.pager { display: flex; align-items: center; justify-content: space-between; font-size: 12px; line-height: 16px; color: var(--pu-text-low); margin: 0 0 12px; }
+.pager-nav { display: inline-flex; gap: 8px; }
 
 .btn {
   font: inherit;
-  font-size: 13px;
   font-weight: 500;
-  padding: 8px 16px;
+  height: 32px;
+  padding: 0 12px;
   border-radius: 6px;
   cursor: pointer;
-  border: 1px solid transparent;
-  transition: background-color 200ms, color 200ms, border-color 200ms;
+  border: 0.5px solid transparent;
 }
-.btn-outline { background: #FFFFFF; color: #172B4D; border-color: #E5E7EB; }
-.btn-outline:hover:not(:disabled) { background: #F3F4F6; }
-.btn:disabled { color: #9CA3AF; background: #F3F4F6; cursor: default; }
+.btn-secondary { background: #FFFFFF; color: var(--pu-text-high); border-color: var(--pu-control-border); }
+.btn-secondary:disabled { color: var(--pu-text-disabled); border-color: var(--pu-hairline); cursor: default; }
 
-.load-status { font-size: 12px; color: #9CA3AF; margin: 0; }
-.muted { color: #6B778C; font-size: 13px; margin: 0; }
-.error { color: #CA3521; font-size: 13px; margin: 0; }
-.link-btn {
-  font: inherit;
-  font-size: inherit;
-  font-weight: 500;
-  color: #2563EB;
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-}
+.load-status { font-size: 12px; line-height: 16px; color: var(--pu-text-low); margin: 0; }
+.error { color: var(--pu-warning); margin: 0; }
+.link-btn { font: inherit; font-weight: 500; color: var(--pu-primary); background: none; border: none; padding: 0; cursor: pointer; }
 .link-btn:hover { text-decoration: underline; }
 </style>

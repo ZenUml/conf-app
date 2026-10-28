@@ -199,9 +199,9 @@ export const Default: Story = {
   name: 'Plan and usage — count card leads to locations',
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByText('Diagrams reported across the site')).toBeVisible()
+    await expect(await canvas.findByText('Diagrams on this site')).toBeVisible()
     await expect(canvas.getByTestId('plan-usage-view-locations')).toBeEnabled()
-    await expect(canvas.getByTestId('plan-usage-count-note')).toHaveTextContent('may not match this total')
+    await expect(canvas.getByTestId('plan-usage-count-note')).toHaveTextContent('Both counts update every few hours.')
     await expect(canvas.queryByTestId('diagram-locations')).not.toBeInTheDocument()
   },
 }
@@ -212,9 +212,9 @@ export const Locations: Story = {
   play: async () => {
     const canvas = within(document.body)
     await openLocations(canvas)
-    await expect(canvas.getByTestId('diagram-locations-coverage')).toHaveTextContent('reported site count of 131')
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('35 available diagrams · 4 owning pages · 2 spaces')
-    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('1–10 of 35 available diagrams')
+    await expect(canvas.getByTestId('diagram-locations-coverage')).toHaveTextContent('site count of 131')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('35 diagrams on 4 pages in 2 spaces')
+    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('1–10 of 35')
     await expect(canvas.getByTestId('diagram-locations-space-filter')).not.toHaveTextContent('HR')
     await expect(canvas.queryByText('Restricted design')).not.toBeInTheDocument()
     await expect(canvas.getByTestId('diagram-locations-status')).toHaveTextContent('Fetched at')
@@ -228,14 +228,14 @@ export const SearchAndFilters: Story = {
     const canvas = within(document.body)
     await openLocations(canvas)
     await userEvent.type(canvas.getByTestId('diagram-locations-search'), 'retry{enter}')
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('2 matching diagrams')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('2 diagrams on')
     await userEvent.selectOptions(canvas.getByTestId('diagram-locations-space-filter'), 'OPS')
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('0 matching diagrams')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('0 diagrams on')
     await expect(canvas.getByTestId('diagram-locations-no-match')).toBeVisible()
     await userEvent.click(canvas.getByTestId('diagram-locations-clear'))
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('35 available diagrams')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('35 diagrams on')
     await userEvent.selectOptions(canvas.getByTestId('diagram-locations-type-filter'), 'graph')
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('1 matching diagram ·')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('1 diagram on')
   },
 }
 
@@ -245,12 +245,12 @@ export const Pagination: Story = {
   play: async () => {
     const canvas = within(document.body)
     await openLocations(canvas)
-    await expect(canvas.getByTestId('diagram-locations-page-pos')).toHaveTextContent('Page 1 of 4')
     await expect(canvas.getByTestId('diagram-locations-prev')).toBeDisabled()
     await userEvent.click(canvas.getByTestId('diagram-locations-next'))
-    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('11–20 of 35 available diagrams')
-    await userEvent.selectOptions(canvas.getByTestId('diagram-locations-page-size'), '50')
-    await expect(canvas.getByTestId('diagram-locations-page-pos')).toHaveTextContent('Page 1 of 1')
+    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('11–20 of 35')
+    await userEvent.click(canvas.getByTestId('diagram-locations-next'))
+    await userEvent.click(canvas.getByTestId('diagram-locations-next'))
+    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('31–35 of 35')
     await expect(canvas.getByTestId('diagram-locations-next')).toBeDisabled()
   },
 }

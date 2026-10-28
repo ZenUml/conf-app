@@ -46,6 +46,8 @@ Pure documentation changes and changes with no UI impact are not applicable; sta
 
 The **validate-branch** skill defines the execution order and distinguishes local readiness to push from completion of the full validation path. The **forge-tunnel** skill remains the source for tunnel setup, identity, and connection checks.
 
+Every created or updated PR must put **PR review support materials** at the top of its description: comparable BEFORE/AFTER evidence, reviewer-accessible screenshots or behavior outputs, test/CI results tied to the tested commit, and explicit unverified or blocked checks. Use `.claude/skills/pr-review-support-materials/SKILL.md` when validating, submitting, or marking a PR ready. Local-only artifact paths are not sufficient review evidence.
+
 ### Confluence app UI design targets desktop
 
 For the Confluence app, design for the desktop surface. Do not create narrow/mobile layouts or separate narrow-screen artboards unless the user explicitly requests them.

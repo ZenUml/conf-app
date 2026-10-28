@@ -27,8 +27,12 @@ Bob --&gt; Alice: Hi there!
 </template>
 
 <script>
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 import { plantumlEncode } from '@/utils/plantuml/encode';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
+import { plantUmlRenderer } from '@/utils/plantuml/renderer';
+import { rewriteHostedIncludes } from '@/utils/plantuml/stdlib';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { normalizePlantUmlSvg, readPlantUmlSvgSize } from '@/utils/plantuml/normalizeSvg';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import globals from '@/model/globals';
@@ -125,6 +129,54 @@ export default {
     },
   },
   methods: {
+    /**
+     * ADR-0010: draw with the in-browser engine, so the source never leaves the
+     * iframe. Resolves `null` when the engine cannot draw this diagram (an
+     * unresolved !include, a crash, a chunk that will not load); the caller
+     * then falls back to the server. Its SVG has a plain viewBox plus
+     * width/height; the same normaliser keeps it proportional in the frame.
+     */
+    async renderLocally(code) {
+      let reason = 'load_failed';
+      let unresolvedInclude;
+      let includeRewritten = false;
+      try {
+        const { renderPlantUmlLocally, PlantUmlLocalRenderError } = await import('@/utils/plantuml/engine');
+        try {
+          return normalizePlantUmlSvg(await renderPlantUmlLocally(code));
+        } catch (err) {
+          reason = err instanceof PlantUmlLocalRenderError ? err.reason : 'engine_error';
+          unresolvedInclude = err instanceof PlantUmlLocalRenderError ? err.unresolvedInclude : undefined;
+          includeRewritten = err instanceof PlantUmlLocalRenderError && err.includeRewritten;
+          throw err;
+        }
+      } catch (err) {
+        console.warn('PlantUML local engine could not draw this diagram; using the server', err);
+        trackAnalyticsEvent('plantuml_local_render_failed', this.localFailureProps(reason, unresolvedInclude, includeRewritten));
+        return null;
+      }
+    },
+    async renderOnServer(code) {
+      const encoded = plantumlEncode(code);
+      const response = await fetch(`${PLANTUML_SERVER}${encoded}`);
+      if (!response.ok) {
+        throw new Error(`PlantUML server returned ${response.status}`);
+      }
+      // The server's root pins a pixel width and preserveAspectRatio="none";
+      // injected into a flex parent that squashes one axis (conf-app#626).
+      return normalizePlantUmlSvg(await response.text());
+    },
+    localFailureProps(reason, unresolvedInclude, includeRewritten = false) {
+      return {
+        feature_area: 'macro',
+        surface: this.isDisplayMode ? 'viewer' : 'editor',
+        macro_type: 'plantuml',
+        plantuml_renderer: 'local',
+        plantuml_failure_reason: reason,
+        ...(unresolvedInclude ? { plantuml_unresolved_include: unresolvedInclude } : {}),
+        ...(includeRewritten ? { plantuml_include_rewritten: true } : {}),
+      };
+    },
     /** Re-bind the pan/zoom viewport after a new server SVG lands. */
     async initializeViewport() {
       await this.$nextTick();
@@ -164,24 +216,29 @@ export default {
       this.loading = true;
       this.error = null;
       try {
-        // Phase 0b: render_ms = PlantUML server round trip (recorded once).
-        // Note this excludes the 500ms mount debounce, which lands in the
-        // unattributed remainder — itself a finding for Phase 1.
+        // Phase 0b: render_ms = time to draw: the engine run, or the server
+        // round trip (recorded once). Note this excludes the 500ms mount
+        // debounce, which lands in the unattributed remainder — itself a
+        // finding for Phase 1.
+        let renderer = await plantUmlRenderer();
         this.svg = await renderPerf.time('render', async () => {
-          const encoded = plantumlEncode(code);
-          const response = await fetch(`${PLANTUML_SERVER}${encoded}`);
-          if (!response.ok) {
-            throw new Error(`PlantUML server returned ${response.status}`);
+          if (renderer === 'local') {
+            const local = await this.renderLocally(code);
+            if (local !== null) return local;
+            renderer = 'server_fallback';
           }
-          // The server's root pins a pixel width and preserveAspectRatio="none";
-          // injected into a flex parent that squashes one axis (conf-app#626).
-          return normalizePlantUmlSvg(await response.text());
+          return this.renderOnServer(code);
         });
         if (!this.initialRenderTracked) {
           this.initialRenderTracked = true;
           trackRenderTime(
             'plantuml', this.isDisplayMode, 'live_render', 'none',
             viewContentState(this.$store.state.diagram, DiagramType.PlantUml),
+            {
+              renderer,
+              // Only a local draw used the rewrite; a fallback drew the original.
+              includeRewritten: renderer === 'local' && rewriteHostedIncludes(code).rewritten,
+            },
           );
         }
       } catch (err) {
@@ -190,6 +247,10 @@ export default {
         this.$store.dispatch('updateError', this.error);
       } finally {
         this.loading = false;
+        await this.$nextTick();
+        if (!this.error && this.svg && this.plantUmlCode === code) {
+          reportDiagramReady(this.$el, 'plantuml');
+        }
       }
     },
   },

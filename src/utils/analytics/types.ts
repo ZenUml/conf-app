@@ -14,6 +14,9 @@ import type {
   CacheState,
   ContentState,
   CacheSource,
+  PlantUmlRenderer,
+  PlantUmlLocalFailureReason,
+  PlantUmlUnresolvedInclude,
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
@@ -70,6 +73,23 @@ import type {
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
+  feature?: 'fullscreen';
+  policy_version?: 'fullscreen-contact-v1';
+  attempt_id?: string;
+  recovery_request_id?: string;
+  recovery_grant_id?: string;
+  recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
+  recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
+  recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
+  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'>;
+  access_source?: 'existing' | 'temporary' | 'fail_open';
+  duration_days?: number;
+  mail_state?: 'queued' | 'accepted' | 'delivered' | 'bounced' | 'failed' | 'delivery_unknown';
+  template_version?: string;
+  recovery_mail_id?: string;
+  support_outcome?: 'customer_replied' | 'next_step_agreed' | 'closed';
+
   /** Markdown render outcomes; counts only, never document contents. */
   markdown_mermaid_blocks?: number;
   markdown_failed_blocks?: number;
@@ -197,6 +217,8 @@ export type AnalyticsProperties = {
   png_export_placeholder_reason?: 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'missing';
   /** Property operation whose failure did not interrupt saving or export. */
   png_export_property_operation?: 'read' | 'create' | 'update';
+  /** Why a PNG state property write was skipped rather than failed. */
+  png_export_skip_reason?: 'page_unavailable';
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
   // _failed), plus the benign ordinary-chat ai_chat_no_change outcome.
   // `duration_ms` below is click-to-visible-result wall time;
@@ -310,6 +332,14 @@ export type AnalyticsProperties = {
   // PlantUML paste normalisation (conf-app#632)
   diagrams_pasted?: number;
   paste_truncated?: boolean;
+  // ADR-0010 self-hosted PlantUML rendering
+  plantuml_renderer?: PlantUmlRenderer;
+  plantuml_failure_reason?: PlantUmlLocalFailureReason;
+  plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
+  // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
+  // library for this render. On macro_viewed (local renders) and on
+  // plantuml_local_render_failed. Absent when nothing was rewritten.
+  plantuml_include_rewritten?: boolean;
 
   // AI
   prompt_length?: number;
@@ -1139,6 +1169,15 @@ export type AnalyticsProperties = {
   failed_request?: string;
   response_content_type?: string;
   response_title?: string;
+  // attachment_upload_rate_limited / attachment_upload_deferred. The cooldown
+  // after a 429 comes from the response's Retry-After header when the bridge
+  // passes one through ('header', with `retry_after_s`), else a fixed default
+  // ('default'); `cooldown_ms` is what was applied after clamping.
+  // `cooldown_remaining_ms` is how long a skipped view still had to wait.
+  retry_after_source?: 'header' | 'default';
+  retry_after_s?: number;
+  cooldown_ms?: number;
+  cooldown_remaining_ms?: number;
   // load_custom_content_v2_missing: why the custom content could not be
   // loaded. `load_status` is 'not_found' only for an all-404 NOT_FOUND
   // envelope (the case that triggers recovery), else 'other_error';

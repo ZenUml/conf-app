@@ -1,4 +1,6 @@
 import { oauthDiscoveryResponse } from "./agent-link/oauth/discovery";
+import { openaiAppsChallengeResponse } from "./agent-link/openaiAppsChallenge";
+import type { OpenAiAppsChallengeEnv } from "./agent-link/openaiAppsChallenge";
 import authenticate from "./utils/authenticate";
 import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
@@ -18,7 +20,7 @@ function serverErrorResponse(): Response {
   });
 }
 
-interface Env {
+interface Env extends OpenAiAppsChallengeEnv {
   SENTRY_DSN?: string;
 }
 
@@ -33,6 +35,7 @@ export const AUTHENTICATED_PATHS = [
   '/api/diagram-impact',
   '/api/architecture-tokens',
   '/api/feedback-report',
+  '/api/fullscreen-recovery',
   '/api/targeted-survey',
   // Conversion queue endpoints re-verify the FIT themselves, but the claim
   // response's app identity (environmentId for the ADF extensionKey rewrite)
@@ -116,12 +119,18 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     const discovery = oauthDiscoveryResponse(request.url);
     if (discovery) return discovery;
 
+    // ChatGPT's directory domain check, public for the same reason.
+    const openaiChallenge = openaiAppsChallengeResponse(request, env);
+    if (openaiChallenge) return openaiChallenge;
+
     const isDeeplinkTicket = isDeeplinkTicketPath(pathname);
     if (isDeeplinkTicket && request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: DEEPLINK_TICKET_CORS_HEADERS });
     }
 
-    if (AUTHENTICATED_PATHS.some(path => pathname.startsWith(path))) {
+    if (AUTHENTICATED_PATHS.some(path => path === '/api/fullscreen-recovery'
+      ? pathname === path || pathname === `${path}/`
+      : pathname.startsWith(path))) {
       const response = await authenticate({request, env, data});
       if(response.status !== 200) {
         return isDeeplinkTicket ? withDeeplinkTicketCors(response) : response;

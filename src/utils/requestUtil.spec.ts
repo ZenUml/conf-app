@@ -87,6 +87,16 @@ describe('forgeRequest', () => {
     expect(error.message).toContain('HTTP 503');
   });
 
+  it('keeps the Retry-After header of a 429 page, and none when absent', async () => {
+    mockRequestConfluence.mockResolvedValueOnce(new Response('<html><title>HTTP Status 429 – Too Many Requests</title></html>', {
+      status: 429, headers: { 'content-type': 'text/html;charset=utf-8', 'retry-after': '30' },
+    }));
+    expect(await forgeRequest('/wiki/api/v2/pages/1/attachments').catch(e => e)).toMatchObject({ status: 429, retryAfter: '30' });
+
+    mockRequestConfluence.mockResolvedValueOnce(new Response('<html></html>', { status: 429 }));
+    expect((await forgeRequest('/wiki/api/v2/pages/1/attachments').catch(e => e)).retryAfter).toBeUndefined();
+  });
+
   it('throws ForgeRequestError for an empty body, keeping the method', async () => {
     mockRequestConfluence.mockResolvedValue(new Response(null, { status: 204 }));
     const error = await forgeRequest('/wiki/rest/api/content/42/property/x', 'put', { a: 1 }).catch(e => e);

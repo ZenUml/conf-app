@@ -20,6 +20,7 @@
 </template>
 
 <script>
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 import { renderMermaid } from '@/utils/mermaid/renderMermaid'
 import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
@@ -223,6 +224,7 @@ export default {
       await this.initializeViewport();
       if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
       this.installHighlights();
+      reportDiagramReady(this.$el, 'mermaid');
       return true;
     },
     async runMermaid(code) {

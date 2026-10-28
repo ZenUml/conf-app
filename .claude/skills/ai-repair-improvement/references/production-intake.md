@@ -4,12 +4,31 @@
 
 - conf-app's src/utils/analytics/catalog.ts / types.ts: ai_repair_requested, succeeded, failed, and applied provide only lifecycle, model, failure-stage, and other closed-set properties; they do not include DSL, raw errors, or jobId. See .claude/skills/mixpanel/SKILL.md and docs/analytics/reference.md for the Mixpanel project and query method. Use these events to determine the time window, product variant, and failure scope; event counts do not imply a one-to-one mapping to backend jobs.
 - Diagramly's packages/database/prisma/schema.prisma: Job.type = diagram_modification is the repair path. Observed input fields include diagramCode, errorMessage, diagramType, languageKey, subTypeKey, and model; output may include diagramCode and repairAttempts. Follow the runtime schema and records, and explicitly note missing fields.
-- diagramly.ai/scripts/db-access.md and scripts/db.sh: production is the Neon main branch. Prefer a read-only account; set a timeout in a read-only transaction and limit queries to a UTC time window and page size. SELECT only. Do not run Prisma writes, migrations, Studio changes, or db push. Do not print connection strings or write raw query results to terminal logs.
+- **Default production access:** use the Diagramly checkout's `@prisma/client` + `@prisma/adapter-pg` programmatic database API with the verified production `DATABASE_URL`. On this machine it is recorded at `~/Projects/secrets/zenuml/production/database.yml` (`service: diagramly_database`, `environment: production`). Inspect the credential's role and follow the user's account-authorization rule before use; the currently stored credential is not marked `role:test`. Confirm the target using that metadata and the database identity returned by the query. Never use Diagramly's `.env` for production: it points to local `diagramly_test` on this machine. Use a read-only transaction, a statement timeout, a UTC window, and bounded pages. Prefer a read-only database role when available. See diagramly.ai/scripts/db-access.md for Neon project/branch identity. Do not print connection strings, run Prisma writes or migrations, or write raw query results to terminal logs.
+- **CLI fallback:** diagramly.ai/scripts/db.sh requires Neon CLI authentication and `psql`. Use it only when the programmatic connection is unavailable; do not treat a missing CLI login as proof that production data is inaccessible.
 - Existing private samples: private/local-data/ai-repair-2026-10-10/ and private/local-data/ai-repair-regression/. The former's production-jobs.json, failure-index.json, and mixpanel-evidence.json document a past retrieval, classification, and reconciliation; these are historical snapshots and do not prove current production state.
 
 ## Count first
 
-After the user specifies a start/end time and timezone, convert it to a UTC half-open interval. If no range is provided, ask only for the time range. If the production read-only connection fails, report BLOCKED and the reason; do not guess current DSL counts from old snapshots or Mixpanel. First run an aggregate-only query that returns numbers, **then ask how many cases to process and obtain model-data authorization**. Confirm the connection really targets production and the transaction is read-only; do not export input/output.
+Convert the user's range to a UTC half-open interval. If none was provided, use the main skill's default: seven completed `Asia/Shanghai` calendar days before today, ending at today's 00:00 exclusive. If the production read-only connection fails, report BLOCKED and the reason; do not guess current DSL counts from old snapshots or Mixpanel. First run an aggregate-only query that returns numbers, then apply the main skill's case, destination, and regression defaults or ask where they do not apply. Confirm the connection really targets production and the transaction is read-only; do not export input/output. From the Diagramly checkout, the default API path is the sibling [count helper](../scripts/count-production-jobs.cjs). Load the verified production URL into its process environment without printing it:
+
+~~~bash
+(
+  export DATABASE_URL="$(uv run python - <<'PY'
+import os, yaml
+path = os.path.expanduser('~/Projects/secrets/zenuml/production/database.yml')
+record = yaml.safe_load(open(path))
+assert record.get('service') == 'diagramly_database'
+assert record.get('environment') == 'production'
+print(record['config']['DATABASE_URL'], end='')
+PY
+)"
+  node <conf-app>/.claude/skills/ai-repair-improvement/scripts/count-production-jobs.cjs \
+    <window-start-utc-iso> <window-end-utc-iso>
+)
+~~~
+
+Resolve the actual conf-app path first. The helper uses Prisma's PostgreSQL driver adapter, a read-only transaction, and `maxWait: 30000` for Neon startup; it emits only identity, time, and aggregate counts. The caller must verify that the production credential was authorized. Its output is not a substitute for confirming the Neon main branch when the credential metadata is uncertain.
 
 ~~~sql
 BEGIN TRANSACTION READ ONLY;
@@ -49,11 +68,11 @@ FROM classified;
 COMMIT;
 ~~~
 
-At runtime, the query above may be piped into psql using Diagramly's scripts/db.sh psql main. Show the user only aggregate values, together with the window, timezone, all tenants or the verified scope, and query time. Here, “number of cases” means unique (language + original DSL); report job count separately. Failed jobs without errorMessage still count, but later mark their cases as missing error evidence; do not fabricate errors. COMPLETED cases whose output has another invalid syntax will be discovered during later parsing/rendering, so the initial counts are known failures and are not guaranteed to cover all false successes. If the query's criteria differ from the later import filter, report each count separately rather than combining them.
+The SQL above defines the count criteria; the helper executes the same query with bound UTC parameters. Show the user only aggregate values, together with the window, timezone, all tenants or the verified scope, and query time. Here, “number of cases” means unique (language + original DSL); report job count separately. Failed jobs without errorMessage still count, but later mark their cases as missing error evidence; do not fabricate errors. COMPLETED cases whose output has another invalid syntax will be discovered during later parsing/rendering, so the initial counts are known failures and are not guaranteed to cover all false successes. If the query's criteria differ from the later import filter, report each count separately rather than combining them.
 
 ## Query and filtering
 
-First inspect the current database schema, target environment identity, and read-only status. The following psql template is run from the Diagramly repository. Create a target directory readable only on this machine, then replace the absolute output path and UTC time window with this run's values. The psql output file receives only JSONL query results; the terminal displays only non-sensitive transaction status. Do not use url/q subcommands that print connection strings or raw rows.
+First inspect the current database schema, target environment identity, and read-only status. Use the same PrismaPg API and read-only transaction as the count helper for bounded SELECT pagination. Write each page directly to a local private JSONL file with mode `0600`; display only counts, hashes, and non-sensitive statuses. The following `psql` template is a fallback when the programmatic connection is unavailable. Create a target directory readable only on this machine, then replace the absolute output path and UTC time window with this run's values. Do not use `url`/`q` subcommands that print connection strings or raw rows.
 
 ~~~text
 scripts/db.sh psql main <<'SQL'

@@ -226,7 +226,7 @@ Every push to a PR branch fires the `Build, Test and Draft Release` workflow (`.
 So when checking a PR before merge:
 - `gh pr view <pr> --json mergeStateStatus` showing **`UNSTABLE`** with some `CANCELLED` contexts is **expected and mergeable** — it is not a real failure.
 - The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
-- `.md` / `docs/**` / `.claude/**` / `.cursor/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
+- `.md` / `docs/**` / `.claude/**` / `.cursor/**` / `packages/pr-agent-panel/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
 
 ### Release order — diagramly → lite → full
 
@@ -235,6 +235,14 @@ Production releases go **Diagramly first** (canary), then **Lite** for the same 
 ### Release pipeline time budget
 
 Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared PR file runs everything. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+
+### Feature rollout and customer operations
+
+Use Forge feature flags for feature testing, staged release, and emergency disable. Retire obsolete rollout flags when behavior is stable.
+
+Use the existing `KV_FEATURE_FLAGS` binding for persistent per-tenant operational state such as enrollment, exemption, notice, and effective-date policies. Reuse feature-specific key prefixes in that namespace; do not create a new namespace unless isolation is a separate requirement. Keep requests, grants, extensions, and audit records in D1. Every backend decision must use a trusted server identity and backend authorization. `SPACE_LICENSE_KV` remains the source for existing license data; this policy does not migrate it.
+
+Use two controls only when they serve two independent needs: rollout control and persistent customer operations. Do not duplicate one control in the other.
 
 ### Analytics & observability
 

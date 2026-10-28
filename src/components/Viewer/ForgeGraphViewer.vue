@@ -32,6 +32,7 @@
 </template>
 
 <script>
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
@@ -215,6 +216,7 @@ export default {
         // opens the export dialog, so the dialog's first capture is of a
         // painted diagram rather than an empty container.
         EventBus.$emit('viewerRenderSettled', 'graph');
+        if (!emptyBody && !diagram?.loadError) reportDiagramReady(container, 'graph');
       } catch (e) {
         this.graphRendered = false;
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);

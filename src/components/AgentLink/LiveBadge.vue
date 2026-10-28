@@ -70,8 +70,8 @@
 // existing collapsed-macro usage keeps rendering exactly as before;
 // 'idle'/'waiting'/'timeout' still render nothing.
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ACTIVITY_LINGER_MS } from '@/composables/agentLink/useAgentLinkSession'
+import { computed } from 'vue'
+import { isRecentlyActive, secondsLeft, useTickingNow } from '@/composables/agentLink/useTickingNow'
 
 const props = withDefaults(
   defineProps<{
@@ -84,37 +84,14 @@ const props = withDefaults(
   { thinking: false, lastActivityAt: null }
 )
 
-const nowMs = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | null = null
-
-function startTicking() {
-  stopTicking()
-  nowMs.value = Date.now()
-  timer = setInterval(() => {
-    nowMs.value = Date.now()
-  }, 1000)
-}
-function stopTicking() {
-  if (timer !== null) {
-    clearInterval(timer)
-    timer = null
-  }
-}
-
-watch(
-  () => props.lastActivityAt,
-  (v) => {
-    if (v === null || v === undefined) stopTicking()
-    else startTicking()
-  },
-  { immediate: true }
+const nowMs = useTickingNow(
+  () => props.lastActivityAt !== null && props.lastActivityAt !== undefined,
+  1000,
+  () => props.lastActivityAt
 )
 
-onBeforeUnmount(stopTicking)
-
 const agentActive = computed(() => {
-  if (props.lastActivityAt === null || props.lastActivityAt === undefined) return false
-  return nowMs.value - props.lastActivityAt < ACTIVITY_LINGER_MS
+  return isRecentlyActive(nowMs.value, props.lastActivityAt)
 })
 </script>
 

@@ -443,14 +443,7 @@ export default defineConfig(({ command }) => ({
     port: Number.parseInt(process.env.PORT || '8080', 10),
     strictPort: Boolean(process.env.PORT),
     proxy: {
-      '/api/metrics/evaluation': {
-        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
-      '/api/features': {
-        target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
-        changeOrigin: true
-      },
+      // Every key must match a handler in functions/ (tests/unit/functionsRoutes.spec.ts).
       '/api/analytics': {
         target: process.env.LOCAL_BACKEND_URL || 'http://127.0.0.1:8788/',
         changeOrigin: true

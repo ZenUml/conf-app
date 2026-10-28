@@ -168,13 +168,13 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     appLabel: 'Diagramly for Confluence',
   },
   // AsyncAPI ships both AsyncAPI Studio and the OpenAPI macro/editor.
-  // Parentless staging fixtures provision a parent in an accessible test space.
+  // Staging temporary pages use a dedicated root; render fixtures remain separate.
   'asyncapi@stg': {
     id: 'asyncapi@stg',
     domain: 'asyncapi-stg.atlassian.net',
-    spaceKey: 'ZEN',
-    parentPageId: '',
-    parentPageName: '',
+    spaceKey: 'SD',
+    parentPageId: '120061954',
+    parentPageName: 'E2E automated test root',
     isLite: false,
     productType: 'asyncapi',
     isForge: true,

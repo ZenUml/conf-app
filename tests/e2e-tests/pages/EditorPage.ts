@@ -6,8 +6,11 @@ import { dismissStarterGalleryIfPresent } from '../helpers/starterGallery.js';
 import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
 import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
 import { focusEditorBody } from '../helpers/editorFocus.js';
+import { resolveConfluenceBuckets } from '../helpers/retention/confluence-buckets.mjs';
+import { markTemporaryPage } from '../helpers/retention/mark-page.mjs';
 
 export class ConfluenceEditorPage {
+  private temporaryPageTarget?: { rootId: string; bucketId: string };
   constructor(private page: Page) {}
 
   // Atlassian changed the placeholder from "Give this page a title" to
@@ -63,7 +66,17 @@ export class ConfluenceEditorPage {
    * MUST NOT navigate to /pages/create directly — that opens the legacy v1 editor.
    */
   async createChildPage(): Promise<void> {
-    const createUrl = `https://${testConfig.domain}/wiki/create-content/page?spaceKey=${testConfig.spaceKey}&parentPageId=${testConfig.parentPageId}`;
+    let parentPageId = testConfig.parentPageId;
+    // Only the explicitly selected staging profiles use the temporary bucket.
+    // Production smoke/PVT and legacy/custom profiles retain their existing path.
+    if (!process.env.PARENT_PAGE_ID && ['zenuml-lite@stg', 'zenuml-full@stg', 'diagramly@stg', 'asyncapi@stg'].includes(process.env.APP ?? '')) {
+      const bucket = await resolveConfluenceBuckets({ request: this.page.request, domain: testConfig.domain, rootId: parentPageId });
+      this.temporaryPageTarget = { rootId: parentPageId, bucketId: bucket.monthId };
+      parentPageId = bucket.monthId;
+      await this.page.goto(`https://${testConfig.domain}/wiki/spaces/${encodeURIComponent(testConfig.spaceKey)}/pages/${parentPageId}`);
+      await expectVisibleOrFailOnLogin(this.page, this.page.locator('#title-text'), TIMEOUTS.FRAME_LOAD);
+    }
+    const createUrl = `https://${testConfig.domain}/wiki/create-content/page?spaceKey=${testConfig.spaceKey}&parentPageId=${parentPageId}`;
     // In CI, Confluence staging sometimes stalls loading the editor (title input
     // never appears). When it works it loads in ~12-15s, so we use a short detect
     // timeout and multiple quick attempts rather than one long wait. If all fail,
@@ -711,6 +724,17 @@ export class ConfluenceEditorPage {
 
     // Wait for published page to load
     await expect(this.page.locator('#title-text')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    if (this.temporaryPageTarget) {
+      const target = this.temporaryPageTarget;
+      this.temporaryPageTarget = undefined;
+      const pageId = new URL(this.page.url()).pathname.match(/\/pages\/(\d+)(?:\/|$)/)?.[1];
+      if (!pageId) {
+        console.warn('E2E retention: published page ID unavailable; leaving page unmarked');
+      } else {
+        await markTemporaryPage({ request: this.page.request, domain: testConfig.domain, pageId, ...target })
+          .catch(error => console.warn(`E2E retention: page ${pageId} left unmarked: ${error.message}`));
+      }
+    }
   }
 
   // ── Macro Editor Frame Helpers ──

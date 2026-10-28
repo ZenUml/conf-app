@@ -547,6 +547,7 @@
             :last-activity-at="agentLinkLastActivityAt"
             :lock-expires-at="agentLinkLockExpiresAt"
             :at-cap="agentLinkAtCap"
+            :notice-reason="agentLinkNoticeReason"
             @disconnect="onAgentLinkDisconnect"
             @revoke="onAgentLinkRevoke"
             @reconnect="onAgentLinkReconnect"
@@ -1234,6 +1235,9 @@ export default {
     },
     agentLinkState() {
       return this.agentLinkSession?.state.value ?? 'idle';
+    },
+    agentLinkNoticeReason() {
+      return this.agentLinkSession?.noticeReason.value ?? null;
     },
     agentLinkToken() {
       return this.agentLinkSession?.token.value ?? null;

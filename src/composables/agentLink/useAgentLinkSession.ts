@@ -173,6 +173,7 @@ export interface AgentLinkSessionApi {
   // components derive the activity pulse/resting copy from this and
   // ACTIVITY_LINGER_MS; it does not drive the session FSM.
   lastActivityAt: Ref<number | null>
+  noticeReason: Ref<'connection_lost' | null>
   activityFeed: Ref<AgentLinkActivityEntry[]>
   // Perceived-latency "AI is thinking" surface state (charter §6 Track F),
   // orthogonal to `state` (a paired session is `connected` the whole time an
@@ -252,6 +253,7 @@ export function useAgentLinkSession(
   // across the iframe via the handoff record.
   const atCap = ref(false)
   const lastActivityAt = ref<number | null>(null)
+  const noticeReason = ref<'connection_lost' | null>(null)
   const thinkingState = ref<AgentLinkThinkingState>('idle') as Ref<AgentLinkThinkingState>
   const activityFeed = ref<AgentLinkActivityEntry[]>([]) as Ref<
     AgentLinkActivityEntry[]
@@ -276,7 +278,7 @@ export function useAgentLinkSession(
   // omitted while unknown, matching the existing dsl/thinking
   // present-only-when-known convention.
   function handoffFeedFields(): Pick<AgentLinkHandoffSession, 'feed'> &
-    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'lastActivityAt' | 'hitCap'>> {
+    Partial<Pick<AgentLinkHandoffSession, 'expiresAt' | 'lastActivityAt' | 'hitCap' | 'noticeReason'>> {
     return {
       feed: activityFeed.value,
       ...(expiresAt.value != null ? { expiresAt: expiresAt.value } : {}),
@@ -284,6 +286,7 @@ export function useAgentLinkSession(
       // Amendment F: only carried once actually capped — a fresh session
       // hydrates atCap=false and only flips it on a real capped status envelope.
       ...(atCap.value ? { hitCap: true } : {}),
+      ...(noticeReason.value ? { noticeReason: noticeReason.value } : {}),
     }
   }
 
@@ -421,6 +424,7 @@ export function useAgentLinkSession(
     // paired yet) isn't a meaningful interruption to surface as "paused".
     if (event.type === 'close') {
       if (state.value !== 'connected') return
+      noticeReason.value = null
       suspendedAt = now()
       state.value = nextClientState(state.value, 'ws_drop')
       activityFeed.value = [...activityFeed.value, { summary: SUSPENDED_FEED_SUMMARY, at: now() }]
@@ -436,6 +440,18 @@ export function useAgentLinkSession(
       return
     }
 
+    // The transport has stopped retrying. Keep the FSM in suspended so the
+    // same token/lock rules apply, but let the panel offer a truthful manual
+    // reconnect action instead of an endless "reconnecting" spinner.
+    if (event.type === 'reconnect_failed') {
+      if (state.value !== 'suspended') return
+      noticeReason.value = 'connection_lost'
+      if (boundContext && token.value) {
+        persistSession({ ...boundContext, token: token.value, state: 'suspended', ...handoffFeedFields() })
+      }
+      return
+    }
+
     // A same-token reconnect succeeded (relayClient.ts's own scheduleReconnect
     // opened a fresh socket to the same wsUrl and the relay's DO accepted the
     // reattach — see AgentLinkSession.ts's fetch()). Only meaningful coming
@@ -443,6 +459,7 @@ export function useAgentLinkSession(
     // too but is a no-op since state is still 'waiting' at that point.
     if (event.type === 'open') {
       if (state.value !== 'suspended') return
+      noticeReason.value = null
       const resumeLatencyMs = suspendedAt != null ? Math.max(0, now() - suspendedAt) : undefined
       suspendedAt = null
       state.value = nextClientState(state.value, 'resumed')
@@ -962,6 +979,7 @@ export function useAgentLinkSession(
     activityFeed.value = []
     expiresAt.value = null
     lastActivityAt.value = null
+    noticeReason.value = null
     // Amendment D/F: a fresh connect clears any prior already-linked countdown
     // and cap flag.
     alreadyLinkedUntil.value = null
@@ -1161,6 +1179,7 @@ export function useAgentLinkSession(
     suspendedAt = null
     expiresAt.value = null
     lastActivityAt.value = null
+    noticeReason.value = null
     // Amendment D/F: a teardown clears any already-linked countdown and cap flag.
     alreadyLinkedUntil.value = null
     atCap.value = false
@@ -1285,6 +1304,8 @@ export function useAgentLinkSession(
     if (typeof session.lastActivityAt === 'number') {
       lastActivityAt.value = session.lastActivityAt
     }
+    noticeReason.value = session.state === 'suspended' && session.noticeReason === 'connection_lost'
+      ? 'connection_lost' : null
 
     // --- Amendment D: honest already-linked countdown mirror -------------
     // The relay owner (inline) learns the lock release time from the mint
@@ -1393,6 +1414,7 @@ export function useAgentLinkSession(
     alreadyLinkedUntil,
     atCap,
     lastActivityAt,
+    noticeReason,
     thinkingState,
     activityFeed,
     startConnect,

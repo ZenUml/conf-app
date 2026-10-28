@@ -1,0 +1,20 @@
+test
+Building 598404385b54fe18c015f438443409c808b53567 (59840438) on feat/plan-usage-better-ui
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 /workspace/conf-app-usage-ui
+
+stderr | src/components/PlanUsage/DiagramLocations.spec.ts > DiagramLocations > a failed load is not an empty state: it offers Retry, which resumes, and reports the HTTP status
+[plan-usage:locations] load failed {
+  error: 'HTTP 500 error response (application/json) from GET /wiki/api/v2/spaces: {}'
+}
+
+ ✓ src/components/PlanUsage/DiagramLocations.spec.ts (10 tests) 306ms
+ ✓ src/components/PlanUsage/PlanUsage.spec.ts (10 tests) 183ms
+ ✓ src/components/PlanUsage/fullscreenSource.spec.ts (2 tests) 5ms
+
+ Test Files  3 passed (3)
+      Tests  22 passed (22)
+   Start at  08:43:59
+   Duration  2.46s (transform 1.18s, setup 57ms, collect 1.64s, tests 494ms, environment 1.22s, prepare 191ms)
+

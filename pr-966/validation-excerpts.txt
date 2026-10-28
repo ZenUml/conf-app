@@ -1,0 +1,35 @@
+Full unit run (before installing E2E discovery dependencies)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed | 438 passed | 1 skipped (440)
+      Tests  3 failed | 5893 passed | 3 skipped (5899)
+   Start at  08:23:09
+   Duration  120.82s (transform 16.64s, setup 5.19s, collect 51.19s, tests 82.72s, environment 219.27s, prepare 34.02s)
+
+
+Discovery retry after installation
+   ✓ uses Jev behavior categories without adding a Mermaid-specific execution floor 3558ms
+   ✓ main plans smoke from real complete regression inventories for all four variants 11279ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  08:25:02
+   Duration  19.50s (transform 198ms, setup 53ms, collect 239ms, tests 18.17s, environment 600ms, prepare 150ms)
+
+
+Lint summary
+
+✖ 138 problems (0 errors, 138 warnings)
+  0 errors and 13 warnings potentially fixable with the `--fix` option.
+
+
+Full + MCP app build summary
+../dist/mcp-app/assets/mermaid-CYk71iOx.js                 3,387.32 kB
+../dist/mcp-app/assets/zenuml-BbWv30VH.js                  3,459.13 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 18.05s

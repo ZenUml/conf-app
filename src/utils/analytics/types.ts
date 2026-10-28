@@ -1101,6 +1101,20 @@ export type AnalyticsProperties = {
   // Error
   error_code?: string;
   error_name?: string;
+  // Capped at 200 chars by producers (see confluence_error_class below).
+  error_message?: string;
+  // client_unhandled_error. `error_source` is 'error' (window error event) or
+  // 'unhandledrejection'. `stack_head` is the first 5 stack lines, capped at
+  // 1000 chars, and is omitted when the error carries no stack. The location
+  // fields exist only on 'error' events.
+  // Raw Forge context behind `surface`, so analysis does not depend on the mapping.
+  module_key?: string;
+  extension_type?: string;
+  error_source?: "error" | "unhandledrejection";
+  stack_head?: string;
+  error_filename?: string;
+  error_lineno?: number;
+  error_colno?: number;
   // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
   // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
   // `operations` list on the host page, so `can_create_cc_type=false` is

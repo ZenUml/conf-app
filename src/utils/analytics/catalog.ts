@@ -1229,6 +1229,16 @@ export type AnalyticsEventName =
   //   "rendered fine", and Graph/OpenAPI (12.4%) had no failure telemetry at
   //   all — a Graph crash fired neither this event nor `macro_viewed`.
   | "viewer_load_failed"
+  // Uncaught frontend exception in any Forge Custom UI iframe: a window
+  // `error` or an `unhandledrejection` that no component handled. Installed
+  // once per iframe by utils/analytics/unhandledErrorCapture.ts. Guards: at most
+  // 5 events and one per name+message per iframe page lifetime; ResizeObserver
+  // loop noise and opaque cross-origin "Script error." are dropped.
+  // Properties: feature_area=system, surface=viewer|editor|modal|fullscreen|byline|page_banner|get_started|dashboard|route (from the Forge context; omitted if unknown), module_key, extension_type, error_source=error|
+  // unhandledrejection, error_name ('non_error' for a non-Error rejection
+  // reason), error_message (200 chars), stack_head (first 5 lines, 1000 chars),
+  // error_filename/error_lineno/error_colno (error events only).
+  | "client_unhandled_error"
   // #707: Mixpanel init had to proceed without an input it normally waits for,
   // so the iframe's events leave with a degraded configuration instead of not at
   // all. Fired once per iframe, AFTER mixpanel.init, from the bootstrap in
@@ -1257,6 +1267,7 @@ export type AnalyticsEventName =
   //   render_deferred_ms; a retry that fails still goes out as viewer_load_failed.
   | "viewer_render_deferred"
   | "viewer_render_abandoned"
+
   // Load-failed recovery panel — the "Try again" button (GenericViewer.vue).
   // `retry()` is a bare location.reload(), so the click and its result sit in
   // two different page lifetimes: the click event is emitted before the reload,

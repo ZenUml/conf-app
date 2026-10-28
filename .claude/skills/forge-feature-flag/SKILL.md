@@ -32,6 +32,8 @@ It reports live / deleted, last action, created-at, environments, and `--history
 
 The public API requires a `flagId` and cannot list flags. The script only reports keys from `src/` at HEAD, `--keys`, or `--include-branches`. A Console-only flag is invisible — use the Console list for a full inventory. The typed `changes` field is always null; read `details`. Do not switch the query back to `changes`.
 
+The historical `viewer-adf-scan-deferred` flag has no runtime call site on current main: the viewer ADF copy-scan was replaced by a zero-network cross-page check. It was already inert on AsyncAPI because that variant ships no Sequence macro. Do not recreate or enable the flag as a viewer optimization.
+
 ### Console
 
 Drive UI work with the `atlassian-developer-console` skill, including its account check, before any write.

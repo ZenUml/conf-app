@@ -7,14 +7,19 @@ name: Error radar
 # The radar output names real tenants and this repository's logs are public:
 # the run step prints only --quiet's tenant-free summary, and nothing is
 # uploaded as an artifact.
+#
+# Scheduled runs start hours late (2-3 h was seen in 2026-10), so the day to
+# report is not "yesterday when the run starts": the last day posted is kept
+# in the Actions cache, and each run posts every complete UTC day after it.
+# A late run then neither skips a day nor repeats one.
 
 on:
   schedule:
-    - cron: '47 21 * * *'   # 08:47 AEDT / 07:47 AEST, after the UTC day closes
+    - cron: '17 0 * * *'    # 11:17 AEDT / 10:17 AEST, after the UTC day closes
   workflow_dispatch:
     inputs:
       day:
-        description: 'UTC day to examine (YYYY-MM-DD); empty = yesterday'
+        description: 'UTC day to examine (YYYY-MM-DD); empty = every day not yet posted'
         required: false
         type: string
 
@@ -66,6 +71,14 @@ jobs:
             fi
           done
           exit $failed
+      # The cache holds one date and nothing else. Keys are immutable, so each
+      # run saves under its own key and the next restores the newest by prefix.
+      - name: Restore last posted day
+        uses: actions/cache/restore@v5
+        with:
+          path: radar-state
+          key: error-radar-last-day-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: error-radar-last-day-
       - name: Detect and post
         env:
           MIXPANEL_SA_USER: ${{ secrets.MIXPANEL_SA_USER || vars.MIXPANEL_SA_USER }}
@@ -73,4 +86,12 @@ jobs:
           SLACK_ERROR_RADAR_WEBHOOK: ${{ secrets.SLACK_ERROR_RADAR_WEBHOOK }}
           DAY: ${{ inputs.day }}
         run: |
-          python3 .claude/skills/error-radar/scripts/radar.py --quiet --post ${DAY:+--day "$DAY"}
+          python3 .claude/skills/error-radar/scripts/radar.py --quiet --post \
+            --state radar-state/last-day ${DAY:+--day "$DAY"}
+      # always(): a run that posted some days before failing keeps that progress.
+      - name: Save last posted day
+        if: always() && hashFiles('radar-state/last-day') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: radar-state
+          key: error-radar-last-day-${{ github.run_id }}-${{ github.run_attempt }}

@@ -3,8 +3,7 @@ import { expect, waitFor, within } from 'storybook/test'
 import type { App } from 'vue'
 import DocumentList from './DocumentList.vue'
 import store from '@/model/store2'
-import globals from '@/model/globals'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 // DocumentList.vue writes the picked diagram into `this.$store` and the preview
@@ -75,24 +74,29 @@ const SAMPLE_ITEMS: CustomContentItem[] = [
   },
 ]
 
-function configureStory({ items, pickedId }: { items: CustomContentItem[]; pickedId?: string }) {
-  forgeGlobal.isForge = false
-  forgeGlobal.isLite = true
-  forgeGlobal.forgeContext = {
-    accountId: 'storybook-user',
-    siteUrl: 'https://example-tenant.atlassian.net',
-    extension: {
-      content: { id: 'storybook-page' },
-      space: { key: 'DOCS' },
-      // AtlasPage.getHref() returns this; DocumentList keeps everything up to and
-      // including 'pages/' as the base of its "Page: …" links.
-      location: 'https://example-tenant.atlassian.net/wiki/spaces/DOCS/pages/123456/Storybook',
-      config: pickedId ? { customContentId: pickedId } : {},
+function documentListEnv({ items, pickedId }: { items: CustomContentItem[]; pickedId?: string }) {
+  return forgeEnv({
+    forge: {
+      isForge: false,
+      isLite: true,
+      forgeContext: {
+        accountId: 'storybook-user',
+        siteUrl: 'https://example-tenant.atlassian.net',
+        extension: {
+          content: { id: 'storybook-page' },
+          space: { key: 'DOCS' },
+          // AtlasPage.getHref() returns this; DocumentList keeps everything up to and
+          // including 'pages/' as the base of its "Page: …" links.
+          location: 'https://example-tenant.atlassian.net/wiki/spaces/DOCS/pages/123456/Storybook',
+          config: pickedId ? { customContentId: pickedId } : {},
+        },
+      },
     },
-  } as any
-  ;(globals.apWrapper as any).searchCustomContent = async () => items
-  ;(globals.apWrapper as any).getCustomContentByIdV2 = async (id: string) =>
-    items.find((item) => item.id === id) ?? null
+    apWrapper: {
+      searchCustomContent: async () => items,
+      getCustomContentByIdV2: async (id: string) => items.find((item) => item.id === id) ?? null,
+    },
+  })
 }
 
 const meta: Meta<typeof DocumentList> = {
@@ -121,12 +125,7 @@ type Story = StoryObj<typeof DocumentList>
 /** Five diagrams across three pages. Nothing is picked yet, so the right pane shows its placeholder. */
 export const Populated: Story = {
   name: 'Populated — nothing picked',
-  decorators: [
-    () => {
-      configureStory({ items: SAMPLE_ITEMS })
-      return { template: '<story />' }
-    },
-  ],
+  decorators: [documentListEnv({ items: SAMPLE_ITEMS })],
   play: async () => {
     const canvas = within(document.body)
     await expect(await canvas.findByText('Page: Backend Architecture')).toBeVisible()
@@ -145,12 +144,7 @@ export const Populated: Story = {
  */
 export const Preselected: Story = {
   name: 'Preselected — real preview of the embedded diagram',
-  decorators: [
-    () => {
-      configureStory({ items: SAMPLE_ITEMS, pickedId: 'cc-001' })
-      return { template: '<story />' }
-    },
-  ],
+  decorators: [documentListEnv({ items: SAMPLE_ITEMS, pickedId: 'cc-001' })],
   play: async () => {
     const canvas = within(document.body)
     await expect(await canvas.findByText('Page: Backend Architecture')).toBeVisible()
@@ -167,12 +161,7 @@ export const Preselected: Story = {
 /** No custom content in the site: the list is blank (the component has no empty-state copy) and the right pane keeps its placeholder. */
 export const Empty: Story = {
   name: 'Empty — no diagrams stored',
-  decorators: [
-    () => {
-      configureStory({ items: [] })
-      return { template: '<story />' }
-    },
-  ],
+  decorators: [documentListEnv({ items: [] })],
   play: async () => {
     const canvas = within(document.body)
     await expect(await canvas.findByText('Select a document to preview')).toBeVisible()

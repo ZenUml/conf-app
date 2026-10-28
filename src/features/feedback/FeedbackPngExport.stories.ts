@@ -3,10 +3,9 @@ import { expect, userEvent, waitFor, within } from 'storybook/test'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import Mermaid from '@/components/Mermaid.vue'
 import store from '@/model/store2'
-import globals from '@/model/globals'
-import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 
 setup((app) => app.use(store))
 
@@ -23,26 +22,6 @@ const MERMAID = `sequenceDiagram
   WebApp-->>Customer: Confirmation`
 
 function configureProductionViewerFixture() {
-  forgeGlobal.isForge = false
-  forgeGlobal.isLite = true
-  forgeGlobal.forgeContext = {
-    accountId: 'account-example',
-    siteUrl: 'https://example-tenant.atlassian.net',
-    moduleKey: 'zenuml-mermaid-macro-lite',
-    extension: {
-      content: { id: 'content-example' },
-      space: { key: 'DOCS', name: 'Example space' },
-      config: { customContentId: 'custom-content-example', macroUuid: 'macro-example' },
-      // openExport() only mounts ExportModal inline when isFullscreenMode is true;
-      // otherwise it emits `fullscreen` and the sole listener lives in forgeIndex.ts,
-      // which no story mounts — so without this the dialog never opened at all.
-      modal: { macroMode: 'fullscreen' },
-    },
-  }
-  globals.apWrapper.canUserEdit = async () => true
-  globals.apWrapper.initializeContext = async () => undefined
-  globals.apWrapper.getCurrentPage = async () => ({ title: 'Example page' }) as any
-
   store.commit('updateDiagramType', DiagramType.Mermaid)
   store.commit('updateMermaidCode', MERMAID)
   store.commit('updateTitle', 'Order processing')
@@ -70,6 +49,31 @@ const meta: Meta<typeof GenericViewer> = {
     },
   ],
   decorators: [
+    forgeEnv({
+      forge: {
+        isForge: false,
+        isLite: true,
+        forgeContext: {
+          accountId: 'account-example',
+          siteUrl: 'https://example-tenant.atlassian.net',
+          moduleKey: 'zenuml-mermaid-macro-lite',
+          extension: {
+            content: { id: 'content-example' },
+            space: { key: 'DOCS', name: 'Example space' },
+            config: { customContentId: 'custom-content-example', macroUuid: 'macro-example' },
+            // openExport() only mounts ExportModal inline when isFullscreenMode is true;
+            // otherwise it emits `fullscreen` and the sole listener lives in forgeIndex.ts,
+            // which no story mounts — so without this the dialog never opened at all.
+            modal: { macroMode: 'fullscreen' },
+          },
+        },
+      },
+      apWrapper: {
+        canUserEdit: async () => true,
+        initializeContext: async () => undefined,
+        getCurrentPage: async () => ({ title: 'Example page' }),
+      },
+    }),
     () => {
       configureProductionViewerFixture()
       return { template: '<story />' }

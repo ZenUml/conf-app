@@ -3,7 +3,7 @@ import type { App } from 'vue'
 import Header from './Header.vue'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 
 // Header.vue reads the store through mapState/mapGetters, so the Vuex plugin is
 // installed on Storybook's root Vue app via setup(). See GenericViewer.stories.ts
@@ -17,12 +17,6 @@ type Story = StoryObj<typeof Header>
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Prevent openUrl() from navigating away in Storybook. */
-function stubForge() {
-  forgeGlobal.isForge = false
-  forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.example.com'
-}
 
 function setupStore({
   diagramType = DiagramType.Sequence,
@@ -68,11 +62,8 @@ const meta: Meta<typeof Header> = {
     },
   },
   decorators: [
-    // Reset forge globals before each story.
-    () => {
-      stubForge()
-      return { template: '<story />' }
-    },
+    // isForge = false prevents openUrl() from navigating away in Storybook.
+    forgeEnv({ forge: { isForge: false, zenumlRemoteBaseUrl: 'https://storybook.example.com' } }),
   ],
 }
 

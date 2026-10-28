@@ -1,7 +1,7 @@
 import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import type { App } from 'vue'
 import ForgeGraphEditor from './ForgeGraphEditor.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { useAutoTitle } from '@/composables/useAutoTitle'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
@@ -49,11 +49,6 @@ function clearDraftKeys() {
   }
 }
 
-function setupForge() {
-  forgeGlobal.isForge = false
-  forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.example.com'
-}
-
 function configureStory({
   title = '',
   graphXml = EMPTY_GRAPH,
@@ -66,7 +61,6 @@ function configureStory({
   id?: string
 } = {}) {
   clearDraftKeys()
-  setupForge()
   ;(useAutoTitle as any).__resetForTests?.()
   store.commit('updateDiagramType', DiagramType.Graph)
   store.commit('updateTitle', title)
@@ -92,6 +86,7 @@ const meta: Meta<typeof ForgeGraphEditor> = {
     },
   },
   decorators: [
+    forgeEnv({ forge: { isForge: false, zenumlRemoteBaseUrl: 'https://storybook.example.com' } }),
     () => {
       configureStory()
       return { template: '<story />' }

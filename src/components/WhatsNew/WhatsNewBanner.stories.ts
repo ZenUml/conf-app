@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, within } from 'storybook/test'
 import WhatsNewBanner from './WhatsNewBanner.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import type { WhatsNewRelease } from '@/utils/whatsNew/releases'
 
 type Story = StoryObj<typeof WhatsNewBanner>
@@ -29,8 +29,6 @@ const SAMPLE: WhatsNewRelease = {
 function installMocks() {
   localStorage.setItem('mockClientDomain', 'example-tenant')
   localStorage.removeItem('whatsNewBanner:example-tenant')
-  forgeGlobal.isForge = false
-  forgeGlobal.forgeContext = { accountId: 'storybook-user', extension: {} }
 }
 
 const meta: Meta<typeof WhatsNewBanner> = {
@@ -50,6 +48,7 @@ const meta: Meta<typeof WhatsNewBanner> = {
     },
   },
   decorators: [
+    forgeEnv({ forge: { isForge: false, forgeContext: { accountId: 'storybook-user', extension: {} } } }),
     () => {
       installMocks()
       return { template: '<story />' }

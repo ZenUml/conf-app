@@ -376,13 +376,15 @@ describe('ForgeGraphEditor Diagram/Board mode switch', () => {
     const previousEnsureTitle = (window as any).ensureTitle
     ;(window as any).ensureTitle = ensureTitle
     const wrapper = mountEditor({ graphEditorMode: 'board', graphXml: PAGE, saveGraphAndExit })
+    const pngBlob = new Blob(['board-png'], { type: 'image/png' })
+    wrapper.vm.exportPng = vi.fn().mockResolvedValue(pngBlob)
 
     wrapper.vm.messageListener({
       data: JSON.stringify({ event: 'save', xml: BOARD }),
     })
     await flushPromises()
 
-    expect(saveGraphAndExit).toHaveBeenCalledWith({ graphXml: PAGE, boardGraphXml: BOARD })
+    expect(saveGraphAndExit).toHaveBeenCalledWith({ graphXml: PAGE, boardGraphXml: BOARD, pngBlob })
     ;(window as any).ensureTitle = previousEnsureTitle
     wrapper.unmount()
   })

@@ -1095,19 +1095,21 @@ describe('GenericViewer (chrome-less)', () => {
       const spy = vi.spyOn(EventBus, '$emit')
       const wrapper = mountViewer()
       await wrapper.find('button[aria-label="Fullscreen"]').trigger('click')
-      expect(spy).toHaveBeenCalledWith('fullscreen')
+      expect(spy).toHaveBeenCalledWith('fullscreen', expect.objectContaining({ lifecycleSession: expect.objectContaining({ id: expect.any(String), startedAt: expect.any(Number) }) }))
     })
 
     it('fires fullscreen_opened Mixpanel event with macro_type when Fullscreen is clicked', async () => {
       store.commit('updateDiagramType', DiagramType.Mermaid)
       const wrapper = mountViewer()
       await wrapper.find('button[aria-label="Fullscreen"]').trigger('click')
-      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('fullscreen_opened', {
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('fullscreen_opened', expect.objectContaining({
         feature_area: 'macro',
         surface: 'viewer',
         macro_type: 'mermaid',
         entry_point: 'page_view',
-      })
+        fullscreen_session_id: expect.any(String),
+        fullscreen_started_at_ms: expect.any(Number),
+      }))
     })
   })
 
@@ -2790,7 +2792,7 @@ describe('GenericViewer (chrome-less)', () => {
       await clickMoreItem(wrapper, 'Export PNG')
 
       expect(vm.showExportModal).toBe(false)
-      expect(emitted).toEqual([{ openExport: true }])
+      expect(emitted).toEqual([expect.objectContaining({ openExport: true, lifecycleSession: expect.objectContaining({ id: expect.any(String), startedAt: expect.any(Number) }) })])
       expect(trackAnalyticsEvent).toHaveBeenCalledWith('fullscreen_opened', expect.objectContaining({ entry_point: 'export', action_location: 'header_more_menu' }))
       EventBus.$off('fullscreen', handler)
     })
@@ -3314,7 +3316,7 @@ describe('GenericViewer (chrome-less)', () => {
       expect(prompt).toContain('cloudId: cloud-1')
       expect(prompt).toContain('pageId: 42')
       expect(startConnect).not.toHaveBeenCalled()
-      expect(emitSpy).not.toHaveBeenCalledWith('fullscreen')
+      expect(emitSpy.mock.calls.some(([name]) => name === 'fullscreen')).toBe(false)
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_mcp_dialog_opened',
         expect.objectContaining({ feature_area: 'agent_link', mcp_mode: 'headless', macro_type: DiagramType.Sequence })
@@ -3796,7 +3798,7 @@ describe('GenericViewer — Export PNG routes through Fullscreen', () => {
 
     await wrapper.vm.openExport()
 
-    expect(emitted).toEqual([{ openExport: true }])
+    expect(emitted).toEqual([expect.objectContaining({ openExport: true, lifecycleSession: expect.objectContaining({ id: expect.any(String), startedAt: expect.any(Number) }) })])
     expect(wrapper.vm.showExportModal).toBe(false)
     EventBus.$off('fullscreen', handler)
     wrapper.unmount()

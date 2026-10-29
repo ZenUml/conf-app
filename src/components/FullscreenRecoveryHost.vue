@@ -18,7 +18,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, type Component } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
 import type { RecoverySnapshot, RecoveryScenario } from '../../shared/fullscreenRecovery';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
 import FullscreenRecoveryGate from '@/components/FullscreenRecovery/FullscreenRecoveryGate.vue';
@@ -26,6 +26,8 @@ import FullscreenRecoveryStatus from '@/components/FullscreenRecovery/Fullscreen
 import { activateFullscreenRecovery, getFullscreenRecovery } from '@/apis/fullscreenRecovery';
 import { onVisibleDiagramReady } from '@/utils/fullscreenReady';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import forgeGlobal from '@/model/globals/forgeGlobal';
+import { fullscreenSessionFromContext, fullscreenSessionProperties, publishFullscreenSignal } from '@/utils/fullscreenLifecycle/bridge';
 
 const props = withDefaults(defineProps<{
   initialSnapshot: RecoverySnapshot;
@@ -44,6 +46,7 @@ let disposed = false, rendered = false;
 let clock: ReturnType<typeof setInterval>;
 let serverClockOffset = Date.parse(snapshot.value.serverNow) - Date.now();
 const attemptId = crypto.randomUUID();
+const session = fullscreenSessionFromContext(forgeGlobal.forgeContext);
 const common = () => ({ feature_area: 'upgrade' as const, surface: 'viewer' as const,
   feature: 'fullscreen' as const, policy_version: 'fullscreen-contact-v1' as const,
   attempt_id: attemptId, recovery_state: snapshot.value.state,
@@ -53,10 +56,19 @@ const common = () => ({ feature_area: 'upgrade' as const, surface: 'viewer' as c
 const stopReady = onVisibleDiagramReady(() => host.value, (macroType: MacroTypeValue) => {
   rendered = true;
   trackAnalyticsEvent('fullscreen_view_ready', { ...common(), macro_type: macroType,
+    ...fullscreenSessionProperties(session),
     access_source: snapshot.value.state === 'unavailable' ? 'fail_open'
       : snapshot.value.state === 'disabled' ? 'existing' : 'temporary' });
+  void publishFullscreenSignal(session, 'diagram', true);
   if (snapshot.value.state === 'pending_activation') void activate();
 });
+
+watch([hasOpened, showRequest, () => snapshot.value.state], () => {
+  const phase = showRequest.value || !hasOpened.value
+    ? (snapshot.value.state === 'expired' && !showRequest.value ? 'expired' : 'request')
+    : (rendered ? 'diagram' : 'loading');
+  void publishFullscreenSignal(session, phase);
+}, { immediate: true });
 
 async function activate() {
   if (!rendered || activating.value || snapshot.value.state !== 'pending_activation' || !snapshot.value.request) return;

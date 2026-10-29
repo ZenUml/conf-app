@@ -591,6 +591,7 @@
 <script>
 import {trackEvent} from "@/utils/window";
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from "@/utils/analytics/trackAnalyticsEvent";
+import uuidv4 from '@/utils/uuid';
 
 import { computed, markRaw } from 'vue'
 import { VIEWER_ZOOM_HEADER } from '@/utils/viewport/headerZoom'
@@ -2435,21 +2436,18 @@ export default {
     },
     fullscreen(options = {}) {
       const openExport = options.openExport === true;
+      const lifecycleSession = { id: uuidv4(), startedAt: Date.now(), entryPoint: openExport ? 'export' : 'page_view' };
       trackEvent('fullscreen', 'click', 'viewing');
       trackAnalyticsEvent('fullscreen_opened', {
         feature_area: 'macro',
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
         entry_point: openExport ? 'export' : 'page_view',
+        fullscreen_session_id: lifecycleSession.id,
+        fullscreen_started_at_ms: lifecycleSession.startedAt,
         ...(options.actionLocation ? { action_location: options.actionLocation } : {}),
       });
-      // Single-argument emit on the ordinary path: every existing listener and
-      // test treats `fullscreen` as a bare signal.
-      if (openExport) {
-        EventBus.$emit('fullscreen', { openExport: true });
-      } else {
-        EventBus.$emit('fullscreen');
-      }
+      EventBus.$emit('fullscreen', { ...(openExport ? { openExport: true } : {}), lifecycleSession });
     },
     showContentVersions(actionLocation) {
       if (actionLocation) trackEvent('show_content_versions', 'click', 'viewing', { action_location: actionLocation });

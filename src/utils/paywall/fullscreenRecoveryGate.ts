@@ -3,9 +3,10 @@ import { type Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { mountRoot } from '@/mount-root';
 import FullscreenRecoveryHost from '@/components/FullscreenRecoveryHost.vue';
 import { getFullscreenRecovery } from '@/apis/fullscreenRecovery';
-import { getContext, getView, navigateToAppPage } from '@/model/globals/forgeGlobal';
+import forgeGlobal, { getContext, getView, navigateToAppPage } from '@/model/globals/forgeGlobal';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { onVisibleDiagramReady } from '@/utils/fullscreenReady';
+import { fullscreenClosePayload, fullscreenSessionFromContext, fullscreenSessionProperties, publishFullscreenSignal } from '@/utils/fullscreenLifecycle/bridge';
 import type { RecoveryScenario } from '../../../shared/fullscreenRecovery';
 
 /** Independent, explicit pilot policy. Never changes the editor's count/paid policy. */
@@ -28,7 +29,7 @@ export async function mountFullscreenRecovery(opts: {
         customContentId: context.extension?.config?.customContentId || context.extension?.modal?.customContentId,
         spaceKey: opts.spaceKey,
       },
-      returnInline: async () => { await (await getView()).close(); },
+      returnInline: async () => { await (await getView()).close(fullscreenClosePayload(fullscreenSessionFromContext(context), 'return_inline')); },
       planUsage: async (requestId?: string, scenarios?: RecoveryScenario[]) => {
         const query = new URLSearchParams({ source: 'fullscreen_recovery', space_key: opts.spaceKey });
         if (requestId) query.set('request', requestId);
@@ -47,6 +48,7 @@ export async function mountFullscreenRecovery(opts: {
 }
 
 export function observeOrdinaryFullscreenReady(accessSource: 'existing' | 'fail_open'): void {
+  const session = fullscreenSessionFromContext(forgeGlobal.forgeContext);
   let stop = () => {};
   const cleanup = () => { stop(); window.removeEventListener('pagehide', cleanup); };
   stop = onVisibleDiagramReady(() => document.getElementById('app'), (macroType) => {
@@ -54,7 +56,9 @@ export function observeOrdinaryFullscreenReady(accessSource: 'existing' | 'fail_
       feature_area: 'macro', surface: 'viewer', feature: 'fullscreen',
       policy_version: 'fullscreen-contact-v1', entry_point: 'page_view',
       macro_type: macroType, access_source: accessSource, attempt_id: crypto.randomUUID(),
+      ...fullscreenSessionProperties(session),
     });
+    void publishFullscreenSignal(session, 'diagram', true);
     cleanup();
   });
   window.addEventListener('pagehide', cleanup, { once: true });

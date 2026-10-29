@@ -75,6 +75,8 @@ import type {
 export type AnalyticsProperties = {
   /** Opaque ID shared by the opening, actual diagram-ready and closing events. */
   fullscreen_session_id?: string;
+  /** Wall-clock time at open; fixes the sample cohort across a budget boundary. */
+  fullscreen_started_at_ms?: number;
   /** Elapsed modal lifetime; diagram durations are absent until ready. */
   fullscreen_modal_duration_ms?: number;
   fullscreen_diagram_duration_ms?: number;

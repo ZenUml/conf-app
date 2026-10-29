@@ -25,12 +25,15 @@ import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute, maybeHandleTargetedSurvey } from './routes/pageBanner';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { observeOrdinaryFullscreenReady } from '@/utils/paywall/fullscreenRecoveryGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
 import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
 import { markWhatsNewAudience } from '@/utils/whatsNew/state';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
+import { FULLSCREEN_LIFECYCLE_EVENT, fullscreenClosePayload, fullscreenCloseReason, fullscreenSessionFromContext, fullscreenSessionProperties } from '@/utils/fullscreenLifecycle/bridge';
+import { createFullscreenObserver } from '@/utils/fullscreenLifecycle/observer';
 import { markPublishClicked, trackPublishCompleted, recordPublishStep, recordPublishFlag } from '@/utils/analytics/publishTiming'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
@@ -1079,6 +1082,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
         return;
       }
     }
+    if (!editable && fullscreenMode && exportEntry) observeOrdinaryFullscreenReady('existing');
 
     const component = editable
     ? (await import("@/components/Workspace.vue")).default
@@ -1640,9 +1644,10 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 // built-in guard, so a second click before it resolves issues a second modal.
 let fullscreenOpenInFlight = false;
 
-EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
+EventBus.$on('fullscreen', async (options?: { openExport?: boolean; lifecycleSession?: { id: string; startedAt: number; entryPoint: 'page_view' | 'export' } }) => {
   if (fullscreenOpenInFlight) return;
   fullscreenOpenInFlight = true;
+  let lifecycleObserver: ReturnType<typeof createFullscreenObserver> | undefined;
   try {
     const context = await initForgeContext();
     const macroUuid =
@@ -1651,6 +1656,16 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
       || uuidv4();
 
     const exportSession = readExportSession();
+    const session = options?.lifecycleSession;
+    if (session) {
+      const macroType = (store.state.diagram?.diagramType as MacroTypeValue) || 'none';
+      lifecycleObserver = createFullscreenObserver({ session, doc: document, win: window,
+        emit: durations => trackAnalyticsEventBeforeUnload('fullscreen_closed', {
+          feature_area: 'macro', surface: 'viewer', macro_type: macroType,
+          ...fullscreenSessionProperties(session), ...durations,
+        }),
+      });
+    }
 
     // The listener's lifetime lives in openWithExportSessionHandoff, which is
     // unit-tested: the bridge resolves openModal() when the modal has OPENED,
@@ -1659,7 +1674,21 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
       macroUuid,
       subscribe: async (handler) => {
         const { events } = await import('@forge/bridge');
-        return events.on(EXPORT_SESSION_EVENT, handler);
+        const exportSubscription = await events.on(EXPORT_SESSION_EVENT, handler);
+        let lifecycleSubscription: unknown;
+        try {
+          if (lifecycleObserver) lifecycleSubscription = await events.on(FULLSCREEN_LIFECYCLE_EVENT, payload => lifecycleObserver?.receive(payload));
+        } catch (error) {
+          console.warn('[fullscreen lifecycle] subscription unavailable', error);
+        }
+        return () => {
+          for (const subscription of [exportSubscription, lifecycleSubscription]) {
+            if (typeof subscription === 'function') subscription();
+            else if (subscription && typeof (subscription as { unsubscribe?: unknown }).unsubscribe === 'function') {
+              (subscription as { unsubscribe: () => void }).unsubscribe();
+            }
+          }
+        };
       },
       onSnapshot: receiveExportSession,
       open: (onClose) => openModal({
@@ -1670,6 +1699,7 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
           macroMode: 'fullscreen',
           macro_uuid: macroUuid,
           session_id: getOrCreateSession(),
+          ...(options?.lifecycleSession ? { fullscreenLifecycle: options.lifecycleSession } : {}),
           ...(exportSession ? { exportSession } : {}),
           // Export PNG entry: the modal opens the export dialog on arrival, and
           // the fullscreen-viewer paywall is skipped for it — inline export has
@@ -1678,13 +1708,23 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
           ...(options?.openExport ? { openExport: true } : {}),
         },
       }),
-      onClosed: () => {
+      onClosed: async (payload) => {
+        // Telemetry must not strand the inline viewer if a bridge call stalls.
+        if (lifecycleObserver) {
+          await Promise.race([
+            lifecycleObserver.close(session ? fullscreenCloseReason(payload, session.id) : 'unknown'),
+            new Promise<void>(resolve => setTimeout(resolve, 750)),
+          ]);
+        }
         // Export-entry close must only dismiss the temporary modal. A normal
         // fullscreen close keeps the page visit alive when export state exists.
         if (options?.openExport || readExportSession() !== null) return;
         location.reload();
       },
     });
+  } catch (error) {
+    lifecycleObserver?.detach();
+    throw error;
   } finally {
     fullscreenOpenInFlight = false;
   }
@@ -1695,7 +1735,7 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
 // behind it must not stay reachable. See GenericViewer.onExportModalClose.
 EventBus.$on('closeFullscreen', async () => {
   const exportSession = readExportSession();
-  await (await getView()).close({ exportSession });
+  await (await getView()).close({ exportSession, ...fullscreenClosePayload(fullscreenSessionFromContext(forgeGlobal.forgeContext), 'export_dismissed') });
 });
 
 EventBus.$on('updateContent', async (diagram: Diagram) => {

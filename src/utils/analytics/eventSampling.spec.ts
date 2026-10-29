@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   sampleRateFor,
   decideSample,
+  decideFullscreenLifecycleSample,
   EVENT_SAMPLE_RATES,
   OCTOBER_REDUCED_EVENTS,
   OCTOBER_RETAINED_EVENTS,
@@ -11,6 +12,14 @@ import {
 describe("eventSampling", () => {
   beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z")));
   afterEach(() => vi.mocked(Date.now).mockRestore());
+
+  it('keeps one fullscreen session in the same cohort across the billing boundary', () => {
+    const startedAt = Date.parse('2026-10-31T23:59:59Z');
+    const first = decideFullscreenLifecycleSample('session-123', startedAt);
+    vi.mocked(Date.now).mockReturnValue(Date.parse('2026-11-01T00:05:00Z'));
+    expect(decideFullscreenLifecycleSample('session-123', startedAt)).toEqual(first);
+    expect(first.rate).toBe(sampleRateFor('fullscreen_opened', startedAt));
+  });
 
   describe("October 2026 event budget", () => {
     const october = Date.parse("2026-10-12T00:00:00Z");

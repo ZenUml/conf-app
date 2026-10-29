@@ -426,3 +426,12 @@ export function decideSample(
   if (rate <= 0) return { keep: false, rate: 0 };
   return { keep: rng() < rate, rate };
 }
+
+/** All events in one fullscreen session share the open-time sample decision. */
+export function decideFullscreenLifecycleSample(sessionId: string, startedAt: number): SampleDecision {
+  let hash = 2166136261;
+  for (let i = 0; i < sessionId.length; i++) {
+    hash = Math.imul(hash ^ sessionId.charCodeAt(i), 16777619);
+  }
+  return decideSample('fullscreen_opened', () => (hash >>> 0) / 4294967296, startedAt);
+}

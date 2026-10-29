@@ -11,7 +11,7 @@ import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
-import { decideSample } from "./eventSampling";
+import { decideFullscreenLifecycleSample, decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
 import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
 import { resolveEffectiveCustomContentId } from "@/utils/effectiveCustomContentId";
@@ -470,7 +470,11 @@ export async function _awaitableTrackAnalyticsEvent(
     // Volume sampling first: a dropped event must not pay the init cost — the
     // first tracked event per iframe otherwise triggers a Forge-bridge round
     // trip (session-replay flag) inside _initMixpanel.
-    const sample = decideSample(eventName);
+    const isFullscreenLifecycle = eventName === 'fullscreen_opened' || eventName === 'fullscreen_view_ready' || eventName === 'fullscreen_closed';
+    const sample = isFullscreenLifecycle && typeof callerProps.fullscreen_session_id === 'string' &&
+      typeof callerProps.fullscreen_started_at_ms === 'number' && Number.isFinite(callerProps.fullscreen_started_at_ms)
+      ? decideFullscreenLifecycleSample(callerProps.fullscreen_session_id, callerProps.fullscreen_started_at_ms)
+      : decideSample(eventName);
     if (!sample.keep) return;
 
     await _initMixpanel();

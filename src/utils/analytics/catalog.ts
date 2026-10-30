@@ -1364,6 +1364,16 @@ export type AnalyticsEventName =
   | "draft_restored"
   | "draft_discarded"
   | "draft_banner_dismissed"
+  // The by-id GET of a macro's custom content failed without proving it absent
+  // (429, 403, 5xx, a thrown request or a malformed body), so no orphan probe
+  // ran. Emitted by orphanTelemetry.reportOrphanObserved (legacy trackEvent,
+  // category 'warning') INSTEAD of `customcontent_orphan_observed`, which now
+  // means only "the content is confirmed gone" (#1014). Before this event
+  // existed the same case went out as an orphan with
+  // `recoverable: 'probe_skipped_no_probe_result'`. Properties: diagram_kind,
+  // page_id, direct_fetch_status, direct_fetch_http_status,
+  // direct_fetch_error_code, direct_fetch_error_class.
+  | "customcontent_fetch_unavailable"
   // In-viewer Edit gate for same-page shared-id macros (view-fork silent
   // orphan: view-editing a macro whose customContentId is shared by N>1
   // macros on the page forks a new CC on save, but the in-viewer modal cannot

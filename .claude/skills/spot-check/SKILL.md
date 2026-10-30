@@ -18,7 +18,8 @@ A **spot check** is an ad hoc, AI-driven, ephemeral verification of a specific b
 
 - **Lightweight** — reuse what already exists. If a page with the relevant macro is already available, use it. Navigate directly to the macro when you know which one matters.
 - **AI-driven** — use `agent-browser --session conf-app --restore=stg` to improvise steps. It reaches inside Forge cross-origin iframes (including nested ones); ego lite and Playwright MCP also work, Kimi WebBridge / Claude in Chrome / cursor-ide-browser reach page chrome only. No script is checked in.
-- **Ephemeral** — test steps are not saved. Screenshots go under `/tmp/spot-check/conf-app/` (`mkdir -p` first); a relative `screenshot foo.png` writes to cwd (the repo root).
+- **Ephemeral** — test steps are not saved. Screenshots go under `/tmp/spot-check/conf-app/` (`mkdir -p` first). Pass `screenshot` an absolute path: agent-browser ignores `--screenshot-dir` for a relative name and writes it to cwd (the repo root).
+- **Evidence on the PR** — when the branch has an open PR, post the report and screenshots to it (see [Post evidence to the PR](#post-evidence-to-the-pr)). The steps stay ephemeral; the observed result does not.
 - **Targeted** — verify the specific behavior being checked, not a full regression.
 - **Real world** — verify the behaviour on a confluence site, not a local fixture or unit test.
 - **Forge tunnel** — use forge tunnel (separate skill) and `lite-dev.atlassian.net` by default.
@@ -122,6 +123,43 @@ Analytics reference: [docs/analytics-reference.md](../../../docs/analytics-refer
    initialization or first-save checks, create the macro through the real UI. Use the
    **create-test-page** skill only for API-only rendering checks that intentionally bypass creation.
 4. **Execute** — run each planned check. Capture evidence after key steps to `/tmp/spot-check/conf-app/` (never the repo). Report pass / fail / skipped per assertion.
+5. **Post** — if the branch has an open PR, post the report to it (next section). Otherwise report in chat and say that no PR exists.
+
+## Post evidence to the PR
+
+`scripts/post_evidence.py` puts the screenshots on the `pr-evidence` branch under
+`pr-<n>/spot-check-<UTC stamp>/` (the convention owned by **pr-review-support-materials**) through
+the GitHub contents API — no checkout, no push — and posts one PR comment per run. Every image
+URL is pinned to the evidence commit SHA. `gh` cannot attach images to a comment, so this is the
+upload path.
+
+1. Write the report to `/tmp/spot-check/conf-app/report.md`. One list item per assertion, starting
+   with `PASS`, `FAIL` or `SKIPPED`; a SKIPPED item gives its reason after a dash. Put each
+   screenshot under its assertion as a local ref, relative to the report:
+
+   ```markdown
+   - PASS: title shows after first save
+     ![Title after first save](01-title-after-save.png)
+   - SKIPPED: edit path — not deployed to staging yet
+   ```
+2. **Open every screenshot and check it before posting.** The repo is public. Staging and dev
+   sites only; no customer tenant names, page titles or data in captions or pixels
+   ([client-privacy](../../../docs/policies/client-privacy.md)). The script refuses a report that
+   names an `*.atlassian.net` host outside `tests/e2e-tests/config/apps.ts`, but it cannot read pixels.
+3. Preview, then post:
+
+   ```bash
+   S=.claude/skills/spot-check/scripts/post_evidence.py
+   python3 $S --report /tmp/spot-check/conf-app/report.md --site lite-stg.atlassian.net --build <version label> --dry-run
+   python3 $S --report /tmp/spot-check/conf-app/report.md --site lite-stg.atlassian.net --build <version label>
+   ```
+
+   The comment header names the branch and tested commit (`--commit` when it is not the PR head,
+   e.g. a staging merge build), site, build, date and the PASS/FAIL/SKIPPED counts.
+4. Read the comment back and confirm the images render. Give the user its URL.
+
+Exit 2 means no PR for the branch: report in chat only and say so. Exit 3 (non-internal host) and
+exit 4 (missing screenshot) post nothing — fix the report and rerun.
 
 ## Forge iframe tooling
 
@@ -131,12 +169,12 @@ Forge Custom UI renders in sandboxed cross-origin iframes (OOPIFs). Three tools 
 
 ```bash
 mkdir -p /tmp/spot-check/conf-app
-A(){ agent-browser --session conf-app --restore=stg --screenshot-dir /tmp/spot-check/conf-app "$@"; }
+A(){ agent-browser --session conf-app --restore=stg "$@"; }
 A open <url>
 A snapshot                    # find the Iframe ref
 A frame "@e151"               # enter the OOPIF
 A eval "location.host"        # verify you are inside
-A screenshot 01-page-loaded.png   # lands in /tmp/spot-check/conf-app/
+A screenshot /tmp/spot-check/conf-app/01-page-loaded.png   # absolute: a relative name lands in cwd
 A console                     # includes OOPIF logs
 ```
 

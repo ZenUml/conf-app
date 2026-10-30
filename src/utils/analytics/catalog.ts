@@ -1577,6 +1577,12 @@ export type AnalyticsEventName =
   // Cursor, …). Tool arguments and results are never sent.
   | "agent_link_mcp_tool_called"
   | "agent_link_mcp_initialized"
+  // The public render endpoint (POST /agent-link/render, no sign-in) reuses
+  // the AA pair and the MCP Apps view pair (`agent_link_app_view_*`) rather
+  // than adding events: every one of them carries `mcp_mode: 'render'`.
+  // `_tool_called` for render_diagram also carries `macro_type` and
+  // `render_validation`, so how often agents send source that does not parse
+  // is readable per type. No user or site exists on this path.
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1856,8 +1862,17 @@ export type AgentLinkMcpButtonReveal = "always" | "hover";
 
 // How a Connect MCP dialog connects the agent: 'headless' = the agent signs
 // in with OAuth and edits through Confluence directly (the only mode offered
-// in the first release); 'relay' = a macro-minted session over the live relay.
-export type AgentLinkMcpMode = "headless" | "relay";
+// in the first release); 'relay' = a macro-minted session over the live relay;
+// 'render' = the public render-only endpoint (POST /agent-link/render), which
+// needs no sign-in and no Atlassian site. Its events carry no user id, so they
+// all share Mixpanel's unknown_user_account_id; split them by `mcp_mode`.
+export type AgentLinkMcpMode = "headless" | "relay" | "render";
+
+// Whether render_diagram's source parsed (agent_link_mcp_tool_called with
+// `mcp_mode: 'render'`). 'valid' = the dialect's parser accepted it;
+// 'invalid' = it reported errors, which go back to the agent beside the
+// diagram; 'unvalidated' = a type with no parser here (Graph).
+export type AgentLinkRenderValidation = "valid" | "invalid" | "unvalidated";
 
 // How one headless `tools/call` ended (agent_link_mcp_tool_called).
 // 'success' = the tool returned a result; 'tool_error' = the tool refused with

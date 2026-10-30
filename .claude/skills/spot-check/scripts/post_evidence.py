@@ -188,7 +188,8 @@ def main(argv=None, gh=run_gh):
     try:
         gh(["api", f"repos/{a.repo}/git/ref/heads/{EVIDENCE_BRANCH}"])
         with tempfile.TemporaryDirectory() as tmp:
-            msg = f"evidence: PR #{pr['number']} spot check {now:%Y-%m-%d %H:%M} UTC"
+            # No "#<n>": GitHub would add a "referenced this pull request" entry per file.
+            msg = f"evidence: {evidence_dir}"
             for ref, path in files.items():
                 with open(path, "rb") as fh:
                     upload(gh, a.repo, dest[ref], fh.read(), msg, tmp)

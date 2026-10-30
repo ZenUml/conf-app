@@ -116,6 +116,8 @@ class FakeGh:
             with open(input_file) as fh:
                 payload = json.load(fh)
             assert payload["branch"] == "pr-evidence"
+            # "#7" in a commit message adds a "referenced this pull request" entry per file.
+            assert "#" not in payload["message"], payload["message"]
             return json.dumps({"commit": {"sha": f"sha{self.puts}"}})
         if args[0] == "api":
             return json.dumps({"object": {"sha": "base"}})

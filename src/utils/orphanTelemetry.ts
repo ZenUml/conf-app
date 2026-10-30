@@ -40,8 +40,9 @@ function directFetchProps(detail: DirectFetchDetail | undefined) {
  * recovery rate as `count where recovery_used=true / count(all)`.
  *
  * `options.directFetch` carries the by-id fetch outcome (status / HTTP status /
- * error code / error class). It is what tells `probe_skipped_no_probe_result`
- * apart: a 403, a 5xx, a thrown request and a malformed body all skip the probe.
+ * error code / error class). A 403, 429, 5xx, thrown request or malformed body
+ * (`directFetchStatus: 'other_error'`) skips the probe and is reported as
+ * `customcontent_fetch_unavailable` instead (#1014).
  *
  * Best-effort. Delegates to trackEvent, which never throws synchronously
  * (fire-and-forget async internally), so it can never re-crash the caller.
@@ -64,12 +65,26 @@ export function reportOrphanObserved(
   probeResult: ProbeResult | undefined,
   options: { recoveryUsed?: boolean; recoveredId?: string; directFetch?: DirectFetchDetail } = {},
 ): void {
+  // #1014: a by-id fetch that failed without proving the content absent (429,
+  // 403, 5xx, thrown, malformed) is not an orphan — the content may well
+  // exist. loadCustomContentWithOrphanRecovery refuses to probe in this case,
+  // so report it under its own event and keep customcontent_orphan_observed
+  // for "confirmed gone". Without this, a rate-limited site's 429s read as an
+  // orphan spike.
+  if (!probeResult && options.directFetch?.directFetchStatus === 'other_error') {
+    trackEvent(orphanId, 'customcontent_fetch_unavailable', 'warning', {
+      diagram_kind: diagramKind,
+      ...(pageId && { page_id: pageId }),
+      ...directFetchProps(options.directFetch),
+    });
+    return;
+  }
   if (!pageId || !probeResult) {
     // Two distinct reasons we couldn't probe:
     //   - no_page_id:       context.extension.content.id was undefined at call time
-    //   - no_probe_result:  pageId was present but loadCustomContentWithOrphanRecovery
-    //                       refused to probe (transient direct-fetch error: 403/5xx/parse).
-    //                       The CC may still exist — don't conflate with true orphans.
+    //   - no_probe_result:  pageId was present but no probe result reached us, and the
+    //                       caller passed no 'other_error' fetch detail (that case
+    //                       returned above as customcontent_fetch_unavailable).
     trackEvent(orphanId, 'customcontent_orphan_observed', 'warning', {
       diagram_kind: diagramKind,
       recoverable: !pageId ? 'probe_skipped_no_page_id' : 'probe_skipped_no_probe_result',

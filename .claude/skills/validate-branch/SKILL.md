@@ -53,13 +53,13 @@ If Storybook fails, stop, fix the issue, and repeat the affected local checks an
 
 After Storybook passes, verify the UI against a development Confluence site using the **forge-tunnel** skill. Follow that skill for setup, app variant, environment, tunnel identity, browser profile, and connection verification. Do not use `agent-browser --session conf-app --restore=stg` for the tunnel unless it is the identity required by the forge-tunnel workflow; tunnel visibility is identity-gated.
 
-Use the **spot-check** skill to write the behavior, target, assertions, and expected outcomes before opening the browser. Record the branch and commit tested, target site, visible build/version, and UI source. Capture actual screenshots or snapshots for the assertions. If the expected local code is not visible, the stage fails. Fix the issue and repeat Storybook and Tunnel before moving on.
+Use the **spot-check** skill to write the behavior, target, assertions, and expected outcomes before opening the browser. Record the branch and commit tested, target site, visible build/version, and UI source. Capture actual screenshots or snapshots for the assertions; if the branch has an open PR, post them with the spot-check skill's **Post evidence to the PR** step. If the expected local code is not visible, the stage fails. Fix the issue and repeat Storybook and Tunnel before moving on.
 
 ## 4. CI-deployed Staging
 
 After Storybook and Forge Tunnel pass and the candidate branch has been pushed through the authorized workflow, wait for its CI staging deployment to succeed. Never run `pnpm forge:deploy:*:staging` locally. Verify the successful deployment belongs to the candidate branch and commit, then test that deployed build on the relevant staging site.
 
-Record the deployed build/commit, target site, visible version, and UI source. Capture actual screenshots or snapshots for the planned assertions. Green CI alone does not prove the manual UI scenarios passed. If staging deployment or UI validation fails, fix the issue and repeat the affected stage; later acceptance must use the final candidate version.
+Record the deployed build/commit, target site, visible version, and UI source. Capture actual screenshots or snapshots for the planned assertions and post them to the PR the same way. Green CI alone does not prove the manual UI scenarios passed. If staging deployment or UI validation fails, fix the issue and repeat the affected stage; later acceptance must use the final candidate version.
 
 ## Reporting
 

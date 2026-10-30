@@ -355,9 +355,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "attachment_upload_succeeded",
   "click",
   "convert_to_png",
-  // Carved out of customcontent_orphan_observed (#1014); same rate, so the
-  // split adds no volume.
-  "customcontent_fetch_unavailable",
   "customcontent_orphan_macro_repaired",
   "customcontent_orphan_observed",
   "duplication_detect",

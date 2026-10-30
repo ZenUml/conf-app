@@ -12,11 +12,11 @@ Usage, from the repo root:
         --site lite-stg.atlassian.net [--build v2026.10.301200] [--commit <sha>] [--pr <n>] [--dry-run]
 
 The report is Markdown. Each assertion is a list item that starts with PASS, FAIL or
-SKIPPED; a SKIPPED item must give its reason after a dash or colon. Screenshots are local
+SKIPPED; a SKIPPED item gives its reason after a dash or in parentheses. Screenshots are local
 image refs (`![caption](01-page.png)`), resolved relative to the report file.
 
-Exit codes: 0 posted (or dry run), 1 bad report, 2 no PR for the branch (report in chat
-only), 3 report names a non-internal *.atlassian.net host, 4 screenshot file missing,
+Exit codes: 0 posted (or dry run), 1 bad report, 2 no open PR for the branch (report in
+chat only), 3 report names a non-internal *.atlassian.net host, 4 screenshot file missing,
 5 gh failure.
 """
 import argparse, base64, datetime, json, os, re, subprocess, sys, tempfile
@@ -128,7 +128,12 @@ def upload(gh, repo, path, data, message, tmpdir):
     return json.loads(out)["commit"]["sha"]
 
 
-def main(argv=None, gh=run_gh):
+def current_branch():
+    return subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def main(argv=None, gh=run_gh, branch=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--report", required=True)
     ap.add_argument("--site", required=True, help="Confluence host checked, e.g. lite-stg.atlassian.net")
@@ -166,11 +171,17 @@ def main(argv=None, gh=run_gh):
             return 4
         files[ref] = p
 
+    # gh requires an explicit PR or branch when --repo is given.
+    target = a.pr or branch or current_branch()
     try:
-        pr = json.loads(gh(["pr", "view", *([a.pr] if a.pr else []), "--repo", a.repo,
-                            "--json", "number,url,headRefName,headRefOid"]))
+        pr = json.loads(gh(["pr", "view", target, "--repo", a.repo,
+                            "--json", "number,url,state,headRefName,headRefOid"]))
     except GhError as e:
         print(f"no PR for this branch ({e}); report the spot check in chat only.", file=sys.stderr)
+        return 2
+    if pr.get("state") != "OPEN":
+        print(f"PR #{pr['number']} is {pr.get('state')}, not open; report the spot check in chat only.",
+              file=sys.stderr)
         return 2
 
     now = datetime.datetime.now(datetime.timezone.utc)

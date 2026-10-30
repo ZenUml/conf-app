@@ -101,15 +101,18 @@ class Body(unittest.TestCase):
 class FakeGh:
     """Records gh calls and answers the ones post_evidence makes."""
 
-    def __init__(self, pr_found=True):
-        self.calls, self.pr_found, self.puts = [], pr_found, 0
+    def __init__(self, pr_found=True, state="OPEN"):
+        self.calls, self.pr_found, self.state, self.puts = [], pr_found, state, 0
 
     def __call__(self, args, input_file=None):
         self.calls.append(args)
         if args[:2] == ["pr", "view"]:
+            if "--repo" in args and args[2].startswith("-"):
+                # Real gh: "argument required when using the --repo flag".
+                raise pe.GhError("argument required when using the --repo flag")
             if not self.pr_found:
                 raise pe.GhError("no pull requests found for branch")
-            return json.dumps({"number": 7, "url": "https://github.com/o/r/pull/7",
+            return json.dumps({"number": 7, "url": "https://github.com/o/r/pull/7", "state": self.state,
                                "headRefName": "feat/x", "headRefOid": "0123456789abcdef"})
         if args[0] == "api" and "PUT" in args:
             self.puts += 1
@@ -145,7 +148,7 @@ class Main(unittest.TestCase):
                 "--repo", "o/r", "--apps-ts", self.apps, *extra]
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = pe.main(argv, gh=gh)
+            code = pe.main(argv, gh=gh, branch="feat/x")
         return code, out.getvalue(), err.getvalue()
 
     def test_uploads_then_posts_with_last_commit_pinned(self):
@@ -163,6 +166,13 @@ class Main(unittest.TestCase):
         code, _, err = self.run_main(gh)
         self.assertEqual(code, 2)
         self.assertIn("chat", err)
+        self.assertEqual(gh.puts, 0)
+
+    def test_merged_pr_exits_2_and_uploads_nothing(self):
+        gh = FakeGh(state="MERGED")
+        code, _, err = self.run_main(gh)
+        self.assertEqual(code, 2)
+        self.assertIn("MERGED", err)
         self.assertEqual(gh.puts, 0)
 
     def test_customer_host_exits_3_before_any_gh_call(self):

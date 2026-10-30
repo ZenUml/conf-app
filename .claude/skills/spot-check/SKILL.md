@@ -158,7 +158,7 @@ upload path.
    e.g. a staging merge build), site, build, date and the PASS/FAIL/SKIPPED counts.
 4. Read the comment back and confirm the images render. Give the user its URL.
 
-Exit 2 means no PR for the branch: report in chat only and say so. Exit 3 (non-internal host) and
+Exit 2 means no open PR for the branch (none, or closed/merged): report in chat only and say so. Exit 3 (non-internal host) and
 exit 4 (missing screenshot) post nothing — fix the report and rerun.
 
 ## Forge iframe tooling

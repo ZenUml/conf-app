@@ -1,0 +1,636 @@
+test
+Building b38b5acbdec29e2a7c3baa2a4be54b22ed289787 (b38b5acb) on 
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 <baseline-worktree>
+
+ ❯ functions/architecture-tokens/service.spec.ts (21 tests | 1 failed) 114ms
+   × relatedDiagrams > carries the Confluence status of a failed lookup, so a 429 is told apart from a 5xx 22ms
+     → expected { …(4) } to match object { …(2) }
+(3 matching properties omitted from actual)
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > getCustomContentByIdV2 > returns the parsed diagram value on success
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > returns the requested CC directly on happy path (no recovery)
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > returns the requested CC directly on happy path (no recovery)
+Detected copied macro - ID: 123, reason: cross-page, Source page: 5553291265
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > recovers a single page-child whose body.id matches the orphan id
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > recovers a single page-child whose body.id matches the orphan id
+Detected copied macro - ID: 5553291585, reason: cross-page, Source page: 5553291265
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > keeps the strict-404 diagnostics on a successful sibling recovery (#148)
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > keeps the strict-404 diagnostics on a successful sibling recovery (#148)
+Detected copied macro - ID: 5553291585, reason: cross-page, Source page: 5553291265
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > flags a cross-page copy via the free check without fetching the page ADF
+Detected copied macro - ID: cc-1, reason: cross-page, Source page: 456
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > keeps blocking copy detection when option is absent
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy reports same-page-duplicate when count > 1
+Found 2 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy matches the string customContentId used by current Forge ADF
+Found 2 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy reports cross-page when CC pageId differs
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy prefers cross-page as the reported reason when both conditions hold simultaneously
+Found 2 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy reports no copy and fires neither telemetry event when same page and count <= 1
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > findLegacyCustomContentByUuid > returns undefined and tracks an error event when the CQL search itself throws
+findLegacyCustomContentByUuid Error: network down
+    at <baseline-worktree>/src/model/ApWrapper2.spec.ts:1184:49
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — orphan recovery save path > updates the recovered CC in-place when recoveredFromOrphanId is set and macro count is 0
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — orphan recovery save path > falls through to create when recoveredFromOrphanId is set but existing fetch returns not_found
+Detected copied macro on page 456 (current) and undefined.
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — orphan recovery save path > strips recoveredFromOrphan and recoveredFromOrphanId from the persisted body
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > count === 0 (draft-only binding) → UPDATES in place, does not fork
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > sends every save request with user priority, and no copy-scan ADF read
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > count === 1 (single macro) → UPDATES in place
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > strips stale compressed flag when saving edited graph XML in place
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > count > 1 (same-page duplicate / copy) → CREATES a new cc (forks)
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > count > 1 (same-page duplicate / copy) → CREATES a new cc (forks)
+Detected copied macro on the same page 456.
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — save response must carry a usable id (conf-app#320) > throws when the update PUT returns an error body with no id
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — save response must carry a usable id (conf-app#320) > throws when the create POST returns a body with no id (fork path)
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — save response must carry a usable id (conf-app#320) > throws when the create POST returns a body with no id (fork path)
+Detected copied macro on the same page 456.
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — save response must carry a usable id (conf-app#320) > recreates on the page when the in-place update 404s (record vanished mid-edit)
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — save response must carry a usable id (conf-app#320) > does not recreate on a non-404 update failure
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > create 404 diagnosis > never throws: a failed probe request reports probe_status=failed
+diagnoseCreateNotFound: probe failed Failed to fetch
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > searchDiagramsForge > returns [] and swallows the error when the search call fails
+searchDiagramsForge Error: search boom
+    at <baseline-worktree>/src/model/ApWrapper2.spec.ts:2002:53
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+
+ ❯ src/model/ApWrapper2.spec.ts (138 tests | 10 failed) 112ms
+   × ApWrapper2 > updateCustomContentV2 > should succeed on first attempt and track update event 21ms
+     → expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/custom-content/123",
+    "PUT",
+-   ObjectContaining {
++   Object {
++     "body": Object {
++       "representation": "raw",
++       "value": "{\"code\":\"A.method\",\"diagramType\":\"sequence\",\"title\":\"Test\"}",
++     },
++     "id": "123",
++     "pageId": "456",
++     "status": "current",
++     "title": "Test",
++     "type": "ac:com.zenuml.confluence-addon:zenuml-content-sequence",
+      "version": Object {
+        "number": 6,
+-     },
+      },
+-   Object {
+-     "priority": "user",
+    },
+  ]
+
+
+Number of calls: 1
+
+   × ApWrapper2 > updateCustomContentV2 > should retry on version conflict and succeed 4ms
+     → expected 3rd "spy" call to have been called with [ …(4) ]
+   × ApWrapper2 > getCustomContentByIdV2 > returns the parsed diagram value on success 2ms
+     → expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/custom-content/321?body-format=raw",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+
+Number of calls: 1
+
+   × ApWrapper2 > probeOrphanRecovery > reports recoverable when a sequence-type child body.id matches the orphan id 1ms
+     → expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/pages/5553291265/custom-content?type=ac%3Acom.zenuml.confluence-addon%3Azenuml-content-sequence&body-format=raw&limit=250",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+  2nd spy call:
+
+  Array [
+-   "/wiki/api/v2/pages/5553291265/custom-content?type=ac%3Acom.zenuml.confluence-addon%3Azenuml-content-sequence&body-format=raw&limit=250",
++   "/wiki/api/v2/pages/5553291265/custom-content?type=ac%3Acom.zenuml.confluence-addon%3Azenuml-content-graph&body-format=raw&limit=250",
+    "GET",
+-   undefined,
+    undefined,
+  ]
+
+
+Number of calls: 2
+
+   × ApWrapper2 > saveCustomContentV2 — orphan recovery save path > throws when existence check returns other_error (transient failure must not silently create) 1ms
+     → expected "spy" to be called with arguments: [ 'save_existence_check_failed', …(3) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+-   "save_existence_check_failed",
+-   "save_existence_check_failed",
+-   "error",
+-   ObjectContaining {
++   "5553291585",
++   "load_custom_content_v2_missing",
++   "warning",
++   Object {
++     "error_class": "structured",
++     "error_code": "INTERNAL_SERVER_ERROR",
+      "http_status": 500,
++     "load_status": "other_error",
+    },
+  ]
+
+  2nd spy call:
+
+  Array [
+    "save_existence_check_failed",
+    "save_existence_check_failed",
+    "error",
+-   ObjectContaining {
+-     "http_status": 500,
++   Object {
++     "custom_content_id": "5553291585",
++     "detail": "[{\"status\":500,\"code\":\"INTERNAL_SERVER_ERROR\"}]",
+    },
+  ]
+
+
+Number of calls: 2
+
+   × ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > sends every save request with user priority, and no copy-scan ADF read 1ms
+     → expected [ [ …(3) ], [ …(3) ] ] to deeply equal [ [ …(3) ], [ …(3) ] ]
+   × ApWrapper2 > create 404 diagnosis > probes the host page operations and reports what the caller may create 1ms
+     → expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/pages/456?include-operations=true",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+
+Number of calls: 1
+
+   × ApWrapper2 > isVersionConflict (via updateCustomContentV2 behavior) > should detect version conflict from error message 1ms
+     → expected 2nd "spy" call to have been called with [ …(4) ]
+   × ApWrapper2 > diagnoseCreateNotFound > probes the v2 page operations and reads the Add-pages-only verdict 1ms
+     → expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/pages/456?include-operations=true",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+
+Number of calls: 1
+
+   × ApWrapper2 > diagnoseCreateNotFound > retries with get-draft=true when the plain probe 404s, and reads the draft operations 1ms
+     → expected 1st "spy" call to have been called with [ …(4) ]
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  functions/architecture-tokens/service.spec.ts > relatedDiagrams > carries the Confluence status of a failed lookup, so a 429 is told apart from a 5xx
+AssertionError: expected { …(4) } to match object { …(2) }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "confluence_http_status": 429,
+    "error_kind": "confluence_unavailable",
+  }
+
+ ❯ functions/architecture-tokens/service.spec.ts:456:24
+    454|       confluenceContentResolver('https://api.atlassian.test', 'token',…
+    455|     );
+    456|     expect(viaContent).toMatchObject({ error_kind: 'confluence_unavail…
+       |                        ^
+    457| 
+    458|     const viaSearch = await relatedDiagrams(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > updateCustomContentV2 > should succeed on first attempt and track update event
+AssertionError: expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/custom-content/123",
+    "PUT",
+-   ObjectContaining {
++   Object {
++     "body": Object {
++       "representation": "raw",
++       "value": "{\"code\":\"A.method\",\"diagramType\":\"sequence\",\"title\":\"Test\"}",
++     },
++     "id": "123",
++     "pageId": "456",
++     "status": "current",
++     "title": "Test",
++     "type": "ac:com.zenuml.confluence-addon:zenuml-content-sequence",
+      "version": Object {
+        "number": 6,
+-     },
+      },
+-   Object {
+-     "priority": "user",
+    },
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/model/ApWrapper2.spec.ts:131:28
+    129|       expect(result).toEqual(mockResponse);
+    130|       expect(forgeRequest).toHaveBeenCalledTimes(1);
+    131|       expect(forgeRequest).toHaveBeenCalledWith(
+       |                            ^
+    132|         '/wiki/api/v2/custom-content/123',
+    133|         'PUT',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > updateCustomContentV2 > should retry on version conflict and succeed
+AssertionError: expected 3rd "spy" call to have been called with [ …(4) ]
+
+- Expected
++ Received
+
+  Array [
+    "/wiki/api/v2/custom-content/123",
+    "PUT",
+    ObjectContaining {
+      "version": Object {
+        "number": 6,
+      },
+    },
+-   Object {
+-     "priority": "user",
+-   },
+  ]
+
+ ❯ src/model/ApWrapper2.spec.ts:217:28
+    215| 
+    216|       // Verify retry PUT uses fresh version (5 + 1 = 6)
+    217|       expect(forgeRequest).toHaveBeenNthCalledWith(3,
+       |                            ^
+    218|         '/wiki/api/v2/custom-content/123',
+    219|         'PUT',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > getCustomContentByIdV2 > returns the parsed diagram value on success
+AssertionError: expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/custom-content/321?body-format=raw",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/model/ApWrapper2.spec.ts:361:28
+    359|       expect(result?.id).toBe('321');
+    360|       expect(result?.value?.code).toBe('A.method');
+    361|       expect(forgeRequest).toHaveBeenCalledWith(
+       |                            ^
+    362|         '/wiki/api/v2/custom-content/321?body-format=raw',
+    363|         'GET',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > probeOrphanRecovery > reports recoverable when a sequence-type child body.id matches the orphan id
+AssertionError: expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/pages/5553291265/custom-content?type=ac%3Acom.zenuml.confluence-addon%3Azenuml-content-sequence&body-format=raw&limit=250",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+  2nd spy call:
+
+  Array [
+-   "/wiki/api/v2/pages/5553291265/custom-content?type=ac%3Acom.zenuml.confluence-addon%3Azenuml-content-sequence&body-format=raw&limit=250",
++   "/wiki/api/v2/pages/5553291265/custom-content?type=ac%3Acom.zenuml.confluence-addon%3Azenuml-content-graph&body-format=raw&limit=250",
+    "GET",
+-   undefined,
+    undefined,
+  ]
+
+
+Number of calls: 2
+
+ ❯ src/model/ApWrapper2.spec.ts:472:28
+    470|       expect(result.pageChildrenTotal).toBe(2);
+    471|       expect(result.probeError).toBeUndefined();
+    472|       expect(forgeRequest).toHaveBeenCalledWith(
+       |                            ^
+    473|         `/wiki/api/v2/pages/${pageId}/custom-content?type=${encodeURIC…
+    474|         'GET',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — orphan recovery save path > throws when existence check returns other_error (transient failure must not silently create)
+AssertionError: expected "spy" to be called with arguments: [ 'save_existence_check_failed', …(3) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+-   "save_existence_check_failed",
+-   "save_existence_check_failed",
+-   "error",
+-   ObjectContaining {
++   "5553291585",
++   "load_custom_content_v2_missing",
++   "warning",
++   Object {
++     "error_class": "structured",
++     "error_code": "INTERNAL_SERVER_ERROR",
+      "http_status": 500,
++     "load_status": "other_error",
+    },
+  ]
+
+  2nd spy call:
+
+  Array [
+    "save_existence_check_failed",
+    "save_existence_check_failed",
+    "error",
+-   ObjectContaining {
+-     "http_status": 500,
++   Object {
++     "custom_content_id": "5553291585",
++     "detail": "[{\"status\":500,\"code\":\"INTERNAL_SERVER_ERROR\"}]",
+    },
+  ]
+
+
+Number of calls: 2
+
+ ❯ src/model/ApWrapper2.spec.ts:1279:26
+    1277|       // The status rides on the failure event, so a 429 that outlaste…
+    1278|       // save-path retries is told apart from a 5xx or a 403.
+    1279|       expect(trackEvent).toHaveBeenCalledWith(
+       |                          ^
+    1280|         'save_existence_check_failed', 'save_existence_check_failed', …
+    1281|         expect.objectContaining({ http_status: 500 }),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > sends every save request with user priority, and no copy-scan ADF read
+AssertionError: expected [ [ …(3) ], [ …(3) ] ] to deeply equal [ [ …(3) ], [ …(3) ] ]
+
+- Expected
++ Received
+
+  Array [
+    Array [
+      "/wiki/api/v2/custom-content/5690394053?body-format=raw",
+      "GET",
+-     Object {
+-       "priority": "user",
+-     },
++     undefined,
+    ],
+    Array [
+      "/wiki/api/v2/custom-content/5690394053",
+      "PUT",
+-     Object {
+-       "priority": "user",
+-     },
++     undefined,
+    ],
+  ]
+
+ ❯ src/model/ApWrapper2.spec.ts:1392:81
+    1390|       await wrapper.saveCustomContentV2(ccId, diagramToSave());
+    1391| 
+    1392|       expect(vi.mocked(forgeRequest).mock.calls.map((c) => [c[0], c[1]…
+       |                                                                                 ^
+    1393|         [`/wiki/api/v2/custom-content/${ccId}?body-format=raw`, 'GET',…
+    1394|         [`/wiki/api/v2/custom-content/${ccId}`, 'PUT', { priority: 'us…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > create 404 diagnosis > probes the host page operations and reports what the caller may create
+AssertionError: expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/pages/456?include-operations=true",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/model/ApWrapper2.spec.ts:1657:28
+    1655|       const diagnosis = await wrapper.diagnoseCreateNotFound();
+    1656| 
+    1657|       expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/45…
+       |                            ^
+    1658|       expect(diagnosis).toEqual({
+    1659|         probe_status: 'ok',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > isVersionConflict (via updateCustomContentV2 behavior) > should detect version conflict from error message
+AssertionError: expected 2nd "spy" call to have been called with [ …(4) ]
+
+- Expected
++ Received
+
+  Array [
+    "/wiki/api/v2/custom-content/123?body-format=raw",
+    "GET",
+    undefined,
+-   Object {
+-     "priority": "user",
+-   },
+  ]
+
+ ❯ src/model/ApWrapper2.spec.ts:1706:28
+    1704|       expect(forgeRequest).toHaveBeenCalledTimes(3);
+    1705|       // The GET for fresh version
+    1706|       expect(forgeRequest).toHaveBeenNthCalledWith(2,
+       |                            ^
+    1707|         '/wiki/api/v2/custom-content/123?body-format=raw',
+    1708|         'GET',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > diagnoseCreateNotFound > probes the v2 page operations and reads the Add-pages-only verdict
+AssertionError: expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/api/v2/pages/456?include-operations=true",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/model/ApWrapper2.spec.ts:2164:28
+    2162| 
+    2163|       expect(forgeRequest).toHaveBeenCalledTimes(1);
+    2164|       expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/45…
+       |                            ^
+    2165|       expect(diagnosis).toMatchObject({
+    2166|         probe_status: 'ok',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  src/model/ApWrapper2.spec.ts > ApWrapper2 > diagnoseCreateNotFound > retries with get-draft=true when the plain probe 404s, and reads the draft operations
+AssertionError: expected 1st "spy" call to have been called with [ …(4) ]
+
+- Expected
++ Received
+
+  Array [
+    "/wiki/api/v2/pages/456?include-operations=true",
+    "GET",
+    undefined,
+-   undefined,
+  ]
+
+ ❯ src/model/ApWrapper2.spec.ts:2182:28
+    2180|       const diagnosis = await wrapper.diagnoseCreateNotFound();
+    2181| 
+    2182|       expect(forgeRequest).toHaveBeenNthCalledWith(1, '/wiki/api/v2/pa…
+       |                            ^
+    2183|       expect(forgeRequest).toHaveBeenNthCalledWith(2, '/wiki/api/v2/pa…
+    2184|       expect(diagnosis).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+ Test Files  2 failed (2)
+      Tests  11 failed | 148 passed (159)
+   Start at  00:31:55
+   Duration  2.52s (transform 654ms, setup 112ms, collect 916ms, tests 226ms, environment 2.09s, prepare 332ms)
+

@@ -1,0 +1,115 @@
+test
+Building ad8a746413e015f91e421c372d16e0d3514e417d (ad8a7464) on fix/confluence-429-save-priority
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 <candidate-checkout>
+
+ ✓ src/utils/confluenceThrottle.spec.ts (24 tests) 23ms
+stderr | src/model/Attachment.spec.ts > Attachment > createAttachmentIfContentChanged > opts.customContentId override (save path) > does NOT report capture timing when no PNG was produced
+Failed to convert to png Error: Conversion failed
+    at <candidate-checkout>/src/model/Attachment.spec.ts:1512:50
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+
+stderr | src/model/Attachment.spec.ts > Attachment > createAttachmentIfContentChanged - PNG capture > treats a toPng (html-to-image) async rejection as a clean capture skip, not an upload failure
+Failed to convert to png Error: Conversion failed
+    at <candidate-checkout>/src/model/Attachment.spec.ts:1701:48
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+    at startTests (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+
+stderr | src/model/Attachment.spec.ts > Attachment > createAttachmentIfContentChanged - PNG capture > bounds a hung html-to-image toBlob() with a timeout, so the capture fails instead of hanging forever
+Failed to convert to png ToPngTimeoutError: toPng: html-to-image toBlob() did not settle within the capture timeout
+    at <candidate-checkout>/src/model/Attachment.ts:335:13
+    at <candidate-checkout>/src/model/Attachment.ts:285:43
+    at callTimer (file://<candidate-checkout>/node_modules/.pnpm/vitest@2.1.9_@types+node@25.0.3_jsdom@23.2.0_lightningcss@1.32.0_terser@5.51.2/node_modules/vitest/dist/chunks/vi.DgezovHB.js:2300:25)
+    at doTickInner (file://<candidate-checkout>/node_modules/.pnpm/vitest@2.1.9_@types+node@25.0.3_jsdom@23.2.0_lightningcss@1.32.0_terser@5.51.2/node_modules/vitest/dist/chunks/vi.DgezovHB.js:2886:30)
+    at doTick (file://<candidate-checkout>/node_modules/.pnpm/vitest@2.1.9_@types+node@25.0.3_jsdom@23.2.0_lightningcss@1.32.0_terser@5.51.2/node_modules/vitest/dist/chunks/vi.DgezovHB.js:2967:21)
+    at Immediate.<anonymous> (file://<candidate-checkout>/node_modules/.pnpm/vitest@2.1.9_@types+node@25.0.3_jsdom@23.2.0_lightningcss@1.32.0_terser@5.51.2/node_modules/vitest/dist/chunks/vi.DgezovHB.js:2987:30)
+    at processImmediate (node:internal/timers:485:21)
+
+stderr | src/model/Attachment.spec.ts > Attachment > createAttachmentIfContentChanged - PNG capture > PlantUML dpi upscale > re-fetches at a higher dpi when the natural PNG is under the target width, and uploads the upscaled result
+Failed to inject diagram source into PNG attachment RangeError: offset is out of bounds
+    at Uint8Array.set (<anonymous>)
+    at injectDiagramSource (<candidate-checkout>/src/utils/pngMetadata.ts:115:10)
+    at renderAttachmentPng (<candidate-checkout>/src/model/Attachment.ts:548:14)
+    at Module.createAttachmentIfContentChanged [as default] (<candidate-checkout>/src/model/Attachment.ts:1130:39)
+    at <candidate-checkout>/src/model/Attachment.spec.ts:1865:9
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+
+stderr | src/model/Attachment.spec.ts > Attachment > createAttachmentIfContentChanged - PNG capture > PlantUML dpi upscale > skips the upscale re-fetch when the natural PNG already meets the target width
+Failed to inject diagram source into PNG attachment RangeError: offset is out of bounds
+    at Uint8Array.set (<anonymous>)
+    at injectDiagramSource (<candidate-checkout>/src/utils/pngMetadata.ts:115:10)
+    at renderAttachmentPng (<candidate-checkout>/src/model/Attachment.ts:548:14)
+    at Module.createAttachmentIfContentChanged [as default] (<candidate-checkout>/src/model/Attachment.ts:1130:39)
+    at <candidate-checkout>/src/model/Attachment.spec.ts:1880:9
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+
+stderr | src/model/Attachment.spec.ts > Attachment > createAttachmentIfContentChanged - PNG capture > PlantUML dpi upscale > skips the upscale re-fetch when the source has leading whitespace so the dpi directive would not match (no false "upscaled" event)
+Failed to inject diagram source into PNG attachment RangeError: offset is out of bounds
+    at Uint8Array.set (<anonymous>)
+    at injectDiagramSource (<candidate-checkout>/src/utils/pngMetadata.ts:115:10)
+    at renderAttachmentPng (<candidate-checkout>/src/model/Attachment.ts:548:14)
+    at Module.createAttachmentIfContentChanged [as default] (<candidate-checkout>/src/model/Attachment.ts:1130:39)
+    at <candidate-checkout>/src/model/Attachment.spec.ts:1895:9
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+
+stderr | src/model/Attachment.spec.ts > Attachment > createAttachmentIfContentChanged - PNG capture > PlantUML dpi upscale > treats a re-fetch that comes back no wider than natural as a failed upscale, not a false success
+Failed to inject diagram source into PNG attachment RangeError: offset is out of bounds
+    at Uint8Array.set (<anonymous>)
+    at injectDiagramSource (<candidate-checkout>/src/utils/pngMetadata.ts:115:10)
+    at renderAttachmentPng (<candidate-checkout>/src/model/Attachment.ts:548:14)
+    at Module.createAttachmentIfContentChanged [as default] (<candidate-checkout>/src/model/Attachment.ts:1130:39)
+    at <candidate-checkout>/src/model/Attachment.spec.ts:1911:9
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+
+stderr | src/model/Attachment.spec.ts > Attachment > createAttachmentIfContentChanged - PNG capture > PlantUML dpi upscale > falls back to the natural-size PNG when the upscale re-fetch fails, without failing the upload
+Failed to inject diagram source into PNG attachment RangeError: offset is out of bounds
+    at Uint8Array.set (<anonymous>)
+    at injectDiagramSource (<candidate-checkout>/src/utils/pngMetadata.ts:115:10)
+    at renderAttachmentPng (<candidate-checkout>/src/model/Attachment.ts:548:14)
+    at Module.createAttachmentIfContentChanged [as default] (<candidate-checkout>/src/model/Attachment.ts:1130:39)
+    at <candidate-checkout>/src/model/Attachment.spec.ts:1927:9
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+
+ ✓ src/model/Attachment.spec.ts (75 tests) 293ms
+
+ Test Files  2 passed (2)
+      Tests  99 passed (99)
+   Start at  00:32:42
+   Duration  1.51s (transform 564ms, setup 59ms, collect 621ms, tests 316ms, environment 955ms, prepare 130ms)
+

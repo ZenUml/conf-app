@@ -1,0 +1,385 @@
+test
+Building b38b5acbdec29e2a7c3baa2a4be54b22ed289787 (b38b5acb) on 
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 <baseline-worktree>
+
+ ❯ src/components/Viewer/DiagramAttributionFooter.spec.ts (18 tests | 2 failed) 149ms
+   × DiagramAttributionFooter during a Confluence 429 cooldown > sends the name lookup with background priority 14ms
+     → expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/rest/api/user?accountId=account-1",
+-   "GET",
+-   undefined,
+-   Object {
+-     "priority": "background",
+-   },
+  ]
+
+
+Number of calls: 1
+
+   × DiagramAttributionFooter during a Confluence 429 cooldown > skips the impact summary read while the cooldown runs 4ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      "content-1",
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/model/SnapshotAttachment.spec.ts (38 tests | 1 failed) 39ms
+   × maybeBackfillSnapshot during a Confluence 429 cooldown > skips the viewer backfill without any request 12ms
+     → expected "spy" to not be called at all, but actually been called 2 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      "page-1",
+      Object {
+        "filename": "zenuml-12345.json",
+      },
+    ]
+
+  2nd spy call:
+
+    Array [
+      "page-1",
+      Object {
+        "filename": "zenuml-12345.json",
+      },
+    ]
+
+
+Number of calls: 2
+
+ ❯ src/components/Viewer/RelatedDiagramsFooter.spec.ts (44 tests | 3 failed) 650ms
+   × RelatedDiagramsFooter > HTTP status and Confluence rate limiting > records our backend's status when the call itself failed 12ms
+     → expected "spy" to be called with arguments: [ …(2) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "related_diagrams_lookup_failed",
+-   ObjectContaining {
++   Object {
++     "duration_ms": 0,
+      "error_kind": "network",
+-     "http_status": 403,
++     "feature_area": "architecture_tokens",
++     "macro_type": "mermaid",
++     "surface": "viewer",
+    },
+  ]
+
+
+Number of calls: 1
+
+   × RelatedDiagramsFooter > HTTP status and Confluence rate limiting > records the status Confluence gave the backend, and a 429 opens the site cooldown 4ms
+     → expected "spy" to be called with arguments: [ …(2) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "related_diagrams_lookup_failed",
+-   ObjectContaining {
+-     "confluence_http_status": 429,
++   Object {
++     "duration_ms": 0,
+      "error_kind": "confluence_unavailable",
++     "feature_area": "architecture_tokens",
++     "macro_type": "mermaid",
++     "surface": "viewer",
+    },
+  ]
+
+
+Number of calls: 1
+
+   × RelatedDiagramsFooter > HTTP status and Confluence rate limiting > makes no lookup while the site is in a 429 cooldown 6ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      "1",
+      Object {
+        "pageId": undefined,
+      },
+    ]
+
+
+Number of calls: 1
+
+(node:1207) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 1)
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | src/utils/requestUtil.spec.ts > callRemote > preserves a real denial status for attachment failure classification
+forgeCallRemote - url: undefined/forge-upload-attachment method: POST
+
+ ❯ src/utils/requestUtil.spec.ts (19 tests | 2 failed) 37ms
+   × forgeRequest under Confluence rate limiting (429) > a save-path POST retries the 429 and returns the created content 11ms
+     → promise rejected "ForgeRequestError: HTTP 429 non-JSON resp… { …(12) }" instead of resolving
+   × forgeRequest under Confluence rate limiting (429) > that 429 opens the cooldown, and a background request then is not sent at all 1ms
+     → expected TypeError: Cannot read properties of unde… to be an instance of ConfluenceThrottledError
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/model/SnapshotAttachment.spec.ts > maybeBackfillSnapshot during a Confluence 429 cooldown > skips the viewer backfill without any request
+AssertionError: expected "spy" to not be called at all, but actually been called 2 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      "page-1",
+      Object {
+        "filename": "zenuml-12345.json",
+      },
+    ]
+
+  2nd spy call:
+
+    Array [
+      "page-1",
+      Object {
+        "filename": "zenuml-12345.json",
+      },
+    ]
+
+
+Number of calls: 2
+
+ ❯ src/model/SnapshotAttachment.spec.ts:475:38
+    473|     noteConfluenceThrottled('120');
+    474|     await maybeBackfillSnapshot({ hostPageId: 'page-1', ccId: '12345',…
+    475|     expect(mockGetAttachmentsV2).not.toHaveBeenCalled();
+       |                                      ^
+    476|     expect(mockCallRemote).not.toHaveBeenCalled();
+    477|     expect(mockTrack).toHaveBeenCalledWith('confluence_background_requ…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  src/utils/requestUtil.spec.ts > forgeRequest under Confluence rate limiting (429) > a save-path POST retries the 429 and returns the created content
+AssertionError: promise rejected "ForgeRequestError: HTTP 429 non-JSON resp… { …(12) }" instead of resolving
+ ❯ src/utils/requestUtil.spec.ts:188:25
+    186|     await vi.advanceTimersByTimeAsync(1000);
+    187| 
+    188|     await expect(pending).resolves.toEqual({ id: '42' });
+       |                         ^
+    189|     expect(mockRequestConfluence).toHaveBeenCalledTimes(2);
+    190|     expect(mockRequestConfluence.mock.calls[1][1]).toMatchObject({ met…
+
+Caused by: ForgeRequestError: HTTP 429 non-JSON response (text/html;charset=utf-8) from POST /wiki/api/v2/custom-content: <!doctype html><html><head><title>HTTP Status 429 – Too Many Requests</title></head></html>
+ ❯ Module.forgeRequest src/utils/requestUtil.ts:89:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { status: 429, method: 'POST', endpoint: 'POST /wiki/api/v2/custom-content', contentType: 'text/html;charset=utf-8', bodyPrefix: '<!doctype html><html><head><title>HTTP Status 429 – Too Many Requests</title></head></html>', htmlTitle: 'HTTP Status 429 – Too Many Requests', nonJson: true, retryAfter: '1' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  src/utils/requestUtil.spec.ts > forgeRequest under Confluence rate limiting (429) > that 429 opens the cooldown, and a background request then is not sent at all
+AssertionError: expected TypeError: Cannot read properties of unde… to be an instance of ConfluenceThrottledError
+ ❯ src/utils/requestUtil.spec.ts:208:19
+    206|     const error = await forgeRequest('/wiki/rest/api/user?accountId=ab…
+    207| 
+    208|     expect(error).toBeInstanceOf(ConfluenceThrottledError);
+       |                   ^
+    209|     expect(error).toMatchObject({ status: 429, endpoint: 'GET /wiki/re…
+    210|     expect(mockRequestConfluence).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  src/components/Viewer/DiagramAttributionFooter.spec.ts > DiagramAttributionFooter during a Confluence 429 cooldown > sends the name lookup with background priority
+AssertionError: expected "spy" to be called with arguments: [ …(4) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "/wiki/rest/api/user?accountId=account-1",
+-   "GET",
+-   undefined,
+-   Object {
+-     "priority": "background",
+-   },
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/components/Viewer/DiagramAttributionFooter.spec.ts:340:26
+    338|     mountFooter()
+    339|     await flushPromises()
+    340|     expect(forgeRequest).toHaveBeenCalledWith(
+       |                          ^
+    341|       '/wiki/rest/api/user?accountId=account-1', 'GET', undefined, { p…
+    342|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  src/components/Viewer/DiagramAttributionFooter.spec.ts > DiagramAttributionFooter during a Confluence 429 cooldown > skips the impact summary read while the cooldown runs
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      "content-1",
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/components/Viewer/DiagramAttributionFooter.spec.ts:349:34
+    347|     mountFooter()
+    348|     await flushPromises()
+    349|     expect(getDiagramImpact).not.toHaveBeenCalled()
+       |                                  ^
+    350|   })
+    351| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  src/components/Viewer/RelatedDiagramsFooter.spec.ts > RelatedDiagramsFooter > HTTP status and Confluence rate limiting > records our backend's status when the call itself failed
+AssertionError: expected "spy" to be called with arguments: [ …(2) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "related_diagrams_lookup_failed",
+-   ObjectContaining {
++   Object {
++     "duration_ms": 0,
+      "error_kind": "network",
+-     "http_status": 403,
++     "feature_area": "architecture_tokens",
++     "macro_type": "mermaid",
++     "surface": "viewer",
+    },
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/components/Viewer/RelatedDiagramsFooter.spec.ts:947:35
+    945|       await flushPromises()
+    946| 
+    947|       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+       |                                   ^
+    948|         'related_diagrams_lookup_failed',
+    949|         expect.objectContaining({ error_kind: 'network', http_status: …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  src/components/Viewer/RelatedDiagramsFooter.spec.ts > RelatedDiagramsFooter > HTTP status and Confluence rate limiting > records the status Confluence gave the backend, and a 429 opens the site cooldown
+AssertionError: expected "spy" to be called with arguments: [ …(2) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "related_diagrams_lookup_failed",
+-   ObjectContaining {
+-     "confluence_http_status": 429,
++   Object {
++     "duration_ms": 0,
+      "error_kind": "confluence_unavailable",
++     "feature_area": "architecture_tokens",
++     "macro_type": "mermaid",
++     "surface": "viewer",
+    },
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/components/Viewer/RelatedDiagramsFooter.spec.ts:973:35
+    971|       await flushPromises()
+    972| 
+    973|       expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+       |                                   ^
+    974|         'related_diagrams_lookup_failed',
+    975|         expect.objectContaining({ error_kind: 'confluence_unavailable'…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  src/components/Viewer/RelatedDiagramsFooter.spec.ts > RelatedDiagramsFooter > HTTP status and Confluence rate limiting > makes no lookup while the site is in a 429 cooldown
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      "1",
+      Object {
+        "pageId": undefined,
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/components/Viewer/RelatedDiagramsFooter.spec.ts:986:38
+    984|       await flushPromises()
+    985| 
+    986|       expect(getRelatedDiagrams).not.toHaveBeenCalled()
+       |                                      ^
+    987|       expect(trackAnalyticsEvent).toHaveBeenCalledWith('confluence_bac…
+    988|         request_endpoint: 'work:related_diagrams_lookup',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ForgeRequestError: HTTP 429 non-JSON response (text/html;charset=utf-8) from POST /wiki/api/v2/custom-content: <!doctype html><html><head><title>HTTP Status 429 – Too Many Requests</title></head></html>
+ ❯ Module.forgeRequest src/utils/requestUtil.ts:89:11
+     87|     parsed = JSON.parse(text);
+     88|   } catch {
+     89|     throw new ForgeRequestError({ status: response.status, method, url…
+       |           ^
+     90|   }
+     91|   if (options.throwOnHttpError && !response.ok) {
+ ❯ processTicksAndRejections node:internal/process/task_queues:105:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { status: 429, method: 'POST', endpoint: 'POST /wiki/api/v2/custom-content', contentType: 'text/html;charset=utf-8', bodyPrefix: '<!doctype html><html><head><title>HTTP Status 429 – Too Many Requests</title></head></html>', htmlTitle: 'HTTP Status 429 – Too Many Requests', nonJson: true, retryAfter: '1' }
+This error originated in "src/utils/requestUtil.spec.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "a save-path POST retries the 429 and returns the created content". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  4 failed (4)
+      Tests  8 failed | 111 passed (119)
+     Errors  1 error
+   Start at  00:32:33
+   Duration  3.14s (transform 2.66s, setup 125ms, collect 3.63s, tests 875ms, environment 2.14s, prepare 328ms)
+

@@ -1,0 +1,19 @@
+test
+Building ad8a746413e015f91e421c372d16e0d3514e417d (ad8a7464) on fix/confluence-429-save-priority
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 <candidate-checkout>
+
+ ✓ src/components/Viewer/DiagramAttributionFooter.spec.ts (18 tests) 104ms
+ ✓ src/model/SnapshotAttachment.spec.ts (38 tests) 37ms
+ ✓ src/components/Viewer/RelatedDiagramsFooter.spec.ts (44 tests) 607ms
+stdout | src/utils/requestUtil.spec.ts > callRemote > preserves a real denial status for attachment failure classification
+forgeCallRemote - url: undefined/forge-upload-attachment method: POST
+
+ ✓ src/utils/requestUtil.spec.ts (19 tests) 27ms
+
+ Test Files  4 passed (4)
+      Tests  119 passed (119)
+   Start at  00:32:38
+   Duration  2.88s (transform 1.55s, setup 77ms, collect 3.24s, tests 775ms, environment 2.03s, prepare 329ms)
+

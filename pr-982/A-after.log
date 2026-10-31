@@ -1,0 +1,94 @@
+test
+Building ad8a746413e015f91e421c372d16e0d3514e417d (ad8a7464) on fix/confluence-429-save-priority
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 <candidate-checkout>
+
+ ✓ functions/architecture-tokens/service.spec.ts (21 tests) 95ms
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > getCustomContentByIdV2 > returns the parsed diagram value on success
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > returns the requested CC directly on happy path (no recovery)
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > returns the requested CC directly on happy path (no recovery)
+Detected copied macro - ID: 123, reason: cross-page, Source page: 5553291265
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > recovers a single page-child whose body.id matches the orphan id
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > recovers a single page-child whose body.id matches the orphan id
+Detected copied macro - ID: 5553291585, reason: cross-page, Source page: 5553291265
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > keeps the strict-404 diagnostics on a successful sibling recovery (#148)
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > loadCustomContentWithOrphanRecovery > keeps the strict-404 diagnostics on a successful sibling recovery (#148)
+Detected copied macro - ID: 5553291585, reason: cross-page, Source page: 5553291265
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > flags a cross-page copy via the free check without fetching the page ADF
+Detected copied macro - ID: cc-1, reason: cross-page, Source page: 456
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > keeps blocking copy detection when option is absent
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy reports same-page-duplicate when count > 1
+Found 2 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy matches the string customContentId used by current Forge ADF
+Found 2 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy reports cross-page when CC pageId differs
+Found 1 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy prefers cross-page as the reported reason when both conditions hold simultaneously
+Found 2 macros on page
+
+stdout | src/model/ApWrapper2.spec.ts > ApWrapper2 > viewer copy check (cross-page-only mode) > detectCopy reports no copy and fires neither telemetry event when same page and count <= 1
+Found 1 macros on page
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > findLegacyCustomContentByUuid > returns undefined and tracks an error event when the CQL search itself throws
+findLegacyCustomContentByUuid Error: network down
+    at <candidate-checkout>/src/model/ApWrapper2.spec.ts:1184:49
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — orphan recovery save path > falls through to create when recoveredFromOrphanId is set but existing fetch returns not_found
+Detected copied macro on page 456 (current) and undefined.
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — draft-only binding update guard (ZEN-#169 / 1a) > count > 1 (same-page duplicate / copy) → CREATES a new cc (forks)
+Detected copied macro on the same page 456.
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > saveCustomContentV2 — save response must carry a usable id (conf-app#320) > throws when the create POST returns a body with no id (fork path)
+Detected copied macro on the same page 456.
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > create 404 diagnosis > never throws: a failed probe request reports probe_status=failed
+diagnoseCreateNotFound: probe failed Failed to fetch
+
+stderr | src/model/ApWrapper2.spec.ts > ApWrapper2 > searchDiagramsForge > returns [] and swallows the error when the search call fails
+searchDiagramsForge Error: search boom
+    at <candidate-checkout>/src/model/ApWrapper2.spec.ts:2002:53
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+    at file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file://<candidate-checkout>/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+
+ ✓ src/model/ApWrapper2.spec.ts (138 tests) 91ms
+
+ Test Files  2 passed (2)
+      Tests  159 passed (159)
+   Start at  00:31:59
+   Duration  1.59s (transform 575ms, setup 83ms, collect 842ms, tests 186ms, environment 919ms, prepare 145ms)
+

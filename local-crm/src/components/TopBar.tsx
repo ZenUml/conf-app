@@ -1,9 +1,15 @@
 import { human } from '@/lib/format'
+import { grantStatusOf } from '@/lib/lifecycle'
+import { todayGrantMode } from '@/data/todayApi'
 import { useCrmStore } from '@/stores/crm'
 
 export default function TopBar() {
   const store = useCrmStore()
-  const active = store.data.grants.filter(grant => grant.active).length
+  const active = store.data.grants.filter(grant => grantStatusOf(grant) === 'active').length
+  const extensionTenantCount = new Set(
+    store.data.grants.map(grant => grant.cloudId ?? grant.domain)
+  ).size
+  const todayMode = todayGrantMode(store.extensionsLoad)
   const screenCopy = {
     today: [
       'Today',
@@ -12,28 +18,55 @@ export default function TopBar() {
         month: 'long',
         year: 'numeric',
         timeZone: 'UTC'
-      }).format(new Date(`${store.data.today}T00:00:00Z`))} · one stream of registrations, grants and expiries`
+      }).format(new Date(`${store.data.today}T00:00:00Z`))} · ${
+        todayMode === 'live'
+          ? `${store.data.grants.length} source-backed grant records · registration history unavailable`
+          : todayMode === 'partial'
+            ? `${store.data.grants.length} partial source-backed grant records · registration history unavailable`
+            : todayMode === 'unavailable'
+              ? 'grant and expiry rows unavailable · registration history unavailable'
+              : 'loading grant and expiry rows · registration history unavailable'
+      }`
     ],
     sites: [
       'Sites',
-      `${store.navCounts.sites} clients · ${store.data.registrations.length} new this month, ${new Set(
-        store.data.grants.map(grant => grant.domain)
-      ).size} holding an editing extension`
+      store.sitesLoad.state === 'live' && store.sitesLoad.summary
+        ? `${store.navCounts.sites} Marketplace sites · ${store.sitesLoad.summary.licenseCount} licence rows · ${new Set(
+          store.data.grants.map(grant => grant.cloudId ?? grant.domain)
+        ).size} holding an editing extension`
+        : store.sitesLoad.state === 'loading'
+          ? 'loading Marketplace inventory · no fixture sites substituted'
+          : 'Marketplace inventory unavailable · no fixture sites substituted'
     ],
     extensions: [
-      'Extension requests',
-      `${store.data.grants.length} live grants · ${active} still active on ${human(store.data.today)}`
-    ],
-    pending: [
-      'Pending assignment',
-      `${store.navCounts.pending} grants whose cloud ID matches nothing in the licence export`
+      'Editing extensions',
+      store.extensionsLoad.state === 'live' || store.extensionsLoad.state === 'partial'
+        ? `${store.data.grants.length} ${store.extensionsLoad.state === 'partial' ? 'partially ' : ''}source-backed grant records across ${extensionTenantCount} tenants · ${active} active on ${human(store.data.today)}`
+        : `${store.data.grants.length} sanitized fixture grants · live source ${store.extensionsLoad.state}`
     ],
     automation: [
       'Automation',
-      `${store.data.rules.length} mechanisms · one live, two running by hand, five not wired up`
+      store.lifecycleLoad.state === 'live'
+        ? `${store.lifecycleLoad.data?.summary.contacts ?? 0} local bootstrap contacts · ${store.navCounts.automation} observed ExtensionAction audit rows · read-only`
+        : store.extensionsLoad.sources?.extension_action_d1.state === 'ok'
+          ? `${store.navCounts.automation} observed ExtensionAction audit rows · lifecycle contacts loading`
+        : store.extensionsLoad.state === 'loading'
+          ? 'loading ExtensionAction audit · no fixture automation rows substituted'
+          : 'ExtensionAction audit unavailable · no fixture automation rows substituted'
     ]
   } as const
   const [title, subtitle] = screenCopy[store.screen]
+  const extensionFreshness = (store.extensionsLoad.state === 'live' || store.extensionsLoad.state === 'partial') && store.extensionsLoad.generatedAt
+    ? `Extensions API ${store.extensionsLoad.state === 'partial' ? 'partial · ' : ''}${new Date(store.extensionsLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `Extensions ${store.extensionsLoad.state}`
+  const sitesFreshness = store.sitesLoad.state === 'live' && store.sitesLoad.generatedAt
+    ? `Marketplace ${new Date(store.sitesLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `Marketplace ${store.sitesLoad.state}`
+  const lifecycleFreshness = store.lifecycleLoad.state === 'live' && store.lifecycleLoad.generatedAt
+    ? `Local lifecycle ${new Date(store.lifecycleLoad.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `Local lifecycle ${store.lifecycleLoad.state}`
+  const freshness = store.screen === 'sites' ? sitesFreshness : store.screen === 'automation' ? lifecycleFreshness : extensionFreshness
+  const usesExtensionFreshness = store.screen === 'today' || store.screen === 'extensions'
 
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-line bg-bg1 px-6">
@@ -63,8 +96,14 @@ export default function TopBar() {
         />
       </label>
       <div className="flex h-7 shrink-0 items-center gap-[6px] whitespace-nowrap rounded-full bg-bg3 px-[10px] text-micro text-fg2">
-        <span className="size-[6px] rounded-full bg-ok" />
-        {store.data.marketplace.freshness}
+        <span className={`size-[6px] rounded-full ${
+          usesExtensionFreshness && store.extensionsLoad.state === 'loading'
+            ? 'bg-fg3'
+            : usesExtensionFreshness && (store.extensionsLoad.state === 'error' || store.extensionsLoad.state === 'partial')
+              ? 'bg-[color:var(--color-danger)]'
+              : 'bg-ok'
+        }`} />
+        {freshness}
       </div>
     </header>
   )

@@ -40,27 +40,66 @@ export const WRITE_ACTIONS = [
 
 const TICKET = /^ZEN-\d+$/
 
-export function ticketOf(grant: Grant): string | null {
+export function recordedTicketOf(grant: Grant): string | null {
+  if (grant.ticketKey && TICKET.test(grant.ticketKey)) return grant.ticketKey
   return TICKET.test(String(grant.origin ?? '')) ? grant.origin : null
 }
 
+export function ticketOf(grant: Grant): string | null {
+  if (grant.requestTicket && TICKET.test(grant.requestTicket)) return grant.requestTicket
+  return recordedTicketOf(grant)
+}
+
 export function jsmOf(data: Dataset, grant: Grant): JsmTicket | null {
-  return data.jsm[String(grant.origin ?? '')] ?? null
+  const ticket = ticketOf(grant)
+  return ticket ? data.jsm[ticket] ?? null : null
+}
+
+export function grantStatusOf(grant: Grant): NonNullable<Grant['status']> {
+  return grant.status ?? (grant.active ? 'active' : 'expired')
+}
+
+export function grantCreatedDay(grant: Grant): string | null {
+  if (grant.createdAt) return grant.createdAt.slice(0, 10)
+  return grant.created === 'unknown' ? null : iso(grant.created)
+}
+
+export function grantExpiryDay(grant: Grant): string | null {
+  if (grant.expiresAt) return grant.expiresAt.slice(0, 10)
+  return grant.expires === 'unknown' ? null : iso(grant.expires)
+}
+
+function hasUnknown(grant: Grant, value: string): boolean {
+  return Boolean(grant.unknowns?.includes(value))
 }
 
 /** The requester line, or the reason there is no single one. */
 export function requesterOf(data: Dataset, grant: Grant): string {
   const ticket = jsmOf(data, grant)
-  if (ticket) return ticket.requester
-  return grant.wide
-    ? 'whole space — no single requester'
-    : 'no request; account id in the KV key was not carried through'
+  if (ticket) {
+    return grant.requestMatchedBy === 'domain_space'
+      ? `${ticket.requester} — reporter on a correlated request; not proven grant origin`
+      : ticket.requester
+  }
+  if (grant.wide) return 'whole space — no single requester'
+  if (hasUnknown(grant, 'JSM request matching is unavailable')) {
+    return grant.userAccountId
+      ? 'target account is present; JSM request matching is unavailable'
+      : 'target account unavailable; JSM request matching is unavailable'
+  }
+  if (!ticketOf(grant) && grant.domain.startsWith('(')) {
+    return grant.userAccountId
+      ? 'target account is present; request correlation requires a verified Marketplace site'
+      : 'request correlation requires a verified Marketplace site; target account unavailable'
+  }
+  return grant.userAccountId
+    ? 'target account is present; no JSM candidate matched in the fetched search window'
+    : 'no JSM candidate matched in the fetched search window; target account unavailable in this fixture'
 }
 
 /**
- * Where a grant sits in the Extension state machine, read off the data rather
- * than stored. There is no status column: KV carries `status: "active"` plus an
- * `expiresAt`, and nothing else.
+ * Where a grant sits in the Extension state machine. KV persists active/inactive;
+ * expired/unknown are derived at read time from that stored value and expiresAt.
  */
 export function grantState(data: Dataset, grant: Grant): [string, string] {
   if (grant.kind === 'test marker') {
@@ -70,39 +109,75 @@ export function grantState(data: Dataset, grant: Grant): [string, string] {
     ]
   }
   if (grant.domain.startsWith('(')) {
+    const mappingUnavailable = hasUnknown(grant, 'Marketplace site mapping is unavailable')
     return [
-      'needs-details',
-      'The cloud ID in this key matches no site in the Marketplace export, so the eligibility evidence behind it cannot be rebuilt.'
+      mappingUnavailable ? 'site mapping unavailable' : 'needs-details',
+      mappingUnavailable
+        ? 'Marketplace could not be read, so this cloud ID cannot currently be resolved to a site.'
+        : grant.marketplace?.length
+          ? 'Marketplace licence context is present for this cloud ID, but no site hostname is available, so the grant cannot be independently joined to a site.'
+          : 'The cloud ID in this key matches no site in the Marketplace export, so the grant cannot be independently joined to a site.'
     ]
   }
-  if (!TICKET.test(String(grant.origin ?? ''))) {
+  const status = grantStatusOf(grant)
+  if (status === 'inactive') {
+    return [
+      'inactive, KV-observed',
+      'The current KV record is explicitly inactive. Its expiresAt does not establish why or when it became inactive.'
+    ]
+  }
+  if (status === 'unknown') {
+    return [
+      'status unknown',
+      'The current KV record is present, but its stored status or expiry is missing or invalid; no active/expired claim is made.'
+    ]
+  }
+  const recordedTicket = recordedTicketOf(grant)
+  const requestTicket = ticketOf(grant)
+  const correlatedOnly = Boolean(
+    requestTicket && !recordedTicket && grant.requestMatchedBy === 'domain_space'
+  )
+  const auditUnavailable = hasUnknown(grant, 'ExtensionAction audit source is unavailable')
+  const requestContext = correlatedOnly
+    ? `JSM ${requestTicket} is correlated by exact domain, space, target scope and causal time; it is not recorded as this grant's origin. `
+    : recordedTicket
+      ? `The grant records ${recordedTicket} in activatedBy. `
+      : ''
+  if (!recordedTicket && !requestTicket) {
+    const requestAvailability = hasUnknown(grant, 'JSM request matching is unavailable')
+      ? 'JSM request matching is unavailable.'
+      : 'No JSM request candidate matched in the fetched search window.'
+    const auditAvailability = auditUnavailable
+      ? ' ExtensionAction audit is unavailable.'
+      : grant.actionAudit?.length
+        ? ' An exact-target ExtensionAction row is available.'
+        : ' No exact-target ExtensionAction row matched.'
     return [
       'outside the request flow',
-      `Activated by ${grant.origin}. There was no request, no eligibility check and no reply — the state machine never saw this grant.`
+      `Activated by ${grant.origin}. ${requestAvailability}${auditAvailability}`
     ]
   }
-  // Day-granular and strictly earlier missed the case the console exists to
-  // show: two writes to the same space on the same day. Order inside a day is
-  // not recorded, so the second row in dataset order carries the repeat.
-  const siblings = data.grants.filter(
-    other => other.domain === grant.domain && other.space === grant.space
-  )
-  const position = siblings.indexOf(grant)
-  const repeat = siblings.some(
-    (other, index) =>
-      other !== grant &&
-      (iso(other.created) < iso(grant.created) ||
-        (iso(other.created) === iso(grant.created) && index < position))
-  )
-  if (repeat) {
+  if (grant.actionAudit?.some(row => row.status === 'applied')) {
     return [
-      'already-applied',
-      'This space was granted before. With no ExtensionAction row, nothing stopped a second grant and nothing records that it was a repeat.'
+      'applied, audited',
+      `${requestContext}The current KV record and ${count(grant.actionAudit.length)} matching ExtensionAction ${grant.actionAudit.length === 1 ? 'row are both' : 'rows are'} available.`
+    ]
+  }
+  if (grant.actionAudit?.length) {
+    return [
+      'applied, audit pending',
+      `${requestContext}The current KV record exists, but ${count(grant.actionAudit.length)} matching ExtensionAction ${grant.actionAudit.length === 1 ? 'row is' : 'rows are'} still pending.`
+    ]
+  }
+  if (grant.sourceObservedAt) {
+    return [
+      'applied, KV-observed',
+      `${requestContext}The current KV record was read at ${grant.sourceObservedAt}; ${auditUnavailable ? 'ExtensionAction audit is unavailable.' : 'no exact-target ExtensionAction audit row exists.'}`
     ]
   }
   return [
     'applied, unverified',
-    `Granted from ${grant.origin} and never read back. The write is the only evidence that it worked.`
+    `${requestContext}The fixture records activatedBy as ${grant.origin}; no live source observation is attached.`
   ]
 }
 
@@ -131,63 +206,101 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
 
   if (kind === 'granted' && grant) {
     const ticket = ticketOf(grant)
+    const recordedTicket = recordedTicketOf(grant)
+    const correlatedOnly = Boolean(
+      ticket && !recordedTicket && grant.requestMatchedBy === 'domain_space'
+    )
     const state = grantState(data, grant)[0]
-    const needsDetails = state === 'needs-details'
+    const needsDetails = state === 'needs-details' || state === 'site mapping unavailable'
+    const hasAudit = Boolean(grant.actionAudit?.length)
+    const hasAppliedAudit = Boolean(grant.actionAudit?.some(row => row.status === 'applied'))
+    const auditUnavailable = hasUnknown(grant, 'ExtensionAction audit source is unavailable')
+    const jsmUnavailable = hasUnknown(grant, 'JSM request matching is unavailable')
+    const observed = Boolean(grant.sourceObservedAt)
     return {
-      stalled: needsDetails,
+      stalled: needsDetails || grantStatusOf(grant) === 'unknown',
       branches: 'Branch states not entered: not-grantable, needs-retry.',
       stages: [
         {
           name: 'received',
           state: ticket ? 'done' : 'skip',
-          note: ticket
-            ? `${ticket} is the request this grant came from.`
-            : `No request exists. ${grant.origin} wrote straight to KV.`
+          note: recordedTicket
+            ? `activatedBy records ${recordedTicket}${jsmOf(data, grant)
+              ? ', and JSM returned the request.'
+              : jsmUnavailable
+                ? '; JSM details are unavailable.'
+                : '; no matching issue was returned by the JSM pull.'}`
+            : correlatedOnly
+              ? `${ticket} is correlated by exact domain, space, target scope and causal time; it is not proven to be this grant's origin.`
+              : needsDetails
+                ? state === 'site mapping unavailable'
+                  ? `No explicit ticket is recorded; Marketplace site mapping is unavailable, so domain correlation cannot run. activatedBy is ${grant.origin}.`
+                  : `No explicit ticket is recorded; domain correlation cannot run without a verified Marketplace site. activatedBy is ${grant.origin}.`
+              : jsmUnavailable
+                ? `JSM request matching is unavailable; activatedBy is ${grant.origin}.`
+                : `No JSM request candidate matched in the fetched search window. activatedBy is ${grant.origin}.`
         },
         {
           name: 'needs-details',
-          state: needsDetails ? 'now' : 'skip',
-          note: needsDetails ? 'The cloud ID resolves to no site in the export.' : ''
+          state: needsDetails ? 'open' : 'skip',
+          note: state === 'site mapping unavailable'
+            ? 'Marketplace site mapping is unavailable, so the cloud ID cannot be resolved.'
+            : needsDetails
+              ? 'The cloud ID resolves to no site in the export.'
+              : ''
         },
         {
           name: 'checking',
-          state: 'skip',
-          note: 'No eligibility check is recorded. The space macro count, the metric age and the paid rail were never read for this grant.'
+          state: hasAudit ? 'done' : 'skip',
+          note: hasAudit
+            ? 'A matching ExtensionAction row exists; its recorded macro count is shown in Audit.'
+            : auditUnavailable
+              ? 'ExtensionAction audit is unavailable, so eligibility-check evidence is unknown.'
+              : 'No exact-target ExtensionAction row records an eligibility check for this grant.'
         },
         {
           name: 'ready-to-grant',
-          state: 'skip',
-          note: 'Never entered, so no Site Contact notification was built and nothing gated the write.'
+          state: hasAppliedAudit ? 'done' : hasAudit ? 'open' : 'skip',
+          note: hasAppliedAudit
+            ? 'The matching action row is applied.'
+            : hasAudit
+              ? 'The matching action row remains pending.'
+            : auditUnavailable
+              ? 'The action source is unavailable; this state cannot be checked.'
+              : 'No action row proves that this state was entered.'
         },
         {
           name: 'applying',
-          state: needsDetails ? 'todo' : 'done',
-          note: 'The KV write happened. No pending audit row guarded it against a concurrent replay.'
+          state: 'done',
+          note: hasAudit
+            ? 'The KV record and matching action row are both present.'
+            : auditUnavailable
+              ? 'The current KV record exists; action-row evidence is unavailable.'
+              : 'The current KV record exists; no exact-target action row is present.'
         },
         {
           name: 'applied',
-          state: needsDetails ? 'todo' : 'now',
-          note: needsDetails ? '' : 'Claimed by the write alone. The readback that would confirm it has not run.'
+          state: 'now',
+          note: observed
+            ? `Current KV value observed at ${grant.sourceObservedAt}.`
+            : 'This is a fixture row with no live source observation.'
         },
         {
           name: 'already-applied',
-          state: state === 'already-applied' ? 'open' : 'skip',
-          note:
-            state === 'already-applied'
-              ? 'This space has been granted before and nothing recorded that this was a repeat.'
-              : ''
+          state: 'skip',
+          note: 'The current KV snapshot does not establish previous grants, so repeat status is not inferred.'
         }
       ]
     }
   }
 
   if (kind === 'expired' && grant) {
-    const past = iso(grant.expires) <= data.today
+    const past = grantStatusOf(grant) === 'expired'
     return {
       stalled: past,
       branches: 'Branch states not entered: closed-unresolved, do-not-contact.',
       stages: [
-        { name: 'detected', state: 'done', note: 'Derived from the KV expiresAt. No expiry event was ever persisted, so this row is reconstructed each load.' },
+        { name: 'detected', state: 'done', note: 'Derived from the current KV status and expiresAt; no separate expiry-event evidence is present in this response.' },
         {
           name: 'needs-evidence',
           state: past ? 'now' : 'todo',
@@ -197,7 +310,7 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
         },
         { name: 'not-actionable', state: 'skip', note: 'Where this lands if no contact can be safely reached.' },
         { name: 'ready-to-contact', state: 'todo', note: 'Needs the event, the impact and the contact relationship all explainable.' },
-        { name: 'contacted', state: 'todo', note: 'Nothing has ever been sent after an expiry.' },
+        { name: 'contacted', state: 'todo', note: 'No post-expiry delivery evidence is joined in this response.' },
         { name: 'context-confirmed', state: 'todo', note: 'Would record ownership, a routing, background, or a refusal to be contacted.' },
         { name: 'recovery-in-progress', state: 'todo', note: 'Renewal or a re-granted extension runs in its own flow, not from here.' },
         { name: 'resolved', state: 'todo', note: '' }
@@ -206,7 +319,8 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
   }
 
   // A grant or expiry case arriving without its grant used to fall through to
-  // the ingest run's stages. The evidence is absent; the view states that.
+  // the ingest run's stages, so the drawer showed read / classified / written
+  // for a customer's extension. The evidence is absent; the view states that.
   if (kind === 'granted' || kind === 'expired') {
     return {
       stalled: true,
@@ -244,6 +358,10 @@ export function lifecycleOf(data: Dataset, kind: CaseKind, grant: Grant | null):
  * The rail label: the stage the case actually stands at, its position, and the
  * total. An `open` stage AFTER the current one takes over the label; an `open`
  * stage BEFORE it is appended as unresolved-earlier instead.
+ *
+ * With no `now` stage — a grant whose expiry has not arrived is exactly that
+ * shape — the label falls to the first stage still ahead of the case. It used
+ * to fall to index 0, which named a stage the case had already completed.
  */
 export function stageLabel(view: LifecycleView): string {
   if (view.stages.length === 0) return 'no stages recorded'

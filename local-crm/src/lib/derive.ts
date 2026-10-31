@@ -1,6 +1,14 @@
 import type { AppKey, Dataset, Grant, Registration } from '@/data/types'
-import { human, hostname, iso, isoOrNull, plural, relative } from './format'
-import { type CaseKind, lifecycleOf, requesterOf, grantState } from './lifecycle'
+import { human, hostname, iso, plural, relative } from './format'
+import {
+  type CaseKind,
+  lifecycleOf,
+  requesterOf,
+  grantState,
+  grantStatusOf,
+  grantCreatedDay,
+  grantExpiryDay
+} from './lifecycle'
 import { PRODUCT } from './palette'
 
 export interface CaseEvent {
@@ -45,22 +53,14 @@ export interface FeedDay {
  * "the stream shows what has happened; grants that have not run out yet are
  * scheduled, so they sit in their own block and are counted separately."
  */
-/** A grant has no id of its own; its identity is the KV key's own three parts. */
-function grantKey(grant: Grant): string {
-  return `${grant.domain}:${grant.space}:${grant.created}`.replace(/\s+/g, '-')
-}
-
 export function buildEvents(data: Dataset): CaseEvent[] {
   const out: CaseEvent[] = []
 
   data.registrations.forEach(row => {
     const product = PRODUCT[row.p]
-    // A row with an unreadable `seen` value keeps its card, dated at the console's
-    // as-of day and labelled, rather than sorting under an invented January date.
-    const seenDay = isoOrNull(row.seen)
     out.push({
       id: `registration:${row.id}:seen`,
-      day: seenDay ?? data.today,
+      day: iso(row.seen),
       kind: 'registered',
       registration: row,
       who: hostname(row.domain),
@@ -68,69 +68,107 @@ export function buildEvents(data: Dataset): CaseEvent[] {
       chip: row.p,
       dot: product.color,
       what: `First licence row for ${product.name} — ${row.licence.toLowerCase()}, ${row.tier}. No welcome was sent; the contact is held as backlog.`,
-      meta: `cloud_id ${row.cloudId}${row.flag ? ` · ${row.flag}` : ''}${seenDay ? '' : ' · first-seen date unreadable'}`
+      meta: `cloud_id ${row.cloudId}${row.flag ? ` · ${row.flag}` : ''}`
     })
   })
 
-  data.grants.forEach(grant => {
+  data.grants.forEach((grant, index) => {
     const site = hostname(grant.domain)
     const scope = grant.wide ? 'whole space' : 'one requester'
+    const grantId = grant.id ?? `fixture-${index}`
+    const status = grantStatusOf(grant)
+    const createdDay = grantCreatedDay(grant)
+    const expiryDay = grantExpiryDay(grant)
+    const eventDay = createdDay ?? grant.sourceObservedAt?.slice(0, 10) ?? data.today
+    const timing = status === 'active'
+      ? `Runs to ${grant.expires}.`
+      : status === 'expired'
+        ? `Recorded expiry ${grant.expires}.`
+        : status === 'inactive'
+          ? `KV status is inactive; recorded expiresAt is ${grant.expires}.`
+          : `Current grant status is unknown; recorded expiresAt is ${grant.expires}.`
     out.push({
-      id: `grant:${grantKey(grant)}:created`,
-      day: isoOrNull(grant.created) ?? data.today,
+      id: `grant:${grantId}:created`,
+      day: eventDay,
       kind: 'granted',
       grant,
       space: grant.space,
       who: site,
-      tag: `${grant.days ?? '7-day'} extension`,
+      tag: createdDay ? `${grant.days ?? 'duration-unknown'} extension` : 'observed grant · createdAt unknown',
       chip: 'grant',
       dot: 'var(--color-primary)',
-      what: `Editing extension on space ${grant.space}, scoped to ${scope}. Runs to ${grant.expires}.`,
+      what: `${createdDay ? 'Editing extension' : 'Current extension record observed; createdAt is unknown'} on space ${grant.space}, scoped to ${scope}. ${timing}`,
       meta: `${grantState(data, grant)[0]} · requester ${requesterOf(data, grant)}`
     })
-    out.push({
-      id: `grant:${grantKey(grant)}:expires`,
-      day: isoOrNull(grant.expires) ?? data.today,
-      kind: 'expired',
-      grant,
-      space: grant.space,
-      who: site,
-      tag: grant.active ? 'expires' : 'expired',
-      chip: 'expiry',
-      dot: 'var(--gray-400)',
-      what: grant.active
-        ? `Editing access on space ${grant.space} runs out unless it is renewed.`
-        : `Editing access on space ${grant.space} ended. Nothing follows it up.`,
-      meta: `granted ${grant.created} · ${grant.origin}`
-    })
+    if ((status === 'active' || status === 'expired') && expiryDay) {
+      out.push({
+        id: `grant:${grantId}:expires`,
+        day: expiryDay,
+        kind: 'expired',
+        grant,
+        space: grant.space,
+        who: site,
+        tag: status === 'active' ? 'expires' : 'expired',
+        chip: 'expiry',
+        dot: 'var(--gray-400)',
+        what: status === 'active'
+          ? `Editing access on space ${grant.space} runs out unless it is renewed.`
+          : `The recorded expiresAt for editing access on space ${grant.space} has passed; access impact is not joined.`,
+        meta: `granted ${grant.created} · ${grant.origin}`
+      })
+    }
   })
 
+  const localLifecycleIngest = data.ingest.localSchema === 'lifecycle.sqlite'
   out.push({
-    id: `ingest:${data.ingest.runDay.replace(/\s+/g, '-')}`,
-    day: isoOrNull(data.ingest.runDay) ?? data.today,
+    id: `ingest:${data.ingest.runDay}`,
+    day: iso(data.ingest.runDay),
     kind: 'ingest',
-    who: 'bootstrap ingest',
+    who: localLifecycleIngest ? 'local Marketplace ingest' : 'bootstrap ingest',
     tag: 'ingest',
     chip: 'ingest',
     dot: 'var(--accent-plantuml-500)',
-    what: `${data.ingest.contactsWritten.toLocaleString('en-US')} contacts written across four apps and held as backlog, so the existing base can never be welcomed retroactively.`,
-    meta: `ingest-licenses.mjs --bootstrap · ${data.ingest.rowsRead.toLocaleString('en-US')} rows read, ${data.ingest.rejected} rejected`
+    what: localLifecycleIngest
+      ? `${data.ingest.contactsWritten.toLocaleString('en-US')} current contacts observed across four apps and stored locally as suppressed bootstrap records; this is not registration history.`
+      : `${data.ingest.contactsWritten.toLocaleString('en-US')} contacts written across four apps and held as backlog, so the existing base can never be welcomed retroactively.`,
+    meta: localLifecycleIngest
+      ? `Local CRM loopback · ${data.ingest.rowsRead.toLocaleString('en-US')} Marketplace rows read`
+      : `ingest-licenses.mjs --bootstrap · ${data.ingest.rowsRead.toLocaleString('en-US')} rows read, ${data.ingest.rejected} rejected`
   })
 
-  // Ids name the row they describe. They used to be the position in this sorted
-  // array, so one new grant renumbered every case below it and carried each
-  // action stamp in `done` to a different customer.
-  return out.sort((a, b) => b.day.localeCompare(a.day))
+  return out.sort((a, b) => b.day.localeCompare(a.day) || a.id.localeCompare(b.id))
 }
 
 export function pastEvents(data: Dataset, events: CaseEvent[]): CaseEvent[] {
-  return events.filter(event => event.day <= data.today)
+  return events.filter(event =>
+    event.day <= data.today
+      && !(event.kind === 'expired' && event.grant && grantStatusOf(event.grant) === 'active')
+  )
 }
 
 export function scheduledEvents(data: Dataset, events: CaseEvent[]): CaseEvent[] {
   return events
-    .filter(event => event.day > data.today)
+    .filter(event => event.day > data.today
+      || (event.kind === 'expired' && event.grant && grantStatusOf(event.grant) === 'active'))
     .sort((a, b) => a.day.localeCompare(b.day))
+}
+
+/** The newest full-timestamp grant event for one rendered tenant hostname. */
+export function latestGrantEventForDomain(
+  events: CaseEvent[],
+  domain: string
+): CaseEvent | undefined {
+  return events
+    .filter(event =>
+      event.kind === 'granted'
+        && event.grant
+        && hostname(event.grant.domain) === domain
+    )
+    .sort((a, b) => {
+      const aCreated = a.grant?.createdAt ?? grantCreatedDay(a.grant!) ?? ''
+      const bCreated = b.grant?.createdAt ?? grantCreatedDay(b.grant!) ?? ''
+      return bCreated.localeCompare(aCreated) || a.id.localeCompare(b.id)
+    })[0]
 }
 
 /** Group the stream into day blocks, preserving the incoming order. */
@@ -162,14 +200,19 @@ export interface ScheduledDay {
 /** The next three upcoming days, one line each. */
 export function scheduledHead(data: Dataset, ahead: CaseEvent[]): ScheduledDay[] {
   const days = groupByDay(data, ahead)
-  return days.slice(0, 3).map(day => ({
-    date: day.date,
-    rel: day.rel,
-    what:
-      day.events.length === 1
-        ? `${day.events[0].who} — space ${day.events[0].space}`
-        : `${day.events.length} spaces at ${day.events[0].who}`
-  }))
+  return days.slice(0, 3).map(day => {
+    const tenants = new Set(day.events.map(event => event.who))
+    return {
+      date: day.date,
+      rel: day.rel,
+      what:
+        day.events.length === 1
+          ? `${day.events[0].who} — space ${day.events[0].space}`
+          : tenants.size === 1
+            ? `${day.events.length} spaces at ${day.events[0].who}`
+            : `${day.events.length} expiries across ${tenants.size} tenants`
+    }
+  })
 }
 
 /**
@@ -207,6 +250,8 @@ export interface SiteRow {
   apps: AppKey[]
   extensions: string
   last: string
+  /** Current Marketplace export contacts joined only by cloud ID; never a site-owner assertion. */
+  technicalContacts: string[]
 }
 
 /**
@@ -235,20 +280,18 @@ export function buildSites(data: Dataset): SiteRow[] {
   }
 
   data.registrations.forEach(row => {
-    const entry = touch(row.domain, isoOrNull(row.seen) ?? data.today)
+    const entry = touch(row.domain, iso(row.seen))
     entry.cloudId = row.cloudId
     entry.apps.add(row.p)
   })
   // An editing extension is a Lite-only mechanism, so a grant implies lite.
-  // A grant whose cloud ID resolves to no site carries a parenthesised
-  // placeholder, not a domain: grouping it here invented a site row and counted
-  // it in "sites on file". Those grants stay on the unresolved list only.
   data.grants.forEach(grant => {
-    if (grant.domain.startsWith('(')) return
-    const entry = touch(grant.domain, isoOrNull(grant.created) ?? data.today)
+    const day = grantCreatedDay(grant) ?? grant.sourceObservedAt?.slice(0, 10) ?? data.today
+    const entry = touch(grant.domain, day)
+    if (grant.cloudId) entry.cloudId ??= grant.cloudId
     entry.apps.add('lite')
     entry.grants += 1
-    if (grant.active) entry.active += 1
+    if (grantStatusOf(grant) === 'active') entry.active += 1
   })
 
   return [...sites.values()]
@@ -259,9 +302,10 @@ export function buildSites(data: Dataset): SiteRow[] {
       cloudIdMissing: !entry.cloudId,
       apps: [...entry.apps],
       extensions: entry.grants
-        ? `${plural(entry.grants, 'grant')}${entry.active ? ` · ${entry.active} active` : ' · all expired'}`
+        ? `${plural(entry.grants, 'grant')} · ${entry.active} active`
         : '—',
-      last: human(entry.day)
+      last: human(entry.day),
+      technicalContacts: []
     }))
 }
 
@@ -290,69 +334,56 @@ export interface TenantRow {
   window: string
 }
 
-/** Who keeps asking, repeat requests first. */
+/** Current grant records grouped by tenant, highest grant count first. */
 export function buildTenants(data: Dataset): TenantRow[] {
   interface Acc {
     domain: string
     n: number
     active: number
     spaces: Set<string>
-    first: string
-    last: string
+    first: string | null
+    last: string | null
+    unknownDates: number
   }
   const tenants = new Map<string, Acc>()
   data.grants.forEach(grant => {
-    let entry = tenants.get(grant.domain)
+    const tenantKey = grant.cloudId ?? grant.domain
+    let entry = tenants.get(tenantKey)
     if (!entry) {
-      entry = { domain: grant.domain, n: 0, active: 0, spaces: new Set(), first: '9', last: '0' }
-      tenants.set(grant.domain, entry)
+      entry = { domain: grant.domain, n: 0, active: 0, spaces: new Set(), first: null, last: null, unknownDates: 0 }
+      tenants.set(tenantKey, entry)
+    } else if (entry.domain.startsWith('(') && !grant.domain.startsWith('(')) {
+      entry.domain = grant.domain
     }
-    const day = isoOrNull(grant.created) ?? data.today
+    const day = grantCreatedDay(grant)
     entry.n += 1
-    if (grant.active) entry.active += 1
+    if (grantStatusOf(grant) === 'active') entry.active += 1
     entry.spaces.add(grant.space)
-    if (day < entry.first) entry.first = day
-    if (day > entry.last) entry.last = day
+    if (!day) {
+      entry.unknownDates += 1
+    } else {
+      if (!entry.first || day < entry.first) entry.first = day
+      if (!entry.last || day > entry.last) entry.last = day
+    }
   })
 
   return [...tenants.values()]
-    .sort((a, b) => b.n - a.n || b.last.localeCompare(a.last))
+    .sort((a, b) => b.n - a.n || (b.last ?? '').localeCompare(a.last ?? ''))
     .map(entry => ({
       domain: hostname(entry.domain),
       grants: entry.n,
-      active: entry.active ? `${entry.active} active` : 'none',
+      active: `${entry.active} active`,
       hasActive: entry.active > 0,
       spaces: [...entry.spaces].join(', '),
-      window: entry.first === entry.last ? human(entry.first) : `${human(entry.first)} → ${human(entry.last)}`
+      window: !entry.first || !entry.last
+        ? 'createdAt unknown'
+        : `${entry.first === entry.last ? human(entry.first) : `${human(entry.first)} → ${human(entry.last)}`}${entry.unknownDates ? ` · ${entry.unknownDates} unknown` : ''}`
     }))
 }
 
-/** Grants whose cloud ID matches nothing in the licence export. */
+/** Grants whose current site hostname is unavailable or unresolved. */
 export function unresolvedGrants(data: Dataset): Grant[] {
   return data.grants.filter(grant => grant.domain.startsWith('('))
-}
-
-export interface UnresolvedRow {
-  key: string
-  detail: string
-  audit: string
-  state: string
-  active: boolean
-  expires: string
-}
-
-export function buildUnresolved(data: Dataset): UnresolvedRow[] {
-  return unresolvedGrants(data).map(grant => ({
-    key: `license:<cloudId>:${grant.space}:<accountId>`,
-    detail:
-      grant.kind === 'test marker'
-        ? 'Granted space-wide by an end-to-end test in April and set to run until the end of 2027. No licence row anywhere carries this cloud ID, so no client can be attached to it.'
-        : 'Granted automatically from a support ticket. The cloud ID resolved at grant time but appears in no current licence export, so the site behind it cannot be identified.',
-    audit: `activatedBy ${grant.origin} · granted ${grant.created}`,
-    state: grant.active ? 'active' : 'expired',
-    active: Boolean(grant.active),
-    expires: `expires ${grant.expires}`
-  }))
 }
 
 /** Filter pill counts, computed over the past stream only. */

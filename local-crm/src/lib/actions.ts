@@ -42,23 +42,6 @@ export interface DrawerActions {
  * the button is absent and the row reads "Held while the case is blocked."
  * Read-only actions (readback, open ticket) stay live.
  */
-/**
- * The action ids the case will actually run. The drawer renders no control for a
- * blocked or held action, so a dispatch carrying one did not come from the UI;
- * the store checks this set before it stamps anything.
- */
-export function runnableActionIds(
-  model: CaseModel,
-  eventId: string,
-  confirming: string | null,
-  done: Record<string, string>
-): Set<string> {
-  const { next, more } = buildActions(model, eventId, confirming, done)
-  return new Set(
-    [next, ...more].filter(item => item.id && !item.blocked && !item.held).map(item => item.id)
-  )
-}
-
 export function buildActions(
   model: CaseModel,
   eventId: string,

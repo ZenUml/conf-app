@@ -9,6 +9,8 @@ import type { Dataset } from './types'
  * structures — 9 grants on one tenant across 6 spaces, 2 grants whose cloud ID
  * resolves to nothing, 15 of 37 grants carrying a ZEN ticket, one ticket whose
  * reply authorship is unconfirmed. Only the identities are substituted.
+ * Ticket keys and space keys use reserved-looking synthetic sequences so the
+ * fixture cannot be mistaken for an exported JSM request or customer space.
  *
  * `docs/policies/client-privacy.md` keeps real tenant hostnames, cloud IDs and
  * contact identities out of the public repo. The real extraction lives in the
@@ -73,67 +75,67 @@ export const placeholderDataset: Dataset = {
   // 37 license:* records, 19 distinct tenants, 11 active on 29 Aug,
   // 22 per-user / 15 space-wide.
   grants: [
-    { created: '25 Aug', domain: 'tenant-a', space: 'OPS', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
-    { created: '25 Aug', domain: 'tenant-a', space: 'PLAN', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
-    { created: '25 Aug', domain: 'tenant-a', space: 'DEV1', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
-    { created: '25 Aug', domain: 'tenant-a', space: 'LEARN', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
-    { created: '25 Aug', domain: 'tenant-a', space: 'PAY', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
-    { created: '25 Aug', domain: 'tenant-g', space: 'SRVDEV', origin: 'ZEN-1208', expires: '01 Sep', active: true },
-    { created: '21 Aug', domain: 'tenant-c', space: 'BANK', origin: 'ZEN-1207', expires: '28 Aug' },
-    { created: '19 Aug', domain: 'tenant-h', space: 'CE', origin: 'ZEN-1205', expires: '26 Aug' },
-    { created: '19 Aug', domain: '(not in export)', space: 'SD', origin: 'ZEN-1206', kind: 'automatic', expires: '26 Aug' },
-    { created: '18 Aug', domain: 'tenant-i', space: 'PS', origin: 'ZEN-1204', expires: '26 Aug' },
-    { created: '16 Aug', domain: 'tenant-b', space: 'ENGIN', origin: 'ZEN-1203', expires: '23 Aug' },
-    { created: '13 Aug', domain: 'tenant-b', space: 'ENGIN', origin: 'ZEN-1202', expires: '20 Aug' },
-    { created: '12 Aug', domain: 'tenant-c', space: 'ECO', origin: 'ZEN-1201', expires: '19 Aug' },
-    { created: '11 Aug', domain: 'tenant-j', space: 'EPS', origin: 'ZEN-1199', expires: '19 Aug' },
-    { created: '11 Aug', domain: 'tenant-k', space: 'VPP', origin: 'ZEN-1200', expires: '19 Aug' },
-    { created: '07 Aug', domain: 'tenant-b', space: 'ENGIN', origin: 'ZEN-1209', expires: '03 Sep', active: true },
-    { created: '07 Aug', domain: 'tenant-e', space: 'CASA', origin: 'ZEN-1197', kind: 'off-convention', expires: '21 Aug' },
-    { created: '31 Jul', domain: 'tenant-l', space: 'UPI', origin: 'ZEN-1196', days: '14-day', expires: '15 Aug' },
-    { created: '28 Jul', domain: 'tenant-m', space: 'FOR', origin: 'proactive-champion-watch', kind: 'outreach', expires: '04 Aug' },
-    { created: '28 Jul', domain: 'tenant-e', space: 'EA', origin: 'proactive-champion-watch', kind: 'outreach', expires: '04 Aug' },
-    { created: '28 Jul', domain: 'tenant-n', space: 'ATS', origin: 'proactive-champion-watch', kind: 'outreach', expires: '04 Aug' },
-    { created: '25 Jul', domain: 'tenant-a', space: 'ARCH', origin: 'ZEN-1191', days: '14-day', expires: '08 Aug' },
-    { created: '25 Jul', domain: 'tenant-a', space: 'ARCH', origin: 'ZEN-1192', expires: '02 Aug' },
-    { created: '24 Jul', domain: 'tenant-o', space: 'PCI', origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '07 Aug' },
-    { created: '20 Jul', domain: 'tenant-d', space: 'MARCH', origin: 'temp-7d-extension', kind: 'no ticket', expires: '27 Jul' },
-    { created: '16 Jul', domain: 'tenant-f', space: 'LMBS', origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '30 Jul' },
-    { created: '15 Jul', domain: 'tenant-a', space: 'ARCH', origin: 'ZEN-1185', expires: '22 Jul' },
-    { created: '30 Jun', domain: 'tenant-c', space: 'APA', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '14 Jul' },
-    { created: '30 Jun', domain: 'tenant-a', space: 'ARCH', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
-    { created: '23 Jun', domain: 'tenant-d', space: 'MARCH', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '19 Jul' },
-    { created: '23 Jun', domain: 'tenant-b', space: 'ENGIN', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '22 Jul' },
-    { created: '22 Jun', domain: 'tenant-d', space: 'GPROD', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '06 Jul' },
-    { created: '22 Jun', domain: 'tenant-p', space: 'FIN', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '07 Jul' },
-    { created: '16 Jun', domain: 'tenant-f', space: 'LPT', wide: true, origin: 'pengxiao', kind: 'off-convention', expires: '30 Jun' },
-    { created: '06 Apr', domain: '(not in export)', space: 'SD', wide: true, origin: 'upgrade-prompt-e2e', kind: 'test marker', expires: '31 Dec 27', active: true },
-    { created: '06 Apr', domain: 'example-stg', space: 'ZS', wide: true, origin: 'peng', kind: 'off-convention', expires: '06 Apr 27', active: true },
-    { created: '26 Nov 25', domain: 'tenant-q', space: 'CDSA', wide: true, origin: '(customer address)', kind: 'off-convention', expires: '26 Nov', active: true }
+    { created: '25 Aug', domain: 'tenant-a', space: 'DEMO01', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
+    { created: '25 Aug', domain: 'tenant-a', space: 'DEMO02', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
+    { created: '25 Aug', domain: 'tenant-a', space: 'DEMO03', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
+    { created: '25 Aug', domain: 'tenant-a', space: 'DEMO04', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
+    { created: '25 Aug', domain: 'tenant-a', space: 'DEMO05', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
+    { created: '25 Aug', domain: 'tenant-g', space: 'DEMO06', origin: 'ZEN-990015', expires: '01 Sep', active: true },
+    { created: '21 Aug', domain: 'tenant-c', space: 'DEMO07', origin: 'ZEN-990014', expires: '28 Aug' },
+    { created: '19 Aug', domain: 'tenant-h', space: 'DEMO08', origin: 'ZEN-990012', expires: '26 Aug' },
+    { created: '19 Aug', domain: '(not in export)', space: 'DEMO09', origin: 'ZEN-990013', kind: 'automatic', expires: '26 Aug' },
+    { created: '18 Aug', domain: 'tenant-i', space: 'DEMO10', origin: 'ZEN-990011', expires: '26 Aug' },
+    { created: '16 Aug', domain: 'tenant-b', space: 'DEMO11', origin: 'ZEN-990010', expires: '23 Aug' },
+    { created: '13 Aug', domain: 'tenant-b', space: 'DEMO11', origin: 'ZEN-990009', expires: '20 Aug' },
+    { created: '12 Aug', domain: 'tenant-c', space: 'DEMO12', origin: 'ZEN-990008', expires: '19 Aug' },
+    { created: '11 Aug', domain: 'tenant-j', space: 'DEMO13', origin: 'ZEN-990006', expires: '19 Aug' },
+    { created: '11 Aug', domain: 'tenant-k', space: 'DEMO14', origin: 'ZEN-990007', expires: '19 Aug' },
+    { created: '07 Aug', domain: 'tenant-b', space: 'DEMO11', origin: 'ZEN-990016', expires: '03 Sep', active: true },
+    { created: '07 Aug', domain: 'tenant-e', space: 'DEMO15', origin: 'ZEN-990005', kind: 'off-convention', expires: '21 Aug' },
+    { created: '31 Jul', domain: 'tenant-l', space: 'DEMO16', origin: 'ZEN-990004', days: '14-day', expires: '15 Aug' },
+    { created: '28 Jul', domain: 'tenant-m', space: 'DEMO17', origin: 'proactive-champion-watch', kind: 'outreach', expires: '04 Aug' },
+    { created: '28 Jul', domain: 'tenant-e', space: 'DEMO18', origin: 'proactive-champion-watch', kind: 'outreach', expires: '04 Aug' },
+    { created: '28 Jul', domain: 'tenant-n', space: 'DEMO19', origin: 'proactive-champion-watch', kind: 'outreach', expires: '04 Aug' },
+    { created: '25 Jul', domain: 'tenant-a', space: 'DEMO20', origin: 'ZEN-990002', days: '14-day', expires: '08 Aug' },
+    { created: '25 Jul', domain: 'tenant-a', space: 'DEMO20', origin: 'ZEN-990003', expires: '02 Aug' },
+    { created: '24 Jul', domain: 'tenant-o', space: 'DEMO21', origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '07 Aug' },
+    { created: '20 Jul', domain: 'tenant-d', space: 'DEMO22', origin: 'temp-7d-extension', kind: 'no ticket', expires: '27 Jul' },
+    { created: '16 Jul', domain: 'tenant-f', space: 'DEMO23', origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '30 Jul' },
+    { created: '15 Jul', domain: 'tenant-a', space: 'DEMO20', origin: 'ZEN-990001', expires: '22 Jul' },
+    { created: '30 Jun', domain: 'tenant-c', space: 'DEMO24', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '14 Jul' },
+    { created: '30 Jun', domain: 'tenant-a', space: 'DEMO20', wide: true, origin: 'experiment:ab-tenant-a-2026-08', expires: '22 Sep', active: true },
+    { created: '23 Jun', domain: 'tenant-d', space: 'DEMO22', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '19 Jul' },
+    { created: '23 Jun', domain: 'tenant-b', space: 'DEMO11', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '22 Jul' },
+    { created: '22 Jun', domain: 'tenant-d', space: 'DEMO25', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '06 Jul' },
+    { created: '22 Jun', domain: 'tenant-p', space: 'DEMO26', wide: true, origin: 'temp-14d-extension', days: '14-day', kind: 'no ticket', expires: '07 Jul' },
+    { created: '16 Jun', domain: 'tenant-f', space: 'DEMO27', wide: true, origin: 'pengxiao', kind: 'off-convention', expires: '30 Jun' },
+    { created: '06 Apr', domain: '(not in export)', space: 'DEMO09', wide: true, origin: 'upgrade-prompt-e2e', kind: 'test marker', expires: '31 Dec 27', active: true },
+    { created: '06 Apr', domain: 'example-stg', space: 'DEMO28', wide: true, origin: 'peng', kind: 'off-convention', expires: '06 Apr 27', active: true },
+    { created: '26 Nov 25', domain: 'tenant-q', space: 'DEMO29', wide: true, origin: '(customer address)', kind: 'off-convention', expires: '26 Nov', active: true }
   ],
 
   // 16 tickets. 15 of them carry a `qm:` account id, meaning the request was
   // filed from the portal while not signed in. No ticket carries a
   // customer-authored comment.
   jsm: {
-    'ZEN-1185': { requester: 'requester-01@tenant-a.example', accountId: '712020:qm-0185', status: 'Resolved', lastReply: '11 Aug', replies: 2, typedDomain: 'tenant-a', typedSpace: 'ARCH', portalUnsigned: true, note: '' },
-    'ZEN-1191': { requester: 'requester-02@personal.example', accountId: '712020:qm-0191', status: 'Resolved', lastReply: '11 Aug', replies: 2, typedDomain: 'tenant-a', typedSpace: 'ARCH', portalUnsigned: true, note: 'personal mail address, not a tenant-a domain' },
-    'ZEN-1192': { requester: 'requester-03@tenant-a.example', accountId: '712020:qm-0192', status: 'Resolved', lastReply: '11 Aug', replies: 2, typedDomain: 'tenant-a', typedSpace: 'ARCH', portalUnsigned: true, note: '' },
-    'ZEN-1196': { requester: 'requester-04@tenant-l.example', accountId: '712020:qm-0196', status: 'Waiting for customer', lastReply: '01 Aug', replies: 1, typedDomain: 'tenant-l', typedSpace: 'UPI', portalUnsigned: true, note: '' },
-    'ZEN-1197': { requester: 'requester-05@tenant-e.example', accountId: '712020:qm-0197', status: 'Waiting for customer', lastReply: '07 Aug', replies: 1, typedDomain: 'tenant-e', typedSpace: 'CASA', portalUnsigned: true, note: '' },
-    'ZEN-1199': { requester: 'requester-06@tenant-j.example', accountId: '5f00000000000000000000a1', status: 'Waiting for customer', lastReply: '12 Aug', replies: 1, typedDomain: 'tenant-j', typedSpace: 'EPS', portalUnsigned: true, note: 'target is a legacy account id, not the 712020: form' },
-    'ZEN-1200': { requester: 'requester-07@tenant-k.example', accountId: '712020:qm-0200', status: 'Waiting for customer', lastReply: '12 Aug', replies: 1, typedDomain: 'tenant-k', typedSpace: 'VPP', portalUnsigned: true, note: '' },
-    'ZEN-1201': { requester: 'requester-08@tenant-c.example', accountId: '712020:qm-0201', status: 'Waiting for customer', lastReply: '12 Aug', replies: 1, typedDomain: 'tenant-c', typedSpace: 'ECO', portalUnsigned: true, note: '' },
-    'ZEN-1202': { requester: 'requester-09@tenant-b.example', accountId: '712020:qm-0202', status: 'Waiting for customer', lastReply: '13 Aug', replies: 1, typedDomain: 'tenant-b', typedSpace: 'ENGIN', portalUnsigned: true, note: '' },
-    'ZEN-1203': { requester: 'requester-10@tenant-b.example', accountId: '712020:qm-0203', status: 'Waiting for customer', lastReply: '16 Aug', replies: 1, typedDomain: 'tenant-b', typedSpace: 'ENGIN', portalUnsigned: true, note: '' },
-    'ZEN-1204': { requester: 'requester-11@tenant-i.example', accountId: '712020:qm-0204', status: 'Waiting for customer', lastReply: '19 Aug', replies: 1, typedDomain: 'tenant-i', typedSpace: 'PS', portalUnsigned: true, note: '' },
-    'ZEN-1205': { requester: 'requester-12@tenant-h.example', accountId: '712020:qm-0205', status: 'Waiting for customer', lastReply: '19 Aug', replies: 1, typedDomain: 'tenant-h', typedSpace: 'CE', portalUnsigned: true, note: '' },
-    'ZEN-1206': { requester: 'Internal tester', accountId: '712020:qm-0206', status: 'Resolved', lastReply: '19 Aug', replies: 1, typedDomain: 'example-stg.atlassian.net', typedSpace: 'SD', portalUnsigned: false, note: 'a staging site typed as a full hostname; the only reply was posted by Automation for Jira, so vendor authorship is undetermined' },
-    'ZEN-1207': { requester: 'requester-13@tenant-c.example', accountId: '712020:qm-0207', status: 'Waiting for customer', lastReply: '21 Aug', replies: 2, typedDomain: 'tenant-c', typedSpace: 'BANK', portalUnsigned: true, note: 'second reply was a correction to the first' },
-    'ZEN-1208': { requester: 'requester-14@unrelated.example', accountId: '5f00000000000000000000a2', status: 'Waiting for customer', lastReply: '25 Aug', replies: 1, typedDomain: 'tenant-g', typedSpace: 'SRVDEV', portalUnsigned: true, note: 'requester email domain is unrelated to the site domain; target is a legacy account id' },
-    'ZEN-1209': { requester: 'requester-15@tenant-b.example', accountId: '712020:qm-0209', status: 'Waiting for customer', lastReply: '27 Aug', replies: 1, typedDomain: 'tenant-b', typedSpace: 'ENGIN', portalUnsigned: true, note: '' }
+    'ZEN-990001': { requester: 'requester-01@tenant-a.example', accountId: '712020:qm-0185', status: 'Resolved', lastReply: '11 Aug', replies: 2, typedDomain: 'tenant-a', typedSpace: 'DEMO20', portalUnsigned: true, note: '' },
+    'ZEN-990002': { requester: 'requester-02@personal.example', accountId: '712020:qm-0191', status: 'Resolved', lastReply: '11 Aug', replies: 2, typedDomain: 'tenant-a', typedSpace: 'DEMO20', portalUnsigned: true, note: 'personal mail address, not a tenant-a domain' },
+    'ZEN-990003': { requester: 'requester-03@tenant-a.example', accountId: '712020:qm-0192', status: 'Resolved', lastReply: '11 Aug', replies: 2, typedDomain: 'tenant-a', typedSpace: 'DEMO20', portalUnsigned: true, note: '' },
+    'ZEN-990004': { requester: 'requester-04@tenant-l.example', accountId: '712020:qm-0196', status: 'Waiting for customer', lastReply: '01 Aug', replies: 1, typedDomain: 'tenant-l', typedSpace: 'DEMO16', portalUnsigned: true, note: '' },
+    'ZEN-990005': { requester: 'requester-05@tenant-e.example', accountId: '712020:qm-0197', status: 'Waiting for customer', lastReply: '07 Aug', replies: 1, typedDomain: 'tenant-e', typedSpace: 'DEMO15', portalUnsigned: true, note: '' },
+    'ZEN-990006': { requester: 'requester-06@tenant-j.example', accountId: '5f00000000000000000000a1', status: 'Waiting for customer', lastReply: '12 Aug', replies: 1, typedDomain: 'tenant-j', typedSpace: 'DEMO13', portalUnsigned: true, note: 'target is a legacy account id, not the 712020: form' },
+    'ZEN-990007': { requester: 'requester-07@tenant-k.example', accountId: '712020:qm-0200', status: 'Waiting for customer', lastReply: '12 Aug', replies: 1, typedDomain: 'tenant-k', typedSpace: 'DEMO14', portalUnsigned: true, note: '' },
+    'ZEN-990008': { requester: 'requester-08@tenant-c.example', accountId: '712020:qm-0201', status: 'Waiting for customer', lastReply: '12 Aug', replies: 1, typedDomain: 'tenant-c', typedSpace: 'DEMO12', portalUnsigned: true, note: '' },
+    'ZEN-990009': { requester: 'requester-09@tenant-b.example', accountId: '712020:qm-0202', status: 'Waiting for customer', lastReply: '13 Aug', replies: 1, typedDomain: 'tenant-b', typedSpace: 'DEMO11', portalUnsigned: true, note: '' },
+    'ZEN-990010': { requester: 'requester-10@tenant-b.example', accountId: '712020:qm-0203', status: 'Waiting for customer', lastReply: '16 Aug', replies: 1, typedDomain: 'tenant-b', typedSpace: 'DEMO11', portalUnsigned: true, note: '' },
+    'ZEN-990011': { requester: 'requester-11@tenant-i.example', accountId: '712020:qm-0204', status: 'Waiting for customer', lastReply: '19 Aug', replies: 1, typedDomain: 'tenant-i', typedSpace: 'DEMO10', portalUnsigned: true, note: '' },
+    'ZEN-990012': { requester: 'requester-12@tenant-h.example', accountId: '712020:qm-0205', status: 'Waiting for customer', lastReply: '19 Aug', replies: 1, typedDomain: 'tenant-h', typedSpace: 'DEMO08', portalUnsigned: true, note: '' },
+    'ZEN-990013': { requester: 'Internal tester', accountId: '712020:qm-0206', status: 'Resolved', lastReply: '19 Aug', replies: 1, typedDomain: 'example-stg.atlassian.net', typedSpace: 'DEMO09', portalUnsigned: false, note: 'a staging site typed as a full hostname; the only reply was posted by Automation for Jira, so vendor authorship is undetermined' },
+    'ZEN-990014': { requester: 'requester-13@tenant-c.example', accountId: '712020:qm-0207', status: 'Waiting for customer', lastReply: '21 Aug', replies: 2, typedDomain: 'tenant-c', typedSpace: 'DEMO07', portalUnsigned: true, note: 'second reply was a correction to the first' },
+    'ZEN-990015': { requester: 'requester-14@unrelated.example', accountId: '5f00000000000000000000a2', status: 'Waiting for customer', lastReply: '25 Aug', replies: 1, typedDomain: 'tenant-g', typedSpace: 'DEMO06', portalUnsigned: true, note: 'requester email domain is unrelated to the site domain; target is a legacy account id' },
+    'ZEN-990016': { requester: 'requester-15@tenant-b.example', accountId: '712020:qm-0209', status: 'Waiting for customer', lastReply: '27 Aug', replies: 1, typedDomain: 'tenant-b', typedSpace: 'DEMO11', portalUnsigned: true, note: '' }
   },
-  jsmUnconfirmedAuthor: ['ZEN-1206'],
+  jsmUnconfirmedAuthor: ['ZEN-990013'],
 
   byApp: [
     { app: 'lite', n: 16, note: 'inside the 15–20 baseline' },
@@ -157,11 +159,11 @@ export const placeholderDataset: Dataset = {
   ],
 
   origins: [
-    { n: 12, label: 'Support ticket, seven days', accent: 'brand', note: 'The intended path. A ZEN ticket, the standard duration, one requester.', pattern: 'support:temp-7d-extension:ZEN-####' },
+    { n: 12, label: 'Support ticket, seven days', accent: 'brand', note: 'The intended path. A ZEN ticket, the standard duration, one requester.', pattern: 'support:temp-7d-extension:ZEN-9900##' },
     { n: 9, label: 'Fourteen days', accent: 'cerulean', note: 'A longer grant than the documented policy allows. Seven of the nine carry no ticket at all.', pattern: 'support:temp-14d-extension' },
     { n: 6, label: 'A/B experiment', accent: 'radical', note: 'One tenant, six spaces, all space-wide and all still active — issued by an experiment, not by support.', pattern: 'experiment:ab-tenant-a-2026-08' },
     { n: 3, label: 'Proactive outreach', accent: 'leaf', note: 'Granted before anyone asked, to accounts on a watch list.', pattern: 'support:temp-7d-extension:proactive-champion-watch' },
-    { n: 7, label: 'Off convention', accent: 'rust', note: 'An operator name, an end-to-end test marker, a bare ticket key and a customer email address. Two of these run to 2027.', pattern: 'pengxiao · peng · upgrade-prompt-e2e · ZEN-1197' }
+    { n: 7, label: 'Off convention', accent: 'rust', note: 'An operator name, an end-to-end test marker, a bare ticket key and a customer email address. Two of these run to 2027.', pattern: 'pengxiao · peng · upgrade-prompt-e2e · ZEN-990005' }
   ],
 
   rules: [

@@ -31,37 +31,81 @@ export interface Registration {
 /**
  * One `license:*` record in SPACE_LICENSE_KV.
  *
- * The key is `license:<cloudId>:<spaceKey>:<accountId>`. The account-ID segment
- * is not carried into the extraction, so no grant can name who asked for it.
+ * The key is `license:<cloudId>:<spaceKey>:<accountId>`. Live rows retain the
+ * target account segment, while the sanitized fixture may omit it.
  */
 export interface Grant {
+  /** Stable API id when the row came from the loopback backend. */
+  id?: string
   created: string
+  createdAt?: string
+  updatedAt?: string
   /** '(not in export)' when the cloud ID resolves to no site in the licence export. */
   domain: string
+  /** Live Marketplace join result; absent on the sanitized fixture. */
+  siteMapping?: 'matched' | 'unmatched' | 'unavailable'
   space: string
   /** Space-wide when true, one requester when absent. */
   wide?: boolean
-  /** `activatedBy`, verbatim. A `ZEN-####` value is the request behind the grant. */
+  /** `activatedBy`, verbatim; never replaced with a correlated request key. */
   origin: string
   expires: string
+  expiresAt?: string
   /** Derived at read time from `expiresAt`. There is no persisted expiry event. */
   active?: boolean
+  /** Full read-time state. Fixtures without this field fall back to `active`. */
+  status?: 'active' | 'expired' | 'inactive' | 'unknown'
   kind?: 'automatic' | 'off-convention' | 'no ticket' | 'outreach' | 'test marker'
   /** '14-day' where the grant broke the 7-day convention. */
   days?: string
+  /** Raw KV operator/source. `origin` stays the normalized ticket/bucket label. */
+  activatedBy?: string
+  /** Ticket recovered directly from `activatedBy`, if present. */
+  ticketKey?: string
+  /** JSM request correlated to this grant, including guarded domain+space matches. */
+  requestTicket?: string
+  requestMatchedBy?: 'ticket_key' | 'domain_space'
+  cloudId?: string
+  userAccountId?: string
+  storedStatus?: 'active' | 'inactive' | 'unknown'
+  sourceObservedAt?: string
+  actionAudit?: Array<{
+    action: 'initial' | 'feedback' | 'unknown'
+    status: 'pending' | 'applied' | 'unknown'
+    macroCount: number | null
+    expiresAt: string | null
+    createdAt: string | null
+    updatedAt: string | null
+  }>
+  history?: Array<{
+    kind: 'kv_record_created' | 'kv_record_updated' | 'extension_action'
+    at: string | null
+    label: string
+    evidence: 'space_license_kv' | 'extension_action_d1'
+  }>
+  unknowns?: string[]
+  marketplace?: Array<{
+    app: 'lite' | 'full' | 'diagramly' | 'asyncapi' | 'unknown'
+    licenseType: string | null
+    status: string | null
+    tier: string | null
+    evaluationStartedAt: string | null
+    evaluationEndsAt: string | null
+  }>
 }
 
 /**
  * One ZEN service-desk request, keyed by ticket.
  *
- * `portalUnsigned` means the requester has a `qm:` account id: the request was
- * filed from the portal while not signed in, so the identity is a self-asserted
- * email address, not a verified Atlassian account.
+ * `portalUnsigned` is tri-state. Live JSM reads leave it null because reporter
+ * account-id shape does not prove how the request was authenticated.
  */
 export interface JsmTicket {
   requester: string
   /** Target account id, as JSM returns it. */
   accountId: string
+  /** Reporter identity used only to classify portal-auth state/comment authorship. */
+  reporterAccountId?: string
   status: string
   /** Date of the last public vendor reply. */
   lastReply: string
@@ -70,8 +114,15 @@ export interface JsmTicket {
   typedDomain: string
   /** Space as the requester typed it — compared against the granted space. */
   typedSpace: string
-  portalUnsigned: boolean
+  portalUnsigned: boolean | null
   note: string
+  commentsKnown?: boolean
+  publicComments?: number | null
+  requesterComments?: number | null
+  lastCommentAuthor?: string | null
+  matchedBy?: 'ticket_key' | 'domain_space'
+  macroCount?: number | null
+  macrosLimit?: number | null
 }
 
 export interface AutomationRule {

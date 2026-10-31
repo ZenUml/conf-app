@@ -3,8 +3,10 @@ import type { CaseEvent } from './derive'
 import { count, hostname, human, iso, relative } from './format'
 import {
   grantState,
+  grantStatusOf,
   jsmOf,
   lifecycleOf,
+  recordedTicketOf,
   requesterOf,
   ticketOf,
   type LifecycleView
@@ -216,107 +218,156 @@ function registeredCase(data: Dataset, row: Dataset['registrations'][number]): C
 
 function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody {
   const ticket = ticketOf(grant)
+  const recordedTicket = recordedTicketOf(grant)
   const jsm = jsmOf(data, grant)
   const [state, why] = grantState(data, grant)
-  const needsDetails = state === 'needs-details'
-  const keyPath = `license:<cloudId>:${grant.space}:<accountId>`
-  const unconfirmedAuthor = ticket ? data.jsmUnconfirmedAuthor.includes(ticket) : false
+  const needsDetails = state === 'needs-details' || state === 'site mapping unavailable'
+  const keyPath = `license:${grant.cloudId ?? '<cloudId>'}:${grant.space}${grant.wide ? '' : ':<accountId>'}`
+  const auditCount = grant.actionAudit?.length ?? 0
+  const currentState = grantStatusOf(grant)
+  const marketplace = grant.marketplace ?? []
+  const marketplaceUnavailable = Boolean(
+    grant.unknowns?.includes('Marketplace site mapping is unavailable')
+  )
+  const jsmUnavailable = Boolean(
+    grant.unknowns?.includes('JSM request matching is unavailable')
+  )
+  const auditUnavailable = Boolean(
+    grant.unknowns?.includes('ExtensionAction audit source is unavailable')
+  )
+  const correlatedOnly = Boolean(
+    ticket && !recordedTicket && grant.requestMatchedBy === 'domain_space'
+  )
 
   const facts: Fact[] = [
     { k: 'requester', v: requesterOf(data, grant), problem: !jsm && !grant.wide },
     {
       k: 'identity',
       v: jsm
-        ? jsm.portalUnsigned
+        ? jsm.portalUnsigned === true
           ? 'self-asserted — filed from the portal while not signed in'
-          : 'signed-in Atlassian account'
+          : jsm.portalUnsigned === false
+            ? 'signed-in Atlassian account'
+            : 'unknown — authentication state unavailable from this JSM payload'
         : 'unknown',
-      problem: Boolean(jsm && jsm.portalUnsigned)
+      problem: Boolean(jsm && jsm.portalUnsigned !== false)
     },
-    { k: 'target account', v: jsm ? jsm.accountId : 'not carried through', problem: !jsm }
+    {
+      k: 'target account',
+      v: grant.wide ? 'n/a — whole space' : (grant.userAccountId ?? jsm?.accountId ?? 'unknown'),
+      problem: !grant.wide && !grant.userAccountId && !jsm
+    }
   ]
   // Conditional rows appear only on mismatch — never a row that repeats its neighbour.
-  if (jsm && jsm.typedDomain !== grant.domain) {
-    facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — does not resolve to this site`, problem: true })
+  if (!marketplaceUnavailable && jsm && jsm.typedDomain !== '(unknown)') {
+    if (grant.domain.startsWith('(')) {
+      facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — requester-typed and unverified; Marketplace resolved no site`, problem: true })
+    } else if (jsm.typedDomain !== grant.domain) {
+      facts.push({ k: 'typed domain', v: `${jsm.typedDomain} — does not resolve to this site`, problem: true })
+    }
   }
-  if (jsm && jsm.typedSpace !== grant.space) {
+  if (jsm && jsm.typedSpace !== '(unknown)' && jsm.typedSpace !== grant.space) {
     facts.push({ k: 'typed space', v: `${jsm.typedSpace} — does not match the granted space`, problem: true })
   }
   if (jsm && jsm.note) {
     facts.push({ k: 'flag', v: jsm.note, problem: true })
   }
+  if (jsm?.macroCount !== null && jsm?.macroCount !== undefined) {
+    facts.push({
+      k: 'request macro count',
+      v: `${jsm.macroCount}${jsm.macrosLimit !== null && jsm.macrosLimit !== undefined ? ` · limit ${jsm.macrosLimit}` : ' · limit unknown'}`
+    })
+  }
   facts.push(
     { k: 'space', v: grant.space },
     { k: 'scope', v: grant.wide ? 'whole space' : 'one requester' },
-    { k: 'duration', v: grant.days ?? '7-day' },
-    { k: 'activatedBy', v: grant.origin },
-    { k: 'granted', v: human(iso(grant.created)) },
+    { k: 'duration', v: grant.days ?? 'duration unknown' },
+    { k: 'activatedBy', v: grant.activatedBy ?? grant.origin },
+    { k: 'granted', v: grant.created },
     { k: 'expires', v: grant.expires },
-    { k: 'state', v: grant.active ? 'active' : 'expired', problem: !grant.active },
-    { k: 'audit row', v: 'none — written straight to KV', problem: true }
+    { k: 'state', v: currentState, problem: currentState !== 'active' },
+    {
+      k: 'Marketplace',
+      v: marketplaceUnavailable
+        ? 'source unavailable — no mapping or licence claim can be made'
+        : marketplace.length
+        ? marketplace.map(row => `${row.app} · ${row.licenseType ?? 'type unknown'} · ${row.status ?? 'status unknown'} · ${row.tier ?? 'tier unknown'}`).join(' | ')
+        : 'no licence row matched this cloud ID',
+      problem: marketplaceUnavailable || marketplace.length === 0
+    },
+    {
+      k: 'ExtensionAction',
+      v: auditUnavailable
+        ? 'source unavailable'
+        : auditCount
+          ? `${auditCount} matching ${auditCount === 1 ? 'row' : 'rows'}`
+          : 'no exact-target row matched',
+      problem: auditUnavailable || auditCount === 0
+    }
   )
+  if (grant.unknowns?.length) {
+    facts.push({ k: 'source unknowns', v: grant.unknowns.join(' · '), problem: true })
+  }
 
   const actions: ActionSpec[] = [
     {
       key: 'verify',
-      label: 'Read the licence key back',
-      cta: 'Verify',
+      label: 'Review the current KV read',
+      cta: 'Review',
       tone: 'primary',
-      note: 'Confirms the KV record is really active with the expected target and expiry.',
-      result: `${keyPath} read back ${grant.active ? `active through ${grant.expires}` : `expired on ${grant.expires}`}.`
+      note: 'Uses the value already returned by the loopback API; this performs no write.',
+      result: `${keyPath} was observed ${currentState}, with expiry ${grant.expires}${grant.sourceObservedAt ? `, at ${grant.sourceObservedAt}` : ''}.`
     },
-    ticket
+    ticket && jsm
       ? {
           key: 'ticket',
-          label: `Open ${ticket} in the ZEN project`,
-          cta: 'Open',
-          note: 'The service-desk request this grant came from.',
-          result: `Opened ${ticket}. The customer-visible reply and the Waiting for customer transition are both present.`
+          label: `Review ${correlatedOnly ? 'correlated ' : ''}${ticket} evidence`,
+          cta: 'Review',
+          note: correlatedOnly
+            ? 'Correlated by exact domain, space, target scope and causal time; not proven to be the grant origin.'
+            : 'Matched by the ticket key recorded in activatedBy.',
+          result: `${ticket} is ${jsm.status}; ${jsm.commentsKnown ? `${jsm.publicComments ?? 0} public comments are visible` : 'comment evidence is unavailable'}.${correlatedOnly ? ' This remains contextual correlation, not grant-origin proof.' : ''}`
         }
       : {
           key: 'ticket',
-          label: 'No ticket to open',
-          blocked: `This grant was activated by ${grant.origin}, not a ZEN request, so there is no conversation behind it.`,
-          note: 'Four of the 37 grants are off-convention like this one.'
-        },
-    ticket
-      ? {
-          key: 'feedback',
-          label: 'Apply the 60-day feedback extension',
-          cta: 'Apply',
-          confirm: true,
-          confirmText:
-            'Only after reading the reply and confirming it answers all four questions. This posts publicly and resolves the request.',
-          note: 'Renews the same requester for sixty days in exchange for product feedback.',
-          result: 'Applied. New expiry written, public reply posted, request resolved.'
-        }
-      : {
-          key: 'feedback',
-          label: 'Feedback extension unavailable',
-          blocked:
-            'The endpoint derives its target from an applied initial action on the same ticket. There is none.',
-          note: 'Space-wide and arbitrary durations stay manual exceptions.'
+          label: jsmUnavailable
+            ? 'JSM request evidence unavailable'
+            : ticket
+              ? `${ticket} was not returned by JSM`
+              : 'No JSM candidate matched',
+          blocked: jsmUnavailable
+            ? 'The JSM source failed, so absence cannot be established.'
+            : ticket
+              ? 'The grant names a ticket, but the JSM source did not return it.'
+              : needsDetails
+                ? 'No explicit ticket is recorded, and domain correlation requires a verified Marketplace site.'
+                : 'Neither activatedBy nor the exact domain + space + target + time fallback matched a request in the fetched JSM window.',
+          note: 'No conversation facts are inferred without a matching request.'
         },
     {
+      key: 'feedback',
+      label: 'Feedback extension is read-only here',
+      blocked: 'This first integrated slice exposes GET endpoints only; no mutation endpoint is available.',
+      note: 'The console will not imply that an extension or JSM reply was written.'
+    },
+    {
       key: 'revoke',
-      label: 'Revoke the grant',
-      cta: 'Revoke',
-      confirm: true,
-      tone: 'danger',
-      confirmText: 'Editing access ends the moment the key is deleted, with no notice to the customer.',
-      note: 'Deletes the KV record ahead of its expiry.',
-      result: 'Key deleted. Editing access ended immediately; license-index updated.'
+      label: 'Revoke is read-only here',
+      blocked: 'This first integrated slice exposes GET endpoints only; no KV delete endpoint is available.',
+      note: 'The current grant remains unchanged.'
     }
   ]
 
   const statusChip: ChipTone =
-    state === 'needs-details'
+    state === 'needs-details' || state === 'site mapping unavailable' || state === 'status unknown'
       ? 'failed'
-      : state === 'already-applied'
+      : state === 'inactive, KV-observed'
         ? 'lapsed'
-        : state === 'applied, unverified'
-          ? 'pending'
-          : 'blocked'
+        : state === 'applied, audited'
+          ? 'sent'
+          : state === 'applied, audit pending' || state === 'applied, KV-observed' || state === 'applied, unverified'
+            ? 'pending'
+            : 'blocked'
 
   const requesterRows: Fact[] = ticket
     ? jsm
@@ -324,41 +375,57 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
           { k: 'requester', v: jsm.requester },
           {
             k: 'identity',
-            v: jsm.portalUnsigned ? 'self-asserted from the portal, unsigned' : 'signed-in account',
-            problem: jsm.portalUnsigned
+            v: jsm.portalUnsigned === true
+              ? 'self-asserted from the portal, unsigned'
+              : jsm.portalUnsigned === false
+                ? 'signed-in account'
+                : 'unknown — authentication state unavailable from this JSM payload',
+            problem: jsm.portalUnsigned !== false
           },
           {
-            k: 'sent',
-            v: unconfirmedAuthor
-              ? `${jsm.replies} public comment on ${jsm.lastReply}, authored by Automation for Jira — the pull could not confirm it came from us`
-              : `${jsm.replies} public ${jsm.replies === 1 ? 'reply' : 'replies'}, last on ${jsm.lastReply}`,
-            problem: unconfirmedAuthor
+            k: 'public comments',
+            v: jsm.commentsKnown
+              ? `${jsm.publicComments ?? 0}; last comment ${jsm.lastReply}`
+              : 'unknown — comment fetch failed',
+            problem: !jsm.commentsKnown
           },
           ...(jsm.note ? [{ k: 'flag', v: jsm.note, problem: true }] : []),
           {
             k: 'delivered',
-            v: 'posted on the ticket — JSM does not expose per-recipient delivery',
+            v: 'unknown — JSM comment presence is not per-recipient delivery',
             problem: true
           },
           {
-            k: 'replied',
-            v: `no customer-authored comment exists${
-              jsm.status === 'Waiting for customer'
-                ? `; still Waiting for customer since ${jsm.lastReply}`
-                : '; closed by us, not by them'
-            }`,
-            problem: true
+            k: 'requester comments',
+            v: jsm.requesterComments === null || jsm.requesterComments === undefined
+              ? 'unknown — requester account could not be matched'
+              : `${jsm.requesterComments} public comments matched the reporter account`,
+            problem: jsm.requesterComments === null || jsm.requesterComments === undefined
           },
+          { k: 'last comment author', v: jsm.lastCommentAuthor ?? 'unknown' },
           { k: 'jsm status', v: jsm.status }
         ]
       : [
-          { k: 'request', v: `${ticket} — not present in the JSM pull` },
+          {
+            k: 'request',
+            v: jsmUnavailable
+              ? `${ticket} — JSM source unavailable`
+              : `${ticket} — not present in the JSM pull`
+          },
           { k: 'sent', v: 'unknown', problem: true },
           { k: 'replied', v: 'unknown', problem: true }
         ]
     : [
-        { k: 'channel', v: `activated by ${grant.origin}, not a ZEN request`, problem: true },
-        { k: 'sent', v: 'nothing — there is no conversation to reply on', problem: true }
+        { k: 'channel', v: `activated by ${grant.origin}; no explicit ZEN ticket is linked`, problem: true },
+        {
+          k: 'conversation',
+          v: jsmUnavailable
+            ? 'unknown — JSM request source is unavailable'
+            : needsDetails
+              ? 'unknown — no explicit ticket is recorded; correlation cannot run without a verified Marketplace site'
+              : 'no request conversation candidate matched in the fetched JSM window',
+          problem: true
+        }
       ]
 
   return {
@@ -370,56 +437,106 @@ function grantedCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
     nextKey: needsDetails ? '' : 'verify',
     nextLabel: needsDetails
       ? 'Resolve the cloud ID before touching this grant'
-      : 'Read the licence key back',
+      : 'Review the current KV evidence',
     nextWhy: needsDetails
       ? why
-      : `${why} Nothing has compared the stored record against the intended cloud ID, space and expiry.`,
+      : why,
     blockers: needsDetails
       ? [
-          `The cloud ID in ${keyPath} matches no row in the Marketplace export`,
-          'Without a site there is no macro count, no paid-rail check and no contact to notify',
-          'Revoking blind would end editing for a site nobody here can name'
+          marketplaceUnavailable
+            ? `Marketplace site mapping for the cloud ID in ${keyPath} is unavailable`
+            : marketplace.length
+              ? `Marketplace licence context is present but no site hostname is available for the cloud ID in ${keyPath}`
+              : `The cloud ID in ${keyPath} matches no row in the Marketplace export`,
+          'Without a verified site mapping there is no independently verified site-metrics count, paid-rail check or contact to notify',
+          'Revoking blind would end editing for a site that cannot be independently identified here'
         ]
       : [],
     classes: [],
     tracks: [
       {
         name: 'Requester',
-        who: ticket ? `the person who hit the paywall, via ${ticket}` : 'no request behind this grant',
-        state: ticket ? 'ticket exists' : 'no channel',
+        who: correlatedOnly
+          ? `reporter on correlated ${ticket}; not proven grant origin`
+          : ticket
+            ? `requester on explicitly linked ${ticket}`
+            : jsmUnavailable
+              ? 'request evidence unavailable'
+              : 'no request linked to this grant',
+        state: correlatedOnly ? 'correlated context' : ticket ? 'ticket linked' : 'no linked channel',
         chip: ticket ? 'pending' : 'skipped',
         rows: requesterRows
       },
       {
         name: 'Site Contact',
         who: 'the site’s technical contact, for transparency and correction',
-        state: 'never notified',
+        state: 'unknown',
         chip: 'skipped',
         rows: [
-          { k: 'queued', v: 'no — the grant endpoint sends nothing to the site contact', problem: true },
-          { k: 'governance reply', v: 'no route exists to correct ownership or scope', problem: true }
+          { k: 'notification', v: 'unknown — this source slice does not fetch Site Contact delivery', problem: true },
+          { k: 'governance reply', v: 'unknown — no Site Contact reply source is joined', problem: true }
         ]
       }
     ],
     commsNote:
-      'The spec asks for two independent tracks so a requester reply is never read as site-level consent. Only one of them is wired.',
+      'Requester-ticket evidence and Site Contact evidence remain separate; a JSM comment is never presented as site-level consent.',
     audits: [
-      { k: 'ExtensionAction', v: 'no row — written straight to KV', problem: true },
-      { k: 'kv readback', v: 'not run' },
-      { k: 'idempotency', v: 'a replay cannot be told from a first grant', problem: true },
-      { k: 'operator', v: grant.origin },
-      { k: 'written', v: human(iso(grant.created)) },
-      { k: 'retries', v: 'none recorded' }
+      {
+        k: 'ExtensionAction',
+        v: auditUnavailable
+          ? 'source unavailable'
+          : auditCount
+            ? `${auditCount} matching ${auditCount === 1 ? 'row' : 'rows'}`
+            : '0 exact-target rows',
+        problem: auditUnavailable || auditCount === 0
+      },
+      {
+        k: 'KV observation',
+        v: grant.sourceObservedAt ?? 'not live — fixture row',
+        problem: !grant.sourceObservedAt
+      },
+      { k: 'stored status', v: grant.storedStatus ?? 'unknown' },
+      ...((grant.actionAudit ?? []).map((row, index) => ({
+        k: `action ${index + 1}`,
+        v: `${row.action} · ${row.status} · macros ${row.macroCount ?? 'unknown'} · expires ${row.expiresAt ?? 'unknown'}`
+      }))),
+      ...((grant.history ?? []).map((row, index) => ({
+        k: `history ${index + 1}`,
+        v: `${row.label} · ${row.at ?? 'time unknown'} · ${row.evidence}`
+      }))),
+      { k: 'operator/source', v: grant.activatedBy ?? grant.origin }
     ],
-    provenance: `SPACE_LICENSE_KV · key listing + value read · ${data.grants.length} license:* records, ${new Set(data.grants.map(g => g.domain)).size} tenants`,
-    footer: 'ExtensionAction holds no row for this grant, so a replay cannot be told from a first grant.'
+    provenance: grant.sourceObservedAt
+      ? `Loopback API · SPACE_LICENSE_KV current value + ${marketplaceUnavailable ? 'Marketplace unavailable' : 'Marketplace'} + ${jsmUnavailable ? 'JSM unavailable' : 'JSM'} + ${auditUnavailable ? 'ExtensionAction D1 unavailable' : 'ExtensionAction D1'} · observed ${grant.sourceObservedAt}`
+      : 'Sanitized fixture; no live source observation is attached.',
+    footer: auditUnavailable
+      ? 'ExtensionAction D1 was unavailable; action-history absence cannot be established.'
+      : auditCount
+      ? 'The drawer shows the matching ExtensionAction evidence returned by D1.'
+      : 'Production D1 returned no exact-target ExtensionAction row for this current grant; only current KV timestamps can be shown as history.'
   }
 }
 
 function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody {
-  const past = iso(grant.expires) <= data.today
-  const expiredCount = data.grants.filter(g => iso(g.expires) <= data.today).length
-  const activeCount = data.grants.length - expiredCount
+  const currentStatus = grantStatusOf(grant)
+  const past = currentStatus === 'expired'
+  const expiredCount = data.grants.filter(g => grantStatusOf(g) === 'expired').length
+  const activeCount = data.grants.filter(g => grantStatusOf(g) === 'active').length
+  const marketplace = grant.marketplace ?? []
+  const marketplaceUnavailable = Boolean(
+    grant.unknowns?.includes('Marketplace site mapping is unavailable')
+  )
+  const auditCount = grant.actionAudit?.length ?? 0
+  const auditUnavailable = Boolean(
+    grant.unknowns?.includes('ExtensionAction audit source is unavailable')
+  )
+  const evaluationEnds = [...new Set(
+    marketplace
+      .filter(row => row.app === 'lite' && row.licenseType === 'EVALUATION')
+      .map(row => row.evaluationEndsAt)
+      .filter((value): value is string => Boolean(value))
+  )]
+  const evaluationEnd = evaluationEnds.length === 1 ? evaluationEnds[0] : null
 
   return {
     caseType: 'Retention',
@@ -428,97 +545,136 @@ function expiredCase(data: Dataset, grant: Dataset['grants'][number]): CaseBody 
     facts: [
       { k: 'space', v: grant.space },
       { k: 'scope', v: grant.wide ? 'whole space' : 'one requester' },
-      { k: 'granted', v: human(iso(grant.created)) },
-      { k: 'ran', v: grant.days ?? '7-day' },
+      { k: 'granted', v: grant.created },
+      { k: 'ran', v: grant.days ?? 'duration unknown' },
       { k: 'expires', v: grant.expires, problem: past },
-      { k: 'activatedBy', v: grant.origin },
-      { k: 'follow-up', v: 'none is automatic', problem: true }
+      { k: 'activatedBy', v: grant.activatedBy ?? grant.origin },
+      { k: 'stored status', v: grant.storedStatus ?? 'unknown' },
+      { k: 'KV observation', v: grant.sourceObservedAt ?? 'fixture only' },
+      {
+        k: 'Marketplace',
+        v: marketplaceUnavailable
+          ? 'source unavailable — no mapping or licence claim can be made'
+          : marketplace.length
+            ? marketplace.map(row => `${row.app} · ${row.licenseType ?? 'type unknown'} · ${row.status ?? 'status unknown'}`).join(' | ')
+            : 'no licence row matched this cloud ID',
+        problem: marketplaceUnavailable || marketplace.length === 0
+      },
+      { k: 'follow-up evidence', v: 'not joined — no follow-up source is connected', problem: true }
     ],
     actions: [
       {
-        key: 'regrant',
-        label: past ? 'Grant another seven days' : 'Renew before it runs out',
-        cta: past ? 'Grant' : 'Renew',
+        key: 'convert',
+        label: 'Review Marketplace licence context',
+        cta: 'Review',
         tone: 'primary',
-        confirm: true,
-        confirmText:
-          'This reaches a real customer: it writes a live licence record and posts a public reply on the ticket.',
-        note: 'The endpoint owns the duration — a day count cannot be passed in.',
-        result: 'New grant written and read back active. Public reply posted with the four feedback questions.'
+        note: 'Shows the licence rows already joined by cloud ID; this does not infer conversion.',
+        result: marketplaceUnavailable
+          ? 'Marketplace source unavailable; absence or licence state cannot be established.'
+          : marketplace.length
+            ? marketplace.map(row => `${row.app} · ${row.licenseType ?? 'type unknown'} · ${row.status ?? 'status unknown'}`).join(' | ')
+            : 'No Marketplace licence row matched this cloud ID.'
       },
       {
-        key: 'convert',
-        label: 'Check whether they converted',
-        cta: 'Check',
-        note: 'Looks for a paid install on this cloud ID before offering more free time.',
-        result: `Paid-rail check queued for ${hostname(grant.domain)}.`
+        key: 'regrant',
+        label: past ? 'Regrant is read-only here' : 'Renew is read-only here',
+        blocked: 'This first integrated slice exposes GET endpoints only; no KV write endpoint is available.',
+        note: 'The current grant remains unchanged.'
       },
       {
         key: 'note',
-        label: 'Record what happened',
-        cta: 'Add note',
-        note: 'Nothing follows an expiry on its own, so the decision to drop it should be written down.',
-        result: 'Note attached to this client. It will show in the stream on the next load.'
+        label: 'Case notes are read-only here',
+        blocked: 'No case-note store or write endpoint is connected to this slice.',
+        note: 'The console will not claim that a note was saved.'
       }
     ],
-    nextKey: past ? 'convert' : 'regrant',
-    nextLabel: past ? 'Confirm the access impact before contacting anyone' : 'Decide before it lapses',
+    nextKey: 'convert',
+    nextLabel: past ? 'Review the evidence before making any retention claim' : 'Review the current licence context',
     nextWhy: past
-      ? 'The key is gone, which is not the same as the site being blocked or the customer having left. Check the paid rail first — a message that claims either without evidence is the thing this queue exists to prevent.'
-      : `Still active on ${human(data.today)}. Renewing now is a choice, not a recovery, and it writes a live record.`,
+      ? 'The current KV record is past expiresAt. That does not prove the site is blocked, the customer left, or a conversion occurred.'
+      : `The current KV record is still active on ${human(data.today)}; this read-only slice does not make a renewal decision.`,
     blockers: [],
     classes: [
       {
         name: 'extension-expired',
-        verdict: 'this event',
-        applies: true,
-        note: `KV expiresAt for ${grant.space} is ${grant.expires}. Confirms only that this grant, for this scope, ended.`
+        verdict: past ? 'this event' : 'scheduled',
+        applies: past,
+        note: past
+          ? `KV-derived status for ${grant.space} is expired at ${grant.expires}. This does not establish access impact.`
+          : `KV-derived status remains active; expiresAt is ${grant.expires}. No expiry is claimed yet.`
       },
       {
         name: 'evaluation-ended',
-        verdict: 'not derivable',
-        applies: false,
-        note: 'The extraction carries the licence type but not maintenanceEndDate, so the Marketplace evaluation window cannot be checked against this site.'
+        verdict: marketplaceUnavailable
+          ? 'unknown'
+          : evaluationEnd
+            ? (evaluationEnd.slice(0, 10) <= data.today ? 'ended' : 'not ended')
+            : evaluationEnds.length > 1
+              ? 'ambiguous'
+              : 'not available',
+        applies: Boolean(!marketplaceUnavailable && evaluationEnd && evaluationEnd.slice(0, 10) <= data.today),
+        note: marketplaceUnavailable
+          ? 'Marketplace source is unavailable; evaluation state cannot be established.'
+          : evaluationEnd
+            ? `Marketplace evaluationEndsAt is ${evaluationEnd.slice(0, 10)}.`
+            : evaluationEnds.length > 1
+              ? 'Multiple Lite evaluation end dates are joined; none is selected as canonical.'
+              : 'No joined Lite Marketplace evaluation row carries an evaluation end date.'
       },
       {
         name: 'marketplace-lapsed',
         verdict: 'not derivable',
         applies: false,
-        note: 'The lifecycle ingest writes absent-or-inactive against a contact record. That flag is not joined to this cloud ID here, and it carries no cancellation reason.'
+        note: marketplaceUnavailable
+          ? 'Marketplace source is unavailable; neither licence presence nor a lifecycle lapse transition can be established.'
+          : marketplace.length
+            ? 'Marketplace licence rows are present, but no lifecycle lapse transition is joined to this grant and no cancellation reason is inferred.'
+            : 'No Marketplace licence row matched this cloud ID; no lifecycle lapse transition or cancellation reason is inferred.'
       },
       {
         name: 'cancellation-unverified',
         verdict: 'not claimed',
         applies: false,
-        note: 'No manual lead exists for this site. Any cancellation would enter as unverified and stay that way until a system event backs it.'
+        note: 'No cancellation event or manual cancellation source is joined to this grant.'
       }
     ],
     tracks: [
       {
         name: 'Site Contact',
-        who: 'the only external channel — the end user is never the recipient',
-        state: 'nothing sent',
+        who: 'site-level communication evidence',
+        state: 'unknown',
         chip: 'skipped',
         rows: [
-          { k: 'sent', v: 'no expiry message exists — nothing follows an expiry automatically', problem: true },
-          { k: 'contact', v: 'no reachable site contact resolved for this cloud ID', problem: true },
-          { k: 'preference', v: 'no do-not-contact record either way' }
+          { k: 'sent', v: 'unknown — no expiry-delivery source is joined', problem: true },
+          { k: 'contact', v: 'not fetched by this source slice', problem: true },
+          { k: 'preference', v: 'unknown — no preference source is joined' }
         ]
       }
     ],
     commsNote:
-      'One track only. This platform does not treat the end user as a recipient, so the requester who lost editing is not written to from here.',
+      'No communication outcome is inferred from the grant expiry or Marketplace licence state.',
     audits: [
       { k: 'original scope', v: grant.wide ? `whole space ${grant.space}` : `${grant.space}, one requester` },
       { k: 'original expiry', v: grant.expires },
-      { k: 'expiry event', v: 'none persisted — this row is derived', problem: true },
-      { k: 'follow-up', v: 'none automatic', problem: true },
-      { k: 'operator', v: grant.origin },
-      { k: 'reopenable', v: 'yes — nothing closes this case' }
+      { k: 'expiry event', v: 'no separate expiry-event evidence is joined — this row is derived', problem: true },
+      {
+        k: 'ExtensionAction',
+        v: auditUnavailable
+          ? 'source unavailable'
+          : `${auditCount} matching ${auditCount === 1 ? 'row' : 'rows'}`,
+        problem: auditUnavailable || auditCount === 0
+      },
+      ...((grant.history ?? []).map((row, index) => ({
+        k: `history ${index + 1}`,
+        v: `${row.label} · ${row.at ?? 'time unknown'} · ${row.evidence}`
+      }))),
+      { k: 'operator/source', v: grant.activatedBy ?? grant.origin }
     ],
-    provenance: 'derived from the KV record’s expiresAt — there is no expiry event in any store',
+    provenance: grant.sourceObservedAt
+      ? `Loopback API · current KV expiresAt observed ${grant.sourceObservedAt} + ${marketplaceUnavailable ? 'Marketplace unavailable' : 'Marketplace'} + ${auditUnavailable ? 'ExtensionAction D1 unavailable' : 'ExtensionAction D1'}; no separate expiry event is stored.`
+      : 'Sanitized fixture · derived from expiresAt; no live source observation is attached.',
     footer: past
-      ? `${expiredCount} of the ${data.grants.length} grants have expired with no recorded follow-up.`
+      ? `${expiredCount} of the ${data.grants.length} current grant records are past expiresAt.`
       : `${activeCount} grants are still active on ${human(data.today)}.`
   }
 }

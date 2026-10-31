@@ -3,6 +3,7 @@
 // already on the page, and a free space at its limit.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { extractDiagram } from '../../../src/mcp-app-view';
 import {
   callHeadlessTool,
   canonicalDiagramType,
@@ -257,6 +258,17 @@ describe('update_diagram', () => {
     expect(writes.filter((w) => w.method === 'PUT')).toHaveLength(1);
   }, GUARD_TIMEOUT_MS);
 
+  it('returns the updated diagram in the shape the view draws', async () => {
+    // The view under update_diagram showed "No diagram in this result." in
+    // claude.ai (2026-10-24): the result carried no diagramType or source.
+    const site = emptyPage();
+    site.content.set('cc-1', { title: 'Checkout', code: CURRENT_DSL, diagramType: 'sequence' });
+    const { ctx } = await contextFor(site);
+    const dsl = `${CURRENT_DSL}\nB.extra()`;
+    const out = await callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl }, ctx);
+    expect(extractDiagram({ structuredContent: out })).toEqual({ diagramType: 'sequence', dsl, title: 'Checkout' });
+  }, GUARD_TIMEOUT_MS);
+
   describe('title (#789)', () => {
     // Same shape the viewer rename leaves: the body JSON title AND the record
     // title move together (renameDiagramTitle -> updateCustomContentV2).
@@ -509,6 +521,21 @@ describe('create_diagram', () => {
     expect(countExtensions(site.pageAdf)).toBe(2); // the seeded one, plus ours
     // the node names the diagram, so the page renders it
     expect(referencesCustomContent(site.pageAdf, 'new-1', CLOUD)).toBe(true);
+  });
+
+  it('returns the new diagram in the shape the view draws', async () => {
+    const site = emptyPage();
+    const { ctx } = await contextFor(site);
+    const out = await callHeadlessTool(
+      'create_diagram',
+      { cloudId: CLOUD, pageId: 'page-1', type: 'Mermaid', dsl: 'flowchart LR\n A --> B', title: 'Flow' },
+      ctx,
+    );
+    expect(extractDiagram({ structuredContent: out })).toEqual({
+      diagramType: 'mermaid',
+      dsl: 'flowchart LR\n A --> B',
+      title: 'Flow',
+    });
   });
 
   it('builds the extensionKey from the resolved install, not a guess', async () => {

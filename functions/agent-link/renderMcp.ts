@@ -76,8 +76,7 @@ export const RENDER_TOOL = {
     'Swagger spec (YAML or JSON). diagramType is optional: leave it out and the language is detected from the source ' +
     '(a source with no recognised header is read as ZenUML), or pass it to be explicit. The result says which type was ' +
     'used and whether the source parsed; when it did not, ' +
-    'it lists the errors with line and column, so fix them and call again. Read the zenuml://, mermaid://, plantuml:// or ' +
-    'openapi:// dsl-guide resource for the rules of each language.',
+    'it lists the errors with line and column, so fix them and call again.',
   annotations: {
     title: 'Render diagram',
     readOnlyHint: true,
@@ -103,7 +102,8 @@ export const RENDER_TOOL = {
 const INSTRUCTIONS =
   'Use render_diagram to draw a diagram for the user from its source: a ZenUML sequence diagram, Mermaid, PlantUML, ' +
   'draw.io XML, or an OpenAPI spec. No Atlassian site or sign-in is involved and nothing is saved. Prefer `sequence` ' +
-  '(ZenUML) for sequence diagrams. If the result reports parse errors, fix the source and call render_diagram again.';
+  '(ZenUML) for sequence diagrams. If the result reports parse errors, fix the source and call render_diagram again. ' +
+  'The zenuml://, mermaid://, plantuml:// and openapi:// dsl-guide resources give the rules of each language.';
 
 export interface RenderEnv extends RateEnv {
   MIXPANEL_TOKEN?: string;

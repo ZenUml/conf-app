@@ -191,6 +191,23 @@ describe('headless RPC', () => {
     expect(writes).toEqual(['create_diagram', 'create_page', 'update_diagram', 'update_page']);
   });
 
+  it('keeps every tool and parameter description about that tool alone', async () => {
+    // Claude's directory asks submitters to confirm that tool descriptions
+    // carry no instructions about other tools; the cross-tool workflow lives
+    // in the server instructions instead.
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'tools/list');
+    const body = (await res.json()) as { result: { tools: Array<{ name: string; description: string; inputSchema: unknown }> } };
+    const names = body.result.tools.map((t) => t.name);
+    for (const tool of body.result.tools) {
+      const text = `${tool.description} ${JSON.stringify(tool.inputSchema)}`;
+      for (const other of names.filter((n) => n !== tool.name)) {
+        expect(text, `${tool.name} mentions ${other}`).not.toContain(other);
+      }
+    }
+  });
+
   it('answers initialize without an Atlassian round trip', async () => {
     const env = makeEnv();
     const token = await tokenFor(env.store);

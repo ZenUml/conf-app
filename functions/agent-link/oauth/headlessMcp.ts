@@ -521,7 +521,7 @@ export async function handleHeadlessRpc(
         capabilities: { tools: {}, resources: {}, extensions: uiCapability() },
         serverInfo: { name: 'conf-agent-link-headless', version: '0.1.0' },
         instructions:
-          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
+          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. To change a diagram, find its contentId with list_diagrams, read it with read_diagram, then send the complete edited source to update_diagram. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
       });
     }
 

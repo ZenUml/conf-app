@@ -7,14 +7,24 @@ description: Daily detector for new and unusual conf-app error signatures in Mix
 
 `scripts/radar.py` looks at one UTC day (default: yesterday) and compares every
 error signature with the 30 days before it. It is deterministic and stateless:
-the baseline is recomputed from Mixpanel on every run.
+the baseline is recomputed from Mixpanel on every run. The only state is the
+last day posted (`--state`), which the Action uses to choose the days to post.
 
 Two jobs use it every day:
 
 | Job | When (Sydney) | Does |
 |---|---|---|
-| GitHub Actions `error-radar.yml` | ~08:47 | Runs the detector, posts the alert list to #github-notifications by webhook. Logs only a tenant-free summary. |
-| Claude scheduled task "Error radar triage" | ~09:08 | Follows **Daily triage** below: replies in the thread of that post with a verdict per alert. Posts the radar message itself if the Action's post is missing. |
+| GitHub Actions `error-radar.yml` | scheduled 11:17 AEDT, often starts 2-3 h late | Posts one message per UTC day not yet posted to #github-notifications by webhook. Logs only a tenant-free summary. |
+| Claude scheduled task "Error radar triage" | ~15:08 | Follows **Daily triage** below: replies in the thread of that post with a verdict per alert. Posts the radar message itself if the Action's post is missing. |
+
+GitHub starts scheduled runs late (2-3 h in 2026-10), and a run that started
+before midnight UTC used to report the day before yesterday: 10-25 was never
+posted and 10-23 was posted four times. So the Action keeps the last day
+posted in the Actions cache (`radar-state/last-day`, a date and nothing else)
+and posts every day after it up to yesterday, at most 7. With no cache it
+posts yesterday alone. A manual run with `day` posts that day and never moves
+the saved date backwards. The triage runs late enough to come after a delayed
+post.
 
 ## Signature
 
@@ -22,7 +32,9 @@ A signature is `event | error_name | http_status | confluence_error_class | mess
 (`scripts/signature.js`, the same code runs inside the JQL query and under
 `node --test`). The message is `error_message`, falling back to `event_label`
 for legacy `trackEvent` events, with ids, numbers, uuids, hashes, URLs, Java
-package prefixes and HTML bodies replaced by placeholders.
+package prefixes and HTML bodies replaced by placeholders. A 1xx-5xx code
+right after `status`, `code` or `HTTP` is kept (`{"status":403}`), because it
+is the failure kind, not an id.
 
 Events in scope: names ending `_failed`, `_error`, `_missing`, `_timeout`,
 `_exception`, `orphan_observed`, plus legacy events sent with category
@@ -40,7 +52,7 @@ true volume. Distinct users are not weighted.
 | new | not seen in the previous 30 days; ≥3 events received, ≥1 real tenant, and ≥5 events or ≥2 tenants |
 | spike | > 2.5× the median of the comparable days (previous 20 weekdays, or 8 weekend days) and ≥ 50 above it |
 | concentrated | ≥ 50 events, one tenant > 50% of them, and that share up ≥ 25 points on the 30-day baseline |
-| spread | ≥ 8 tenants and > 2.5× the usual tenant count |
+| spread | ≥ 8 tenants, ≥ 25 events, and > 2.5× the usual tenant count |
 
 Spike, concentrated and spread also need ≥10 events actually received, so a
 handful of sampled arrivals cannot alert on their ×10 extrapolation. One alert
@@ -49,7 +61,11 @@ previous 3 days is suppressed unless the count has at least doubled since, so
 a standing problem alerts when it starts and each time it doubles.
 
 **Backtest 2026-09-20..10-19:** 1.7 alerts/day, 0 on 13 of 30 days, at most 9
-(2026-10-12, the day the October sampling release shipped). It caught the
+(2026-10-12, the day the October sampling release shipped). **Re-run over
+2026-09-20..10-27** after keeping status codes and adding the 25-event spread
+floor: 88 alerts (91 before), 0 on 14 of 38 days, at most 8. The floor removed
+four spread alerts of 10-13 events; keeping status codes split one
+`report_macro_metrics` alert into its 400 and 500 forms. It caught the
 single-tenant HTML-instead-of-JSON upload ramp on 10-09, a second tenant's missing-content
 burst on 10-10, the missing-content spread on 10-12, and the first tenant's next jump
 on 10-19. Re-run the backtest after changing a constant:
@@ -67,6 +83,7 @@ python3 -m unittest discover -s $S -p 'test_*.py' && node --test $S/signature_te
 python3 .claude/skills/error-radar/scripts/radar.py                     # yesterday, Slack text to stdout
 python3 .claude/skills/error-radar/scripts/radar.py --day 2026-10-19 --json
 python3 .claude/skills/error-radar/scripts/radar.py --post              # needs SLACK_ERROR_RADAR_WEBHOOK
+python3 .claude/skills/error-radar/scripts/radar.py --state /tmp/last-day   # days after the saved one (--post saves)
 ```
 
 Auth: `MIXPANEL_SA_USER` + `MIXPANEL_SA_SECRET` (service account, sent with

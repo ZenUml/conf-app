@@ -238,6 +238,30 @@ export type ContentState = "default" | "authored" | "empty";
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
 export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
 
+// Which engine drew a PlantUML diagram (ADR-0010). `server` = the public
+// www.plantuml.com server, which receives the diagram source; `local` = the
+// @plantuml/core engine in the viewer's own browser, which sends nothing;
+// `server_fallback` = the local engine was chosen but could not draw this
+// diagram, so the server drew it and received the source after all.
+// Rides on macro_viewed for macro_type=plantuml only; absent elsewhere.
+export type PlantUmlRenderer = "server" | "local" | "server_fallback";
+
+// Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
+// is NOT a failure: the engine draws it like the server did, and the existing
+// syntax-error path reports it.
+//   load_failed  — the engine chunk did not load (network, CSP)
+//   include      — an !include / stdlib library the engine could not resolve
+//   engine_error — the engine crashed or called its error callback, or the
+//                  source holds several complete diagrams, which the server
+//                  merges and the engine cannot
+export type PlantUmlLocalFailureReason = "load_failed" | "include" | "engine_error";
+
+// For a `include` failure (ADR-0010): what kind of include the engine could not
+// resolve. `stdlib` = a `<lib/...>` library we do not host yet; `url` = an
+// `!include https://...` (the engine has no network access); `local` = a file
+// path. Never carries the library name, URL or path.
+export type PlantUmlUnresolvedInclude = "stdlib" | "url" | "local";
+
 // Where the diagram CONTENT (the macro's doc) came from on this render — distinct
 // from cache_source, which is about the rendered SVG.
 //   fetch     — loaded over the network this view (first view / cache miss)
@@ -443,6 +467,14 @@ export type AnalyticsEventName =
   // was present and only the first was kept, because the macro renders a single
   // diagram and merging them silently produced a picture the author never wrote.
   | "plantuml_paste_normalized"
+  // ADR-0010: the in-browser PlantUML engine could not draw a body it was
+  // asked to draw, and the viewer fell back to the plantuml.com server.
+  // `plantuml_failure_reason` says why; `surface` says viewer or editor.
+  // Never carries the source. Read against macro_viewed with
+  // plantuml_renderer=local vs server_fallback before widening the rollout.
+  // For reason=include, `plantuml_unresolved_include` says which kind of
+  // include still needs the server (stdlib / url / local).
+  | "plantuml_local_render_failed"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
@@ -512,6 +544,10 @@ export type AnalyticsEventName =
   // Persisted PNG lifecycle changes and best-effort property failures.
   | "png_export_state_changed"
   | "png_export_state_persistence_failed"
+  // An expected, benign non-write: the page's properties endpoint 404s for
+  // this identity (unpublished draft, deleted page, or a page the app cannot
+  // see). Kept apart from _failed so that event means a real fault.
+  | "png_export_state_persistence_skipped"
   // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
   // (background + note/arrow/callout/watermark overlays), tracked separately
   // from the generic macro_export_* triple above (unused by any call site as
@@ -769,6 +805,20 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // Contact recovery: intent, durable request, successful view and support outcomes
+  // stay separate. Never put email addresses or free-form customer text in events.
+  | "fullscreen_recovery_gate_shown"
+  | "fullscreen_recovery_action_selected"
+  | "fullscreen_recovery_request_submitted"
+  | "fullscreen_recovery_request_completed"
+  | "fullscreen_recovery_request_failed"
+  | "fullscreen_view_ready"
+  | "fullscreen_recovery_activation_completed"
+  | "fullscreen_recovery_activation_failed"
+  | "fullscreen_recovery_mail_status_changed"
+  | "fullscreen_recovery_support_outcome_recorded"
+  | "fullscreen_recovery_manual_extension_completed"
+  | "fullscreen_recovery_manual_extension_failed"
   // Diagram viewport (pan/zoom) controls in fullscreen, normal viewer, and editor
   // preview. `macro_type` says which renderer was being zoomed, `viewport_input`
   // which control did it.

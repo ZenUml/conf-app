@@ -417,13 +417,22 @@ describe('export workspace', () => {
     const { state, wrapper } = mountWithPreview();
     expect(wrapper.find('.busy-status').exists()).toBe(false);
 
+    vi.useFakeTimers();
     state.isExporting.value = true;
     await wrapper.vm.$nextTick();
+    // Busy at once (buttons disabled, aria-busy), but no visible cue yet: an
+    // export that finishes inside 300 ms would only flash the toolbar.
+    expect(wrapper.get('.export-workspace').attributes('aria-busy')).toBe('true');
+    expect(wrapper.find('.busy-status').exists()).toBe(false);
+    expect(wrapper.get('[aria-label="Download image"]').attributes('disabled')).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(300);
     const status = wrapper.get('[role="status"]');
     expect(status.text()).toContain('Exporting');
     expect(status.find('.spinner').exists()).toBe(true);
     expect(wrapper.get('.export-workspace').attributes('aria-busy')).toBe('true');
     wrapper.unmount();
+    vi.useRealTimers();
   });
 
   it('discards a fresh label on Escape even when the input then blurs', async () => {

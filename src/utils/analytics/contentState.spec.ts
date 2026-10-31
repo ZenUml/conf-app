@@ -77,6 +77,32 @@ describe('classifyContentState', () => {
   });
 });
 
+describe('classifyContentState for a Board graph (#918)', () => {
+  const AUTHORED_BOARD = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="Sticky" vertex="1" parent="1"/></root></mxGraphModel>';
+
+  it('classifies the Board document, not the untouched Diagram sample', () => {
+    expect(
+      classifyContentState({ graphEditorMode: 'board', graphXml: EMPTY_GRAPH, boardGraphXml: AUTHORED_BOARD }, DiagramType.Graph),
+    ).toBe('authored');
+  });
+
+  it('reports an emptied Board as empty even when graphXml still holds a drawing', () => {
+    expect(
+      classifyContentState({ graphEditorMode: 'board', graphXml: AUTHORED_BOARD, boardGraphXml: '' }, DiagramType.Graph),
+    ).toBe('empty');
+  });
+
+  it('falls back to graphXml for a legacy Board record that has no boardGraphXml', () => {
+    expect(classifyContentState({ graphEditorMode: 'board', graphXml: AUTHORED_BOARD }, DiagramType.Graph)).toBe('authored');
+  });
+
+  it('keeps reading graphXml for a Diagram-mode graph whose Board was once drawn on', () => {
+    expect(
+      classifyContentState({ graphEditorMode: 'diagram', graphXml: EMPTY_GRAPH, boardGraphXml: AUTHORED_BOARD }, DiagramType.Graph),
+    ).toBe('default');
+  });
+});
+
 describe('viewContentState', () => {
   it('returns the classification for a loaded diagram', () => {
     expect(viewContentState({ diagramType: DiagramType.Sequence, code: '' }, DiagramType.Sequence)).toBe('empty');

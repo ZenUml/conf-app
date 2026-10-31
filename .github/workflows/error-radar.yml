@@ -1,20 +1,25 @@
 name: Error radar
 
 # Daily detector for new and unusual conf-app error signatures in Mixpanel
-# (.claude/skills/error-radar/SKILL.md). Posts to #zenuml2 by webhook; the
+# (.claude/skills/error-radar/SKILL.md). Posts to #github-notifications by webhook; the
 # Claude scheduled task "Error radar triage" replies in that thread.
 #
 # The radar output names real tenants and this repository's logs are public:
 # the run step prints only --quiet's tenant-free summary, and nothing is
 # uploaded as an artifact.
+#
+# Scheduled runs start hours late (2-3 h was seen in 2026-10), so the day to
+# report is not "yesterday when the run starts": the last day posted is kept
+# in the Actions cache, and each run posts every complete UTC day after it.
+# A late run then neither skips a day nor repeats one.
 
 on:
   schedule:
-    - cron: '47 21 * * *'   # 08:47 AEDT / 07:47 AEST, after the UTC day closes
+    - cron: '17 0 * * *'    # 11:17 AEDT / 10:17 AEST, after the UTC day closes
   workflow_dispatch:
     inputs:
       day:
-        description: 'UTC day to examine (YYYY-MM-DD); empty = yesterday'
+        description: 'UTC day to examine (YYYY-MM-DD); empty = every day not yet posted'
         required: false
         type: string
 
@@ -34,12 +39,59 @@ jobs:
       - name: Unit tests
         run: |
           python3 -m unittest discover -s .claude/skills/error-radar/scripts -p 'test_*.py'
-          node --test .claude/skills/error-radar/scripts/signature.test.js
+          node --test .claude/skills/error-radar/scripts/signature_test.js
+      # The username is not sensitive and may be a repository secret or a
+      # variable. The service-account secret and the webhook must be
+      # secrets: GitHub prints variables verbatim in the step's env block,
+      # and this repository's logs are public, so a webhook saved as a
+      # variable is published to anyone (it happened once, 2026-10-24). This
+      # step sees only true/false for those two, never their values.
+      - name: Check configuration
+        env:
+          MIXPANEL_SA_USER: ${{ secrets.MIXPANEL_SA_USER || vars.MIXPANEL_SA_USER }}
+          HAS_MIXPANEL_SA_SECRET: ${{ secrets.MIXPANEL_SA_SECRET != '' }}
+          HAS_SLACK_ERROR_RADAR_WEBHOOK: ${{ secrets.SLACK_ERROR_RADAR_WEBHOOK != '' }}
+          VAR_MIXPANEL_SA_SECRET: ${{ vars.MIXPANEL_SA_SECRET != '' }}
+          VAR_SLACK_ERROR_RADAR_WEBHOOK: ${{ vars.SLACK_ERROR_RADAR_WEBHOOK != '' }}
+        run: |
+          failed=0
+          where="Settings > Secrets and variables > Actions"
+          if [ -z "$MIXPANEL_SA_USER" ]; then
+            echo "::error::MIXPANEL_SA_USER is not set: add it under $where (secret or variable)."
+            failed=1
+          fi
+          for name in MIXPANEL_SA_SECRET SLACK_ERROR_RADAR_WEBHOOK; do
+            has="HAS_$name"; var="VAR_$name"
+            if [ "${!var}" = "true" ]; then
+              echo "::error::$name is saved as a variable, which prints it in this public log. Delete the variable, rotate the value, and save it under $where > Secrets."
+              failed=1
+            elif [ "${!has}" != "true" ]; then
+              echo "::error::$name is not set: add it under $where > Secrets."
+              failed=1
+            fi
+          done
+          exit $failed
+      # The cache holds one date and nothing else. Keys are immutable, so each
+      # run saves under its own key and the next restores the newest by prefix.
+      - name: Restore last posted day
+        uses: actions/cache/restore@v5
+        with:
+          path: radar-state
+          key: error-radar-last-day-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: error-radar-last-day-
       - name: Detect and post
         env:
-          MIXPANEL_SA_USER: ${{ secrets.MIXPANEL_SA_USER }}
+          MIXPANEL_SA_USER: ${{ secrets.MIXPANEL_SA_USER || vars.MIXPANEL_SA_USER }}
           MIXPANEL_SA_SECRET: ${{ secrets.MIXPANEL_SA_SECRET }}
           SLACK_ERROR_RADAR_WEBHOOK: ${{ secrets.SLACK_ERROR_RADAR_WEBHOOK }}
           DAY: ${{ inputs.day }}
         run: |
-          python3 .claude/skills/error-radar/scripts/radar.py --quiet --post ${DAY:+--day "$DAY"}
+          python3 .claude/skills/error-radar/scripts/radar.py --quiet --post \
+            --state radar-state/last-day ${DAY:+--day "$DAY"}
+      # always(): a run that posted some days before failing keeps that progress.
+      - name: Save last posted day
+        if: always() && hashFiles('radar-state/last-day') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: radar-state
+          key: error-radar-last-day-${{ github.run_id }}-${{ github.run_attempt }}

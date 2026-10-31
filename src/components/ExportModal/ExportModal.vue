@@ -49,10 +49,10 @@ import { deriveFeedbackContext } from '@/features/feedback/feedbackContext';
 import type { FeedbackContext } from '@/features/feedback/feedbackSession';
 import { getContext } from '@/model/globals/forgeGlobal';
 import store from '@/model/store2';
+import { useTransientFlag } from '@/composables/useTransientFlag';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
-const COPIED_FEEDBACK_MS = 1500;
 
 export default defineComponent({
   name: 'ExportModal',
@@ -80,6 +80,11 @@ export default defineComponent({
 
   setup(props, { emit }) {
     const state = useExportState();
+    // "Copied" feedback: holds, fades, then reverts. The flag owns the timers;
+    // the shared export state mirrors it for the toolbar and stage message.
+    const copied = useTransientFlag();
+    watch(copied.active, (active) => { state.copySucceeded.value = active; }, { flush: 'sync' });
+    watch(copied.fading, (fading) => { state.copyFading.value = fading; }, { flush: 'sync' });
     const restored = readExportSession();
     if (restored) {
       state.annotations.items.value = restored.annotations;
@@ -100,7 +105,6 @@ export default defineComponent({
     const feedbackContext = ref<FeedbackContext | null>(null);
     let captureGen = 0;
     let exportSucceeded = false;
-    let copiedTimeoutId: ReturnType<typeof setTimeout> | null = null;
     let previouslyFocused: HTMLElement | null = null;
 
     const FOCUSABLE_SELECTOR = [
@@ -339,7 +343,7 @@ export default defineComponent({
         exportSucceeded = false;
         state.exportError.value = null;
         state.copySucceeded.value = false;
-        if (copiedTimeoutId) { clearTimeout(copiedTimeoutId); copiedTimeoutId = null; }
+        copied.reset();
         trackAnalyticsEvent('export_png_opened', {
           feature_area: 'macro',
           surface: props.surface,
@@ -423,9 +427,7 @@ export default defineComponent({
           // session — mark it so closing afterwards doesn't fire dismissed.
           exportSucceeded = true;
           trackSucceeded('clipboard');
-          state.copySucceeded.value = true;
-          if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
-          copiedTimeoutId = setTimeout(() => { state.copySucceeded.value = false; }, COPIED_FEEDBACK_MS);
+          copied.trigger();
         } else {
           trackFailed(result.reason);
           state.exportError.value = EXPORT_ERROR_MESSAGE;
@@ -440,7 +442,6 @@ export default defineComponent({
     }
 
     onUnmounted(() => {
-      if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
       if (previewObjectUrl) {
         URL.revokeObjectURL(previewObjectUrl);
         previewObjectUrl = null;

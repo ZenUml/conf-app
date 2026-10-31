@@ -16,6 +16,7 @@ similar volume, so a standing problem alerts on its onset and on doublings.
 Usage:
     radar.py                          # yesterday, print the Slack text
     radar.py --day 2026-10-16 --post  # post to $SLACK_ERROR_RADAR_WEBHOOK
+    radar.py --post --state last-day  # every day after the one in last-day, up to yesterday
     radar.py --save-data d.json       # also keep the raw Mixpanel rows
     radar.py --input d.json --backtest 2026-09-20 2026-10-16
 
@@ -69,8 +70,10 @@ CONC_MIN_SHARE = 0.5
 CONC_MIN_SHARE_GAIN = 0.25
 SPREAD_RATIO = 2.5
 SPREAD_MIN_TENANTS = 8
+SPREAD_MIN_EVENTS = 25
 REALERT_RATIO = 2.0
 MAX_ALERTS_SHOWN = 12
+CATCH_UP_MAX_DAYS = 7
 
 KIND_LABEL = {
     "new": ":new: NEW",
@@ -89,6 +92,11 @@ def auth_header():
     user, secret = os.environ.get("MIXPANEL_SA_USER"), os.environ.get("MIXPANEL_SA_SECRET")
     if user and secret:
         token = f"{user}:{secret}"
+    elif user or secret:
+        # Half a service account is a configuration mistake, not a cue to fall
+        # back to .env.mixpanel (whose FileNotFoundError hid this in CI).
+        missing = "MIXPANEL_SA_USER" if not user else "MIXPANEL_SA_SECRET"
+        raise SystemExit(f"{missing} is not set (the other half of the Mixpanel service account is).")
     else:
         api_secret = os.environ.get("MIXPANEL_API_SECRET")
         if not api_secret:
@@ -241,7 +249,8 @@ def raw_alerts(data, day):
                 ctx.update(tenant=top, share=share, base_share=base_share)
 
         med_tenants = statistics.median([len(data.real_tenants(d, sig)) for d in comparable])
-        if len(tenants) >= SPREAD_MIN_TENANTS and len(tenants) > SPREAD_RATIO * max(med_tenants, 1.0):
+        if (count >= SPREAD_MIN_EVENTS and len(tenants) >= SPREAD_MIN_TENANTS
+                and len(tenants) > SPREAD_RATIO * max(med_tenants, 1.0)):
             kinds.append("spread")
             ctx["median_tenants"] = med_tenants
         if kinds:
@@ -357,6 +366,43 @@ def parse_day(s):
     return dt.date.fromisoformat(s)
 
 
+def read_state(path):
+    """The last day already posted, or None when there is no usable state."""
+    try:
+        with open(path) as f:
+            return dt.date.fromisoformat(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def write_state(path, day):
+    # Never move backwards: a manual re-run of an old day must not make the
+    # next scheduled run repeat the days after it.
+    last = read_state(path)
+    if last is None or day > last:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(iso(day) + "\n")
+
+
+def days_to_report(explicit, last_posted, yesterday):
+    """An explicit day, else every day after the last one posted up to yesterday.
+
+    A scheduled run that starts hours late, or not at all, then neither skips
+    nor repeats a day. Without state it is yesterday alone.
+    """
+    if explicit:
+        return [explicit]
+    if last_posted is None:
+        return [yesterday]
+    first = max(last_posted + dt.timedelta(days=1), yesterday - dt.timedelta(days=CATCH_UP_MAX_DAYS - 1))
+    out = []
+    while first <= yesterday:
+        out.append(first)
+        first += dt.timedelta(days=1)
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--day", type=parse_day, help="UTC day to examine (default: yesterday)")
@@ -366,10 +412,19 @@ def main(argv=None):
     ap.add_argument("--json", action="store_true", help="print alerts as JSON instead of Slack text")
     ap.add_argument("--post", action="store_true", help="post to $SLACK_ERROR_RADAR_WEBHOOK")
     ap.add_argument("--quiet", action="store_true", help="print only a tenant-free summary (for CI logs)")
+    ap.add_argument("--state", help="file holding the last day posted; without --day, report every day after it")
     args = ap.parse_args(argv)
 
     today = dt.datetime.now(dt.timezone.utc).date()
-    first, last = args.backtest if args.backtest else ((args.day or today - dt.timedelta(days=1)),) * 2
+    if args.backtest:
+        first, last = args.backtest
+        days = []
+    else:
+        days = days_to_report(args.day, read_state(args.state) if args.state else None, today - dt.timedelta(days=1))
+        if not days:
+            print("error radar: every day up to yesterday is already posted", file=sys.stderr)
+            return 0
+        first, last = days[0], days[-1]
     if args.input:
         raw = json.load(open(args.input))
     else:
@@ -390,22 +445,26 @@ def main(argv=None):
             d += dt.timedelta(days=1)
         return 0
 
-    alerts = detect(data, first)
-    text = render(first, alerts, blind_spots(today), len(data.sigs_on(iso(first))))
-    if args.quiet:
-        kinds = ", ".join(f"{k}={sum(k in a['kinds'] for a in alerts)}" for k in KIND_ORDER)
-        print(f"error radar {iso(first)}: {len(alerts)} alerts ({kinds})")
-    elif args.json:
-        print(json.dumps({"day": iso(first), "alerts": alerts}, indent=2))
-    else:
-        print(text)
-    if args.post:
-        url = os.environ.get("SLACK_ERROR_RADAR_WEBHOOK")
-        if not url:
-            print("SLACK_ERROR_RADAR_WEBHOOK is not set; nothing posted", file=sys.stderr)
-            return 2
-        post_webhook(url, text)
-        print("posted to Slack", file=sys.stderr)
+    url = os.environ.get("SLACK_ERROR_RADAR_WEBHOOK")
+    if args.post and not url:
+        print("SLACK_ERROR_RADAR_WEBHOOK is not set; nothing posted", file=sys.stderr)
+        return 2
+    blind = blind_spots(today)
+    for day in days:
+        alerts = detect(data, day)
+        text = render(day, alerts, blind, len(data.sigs_on(iso(day))))
+        if args.quiet:
+            kinds = ", ".join(f"{k}={sum(k in a['kinds'] for a in alerts)}" for k in KIND_ORDER)
+            print(f"error radar {iso(day)}: {len(alerts)} alerts ({kinds})")
+        elif args.json:
+            print(json.dumps({"day": iso(day), "alerts": alerts}, indent=2))
+        else:
+            print(text)
+        if args.post:
+            post_webhook(url, text)
+            print(f"posted {iso(day)} to Slack", file=sys.stderr)
+            if args.state:
+                write_state(args.state, day)
     return 0
 
 

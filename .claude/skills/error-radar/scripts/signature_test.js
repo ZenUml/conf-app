@@ -1,4 +1,6 @@
-// Run: node --test .claude/skills/error-radar/scripts/signature.test.js
+// Run: node --test .claude/skills/error-radar/scripts/signature_test.js
+// Named *_test.js, not *.test.js: the root Vitest run collects every
+// *.test.js in the repo and fails on a file written for node:test.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { radarIsErrorEvent, radarNormalize, radarSignature } = require('./signature.js');
@@ -58,4 +60,14 @@ test('error-event selection', () => {
   // Other products in the shared project are out of scope.
   assert.equal(radarIsErrorEvent('pass_failed', { product: 'passetta' }), false);
   assert.equal(radarIsErrorEvent('$mp_web_page_view', {}), false);
+});
+
+test('HTTP status codes after status/code/HTTP survive, other numbers do not', () => {
+  assert.equal(radarNormalize('{"status":403}'), '{"status":403}');
+  assert.notEqual(radarNormalize('{"status":403}'), radarNormalize('{"status":500}'));
+  assert.equal(radarNormalize('HTTP 429 after 3 retries'), 'HTTP 429 after <n> retries');
+  assert.equal(radarNormalize('status code: 404 for page 123'), 'status code: 404 for page <n>');
+  // Not a status: too long, or out of the 1xx-5xx range.
+  assert.equal(radarNormalize('status 4031'), 'status <n>');
+  assert.equal(radarNormalize('code 999'), 'code <n>');
 });

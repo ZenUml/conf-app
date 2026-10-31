@@ -55,7 +55,7 @@ Usage: `copy-macro [on <site>] [--source-page <pageId>] [--macro-type sequence|g
 
 | Name | Domain | Space | Variant | Add-on key | Default parent for new pages |
 |------|--------|-------|---------|-----------|------------------------------|
-| `lite-stg` | `lite-stg.atlassian.net` | SD | lite-forge | `com.zenuml.confluence-addon-lite` | 524297 |
+| `lite-stg` | `lite-stg.atlassian.net` | SD | lite-forge | `com.zenuml.confluence-addon-lite` | 366149957 |
 | `lite-dev` | `lite-dev.atlassian.net` | (discover) | lite-forge | `com.zenuml.confluence-addon-lite` | (discover) |
 | `full-stg` | `full-stg.atlassian.net` | (discover) | full-forge | `com.zenuml.confluence-addon` | (discover) |
 | `dia-stg` | `dia-stg.atlassian.net` | (discover) | diagramly | (discover) | (discover) |

@@ -26,14 +26,37 @@ async function main() {
 		diagramlyPath,
 		"apps/web/modules/saas/diagram/services/deterministic-syntax-parser.ts",
 	);
-	const { deterministicSyntaxParser } = (await import(
-		pathToFileURL(parserPath).href
-	)) as {
-		deterministicSyntaxParser: (
-			code: string,
-			languageKey: string,
-		) => Promise<string | null>;
-	};
+	// The app's parser imports workspace aliases that tsx may resolve through a
+	// CommonJS boundary when this external helper runs. Mermaid's parser is
+	// headless and the same version is installed in Diagramly's web package, so
+	// use it directly for Mermaid syntax checks. This is still a syntax check;
+	// browser rendering remains a separate acceptance gate.
+	let mermaid: (typeof import("mermaid"))["default"] | null = null;
+	if (manifest.languageKey === "LANG_MERMAID") {
+		const sanitizerPath = join(
+			diagramlyPath,
+			"apps/web/lib/ai/mermaid-server-sanitizer.ts",
+		);
+		const { prepareMermaidServerSanitizer } = await import(
+			pathToFileURL(sanitizerPath).href
+		);
+		await prepareMermaidServerSanitizer();
+		// Use the package entry (mermaid.core.mjs), not the self-contained
+		// mermaid.esm.mjs bundle: the bundle embeds another DOMPurify instance
+		// that the server sanitizer cannot prepare.
+		mermaid = (await import(pathToFileURL(join(
+			diagramlyPath,
+			"apps/web/node_modules/mermaid/dist/mermaid.core.mjs",
+		)).href)).default;
+	}
+	const deterministicSyntaxParser = mermaid
+		? null
+		: (await import(pathToFileURL(parserPath).href) as {
+			deterministicSyntaxParser: (
+				code: string,
+				languageKey: string,
+			) => Promise<string | null>;
+		}).deterministicSyntaxParser;
 
 	const results: Array<Record<string, unknown>> = [];
 	for (const item of manifest.items) {
@@ -42,7 +65,17 @@ async function main() {
 			results.push({ id: item.id, skipped: true, error: null });
 			continue;
 		}
-		const error = await deterministicSyntaxParser(code, manifest.languageKey);
+		let error: string | null;
+		if (mermaid) {
+			try {
+				await mermaid.parse(code);
+				error = null;
+			} catch (cause) {
+				error = cause instanceof Error ? cause.message : String(cause);
+			}
+		} else {
+			error = await deterministicSyntaxParser!(code, manifest.languageKey);
+		}
 		results.push({ id: item.id, skipped: false, error });
 	}
 	writeFileSync(outputPath, `${JSON.stringify(results, null, 2)}\n`);

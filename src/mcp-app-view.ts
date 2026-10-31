@@ -127,16 +127,18 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
     if (!stored) continue;
     // The stored body keeps one source field per type (the editor's tabs):
     // `code` is ZenUML and OpenAPI, `mermaidCode` Mermaid, `plantUmlCode`
-    // PlantUML, `graphXml` (or `boardGraphXml` for a Board) Graph, and the
-    // inactive ones keep stale drafts. Only the field for `diagramType` is the
-    // diagram the page shows. Mirrors sourceFieldFor in headlessTools.ts.
+    // PlantUML, `markdownCode` Markdown, `graphXml` (or `boardGraphXml` for a
+    // Board) Graph, and the inactive ones keep stale drafts. Only the field for
+    // `diagramType` is the diagram the page shows. Mirrors sourceFieldFor in
+    // headlessTools.ts.
     const type = typeof stored.diagramType === 'string' ? stored.diagramType.toLowerCase() : '';
     const field =
       type === 'mermaid' ? 'mermaidCode'
         : type === 'plantuml' ? 'plantUmlCode'
-          : type === 'graph'
-            ? stored.graphEditorMode === 'board' && stored.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml'
-            : 'code';
+          : type === 'markdown' ? 'markdownCode'
+            : type === 'graph'
+              ? stored.graphEditorMode === 'board' && stored.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml'
+              : 'code';
     candidates.push({
       diagramType: stored.diagramType,
       dsl: stored[field],

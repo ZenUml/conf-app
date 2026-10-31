@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test:unit": "vitest --run",
+    "test:ui-details": "playwright test -c tests/ui-details/playwright.config.ts",
     "test:mermaid-highlights": "node scripts/ci/mermaid-highlights.mjs",
     "test:export-modal": "playwright test -c tests/export-modal/playwright.config.ts",
     "test:e2e": "cd tests/e2e-tests && pnpm test",
@@ -98,6 +99,7 @@
     "@lezer/highlight": "^1.2.1",
     "@lezer/lr": "^1.4.2",
     "@mermaid-js/mermaid-zenuml": "1.0.0",
+    "@plantuml/core": "1.2026.9",
     "@sentry/cloudflare": "^9.5.0",
     "@sindresorhus/slugify": "3.0.0",
     "@vitejs/plugin-vue": "^6.0.2",

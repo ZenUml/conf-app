@@ -125,9 +125,62 @@ const meta: Meta<typeof PlanUsage> = {
   },
   beforeEach: () => {
     installStubs()
+    forgeGlobal.forgeContext = undefined
     try { window.localStorage.setItem('mockClientDomain', 'example-tenant') } catch { /* ignore */ }
     const restore = stubFetch(usage)
     return () => { restore(); resetStubResponses() }
+  },
+}
+
+/** Fullscreen entry carries the source space, page and use-case enums. The request status comes from the Forge-authenticated API. */
+export const FullscreenContact: Story = {
+  name: 'Fullscreen use — contact support',
+  beforeEach: () => {
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG&scenes=present,discuss&page_id=123' } } as any
+    stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
+      state: 'not_requested', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
+    } } }]
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('plan-usage-fullscreen-context')).toHaveTextContent('Present this diagram to others')
+    await userEvent.click(canvas.getByTestId('plan-usage-fullscreen-request'))
+    await expect(canvas.getByLabelText('Present this diagram to others')).toBeChecked()
+  },
+}
+
+export const FullscreenExistingRequest: Story = {
+  name: 'Fullscreen use — existing request',
+  beforeEach: () => {
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG&request=untrusted&scenes=present' } } as any
+    stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
+      state: 'expired', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
+      request: { id: 'FS-EXAMPLE-001', scenarios: ['inspect_details'], note: '', email: 'reader@example.com', createdAt: '2026-10-01T00:00:00Z', mailState: 'queued' },
+      grant: { id: 'grant-example', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
+    } } }]
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('plan-usage-fullscreen-context')).toHaveTextContent('Inspect details on my own')
+    await expect(canvas.getByTestId('plan-usage-return-help')).toHaveTextContent('open the Confluence page where you started')
+  },
+}
+
+export const FullscreenOrdinarySpace: Story = {
+  name: 'Fullscreen use — ordinary space despite old grant',
+  beforeEach: () => {
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=OPS&page_id=123' } } as any
+    stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
+      state: 'disabled', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
+      request: { id: 'FS-EXAMPLE-001', scenarios: ['inspect_details'], note: '', email: 'reader@example.com', createdAt: '2026-10-01T00:00:00Z' },
+      grant: { id: 'grant-example', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
+    } } }]
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('plan-usage-fullscreen-context')).toHaveTextContent('does not need temporary Fullscreen access')
+    await expect(canvas.queryByTestId('plan-usage-fullscreen-request')).toBeNull()
+    await expect(canvas.queryByText(/Your temporary Fullscreen access ended/)).toBeNull()
   },
 }
 
@@ -146,9 +199,9 @@ export const Default: Story = {
   name: 'Plan and usage — count card leads to locations',
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByText('Diagrams reported across the site')).toBeVisible()
+    await expect(await canvas.findByText('Diagrams on this site')).toBeVisible()
     await expect(canvas.getByTestId('plan-usage-view-locations')).toBeEnabled()
-    await expect(canvas.getByTestId('plan-usage-count-note')).toHaveTextContent('may not match this total')
+    await expect(canvas.getByTestId('plan-usage-count-note')).toHaveTextContent('Both counts update every few hours.')
     await expect(canvas.queryByTestId('diagram-locations')).not.toBeInTheDocument()
   },
 }
@@ -159,9 +212,9 @@ export const Locations: Story = {
   play: async () => {
     const canvas = within(document.body)
     await openLocations(canvas)
-    await expect(canvas.getByTestId('diagram-locations-coverage')).toHaveTextContent('reported site count of 131')
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('35 available diagrams · 4 owning pages · 2 spaces')
-    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('1–10 of 35 available diagrams')
+    await expect(canvas.getByTestId('diagram-locations-coverage')).toHaveTextContent('site count of 131')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('35 diagrams on 4 pages in 2 spaces')
+    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('1–10 of 35')
     await expect(canvas.getByTestId('diagram-locations-space-filter')).not.toHaveTextContent('HR')
     await expect(canvas.queryByText('Restricted design')).not.toBeInTheDocument()
     await expect(canvas.getByTestId('diagram-locations-status')).toHaveTextContent('Fetched at')
@@ -175,14 +228,14 @@ export const SearchAndFilters: Story = {
     const canvas = within(document.body)
     await openLocations(canvas)
     await userEvent.type(canvas.getByTestId('diagram-locations-search'), 'retry{enter}')
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('2 matching diagrams')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('2 diagrams on')
     await userEvent.selectOptions(canvas.getByTestId('diagram-locations-space-filter'), 'OPS')
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('0 matching diagrams')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('0 diagrams on')
     await expect(canvas.getByTestId('diagram-locations-no-match')).toBeVisible()
     await userEvent.click(canvas.getByTestId('diagram-locations-clear'))
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('35 available diagrams')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('35 diagrams on')
     await userEvent.selectOptions(canvas.getByTestId('diagram-locations-type-filter'), 'graph')
-    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('1 matching diagram ·')
+    await expect(canvas.getByTestId('diagram-locations-summary')).toHaveTextContent('1 diagram on')
   },
 }
 
@@ -192,12 +245,12 @@ export const Pagination: Story = {
   play: async () => {
     const canvas = within(document.body)
     await openLocations(canvas)
-    await expect(canvas.getByTestId('diagram-locations-page-pos')).toHaveTextContent('Page 1 of 4')
     await expect(canvas.getByTestId('diagram-locations-prev')).toBeDisabled()
     await userEvent.click(canvas.getByTestId('diagram-locations-next'))
-    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('11–20 of 35 available diagrams')
-    await userEvent.selectOptions(canvas.getByTestId('diagram-locations-page-size'), '50')
-    await expect(canvas.getByTestId('diagram-locations-page-pos')).toHaveTextContent('Page 1 of 1')
+    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('11–20 of 35')
+    await userEvent.click(canvas.getByTestId('diagram-locations-next'))
+    await userEvent.click(canvas.getByTestId('diagram-locations-next'))
+    await expect(canvas.getByTestId('diagram-locations-range')).toHaveTextContent('31–35 of 35')
     await expect(canvas.getByTestId('diagram-locations-next')).toBeDisabled()
   },
 }

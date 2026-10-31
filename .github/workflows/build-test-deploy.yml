@@ -10,6 +10,8 @@ on:
       - 'docs/**'
       - '.claude/**'
       - '.cursor/**'
+      # GitHub PR Agent Panel: a local Chrome extension and Hub, not part of the Confluence app.
+      - 'packages/pr-agent-panel/**'
   # Allows the release workflow to create fresh, tested drafts without a
   # no-op commit to main.
   workflow_dispatch:

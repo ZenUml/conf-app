@@ -319,6 +319,27 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    minor"); the `forge deploy` output confirms it. Then update the P&S questionnaire
    for lite, full and diagramly, and the nightly Export PNG workflow.
 
+## Licensing (2026-10-31)
+
+`@plantuml/core` is MIT from 1.2026.6 on; earlier versions are GPL-3.0-or-later
+(package README). The engine's licence text also says generated images belong to
+the author of the diagram source and need no attribution. The engine shows no
+sponsored messages: the only "sponsor" and "advertising" strings in
+`plantuml.js` sit inside its Brotli dictionary.
+
+What we owe is attribution in what we ship. The npm `plantuml.js` has no licence
+header, and the parts loaded on demand carry other authors' licences: themes
+(puml-themes, MIT), OpenIconic icons (MIT), Twemoji emoji graphics (CC-BY 4.0)
+and the self-hosted C4 library (MIT). `public/third-party-notices.txt` carries
+each notice. Vite copies it into every variant's `dist/`, so it ships with the
+code. Twemoji's README accepts a mention in the HTML/JS source as attribution.
+
+`src/utils/plantuml/thirdPartyNotices.spec.ts` fails if the pinned
+`@plantuml/core` version is missing from the notice, if the installed package is
+not MIT, or if the PlantUML or C4 licence text in the notice drifts from the file
+it was copied from. Graphviz (`viz-global.js`, EPL) is not loaded and so not
+listed. This is a reading of the licence texts, not legal advice.
+
 ## Open questions
 
 - **Server-side export (ADR-0004)** has no browser. If that work goes ahead,

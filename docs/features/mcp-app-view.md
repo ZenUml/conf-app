@@ -19,6 +19,22 @@ Two ways forward were considered and not built:
 
 `update_diagram` returns no diagram type or source, so after an update the view says "No diagram in this result." for every type.
 
+## Rendering without an Atlassian site: `POST /mcp/render`
+
+A second, public MCP endpoint, `POST /mcp/render` (route `functions/mcp/render.ts`, logic in `functions/agent-link/renderMcp.ts`), uses the same view with **no sign-in and no Confluence**. Anyone can add it as a connector, e.g. `https://conf-lite.zenuml.com/mcp/render`.
+
+- **One tool, `render_diagram`** (`source`; optional `diagramType`: `sequence` | `mermaid` | `plantuml` | `graph` | `openapi`; optional `title`). It returns `structuredContent: { diagramType, source, title?, detected?, valid, unvalidated?, errors? }`, the shape `extractDiagram` already reads, and a short text summary for the model.
+- **Type detection** (`functions/agent-link/detectDiagramType.ts`) runs when `diagramType` is left out or blank: `@start…` → plantuml; an `<mxfile>` / `<mxGraphModel>` root → graph; a top-level `openapi:` / `swagger:` key (YAML at column 0, or a JSON key) → openapi; a Mermaid diagram keyword as the first token of the first line (after `%%` directives and `---` front matter) → mermaid; anything else → sequence, since ZenUML has no header. The result carries `detected: true` and the summary says so. A given type always wins, and an unknown given type is refused rather than replaced by a guess. Known miss: a ZenUML source whose first line is a bare participant named like a Mermaid keyword (`graph`, `pie`, `timeline`, …) is read as Mermaid; it then fails Mermaid's parse check and the agent sees the errors.
+- **The source is parse-checked** with `parseDsl.ts`: ZenUML and Mermaid get real parser errors with line and column; PlantUML and OpenAPI a structural check; Graph is not checked (`unvalidated: true`). A source that fails still goes to the view, and the errors go to the agent so it can fix and call again.
+- **Resources:** the view (`ui://zenuml/diagram`) and the four DSL guides (`zenuml://dsl-guide`, …).
+- **No diagram is stored** and the server makes no outbound call except fetching its own `mcp-app/view.html`. PlantUML is fetched from `www.plantuml.com` by the view, as in Confluence. `source` is capped at 500,000 characters.
+- **Rate limit:** 30 `render_diagram` calls per 60-second window per caller address (`CF-Connecting-IP`; IPv6 folded to its /64), counted in D1 table `McpRenderRate` (migration `0035_mcp_render_rate_limit.sql`, logic in `functions/agent-link/renderRateLimit.ts`). Handshakes, `tools/list` and `resources/*` are not counted. A refused call gets a tool result with `isError: true` and "Try again in N seconds", not an HTTP 429, which MCP clients show as a broken connection. The bucket is an HMAC of the address under `OAUTH_GRANT_SECRET`; about 2% of calls also delete rows from past windows.
+  - **Why D1:** Cloudflare's Rate Limiting binding is documented for Workers, not Pages Functions; KV reads are cached per edge, so a per-minute counter undercounts; and the Durable Object worker is not bound in production. D1's single primary makes the UPSERT an atomic count, at one round trip per call (≈100–480 ms).
+  - **Fails open:** with no `DB` binding, no `McpRenderRate` table, or a D1 error, the call goes through and `agent_link_mcp_tool_called` carries `reason: 'rate_limit_unavailable'`. **The migration must reach each D1 database** before the limit is in force. Main's staging validation applies it to staging (`cp wrangler-stg.toml wrangler.toml && wrangler d1 migrations apply DB --remote --env production`); no workflow does that for production `conf-zenuml-prod`, so run the same with `wrangler-prod.toml` (for `0035` this was done on 2026-10-31, ahead of the code; `migrations list` then reported nothing pending). Production volume of `rate_limit_unavailable` shows whether that has happened.
+- **Why not an anonymous tool on `/agent-link/mcp`:** a token-less request there must get the 401 + RFC 9728 challenge, which is what starts OAuth in a host that has never connected. Answering it without a token would let hosts skip sign-in and then fail on every Confluence tool.
+- **Route:** `/mcp/render` is listed in `public/_routes.json` (without it Pages serves the SPA's HTML there). `_middleware.ts` does not authenticate it. It sits outside `/agent-link/` because the URL is public and has nothing to do with linking to Confluence; the Confluence connector stays at `/agent-link/mcp`.
+- **Analytics:** the existing `agent_link_mcp_initialized`, `agent_link_mcp_tool_called` and `agent_link_app_view_*` events, with `mcp_mode: 'render'`. `_tool_called` adds `macro_type`, `render_validation` (`valid` | `invalid` | `unvalidated`) and `render_type_source` (`given` | `detected`). There is no user, so these share Mixpanel's `unknown_user_account_id`; filter by `mcp_mode`.
+
 ## Pieces
 
 | Piece | Role |
@@ -84,7 +100,7 @@ Each of these passed every unit test and a hand-built test host, and failed in c
 
 ## Testing
 
-- **Unit:** `src/mcp-app-view.spec.ts`, `functions/agent-link/oauth/mcpApps.spec.ts`, `functions/agent-link/oauth/headlessMcp.spec.ts`.
+- **Unit:** `src/mcp-app-view.spec.ts`, `functions/agent-link/oauth/mcpApps.spec.ts`, `functions/agent-link/oauth/headlessMcp.spec.ts`, `functions/agent-link/renderMcp.spec.ts`, `functions/agent-link/renderRateLimit.spec.ts`, `functions/agent-link/detectDiagramType.spec.ts`.
 - **Build:** `pnpm build:<variant>` (which runs `build:mcp-app`), or `pnpm build:mcp-app` alone after a variant build.
 - **Real host:** add a custom connector for `https://conf-stg-lite.zenuml.com/agent-link/mcp` in claude.ai and call `read_diagram` on a lite-stg diagram.
   - Before testing, confirm staging actually serves the view: `curl -sL https://conf-stg-lite.zenuml.com/mcp-app/view.html | grep 'name="mcp-app"'`.

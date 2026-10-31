@@ -296,6 +296,19 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    must first be created in the Developer Console for each app (forge-feature-flag
    skill). Gate each widening on `macro_viewed` split by `plantuml_renderer`
    (`local` vs `server_fallback`) and on `plantuml_local_render_failed` reasons.
+   **Diagramly done (2026-10-31).** Flag created (ID type `installContext`, rule
+   Everyone 100%) on development and staging at 00:16 UTC, production added at
+   00:31 UTC; both changes are on the Console Activity tab. Staging check on
+   dia-stg (build `b38b5ac`) and production check on zenuml.atlassian.net (build
+   `v2026.10.271752-diagramly`), each with a sequence, a class and a C4 diagram,
+   inspected inside the macro iframes over CDP: all three drew as inline SVG, the
+   C4 diagram loaded `c4-*.js`, and the iframes logged no CSP message or error.
+   `macro_viewed` on the day: 27/27 `local` on staging, 12/12 `local` on
+   production, no `plantuml_local_render_failed`. Customer numbers are still to
+   come. The viewer sends nothing to plantuml.com, but the backup PNG attachment
+   (call site 3, step 6) still fetches `/plantuml/png/` on view; for an anonymous
+   viewer it does so on every load. Lite and Full are not enabled yet; Full has no
+   release containing the renderer.
 6. **Export.** Rasterise the local SVG on a canvas instead of fetching
    `/plantuml/png/`. The "html-to-image cannot decode the server SVG" failure in
    `fetchPng.ts` needs re-testing: the local SVG has no external references.
@@ -314,8 +327,9 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
   matter. Step 3 settles correctness: 98.7% of production diagrams draw, and the
   rest fall back. It does not settle layout on Graphviz-layout diagrams, because
   the two-renderer run was skipped. The Diagramly canary answers that.
-- **Full and Diagramly iframes.** Lite is confirmed in a real Forge iframe. The
-  stricter CSP of the other variants is covered only by the local header test so far.
+- **Full iframes.** Lite and Diagramly are confirmed in real Forge iframes; Diagramly's
+  CSP has no `'unsafe-eval'` and logged no violation (2026-10-31). Full is covered only
+  by the local header test so far.
 
 ## Consequences
 

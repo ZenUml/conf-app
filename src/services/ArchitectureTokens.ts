@@ -24,6 +24,8 @@ export interface RelatedResponse {
   contentVersion: number | null
   participants: RelatedParticipant[]
   error_kind?: string
+  /** With error_kind 'confluence_unavailable': the status Confluence gave the backend. */
+  confluence_http_status?: number
 }
 
 export class RelatedLookupError extends Error {

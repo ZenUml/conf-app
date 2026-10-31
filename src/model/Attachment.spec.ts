@@ -81,11 +81,11 @@ vi.mock('@forge/bridge', () => ({
 
 import createAttachmentIfContentChanged, { capturePng } from './Attachment';
 import { ForgeRequestError } from '@/utils/forgeRequestError';
-import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { _resetForTesting as resetConfluenceThrottle, confluenceThrottleRemainingMs, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
 
 describe('Attachment', () => {
   describe('Markdown preview capture', () => {
@@ -118,7 +118,7 @@ describe('Attachment', () => {
     delete (window as any).createAttachmentInProgress;
     // A 429 test leaves a site cooldown behind; never let it defer later tests.
     localStorage.clear();
-    resetRateLimitCooldown();
+    resetConfluenceThrottle();
     // Setup default mocks for Forge
     mockGetContext.mockResolvedValue({
       extension: { config: { customContentId: 'test-uuid' } }
@@ -1932,6 +1932,85 @@ describe('Attachment', () => {
         expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
         vi.unstubAllGlobals();
       });
+    });
+  });
+
+  // One Lite tenant's saves failed on Confluence 429s while every macro view's
+  // PNG backfill kept spending the same budget. Any 429 now opens a per-site
+  // cooldown (utils/confluenceThrottle.ts) and the view-time backfill stands
+  // down during it; the user's save-time write does not.
+  describe('during a Confluence 429 cooldown', () => {
+    const clearCooldown = () => {
+      localStorage.clear();
+      resetConfluenceThrottle();
+    };
+    beforeEach(clearCooldown);
+    afterEach(clearCooldown);
+
+    it('skips the view-time backfill without any request when another request was refused', async () => {
+      noteConfluenceThrottled('120'); // e.g. a save's or a snapshot read's 429
+
+      await createAttachmentIfContentChanged('test content');
+
+      expect(mockApWrapper.getAttachmentsV2).not.toHaveBeenCalled();
+      expect(mockRequestConfluence).not.toHaveBeenCalled();
+      expect((window as any).createAttachmentInProgress).toBeFalsy();
+      const deferred = mockTrackAnalyticsEvent.mock.calls.find(([name]) => name === 'attachment_upload_deferred');
+      // the shared 120 s cooldown, less the milliseconds that passed since it opened
+      expect(deferred?.[1].cooldown_remaining_ms).toBeGreaterThan(119_000);
+    });
+
+    it('still runs the save-time write', async () => {
+      noteConfluenceThrottled('120');
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockCallRemote.mockResolvedValue({ ok: true, queued: true });
+
+      await createAttachmentIfContentChanged('test content', undefined, { customContentId: 'test-uuid', fromSave: true });
+
+      expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
+    });
+
+    it('a 429 on the direct data POST opens the shared cooldown too', async () => {
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({ ok: false, status: 429, text: vi.fn().mockResolvedValue('Too Many Requests') });
+
+      await createAttachmentIfContentChanged('test content');
+
+      expect(confluenceThrottleRemainingMs()).toBeGreaterThan(0);
+    });
+
+    it('a 429 on the upload stands the viewer\'s PNG export-state write down, without a failure event', async () => {
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      const json = (body: unknown, status = 200) => ({
+        ok: status < 300, status, headers: new Headers(),
+        json: vi.fn().mockResolvedValue(body), text: vi.fn().mockResolvedValue(JSON.stringify(body)),
+      });
+      mockRequestConfluence.mockImplementation(async (url: string, init: any = {}) => {
+        if (String(url).includes('/properties')) {
+          return (init.method ?? 'GET') === 'GET' ? json({ results: [] }) : json({ id: 'p1', version: { number: 1 } });
+        }
+        return { ok: false, status: 429, headers: new Headers(), text: vi.fn().mockResolvedValue('Too Many Requests') };
+      });
+
+      await createAttachmentIfContentChanged('test content');
+
+      const propertyBodies = mockRequestConfluence.mock.calls
+        .filter(([url, init]: any[]) => String(url).includes('/properties') && init?.body)
+        .map(([, init]: any[]) => JSON.parse(init.body).value?.state);
+      expect(propertyBodies).toContain('generating'); // the attempt started before the 429
+      expect(propertyBodies).not.toContain('upload_failed'); // deferred, not sent
+      expect(mockTrackAnalyticsEvent).not.toHaveBeenCalledWith('png_export_state_persistence_failed', expect.anything());
+      expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('confluence_background_request_deferred', expect.objectContaining({
+        request_endpoint: expect.stringContaining('/properties'),
+      }));
+      expect(mockTrackAnalyticsEvent.mock.calls.filter(([name]) => name === 'attachment_upload_rate_limited')).toHaveLength(1);
+    });
+
+    it('runs the view-time backfill again once the cooldown is over', async () => {
+      await createAttachmentIfContentChanged('test content').catch(() => {});
+      expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
     });
   });
 

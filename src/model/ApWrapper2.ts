@@ -19,6 +19,7 @@ import { loadAllPaginatedData, loadPaginatedDataUntil } from '@/utils/requestUti
 import { keepLiveParentPageContent } from '@/utils/orphanFilter';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import {forgeRequest} from '@/utils/requestUtil';
+import type { RequestPriority } from '@/utils/confluenceThrottle';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
 import { isValidCustomContentId } from '@/utils/customContentId';
@@ -127,6 +128,10 @@ export interface LoadCustomContentOpts {
   // guards the save-fork path. Omitted/'full' preserves the blocking scan
   // for every other caller.
   copyCheckMode?: 'full' | 'cross-page-only';
+  // How the GET handles a Confluence 429 (utils/confluenceThrottle.ts). The
+  // save's existence check passes 'user' so it retries instead of failing the
+  // save; viewer loads leave it unset.
+  priority?: RequestPriority;
 }
 
 /**
@@ -340,7 +345,8 @@ export default class ApWrapper2 {
       }
     }
 
-    const response = await this.request('/api/v2/custom-content', 'POST', data);
+    // Every caller is a user's save, so a 429 retries (utils/confluenceThrottle.ts).
+    const response = await this.request('/api/v2/custom-content', 'POST', data, { priority: 'user' });
     return this.assertSavedCustomContent(response, 'create');
   }
 
@@ -514,17 +520,18 @@ export default class ApWrapper2 {
     });
 
     try {
-      const response = await this.request(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(newVersionNumber));
+      // Every caller is a user's save, so a 429 retries (utils/confluenceThrottle.ts).
+      const response = await this.request(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(newVersionNumber), { priority: 'user' });
       const saved = this.assertSavedCustomContent(response, 'update');
       trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
       return saved;
     } catch (error) {
       if (this.isVersionConflict(error)) {
         trackEvent('save_conflict_retry', 'save_conflict_retry', 'info', { content_id: String(content.id) });
-        const fresh = await this.request(`/api/v2/custom-content/${content.id}?body-format=raw`);
+        const fresh = await this.request(`/api/v2/custom-content/${content.id}?body-format=raw`, 'GET', undefined, { priority: 'user' });
         const freshVersion = (fresh?.version?.number || 0) + 1;
         try {
-          const retryResponse = await this.request(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(freshVersion));
+          const retryResponse = await this.request(`/api/v2/custom-content/${content.id}`, 'PUT', buildData(freshVersion), { priority: 'user' });
           const savedRetry = this.assertSavedCustomContent(retryResponse, 'update');
           trackEvent(JSON.stringify(content.id), 'update_custom_content', 'info');
           return savedRetry;
@@ -579,7 +586,7 @@ export default class ApWrapper2 {
     let rawResponse: any;
     try {
       rawResponse = await renderPerf.time('cc_fetch', () =>
-        this.request(`/api/v2/custom-content/${id}?body-format=raw`));
+        this.request(`/api/v2/custom-content/${id}?body-format=raw`, 'GET', undefined, { priority: opts?.priority }));
     } catch (e: any) {
       const httpStatus =
         typeof e?.status === 'number' ? e.status
@@ -1410,7 +1417,15 @@ export default class ApWrapper2 {
     // failures (403, 5xx, malformed, thrown). Falling through to create on
     // a transient failure would orphan the user's edits when the macro
     // config still references the old CC id.
-    const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId);
+    //
+    // 'cross-page-only': the save reads only id/version/status/pageId from the
+    // existing record, never its copy verdict, so the full-page ADF scan that
+    // verdict costs would be a wasted request — and countMacros below reads
+    // the same ADF anyway. 'user': a 429 retries rather than failing the save.
+    const direct = await this.fetchCustomContentByIdV2WithStatus(customContentId, {
+      copyCheckMode: 'cross-page-only',
+      priority: 'user',
+    });
     if (direct.status === 'other_error') {
       const err = new Error(
         `saveCustomContentV2: existence check for ${customContentId} failed: ${direct.errorDetail || 'unknown'}`,
@@ -1418,6 +1433,8 @@ export default class ApWrapper2 {
       trackEvent('save_existence_check_failed', 'save_existence_check_failed', 'error', {
         custom_content_id: customContentId,
         detail: direct.errorDetail || '',
+        // 429 (rate limited, even after the save-path retries), 403, 5xx…
+        ...(direct.httpStatus !== undefined ? { http_status: direct.httpStatus } : {}),
       });
       throw err;
     }
@@ -1426,7 +1443,7 @@ export default class ApWrapper2 {
     const count = (await this._page.countMacros((m) => {
       return m?.customContentId === customContentId //new forge custom content
         || (typeof m?.customContentId === 'object' && m.customContentId?.value === customContentId);
-    }));
+    }, { priority: 'user' }));
 
     // ZEN-1170: UI/control-plane fields (recoveredFromOrphan, legacyLoadBlocked,
     // migratedFromLegacyContentProperty) are set by load paths to drive viewer
@@ -1585,8 +1602,8 @@ export default class ApWrapper2 {
    * @param type HTTP method (GET, POST, PUT, etc.)
    * @param data Request body data (optional)
    */
-  async request(url: string, type: string = 'GET', data: any = undefined): Promise<any> {
-    return await forgeRequest(`/wiki${url}`, type, data);
+  async request(url: string, type: string = 'GET', data: any = undefined, options?: { priority?: RequestPriority }): Promise<any> {
+    return await forgeRequest(`/wiki${url}`, type, data, options);
   }
 
   async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {

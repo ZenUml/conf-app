@@ -418,9 +418,10 @@ export type AnalyticsProperties = {
   // through the sessionStorage marker, so attempt 2+ marks a user who retried
   // a failure that had already failed a retry. `retry_outcome` is the state the
   // viewer reached after the reload: 'recovered' = the diagram rendered,
-  // 'failed_again' = the terminal panel came back.
+  // 'failed_again' = the terminal panel came back. confluence_request_retried
+  // adds 'exhausted' (see utils/confluenceThrottle.ts).
   retry_attempt?: number;
-  retry_outcome?: 'recovered' | 'failed_again';
+  retry_outcome?: 'recovered' | 'failed_again' | 'exhausted';
   // Snapshot attachments: which flow wrote it, and fallback freshness.
   snapshot_trigger?: 'save' | 'editor_backfill' | 'viewer_backfill';
   snapshot_age_days?: number;
@@ -456,6 +457,25 @@ export type AnalyticsProperties = {
   same_space?: boolean;                // clicked page in the same space as the viewer's page
   same_page?: boolean;                 // the opened participant also appears in another diagram on this page
   error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
+  // related_diagrams_lookup_failed: `http_status` is our backend's answer when
+  // the call itself failed (error_kind 'network'; e.g. 403 no_user_credential
+  // for a guest), and `confluence_http_status` is the status Confluence gave
+  // the backend's own lookup (error_kind 'confluence_unavailable').
+  confluence_http_status?: number;
+  // confluence_request_throttled / _retried / confluence_background_request_deferred
+  // (utils/confluenceThrottle.ts). `request_endpoint` is templated like
+  // ForgeRequestError.endpoint (`POST /wiki/api/v2/custom-content`), never ids,
+  // except on a deferral gated before any request is built, where it is a
+  // `work:<name>` label (`work:snapshot_backfill`, `work:related_diagrams_lookup`).
+  // `request_priority` 'user' = a save-path request that may retry, 'background'
+  // = optional work that stands down during a cooldown, 'default' = everything
+  // else (neither retries nor stands down). The retry_after_* and cooldown_*
+  // properties are shared with attachment_upload_rate_limited.
+  request_endpoint?: string;
+  request_priority?: 'user' | 'background' | 'default';
+  will_retry?: boolean;
+  retry_attempts?: number;
+  retry_wait_ms?: number;
   // Join key on every `attachment_upload_*` event (model/Attachment.ts
   // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,

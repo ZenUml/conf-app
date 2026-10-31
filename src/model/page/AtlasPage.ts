@@ -2,6 +2,7 @@ import {AtlasDocFormat, AtlasDocElement, MacroParams, AtlasDocExtensionType, For
 import {trackEvent} from "@/utils/window";
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { forgeRequest } from "@/utils/requestUtil";
+import type { RequestPriority } from "@/utils/confluenceThrottle";
 import { referencedCustomContentId } from "@/model/page/referencedCustomContent";
 import {LocationTarget} from "@/model/ILocationContext";
 
@@ -37,7 +38,7 @@ export class AtlasPage {
    * unreadable page as "no duplicates found"; callers that only want a count
    * keep the historical assume-empty behaviour via `macros()` below.
    */
-  private async macrosOrNull(): Promise<AtlasDocElement[] | null> {
+  private async macrosOrNull(opts?: { priority?: RequestPriority }): Promise<AtlasDocElement[] | null> {
     let responseBody = '';
     try {
       const pageId = await this.getPageId();
@@ -50,7 +51,8 @@ export class AtlasPage {
       // collaborative draft session, so get-draft=true always returns 404 from
       // within a Forge macro dialog. The published version is sufficient for
       // copy detection (counting macros that share the same customContentId).
-      const response = await forgeRequest(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`);
+      const url = `/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`;
+      const response = await forgeRequest(url, 'GET', undefined, { priority: opts?.priority });
       console.debug('AtlasPage - page response', response);
       if (!response || !response.body) {
         // A response with no body is a failed read, not an empty page.
@@ -67,8 +69,8 @@ export class AtlasPage {
     }
   }
 
-  private async macros(): Promise<AtlasDocElement[]> {
-    return (await this.macrosOrNull()) ?? [];
+  private async macros(opts?: { priority?: RequestPriority }): Promise<AtlasDocElement[]> {
+    return (await this.macrosOrNull(opts)) ?? [];
   }
 
   private static count(
@@ -81,8 +83,9 @@ export class AtlasPage {
       .length;
   }
 
-  async countMacros(matcher: (mps: MacroParams | ForgeGuestParams) => boolean) {
-    return AtlasPage.count(await this.macros(), matcher);
+  /** `priority: 'user'` for the save path: a Confluence 429 retries (utils/confluenceThrottle.ts). */
+  async countMacros(matcher: (mps: MacroParams | ForgeGuestParams) => boolean, opts?: { priority?: RequestPriority }) {
+    return AtlasPage.count(await this.macros(opts), matcher);
   }
 
   /**

@@ -33,6 +33,7 @@
     "/feature-flags",
     "/ai-generate-title",
     "/agent-link/*",
+    "/mcp/render",
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-authorization-server",
     "/.well-known/openai-apps-challenge",

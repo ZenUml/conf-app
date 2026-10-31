@@ -122,7 +122,7 @@ const WRITE_EVENT_BY_TOOL: Record<string, string | undefined> = {
 };
 
 /** Bound a fire-and-forget analytics call so it cannot outlive the request it describes. */
-function withTimeout(work: Promise<unknown>): Promise<void> {
+export function withTimeout(work: Promise<unknown>): Promise<void> {
   return Promise.race([
     work.then(() => undefined),
     new Promise<void>((resolve) => setTimeout(resolve, ANALYTICS_TIMEOUT_MS)),
@@ -185,7 +185,7 @@ async function trackWrite(
  */
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
-function negotiateProtocolVersion(requested: unknown): string {
+export function negotiateProtocolVersion(requested: unknown): string {
   return typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
     ? requested
     : SUPPORTED_PROTOCOL_VERSIONS[0];

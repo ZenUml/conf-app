@@ -1603,6 +1603,16 @@ export type AnalyticsEventName =
   // Cursor, …). Tool arguments and results are never sent.
   | "agent_link_mcp_tool_called"
   | "agent_link_mcp_initialized"
+  // The public render endpoint (POST /mcp/render, no sign-in) reuses
+  // the AA pair and the MCP Apps view pair (`agent_link_app_view_*`) rather
+  // than adding events: every one of them carries `mcp_mode: 'render'`.
+  // `_tool_called` for render_diagram also carries `macro_type` and
+  // `render_validation`, so how often agents send source that does not parse
+  // is readable per type, and `render_type_source` (given | detected), since
+  // `diagramType` is optional and inferred from the source when omitted. No user or site exists on this path. A call refused
+  // by the per-address limit is `mcp_tool_outcome: 'rate_limited'`; when the
+  // limiter could not decide (D1 missing or failing) and let the call through,
+  // `reason: 'rate_limit_unavailable'` rides the successful call.
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1882,16 +1892,33 @@ export type AgentLinkMcpButtonReveal = "always" | "hover";
 
 // How a Connect MCP dialog connects the agent: 'headless' = the agent signs
 // in with OAuth and edits through Confluence directly (the only mode offered
-// in the first release); 'relay' = a macro-minted session over the live relay.
-export type AgentLinkMcpMode = "headless" | "relay";
+// in the first release); 'relay' = a macro-minted session over the live relay;
+// 'render' = the public render-only endpoint (POST /mcp/render), which
+// needs no sign-in and no Atlassian site. Its events carry no user id, so they
+// all share Mixpanel's unknown_user_account_id; split them by `mcp_mode`.
+export type AgentLinkMcpMode = "headless" | "relay" | "render";
+
+// Whether render_diagram's source parsed (agent_link_mcp_tool_called with
+// `mcp_mode: 'render'`). 'valid' = the dialect's parser accepted it;
+// 'invalid' = it reported errors, which go back to the agent beside the
+// diagram; 'unvalidated' = a type with no parser here (Graph).
+export type AgentLinkRenderValidation = "valid" | "invalid" | "unvalidated";
+
+// Where render_diagram's diagram type came from: 'given' = the agent passed
+// `diagramType`; 'detected' = it left it out and the server inferred it from
+// the source. 'detected' with render_validation 'invalid' is the case worth
+// watching: it can mean detection picked the wrong language.
+export type AgentLinkRenderTypeSource = "given" | "detected";
 
 // How one headless `tools/call` ended (agent_link_mcp_tool_called).
 // 'success' = the tool returned a result; 'tool_error' = the tool refused with
 // a HeadlessToolError (its code rides `reason`); 'scope_denied' = the token
 // lacks the diagram.read / diagram.write scope the tool needs;
 // 'unknown_tool' = no such tool (`mcp_tool` is then 'unknown', never the
-// client's string); 'exception' = an unexpected throw (a 500).
-export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception";
+// client's string); 'exception' = an unexpected throw (a 500);
+// 'rate_limited' = the public render endpoint (`mcp_mode: 'render'`) refused
+// the call because its caller's address passed the per-minute limit.
+export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception" | "rate_limited";
 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit

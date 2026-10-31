@@ -7,6 +7,10 @@ description: Find and reconcile explicit customer feedback across Marketplace ca
 
 Read [shared evidence and source rules](../customer-data/evidence.md). Scope by site/product, date window and question. Seven complete days is only a shortcut for "recent"; use the requested 30/90-day period or incident window for research. This is a read-only investigation, not permission to contact customers.
 
+## Run contract
+
+Run all four sources (Marketplace, Mixpanel, D1, Gmail/support) in one pass without asking. Default scope: all products and sites, last 30 days. A source is `not_queried` only if the user excluded it; otherwise report `failed`/`unavailable` with the error. Read Gmail past the first page, or state threads read / estimated total. Do not end with a question.
+
 ## Sources
 
 | Source | What to retrieve | Boundary |
@@ -27,9 +31,10 @@ Inspect current schema/migrations and deployed query access first. `FeedbackRepo
 3. Preserve the user's words in a clearly labelled field; separately classify feature request, bug, unmet need, usability, satisfaction, procurement or other. Put interpretation in a different field.
 4. Link records only using a verified shared report/message reference. Same user/site/time is at most a suspected association. A D1 report plus a Mixpanel submit-success with no shared reference stays one explicit report and one possibly related process event; do not count the latter as a second opinion or silently merge it.
 5. Behaviour can suggest what to ask, not why a customer cancelled. For example, successful PNG download and failed email export are different actions; neither proves the reason for an unmet-needs response.
+6. Before reporting, check whether each item is already addressed: search merged PRs, closed issues and releases (`gh`) for the need, and the support thread for a reply. Mark it `addressed` (with that PR/issue/release/reply reference), `in_progress` (open PR or issue) or `open`. A similar-sounding change without a reference is not `addressed`.
 
 ## Return
 
-Return the shared signal fields plus feedback category, original-text reference, resolution/reply evidence, and relationship to other records (`verified`, `suspected`, `unrelated`). Separate explicit feedback totals from behaviour/process events. Include per-source freshness and successful-empty / failed / unavailable / not-queried coverage. Do not summarise missing sources as "no feedback".
+Return the shared signal fields plus feedback category, original-text reference, addressed status with its reference, and relationship to other records (`verified`, `suspected`, `unrelated`). Separate explicit feedback totals from behaviour/process events. Include per-source freshness and successful-empty / failed / unavailable / not-queried coverage. Do not summarise missing sources as "no feedback".
 
 Use `customer-followup` when the user also wants prioritisation, communication or a tracker update; the same evidence should be reused without re-querying unchanged sources.

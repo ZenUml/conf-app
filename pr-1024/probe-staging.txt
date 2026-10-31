@@ -1,0 +1,17 @@
+PASS | initialize, no token | 200, {'name': 'zenuml-render', 'version': '0.1.0'}, protocol 2025-06-18, 795 ms
+PASS | tools/list | tools=['render_diagram'], required=['source']
+PASS | resources/list | ['ui://zenuml/diagram', 'zenuml://dsl-guide', 'mermaid://dsl-guide', 'plantuml://dsl-guide', 'openapi://dsl-guide']
+PASS | resources/read view | text/html;profile=mcp-app, 1059 chars, absolute asset URLs, 610 ms
+PASS | resources/read guide | 7678 chars
+PASS | render_diagram: sequence, given | type=sequence detected=None valid=True | "Rendered the sequence diagram. The source parsed." | 472 ms
+PASS | render_diagram: sequence, detected | type=sequence detected=True valid=True | "Rendered the sequence diagram (detected from the source; pass diagramType if that is wrong" | 580 ms
+PASS | render_diagram: mermaid, detected | type=mermaid detected=True valid=True | "Rendered the mermaid diagram (detected from the source; pass diagramType if that is wrong)" | 1306 ms
+PASS | render_diagram: plantuml, detected | type=plantuml detected=True valid=True | "Rendered the plantuml diagram (detected from the source; pass diagramType if that is wrong" | 823 ms
+PASS | render_diagram: graph, detected | type=graph detected=True valid=True | "Sent the graph diagram (detected from the source; pass diagramType if that is wrong) to th" | 754 ms
+PASS | render_diagram: openapi, detected | type=openapi detected=True valid=True | "Rendered the openapi diagram (detected from the source; pass diagramType if that is wrong)" | 438 ms
+PASS | render_diagram: given type wins | type=sequence detected=None valid=True | "Rendered the sequence diagram. The source parsed." | 594 ms
+PASS | render_diagram: sequence parse error | type=sequence detected=True valid=False errors=[{"line": 2, "col": 7, "message": "mismatched input '<EOF>' expecting {'[', '{', '}', 'true', 'false', NIL, 'if', WHILE, | "The sequence source (detected from the source; pass diagramType if that is wrong) did not " | 451 ms
+PASS | render_diagram: mermaid parse error | type=mermaid detected=True valid=False errors=[{"line": 2, "col": 3, "message": "Parse error on line 3:"}] | "The mermaid source (detected from the source; pass diagramType if that is wrong) did not p" | 866 ms
+PASS | unknown type refused | diagramType must be one of: sequence, mermaid, plantuml, graph, openapi, or left out to detect it from the sou
+PASS | empty source refused | source is required and must be a non-empty string.
+PASS | unknown tool | {"code": -32601, "message": "Unknown tool: update_diagram"}

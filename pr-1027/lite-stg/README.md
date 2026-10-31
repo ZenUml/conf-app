@@ -1,7 +1,8 @@
 # Live check on Lite staging (lite-stg), 2026-10-31 02:56 UTC
 
 Candidate: PR head `a00cbdcd`, deployed to Lite staging by the PR validation run (`Deploy: Lite / deploy`, 01:56–01:59 UTC).
-The served bundle is the candidate's: the macro iframe emitted `plantuml_png_produced`, an event that exists only in this PR.
+The macro's debug toolbar shows build `80c169f` (`1-viewer.png`), which is GitHub's merge commit "Merge a00cbdcd into 99ddd184" (PR head onto `main`), the ref PR validation builds.
+The macro iframe also emitted `plantuml_png_produced`, an event that exists only in this PR.
 
 Page: REST-created in space `SD` (page `374145027`, custom content `374013962`), synthetic source `seq.puml`, no attachment before the check (never backed up).
 Viewer: the robot account. Renderer: `localStorage.plantumlRenderer = 'local'` set by an init script in every `*.cdn.prod.atlassian-dev.net` frame **before first load** (the per-browser override in `src/utils/plantuml/renderer.ts`); the Forge flag on Lite staging was not changed.

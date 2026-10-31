@@ -91,6 +91,12 @@ describe('POST /mcp/render', () => {
     expect(body.error.code).toBe(-32602);
   });
 
+  it('keeps the tool description to the tool itself; the DSL guides are named in the server instructions', async () => {
+    expect(RENDER_TOOL.description).not.toMatch(/dsl-guide|zenuml:\/\/|resource/);
+    const { body } = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
+    expect(body.result.instructions).toMatch(/zenuml:\/\/.*dsl-guide/);
+  });
+
   it('returns valid source in the shape the view extracts', async () => {
     const { body } = await call({ diagramType: 'sequence', source: 'A->B: hello', title: 'Greeting' });
     expect(body.result.isError).toBeUndefined();

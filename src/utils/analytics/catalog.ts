@@ -1582,7 +1582,8 @@ export type AnalyticsEventName =
   // than adding events: every one of them carries `mcp_mode: 'render'`.
   // `_tool_called` for render_diagram also carries `macro_type` and
   // `render_validation`, so how often agents send source that does not parse
-  // is readable per type. No user or site exists on this path. A call refused
+  // is readable per type, and `render_type_source` (given | detected), since
+  // `diagramType` is optional and inferred from the source when omitted. No user or site exists on this path. A call refused
   // by the per-address limit is `mcp_tool_outcome: 'rate_limited'`; when the
   // limiter could not decide (D1 missing or failing) and let the call through,
   // `reason: 'rate_limit_unavailable'` rides the successful call.
@@ -1876,6 +1877,12 @@ export type AgentLinkMcpMode = "headless" | "relay" | "render";
 // 'invalid' = it reported errors, which go back to the agent beside the
 // diagram; 'unvalidated' = a type with no parser here (Graph).
 export type AgentLinkRenderValidation = "valid" | "invalid" | "unvalidated";
+
+// Where render_diagram's diagram type came from: 'given' = the agent passed
+// `diagramType`; 'detected' = it left it out and the server inferred it from
+// the source. 'detected' with render_validation 'invalid' is the case worth
+// watching: it can mean detection picked the wrong language.
+export type AgentLinkRenderTypeSource = "given" | "detected";
 
 // How one headless `tools/call` ended (agent_link_mcp_tool_called).
 // 'success' = the tool returned a result; 'tool_error' = the tool refused with

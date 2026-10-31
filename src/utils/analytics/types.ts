@@ -45,6 +45,7 @@ import type {
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
   AgentLinkRenderValidation,
+  AgentLinkRenderTypeSource,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -1079,6 +1080,7 @@ export type AnalyticsProperties = {
   // render_diagram on the public render endpoint (`mcp_mode: 'render'`): did
   // the source parse.
   render_validation?: AgentLinkRenderValidation;
+  render_type_source?: AgentLinkRenderTypeSource;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

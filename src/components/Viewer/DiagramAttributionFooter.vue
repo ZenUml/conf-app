@@ -10,7 +10,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import { forgeRequest } from '@/utils/requestUtil';
-import { deferIfThrottled } from '@/utils/confluenceThrottle';
+import { shouldDeferBackgroundWork } from '@/utils/confluenceThrottle';
 import { getDiagramImpact, registerDiagramImpactView, type DiagramImpactSummary } from '@/services/DiagramImpact';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { DWELL_GATE_THRESHOLDS, qualifiesForDwell } from '@/components/Viewer/diagramDwellGate';
@@ -60,7 +60,7 @@ async function loadSummary() {
   if (!props.attribution) return;
   // The backend reads the custom content from Confluence as this user, on the
   // same rate limit as their saves: skip it during a 429 cooldown.
-  if (deferIfThrottled('work:diagram_impact_summary')) return;
+  if (shouldDeferBackgroundWork('work:diagram_impact_summary')) return;
   try { summary.value = await getDiagramImpact(props.attribution.customContentId); } catch { /* non-critical */ }
 }
 
@@ -68,7 +68,7 @@ async function qualify() {
   if (registered || !props.attribution || document.visibilityState !== 'visible') return;
   // Same Confluence read on the backend as loadSummary; a later qualify() after
   // the cooldown can still register this view.
-  if (deferIfThrottled('work:diagram_impact_register')) return;
+  if (shouldDeferBackgroundWork('work:diagram_impact_register')) return;
   registered = true;
   // Which path armed the timer. `false` means the ready-watcher fired it with
   // no viewport check, the over-count this release removes; the property makes

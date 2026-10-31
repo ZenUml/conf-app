@@ -18,7 +18,8 @@ import {
   SAVE_RETRY_WINDOW_MS,
   _resetForTesting,
   confluenceThrottleRemainingMs,
-  deferIfThrottled,
+  shouldDeferBackgroundWork,
+  throwIfThrottled,
   noteConfluenceThrottled,
   parseRetryAfterMs,
   saveRetryDelayMs,
@@ -112,22 +113,20 @@ describe('site cooldown', () => {
   });
 });
 
-describe('deferIfThrottled', () => {
+describe('shouldDeferBackgroundWork', () => {
   it('lets work through when no cooldown runs', () => {
-    expect(deferIfThrottled('work:x', NOW, memoryStore(), 'a')).toBeUndefined();
+    expect(shouldDeferBackgroundWork('work:x', NOW, memoryStore(), 'a')).toBe(false);
     expect(mockTrack).not.toHaveBeenCalled();
   });
 
-  it('returns a 429-shaped error and reports once per endpoint per cooldown', () => {
+  it('defers during a cooldown and reports once per label per cooldown', () => {
     const store = memoryStore();
     noteConfluenceThrottled('120', NOW, store, 'a');
 
-    const first = deferIfThrottled('work:x', NOW, store, 'a');
-    deferIfThrottled('work:x', NOW + 5_000, store, 'a');
-    deferIfThrottled('work:y', NOW + 5_000, store, 'a');
+    expect(shouldDeferBackgroundWork('work:x', NOW, store, 'a')).toBe(true);
+    expect(shouldDeferBackgroundWork('work:x', NOW + 5_000, store, 'a')).toBe(true);
+    shouldDeferBackgroundWork('work:y', NOW + 5_000, store, 'a');
 
-    expect(first).toBeInstanceOf(ConfluenceThrottledError);
-    expect(first).toMatchObject({ status: 429, deferred: true, endpoint: 'work:x', cooldownRemainingMs: 120_000 });
     expect(events('confluence_background_request_deferred')).toEqual([
       { feature_area: 'confluence', surface: 'viewer', request_endpoint: 'work:x', cooldown_remaining_ms: 120_000 },
       { feature_area: 'confluence', surface: 'viewer', request_endpoint: 'work:y', cooldown_remaining_ms: 115_000 },
@@ -137,10 +136,26 @@ describe('deferIfThrottled', () => {
   it('reports again when a later 429 extends the cooldown', () => {
     const store = memoryStore();
     noteConfluenceThrottled('60', NOW, store, 'a');
-    deferIfThrottled('work:x', NOW, store, 'a');
+    shouldDeferBackgroundWork('work:x', NOW, store, 'a');
     noteConfluenceThrottled('600', NOW + 30_000, store, 'a');
-    deferIfThrottled('work:x', NOW + 30_000, store, 'a');
+    shouldDeferBackgroundWork('work:x', NOW + 30_000, store, 'a');
     expect(events('confluence_background_request_deferred')).toHaveLength(2);
+  });
+});
+
+describe('throwIfThrottled', () => {
+  it('does nothing when no cooldown runs', () => {
+    expect(() => throwIfThrottled('GET /wiki/x', NOW, memoryStore(), 'a')).not.toThrow();
+  });
+
+  it('throws a 429-shaped ConfluenceThrottledError during a cooldown', () => {
+    const store = memoryStore();
+    noteConfluenceThrottled('120', NOW, store, 'a');
+    let thrown: unknown;
+    try { throwIfThrottled('GET /wiki/x', NOW, store, 'a'); } catch (e) { thrown = e; }
+    expect(thrown).toBeInstanceOf(ConfluenceThrottledError);
+    expect(thrown).toMatchObject({ status: 429, deferred: true, endpoint: 'GET /wiki/x', cooldownRemainingMs: 120_000 });
+    expect(events('confluence_background_request_deferred')).toHaveLength(1);
   });
 });
 

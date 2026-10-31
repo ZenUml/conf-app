@@ -1,5 +1,5 @@
 import { ForgeRequestError, templateUrl } from "@/utils/forgeRequestError";
-import { deferIfThrottled, sendWithThrottleHandling, type RequestPriority } from "@/utils/confluenceThrottle";
+import { sendWithThrottleHandling, throwIfThrottled, type RequestPriority } from "@/utils/confluenceThrottle";
 
 export async function loadAllPaginatedData(requestFunc: any, initialUrl: string, consumer: (data: any) => void): Promise<void> {
   return loadPaginatedDataUntil(requestFunc, initialUrl, consumer, () => false);
@@ -75,10 +75,7 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
     const response = await mockAp.request({ url: apiUrl, type: method, body: data ? JSON.stringify(data) : undefined });
     return response ? JSON.parse(response.body) : undefined;
   }
-  if (options.priority === 'background') {
-    const deferred = deferIfThrottled(`${method.toUpperCase()} ${templateUrl(url)}`);
-    if (deferred) throw deferred;
-  }
+  if (options.priority === 'background') throwIfThrottled(`${method.toUpperCase()} ${templateUrl(url)}`);
   const { requestConfluence } = await import("@forge/bridge");
   const response = await sendWithThrottleHandling(() => requestConfluence(url, {
     method,

@@ -26,7 +26,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
 import { toMacroType } from '@/utils/byline/pageDiagrams';
 import { callRemote } from '@/utils/requestUtil';
-import { deferIfThrottled } from '@/utils/confluenceThrottle';
+import { shouldDeferBackgroundWork } from '@/utils/confluenceThrottle';
 import { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/Attachment';
 import { isSnapshotWriteDenied, markSnapshotWriteDenied } from '@/utils/snapshot/denialMemo';
 
@@ -317,7 +317,7 @@ export async function maybeBackfillSnapshot(opts: {
       // write we already confirmed 401/403s here. Not a permission predictor —
       // only reached after a REAL denial was already recorded (see below).
       return;
-    } else if (deferIfThrottled('work:snapshot_backfill')) {
+    } else if (shouldDeferBackgroundWork('work:snapshot_backfill')) {
       // Viewer surface while Confluence is rate-limiting this site: the
       // backfill is optional (2+ requests per view) and stands down so saves
       // get the budget; the next view after the cooldown runs it.

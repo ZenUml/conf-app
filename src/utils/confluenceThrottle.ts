@@ -192,19 +192,13 @@ export function confluenceThrottleRemainingMs(now = Date.now(), store?: KvStore,
 }
 
 /**
- * Gate for optional background work. Returns the error to throw (or, for a
- * caller that is not a request, simply to return on) when the site is in a
- * cooldown, else undefined. Reports the deferral at most once per endpoint
- * per cooldown in this iframe.
+ * Milliseconds left in this site's cooldown for a piece of background work
+ * (0 = go ahead), reporting the deferral at most once per endpoint per
+ * cooldown in this iframe.
  */
-export function deferIfThrottled(
-  endpoint: string,
-  now = Date.now(),
-  store?: KvStore,
-  site = siteKey(),
-): ConfluenceThrottledError | undefined {
+function deferredForMs(endpoint: string, now: number, store: KvStore | undefined, site: string): number {
   const remaining = confluenceThrottleRemainingMs(now, store, site);
-  if (remaining <= 0) return undefined;
+  if (remaining <= 0) return 0;
   const deadline = now + remaining;
   const reportKey = `${site} ${endpoint}`;
   if ((reportedDeferrals.get(reportKey) ?? 0) < deadline - 1000) {
@@ -216,7 +210,36 @@ export function deferIfThrottled(
       cooldown_remaining_ms: remaining,
     });
   }
-  return new ConfluenceThrottledError(endpoint, remaining);
+  return remaining;
+}
+
+/**
+ * Gate for optional background work that is not a single request (a backfill,
+ * a footer lookup): true when the site is in a 429 cooldown and the work
+ * should stand down. `label` is a `work:<name>` for the deferral event.
+ */
+export function shouldDeferBackgroundWork(
+  label: string,
+  now = Date.now(),
+  store?: KvStore,
+  site = siteKey(),
+): boolean {
+  return deferredForMs(label, now, store, site) > 0;
+}
+
+/**
+ * Gate for a background request about to be sent: throws
+ * `ConfluenceThrottledError` (status 429) when the site is in a cooldown, so
+ * callers that already handle a failed request handle this one too.
+ */
+export function throwIfThrottled(
+  endpoint: string,
+  now = Date.now(),
+  store?: KvStore,
+  site = siteKey(),
+): void {
+  const remaining = deferredForMs(endpoint, now, store, site);
+  if (remaining > 0) throw new ConfluenceThrottledError(endpoint, remaining);
 }
 
 /**
@@ -320,10 +343,7 @@ export async function throttledRequestConfluence(
   priority?: RequestPriority,
 ): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase();
-  if (priority === 'background') {
-    const deferred = deferIfThrottled(`${method} ${templateUrl(url)}`);
-    if (deferred) throw deferred;
-  }
+  if (priority === 'background') throwIfThrottled(`${method} ${templateUrl(url)}`);
   const { requestConfluence } = await import('@forge/bridge');
   return sendWithThrottleHandling(
     () => requestConfluence(url, init as any) as Promise<Response>,

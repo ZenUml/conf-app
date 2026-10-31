@@ -105,7 +105,7 @@ import {
   type RelatedResponse,
 } from '@/services/ArchitectureTokens'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { deferIfThrottled, noteConfluenceThrottled } from '@/utils/confluenceThrottle'
+import { shouldDeferBackgroundWork, noteConfluenceThrottled } from '@/utils/confluenceThrottle'
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender'
 
 const props = defineProps<{
@@ -344,7 +344,7 @@ async function load() {
   if (requested || !props.enabled || !props.ready) return
   // The backend answers from Confluence as this user, on the same rate limit as
   // their saves: during a 429 cooldown the optional lookup is not made.
-  if (deferIfThrottled('work:related_diagrams_lookup')) return
+  if (shouldDeferBackgroundWork('work:related_diagrams_lookup')) return
   requested = true
   const started = performance.now()
   let response: RelatedResponse

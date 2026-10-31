@@ -586,8 +586,7 @@ export default class ApWrapper2 {
     let rawResponse: any;
     try {
       rawResponse = await renderPerf.time('cc_fetch', () =>
-        this.request(`/api/v2/custom-content/${id}?body-format=raw`, 'GET', undefined,
-          opts?.priority ? { priority: opts.priority } : undefined));
+        this.request(`/api/v2/custom-content/${id}?body-format=raw`, 'GET', undefined, { priority: opts?.priority }));
     } catch (e: any) {
       const httpStatus =
         typeof e?.status === 'number' ? e.status
@@ -1604,7 +1603,7 @@ export default class ApWrapper2 {
    * @param data Request body data (optional)
    */
   async request(url: string, type: string = 'GET', data: any = undefined, options?: { priority?: RequestPriority }): Promise<any> {
-    return options ? await forgeRequest(`/wiki${url}`, type, data, options) : await forgeRequest(`/wiki${url}`, type, data);
+    return await forgeRequest(`/wiki${url}`, type, data, options);
   }
 
   async requestAllPaginatedData(initialUrl: string, consumer: (data: any) => void): Promise<any> {

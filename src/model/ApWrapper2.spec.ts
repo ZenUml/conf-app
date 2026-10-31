@@ -362,6 +362,7 @@ describe('ApWrapper2', () => {
         '/wiki/api/v2/custom-content/321?body-format=raw',
         'GET',
         undefined,
+        undefined, // no request options
       );
     });
 
@@ -472,11 +473,13 @@ describe('ApWrapper2', () => {
         `/wiki/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(sequenceType)}&body-format=raw&limit=250`,
         'GET',
         undefined,
+        undefined, // no request options
       );
       expect(forgeRequest).toHaveBeenCalledWith(
         `/wiki/api/v2/pages/${pageId}/custom-content?type=${encodeURIComponent(graphType)}&body-format=raw&limit=250`,
         'GET',
         undefined,
+        undefined, // no request options
       );
     });
 
@@ -1651,7 +1654,7 @@ describe('ApWrapper2', () => {
 
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
-      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined, undefined);
       expect(diagnosis).toEqual({
         probe_status: 'ok',
         page_reachable: true,
@@ -2158,7 +2161,7 @@ describe('ApWrapper2', () => {
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
       expect(forgeRequest).toHaveBeenCalledTimes(1);
-      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenCalledWith('/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined, undefined);
       expect(diagnosis).toMatchObject({
         probe_status: 'ok',
         page_reachable: true,
@@ -2176,8 +2179,8 @@ describe('ApWrapper2', () => {
 
       const diagnosis = await wrapper.diagnoseCreateNotFound();
 
-      expect(forgeRequest).toHaveBeenNthCalledWith(1, '/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined);
-      expect(forgeRequest).toHaveBeenNthCalledWith(2, '/wiki/api/v2/pages/456?include-operations=true&get-draft=true', 'GET', undefined);
+      expect(forgeRequest).toHaveBeenNthCalledWith(1, '/wiki/api/v2/pages/456?include-operations=true', 'GET', undefined, undefined);
+      expect(forgeRequest).toHaveBeenNthCalledWith(2, '/wiki/api/v2/pages/456?include-operations=true&get-draft=true', 'GET', undefined, undefined);
       expect(diagnosis).toMatchObject({
         probe_status: 'ok',
         page_reachable: true,

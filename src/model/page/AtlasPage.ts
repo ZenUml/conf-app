@@ -52,9 +52,7 @@ export class AtlasPage {
       // within a Forge macro dialog. The published version is sufficient for
       // copy detection (counting macros that share the same customContentId).
       const url = `/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`;
-      const response = opts?.priority
-        ? await forgeRequest(url, 'GET', undefined, { priority: opts.priority })
-        : await forgeRequest(url);
+      const response = await forgeRequest(url, 'GET', undefined, { priority: opts?.priority });
       console.debug('AtlasPage - page response', response);
       if (!response || !response.body) {
         // A response with no body is a failed read, not an empty page.

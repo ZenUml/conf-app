@@ -17,6 +17,8 @@ import type {
   PlantUmlRenderer,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
+  PlantUmlPngPurpose,
+  PlantUmlPngFailure,
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
@@ -342,6 +344,13 @@ export type AnalyticsProperties = {
   // library for this render. On macro_viewed (local renders) and on
   // plantuml_local_render_failed. Absent when nothing was rewritten.
   plantuml_include_rewritten?: boolean;
+  // ADR-0010 step 6: on plantuml_png_produced / plantuml_png_failed.
+  plantuml_png_source?: PlantUmlRenderer;
+  plantuml_png_purpose?: PlantUmlPngPurpose;
+  plantuml_png_failure?: PlantUmlPngFailure;
+  // True when a backup raster was drawn (local) or re-fetched (server) at a
+  // higher resolution so it reaches the PDF column width (resolution.ts).
+  plantuml_png_upscaled?: boolean;
 
   // AI
   prompt_length?: number;

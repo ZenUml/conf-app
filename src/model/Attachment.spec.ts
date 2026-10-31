@@ -79,6 +79,13 @@ vi.mock('@forge/bridge', () => ({
   requestConfluence: (...args: any[]) => mockRequestConfluence(...args)
 }));
 
+// ADR-0010: the in-browser PlantUML engine needs a canvas-backed browser, so
+// tests that opt into the local renderer get a canned SVG from it.
+const { mockRenderPlantUmlLocally } = vi.hoisted(() => ({ mockRenderPlantUmlLocally: vi.fn() }));
+vi.mock('@/utils/plantuml/engine', () => ({
+  renderPlantUmlLocally: (...args: any[]) => mockRenderPlantUmlLocally(...args),
+}));
+
 import createAttachmentIfContentChanged, { capturePng } from './Attachment';
 import { ForgeRequestError } from '@/utils/forgeRequestError';
 import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
@@ -1828,6 +1835,52 @@ describe('Attachment', () => {
       expect(captureBlob).toHaveBeenCalled();
       expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
       vi.unstubAllGlobals();
+    });
+
+    // ── ADR-0010 step 6: with the local renderer, the backup never reaches plantuml.com ──
+    it('PlantUML (local renderer): rasterises the engine SVG at the PDF target width and uploads it, with no plantuml.com request', async () => {
+      localStorage.setItem('plantumlRenderer', 'local');
+      mockRenderPlantUmlLocally.mockResolvedValue(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100px" height="50px" viewBox="0 0 100 50"><text>A</text></svg>');
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      class StubImage {
+        onload: (() => void) | null = null;
+        set src(_v: string) { setTimeout(() => this.onload?.(), 0); }
+      }
+      vi.stubGlobal('Image', StubImage);
+      const sizes: number[][] = [];
+      const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        { fillStyle: '', fillRect: vi.fn(), drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+      const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, cb: BlobCallback) {
+        sizes.push([this.width, this.height]);
+        cb(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+      } as HTMLCanvasElement['toBlob']);
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true, status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-pu-local' }] })),
+      });
+      mockForgeRequest.mockResolvedValue({});
+
+      try {
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock.mock.calls.filter((c: unknown[]) => String(c[0]).includes('plantuml.com'))).toHaveLength(0);
+        expect(captureBlob).not.toHaveBeenCalled();
+        expect(sizes).toEqual([[1400, 700]]);
+        expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('plantuml_png_produced', expect.objectContaining({
+          surface: 'viewer', plantuml_png_source: 'local', plantuml_png_purpose: 'backup', plantuml_png_upscaled: true,
+        }));
+        // The legacy server labels stay server-only.
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png')).toBeUndefined();
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+      } finally {
+        localStorage.removeItem('plantumlRenderer');
+        getContext.mockRestore();
+        toBlob.mockRestore();
+        vi.unstubAllGlobals();
+      }
     });
 
     // ── PlantUML dpi upscale (fixes pixelated small-diagram exports) ──

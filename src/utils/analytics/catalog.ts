@@ -262,6 +262,21 @@ export type PlantUmlLocalFailureReason = "load_failed" | "include" | "engine_err
 // path. Never carries the library name, URL or path.
 export type PlantUmlUnresolvedInclude = "stdlib" | "url" | "local";
 
+// ADR-0010 step 6: what a PlantUML PNG raster was made for.
+//   backup         — the silent `zenuml-<id>.png` attachment PDF/Word export reads
+//   export         — the interactive Export PNG download / clipboard copy
+//   export_preview — the Export PNG dialog's preview of that same raster
+export type PlantUmlPngPurpose = "backup" | "export" | "export_preview";
+
+// ADR-0010 step 6: why no PlantUML PNG raster came back.
+//   raster_failed       — the local SVG drew but could not be rasterised on a
+//                         canvas (decode, canvas or encode failure). The server
+//                         is NOT asked instead: the viewer drew this diagram
+//                         locally, so its source must not leave the browser now.
+//   server_no_png       — plantuml.com answered without an image/png body
+//   server_fetch_failed — the plantuml.com request itself threw (network, CORS)
+export type PlantUmlPngFailure = "raster_failed" | "server_no_png" | "server_fetch_failed";
+
 // Where the diagram CONTENT (the macro's doc) came from on this render — distinct
 // from cache_source, which is about the rendered SVG.
 //   fetch     — loaded over the network this view (first view / cache miss)
@@ -475,6 +490,17 @@ export type AnalyticsEventName =
   // For reason=include, `plantuml_unresolved_include` says which kind of
   // include still needs the server (stdlib / url / local).
   | "plantuml_local_render_failed"
+  // ADR-0010 step 6: a PlantUML PNG raster was produced (`_produced`) or not
+  // (`_failed`). `plantuml_png_source` says who drew it, reusing the
+  // PlantUmlRenderer values: `local` = rasterised from the in-browser engine's
+  // SVG, nothing sent; `server` / `server_fallback` = fetched from
+  // plantuml.com/plantuml/png, which received the source. `plantuml_png_purpose`
+  // says what for (backup / export / export_preview). `_produced` carries
+  // `plantuml_png_upscaled` for a backup raised toward the PDF target width;
+  // `_failed` carries `plantuml_png_failure`. A `server_fallback` event also
+  // carries the engine's `plantuml_failure_reason`. Never carries the source.
+  | "plantuml_png_produced"
+  | "plantuml_png_failed"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a

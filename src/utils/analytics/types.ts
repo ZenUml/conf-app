@@ -1186,8 +1186,8 @@ export type AnalyticsProperties = {
   // `error_code` come from the first structured error.
   load_status?: 'not_found' | 'other_error';
   error_class?: 'structured' | 'malformed';
-  // customcontent_orphan_observed: the by-id GET (the "direct fetch") that ran
-  // before any probe. Without these, `recoverable: 'probe_skipped_no_probe_result'`
+  // customcontent_orphan_observed and customcontent_fetch_unavailable (#1014):
+  // the by-id GET (the "direct fetch") that ran before any probe. Without these, `recoverable: 'probe_skipped_no_probe_result'`
   // could not say whether the fetch hit a 403, a 5xx, a thrown request or a
   // malformed body — they all collapsed to "no probe result" (#148).
   // `direct_fetch_status` mirrors fetchCustomContentByIdV2WithStatus;

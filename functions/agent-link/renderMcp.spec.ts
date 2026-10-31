@@ -117,6 +117,33 @@ describe('POST /mcp/render', () => {
     expect(body.result.content[0].text).toMatch(/did not parse/);
   });
 
+  it('detects the type when diagramType is left out, and says so', async () => {
+    const { body } = await call({ source: '@startuml\nAlice -> Bob: hi\n@enduml' });
+    expect(body.result.isError).toBeUndefined();
+    expect(body.result.structuredContent).toEqual(expect.objectContaining({ diagramType: 'plantuml', detected: true, valid: true }));
+    expect(body.result.content[0].text).toMatch(/detected from the source/);
+  });
+
+  it('reads headerless source as ZenUML when diagramType is left out', async () => {
+    const { body } = await call({ source: 'A->B: hi' });
+    expect(body.result.structuredContent).toEqual(expect.objectContaining({ diagramType: 'sequence', detected: true, valid: true }));
+  });
+
+  it('treats a blank diagramType as left out', async () => {
+    const { body } = await call({ diagramType: ' ', source: 'flowchart TD\n  A --> B' });
+    expect(body.result.structuredContent.diagramType).toBe('mermaid');
+  });
+
+  it('keeps a given diagramType even when the source looks like another language', async () => {
+    const { body } = await call({ diagramType: 'sequence', source: 'flowchart TD\n  A --> B' });
+    expect(body.result.structuredContent.diagramType).toBe('sequence');
+    expect(body.result.structuredContent.detected).toBeUndefined();
+  });
+
+  it('only requires source in the input schema', () => {
+    expect(RENDER_TOOL.inputSchema.required).toEqual(['source']);
+  });
+
   it('marks graph as unvalidated rather than valid-by-parse', async () => {
     const { body } = await call({ diagramType: 'graph', source: '<mxGraphModel><root/></mxGraphModel>' });
     expect(body.result.structuredContent).toEqual(expect.objectContaining({ valid: true, unvalidated: true }));
@@ -213,6 +240,7 @@ describe('POST /mcp/render', () => {
           mcp_tool_outcome: 'success',
           macro_type: 'sequence',
           render_validation: 'valid',
+          render_type_source: 'given',
         }),
       );
       expect(JSON.stringify(events)).not.toContain('secret-text');

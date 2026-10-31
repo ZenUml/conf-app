@@ -24,6 +24,7 @@
 // check for PlantUML and OpenAPI, instead of a picture that silently failed.
 
 import { parseDsl, type DslError } from './parseDsl';
+import { detectDiagramType } from './detectDiagramType';
 import { getGuideByUri, listGuideResources } from './dslGuides';
 import {
   DIAGRAM_VIEW_URI,
@@ -70,9 +71,11 @@ export const RENDER_TOOL = {
   name: 'render_diagram',
   title: 'Render diagram',
   description:
-    'Draw a diagram from its source and show it to the user. Nothing is saved anywhere. diagramType picks the language: ' +
-    '`sequence` (ZenUML sequence DSL), `mermaid`, `plantuml` (@startuml … @enduml), `graph` (draw.io / diagrams.net XML), ' +
-    'or `openapi` (an OpenAPI or Swagger spec, YAML or JSON). The result says whether the source parsed; when it did not, ' +
+    'Draw a diagram from its source and show it to the user. Nothing is saved anywhere. The source may be ' +
+    'a ZenUML sequence diagram, Mermaid, PlantUML (@startuml … @enduml), draw.io / diagrams.net XML, or an OpenAPI or ' +
+    'Swagger spec (YAML or JSON). diagramType is optional: leave it out and the language is detected from the source ' +
+    '(a source with no recognised header is read as ZenUML), or pass it to be explicit. The result says which type was ' +
+    'used and whether the source parsed; when it did not, ' +
     'it lists the errors with line and column, so fix them and call again. Read the zenuml://, mermaid://, plantuml:// or ' +
     'openapi:// dsl-guide resource for the rules of each language.',
   annotations: {
@@ -85,11 +88,15 @@ export const RENDER_TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      diagramType: { type: 'string', enum: [...RENDER_TYPES], description: 'The language `source` is written in.' },
+      diagramType: {
+        type: 'string',
+        enum: [...RENDER_TYPES],
+        description: 'Optional. The language `source` is written in; detected from the source when omitted.',
+      },
       source: { type: 'string', description: 'The complete diagram source.' },
       title: { type: 'string', description: 'Optional. Shown with the diagram.' },
     },
-    required: ['diagramType', 'source'],
+    required: ['source'],
   },
 } as const;
 
@@ -114,6 +121,8 @@ export interface RenderResult {
   diagramType: RenderType;
   source: string;
   title?: string;
+  /** True when diagramType was left out and inferred from the source. */
+  detected?: true;
   /** False when the parser reported errors; true when it accepted the source or has no parser for this type. */
   valid: boolean;
   /** True for a type with no parser here (graph). */
@@ -137,11 +146,16 @@ export function rpcError(status: number, id: JsonRpcId, code: number, message: s
   return json({ jsonrpc: '2.0', id, error: body }, { status, headers: JSON_HEADERS });
 }
 
-function readParams(args: Record<string, unknown>): { diagramType: RenderType; source: string; title?: string } {
+function readParams(args: Record<string, unknown>): { diagramType: RenderType; detected: boolean; source: string; title?: string } {
   const rawType = typeof args.diagramType === 'string' ? args.diagramType.trim().toLowerCase() : '';
-  const diagramType = RENDER_TYPES.find((t) => t === rawType);
-  if (!diagramType) {
-    throw new RenderParamsError(`diagramType must be one of: ${RENDER_TYPES.join(', ')}.`, 'bad_params');
+  // A type that is given but not one of ours is refused, not replaced by a
+  // guess: the agent meant something, and it should learn the list.
+  const givenType = rawType ? RENDER_TYPES.find((t) => t === rawType) : undefined;
+  if (rawType && !givenType) {
+    throw new RenderParamsError(
+      `diagramType must be one of: ${RENDER_TYPES.join(', ')}, or left out to detect it from the source.`,
+      'bad_params',
+    );
   }
   if (typeof args.source !== 'string' || args.source.trim() === '') {
     throw new RenderParamsError('source is required and must be a non-empty string.', 'bad_params');
@@ -150,26 +164,27 @@ function readParams(args: Record<string, unknown>): { diagramType: RenderType; s
     throw new RenderParamsError(`source is longer than ${MAX_SOURCE_CHARS} characters.`, 'too_large');
   }
   const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim().slice(0, MAX_TITLE_CHARS) : undefined;
-  return { diagramType, source: args.source, title };
+  return { diagramType: givenType ?? detectDiagramType(args.source), detected: !givenType, source: args.source, title };
 }
 
 /** Parse-check the source and shape what the view and the agent both read. */
 export async function renderDiagram(args: Record<string, unknown>): Promise<RenderResult> {
-  const { diagramType, source, title } = readParams(args);
+  const { diagramType, detected, source, title } = readParams(args);
   const parsed = await parseDsl(diagramType, source);
-  const base = { diagramType, source, ...(title ? { title } : {}) };
+  const base = { diagramType, source, ...(title ? { title } : {}), ...(detected ? { detected: true as const } : {}) };
   if (!parsed.ok) return { ...base, valid: false, errors: parsed.errors };
   return { ...base, valid: true, ...(parsed.unvalidated ? { unvalidated: true as const } : {}) };
 }
 
 /** What the agent reads first. The source itself rides structuredContent, for the view. */
 function summaryFor(r: RenderResult): string {
+  const detected = r.detected ? ` (detected from the source; pass diagramType if that is wrong)` : '';
   if (!r.valid) {
     const lines = (r.errors ?? []).map((e) => `- line ${e.line}, column ${e.col}: ${e.message}`);
-    return `The ${r.diagramType} source did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n${lines.join('\n')}`;
+    return `The ${r.diagramType} source${detected} did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n${lines.join('\n')}`;
   }
-  if (r.unvalidated) return `Sent the ${r.diagramType} diagram to the view. This type is not syntax-checked here.`;
-  return `Rendered the ${r.diagramType} diagram. The source parsed.`;
+  if (r.unvalidated) return `Sent the ${r.diagramType} diagram${detected} to the view. This type is not syntax-checked here.`;
+  return `Rendered the ${r.diagramType} diagram${detected}. The source parsed.`;
 }
 
 type ToolOutcome = 'success' | 'tool_error' | 'unknown_tool' | 'exception' | 'rate_limited';
@@ -309,6 +324,7 @@ export async function handleRenderRpc(
         await trackCall('success', {
           macro_type: value.diagramType,
           render_validation: value.unvalidated ? 'unvalidated' : value.valid ? 'valid' : 'invalid',
+          render_type_source: value.detected ? 'detected' : 'given',
           ...rateUnavailable,
         });
         // The view reads structuredContent (extractDiagram in

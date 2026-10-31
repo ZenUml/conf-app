@@ -1434,6 +1434,8 @@ export default class ApWrapper2 {
       trackEvent('save_existence_check_failed', 'save_existence_check_failed', 'error', {
         custom_content_id: customContentId,
         detail: direct.errorDetail || '',
+        // 429 (rate limited, even after the save-path retries), 403, 5xx…
+        ...(direct.httpStatus !== undefined ? { http_status: direct.httpStatus } : {}),
       });
       throw err;
     }

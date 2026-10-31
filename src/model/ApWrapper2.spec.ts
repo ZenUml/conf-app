@@ -1271,6 +1271,12 @@ describe('ApWrapper2', () => {
       };
 
       await expect(wrapper.saveCustomContentV2(recoveredId, value)).rejects.toThrow(/existence check/);
+      // The status rides on the failure event, so a 429 that outlasted the
+      // save-path retries is told apart from a 5xx or a 403.
+      expect(trackEvent).toHaveBeenCalledWith(
+        'save_existence_check_failed', 'save_existence_check_failed', 'error',
+        expect.objectContaining({ http_status: 500 }),
+      );
       expect(vi.mocked(forgeRequest).mock.calls.length).toBe(1);
     });
 

@@ -13,19 +13,26 @@
  * (developer.atlassian.com/cloud/confluence/rate-limiting).
  *
  * What.
- * - Every 429 that `forgeRequest` sees opens (or extends) a cooldown for the
- *   site (cloudId). It lives in localStorage, because every macro iframe on a
- *   site shares the origin, so one iframe's 429 makes all of them stand down.
- *   When storage is blocked it falls back to this iframe's memory.
- * - `priority: 'background'` requests (optional work: attachment backfill,
- *   related-diagram lookups) throw `ConfluenceThrottledError` without sending
- *   while the cooldown runs, so the site's remaining budget goes to saves.
+ * - Every 429 that `forgeRequest` or `throttledRequestConfluence` sees opens
+ *   (or extends) a cooldown for the site (cloudId). It lives in localStorage,
+ *   because every macro iframe on a site shares the origin, so one iframe's
+ *   429 makes all of them stand down. When storage is blocked it falls back
+ *   to this iframe's memory. This is the only 429 cooldown: the PNG
+ *   backfill's own one (#961) now reads and writes this one.
+ * - The cooldown is time-bounded (Retry-After, else 5 min, clamped to 30 s –
+ *   1 h), not "the rest of the session": a long-lived page would otherwise
+ *   never run its optional work again, and Confluence's quotas refill within
+ *   the hour.
+ * - `priority: 'background'` requests (optional work: PNG backfill and its
+ *   export-state property, snapshot backfill, attribution names, related-
+ *   diagram lookups) throw `ConfluenceThrottledError` without sending while
+ *   the cooldown runs, so the site's remaining budget goes to saves.
  * - `priority: 'user'` requests (the save path) retry a 429 with exponential
  *   backoff and jitter, honouring Retry-After, within a fixed attempt count
- *   and a wait budget that one save's requests share. A 429 means the request was refused, not processed, so even
- *   a POST is safe to resend. When the budget runs out, the 429 response goes
- *   to the caller exactly as before, so the editor's save-failed handling is
- *   unchanged.
+ *   and a wait budget that one save's requests share. A 429 means the request
+ *   was refused, not processed, so even a POST is safe to resend. When the
+ *   budget runs out, the 429 response goes to the caller exactly as before, so
+ *   the editor's save-failed handling is unchanged.
  * - Requests without a priority behave exactly as before, except that their
  *   429s also feed the breaker.
  */
@@ -215,8 +222,9 @@ export function deferIfThrottled(
 /**
  * Wait before retry `attempt` (0-based), or undefined when no retry fits the
  * remaining budget. Retry-After wins over the computed backoff; jitter
- * (×0.7–1.3, per Atlassian's guidance) keeps the site's iframes from retrying
- * in lockstep.
+ * (×0.7–1.3, the range in the backoff example on
+ * developer.atlassian.com/cloud/confluence/rate-limiting) keeps the site's
+ * iframes from retrying in lockstep.
  */
 export function saveRetryDelayMs(
   attempt: number,
@@ -299,6 +307,28 @@ function reportRetried(endpoint: string, outcome: 'recovered' | 'exhausted', ret
     retry_attempts: retries,
     retry_wait_ms: waitedMs,
   });
+}
+
+/**
+ * `requestConfluence` for callers that need the raw Response (multipart
+ * attachment uploads, the PNG export-state property) rather than
+ * `forgeRequest`'s parsed body: the same background gate and 429 handling.
+ */
+export async function throttledRequestConfluence(
+  url: string,
+  init: RequestInit & { method?: string } = {},
+  priority?: RequestPriority,
+): Promise<Response> {
+  const method = (init.method ?? 'GET').toUpperCase();
+  if (priority === 'background') {
+    const deferred = deferIfThrottled(`${method} ${templateUrl(url)}`);
+    if (deferred) throw deferred;
+  }
+  const { requestConfluence } = await import('@forge/bridge');
+  return sendWithThrottleHandling(
+    () => requestConfluence(url, init as any) as Promise<Response>,
+    { method, url, priority },
+  );
 }
 
 export function _resetForTesting(): void {

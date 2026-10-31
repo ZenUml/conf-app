@@ -6,13 +6,17 @@ import global from '@/model/globals';
 import forgeGlobal, { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import {forgeRequest, callRemote} from '@/utils/requestUtil';
 import {ForgeRequestError} from '@/utils/forgeRequestError';
-import { confluenceThrottleRemainingMs, noteConfluenceThrottled } from '@/utils/confluenceThrottle';
+import {
+  ConfluenceThrottledError,
+  confluenceThrottleRemainingMs,
+  noteConfluenceThrottled,
+  throttledRequestConfluence,
+} from '@/utils/confluenceThrottle';
 import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { describePngStateFailure, writePngState } from '@/lib/pngExportState.js';
-import { rateLimitCooldownRemainingMs, startRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 type PngState = 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready';
 
@@ -23,10 +27,12 @@ async function recordPngState(
   startAttempt = false,
 ): Promise<void> {
   try {
-  const { requestConfluence } = await import('@forge/bridge');
   // Full reason (`post_http_409`, `property_timeout`) plus `http_status`, the
   // same vocabulary as the backend surfaces. A 404 page is a skip, not a fault.
   const reportFailure = (operation: 'read' | 'create' | 'update', error: unknown) => {
+    // Not sent because Confluence is rate-limiting this site: already recorded
+    // as confluence_background_request_deferred, and nothing failed.
+    if (error instanceof ConfluenceThrottledError) return;
     const { outcome, ...failure } = describePngStateFailure(operation, error);
     trackAnalyticsEvent(outcome === 'skipped' ? 'png_export_state_persistence_skipped' : 'png_export_state_persistence_failed', {
       feature_area: 'macro', surface, page_id: pageId,
@@ -35,10 +41,13 @@ async function recordPngState(
     });
   };
   const ok = await writePngState(
-    (url: string, method: string, body?: unknown) => requestConfluence(url, {
+    // The viewer's state is bookkeeping for optional work, so it stands down
+    // during a 429 cooldown (utils/confluenceThrottle.ts); the editor's save-
+    // time write still goes out. Either way a 429 here opens the cooldown.
+    (url: string, method: string, body?: unknown) => throttledRequestConfluence(url, {
       method: method as 'GET' | 'POST' | 'PUT',
       ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
-    }),
+    }, surface === 'viewer' ? 'background' : undefined),
     {
       pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt,
       // The editor's save blocks on this write under a 6s cap that must also
@@ -196,8 +205,8 @@ async function makeRequest(requestConfig: RequestConfig): Promise<ApiResponse> {
       formData.append(key, data[key] as string | Blob);
     });
 
-    const { requestConfluence } = await import("@forge/bridge");
-    const response = await requestConfluence(`/wiki${requestConfig.url}`, {
+    // Through the throttle so a 429 on the upload opens the site cooldown.
+    const response = await throttledRequestConfluence(`/wiki${requestConfig.url}`, {
       method: requestConfig.type,
       body: formData
     });
@@ -1056,16 +1065,11 @@ async function createAttachmentIfContentChanged(
 
   // A recent 429 on this site means Confluence is rate-limiting this user's
   // requests; a view-time backfill now would only add to them. Defer it: the
-  // first view after the cooldown retries. The save-time write is a single
-  // user action, so it always tries.
-  const rateLimitSite = getCloudId() ?? 'unknown';
-  // Also honour the shared site cooldown (utils/confluenceThrottle.ts), which
-  // any Confluence 429 opens — a save's, a snapshot read's, this backfill's —
-  // so the view-time backfill stands down whichever request was refused.
-  const cooldownRemainingMs = opts?.fromSave ? 0 : Math.max(
-    rateLimitCooldownRemainingMs(rateLimitSite),
-    confluenceThrottleRemainingMs(),
-  );
+  // first view after the cooldown retries. The cooldown is the site-wide one
+  // in utils/confluenceThrottle.ts, so any Confluence 429 opens it — a save's,
+  // a snapshot read's, this backfill's. The save-time write is a single user
+  // action, so it always tries.
+  const cooldownRemainingMs = opts?.fromSave ? 0 : confluenceThrottleRemainingMs();
   if (cooldownRemainingMs > 0) {
     trackAnalyticsEvent('attachment_upload_deferred', {
       feature_area: 'macro', surface: 'viewer',
@@ -1255,14 +1259,12 @@ async function createAttachmentIfContentChanged(
     // Start the site-wide cooldown so the other macros' backfills stand down
     // too, and record it as its own outcome rather than a failure.
     if (httpStatus === 429) {
-      const cooldown = startRateLimitCooldown(
-        rateLimitSite,
+      // Usually the request layer already opened the site cooldown; noting it
+      // here covers any path that bypassed it and returns the length applied,
+      // for the event below.
+      const cooldown = noteConfluenceThrottled(
         e instanceof ForgeRequestError ? e.retryAfter : undefined,
       );
-      // The data POST and properties PUT go straight to requestConfluence, so
-      // forgeRequest never saw this 429: open the shared site cooldown too, so
-      // the page's other optional work stands down with the backfill.
-      noteConfluenceThrottled(e instanceof ForgeRequestError ? e.retryAfter : undefined);
       if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
         'upload_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
       trackAnalyticsEvent('attachment_upload_rate_limited', {

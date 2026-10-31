@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockTrack } = vi.hoisted(() => ({ mockTrack: vi.fn() }));
+const { mockTrack, mockRequestConfluence } = vi.hoisted(() => ({ mockTrack: vi.fn(), mockRequestConfluence: vi.fn() }));
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: (...args: unknown[]) => mockTrack(...args),
+}));
+vi.mock('@forge/bridge', () => ({
+  requestConfluence: (...args: unknown[]) => mockRequestConfluence(...args),
 }));
 
 import {
@@ -20,6 +23,7 @@ import {
   parseRetryAfterMs,
   saveRetryDelayMs,
   sendWithThrottleHandling,
+  throttledRequestConfluence,
   type KvStore,
 } from './confluenceThrottle';
 
@@ -91,6 +95,12 @@ describe('site cooldown', () => {
     _resetForTesting(); // another iframe: no memory of it
     expect(confluenceThrottleRemainingMs(NOW + 10_000, store, 'a')).toBe(50_000);
     expect(confluenceThrottleRemainingMs(NOW + 60_000, store, 'a')).toBe(0);
+  });
+
+  it('caps a far-future stored deadline at the maximum cooldown', () => {
+    const store = memoryStore();
+    store.data.set('zenuml:confluence:throttled-until:a', String(NOW + 30 * 24 * 3600_000));
+    expect(confluenceThrottleRemainingMs(NOW, store, 'a')).toBe(MAX_COOLDOWN_MS);
   });
 
   it('still covers this iframe when storage is blocked, and ignores garbage', () => {
@@ -261,5 +271,36 @@ describe('sendWithThrottleHandling', () => {
     }
     expect(sleep).not.toHaveBeenCalled();
     expect(events('confluence_request_throttled').map((p: any) => p.request_priority)).toEqual(['default', 'background']);
+  });
+});
+
+describe('throttledRequestConfluence', () => {
+  beforeEach(() => mockRequestConfluence.mockReset());
+
+  it('sends normally and returns the raw Response', async () => {
+    mockRequestConfluence.mockResolvedValueOnce(res(200));
+    const response = await throttledRequestConfluence('/wiki/api/v2/pages/1/properties?key=k', { method: 'GET' }, 'background');
+    expect(response.status).toBe(200);
+    expect(mockRequestConfluence).toHaveBeenCalledWith('/wiki/api/v2/pages/1/properties?key=k', { method: 'GET' });
+  });
+
+  it('a 429 opens the cooldown, and a background request then is not sent', async () => {
+    mockRequestConfluence.mockResolvedValueOnce(res(429, { 'retry-after': '90' }));
+    await throttledRequestConfluence('/wiki/rest/api/content/1/child/attachment', { method: 'POST' });
+    expect(confluenceThrottleRemainingMs()).toBeGreaterThan(80_000);
+    mockRequestConfluence.mockClear();
+
+    await expect(throttledRequestConfluence('/wiki/api/v2/pages/1/properties', { method: 'PUT' }, 'background'))
+      .rejects.toBeInstanceOf(ConfluenceThrottledError);
+    expect(mockRequestConfluence).not.toHaveBeenCalled();
+    expect(events('confluence_background_request_deferred')).toEqual([
+      expect.objectContaining({ request_endpoint: 'PUT /wiki/api/v2/pages/{id}/properties' }),
+    ]);
+  });
+
+  it('a request without a priority is still sent during the cooldown', async () => {
+    noteConfluenceThrottled('600');
+    mockRequestConfluence.mockResolvedValueOnce(res(200));
+    expect((await throttledRequestConfluence('/wiki/api/v2/pages/1/properties', { method: 'POST' })).status).toBe(200);
   });
 });

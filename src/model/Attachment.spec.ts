@@ -81,7 +81,6 @@ vi.mock('@forge/bridge', () => ({
 
 import createAttachmentIfContentChanged, { capturePng } from './Attachment';
 import { ForgeRequestError } from '@/utils/forgeRequestError';
-import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 import { captureBlob } from '@/model/captureBlob';
 import md5 from 'md5';
@@ -119,7 +118,6 @@ describe('Attachment', () => {
     delete (window as any).createAttachmentInProgress;
     // A 429 test leaves a site cooldown behind; never let it defer later tests.
     localStorage.clear();
-    resetRateLimitCooldown();
     resetConfluenceThrottle();
     // Setup default mocks for Forge
     mockGetContext.mockResolvedValue({
@@ -1980,6 +1978,34 @@ describe('Attachment', () => {
       await createAttachmentIfContentChanged('test content');
 
       expect(confluenceThrottleRemainingMs()).toBeGreaterThan(0);
+    });
+
+    it('a 429 on the upload stands the viewer\'s PNG export-state write down, without a failure event', async () => {
+      vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      const json = (body: unknown, status = 200) => ({
+        ok: status < 300, status, headers: new Headers(),
+        json: vi.fn().mockResolvedValue(body), text: vi.fn().mockResolvedValue(JSON.stringify(body)),
+      });
+      mockRequestConfluence.mockImplementation(async (url: string, init: any = {}) => {
+        if (String(url).includes('/properties')) {
+          return (init.method ?? 'GET') === 'GET' ? json({ results: [] }) : json({ id: 'p1', version: { number: 1 } });
+        }
+        return { ok: false, status: 429, headers: new Headers(), text: vi.fn().mockResolvedValue('Too Many Requests') };
+      });
+
+      await createAttachmentIfContentChanged('test content');
+
+      const propertyBodies = mockRequestConfluence.mock.calls
+        .filter(([url, init]: any[]) => String(url).includes('/properties') && init?.body)
+        .map(([, init]: any[]) => JSON.parse(init.body).value?.state);
+      expect(propertyBodies).toContain('generating'); // the attempt started before the 429
+      expect(propertyBodies).not.toContain('upload_failed'); // deferred, not sent
+      expect(mockTrackAnalyticsEvent).not.toHaveBeenCalledWith('png_export_state_persistence_failed', expect.anything());
+      expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('confluence_background_request_deferred', expect.objectContaining({
+        request_endpoint: expect.stringContaining('/properties'),
+      }));
+      expect(mockTrackAnalyticsEvent.mock.calls.filter(([name]) => name === 'attachment_upload_rate_limited')).toHaveLength(1);
     });
 
     it('runs the view-time backfill again once the cooldown is over', async () => {

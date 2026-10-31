@@ -464,7 +464,9 @@ export type AnalyticsProperties = {
   confluence_http_status?: number;
   // confluence_request_throttled / _retried / confluence_background_request_deferred
   // (utils/confluenceThrottle.ts). `request_endpoint` is templated like
-  // ForgeRequestError.endpoint (`POST /wiki/api/v2/custom-content`), never ids.
+  // ForgeRequestError.endpoint (`POST /wiki/api/v2/custom-content`), never ids,
+  // except on a deferral gated before any request is built, where it is a
+  // `work:<name>` label (`work:snapshot_backfill`, `work:related_diagrams_lookup`).
   // `request_priority` 'user' = a save-path request that may retry, 'background'
   // = optional work that stands down during a cooldown, 'default' = everything
   // else (neither retries nor stands down). The retry_after_* and cooldown_*

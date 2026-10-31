@@ -1582,7 +1582,10 @@ export type AnalyticsEventName =
   // than adding events: every one of them carries `mcp_mode: 'render'`.
   // `_tool_called` for render_diagram also carries `macro_type` and
   // `render_validation`, so how often agents send source that does not parse
-  // is readable per type. No user or site exists on this path.
+  // is readable per type. No user or site exists on this path. A call refused
+  // by the per-address limit is `mcp_tool_outcome: 'rate_limited'`; when the
+  // limiter could not decide (D1 missing or failing) and let the call through,
+  // `reason: 'rate_limit_unavailable'` rides the successful call.
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1879,8 +1882,10 @@ export type AgentLinkRenderValidation = "valid" | "invalid" | "unvalidated";
 // a HeadlessToolError (its code rides `reason`); 'scope_denied' = the token
 // lacks the diagram.read / diagram.write scope the tool needs;
 // 'unknown_tool' = no such tool (`mcp_tool` is then 'unknown', never the
-// client's string); 'exception' = an unexpected throw (a 500).
-export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception";
+// client's string); 'exception' = an unexpected throw (a 500);
+// 'rate_limited' = the public render endpoint (`mcp_mode: 'render'`) refused
+// the call because its caller's address passed the per-minute limit.
+export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception" | "rate_limited";
 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit

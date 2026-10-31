@@ -1,9 +1,21 @@
 # October 2026 Mixpanel event budget
 
-This temporary policy applies from `2026-10-01T00:00:00Z` up to but not
-including `2026-11-01T00:00:00Z`. New event decisions after that boundary use
-the prior rates automatically. It changes telemetry volume, not product behavior
-or Forge feature flags.
+This policy applies from `2026-10-01T00:00:00Z` and **stays in force**
+(`isEventBudgetActive` in `src/lib/octoberBudgetWindow.js`). It was first
+written to expire at `2026-11-01T00:00:00Z`; on 2026-10-31 it was made ongoing
+because billable volume in the 7 days to 2026-10-30 ran at ~1.23M/month *with*
+the budget against the 1M plan allowance, and expiry would have restored roughly
+2.3M/month. Only the **session replay** budget still ends at
+`2026-11-01T00:00:00Z` (`isOctoberBillingBudgetActive`): exceeding the replay
+cap stops recording rather than billing. The `OCTOBER_*` set names record when
+the budget began. It changes telemetry volume, not product behavior or Forge
+feature flags.
+
+Added 2026-10-31: `png_export_state_changed` and
+`png_export_state_persistence_skipped` are sampled at 10% on both transports
+(browser `EVENT_SAMPLE_RATES`, Forge `EXPORT_EVENT_SAMPLE_RATES`, exempt from
+the further one-tenth cut). `png_export_state_persistence_failed` stays at full
+rate.
 
 The browser's typed and legacy trackers both use
 `src/utils/analytics/eventSampling.ts`. Its explicit

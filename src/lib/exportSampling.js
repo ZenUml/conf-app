@@ -21,20 +21,33 @@
 //
 // `macro_export_failed` keeps twice the rate of the success paths so the
 // failure-reason breakdown keeps usable counts in its smaller buckets.
-import { isOctoberBillingBudgetActive } from './octoberBudgetWindow.js';
+import { isEventBudgetActive } from './octoberBudgetWindow.js';
 
 export const EXPORT_EVENT_SAMPLE_RATES = {
   macro_export_requested: 0.05,
   macro_export_succeeded: 0.05,
   macro_export_failed: 0.1,
   macro_export_placeholder_shown: 0.05,
+  // PNG lifecycle diagnostics (2026-10-31). The backend re-persists `missing`
+  // on repeat exports of the same diagram: 14,798 backend events for ~4x
+  // fewer diagrams in the 7 days to 2026-10-30. `_failed` stays unsampled.
+  png_export_state_changed: 0.1,
+  png_export_state_persistence_skipped: 0.1,
 };
+
+// Names the event budget leaves at their table rate: the failure breakdown,
+// and the PNG diagnostics whose table rate already is their budget rate.
+const BUDGET_EXEMPT = new Set([
+  'macro_export_failed',
+  'png_export_state_changed',
+  'png_export_state_persistence_skipped',
+]);
 
 /** Keep-probability for an export event name. Unlisted names always emit. */
 export function exportSampleRateFor(eventName, now = Date.now()) {
   if (Object.prototype.hasOwnProperty.call(EXPORT_EVENT_SAMPLE_RATES, eventName)) {
     const currentRate = EXPORT_EVENT_SAMPLE_RATES[eventName];
-    return isOctoberBillingBudgetActive(now) && eventName !== 'macro_export_failed'
+    return isEventBudgetActive(now) && !BUDGET_EXEMPT.has(eventName)
       ? currentRate / 10
       : currentRate;
   }

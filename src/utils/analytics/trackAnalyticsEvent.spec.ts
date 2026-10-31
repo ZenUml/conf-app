@@ -71,7 +71,7 @@ describe("trackAnalyticsEvent — identity resolution", () => {
     localStorage.clear();
     vi.clearAllMocks();
     _resetForTesting();
-    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z"));
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-15T00:00:00Z"));
     // @ts-ignore
     window.globals = mockGlobals;
     vi.mocked(forgeGlobal).isForge = true;
@@ -178,9 +178,9 @@ describe("trackAnalyticsEvent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetForTesting();
-    // Existing policy assertions below describe the behavior restored after
-    // the October budget window, independent of the date the suite is run.
-    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z"));
+    // Existing policy assertions below describe the behavior before the
+    // October 2026 replay and event budgets, independent of the run date.
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-15T00:00:00Z"));
     // @ts-ignore
     window.globals = mockGlobals;
     vi.mocked(forgeGlobal).isForge = true;

@@ -1,0 +1,75 @@
+{
+  "page": "https://lite-stg.atlassian.net/wiki/spaces/SD/pages/374472742",
+  "frameInfo": {
+    "override": "local",
+    "version": null,
+    "build": "c2a613775bc1bb8",
+    "bundleHasNewEvent": [],
+    "engineChunks": [
+      "engine-DR9e8s3G.js",
+      "plantuml-CPF_4UtU.js"
+    ],
+    "pngChunk": []
+  },
+  "viewPhase": {
+    "total": 722,
+    "plantumlCom": []
+  },
+  "exportPhase": {
+    "opened": true,
+    "exportFrameFound": true,
+    "download": {
+      "name": "untitled-diagram.png",
+      "bytes": 48059
+    },
+    "total": 68,
+    "plantumlCom": []
+  },
+  "allPlantumlCom": [],
+  "mixpanelEvents": [
+    {
+      "phase": "view",
+      "frame": "1ue4lio-tt9gj2at2-1uik47gz7y--12inh91-cwq9e668r-21ppsujwd.cd",
+      "event": "plantuml_png_produced",
+      "src": "local",
+      "purpose": "export",
+      "surface": "fullscreen",
+      "macro_type": "plantuml"
+    },
+    {
+      "phase": "view",
+      "frame": "1ue4lio-tt9gj2at2-1uik47gz7y--12inh91-cwq9e668r-21ppsujwd.cd",
+      "event": "plantuml_png_produced",
+      "src": "local",
+      "purpose": "backup",
+      "upscaled": true,
+      "surface": "viewer",
+      "macro_type": "plantuml"
+    },
+    {
+      "phase": "export",
+      "frame": "1ue4lio-tt9gj2at2-1uik47gz7y--12inh91-cwq9e668r-21ppsujwd.cd",
+      "event": "export_png_opened",
+      "surface": "fullscreen",
+      "macro_type": "plantuml"
+    },
+    {
+      "phase": "export",
+      "frame": "1ue4lio-tt9gj2at2-1uik47gz7y--12inh91-cwq9e668r-21ppsujwd.cd",
+      "event": "plantuml_png_produced",
+      "src": "local",
+      "purpose": "export_preview",
+      "surface": "fullscreen",
+      "macro_type": "plantuml"
+    },
+    {
+      "phase": "export",
+      "frame": "1ue4lio-tt9gj2at2-1uik47gz7y--12inh91-cwq9e668r-21ppsujwd.cd",
+      "event": "plantuml_png_produced",
+      "src": "local",
+      "purpose": "export",
+      "surface": "fullscreen",
+      "macro_type": "plantuml"
+    }
+  ]
+}

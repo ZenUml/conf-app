@@ -984,6 +984,52 @@ export const MermaidInlinePanZoom: Story = {
   },
 }
 
+/**
+ * Confluence in dark mode. Forge sets data-color-mode on the iframe's <html>
+ * after view.theme.enable(); the inline Mermaid card turns dark and Mermaid
+ * renders with its dark theme. The page colour is Confluence's dark surface.
+ */
+export const MermaidInlineDarkMode: Story = {
+  name: 'Normal view — Mermaid in Confluence dark mode',
+  beforeEach: () => {
+    const root = document.documentElement
+    const previousBackground = document.body.style.background
+    root.setAttribute('data-color-mode', 'dark')
+    document.body.style.background = '#1D2125'
+    return () => {
+      root.removeAttribute('data-color-mode')
+      document.body.style.background = previousBackground
+    }
+  },
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({ diagramType: DiagramType.Mermaid, title: 'Release flow', mermaidCode: SAMPLE_MERMAID_WIDE })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const frame = document.querySelector<HTMLElement>('.viewer-frame')
+    await waitFor(() => expect(frame).toHaveClass('viewer-frame--dark'))
+    // Mermaid's dark theme draws light text; the light themes draw dark text.
+    await waitFor(() => {
+      const label = document.querySelector<SVGElement>('.diagram-viewport svg .nodeLabel')
+      expect(label).not.toBeNull()
+      const [r, g, b] = getComputedStyle(label!).color.match(/\d+/g)!.map(Number)
+      expect(r + g + b).toBeGreaterThan(450)
+    })
+    await expect(getComputedStyle(frame!).backgroundColor).not.toBe('rgb(255, 255, 255)')
+  },
+}
+
 /** Mermaid's editor preview surface, without the read-only viewer chrome. */
 export const MermaidEditorPanZoom: Story = {
   name: 'Editor preview — Mermaid pan and zoom',

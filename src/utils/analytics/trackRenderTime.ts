@@ -4,6 +4,7 @@ import type { CacheState, MacroTypeValue, RenderMode, CacheSource, ContentState,
 import { getTimings } from './renderPerf';
 import { getRenderIdentity } from './renderIdentity';
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
+import { isHostThemingEnabled, readHostColorMode } from '@/utils/theme/hostColorMode';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import type { PrefetchRenderer } from '@/utils/prefetch/rendererPrefetch';
 
@@ -97,6 +98,8 @@ export function trackRenderTime(
     ...timings,
     ...getRenderIdentity(),
     ...(diagramFont !== undefined ? { diagram_font: diagramFont } : {}),
+    // Only where the viewer opted into Confluence theming (inline viewer).
+    ...(isHostThemingEnabled() ? { color_mode: readHostColorMode() } : {}),
     // #382 viewport gate: {} on ungated renders, so nothing is added.
     ...getGateTelemetry(),
   });

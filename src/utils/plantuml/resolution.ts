@@ -1,6 +1,7 @@
 /**
- * Helpers for boosting the resolution of the PlantUML server's raster PNG
- * (see `fetchPlantUmlPng` in `src/model/Attachment.ts`).
+ * Helpers for boosting the resolution of a PlantUML backup PNG (see
+ * `fetchPlantUmlPng` in `src/model/Attachment.ts`): the server's raster, or
+ * the local engine's SVG drawn on a canvas (`./png.ts`, ADR-0010).
  *
  * Root cause (confirmed empirically 2026-08-19, see docs/debugging — the
  * public plantuml.com server renders at a fixed 96 dpi by default, so a
@@ -37,12 +38,14 @@ export const MAX_DIMENSION_PX = 4000;
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
 /**
- * Compute the `skinparam dpi` value needed to bring a PlantUML PNG's width
- * up to `TARGET_WIDTH_PX`, capping either dimension at `MAX_DIMENSION_PX`.
- * Returns null when no upscale is needed (already at/above target) or
- * possible (zero-sized input).
+ * The magnification that brings a diagram's width up to `TARGET_WIDTH_PX`,
+ * capping either dimension at `MAX_DIMENSION_PX`. Returns null when no
+ * upscale is needed (already at/above target) or possible (zero-sized input).
+ *
+ * The local renderer (ADR-0010) applies it directly as the canvas scale of
+ * its SVG raster; the server path turns it into a `skinparam dpi` below.
  */
-export function computeUpscaleDpi(naturalWidth: number, naturalHeight: number): number | null {
+export function computeUpscaleFactor(naturalWidth: number, naturalHeight: number): number | null {
   if (!naturalWidth || naturalWidth <= 0 || naturalWidth >= TARGET_WIDTH_PX) return null;
 
   let scale = TARGET_WIDTH_PX / naturalWidth;
@@ -50,9 +53,18 @@ export function computeUpscaleDpi(naturalWidth: number, naturalHeight: number): 
   if (naturalHeight > 0) {
     scale = Math.min(scale, MAX_DIMENSION_PX / naturalHeight);
   }
-  if (scale <= 1) return null;
+  return scale > 1 ? scale : null;
+}
 
-  return Math.round(BASE_DPI * scale);
+/**
+ * Compute the `skinparam dpi` value needed to bring a PlantUML PNG's width
+ * up to `TARGET_WIDTH_PX`, capping either dimension at `MAX_DIMENSION_PX`.
+ * Returns null when no upscale is needed (already at/above target) or
+ * possible (zero-sized input).
+ */
+export function computeUpscaleDpi(naturalWidth: number, naturalHeight: number): number | null {
+  const scale = computeUpscaleFactor(naturalWidth, naturalHeight);
+  return scale === null ? null : Math.round(BASE_DPI * scale);
 }
 
 /**

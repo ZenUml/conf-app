@@ -296,9 +296,24 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    must first be created in the Developer Console for each app (forge-feature-flag
    skill). Gate each widening on `macro_viewed` split by `plantuml_renderer`
    (`local` vs `server_fallback`) and on `plantuml_local_render_failed` reasons.
-6. **Export.** Rasterise the local SVG on a canvas instead of fetching
-   `/plantuml/png/`. The "html-to-image cannot decode the server SVG" failure in
-   `fetchPng.ts` needs re-testing: the local SVG has no external references.
+6. **Export.** **Done in code (2026-10-31).** `utils/plantuml/png.ts` produces
+   the backup PNG (`model/Attachment.ts`), the Export PNG and its preview
+   (`ExportModal/`). With the `local` renderer it draws the engine's SVG on a
+   canvas from a data URL, and a backup is drawn at the scale that reaches
+   `TARGET_WIDTH_PX` (`resolution.ts computeUpscaleFactor`), the sharpness the
+   server path got from its `skinparam dpi` re-fetch. A diagram the engine
+   cannot draw goes to `/plantuml/png/` as before (`server_fallback`, the
+   viewer's rule), and so does every diagram under the `server` renderer. A
+   failed local raster is not retried on the server: the backup falls back to
+   the DOM capture and the export reports `plantuml_fetch_failed`.
+   `plantuml_png_produced` / `plantuml_png_failed` record
+   `plantuml_png_source` and `plantuml_png_purpose`.
+   Re-test in headless Chromium (CSP `script-src 'self'; img-src 'self' data:
+   blob:`), sequence, class and C4 diagrams: every local SVG had no external
+   reference, every raster drew (backups at 1400 px wide), no request left
+   the page, and no CSP message appeared. html-to-image (`captureBlob`) also
+   captured the inlined local SVG without the old decode failure, which is why
+   the DOM-capture fallback for a failed local raster is safe.
 7. **MCP App view.** Bundle the engine into `vite.mcp-app.config.mjs` and remove
    plantuml.com from `resourceDomains`.
 8. **Remove the egress.** Delete `https://www.plantuml.com` from `manifest.yml`. For

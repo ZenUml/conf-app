@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/model/captureBlob', () => ({ captureBlob: vi.fn(), default: vi.fn() }));
 vi.mock('file-saver', () => ({ saveAs: vi.fn() }));
+// ADR-0010: the real engine needs a canvas-backed browser; local-renderer
+// tests get a canned SVG from it.
+const { renderPlantUmlLocally } = vi.hoisted(() => ({ renderPlantUmlLocally: vi.fn() }));
+vi.mock('@/utils/plantuml/engine', () => ({ renderPlantUmlLocally }));
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
 
 import { captureBlob } from '@/model/captureBlob';
 import { saveAs } from 'file-saver';
@@ -716,6 +721,30 @@ describe('useExportEngine — PlantUML server PNG', () => {
     expect(result).toEqual({ ok: false, reason: 'plantuml_fetch_failed' });
     expect(captureBlob).not.toHaveBeenCalled();
     expect(saveAs).not.toHaveBeenCalled();
+  });
+
+  it('with the local renderer, exports the engine SVG drawn on a canvas and never asks plantuml.com', async () => {
+    localStorage.setItem('plantumlRenderer', 'local');
+    renderPlantUmlLocally.mockResolvedValue(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="600px" height="400px" viewBox="0 0 600 400"><text>Alice</text></svg>');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const { exportDiagram } = useExportEngine();
+      const result = await exportDiagram(baseOptions(), 'Login flow', null, {
+        macroType: 'plantuml',
+        source: PLANTUML_SOURCE,
+      });
+
+      expect(result).toEqual({ ok: true });
+      expect(renderPlantUmlLocally).toHaveBeenCalledWith(PLANTUML_SOURCE);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(captureBlob).not.toHaveBeenCalled();
+      expect(saveAs).toHaveBeenCalled();
+    } finally {
+      localStorage.removeItem('plantumlRenderer');
+    }
   });
 
   it('still DOM-captures when the macro type is plantuml but the source is not PlantUML text', async () => {

@@ -10,6 +10,7 @@ import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { Surface } from '@/utils/analytics/catalog';
 import { describePngStateFailure, writePngState } from '@/lib/pngExportState.js';
 import { rateLimitCooldownRemainingMs, startRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
@@ -336,96 +337,44 @@ async function toPng(): Promise<Blob | null | undefined> {
 }
 
 /**
- * PlantUML renders by fetching an SVG from the remote PlantUML server and
- * inlining it; html-to-image then has to rasterize that inlined remote SVG to
- * make the backup PNG — and fails ~81% of the time (the offscreen image can't
- * decode the server SVG, so html-to-image rejects with a DOM Event). The server
- * already serves a ready raster at /plantuml/png/<encoded>, so fetch THAT
- * directly for the backup and skip html-to-image entirely — see
- * `utils/plantuml/fetchPng.ts`, shared with the interactive Export PNG modal.
+ * The PlantUML backup PNG, without html-to-image (`utils/plantuml/png.ts`).
+ * With the local renderer (ADR-0010) the engine's SVG is drawn on a canvas and
+ * nothing leaves the browser; otherwise the PlantUML server's raster is
+ * fetched, as before — html-to-image could not rasterise that remote SVG
+ * (~81% failure, a DOM Event rejection). Either way a small diagram is raised
+ * toward `TARGET_WIDTH_PX` so the PDF export, which stretches every image to
+ * the column width, stays sharp.
  *
- * This wrapper adds the attachment-scoped telemetry and the PDF-export dpi
- * upscale on top of that plain fetch. Returns undefined on any failure so the
- * caller falls back to the DOM capture (the backup is silent, so a degraded
- * capture beats no backup at all).
+ * Returns undefined on any failure so the caller falls back to the DOM capture
+ * (the backup is silent, so a degraded capture beats no backup at all).
  */
-async function fetchPlantUmlPng(code: string): Promise<Blob | undefined> {
+async function fetchPlantUmlPng(code: string, surface: Surface): Promise<Blob | undefined> {
   try {
-    const { fetchPlantUmlPngBlob } = await import('@/utils/plantuml/fetchPng');
-    const blob = await fetchPlantUmlPngBlob(code);
-    if (!blob) return undefined;
-    trackEvent('plantuml_server_png', 'convert_to_png', 'export');
-    return (await upscalePlantUmlPng(blob, code)) ?? blob;
+    const { producePlantUmlPng } = await import('@/utils/plantuml/png');
+    const result = await producePlantUmlPng(code, { purpose: 'backup', surface, upscale: true, background: 'white' });
+    // The legacy convert_to_png labels count server rasters only, as before.
+    const fromServer = result.source !== 'local';
+    if (!result.ok) {
+      if (fromServer) trackEvent('plantuml_server_png_failed', 'convert_to_png', 'warning');
+      return undefined;
+    }
+    if (fromServer) {
+      trackEvent('plantuml_server_png', 'convert_to_png', 'export');
+      if (result.upscale === 'done') trackEvent('plantuml_server_png_upscaled', 'convert_to_png', 'export');
+      if (result.upscale === 'failed') trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
+    }
+    return result.blob;
   } catch (e) {
-    console.warn('PlantUML server PNG fetch failed; falling back to DOM capture', e);
+    console.warn('PlantUML PNG failed; falling back to DOM capture', e);
     trackEvent('plantuml_server_png_failed', 'convert_to_png', 'warning');
     return undefined;
   }
 }
 
 /**
- * The PlantUML server renders at a fixed 96 dpi by default, so a small
- * diagram (few participants) comes back as a tiny raster (e.g. ~95px wide
- * for a 3-line sequence). The PDF export places every macro image at the
- * fixed content-column width (~6.3in) regardless of the source's native
- * size, so anything under `TARGET_WIDTH_PX` gets stretched ~15x and turns
- * visibly pixelated. Re-request the same diagram at a computed
- * `skinparam dpi` so the natural render is already sharp at that width —
- * see `src/utils/plantuml/resolution.ts` for why `skinparam dpi` (not the
- * `scale` directive, which plantuml.com's public server caps at 4x) is the
- * lever. Best-effort: any failure here just keeps the natural-size PNG
- * already captured by the caller.
- */
-async function upscalePlantUmlPng(naturalBlob: Blob, code: string): Promise<Blob | undefined> {
-  const { readPngSize, computeUpscaleDpi, withDpiDirective } = await import('@/utils/plantuml/resolution');
-  const size = await readPngSize(naturalBlob);
-  if (!size) return undefined;
-  const dpi = computeUpscaleDpi(size.width, size.height);
-  if (!dpi) return undefined;
-
-  // withDpiDirective only matches a leading `@startuml` — if the caller's
-  // content has leading whitespace (validate.ts trims before rejecting, so
-  // it's storable) the injection is a no-op and the re-fetch would return
-  // the same tiny PNG. Skip it rather than firing a false "upscaled" event.
-  const dpiCode = withDpiDirective(code, dpi);
-  if (dpiCode === code) return undefined;
-
-  try {
-    const { plantumlEncode } = await import('@/utils/plantuml/encode');
-    const { PLANTUML_PNG_SERVER } = await import('@/utils/plantuml/fetchPng');
-    const encoded = plantumlEncode(dpiCode);
-    const resp = await fetch(`${PLANTUML_PNG_SERVER}${encoded}`);
-    if (!resp.ok) {
-      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
-      return undefined;
-    }
-    const blob = await resp.blob();
-    const type = (blob.type || '').toLowerCase().split(';')[0].trim();
-    if (type !== 'image/png') {
-      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
-      return undefined;
-    }
-    // Confirm the server actually honoured the dpi directive before trusting
-    // it as the "upscaled" result — a rejected/ignored directive would
-    // otherwise report success while silently keeping the tiny image.
-    const upscaledSize = await readPngSize(blob);
-    if (!upscaledSize || upscaledSize.width <= size.width) {
-      trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
-      return undefined;
-    }
-    trackEvent('plantuml_server_png_upscaled', 'convert_to_png', 'export');
-    return blob;
-  } catch (e) {
-    console.warn('PlantUML dpi upscale fetch failed; using natural-size PNG', e);
-    trackEvent('plantuml_server_png_upscale_failed', 'convert_to_png', 'warning');
-    return undefined;
-  }
-}
-
-/**
  * Produce the backup PNG for a diagram. PlantUML routes to the deterministic
- * server-side PNG fetch above (html-to-image can't reliably rasterize its
- * remote SVG); every other type captures the rendered DOM via toPng().
+ * raster above (local engine SVG, or the server's PNG); every other type
+ * captures the rendered DOM via toPng().
  */
 // Exported for the byline activation dialog's completion screen (mint a
 // deeplink PNG). NOTE: DOM capture is scoped to '.screen-capture-content' /
@@ -433,7 +382,11 @@ async function upscalePlantUmlPng(naturalBlob: Blob, code: string): Promise<Blob
 // mounted in the live DOM when this is called (capture at/just-after save,
 // not lazily on the completion screen). Proven for sequence/mermaid/plantuml;
 // graph/openapi have no snapshot node and return a non-PNG blob.
-export async function capturePng(diagramType?: string, content?: string): Promise<Blob | null | undefined> {
+export async function capturePng(
+  diagramType?: string,
+  content?: string,
+  surface: Surface = 'viewer',
+): Promise<Blob | null | undefined> {
   const trimmed = content?.trim() ?? '';
   if (diagramType === 'plantuml' && trimmed) {
     // Callers can pass a mismatched content/diagramType pair — e.g. the
@@ -445,9 +398,9 @@ export async function capturePng(diagramType?: string, content?: string): Promis
     if (!trimmed.startsWith('@start')) {
       trackEvent('plantuml_server_png_skipped_content_mismatch', 'convert_to_png', 'warning');
     } else {
-      const fetched = await fetchPlantUmlPng(content!);
+      const fetched = await fetchPlantUmlPng(content!, surface);
       if (fetched) return fetched;
-      // fall through to the DOM capture if the server fetch failed
+      // fall through to the DOM capture if no raster came back
     }
   }
   // Never label an old document image with the newest source hash. A skipped
@@ -530,8 +483,9 @@ async function renderAttachmentPng(
   hash: string,
   content?: string,
   diagramType?: string,
+  surface: Surface = 'viewer',
 ): Promise<{ blob: Blob; effectiveHash: string }> {
-  let blob = await capturePng(diagramType, content);
+  let blob = await capturePng(diagramType, content, surface);
   if (blob && content !== undefined && diagramType) {
     try {
       const { injectDiagramSource } = await import('@/utils/pngMetadata');
@@ -1116,7 +1070,8 @@ async function createAttachmentIfContentChanged(
 
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
       const captureStartedAt = performance.now();
-      const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+      const { blob, effectiveHash } = await renderAttachmentPng(
+        hash, content, diagramType, opts?.fromSave ? 'editor' : 'viewer');
       pngCaptureCompleted = true;
       // Publish timing: only the save-time capture is on the publish path (a
       // view-time backfill is not), and only a produced PNG is timed — a failed

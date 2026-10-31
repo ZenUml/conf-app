@@ -39,7 +39,7 @@ import { useExportEngine, type ExportContext, type ExportOptions } from './useEx
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 import { readExportSession, writeExportSession } from './exportSession';
-import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
+import { isPlantUmlSource } from '@/utils/plantuml/fetchPng';
 import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 import { waitForCaptureAssets } from './captureReady';
 import { captureBlob } from '@/model/captureBlob';
@@ -72,8 +72,8 @@ export default defineComponent({
     surface: { type: String as PropType<Surface>, default: 'modal' },
     captureReady: { type: Boolean, default: true },
     // The diagram's text source. Only PlantUML needs it today: its raster is
-    // fetched from the PlantUML server rather than scraped off the DOM (see
-    // useExportEngine's acquireBaseBlob).
+    // drawn from the source (local engine or PlantUML server) rather than
+    // scraped off the DOM (see useExportEngine's acquireBaseBlob).
     diagramSource: { type: String, default: '' },
   },
   emits: ['close', 'export', 'copy'],
@@ -189,7 +189,7 @@ export default defineComponent({
     }
 
     function buildExportContext(): ExportContext {
-      return { macroType: props.macroType, source: props.diagramSource };
+      return { macroType: props.macroType, source: props.diagramSource, surface: props.surface };
     }
 
     function buildExportOptions(): ExportOptions {
@@ -280,28 +280,30 @@ export default defineComponent({
     }
 
     async function capturePreview() {
-      // PlantUML previews the same server-rendered raster the export will
-      // download: html-to-image cannot rasterize PlantUML's inlined remote SVG,
-      // so the DOM path below previewed a blank image — which then had the user
-      // distrusting a working export. It needs no capture node (like the export
-      // path) and the server raster is already at the diagram's own bounds, so
-      // it skips waitForCaptureAssets/cropDataUrl entirely.
+      // PlantUML previews the same raster the export will download
+      // (utils/plantuml/png.ts: the local engine's SVG on a canvas, or the
+      // server's PNG): html-to-image cannot rasterize PlantUML's inlined remote
+      // server SVG, so the DOM path below previewed a blank image — which then
+      // had the user distrusting a working export. It needs no capture node
+      // (like the export path) and the raster is already at the diagram's own
+      // bounds, so it skips waitForCaptureAssets/cropDataUrl entirely.
       //
       // Resolved SYNCHRONOUSLY, before the first await: capturePreview must
       // still bail out without touching isCapturing/exportError when there is
       // no node, exactly as it did before. `isPlantUmlSource` is a string test;
-      // the pako-backed encoder stays lazy inside fetchPlantUmlPngBlob.
-      const usePlantUmlServer = props.macroType === 'plantuml' && isPlantUmlSource(props.diagramSource);
-      const node = usePlantUmlServer ? null : resolveCaptureNode();
-      if (!usePlantUmlServer && !node) return;
+      // the raster module, engine and encoder all stay lazy.
+      const usePlantUmlRaster = props.macroType === 'plantuml' && isPlantUmlSource(props.diagramSource);
+      const node = usePlantUmlRaster ? null : resolveCaptureNode();
+      if (!usePlantUmlRaster && !node) return;
 
       const gen = ++captureGen;
       state.isCapturing.value = true;
       state.exportError.value = null;
       try {
-        if (usePlantUmlServer) {
-          const blob = await fetchPlantUmlPngBlob(props.diagramSource);
-          if (blob && captureGen === gen) setPreviewUrl(URL.createObjectURL(blob), true);
+        if (usePlantUmlRaster) {
+          const { producePlantUmlPng } = await import('@/utils/plantuml/png');
+          const result = await producePlantUmlPng(props.diagramSource, { purpose: 'export_preview', surface: props.surface });
+          if (result.ok && captureGen === gen) setPreviewUrl(URL.createObjectURL(result.blob), true);
           return;
         }
 

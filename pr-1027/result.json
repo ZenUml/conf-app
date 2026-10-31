@@ -1,0 +1,136 @@
+CONSOLE Failed to load resource: the server responded with a status of 404 (Not Found)
+{
+  "sequence": {
+    "svgHead": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 119 148\" width=\"119\" height=\"148\"><defs/><g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"1\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg2\" data-source-line=\"2\"/",
+    "hasExternalRef": false,
+    "backup": {
+      "source": "local",
+      "upscale": "done",
+      "width": 1400,
+      "height": 1741,
+      "darkPixels": 145249
+    },
+    "exp": {
+      "source": "local",
+      "width": 119,
+      "height": 148,
+      "darkPixels": 1877
+    },
+    "domCapture": {
+      "width": 800,
+      "height": 999,
+      "darkPixels": 46806
+    }
+  },
+  "class": {
+    "svgHead": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 128 186\" width=\"128\" height=\"186\"><defs/><g><g class=\"entity\" data-qualified-name=\"Order\" id=\"ent0001\" data-source-line=\"1\"><rect x=\"6\" y=\"12\" width=\"111.59\" height=\"80\" rx=\"2.5\" ry=\"2.5\" fill=\"#F1F1F1\" stroke=\"#181818\" stroke-width=",
+    "hasExternalRef": false,
+    "backup": {
+      "source": "local",
+      "upscale": "done",
+      "width": 1400,
+      "height": 2034,
+      "darkPixels": 167415
+    },
+    "exp": {
+      "source": "local",
+      "width": 128,
+      "height": 186,
+      "darkPixels": 1752
+    },
+    "domCapture": {
+      "width": 800,
+      "height": 1167,
+      "darkPixels": 50980
+    }
+  },
+  "c4": {
+    "svgHead": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 89 231\" width=\"89\" height=\"231\"><defs/><g><g class=\"entity\" data-qualified-name=\"u\" id=\"ent0001\" data-source-line=\"356\"><rect x=\"6.5\" y=\"12\" width=\"72.04\" height=\"102.69\" fill=\"#08427B\" stroke=\"#073B6F\" stroke-width=\"0.5\"/><text x=\"1",
+    "hasExternalRef": false,
+    "backup": {
+      "source": "local",
+      "upscale": "done",
+      "width": 1400,
+      "height": 3634,
+      "darkPixels": 2408880
+    },
+    "exp": {
+      "source": "local",
+      "width": 89,
+      "height": 231,
+      "darkPixels": 10080
+    },
+    "domCapture": {
+      "width": 800,
+      "height": 2080,
+      "darkPixels": 785859
+    }
+  },
+  "events": [
+    [
+      "plantuml_png_produced",
+      {
+        "feature_area": "macro",
+        "surface": "viewer",
+        "macro_type": "plantuml",
+        "plantuml_png_source": "local",
+        "plantuml_png_purpose": "backup",
+        "plantuml_png_upscaled": true
+      }
+    ],
+    [
+      "plantuml_png_produced",
+      {
+        "feature_area": "macro",
+        "surface": "modal",
+        "macro_type": "plantuml",
+        "plantuml_png_source": "local",
+        "plantuml_png_purpose": "export"
+      }
+    ],
+    [
+      "plantuml_png_produced",
+      {
+        "feature_area": "macro",
+        "surface": "viewer",
+        "macro_type": "plantuml",
+        "plantuml_png_source": "local",
+        "plantuml_png_purpose": "backup",
+        "plantuml_png_upscaled": true
+      }
+    ],
+    [
+      "plantuml_png_produced",
+      {
+        "feature_area": "macro",
+        "surface": "modal",
+        "macro_type": "plantuml",
+        "plantuml_png_source": "local",
+        "plantuml_png_purpose": "export"
+      }
+    ],
+    [
+      "plantuml_png_produced",
+      {
+        "feature_area": "macro",
+        "surface": "viewer",
+        "macro_type": "plantuml",
+        "plantuml_png_source": "local",
+        "plantuml_png_purpose": "backup",
+        "plantuml_png_upscaled": true
+      }
+    ],
+    [
+      "plantuml_png_produced",
+      {
+        "feature_area": "macro",
+        "surface": "modal",
+        "macro_type": "plantuml",
+        "plantuml_png_source": "local",
+        "plantuml_png_purpose": "export"
+      }
+    ]
+  ],
+  "externalRequests": [],
+  "cspMessages": []
+}

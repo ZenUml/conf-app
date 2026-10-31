@@ -1,0 +1,41 @@
+{
+  "page": "https://lite-stg.atlassian.net/wiki/spaces/SD/pages/374145027",
+  "frameInfo": {
+    "override": "local",
+    "version": null,
+    "bundleHasNewEvent": [],
+    "engineChunks": [
+      "engine-hz56bS78.js",
+      "plantuml-CPF_4UtU.js"
+    ],
+    "pngChunk": []
+  },
+  "viewPhase": {
+    "total": 636,
+    "plantumlCom": []
+  },
+  "exportPhase": {
+    "opened": true,
+    "exportFrameFound": true,
+    "download": {
+      "name": "untitled-diagram.png",
+      "bytes": 19944
+    },
+    "total": 65,
+    "plantumlCom": []
+  },
+  "allPlantumlCom": [],
+  "mixpanelEvents": [
+    {
+      "event": "plantuml_png_produced",
+      "src": "local",
+      "purpose": "backup",
+      "upscaled": true
+    },
+    {
+      "event": "plantuml_png_produced",
+      "src": "local",
+      "purpose": "export_preview"
+    }
+  ]
+}

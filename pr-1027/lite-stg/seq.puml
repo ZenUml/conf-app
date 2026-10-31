@@ -1,0 +1,9 @@
+@startuml
+actor Customer
+participant "Order Service" as OS
+database Store
+Customer -> OS: place order
+OS -> Store: save
+Store --> OS: ok
+OS --> Customer: confirmation
+@enduml

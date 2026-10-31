@@ -149,6 +149,16 @@ describe('producePlantUmlPng — local renderer (ADR-0010 step 6)', () => {
     }));
   });
 
+  it('draws an Export PNG at the requested pixel ratio', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+
+    const result = await producePlantUmlPng(SOURCE, { purpose: 'export', surface: 'modal', pixelRatio: 2 });
+
+    expect(result).toMatchObject({ ok: true, source: 'local', upscale: 'none' });
+    expect(canvasSizes).toEqual([{ width: 200, height: 100 }]);
+    expect(decodedSvg()).toMatch(/<svg width="200" height="100"/);
+  });
+
   it('does not fall back to the server when the raster fails', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -217,6 +227,32 @@ describe('producePlantUmlPng — server renderer', () => {
     const result = await producePlantUmlPng(SOURCE, { purpose: 'backup', surface: 'viewer', upscale: true });
 
     expect(result).toEqual({ ok: true, blob: natural, source: 'server', upscale: 'failed' });
+  });
+
+  it('asks for an Export PNG at pixelRatio x 96 dpi in a single request', async () => {
+    const dense = fakePng(238, 296);
+    const fetchMock = vi.fn().mockResolvedValue(pngResponse(dense));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await producePlantUmlPng(SOURCE, { purpose: 'export', surface: 'modal', pixelRatio: 2 });
+
+    expect(result).toEqual({ ok: true, blob: dense, source: 'server', upscale: 'none' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const { plantumlEncode } = await import('./encode');
+    expect(fetchMock.mock.calls[0][0]).toContain(plantumlEncode(SOURCE.replace('@startuml\n', '@startuml\nskinparam dpi 192\n')));
+  });
+
+  it('falls back to the natural size when the dense request gives no PNG', async () => {
+    const natural = fakePng(119, 148);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, blob: () => Promise.resolve(new Blob()) })
+      .mockResolvedValueOnce(pngResponse(natural));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await producePlantUmlPng(SOURCE, { purpose: 'export', surface: 'modal', pixelRatio: 2 });
+
+    expect(result).toEqual({ ok: true, blob: natural, source: 'server', upscale: 'none' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('reports a non-PNG answer and a thrown fetch apart', async () => {

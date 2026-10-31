@@ -35,7 +35,7 @@
 import { defineComponent, watch, provide, onUnmounted, nextTick, ref, type PropType } from 'vue';
 import ExportWorkspace from './ExportWorkspace.vue';
 import { exportStateKey, useExportState } from './useExportState';
-import { useExportEngine, type ExportContext, type ExportOptions } from './useExportEngine';
+import { useExportEngine, PLANTUML_EXPORT_PIXEL_RATIO, type ExportContext, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 import { readExportSession, writeExportSession } from './exportSession';
@@ -302,7 +302,9 @@ export default defineComponent({
       try {
         if (usePlantUmlRaster) {
           const { producePlantUmlPng } = await import('@/utils/plantuml/png');
-          const result = await producePlantUmlPng(props.diagramSource, { purpose: 'export_preview', surface: props.surface });
+          const result = await producePlantUmlPng(props.diagramSource, {
+            purpose: 'export_preview', surface: props.surface, pixelRatio: PLANTUML_EXPORT_PIXEL_RATIO,
+          });
           if (result.ok && captureGen === gen) setPreviewUrl(URL.createObjectURL(result.blob), true);
           return;
         }

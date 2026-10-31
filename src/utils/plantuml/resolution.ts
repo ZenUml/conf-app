@@ -22,7 +22,8 @@
  * the lever used here.
  */
 
-const BASE_DPI = 96;
+/** plantuml.com's default output density. */
+export const BASE_DPI = 96;
 
 /** Target width (px) a diagram that fills the macro column should reach. */
 export const TARGET_WIDTH_PX = 1400;

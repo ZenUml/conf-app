@@ -466,6 +466,10 @@ type BaseCapture =
     }
   | { ok: false; reason: CaptureFailureReason };
 
+// Export PNG draws PlantUML at twice the diagram's own pixel size: the dialog
+// fits a small diagram to its canvas and a 1x raster turned soft there.
+export const PLANTUML_EXPORT_PIXEL_RATIO = 2;
+
 async function acquireBaseBlob(
   effectiveBg: string | undefined,
   node: HTMLElement | null | undefined,
@@ -473,7 +477,7 @@ async function acquireBaseBlob(
 ): Promise<BaseCapture> {
   if (context?.macroType === 'plantuml' && isPlantUmlSource(context.source)) {
     const { producePlantUmlPng } = await import('@/utils/plantuml/png');
-    const result = await producePlantUmlPng(context.source!, { purpose: 'export', surface: context.surface ?? 'modal' });
+    const result = await producePlantUmlPng(context.source!, { purpose: 'export', surface: context.surface ?? 'modal', pixelRatio: PLANTUML_EXPORT_PIXEL_RATIO });
     if (result.ok) return { ok: true, blob: result.blob, cropNode: null };
     console.warn(`[useExportEngine] no PlantUML PNG raster (${result.source}: ${result.failure})`);
     return { ok: false, reason: 'plantuml_fetch_failed' };

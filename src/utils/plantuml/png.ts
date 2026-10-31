@@ -26,7 +26,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { plantUmlRenderer } from './renderer';
 import { fetchPlantUmlPngBlob } from './fetchPng';
 import { readPlantUmlSvgSize } from './normalizeSvg';
-import { computeUpscaleDpi, computeUpscaleFactor, readPngSize, withDpiDirective } from './resolution';
+import { BASE_DPI, computeUpscaleDpi, computeUpscaleFactor, readPngSize, withDpiDirective } from './resolution';
 
 export interface PlantUmlPngOptions {
   purpose: PlantUmlPngPurpose;
@@ -36,6 +36,13 @@ export interface PlantUmlPngOptions {
   upscale?: boolean;
   /** Painted behind the drawing; the raster is transparent when omitted. */
   background?: string;
+  /**
+   * Pixels per diagram pixel when `upscale` is off: 2 for Export PNG and its
+   * preview, so a small diagram stays sharp when the dialog fits it to the
+   * canvas or the user zooms the download. The server path asks for the same
+   * density with `skinparam dpi` (96 × ratio) in its one request.
+   */
+  pixelRatio?: number;
 }
 
 /** `upscale`: `none` = not asked or not needed; `failed` = the natural size was kept. */
@@ -114,7 +121,7 @@ async function localPng(svg: string, options: PlantUmlPngOptions): Promise<Plant
   try {
     const natural = readPlantUmlSvgSize(svg);
     const scale = options.upscale && natural ? computeUpscaleFactor(natural.width, natural.height) : null;
-    const blob = await rasterisePlantUmlSvg(svg, { scale: scale ?? 1, background: options.background });
+    const blob = await rasterisePlantUmlSvg(svg, { scale: scale ?? options.pixelRatio ?? 1, background: options.background });
     if (!blob) return { ok: false, source, failure: 'raster_failed' };
     return { ok: true, blob, source, upscale: scale ? 'done' : 'none' };
   } catch (e) {
@@ -148,7 +155,27 @@ async function upscaleServerPng(natural: Blob, code: string): Promise<Blob | und
   }
 }
 
+/**
+ * One request at `pixelRatio` × the server's 96 dpi. Undefined when no denser
+ * raster applies or the server did not give one; the caller then fetches the
+ * natural size as before.
+ */
+async function denseServerPng(code: string, pixelRatio: number): Promise<Blob | undefined> {
+  const dpiCode = withDpiDirective(code, Math.round(BASE_DPI * pixelRatio));
+  if (dpiCode === code) return undefined;
+  try {
+    return await fetchPlantUmlPngBlob(dpiCode);
+  } catch (e) {
+    console.warn('PlantUML dense PNG fetch failed; fetching the natural size', e);
+    return undefined;
+  }
+}
+
 async function serverPng(code: string, source: PlantUmlRenderer, options: PlantUmlPngOptions): Promise<PlantUmlPngResult> {
+  if (!options.upscale && (options.pixelRatio ?? 1) > 1) {
+    const dense = await denseServerPng(code, options.pixelRatio!);
+    if (dense) return { ok: true, blob: dense, source, upscale: 'none' };
+  }
   let blob: Blob | undefined;
   try {
     blob = await fetchPlantUmlPngBlob(code);

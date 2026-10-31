@@ -725,6 +725,11 @@ describe('useExportEngine — PlantUML server PNG', () => {
 
   it('with the local renderer, exports the engine SVG drawn on a canvas and never asks plantuml.com', async () => {
     localStorage.setItem('plantumlRenderer', 'local');
+    const drawnSizes: number[][] = [];
+    vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation(function (this: HTMLCanvasElement, cb: BlobCallback) {
+      drawnSizes.push([this.width, this.height]);
+      cb(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+    } as HTMLCanvasElement['toBlob']);
     renderPlantUmlLocally.mockResolvedValue(
       '<svg xmlns="http://www.w3.org/2000/svg" width="600px" height="400px" viewBox="0 0 600 400"><text>Alice</text></svg>');
     const fetchMock = vi.fn();
@@ -739,6 +744,8 @@ describe('useExportEngine — PlantUML server PNG', () => {
 
       expect(result).toEqual({ ok: true });
       expect(renderPlantUmlLocally).toHaveBeenCalledWith(PLANTUML_SOURCE);
+      // Drawn at twice the SVG's 600x400 (PLANTUML_EXPORT_PIXEL_RATIO).
+      expect(drawnSizes).toContainEqual([1200, 800]);
       expect(fetchMock).not.toHaveBeenCalled();
       expect(captureBlob).not.toHaveBeenCalled();
       expect(saveAs).toHaveBeenCalled();

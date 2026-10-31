@@ -319,6 +319,9 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    viewer's rule), and so does every diagram under the `server` renderer. A
    failed local raster is not retried on the server: the backup falls back to
    the DOM capture and the export reports `plantuml_fetch_failed`.
+   Export PNG and its preview are drawn at 2x the diagram's pixel size
+   (`PLANTUML_EXPORT_PIXEL_RATIO`); on the server path that is one request at
+   `skinparam dpi 192`, with the natural size as the fallback.
    `plantuml_png_produced` / `plantuml_png_failed` record
    `plantuml_png_source` and `plantuml_png_purpose`.
    Re-test in headless Chromium (CSP `script-src 'self'; img-src 'self' data:

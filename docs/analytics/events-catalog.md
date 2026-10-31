@@ -120,6 +120,7 @@ never fires it. At most one event per iframe.
 | `editor_open_duration_ms` | Mount → close |
 | `creation_origin` / `creation_flow_id` | `macro_create_cancelled` only: same values as on `macro_create_started` for this iframe |
 | mutation summary | On text-editor edits, the same `had_global_replace` / delta buckets as `macro_save_succeeded` |
+| creation attempt | On `macro_create_cancelled`, the pairing properties above |
 
 **History:** Until 2026-09-11 `macro_edit_cancelled` fired only when a user confirmed **Discard** in
 the text editors' close-without-saving dialog. That dialog is reached only from an exit button the
@@ -153,12 +154,30 @@ transport because the host destroys the iframe right after `view.onClose`.
 
 ### `macro_save_failed`
 
-**Trigger:** `saveToPlatform` throws while saving an existing Sequence / Mermaid / PlantUML
-diagram. The canonical event carries the same editor-session summary as `macro_edit_cancelled`, plus
-a bounded, stable `failure_reason` (`legacy_load_blocked`, `invalid_saved_content_id`, `http_<status>`,
-the JavaScript error class, or `unknown_error`). Existing legacy `trackEvent` diagnostics remain in
-place. A later `view.submit` failure is not labelled as persistence failure because the custom
-content save already succeeded.
+**Trigger:** `saveToPlatform` (`src/model/ContentProvider/Persistence.ts`) could not persist the
+custom content: the Confluence create/update call threw, or it returned without a usable id. Fired
+for creates and edits from every editor that saves through `saveToPlatform` (text DSL editors,
+Graph, OpenAPI, AsyncAPI). Failures after the custom content was stored (snapshot, D1 telemetry,
+`view.submit`) are not labelled as save failures.
+
+| Property | Notes |
+|---|---|
+| `feature_area` / `surface` | `"macro"` / `"editor"` |
+| `macro_type` | Type being saved |
+| `operation_mode` | `"create"` (no `diagram.id` at save time) / `"edit"` |
+| `failure_stage` | Always `"persistence"` |
+| `failure_reason` | `http_error` (Confluence answered 4xx/5xx), `request_failed` (no HTTP status: network, bridge, thrown error), `invalid_saved_content_id` (the save returned without a usable id) |
+| `http_status` | Present with `http_error` only; validated 400–599 |
+| `error_code` | Present only for a known machine code: `NOT_FOUND`, `FORBIDDEN`, `UNAUTHORIZED`, `MISSING_CONTENT_PARENT`, `INVALID_ARGUMENT`. Server error text is never sent |
+| mutation summary | On text-editor edits, the same `journey_id` / `had_global_replace` / delta buckets as `macro_save_succeeded` |
+| creation attempt | On creates, the pairing properties above |
+
+**History:** Until 2026-09-12 (PR #683) the event fired only from the text-editor save handler in
+`forgeIndex.ts`, only for edits, with `failure_reason` drawn from `legacy_load_blocked`,
+`invalid_saved_content_id`, `http_<status>`, the JavaScript error class, or `unknown_error`. A
+query spanning that date must map `http_<status>` to `failure_reason = http_error` plus
+`http_status`, and read the legacy-load refusal from `macro_publish_blocked`
+(`publish_block_reason = legacy_load_blocked`), where it is reported now.
 
 ### `editor_global_replace_observed`
 

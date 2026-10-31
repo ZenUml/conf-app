@@ -38,6 +38,7 @@
 </template>
 
 <script>
+import { trackPublishRequested } from '@/utils/analytics/publishIntent';
 import DrawIoExtension from "@/components/DrawIoExtension/DrawIoExtension.vue";
 import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
@@ -246,6 +247,7 @@ export default {
       isUnmounted: false,
       drawioModified: false,
       publishing: false,
+      awaitingTitle: false,
       closeGuardOff: null,
       closeOutcomeOff: null,
       diagramXml: this.graphXml || '',
@@ -320,7 +322,12 @@ export default {
         }
       }
       else if (payload.event === 'save') {
-        this.drawioModified = false;
+        if (this.publishing) return;
+        trackPublishRequested({
+          macroType: 'graph',
+          operationMode: this.$store?.state?.diagram?.id ? 'edit' : 'create',
+          titlePresent: !!this.$store?.state?.diagram?.title?.trim(),
+        });
         // Persist the full <mxfile> wrapper so multi-page diagrams keep
         // every page. Previously we extracted the first <mxGraphModel>
         // and dropped every page after Page-1. Legacy records stored as
@@ -331,7 +338,20 @@ export default {
         window.graphXml = this.diagramXml;
         // ensureTitle may block on user input (title prompt) — only show the
         // "Publishing…" overlay once a title exists and the actual upload starts.
-        await window.ensureTitle();
+        if (this.awaitingTitle) {
+          // A second Publish confirms the existing gate; its first listener
+          // owns the upload. It must not start a second save after resolution.
+          void window.ensureTitle();
+          return;
+        }
+        this.awaitingTitle = true;
+        try {
+          await window.ensureTitle();
+        } finally {
+          this.awaitingTitle = false;
+        }
+        if (this.isUnmounted) return;
+        this.drawioModified = false;
         // Record acceptance if the title still showing is the AI-generated one
         // (no-op when the user typed their own). Mirrors forgeIndex.ts's save
         // handler for the code editors.

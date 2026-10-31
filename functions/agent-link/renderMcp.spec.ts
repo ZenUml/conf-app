@@ -3,7 +3,7 @@ import { handleRenderRequest, MAX_SOURCE_CHARS, RENDER_TOOL } from './renderMcp'
 import { DIAGRAM_VIEW_URI, UI_MIME_TYPE } from './oauth/mcpApps';
 
 const ORIGIN = 'https://conf-stg-lite.zenuml.com';
-const URL_ = `${ORIGIN}/agent-link/render`;
+const URL_ = `${ORIGIN}/mcp/render`;
 const VIEW_HTML = '<!doctype html><html><head><meta name="mcp-app" content="zenuml-diagram"><script type="module" src="./assets/view-abc.js"></script></head><body></body></html>';
 
 function post(body: unknown, headers: Record<string, string> = {}): Request {
@@ -38,7 +38,7 @@ function captureEvents() {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('POST /agent-link/render', () => {
+describe('POST /mcp/render', () => {
   it('answers initialize with no Authorization header at all', async () => {
     const { status, body } = await rpc('initialize', {
       protocolVersion: '2025-06-18',

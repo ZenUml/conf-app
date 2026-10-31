@@ -1,10 +1,12 @@
-// POST /agent-link/render — the public, sign-in-free MCP endpoint that draws a
+// POST /mcp/render — the public, sign-in-free MCP endpoint that draws a
 // diagram from source the agent sends. No Atlassian site is involved; see
-// renderMcp.ts for why this is its own endpoint and not a tool on /mcp.
+// agent-link/renderMcp.ts for why this is its own endpoint and not a tool on
+// /agent-link/mcp.
 //
-// `/agent-link/*` is already in public/_routes.json, so no route entry is needed.
+// `/mcp/render` must stay in public/_routes.json's include list, or Pages
+// answers this path with the SPA's HTML instead of running this function.
 
-import { CORS, JSON_HEADERS, handleRenderRequest, type RenderEnv } from './renderMcp';
+import { CORS, JSON_HEADERS, handleRenderRequest, type RenderEnv } from '../agent-link/renderMcp';
 import { json } from '../OkResponse';
 
 export async function onRequestOptions(): Promise<Response> {

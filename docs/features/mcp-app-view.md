@@ -19,16 +19,16 @@ Two ways forward were considered and not built:
 
 `update_diagram` returns no diagram type or source, so after an update the view says "No diagram in this result." for every type.
 
-## Rendering without an Atlassian site: `POST /agent-link/render`
+## Rendering without an Atlassian site: `POST /mcp/render`
 
-A second, public MCP endpoint, `POST /agent-link/render` (`functions/agent-link/render.ts`, logic in `renderMcp.ts`), uses the same view with **no sign-in and no Confluence**. Anyone can add it as a connector, e.g. `https://conf-lite.zenuml.com/agent-link/render`.
+A second, public MCP endpoint, `POST /mcp/render` (route `functions/mcp/render.ts`, logic in `functions/agent-link/renderMcp.ts`), uses the same view with **no sign-in and no Confluence**. Anyone can add it as a connector, e.g. `https://conf-lite.zenuml.com/mcp/render`.
 
 - **One tool, `render_diagram`** (`diagramType`: `sequence` | `mermaid` | `plantuml` | `graph` | `openapi`, `source`, optional `title`). It returns `structuredContent: { diagramType, source, title?, valid, unvalidated?, errors? }`, the shape `extractDiagram` already reads, and a short text summary for the model.
 - **The source is parse-checked** with `parseDsl.ts`: ZenUML and Mermaid get real parser errors with line and column; PlantUML and OpenAPI a structural check; Graph is not checked (`unvalidated: true`). A source that fails still goes to the view, and the errors go to the agent so it can fix and call again.
 - **Resources:** the view (`ui://zenuml/diagram`) and the four DSL guides (`zenuml://dsl-guide`, …).
 - **Nothing is stored** and the server makes no outbound call except fetching its own `mcp-app/view.html`. PlantUML is fetched from `www.plantuml.com` by the view, as in Confluence. `source` is capped at 500,000 characters.
 - **Why not an anonymous tool on `/agent-link/mcp`:** a token-less request there must get the 401 + RFC 9728 challenge, which is what starts OAuth in a host that has never connected. Answering it without a token would let hosts skip sign-in and then fail on every Confluence tool.
-- **No route change:** `/agent-link/*` is already in `public/_routes.json`, and `_middleware.ts` does not authenticate `/agent-link`.
+- **Route:** `/mcp/render` is listed in `public/_routes.json` (without it Pages serves the SPA's HTML there). `_middleware.ts` does not authenticate it. It sits outside `/agent-link/` because the URL is public and has nothing to do with linking to Confluence; the Confluence connector stays at `/agent-link/mcp`.
 - **Analytics:** the existing `agent_link_mcp_initialized`, `agent_link_mcp_tool_called` and `agent_link_app_view_*` events, with `mcp_mode: 'render'`. `_tool_called` adds `macro_type` and `render_validation` (`valid` | `invalid` | `unvalidated`). There is no user, so these share Mixpanel's `unknown_user_account_id`; filter by `mcp_mode`.
 
 ## Pieces

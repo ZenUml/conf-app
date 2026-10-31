@@ -1577,7 +1577,7 @@ export type AnalyticsEventName =
   // Cursor, …). Tool arguments and results are never sent.
   | "agent_link_mcp_tool_called"
   | "agent_link_mcp_initialized"
-  // The public render endpoint (POST /agent-link/render, no sign-in) reuses
+  // The public render endpoint (POST /mcp/render, no sign-in) reuses
   // the AA pair and the MCP Apps view pair (`agent_link_app_view_*`) rather
   // than adding events: every one of them carries `mcp_mode: 'render'`.
   // `_tool_called` for render_diagram also carries `macro_type` and
@@ -1863,7 +1863,7 @@ export type AgentLinkMcpButtonReveal = "always" | "hover";
 // How a Connect MCP dialog connects the agent: 'headless' = the agent signs
 // in with OAuth and edits through Confluence directly (the only mode offered
 // in the first release); 'relay' = a macro-minted session over the live relay;
-// 'render' = the public render-only endpoint (POST /agent-link/render), which
+// 'render' = the public render-only endpoint (POST /mcp/render), which
 // needs no sign-in and no Atlassian site. Its events carry no user id, so they
 // all share Mixpanel's unknown_user_account_id; split them by `mcp_mode`.
 export type AgentLinkMcpMode = "headless" | "relay" | "render";

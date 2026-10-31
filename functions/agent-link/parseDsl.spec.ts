@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { parseDsl, normalizeDialect, computeStats, zenumlStats, mermaidStats } from './parseDsl';
+import {
+  parseDsl,
+  normalizeDialect,
+  computeStats,
+  zenumlStats,
+  mermaidStats,
+  summarizeParserMessage,
+  MAX_ERROR_MESSAGE_CHARS,
+} from './parseDsl';
 
 describe('normalizeDialect', () => {
   it('maps DiagramType enum values (macro-reported) to parser families', () => {
@@ -77,6 +85,43 @@ describe('parseDsl — Mermaid', () => {
       expect(r.errors[0].line).toBe(2);
       expect(typeof r.errors[0].message).toBe('string');
     }
+  });
+
+  // Agents used to get only "Parse error on line 3:" — the first line of
+  // jison's four-line message — with nothing to act on.
+  it('keeps the "Expecting …" line of a multi-line jison error', async () => {
+    const r = await parseDsl('Mermaid', 'flowchart TD\n A --> ');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const { message } = r.errors[0];
+      expect(message).toMatch(/^Parse error on line \d+:/);
+      expect(message).toContain('Expecting');
+      expect(message).toContain("got 'EOF'");
+      expect(message).not.toContain('\n');
+      expect(message).not.toMatch(/-\^/);
+      expect(message.length).toBeLessThanOrEqual(MAX_ERROR_MESSAGE_CHARS);
+    }
+  });
+});
+
+describe('summarizeParserMessage', () => {
+  it('drops the source excerpt and caret, keeps header and expectation', () => {
+    const raw = "Parse error on line 2:\n...ram  Alice-->Bob hi\n----------------------^\nExpecting 'TXT', got 'NEWLINE'";
+    expect(summarizeParserMessage(raw)).toBe("Parse error on line 2: Expecting 'TXT', got 'NEWLINE'");
+  });
+
+  it('keeps a langium message whole, flattening the newline it quotes', () => {
+    const raw = "Parsing failed:  Parse error on line 2, column 13: Expecting token of type 'STRING' but found `\n`.";
+    expect(summarizeParserMessage(raw)).toBe(
+      "Parsing failed:  Parse error on line 2, column 13: Expecting token of type 'STRING' but found ` `.",
+    );
+  });
+
+  it('caps the length', () => {
+    const raw = `Parse error on line 1:\nx\n^\nExpecting ${"'TOKEN', ".repeat(100)}got 'EOF'`;
+    const out = summarizeParserMessage(raw);
+    expect(out.length).toBe(MAX_ERROR_MESSAGE_CHARS);
+    expect(out.endsWith('…')).toBe(true);
   });
 });
 

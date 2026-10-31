@@ -39,6 +39,14 @@ export const UI_MIME_TYPE = 'text/html;profile=mcp-app';
 export const DIAGRAM_VIEW_URI = 'ui://zenuml/diagram';
 
 /**
+ * The flat, pre-`_meta.ui` key for a tool's view. The ext-apps SDK's
+ * `registerAppTool` still writes it next to `_meta.ui.resourceUri`
+ * (RESOURCE_URI_META_KEY), so hosts built on that convention may read only
+ * this one.
+ */
+export const LEGACY_RESOURCE_URI_META_KEY = 'ui/resourceUri';
+
+/**
  * Path of the built view inside the Pages deploy.
  *
  * `mcp-app/view.html` is built by its own config (`vite.mcp-app.config.mjs`,
@@ -145,11 +153,14 @@ export function uiResourceMeta(origin: string): Record<string, unknown> {
 /**
  * `_meta` for a tool that carries the view.
  *
- * Only the association lives here. `visibility` is omitted deliberately: the
- * spec defaults it to ["model","app"], which is what we want.
+ * Only the association lives here, under both keys: `_meta.ui.resourceUri`
+ * (current spec) and the flat legacy key, as the ext-apps SDK writes them.
+ * Cursor 3.25 declared the extension yet never fetched the view while we sent
+ * only the nested form. `visibility` is omitted deliberately: the spec
+ * defaults it to ["model","app"], which is what we want.
  */
 export function uiMeta(_origin?: string): Record<string, unknown> {
-  return { ui: { resourceUri: DIAGRAM_VIEW_URI } };
+  return { ui: { resourceUri: DIAGRAM_VIEW_URI }, [LEGACY_RESOURCE_URI_META_KEY]: DIAGRAM_VIEW_URI };
 }
 
 

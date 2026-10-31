@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { handleRenderRequest, MAX_SOURCE_CHARS, RENDER_TOOL } from './renderMcp';
 import { DIAGRAM_VIEW_URI, UI_MIME_TYPE } from './oauth/mcpApps';
+import { RENDER_LIMIT } from './renderRateLimit';
 
 const ORIGIN = 'https://conf-stg-lite.zenuml.com';
 const URL_ = `${ORIGIN}/mcp/render`;
@@ -147,6 +148,57 @@ describe('POST /mcp/render', () => {
 
   it('declares the input schema the description promises', () => {
     expect(RENDER_TOOL.inputSchema.properties.diagramType.enum).toEqual(['sequence', 'mermaid', 'plantuml', 'graph', 'openapi']);
+  });
+
+  describe('rate limit', () => {
+    /** A D1 stand-in that counts every UPSERT under one key. */
+    function countingDb() {
+      let count = 0;
+      return {
+        prepare: () => ({
+          bind: () => ({
+            first: async () => ({ count: ++count }),
+            run: async () => ({}),
+          }),
+        }),
+      };
+    }
+    const renderFrom = (env: Record<string, unknown>) =>
+      handleRenderRequest(
+        post(
+          { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'render_diagram', arguments: { diagramType: 'sequence', source: 'A->B: hi' } } },
+          { 'CF-Connecting-IP': '203.0.113.7' },
+        ),
+        env,
+      ).then(async (r) => ({ status: r.status, body: (await r.json()) as any }));
+
+    it('refuses the call past the limit with a message the model can read', async () => {
+      const env = { DB: countingDb() };
+      for (let i = 0; i < RENDER_LIMIT; i++) expect((await renderFrom(env)).body.result.isError).toBeUndefined();
+      const refused = await renderFrom(env);
+      expect(refused.status).toBe(200);
+      expect(refused.body.result.isError).toBe(true);
+      expect(refused.body.result.content[0].text).toMatch(/Rate limit reached.*Try again in \d+ seconds/);
+      expect(refused.body.result.structuredContent).toBeUndefined();
+    });
+
+    it('does not count handshakes', async () => {
+      const db = countingDb();
+      const spy = vi.spyOn(db, 'prepare');
+      await rpc('initialize', {}, { DB: db });
+      await rpc('tools/list', undefined, { DB: db });
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('reports a refusal as rate_limited and a fail-open call as rate_limit_unavailable', async () => {
+      const events = captureEvents();
+      const env = { DB: countingDb(), MIXPANEL_TOKEN: 't' };
+      for (let i = 0; i <= RENDER_LIMIT; i++) await renderFrom(env);
+      expect(events.filter((e) => e.properties.mcp_tool_outcome === 'rate_limited')).toHaveLength(1);
+
+      await renderFrom({ MIXPANEL_TOKEN: 't' }); // no DB bound
+      expect(events.at(-1)?.properties).toEqual(expect.objectContaining({ mcp_tool_outcome: 'success', reason: 'rate_limit_unavailable' }));
+    });
   });
 
   describe('analytics', () => {

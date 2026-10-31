@@ -13,8 +13,9 @@
 // never connected. Answering `initialize` without a token there would make
 // every host skip sign-in and then fail on the first Confluence tool.
 //
-// Nothing here stores anything, and the server makes no outbound call except
-// fetching our own built view. The diagram is drawn in the host's frame, by the
+// No diagram is stored. The only write is a per-address call counter in D1
+// (renderRateLimit.ts), and the only outbound call is fetching our own built
+// view. The diagram is drawn in the host's frame, by the
 // same view the headless tools use; PlantUML goes from that frame to
 // www.plantuml.com, as it does in Confluence.
 //
@@ -32,6 +33,7 @@ import {
   uiResourceList,
 } from './oauth/mcpApps';
 import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from './oauth/headlessMcp';
+import { checkRenderRate, RENDER_LIMIT, RENDER_WINDOW_SECONDS, type RateEnv } from './renderRateLimit';
 import { mixpanelTrack } from '../service/mixpanelService';
 import { json } from '../OkResponse';
 
@@ -96,7 +98,7 @@ const INSTRUCTIONS =
   'draw.io XML, or an OpenAPI spec. No Atlassian site or sign-in is involved and nothing is saved. Prefer `sequence` ' +
   '(ZenUML) for sequence diagrams. If the result reports parse errors, fix the source and call render_diagram again.';
 
-export interface RenderEnv {
+export interface RenderEnv extends RateEnv {
   MIXPANEL_TOKEN?: string;
 }
 
@@ -170,7 +172,7 @@ function summaryFor(r: RenderResult): string {
   return `Rendered the ${r.diagramType} diagram. The source parsed.`;
 }
 
-type ToolOutcome = 'success' | 'tool_error' | 'unknown_tool' | 'exception';
+type ToolOutcome = 'success' | 'tool_error' | 'unknown_tool' | 'exception' | 'rate_limited';
 
 async function track(env: RenderEnv, props: Record<string, unknown>): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
@@ -284,11 +286,30 @@ export async function handleRenderRpc(
         await trackCall('unknown_tool');
         return rpcError(200, id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${params.name.slice(0, 64)}`);
       }
+      // Counted before parsing, because parsing is the cost the limit exists
+      // to bound. Only tools/call is counted: a handshake costs nothing to
+      // speak of, and a host makes several per conversation.
+      const rate = await checkRenderRate(env, request.headers.get('CF-Connecting-IP'), now());
+      if (!rate.allowed) {
+        await trackCall('rate_limited');
+        // A tool result the model can read and relay, not an HTTP 429, which
+        // MCP clients surface as a broken connection rather than a message.
+        return rpcResult(id, {
+          content: [{
+            type: 'text',
+            text: `Rate limit reached: at most ${RENDER_LIMIT} renders per ${RENDER_WINDOW_SECONDS} seconds from one address. Try again in ${rate.retryAfterSeconds} seconds.`,
+          }],
+          isError: true,
+          _meta: { retryAfterSeconds: rate.retryAfterSeconds },
+        });
+      }
+      const rateUnavailable = 'unavailable' in rate ? { reason: 'rate_limit_unavailable' } : {};
       try {
         const value = await renderDiagram((params.arguments ?? {}) as Record<string, unknown>);
         await trackCall('success', {
           macro_type: value.diagramType,
           render_validation: value.unvalidated ? 'unvalidated' : value.valid ? 'valid' : 'invalid',
+          ...rateUnavailable,
         });
         // The view reads structuredContent (extractDiagram in
         // src/mcp-app-view.ts matches `diagramType` + `source`); the model

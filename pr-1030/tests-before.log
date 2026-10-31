@@ -1,0 +1,130 @@
+test
+Building v2026.10.221938-full (c2f079693) on 
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 /home/user/conf-app-baseline
+
+ ❯ functions/agent-link/oauth/headlessMcp.spec.ts (45 tests | 1 failed) 253ms
+   × headless RPC > keeps every tool and parameter description about that tool alone 17ms
+     → list_diagrams mentions list_sites: expected 'List ZenUML diagrams on a site, most-…' not to contain 'list_sites'
+ ❯ functions/agent-link/renderMcp.spec.ts (28 tests | 1 failed) 1245ms
+   × POST /mcp/render > keeps the tool description to the tool itself; the DSL guides are named in the server instructions 10ms
+     → expected 'Draw a diagram from its source and sh…' not to match /dsl-guide|zenuml:\/\/|resource/\
+   ✓ POST /mcp/render > normalises the type name, so "Mermaid" is drawn as mermaid 594ms
+ ❯ functions/agent-link/oauth/headlessWrite.spec.ts (45 tests | 2 failed) 2942ms
+   ✓ update_diagram > writes a new version and preserves fields it did not set 446ms
+   × update_diagram > returns the updated diagram in the shape the view draws 187ms
+     → expected null to deeply equal { diagramType: 'sequence', …(2) }
+   ✓ source field per diagram type > reads and updates an app-written mermaid diagram through mermaidCode, not its stale code 486ms
+   × create_diagram > returns the new diagram in the shape the view draws 5ms
+     → expected null to deeply equal { diagramType: 'mermaid', …(2) }
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  functions/agent-link/renderMcp.spec.ts > POST /mcp/render > keeps the tool description to the tool itself; the DSL guides are named in the server instructions
+AssertionError: expected 'Draw a diagram from its source and sh…' not to match /dsl-guide|zenuml:\/\/|resource/\
+
+- Expected: 
+/dsl-guide|zenuml:\/\/|resource/
+
++ Received: 
+"Draw a diagram from its source and show it to the user. Nothing is saved anywhere. The source may be a ZenUML sequence diagram, Mermaid, PlantUML (@startuml … @enduml), draw.io / diagrams.net XML, or an OpenAPI or Swagger spec (YAML or JSON). diagramType is optional: leave it out and the language is detected from the source (a source with no recognised header is read as ZenUML), or pass it to be explicit. The result says which type was used and whether the source parsed; when it did not, it lists the errors with line and column, so fix them and call again. Read the zenuml://, mermaid://, plantuml:// or openapi:// dsl-guide resource for the rules of each language."
+
+ ❯ functions/agent-link/renderMcp.spec.ts:95:41
+     93| 
+     94|   it('keeps the tool description to the tool itself; the DSL guides ar…
+     95|     expect(RENDER_TOOL.description).not.toMatch(/dsl-guide|zenuml:\/\/…
+       |                                         ^
+     96|     const { body } = await rpc('initialize', { protocolVersion: '2025-…
+     97|     expect(body.result.instructions).toMatch(/zenuml:\/\/.*dsl-guide/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  functions/agent-link/oauth/headlessMcp.spec.ts > headless RPC > keeps every tool and parameter description about that tool alone
+AssertionError: list_diagrams mentions list_sites: expected 'List ZenUML diagrams on a site, most-…' not to contain 'list_sites'
+
+Expected: "list_sites"
+Received: "List ZenUML diagrams on a site, most-recently-modified first, each with its diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only. {"type":"object","properties":{"cloudId":{"type":"string","description":"From list_sites."},"pageId":{"type":"string","description":"Optional. Only diagrams on this page."},"limit":{"type":"number","description":"Optional. Max rows (default 25, capped at 100)."}},"required":["cloudId"]}"
+
+ ❯ functions/agent-link/oauth/headlessMcp.spec.ts:206:60
+    204|       const text = `${tool.description} ${JSON.stringify(tool.inputSch…
+    205|       for (const other of names.filter((n) => n !== tool.name)) {
+    206|         expect(text, `${tool.name} mentions ${other}`).not.toContain(o…
+       |                                                            ^
+    207|       }
+    208|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  functions/agent-link/oauth/headlessWrite.spec.ts > update_diagram > returns the updated diagram in the shape the view draws
+AssertionError: expected null to deeply equal { diagramType: 'sequence', …(2) }
+
+- Expected: 
+Object {
+  "diagramType": "sequence",
+  "dsl": "A0.method0()
+A1.method1()
+A2.method2()
+A3.method3()
+A4.method4()
+A5.method5()
+A6.method6()
+A7.method7()
+A8.method8()
+A9.method9()
+A10.method10()
+A11.method11()
+A12.method12()
+A13.method13()
+A14.method14()
+A15.method15()
+A16.method16()
+A17.method17()
+A18.method18()
+A19.method19()
+B.extra()",
+  "title": "Checkout",
+}
+
++ Received: 
+null
+
+ ❯ functions/agent-link/oauth/headlessWrite.spec.ts:269:56
+    267|     const dsl = `${CURRENT_DSL}\nB.extra()`;
+    268|     const out = await callHeadlessTool('update_diagram', { cloudId: CL…
+    269|     expect(extractDiagram({ structuredContent: out })).toEqual({ diagr…
+       |                                                        ^
+    270|   }, GUARD_TIMEOUT_MS);
+    271| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  functions/agent-link/oauth/headlessWrite.spec.ts > create_diagram > returns the new diagram in the shape the view draws
+AssertionError: expected null to deeply equal { diagramType: 'mermaid', …(2) }
+
+- Expected: 
+Object {
+  "diagramType": "mermaid",
+  "dsl": "flowchart LR
+ A --> B",
+  "title": "Flow",
+}
+
++ Received: 
+null
+
+ ❯ functions/agent-link/oauth/headlessWrite.spec.ts:534:56
+    532|       ctx,
+    533|     );
+    534|     expect(extractDiagram({ structuredContent: out })).toEqual({
+       |                                                        ^
+    535|       diagramType: 'mermaid',
+    536|       dsl: 'flowchart LR\n A --> B',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+ Test Files  3 failed (3)
+      Tests  4 failed | 114 passed (118)
+   Start at  09:56:19
+   Duration  4.35s (transform 665ms, setup 74ms, collect 1.20s, tests 4.44s, environment 1.72s, prepare 263ms)
+

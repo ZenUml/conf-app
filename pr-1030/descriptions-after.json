@@ -1,0 +1,42 @@
+{
+  "list_sites": {
+    "description": "List the Confluence sites your ZenUML authorization can reach, each with the cloudId that identifies it. Read-only.",
+    "mentions": []
+  },
+  "list_diagrams": {
+    "description": "List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Read-only.",
+    "mentions": []
+  },
+  "read_diagram": {
+    "description": "Read one diagram by its contentId: its title, diagramType, version, and complete source (the DSL or spec text), and show it to the user. Read-only.",
+    "mentions": []
+  },
+  "read_page": {
+    "description": "Read a Confluence page: its title, version, space, and body in Confluence storage format. Read-only.",
+    "mentions": []
+  },
+  "create_page": {
+    "description": "Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML), documented at https://confluence.atlassian.com/doc/confluence-storage-format-790796544.html: paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.",
+    "mentions": []
+  },
+  "update_page": {
+    "description": "Replace a page’s body, and optionally its title. Send the COMPLETE new body in Confluence storage format (https://confluence.atlassian.com/doc/confluence-storage-format-790796544.html) — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.",
+    "mentions": []
+  },
+  "get_status": {
+    "description": "Which mode this connection is in, who it acts as, and which ZenUML app each reachable site runs. Read-only.",
+    "mentions": []
+  },
+  "update_diagram": {
+    "description": "Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, update it again with the source it had before the change. To rename only, send the unchanged source with the new `title`. Shows the updated diagram to the user.",
+    "mentions": []
+  },
+  "create_diagram": {
+    "description": "Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version, and shows the diagram to the user. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).",
+    "mentions": []
+  },
+  "render_diagram": {
+    "description": "Draw a diagram from its source and show it to the user. Nothing is saved anywhere. The source may be a ZenUML sequence diagram, Mermaid, PlantUML (@startuml … @enduml), draw.io / diagrams.net XML, or an OpenAPI or Swagger spec (YAML or JSON). diagramType is optional: leave it out and the language is detected from the source (a source with no recognised header is read as ZenUML), or pass it to be explicit. The result says which type was used and whether the source parsed; when it did not, it lists the errors with line and column, so fix them and call again.",
+    "mentions": []
+  }
+}

@@ -1,0 +1,19 @@
+test
+Building v2026.10.221938-full (3ad07bc86) on claude/eager-euler-kf4ioo
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 /home/user/conf-app
+
+ ✓ functions/agent-link/oauth/headlessMcp.spec.ts (45 tests) 230ms
+ ✓ functions/agent-link/renderMcp.spec.ts (28 tests) 1356ms
+   ✓ POST /mcp/render > normalises the type name, so "Mermaid" is drawn as mermaid 696ms
+ ✓ functions/agent-link/oauth/headlessWrite.spec.ts (45 tests) 3392ms
+   ✓ update_diagram > writes a new version and preserves fields it did not set 481ms
+   ✓ source field per diagram type > reads and updates an app-written mermaid diagram through mermaidCode, not its stale code 559ms
+   ✓ write analytics > records on update_diagram whether the call renamed the diagram (#789) 422ms
+
+ Test Files  3 passed (3)
+      Tests  118 passed (118)
+   Start at  09:56:25
+   Duration  4.84s (transform 657ms, setup 122ms, collect 1.05s, tests 4.98s, environment 1.89s, prepare 342ms)
+

@@ -844,6 +844,9 @@ export type AnalyticsProperties = {
   cache_state?: CacheState;
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
+  // Full only: Forge `license.active` at render time. Absent on other variants
+  // and whenever Forge supplies no boolean; Forge also reports false for free apps.
+  license_active?: boolean;
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.

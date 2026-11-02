@@ -35,7 +35,7 @@ permissions:
 jobs:
   export-modal:
     name: "Export modal (standalone dev server)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The suite takes about 5.5 min once dependencies are in. 20 min leaves room for a
     # cold pnpm store and a cold Playwright browser download.
     timeout-minutes: 20

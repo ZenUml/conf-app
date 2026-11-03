@@ -1,0 +1,18 @@
+
+> confluence-plugin@1.1.0 test:unit <candidate-worktree>
+> vitest --run src/mcp-app-view.spec.ts src/utils/fonts/configureDiagramFonts.spec.ts
+
+test
+Building v2026.11.022053-full (c5d13e68) on codex/mcp-csp-fonts
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 <candidate-worktree>
+
+ ✓ src/utils/fonts/configureDiagramFonts.spec.ts (1 test) 1ms
+ ✓ src/mcp-app-view.spec.ts (31 tests) 666ms
+
+ Test Files  2 passed (2)
+      Tests  32 passed (32)
+   Start at  08:32:13
+   Duration  1.55s (transform 75ms, setup 35ms, collect 90ms, tests 667ms, environment 794ms, prepare 146ms)
+

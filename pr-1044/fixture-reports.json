@@ -1,0 +1,21 @@
+{
+  "current": [
+    {
+      "kind": "csp",
+      "directive": "font-src",
+      "blocked": "data",
+      "source": "zenuml-BbWv30VH.js",
+      "line": 3377
+    },
+    {
+      "kind": "ready",
+      "text": "Click to add titlelogin()1authenticate()1.1token1.1.1success1.2UserWebAppAuth"
+    }
+  ],
+  "candidate": [
+    {
+      "kind": "ready",
+      "text": "Click to add titlelogin()1authenticate()1.1token1.1.1success1.2UserWebAppAuth"
+    }
+  ]
+}

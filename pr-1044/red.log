@@ -1,0 +1,40 @@
+
+> confluence-plugin@1.1.0 test:unit <candidate-worktree>
+> vitest --run src/mcp-app-view.spec.ts
+
+test
+Building v2026.11.022053-full (c5d13e68) on codex/mcp-csp-fonts
+[vite] VITE_MIXPANEL_TOKEN is empty — analytics events will be dropped. Set the env var or populate .env.mixpanel.
+
+ RUN  v2.1.9 <candidate-worktree>
+
+ ❯ src/mcp-app-view.spec.ts (31 tests | 1 failed) 1687ms
+   × drawing a Sequence result > configures hosted fonts before the first render in the host sandbox 1066ms
+     → expected 'Could not draw the diagram: expected …' to be '' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/mcp-app-view.spec.ts > drawing a Sequence result > configures hosted fonts before the first render in the host sandbox
+AssertionError: expected 'Could not draw the diagram: expected …' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ Could not draw the diagram: expected [] to deeply equal [ …(2) ]
+
+ ❯ src/mcp-app-view.spec.ts:296:80
+    294|       'Alice->Bob.hello()', { theme: 'theme-default', stickyOffset: fa…
+    295|     ));
+    296|     await vi.waitFor(() => expect(document.querySelector('#app')?.text…
+       |                                                                                ^
+    297|   });
+    298| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 30 passed (31)
+   Start at  08:31:58
+   Duration  2.67s (transform 62ms, setup 19ms, collect 61ms, tests 1.69s, environment 427ms, prepare 140ms)
+
+ ELIFECYCLE  Command failed with exit code 1.

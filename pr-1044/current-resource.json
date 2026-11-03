@@ -1,0 +1,9 @@
+{
+  "result": {
+    "contents": [
+      {
+        "text": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>ZenUML diagram</title>\n    <!-- Proves to functions/agent-link/oauth/mcpApps.ts that it fetched THIS\n         page and not the SPA shell, which Cloudflare Pages serves with a 200\n         for any unknown path. Removing it disables the view. -->\n    <meta name=\"mcp-app\" content=\"zenuml-diagram\">\n    <script type=\"module\" crossorigin src=\"https://conf-lite.zenuml.com/mcp-app/assets/view-Bup1lZxU.js\"></script>\n    <link rel=\"modulepreload\" crossorigin href=\"https://conf-lite.zenuml.com/mcp-app/assets/runtime-B2SHg1nR.js\">\n  </head>\n  <body>\n    <!-- The MCP Apps view (functions/agent-link/oauth/mcpApps.ts serves this\n         file's built output as the ui://zenuml/diagram resource body). Built\n         by vite.mcp-app.config.mjs, not the app build, so the hashed script\n         reference below always matches the bundle actually deployed. -->\n    <div id=\"app\"></div>\n  </body>\n</html>\n"
+      }
+    ]
+  }
+}

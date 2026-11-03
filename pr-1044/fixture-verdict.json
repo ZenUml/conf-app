@@ -1,0 +1,6 @@
+{
+  "current": "Rendered with font-src data violation",
+  "candidate": "Rendered with zero captured CSP/JS violations",
+  "candidateHead": "33c843ebdf6d1bdcd7f764459af291e7134c646e",
+  "scope": "Local restrictive iframe uses actual built MCP renderer; not a ChatGPT production acceptance claim"
+}

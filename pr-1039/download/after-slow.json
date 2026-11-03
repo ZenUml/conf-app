@@ -1,0 +1,119 @@
+[
+  {
+    "type": "sequence",
+    "kbps": 400,
+    "drawnMs": 17287,
+    "statuses": [
+      "Loading the renderer…"
+    ],
+    "files": 4,
+    "totals": {
+      "raw": 3288408,
+      "br": 823072
+    },
+    "responses": [
+      {
+        "url": "/mcp-app/view.html",
+        "raw": 981,
+        "br": 529
+      },
+      {
+        "url": "/mcp-app/assets/runtime-B2SHg1nR.js",
+        "raw": 1978,
+        "br": 986
+      },
+      {
+        "url": "/mcp-app/assets/view-DKpR_DVX.js",
+        "raw": 8668,
+        "br": 3354
+      },
+      {
+        "url": "/mcp-app/assets/zenuml-Dr5v-IF3.js",
+        "raw": 3276781,
+        "br": 818203
+      }
+    ],
+    "screenshot": "after/slow-sequence.png"
+  },
+  {
+    "type": "mermaid",
+    "kbps": 400,
+    "drawnMs": 5203,
+    "statuses": [
+      "Loading the renderer…"
+    ],
+    "files": 13,
+    "totals": {
+      "raw": 798898,
+      "br": 209396
+    },
+    "responses": [
+      {
+        "url": "/mcp-app/view.html",
+        "raw": 981,
+        "br": 529
+      },
+      {
+        "url": "/mcp-app/assets/runtime-B2SHg1nR.js",
+        "raw": 1978,
+        "br": 986
+      },
+      {
+        "url": "/mcp-app/assets/view-DKpR_DVX.js",
+        "raw": 8668,
+        "br": 3354
+      },
+      {
+        "url": "/mcp-app/assets/shared-mermaid-openapi-r8glNMJW.js",
+        "raw": 22576,
+        "br": 8905
+      },
+      {
+        "url": "/mcp-app/assets/mermaid.core-9zml3zFI.js",
+        "raw": 653539,
+        "br": 156771
+      },
+      {
+        "url": "/mcp-app/assets/chunk-5VM5RSS4-BQuqYg3q.js",
+        "raw": 366,
+        "br": 234
+      },
+      {
+        "url": "/mcp-app/assets/chunk-XXDRQBXY-BwAj99XC.js",
+        "raw": 230,
+        "br": 184
+      },
+      {
+        "url": "/mcp-app/assets/chunk-POPQ4Y6H-CXgu_ayn.js",
+        "raw": 506,
+        "br": 355
+      },
+      {
+        "url": "/mcp-app/assets/chunk-F27PBJKO-C0XwzTfO.js",
+        "raw": 1883,
+        "br": 827
+      },
+      {
+        "url": "/mcp-app/assets/channel-kfWlkI37.js",
+        "raw": 115,
+        "br": 109
+      },
+      {
+        "url": "/mcp-app/assets/flowDiagram-HODETNUW--BHudR1Q.js",
+        "raw": 61897,
+        "br": 19872
+      },
+      {
+        "url": "/mcp-app/assets/dagre-GXQ25YYZ-Cnah1csW.js",
+        "raw": 10723,
+        "br": 4131
+      },
+      {
+        "url": "/mcp-app/assets/layout-Dp1jIFIK.js",
+        "raw": 35436,
+        "br": 13139
+      }
+    ],
+    "screenshot": "after/slow-mermaid.png"
+  }
+]

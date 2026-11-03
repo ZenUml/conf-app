@@ -1,0 +1,6 @@
+GET /.well-known/oauth-protected-resource/mcp/render -> 200 text/html; charset=utf-8 :: <!DOCTYPE html> <html lang="en"> <head>   <script>window.__macroLoadStart = performance.now();</script>   <tit
+GET /.well-known/oauth-protected-resource/agent-link/mcp -> 200 text/html; charset=utf-8 :: <!DOCTYPE html> <html lang="en"> <head>   <script>window.__macroLoadStart = performance.now();</script>   <tit
+GET /.well-known/oauth-protected-resource -> 200 application/json :: {"resource":"https://conf-stg-lite.zenuml.com/agent-link/mcp","authorization_servers":["https://conf-stg-lite.
+GET /.well-known/oauth-authorization-server -> 200 application/json :: {"issuer":"https://conf-stg-lite.zenuml.com","authorization_endpoint":"https://conf-stg-lite.zenuml.com/agent-
+GET /.well-known/oauth-authorization-server/mcp/render -> 200 text/html; charset=utf-8 :: <!DOCTYPE html> <html lang="en"> <head>   <script>window.__macroLoadStart = performance.now();</script>   <tit
+POST /agent-link/mcp (no token) -> 401 www-authenticate: Bearer resource_metadata="https://conf-stg-lite.zenuml.com/.well-known/oauth-protected-resource"

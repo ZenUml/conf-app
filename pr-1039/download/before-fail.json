@@ -1,0 +1,79 @@
+[
+  {
+    "type": "sequence",
+    "kbps": 0,
+    "drawnMs": null,
+    "statuses": [
+      "Could not draw the diagram: Failed to fetch dynamically imported module: http://127.0.0.1:47362/mcp-app/assets/zenuml-Dr5v-IF3.js"
+    ],
+    "files": 4,
+    "totals": {
+      "raw": 9147,
+      "br": 4057
+    },
+    "responses": [
+      {
+        "url": "/mcp-app/view.html",
+        "raw": 981,
+        "br": 528
+      },
+      {
+        "url": "/mcp-app/assets/view-zTMFzM6Q.js",
+        "raw": 6188,
+        "br": 2542
+      },
+      {
+        "url": "/mcp-app/assets/runtime-B2SHg1nR.js",
+        "raw": 1978,
+        "br": 986
+      },
+      {
+        "url": "/mcp-app/assets/zenuml-Dr5v-IF3.js",
+        "raw": 0,
+        "br": 1
+      }
+    ],
+    "screenshot": "before-fail/fail-sequence.png"
+  },
+  {
+    "type": "mermaid",
+    "kbps": 0,
+    "drawnMs": 1320,
+    "statuses": [
+      "Loading the diagram…"
+    ],
+    "files": 5,
+    "totals": {
+      "raw": 3419041,
+      "br": 889938
+    },
+    "responses": [
+      {
+        "url": "/mcp-app/view.html",
+        "raw": 981,
+        "br": 528
+      },
+      {
+        "url": "/mcp-app/assets/view-zTMFzM6Q.js",
+        "raw": 6188,
+        "br": 2542
+      },
+      {
+        "url": "/mcp-app/assets/runtime-B2SHg1nR.js",
+        "raw": 1978,
+        "br": 986
+      },
+      {
+        "url": "/mcp-app/assets/shared-mermaid-openapi-r8glNMJW.js",
+        "raw": 22576,
+        "br": 8905
+      },
+      {
+        "url": "/mcp-app/assets/mermaid-CYk71iOx.js",
+        "raw": 3387318,
+        "br": 876977
+      }
+    ],
+    "screenshot": "before-fail/fail-mermaid.png"
+  }
+]

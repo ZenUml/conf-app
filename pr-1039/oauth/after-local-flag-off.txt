@@ -1,0 +1,6 @@
+GET /.well-known/oauth-protected-resource/mcp/render -> 404 application/json :: {"error":"not_found","error_description":"No OAuth metadata at this path."}
+GET /.well-known/oauth-protected-resource/agent-link/mcp -> 200 application/json :: {"resource":"http://127.0.0.1:8799/agent-link/mcp","authorization_servers":["http://127.0.0.1:8799"],"bearer_m
+GET /.well-known/oauth-protected-resource -> 404 application/json :: {"error":"not_found","error_description":"No OAuth metadata at this path."}
+GET /.well-known/oauth-authorization-server -> 200 application/json :: {"issuer":"http://127.0.0.1:8799","authorization_endpoint":"http://127.0.0.1:8799/agent-link/oauth/authorize",
+GET /.well-known/oauth-authorization-server/mcp/render -> 404 application/json :: {"error":"not_found","error_description":"No OAuth metadata at this path."}
+POST /agent-link/mcp (no token) -> 503 

@@ -1,0 +1,44 @@
+[
+  {
+    "path": "/mcp-app/assets/view-DVXZhvAQ.js",
+    "status": 200,
+    "mime": "application/javascript",
+    "started": "2026-11-03T22:03:32.076Z",
+    "error": null
+  },
+  {
+    "path": "/mcp-app/assets/runtime-B2SHg1nR.js",
+    "status": 200,
+    "mime": "application/javascript",
+    "started": "2026-11-03T22:03:32.076Z",
+    "error": null
+  },
+  {
+    "path": "/mcp-app/assets/zenuml-DJxDjw49.js",
+    "status": 200,
+    "mime": "application/javascript",
+    "started": "2026-11-03T22:03:32.619Z",
+    "error": null
+  },
+  {
+    "path": "/mcp-app/assets/configureDiagramFonts-Ddy792Zi.js",
+    "status": 200,
+    "mime": "application/javascript",
+    "started": "2026-11-03T22:03:33.244Z",
+    "error": null
+  },
+  {
+    "path": "/mcp-app/assets/IBMPlexSans-Regular-Latin1-BUjEsRx4.woff2",
+    "status": 200,
+    "mime": "font/woff2",
+    "started": "2026-11-03T22:03:33.558Z",
+    "error": null
+  },
+  {
+    "path": "/mcp-app/assets/MS-Sans-Serif-BTn84B5r.ttf",
+    "status": 200,
+    "mime": "font/ttf",
+    "started": "2026-11-03T22:03:33.558Z",
+    "error": null
+  }
+]

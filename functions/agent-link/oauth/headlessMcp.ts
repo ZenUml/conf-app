@@ -29,7 +29,7 @@ import { mixpanelTrack } from '../../service/mixpanelService';
 import { loadClient, type McpTokenRecord } from './asStore';
 import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
-import { issuerFor } from './asMetadata';
+import { originFor } from './asMetadata';
 import { json } from '../../OkResponse';
 
 /**
@@ -476,7 +476,7 @@ export async function handleHeadlessRpc(
   let auth;
   try {
     auth = await authenticateHeadless(request, store, now(),
-      env.DB && env.OAUTH_GRANT_SECRET ? createRefreshLedger(env.DB as never, env.OAUTH_GRANT_SECRET, issuerFor(request.url)) : undefined);
+      env.DB && env.OAUTH_GRANT_SECRET ? createRefreshLedger(env.DB as never, env.OAUTH_GRANT_SECRET, originFor(request.url)) : undefined);
   } catch {
     return error(503, id, RPC_AUTH_ERROR, 'Headless authorization is temporarily unavailable.');
   }

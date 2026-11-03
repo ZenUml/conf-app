@@ -48,6 +48,12 @@ export interface OAuthEnv {
   ATLASSIAN_OAUTH_REDIRECT_URI?: string;
   OAUTH_GRANT_KV?: GrantStore;
   OAUTH_GRANT_SECRET?: string;
+  /**
+   * 'off' moves the authorization server's issuer to `<origin>/agent-link`
+   * and retires the root RFC 8414 document (#1038). See asMetadata.ts
+   * issuerFor and discovery.ts.
+   */
+  OAUTH_ROOT_AS_METADATA?: string;
   DB?: D1Database;
 }
 

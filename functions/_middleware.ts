@@ -24,6 +24,8 @@ interface Env extends OpenAiAppsChallengeEnv {
   SENTRY_DSN?: string;
   /** 'off' stops serving the agent-link document at the bare RFC 9728 path (#1038). */
   OAUTH_ROOT_RESOURCE_METADATA?: string;
+  /** 'off' moves the OAuth issuer to <origin>/agent-link and retires the root RFC 8414 document (#1038). */
+  OAUTH_ROOT_AS_METADATA?: string;
 }
 
 export const AUTHENTICATED_PATHS = [
@@ -120,6 +122,7 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     // to be able to read them to find out how to authenticate.
     const discovery = oauthDiscoveryResponse(request.url, {
       rootResourceMetadata: env.OAUTH_ROOT_RESOURCE_METADATA,
+      rootAsMetadata: env.OAUTH_ROOT_AS_METADATA,
     });
     if (discovery) return discovery;
 

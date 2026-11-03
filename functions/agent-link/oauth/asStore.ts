@@ -76,6 +76,13 @@ export interface PendingAuthorization {
    * and the site.
    */
   recognised?: boolean;
+  /**
+   * The issuer this authorization was started under, so the `iss` on its
+   * response (RFC 9207) matches the metadata the client read, even if the
+   * issuer flag flips while it is parked. Absent on records parked before
+   * #1038; those belong to the bare-origin issuer.
+   */
+  issuer?: string;
 }
 
 export interface IssuedCode {

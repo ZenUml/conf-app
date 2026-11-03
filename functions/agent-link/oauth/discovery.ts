@@ -30,11 +30,35 @@
 // still depend on it, so turning it off is a separate, flagged step
 // (OAUTH_ROOT_RESOURCE_METADATA=off) to be tested on staging first.
 //
-// The authorization server's issuer is the bare origin, so its RFC 8414
-// document correctly lives at the root. Path-suffixed requests under that
-// prefix get the same JSON 404.
+// THE ISSUER MOVES TO A PATH (#1038, second round). Even with both
+// protected-resource documents gone, Codex still found the root RFC 8414
+// document and fell back to it (MCP 2025-03-26 behaviour), so a client adding
+// /mcp/render or /mcp started an OAuth flow it could not finish. With
+// OAUTH_ROOT_AS_METADATA=off the issuer becomes `<origin>/agent-link`:
+//
+//   /.well-known/oauth-authorization-server/agent-link → its RFC 8414 document,
+//                                                        always served
+//   /.well-known/oauth-authorization-server            → JSON 404 when the flag
+//                                                        is off, else the
+//                                                        bare-origin document
+//   /.well-known/oauth-authorization-server/<other>    → JSON 404
+//
+// and both protected-resource documents name the path-based issuer. The
+// flag moves the documents and the `iss` of new authorizations
+// (authServer.ts) together, because a client checks one against the other.
+// The endpoints themselves do not move, and refresh tokens stay keyed on the
+// origin, so a client that cached the old metadata keeps refreshing.
 
-import { AS_METADATA_PATH, MCP_PATH, buildAuthServerMetadata, buildResourceMetadata, issuerFor } from './asMetadata';
+import {
+  AGENT_LINK_AS_METADATA_PATH,
+  AS_METADATA_PATH,
+  MCP_PATH,
+  buildAuthServerMetadata,
+  buildResourceMetadata,
+  issuerFor,
+  originFor,
+  pathIssuerEnabled,
+} from './asMetadata';
 import { PROTECTED_RESOURCE_METADATA_PATH } from './protectedResource';
 import { json } from '../../OkResponse';
 
@@ -56,6 +80,11 @@ export interface DiscoveryOptions {
    * Comes from the `OAUTH_ROOT_RESOURCE_METADATA` environment variable.
    */
   rootResourceMetadata?: string;
+  /**
+   * 'off' moves the issuer to `<origin>/agent-link` and answers the root
+   * RFC 8414 document with a JSON 404. From `OAUTH_ROOT_AS_METADATA`.
+   */
+  rootAsMetadata?: string;
 }
 
 function notFound(): Response {
@@ -75,16 +104,25 @@ function notFound(): Response {
  */
 export function oauthDiscoveryResponse(url: string, opts: DiscoveryOptions = {}): Response | null {
   const { pathname } = new URL(url);
-  const origin = issuerFor(url);
+  const origin = originFor(url);
+  const pathIssuer = pathIssuerEnabled({ OAUTH_ROOT_AS_METADATA: opts.rootAsMetadata });
+  const issuer = issuerFor(url, pathIssuer);
 
   if (pathname === AGENT_LINK_RESOURCE_METADATA_PATH) {
-    return json(buildResourceMetadata(origin), { headers: HEADERS });
+    return json(buildResourceMetadata(origin, issuer), { headers: HEADERS });
   }
   if (pathname === PROTECTED_RESOURCE_METADATA_PATH) {
     if (opts.rootResourceMetadata === 'off') return notFound();
-    return json(buildResourceMetadata(origin), { headers: HEADERS });
+    return json(buildResourceMetadata(origin, issuer), { headers: HEADERS });
+  }
+  if (pathname === AGENT_LINK_AS_METADATA_PATH) {
+    // Always the path-based issuer's document: RFC 8414 §3.3 requires the
+    // `issuer` to match the URL it was fetched from. Nothing points here until
+    // the flag is off, so serving it early only lets staging be checked.
+    return json(buildAuthServerMetadata(origin, issuerFor(url, true)), { headers: HEADERS });
   }
   if (pathname === AS_METADATA_PATH) {
+    if (pathIssuer) return notFound();
     return json(buildAuthServerMetadata(origin), { headers: HEADERS });
   }
   if (

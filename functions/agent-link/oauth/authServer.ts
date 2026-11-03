@@ -36,6 +36,7 @@ import {
   CONSENT_PATH,
   DEFAULT_MCP_SCOPE,
   issuerFor,
+  originFor,
   MCP_SCOPES,
   resourceFor,
 } from './asMetadata';
@@ -81,6 +82,8 @@ export interface AsDeps {
   /** Told when a refresh chain is revoked, for analytics. Must not throw into the response. */
   onChainRevoked?: (event: { reason: ChainRevokeReason; userId: string; clientId: string }) => void | Promise<void>;
   onRefreshCompleted?: (event: { outcome: 'rotated' | 'retried' | 'rejected' | 'unavailable'; reason?: string; userId?: string; reuseAgeMs?: number }) => void | Promise<void>;
+  /** The path-based issuer `<origin>/agent-link` is in use (asMetadata.ts pathIssuerEnabled). */
+  pathIssuer?: boolean;
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
@@ -211,9 +214,13 @@ function authorizationResponse(redirectUri: string, issuer: string, params: Reco
   return Response.redirect(target.toString(), 302);
 }
 
-/** The issuer a parked authorization belongs to. Its resource is always ours (validateAuthorize), so its origin is the issuer. */
+/**
+ * The issuer a parked authorization belongs to: the one recorded when it was
+ * parked. A record from before #1038 has none, and belongs to the bare-origin
+ * issuer; its resource is always ours (validateAuthorize), so its origin.
+ */
 function issuerOf(pending: PendingAuthorization): string {
-  return issuerFor(pending.resource);
+  return pending.issuer ?? originFor(pending.resource);
 }
 
 function requestedScope(raw: string | null): string | null {
@@ -251,9 +258,10 @@ export async function validateAuthorize(request: Request, deps: AsDeps): Promise
   }
 
   const state = q.get('state') ?? undefined;
+  const issuer = issuerFor(url, deps.pathIssuer);
   const fail = (error: string, description: string): AuthorizeResult => ({
     ok: false,
-    response: authorizationResponse(redirectUri, issuerFor(url), { error, error_description: description, state }),
+    response: authorizationResponse(redirectUri, issuer, { error, error_description: description, state }),
   });
 
   if (q.get('response_type') !== 'code') return fail('unsupported_response_type', 'only response_type=code is supported');
@@ -289,6 +297,7 @@ export async function validateAuthorize(request: Request, deps: AsDeps): Promise
     scope,
     resource,
     createdAtMs: now,
+    issuer,
   };
   const pendingId = randomToken();
   await savePending(deps.store, pendingId, pending);

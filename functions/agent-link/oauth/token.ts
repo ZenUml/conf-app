@@ -5,7 +5,7 @@ import { handleToken } from './authServer';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
 import { mixpanelTrack } from '../../service/mixpanelService';
 import { createRefreshLedger } from './refreshLedger';
-import { issuerFor } from './asMetadata';
+import { originFor } from './asMetadata';
 import type { D1Database } from '@cloudflare/workers-types';
 import { json } from '../../OkResponse';
 
@@ -33,7 +33,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, waitUnti
   const { store, secret } = loadGrantStore(env);
   return handleToken(request, {
     store,
-    refreshLedger: createRefreshLedger(env.DB as never, secret, issuerFor(request.url)),
+    // Keyed on the origin, not the issuer: the issuer can move to a path
+    // (OAUTH_ROOT_AS_METADATA=off, #1038) and existing refresh tokens must
+    // still be found and decrypted after it does.
+    refreshLedger: createRefreshLedger(env.DB as never, secret, originFor(request.url)),
     onRefreshCompleted: ({ outcome, reason, userId, reuseAgeMs }) => {
       if (!env.MIXPANEL_TOKEN) return;
       waitUntil(mixpanelTrack({

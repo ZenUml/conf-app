@@ -18,6 +18,22 @@ import { buildProtectedResourceMetadata, type ProtectedResourceMetadata } from '
 /** RFC 8414 §3: the document lives at this path, relative to the issuer. */
 export const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
 
+/**
+ * The path of the path-based issuer, `<origin>/agent-link` (#1038).
+ *
+ * The bare-origin issuer put the authorization server's RFC 8414 document at
+ * the origin's root, where any MCP client probing the sign-in-free /mcp or
+ * /mcp/render on the same origin found it and started an OAuth flow it
+ * could not finish (Codex: "OAuth provider rejected discovered scopes"). With
+ * the issuer at a path, RFC 8414 §3.1 puts its document at
+ * /.well-known/oauth-authorization-server/agent-link, which only a client
+ * told about this issuer (by agent-link's protected-resource document) reads.
+ */
+export const ISSUER_PATH = '/agent-link';
+
+/** Where the path-based issuer's RFC 8414 document lives (§3.1: well-known prefix, then the issuer's path). */
+export const AGENT_LINK_AS_METADATA_PATH = `${AS_METADATA_PATH}${ISSUER_PATH}`;
+
 export const AUTHORIZE_PATH = '/agent-link/oauth/authorize';
 export const TOKEN_PATH = '/agent-link/oauth/token';
 export const REGISTER_PATH = '/agent-link/oauth/register';
@@ -58,18 +74,45 @@ export interface AuthServerMetadata {
   service_documentation?: string;
 }
 
-/** The issuer is the bare origin — no path, no trailing slash (RFC 8414 §2). */
-export function issuerFor(requestUrl: string | URL): string {
+/** The request's origin: the base of every endpoint URL, and of the resource URI. */
+export function originFor(requestUrl: string | URL): string {
   return new URL(requestUrl).origin;
 }
 
-export function resourceFor(requestUrl: string | URL): string {
-  return `${issuerFor(requestUrl)}${MCP_PATH}`;
+/**
+ * The issuer identifier (RFC 8414 §2: https, no query, no trailing slash).
+ *
+ * The bare origin until `pathIssuer` is on, then `<origin>/agent-link`. The
+ * two must never be mixed within one flow: the `iss` an authorization
+ * response carries (RFC 9207) has to equal the `issuer` of the document the
+ * client discovered, so the switch moves the metadata documents and `iss`
+ * together (`OAUTH_ROOT_AS_METADATA=off`, see discovery.ts).
+ *
+ * NOT the refresh ledger's namespace: that stays the bare origin
+ * (originFor), so existing refresh tokens keep working across the switch.
+ */
+export function issuerFor(requestUrl: string | URL, pathIssuer = false): string {
+  const origin = originFor(requestUrl);
+  return pathIssuer ? `${origin}${ISSUER_PATH}` : origin;
 }
 
-export function buildAuthServerMetadata(origin: string): AuthServerMetadata {
+/** Whether the path-based issuer is on: the same flag that retires the root RFC 8414 document. */
+export function pathIssuerEnabled(env: { OAUTH_ROOT_AS_METADATA?: string } | undefined): boolean {
+  return env?.OAUTH_ROOT_AS_METADATA === 'off';
+}
+
+export function resourceFor(requestUrl: string | URL): string {
+  return `${originFor(requestUrl)}${MCP_PATH}`;
+}
+
+/**
+ * RFC 8414 metadata for `issuer`. The endpoints stay at their URLs on
+ * `origin` whichever issuer is in use: they are absolute, and a client
+ * reads them from this document rather than deriving them from the issuer.
+ */
+export function buildAuthServerMetadata(origin: string, issuer: string = origin): AuthServerMetadata {
   return {
-    issuer: origin,
+    issuer,
     authorization_endpoint: `${origin}${AUTHORIZE_PATH}`,
     token_endpoint: `${origin}${TOKEN_PATH}`,
     registration_endpoint: `${origin}${REGISTER_PATH}`,
@@ -88,13 +131,13 @@ export function buildAuthServerMetadata(origin: string): AuthServerMetadata {
   };
 }
 
-export function buildResourceMetadata(origin: string): ProtectedResourceMetadata {
+export function buildResourceMetadata(origin: string, issuer: string = origin): ProtectedResourceMetadata {
   return buildProtectedResourceMetadata({
     resource: `${origin}${MCP_PATH}`,
     // We are our own authorization server (ADR 0008 Decision 1), so the issuer
-    // here is this same origin — never auth.atlassian.com, which would be the
-    // token passthrough the MCP spec forbids.
-    authorizationServers: [origin],
+    // here is on this same origin — never auth.atlassian.com, which would be
+    // the token passthrough the MCP spec forbids.
+    authorizationServers: [issuer],
     scopesSupported: [...MCP_SCOPES],
   });
 }

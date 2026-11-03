@@ -20,6 +20,7 @@
 import { handleAuthorize } from './atlassianLeg';
 import { completeAuthorization, hasConsent, redirectToConsent, validateAuthorize } from './authServer';
 import { loadAppConfig, loadGrantStore, type OAuthEnv } from './appConfig';
+import { pathIssuerEnabled } from './asMetadata';
 import { getAccessToken } from './tokenStore';
 import {
   clearReturningUserCookie,
@@ -126,7 +127,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const { store } = loadGrantStore(env);
-  const result = await validateAuthorize(request, { store });
+  const result = await validateAuthorize(request, { store, pathIssuer: pathIssuerEnabled(env) });
   if (!result.ok) return result.response;
 
   // The parked authorization's id becomes the Atlassian `state`: one value to

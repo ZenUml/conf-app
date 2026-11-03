@@ -25,6 +25,10 @@ EXPECTED_FORGE_ENVIRONMENT_TYPE = "STAGING"
 # agent-link sign-in in Claude.ai, Codex, VS Code Copilot and ChatGPT before
 # production. functions/agent-link/oauth/discovery.ts reads it.
 OAUTH_ROOT_RESOURCE_METADATA = "off"
+# Move the OAuth issuer to <origin>/agent-link and retire the root RFC 8414
+# document, so nothing at the origin's root advertises OAuth for the
+# sign-in-free /mcp and /mcp/render (#1038). Staging only, like the line above.
+OAUTH_ROOT_AS_METADATA = "off"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is injected into [vars] at deploy time by wrangler-publish
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_STG
 
@@ -49,6 +53,10 @@ EXPECTED_FORGE_ENVIRONMENT_TYPE = "STAGING"
 # agent-link sign-in in Claude.ai, Codex, VS Code Copilot and ChatGPT before
 # production. functions/agent-link/oauth/discovery.ts reads it.
 OAUTH_ROOT_RESOURCE_METADATA = "off"
+# Move the OAuth issuer to <origin>/agent-link and retire the root RFC 8414
+# document, so nothing at the origin's root advertises OAuth for the
+# sign-in-free /mcp and /mcp/render (#1038). Staging only, like the line above.
+OAUTH_ROOT_AS_METADATA = "off"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is injected into [vars] at deploy time by wrangler-publish
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_STG
 

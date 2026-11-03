@@ -20,7 +20,7 @@ import {
 } from './asStore';
 import { challengeFor } from './pkce';
 import { REGISTER_LIMIT } from './asStore';
-import { buildAuthServerMetadata, buildResourceMetadata, resourceFor } from './asMetadata';
+import { buildAuthServerMetadata, buildResourceMetadata, issuerFor, originFor, pathIssuerEnabled, resourceFor } from './asMetadata';
 import { oauthDiscoveryResponse } from './discovery';
 
 const ORIGIN = 'https://conf-stg-lite.zenuml.com';
@@ -562,5 +562,128 @@ describe('per-resource discovery (#1038)', () => {
 
   it('does not treat a lookalike prefix as discovery', () => {
     expect(oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource-x`)).toBeNull();
+  });
+});
+
+// #1038, second round: the issuer moves to <origin>/agent-link behind
+// OAUTH_ROOT_AS_METADATA=off, so nothing at the origin's root advertises OAuth
+// for the sign-in-free /mcp and /mcp/render. One test per URL of the PR's
+// before/after table, then the flow pieces that must agree with it.
+describe('path-based issuer (#1038)', () => {
+  const PATH_ISSUER = `${ORIGIN}/agent-link`;
+  const OFF = { rootAsMetadata: 'off' };
+  async function doc(path: string, opts = {}) {
+    const res = oauthDiscoveryResponse(`${ORIGIN}${path}`, opts)!;
+    expect(res).not.toBeNull();
+    expect(res.headers.get('content-type')).toContain('application/json');
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it('reads the flag as on only for exactly "off"', () => {
+    expect(pathIssuerEnabled({ OAUTH_ROOT_AS_METADATA: 'off' })).toBe(true);
+    for (const v of [undefined, '', 'on', 'OFF']) expect(pathIssuerEnabled({ OAUTH_ROOT_AS_METADATA: v })).toBe(false);
+    expect(pathIssuerEnabled(undefined)).toBe(false);
+  });
+
+  it('/.well-known/oauth-authorization-server: the bare-origin document by default, a JSON 404 with the flag off', async () => {
+    const before = await doc('/.well-known/oauth-authorization-server');
+    expect(before.status).toBe(200);
+    expect(before.body.issuer).toBe(ORIGIN);
+    const after = await doc('/.well-known/oauth-authorization-server', OFF);
+    expect(after.status).toBe(404);
+    expect(after.body.error).toBe('not_found');
+  });
+
+  it('/.well-known/oauth-authorization-server/agent-link: the path issuer\'s document, whatever the flag, with unchanged endpoints', async () => {
+    const root = (await doc('/.well-known/oauth-authorization-server')).body;
+    for (const opts of [{}, OFF]) {
+      const { status, body } = await doc('/.well-known/oauth-authorization-server/agent-link', opts);
+      expect(status).toBe(200);
+      // RFC 8414 §3.3: the issuer matches the URL the document came from
+      expect(body.issuer).toBe(PATH_ISSUER);
+      for (const k of ['authorization_endpoint', 'token_endpoint', 'registration_endpoint', 'scopes_supported']) {
+        expect(body[k]).toEqual(root[k]);
+      }
+      expect(body.authorization_endpoint).toBe(`${ORIGIN}/agent-link/oauth/authorize`);
+    }
+  });
+
+  it('/.well-known/oauth-protected-resource/agent-link/mcp names the bare origin by default and the path issuer with the flag off', async () => {
+    const before = await doc('/.well-known/oauth-protected-resource/agent-link/mcp');
+    expect(before.body.authorization_servers).toEqual([ORIGIN]);
+    const after = await doc('/.well-known/oauth-protected-resource/agent-link/mcp', OFF);
+    expect(after.status).toBe(200);
+    expect(after.body.authorization_servers).toEqual([PATH_ISSUER]);
+    // the resource, and so every token's audience, does not move
+    expect(after.body.resource).toBe(`${ORIGIN}/agent-link/mcp`);
+  });
+
+  it('/.well-known/oauth-protected-resource names the path issuer with the flag off, and the two flags are independent', async () => {
+    const asOff = await doc('/.well-known/oauth-protected-resource', OFF);
+    expect(asOff.status).toBe(200);
+    expect(asOff.body.authorization_servers).toEqual([PATH_ISSUER]);
+    const both = await doc('/.well-known/oauth-protected-resource', { ...OFF, rootResourceMetadata: 'off' });
+    expect(both.status).toBe(404);
+  });
+
+  it('with both flags off, nothing at the root or for /mcp and /mcp/render advertises OAuth', async () => {
+    const opts = { rootAsMetadata: 'off', rootResourceMetadata: 'off' };
+    for (const path of [
+      '/.well-known/oauth-authorization-server',
+      '/.well-known/oauth-protected-resource',
+      '/.well-known/oauth-protected-resource/mcp',
+      '/.well-known/oauth-protected-resource/mcp/render',
+      '/.well-known/oauth-authorization-server/mcp',
+      '/.well-known/oauth-authorization-server/mcp/render',
+    ]) {
+      expect((await doc(path, opts)).status, path).toBe(404);
+    }
+  });
+
+  it('keeps the resource URI and the refresh ledger\'s namespace on the origin', () => {
+    const url = `${ORIGIN}/agent-link/oauth/token`;
+    expect(resourceFor(url)).toBe(`${ORIGIN}/agent-link/mcp`);
+    // token.ts and headlessMcp.ts key the ledger on originFor; it must equal
+    // the bare-origin issuer every existing refresh token was stored under
+    expect(originFor(url)).toBe(issuerFor(url));
+    expect(issuerFor(url, true)).toBe(PATH_ISSUER);
+  });
+
+  it('sends iss = the path issuer on a flow started with the flag off, and records it on the parked request', async () => {
+    const { store } = memoryStore();
+    const { body } = await registerClient(store);
+    const challenge = await challengeFor(VERIFIER);
+    const result = await validateAuthorize(new Request(authorizeUrl(body.client_id, challenge)), { store, pathIssuer: true });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pending.issuer).toBe(PATH_ISSUER);
+    // the flag can flip while the request is parked; the response keeps the issuer it started under
+    const res = await completeAuthorization({ store }, result.pendingId, result.pending, 'acct-1');
+    expect(new URL(res.headers.get('location')!).searchParams.get('iss')).toBe(PATH_ISSUER);
+  });
+
+  it('sends iss = the bare origin by default, and for a request parked before the change', async () => {
+    const { store } = memoryStore();
+    const { body } = await registerClient(store);
+    const challenge = await challengeFor(VERIFIER);
+    const result = await validateAuthorize(new Request(authorizeUrl(body.client_id, challenge)), { store });
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.pending.issuer).toBe(ORIGIN);
+    const { issuer: _dropped, ...legacy } = result.pending;
+    const res = await completeAuthorization({ store }, 'legacy', legacy, 'acct-1');
+    expect(new URL(res.headers.get('location')!).searchParams.get('iss')).toBe(ORIGIN);
+  });
+
+  it('sends the path issuer on an authorize error redirect too', async () => {
+    const { store } = memoryStore();
+    const { body } = await registerClient(store);
+    const challenge = await challengeFor(VERIFIER);
+    const result = await validateAuthorize(
+      new Request(authorizeUrl(body.client_id, challenge, { response_type: 'token' })),
+      { store, pathIssuer: true },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(new URL(result.response.headers.get('location')!).searchParams.get('iss')).toBe(PATH_ISSUER);
   });
 });

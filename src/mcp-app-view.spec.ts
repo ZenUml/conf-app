@@ -322,3 +322,82 @@ describe('drawing an OpenAPI result', () => {
     expect(document.querySelector('#app')?.contains(config.domNode as Node)).toBe(true);
   });
 });
+
+// #1038: the renderer download is the slow part of a first diagram, so it
+// starts on tool-input, and a failed download says so instead of hanging.
+describe('loading the renderer', () => {
+  type View = typeof import('./mcp-app-view');
+  let view: View;
+  const GraphViewer = vi.fn();
+
+  beforeEach(async () => {
+    // A fresh module per test: the view keeps one download per renderer.
+    vi.resetModules();
+    view = await import('./mcp-app-view');
+    document.body.innerHTML = '<div id="app"></div>';
+    GraphViewer.mockClear();
+    drawio.ensureDrawioViewerLoaded.mockReset();
+    drawio.ensureDrawioViewerLoaded.mockImplementation(async () => {});
+    vi.stubGlobal('GraphViewer', GraphViewer);
+    vi.stubGlobal('mxUtils', { parseXml: (xml: string) => new DOMParser().parseFromString(xml, 'text/xml') });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  function input(args: Record<string, unknown>): void {
+    view.onHostMessage({
+      data: { jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: args } },
+    } as MessageEvent);
+  }
+  function result(structuredContent: Record<string, unknown>): void {
+    view.onHostMessage({
+      data: { jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } },
+    } as MessageEvent);
+  }
+  const XML = '<mxGraphModel><root/></mxGraphModel>';
+
+  it('reads the coming diagram type from the tool input, detecting it when diagramType is left out', () => {
+    expect(view.typeFromToolInput({ arguments: { diagramType: 'Mermaid', source: 'A->B.call()' } })).toBe('mermaid');
+    expect(view.typeFromToolInput({ arguments: { source: 'flowchart TD\n A --> B' } })).toBe('mermaid');
+    expect(view.typeFromToolInput({ arguments: { source: '@startuml\nA -> B\n@enduml' } })).toBe('plantuml');
+    expect(view.typeFromToolInput({ arguments: { source: 'A->B.call()' } })).toBe('sequence');
+    // read_diagram and friends carry no source in their input
+    expect(view.typeFromToolInput({ arguments: { cloudId: 'c', contentId: '1' } })).toBeNull();
+    expect(view.typeFromToolInput(undefined)).toBeNull();
+  });
+
+  it('starts the download on tool-input, before the tool has answered', async () => {
+    input({ diagramType: 'graph', source: XML });
+
+    await vi.waitFor(() => expect(drawio.ensureDrawioViewerLoaded).toHaveBeenCalledTimes(1));
+    expect(document.querySelector('#app')?.textContent).toBe('Loading the renderer…');
+    expect(GraphViewer).not.toHaveBeenCalled();
+  });
+
+  it('downloads once: the result reuses the download the input started', async () => {
+    input({ diagramType: 'graph', source: XML });
+    result({ diagramType: 'graph', source: XML });
+
+    await vi.waitFor(() => expect(GraphViewer).toHaveBeenCalledTimes(1));
+    // once by the shared download; renderGraph's own call returns at once in the real loader
+    expect(drawio.ensureDrawioViewerLoaded.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it('keeps the old status when the input does not say which renderer', () => {
+    input({ cloudId: 'c', contentId: '1' });
+    expect(document.querySelector('#app')?.textContent).toBe('Loading the diagram…');
+  });
+
+  it('says the renderer could not be downloaded, and tries again on the next result', async () => {
+    drawio.ensureDrawioViewerLoaded.mockRejectedValueOnce(new Error('network timeout'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    result({ diagramType: 'graph', source: XML });
+    await vi.waitFor(() =>
+      expect(document.querySelector('#app')?.textContent).toMatch(/Could not download the diagram renderer.*ask again/),
+    );
+    expect(GraphViewer).not.toHaveBeenCalled();
+
+    result({ diagramType: 'graph', source: XML });
+    await vi.waitFor(() => expect(GraphViewer).toHaveBeenCalledTimes(1));
+  });
+});

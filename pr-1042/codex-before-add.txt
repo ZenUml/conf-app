@@ -1,0 +1,6 @@
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("<CODEX_HOME>"))
+Added global MCP server 'zenuml-render'.
+Detected OAuth support. Starting OAuth flow…
+Authorize `zenuml-render` by opening this URL in your browser:
+https://conf-stg-lite.zenuml.com/agent-link/oauth/authorize?response_type=code&client_id=<redacted>&state=<redacted>&code_challenge=<redacted>&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A41661%2Fcallback&scope=diagram.read+diagram.write&resource=https%3A%2F%2Fconf-stg-lite.zenuml.com%2Fmcp%2Frender
+

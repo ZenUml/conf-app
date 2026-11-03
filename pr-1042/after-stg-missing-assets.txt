@@ -1,0 +1,9 @@
+== GET /mcp-app/assets/does-not-exist.js
+HTTP/2 200 
+cache-control: public, max-age=31536000, immutable
+age: 269
+cf-cache-status: HIT
+== GET /mcp-app/assets/fresh-1793704071.js
+HTTP/2 404 
+cache-control: no-store
+cf-cache-status: BYPASS

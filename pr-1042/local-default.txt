@@ -1,0 +1,10 @@
+GET /.well-known/oauth-authorization-server -> 200 application/json issuer=http://127.0.0.1:8799
+GET /.well-known/oauth-authorization-server/agent-link -> 200 application/json issuer=http://127.0.0.1:8799/agent-link
+GET /.well-known/oauth-authorization-server/mcp -> 404 application/json not_found
+GET /.well-known/oauth-authorization-server/mcp/render -> 404 application/json not_found
+GET /.well-known/oauth-protected-resource -> 200 application/json authorization_servers=http://127.0.0.1:8799
+GET /.well-known/oauth-protected-resource/agent-link/mcp -> 200 application/json authorization_servers=http://127.0.0.1:8799
+GET /.well-known/oauth-protected-resource/mcp -> 404 application/json not_found
+GET /.well-known/oauth-protected-resource/mcp/render -> 404 application/json not_found
+GET /mcp-app/assets/does-not-exist.js -> 404 text/html; Cache-Control: no-store
+GET /mcp-app/assets/view-Bup1lZxU.js -> 200 Cache-Control: public, max-age=31536000, immutable

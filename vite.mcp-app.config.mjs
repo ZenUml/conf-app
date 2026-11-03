@@ -55,7 +55,9 @@ export default defineConfig({
   // are made absolute when served (mcpApps.ts withAbsoluteAssetUrls).
   base: './',
   // The app's public/ (drawio, studio, _routes.json) belongs to the main build.
-  publicDir: false,
+  // This build's own public/ holds only assets/404.html, which makes Pages
+  // answer a missing /mcp-app/assets/ file with a 404 rather than the SPA.
+  publicDir: resolve(__dirname, 'mcp-app/public'),
   resolve: {
     alias: { '@': resolve(__dirname, 'src') },
   },

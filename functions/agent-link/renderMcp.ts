@@ -1,4 +1,5 @@
-// The public half of the MCP surface: POST /mcp/render (route: functions/mcp/render.ts).
+// The public half of the MCP surface: POST /mcp (functions/mcp/index.ts), also
+// served at its original path /mcp/render (functions/mcp/render.ts).
 //
 // /agent-link/mcp reads and writes diagrams in Confluence, so every call there
 // needs a token tied to an Atlassian account (headless OAuth, or the relay's

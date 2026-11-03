@@ -500,11 +500,13 @@ describe('per-resource discovery (#1038)', () => {
     return (await res.json()) as Record<string, unknown>;
   }
 
-  it('answers the render server\'s path-specific URL with a JSON 404, not the SPA', async () => {
-    const res = oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource/mcp/render`)!;
-    expect(res).not.toBeNull();
-    expect(res.status).toBe(404);
-    expect((await body(res)).error).toBe('not_found');
+  it('answers the render server\'s path-specific URLs with a JSON 404, not the SPA', async () => {
+    for (const path of ['/mcp', '/mcp/render']) {
+      const res = oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource${path}`)!;
+      expect(res).not.toBeNull();
+      expect(res.status).toBe(404);
+      expect((await body(res)).error).toBe('not_found');
+    }
   });
 
   it('serves the agent-link document at its path-specific URL', async () => {

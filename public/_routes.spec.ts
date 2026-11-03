@@ -11,7 +11,8 @@ describe("public/_routes.json (Pages route allowlist)", () => {
     expect(routes.include).toEqual(expect.arrayContaining(["/d/*", "/i/*", "/deeplink-ticket"]));
   });
 
-  it("routes the public MCP render endpoint to its function", () => {
+  it("routes the public MCP render endpoint, and its /mcp/render alias, to their functions", () => {
+    expect(routes.include).toContain("/mcp");
     expect(routes.include).toContain("/mcp/render");
   });
 });

@@ -1,5 +1,6 @@
 // POST /mcp/render — the public, sign-in-free MCP endpoint that draws a
-// diagram from source the agent sends. No Atlassian site is involved; see
+// diagram from source the agent sends. /mcp (index.ts) is the same server and
+// the address to publish; this path stays for clients already configured with it. No Atlassian site is involved; see
 // agent-link/renderMcp.ts for why this is its own endpoint and not a tool on
 // /agent-link/mcp.
 //

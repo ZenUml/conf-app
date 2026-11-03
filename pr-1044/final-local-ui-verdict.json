@@ -1,0 +1,7 @@
+{
+  "head": "f27fdd6f2625e0cf361ef9f8484ffe67d93c6035",
+  "scope": "Actual renderer in cross-origin local 320px iframe; not physical-phone or ChatGPT host acceptance",
+  "fontCsp": "PASS: both self-hosted fonts loaded; no captured CSP/JS violations",
+  "horizontalReachability": "PASS: real wheel moves #app.scrollLeft from 0 to606, full right edge at910px",
+  "redControl": "Before overflow fix, same wheel left #app.scrollLeft at0"
+}

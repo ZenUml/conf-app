@@ -1,0 +1,15 @@
+{
+  "head": "f27fdd6f2625e0cf361ef9f8484ffe67d93c6035",
+  "beforeWheel": {
+    "clientWidth": 304,
+    "overflowX": "auto",
+    "scrollLeft": 0,
+    "scrollWidth": 910
+  },
+  "afterWheel": {
+    "clientWidth": 304,
+    "overflowX": "auto",
+    "scrollLeft": 606,
+    "scrollWidth": 910
+  }
+}

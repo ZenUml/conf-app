@@ -1,0 +1,14 @@
+{
+  "before": {
+    "clientWidth": 304,
+    "overflowX": "visible",
+    "scrollLeft": 0,
+    "scrollWidth": 910
+  },
+  "afterWheel": {
+    "clientWidth": 304,
+    "overflowX": "visible",
+    "scrollLeft": 0,
+    "scrollWidth": 910
+  }
+}

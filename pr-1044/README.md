@@ -13,3 +13,5 @@ Reproduction: check out the candidate, install locked dependencies, run `pnpm bu
 Unit regression: onHostMessage → sequence tool-result → mocked core render asserts that both hosted font URLs have already been set. Before fix 30/31 passed (new test failed); after fix both MCP/font specs passed 32/32. Raw red/green logs are included.
 
 Confluence Storybook and Forge Tunnel: N/A, because only the standalone MCP entry and its spec changed; shared font utility and Confluence UI did not change.
+
+Additional parent-task cross-origin check: document `http://localhost:8771`, assets `http://127.0.0.1:8771`, CORS `*`, explicit font-src permits the asset origin and excludes data:. Candidate diagram rendered, document.fonts reported both IBM Plex Sans and MS Sans Serif loaded, and zero CSP/JavaScript violations were captured. See fixture-reports-cross-origin.json and fixture-candidate-cross-origin.png. This remains local acceptance, not the actual ChatGPT host.

@@ -108,7 +108,7 @@ describe('headless authentication', () => {
     const res = await call(env, null, 'tools/list');
     expect(res.status).toBe(401);
     const challenge = res.headers.get('WWW-Authenticate')!;
-    expect(challenge).toContain(`resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`);
+    expect(challenge).toContain(`resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource/agent-link/mcp"`);
     // "you need a token" is not an error about a token
     expect(challenge).not.toContain('error=');
   });
@@ -534,7 +534,7 @@ describe('tool usage analytics', () => {
 describe('challenge construction', () => {
   it('names the metadata document for this origin', () => {
     expect(challengeFor(MCP, 'missing')).toBe(
-      `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`,
+      `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource/agent-link/mcp"`,
     );
   });
 });

@@ -339,7 +339,13 @@ async function render(payload: DiagramPayload): Promise<void> {
       el.appendChild(img);
       await loaded;
     } else if (type === 'sequence') {
-      const { default: ZenUml } = await import('@zenuml/core');
+      const [{ default: ZenUml }, { configureDiagramFonts }] = await Promise.all([
+        import('@zenuml/core'),
+        import('@/utils/fonts/configureDiagramFonts'),
+      ]);
+      // Host CSP can refuse core's embedded data: fonts. Vite resolves these
+      // hosted font assets from the module URL, rather than the host sandbox.
+      configureDiagramFonts(ZenUml);
       el.innerHTML = '';
       const zenuml = new ZenUml(el);
       // Read-only: no onContentChange, so nothing here can write back. The

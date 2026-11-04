@@ -16,6 +16,15 @@ const swagger = vi.hoisted(() => {
 vi.mock('swagger-ui', () => ({ default: swagger.SwaggerUI }));
 vi.mock('swagger-ui/dist/swagger-ui.css', () => ({}));
 
+const sequence = vi.hoisted(() => ({ setDiagramFontUrl: vi.fn(), render: vi.fn(async () => {}) }));
+vi.mock('@zenuml/core', () => ({
+  default: Object.assign(vi.fn(function () { return { render: sequence.render }; }), {
+    setDiagramFontUrl: sequence.setDiagramFontUrl,
+  }),
+}));
+vi.mock('@zenuml/core/fonts/IBMPlexSans-Regular-Latin1.woff2?url', () => ({ default: 'https://view.example/mcp-app/assets/plex.woff2' }));
+vi.mock('@zenuml/core/fonts/MS-Sans-Serif.ttf?url', () => ({ default: 'https://view.example/mcp-app/assets/mssans.ttf' }));
+
 describe('extractDiagram', () => {
   // The host decides which of these shapes it hands us, and the answer has
   // differed per host in practice, so all three are supported deliberately
@@ -264,6 +273,29 @@ function deliver(structuredContent: Record<string, unknown>): void {
     data: { jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } },
   } as MessageEvent);
 }
+
+describe('drawing a Sequence result', () => {
+  it('configures hosted fonts before the first render in the host sandbox', async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    sequence.setDiagramFontUrl.mockClear();
+    sequence.render.mockClear();
+    sequence.render.mockImplementationOnce(async () => {
+      // Check at render time: configuring after render still attempts the
+      // embedded data: font, which strict MCP host CSP refuses.
+      expect(sequence.setDiagramFontUrl.mock.calls).toEqual([
+        ['https://view.example/mcp-app/assets/plex.woff2'],
+        ['https://view.example/mcp-app/assets/mssans.ttf', 'MS Sans Serif'],
+      ]);
+    });
+
+    deliver({ diagramType: 'Sequence', dsl: 'Alice->Bob.hello()' });
+
+    await vi.waitFor(() => expect(sequence.render).toHaveBeenCalledWith(
+      'Alice->Bob.hello()', { theme: 'theme-default', stickyOffset: false },
+    ));
+    await vi.waitFor(() => expect(document.querySelector('#app')?.textContent).toBe(''));
+  });
+});
 
 describe('drawing a Graph result', () => {
   const GraphViewer = vi.fn();

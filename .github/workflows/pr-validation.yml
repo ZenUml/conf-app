@@ -3,7 +3,7 @@ name: PR validation
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**', 'workers/render-mcp/**', '.github/workflows/render-mcp-deploy.yml', 'scripts/ci/check-render-mcp.mjs']
+    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**', 'workers/render-mcp/**', '.github/workflows/render-mcp-deploy.yml', 'scripts/ci/check-render-mcp.mjs', 'scripts/ci/wait-for-render-mcp*']
 
   workflow_dispatch:
     inputs:

@@ -6,6 +6,7 @@ on:
       - 'workers/render-mcp/**'
       - '.github/workflows/render-mcp-deploy.yml'
       - 'scripts/ci/check-render-mcp.mjs'
+      - 'scripts/ci/wait-for-render-mcp*'
       - 'functions/**'
       - 'src/**'
       - 'mcp-app/**'
@@ -88,7 +89,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Test independent Worker and shared MCP contracts
-        run: pnpm exec vitest run workers/render-mcp/index.spec.ts functions/mcp/index.spec.ts functions/agent-link/oauth/mcpApps.spec.ts functions/agent-link/oauth/headlessMcp.spec.ts functions/agent-link/renderMcp.spec.ts functions/agent-link/renderRateLimit.spec.ts functions/agent-link/detectDiagramType.spec.ts src/mcp-app-view.spec.ts
+        run: pnpm exec vitest run scripts/ci/wait-for-render-mcp.spec.mjs workers/render-mcp/index.spec.ts functions/mcp/index.spec.ts functions/agent-link/oauth/mcpApps.spec.ts functions/agent-link/oauth/headlessMcp.spec.ts functions/agent-link/renderMcp.spec.ts functions/agent-link/renderRateLimit.spec.ts functions/agent-link/detectDiagramType.spec.ts src/mcp-app-view.spec.ts
       - name: Build independent renderer assets
         env:
           SOURCE_SHA: ${{ needs.select.outputs.sha }}
@@ -185,6 +186,16 @@ jobs:
           set -euo pipefail
           # Preserve pre-provisioned secrets; never replace them with --var.
           pnpm exec wrangler deploy --config workers/render-mcp/wrangler.toml --env "$TARGET"
+      - name: Wait for exact deployed commit to reach health
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = production ]; then
+            HEALTH_URL=https://zenuml.com/mcp/health
+          else
+            HEALTH_URL=https://zenuml-render-mcp-preview.zenuml.workers.dev/mcp/health
+          fi
+          node scripts/ci/wait-for-render-mcp.mjs --sha "$SOURCE_SHA" --output render-mcp-readiness.json "$HEALTH_URL"
       - name: Verify deployed commit, MCP resources, and assets
         shell: bash
         run: |
@@ -199,7 +210,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: render-mcp-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: render-mcp-smoke.json
+          path: |
+            render-mcp-readiness.json
+            render-mcp-smoke.json
           if-no-files-found: warn
       - name: Write deployment summary
         if: always()
@@ -209,5 +222,6 @@ jobs:
           node --input-type=module <<'NODE'
           import { appendFileSync, existsSync, readFileSync } from 'node:fs';
           const smoke = existsSync('render-mcp-smoke.json') ? JSON.parse(readFileSync('render-mcp-smoke.json', 'utf8')) : null;
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Render MCP Worker\n\nEnvironment: ${process.env.TARGET}\n\nCommit: \`${process.env.SOURCE_SHA}\`\n\nStatus: ${process.env.DEPLOY_STATUS}\n\nSmoke: ${smoke?.ok ? 'passed' : 'not passed'}\n\nThis pipeline deploys the independent Worker; it does not deploy Forge.\n`);
+          const readiness = existsSync('render-mcp-readiness.json') ? JSON.parse(readFileSync('render-mcp-readiness.json', 'utf8')) : null;
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Render MCP Worker\n\nEnvironment: ${process.env.TARGET}\n\nCommit: \`${process.env.SOURCE_SHA}\`\n\nStatus: ${process.env.DEPLOY_STATUS}\n\nHealth readiness: ${readiness?.ok ? 'passed' : 'not passed'} (${readiness?.attempts?.length ?? 0} request(s))\n\nSmoke: ${smoke?.ok ? 'passed' : 'not passed'}\n\nThis pipeline deploys the independent Worker; it does not deploy Forge.\n`);
           NODE

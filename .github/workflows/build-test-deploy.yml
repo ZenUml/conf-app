@@ -15,6 +15,7 @@ on:
       - 'workers/render-mcp/**'
       - '.github/workflows/render-mcp-deploy.yml'
       - 'scripts/ci/check-render-mcp.mjs'
+      - 'scripts/ci/wait-for-render-mcp*'
   # Allows the release workflow to create fresh, tested drafts without a
   # no-op commit to main.
   workflow_dispatch:

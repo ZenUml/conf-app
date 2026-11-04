@@ -21,6 +21,14 @@ assert.ok(args.length, 'Provide one or more MCP endpoint URLs');
 const evidence = { ok: false, expectedCommit: sha, checkedAt: new Date().toISOString(), endpoints: [] };
 const marker = '<meta name="mcp-app" content="zenuml-diagram">';
 let requestId = 0;
+const compatibleMime = (actual, expected) => {
+  const mime = actual.split(';', 1)[0].trim().toLowerCase();
+  if (/^(?:application|text)\/(?:javascript|ecmascript)$/.test(expected)) {
+    return /^(?:application|text)\/(?:javascript|ecmascript)$/.test(mime);
+  }
+  if (/^(?:application|text)\/xml$/.test(expected)) return /^(?:application|text)\/xml$/.test(mime);
+  return mime === expected;
+};
 const checkedFetch = async (url, init = {}) => {
   const response = await fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(30_000) });
   assert.ok(response.ok, `${url}: HTTP ${response.status}`);
@@ -96,7 +104,7 @@ try {
     for (const asset of refs) {
       const response = await checkedFetch(asset);
       const type = response.headers.get('content-type') ?? '';
-      assert.ok(asset.pathname.endsWith('.js') ? /(?:javascript|ecmascript)/i.test(type) : /^text\/css(?:;|$)/i.test(type), `${asset}: wrong asset MIME ${type}`);
+      assert.ok(compatibleMime(type, asset.pathname.endsWith('.js') ? 'application/javascript' : 'text/css'), `${asset}: wrong asset MIME ${type}`);
       assert.equal(response.headers.get('access-control-allow-origin'), '*', `${asset}: missing public CORS`);
       const body = await response.text();
       assert.ok(!/^\s*(?:<!doctype|<html)/i.test(body), `${asset}: HTML returned for an asset`);
@@ -126,7 +134,7 @@ try {
       const response = await checkedFetch(asset);
       const type = response.headers.get('content-type') ?? '';
       assert.ok(!type.includes('text/html'), `${asset}: SPA HTML returned for an asset`);
-      assert.ok(typeof expected.contentType === 'string' && type.startsWith(expected.contentType), `${asset}: unexpected MIME ${type}`);
+      assert.ok(typeof expected.contentType === 'string' && compatibleMime(type, expected.contentType), `${asset}: unexpected MIME ${type}`);
       assert.equal(response.headers.get('access-control-allow-origin'), '*', `${asset}: missing public CORS`);
       const body = Buffer.from(await response.arrayBuffer());
       assert.equal(createHash('sha256').update(body).digest('hex'), expected.sha256, `${asset}: bytes differ from deployed manifest`);

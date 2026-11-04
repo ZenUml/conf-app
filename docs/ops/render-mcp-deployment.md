@@ -27,7 +27,7 @@ The independent `Render MCP Worker` workflow builds and tests changes, then depl
 
 ## Production
 
-Use the independent workflow's manual production dispatch from `main`, with its exact source SHA. The workflow applies only the dedicated rate-counter migration, deploys this Worker and its assets, and verifies the live health SHA and all three endpoint responses. No `FORGE_API_TOKEN`, Forge app ID, Confluence account or variant release is involved.
+Use the independent workflow's manual production dispatch from `main`, with its exact source SHA. The workflow applies only the dedicated rate-counter migration, deploys this Worker and its assets, and waits up to 120 seconds for health to report that exact clean source. This wait only checks deployment readiness and rejects redirects. It then runs the protocol, render and asset smoke checks once, across all three production endpoints. Standard JavaScript/XML MIME equivalents are accepted; unexpected types, HTML fallbacks, wrong hashes and missing CORS still fail. No `FORGE_API_TOKEN`, Forge app ID, Confluence account or variant release is involved.
 
 Before initial deployment, provision separate preview and production D1 databases and Worker secrets. `wrangler.toml` records the database IDs. Each database contains only `McpRenderRate` counters. Set `OAUTH_GRANT_SECRET` separately on each Worker to retain HMAC address buckets; this historical binding name does not enable OAuth. Production also needs `MIXPANEL_TOKEN`, the existing project's tracking token. Secrets are supplied through stdin and are never committed. Ordinary deployments preserve them. The workflow checks required secret names before deployment.
 

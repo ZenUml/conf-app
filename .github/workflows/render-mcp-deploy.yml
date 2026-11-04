@@ -185,7 +185,34 @@ jobs:
         run: |
           set -euo pipefail
           # Preserve pre-provisioned secrets; never replace them with --var.
-          pnpm exec wrangler deploy --config workers/render-mcp/wrangler.toml --env "$TARGET"
+          if [ "$TARGET" = production ]; then
+            # Routes are bootstrapped separately with existing admin OAuth.
+            # Version uploads include ASSETS but do not publish zone routes.
+            export MCP_VERSION_OUTPUT="$RUNNER_TEMP/render-mcp-version-upload.jsonl"
+            rm -f "$MCP_VERSION_OUTPUT"
+            WRANGLER_OUTPUT_FILE_PATH="$MCP_VERSION_OUTPUT" pnpm exec wrangler versions upload --config workers/render-mcp/wrangler.toml --env production --message "source $SOURCE_SHA"
+            MCP_VERSION_ID=$(node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const records = readFileSync(process.env.MCP_VERSION_OUTPUT, 'utf8').split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line));
+          const uploads = records.filter(record => record.type === 'version-upload');
+          if (uploads.length !== 1) throw new Error('Expected exactly one uploaded Worker version');
+          const upload = uploads[0];
+          if (upload.version !== 1 || upload.worker_name !== 'zenuml-render-mcp' || upload.wrangler_environment !== 'production' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(upload.version_id ?? '')) {
+            throw new Error('Unexpected production Worker version upload record');
+          }
+          writeFileSync('render-mcp-deployment.json', `${JSON.stringify({ target: 'production', sourceSha: process.env.SOURCE_SHA, workerName: upload.worker_name, versionId: upload.version_id, stage: 'uploaded' }, null, 2)}\n`);
+          process.stdout.write(upload.version_id);
+          NODE
+            )
+            pnpm exec wrangler versions deploy "$MCP_VERSION_ID@100%" --config workers/render-mcp/wrangler.toml --env production --yes --message "source $SOURCE_SHA"
+            node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const deployment = JSON.parse(readFileSync('render-mcp-deployment.json', 'utf8'));
+          writeFileSync('render-mcp-deployment.json', `${JSON.stringify({ ...deployment, stage: 'deployed', trafficPercent: 100 }, null, 2)}\n`);
+          NODE
+          else
+            pnpm exec wrangler deploy --config workers/render-mcp/wrangler.toml --env "$TARGET"
+          fi
       - name: Wait for exact deployed commit to reach health
         shell: bash
         run: |
@@ -211,6 +238,7 @@ jobs:
         with:
           name: render-mcp-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            render-mcp-deployment.json
             render-mcp-readiness.json
             render-mcp-smoke.json
           if-no-files-found: warn

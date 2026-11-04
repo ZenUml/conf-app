@@ -27,7 +27,11 @@ The independent `Render MCP Worker` workflow builds and tests changes, then depl
 
 ## Production
 
-Use the independent workflow's manual production dispatch from `main`, with its exact source SHA. The workflow applies only the dedicated rate-counter migration, deploys this Worker and its assets, and waits up to 120 seconds for health to report that exact clean source. This wait only checks deployment readiness and rejects redirects. It then runs the protocol, render and asset smoke checks once, across all three production endpoints. Standard JavaScript/XML MIME equivalents are accepted; unexpected types, HTML fallbacks, wrong hashes and missing CORS still fail. No `FORGE_API_TOKEN`, Forge app ID, Confluence account or variant release is involved.
+Use the independent workflow's manual production dispatch from `main`, with its exact source SHA. The workflow applies only the dedicated rate-counter migration, uploads this Worker and its tested assets with `wrangler versions upload`, then activates that exact returned version with `wrangler versions deploy <version-id>@100% --yes`. It never publishes production routes. Preview keeps its existing `wrangler deploy` path.
+
+The workflow reads the upload's structured JSONL output, requires one valid version ID for the production Worker/environment, and stops before activation if the upload fails or its identity is ambiguous. It preserves the version ID and uploaded/deployed stage in `render-mcp-deployment.json`. After activation it waits up to 120 seconds for health to report the exact clean source. This wait only checks deployment readiness and rejects redirects. It then runs the protocol, render and asset smoke checks once, across all three production endpoints. Standard JavaScript/XML MIME equivalents are accepted; unexpected types, HTML fallbacks, wrong hashes and missing CORS still fail. No `FORGE_API_TOKEN`, Forge app ID, Confluence account or variant release is involved.
+
+Cloudflare versions include code, static assets and bindings; route publication is a separate trigger operation. This path is supported by the lockfile's Wrangler 4.60.0, including `WRANGLER_OUTPUT_FILE_PATH` records of type `version-upload`. Do not add Workers Routes permission to the CI token for ordinary releases. See [versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/) and [Wrangler version/trigger commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/#versions-upload).
 
 Before initial deployment, provision separate preview and production D1 databases and Worker secrets. `wrangler.toml` records the database IDs. Each database contains only `McpRenderRate` counters. Set `OAUTH_GRANT_SECRET` separately on each Worker to retain HMAC address buckets; this historical binding name does not enable OAuth. Production also needs `MIXPANEL_TOKEN`, the existing project's tracking token. Secrets are supplied through stdin and are never committed. Ordinary deployments preserve them. The workflow checks required secret names before deployment.
 
@@ -36,6 +40,18 @@ Existing render analytics events and their properties remain unchanged. This dep
 Production canonicalizes all public aliases to `https://zenuml.com` for UI resource URLs and CSP. `resources/read` retrieves the view through the Worker's asset binding, without a Pages self-fetch. Missing assets return errors rather than a successful SPA page. API and health responses are not cached. Only hashed renderer chunks receive immutable cache headers.
 
 The route patterns end in `*` to include query strings. The Worker dispatches exact MCP paths; unrelated matching paths on the two production hosts fall through to their original Pages origin. In particular, the old host's authenticated MCP view assets remain with Pages. Preview has no backing website and answers unrelated paths with 404. Unknown hosts are rejected.
+
+### Route bootstrap and readiness
+
+An administrator uses the existing local Cloudflare OAuth session to register only these three production routes for `zenuml-render-mcp`. Keep this one-time operation and any later route changes separate from routine CI releases; the CI token does not need zone route permissions.
+
+| Route | Worker |
+| --- | --- |
+| `https://zenuml.com/mcp*` | `zenuml-render-mcp` |
+| `https://zenuml.com/drawio/*` | `zenuml-render-mcp` |
+| `https://conf-lite.zenuml.com/mcp*` | `zenuml-render-mcp` |
+
+Record the route mapping before and after the administrator's change. Then check both exact `/mcp/health` URLs, the same expected source SHA and `dirty: false`, followed by all three endpoint smoke checks. A successful version upload or activation does not prove these routes exist. A failed full `wrangler deploy` can already have uploaded the Worker and assets before route publication fails; preserve the failed run and inspect the live state instead of assuming rollback or CI success. Routine version commands leave route and other non-versioned trigger/settings changes to the separate administrator operation.
 
 ## Acceptance and release evidence
 

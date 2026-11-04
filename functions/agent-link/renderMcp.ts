@@ -34,7 +34,7 @@ import {
   uiMeta,
   uiResourceList,
 } from './oauth/mcpApps';
-import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from './oauth/headlessMcp';
+import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from './mcpProtocol';
 import { checkRenderRate, RENDER_LIMIT, RENDER_WINDOW_SECONDS, type RateEnv } from './renderRateLimit';
 import { mixpanelTrack } from '../service/mixpanelService';
 import { json } from '../OkResponse';

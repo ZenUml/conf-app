@@ -26,3 +26,14 @@ D1 mirror, `conf-zenuml-prod`, aggregate counts only, 2026-11-05: 1 of 9,571 Gra
 ## Not verified
 
 Full, Diagramly, AsyncAPI variants; MCP view in a real host (unit test only); math inside the nested DrawIO editor; Export dialog opened before MathJax finishes.
+
+## Revalidation after merging main
+
+#1055 merged, so the PR moved to base `main` and merged `583338dd`. Candidate `ac6fe928`. CI tested merge commit `fb358317` (parents `583338dd`, `ac6fe928`), run 42036550215, `Deploy: Lite` done 2026-11-05T14:15:25Z.
+
+| Stage | Result on the merged candidate |
+|---|---|
+| Unit, affected specs | 89 tests, 5 files, pass |
+| Storybook | `real-math-labels`: `mjx` 2, one same-origin `startup.js`. `real-external-icons-via-proxy` and `real-bundled-icons`: placeholder kept, no `startup.js`, no error display |
+| Forge Tunnel, lite-dev page 111443969 | Dev bar `@ac6fe9`, 6 connections on port 8090, math typeset, control raw, PNG 23,437 bytes opened and correct. Port 8090 because another project's emulator held 8080 |
+| Staging, lite-stg page 383386288, cold session | Bundle `index-Btt2Ri8l.js`. math=1 frame: `mjx` 2, all math files 200, no diagrams.net request. math=0 frame: placeholder kept, 0 math requests, raw `$$` text. PNG 10,069 bytes opened and correct |

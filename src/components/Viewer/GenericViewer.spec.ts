@@ -849,8 +849,10 @@ describe('GenericViewer (chrome-less)', () => {
     })
 
     it('shows the default title instead of a saved model refusal, and records it once', async () => {
-      vi.mocked(trackAnalyticsEvent).mockClear()
       store.state.diagram.title = 'Please provide the DSL that describes your flowchart and I will suggest a tit'
+      await flushPromises()
+      // Viewers left mounted by earlier tests share the store; count only this mount.
+      vi.mocked(trackAnalyticsEvent).mockClear()
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')

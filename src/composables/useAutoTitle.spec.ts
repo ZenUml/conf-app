@@ -54,8 +54,11 @@ describe('useAutoTitle', () => {
         feature_area: 'ai', surface: 'editor', macro_type: 'mermaid',
       })
       vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Checkout Flow'))
-      await generate('init', { ...SEQ, currentTitle: fakeStore.state.diagram.title })
+      const run = generate('init', { ...SEQ, currentTitle: fakeStore.state.diagram.title })
+      await runAnimation('Checkout Flow')
+      await run
       expect(aiGenerateTitle).toHaveBeenCalledTimes(1)
+      expect(fakeStore.state.diagram.title).toBe('Checkout Flow')
     })
 
     it('leaves a title a person typed', () => {

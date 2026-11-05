@@ -634,6 +634,7 @@ import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttributi
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
 import { renameDiagramTitle } from '@/utils/renameDiagramTitle'
+import { isSavedRefusalTitle, visibleDiagramTitle } from '@/lib/aiTitleGuard.js'
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
 import { validateMagicArtifact } from '@/utils/magic/artifact'
 import { callRemote } from '@/utils/requestUtil'
@@ -955,7 +956,8 @@ export default {
       return deeplinkHostForProductType(import.meta.env.PRODUCT_TYPE);
     },
     title() {
-      const t = this.diagram?.title?.trim?.()
+      // A title saved before PR #1053 can be model refusal text: show the default.
+      const t = visibleDiagramTitle(this.diagram?.title).trim()
       return t || DEFAULT_TITLE
     },
     showEdit() {
@@ -1272,6 +1274,17 @@ export default {
     'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
+    'diagram.title': {
+      immediate: true,
+      handler(title) {
+        if (!isSavedRefusalTitle(title)) return;
+        trackAnalyticsEvent('saved_refusal_title_hidden', {
+          feature_area: 'ai',
+          surface: 'viewer',
+          macro_type: this.diagramType ?? 'none',
+        });
+      },
+    },
     // Fires once per viewer per UTC day (the shown record dedupes across
     // every macro), after the header layout has settled so `header_stage` and
     // the placement are the ones the viewer actually sees.
@@ -2134,7 +2147,7 @@ export default {
     // landed write; every other exit leaves it exactly as it was.
     startRename() {
       if (!this.canRename || this.isRenaming) return;
-      this.renameDraft = this.diagram?.title?.trim?.() || '';
+      this.renameDraft = visibleDiagramTitle(this.diagram?.title).trim();
       this.renameError = false;
       // The input opens at exactly the title's rendered width (never
       // narrower), so the header — and the fit-content frame around it —

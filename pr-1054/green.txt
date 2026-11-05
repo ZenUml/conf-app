@@ -1,0 +1,8 @@
+ ✓ src/composables/useAutoTitle.spec.ts > useAutoTitle > notifyAiTitleSaved fires ai_title_accepted when title was generated and resets the flag
+ ✓ src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > does not fire when the user edited the title before saving
+ ✓ src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > does not fire when the user cleared the title and saved another one
+ ✓ src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > does not fire when the saved title is empty
+ ✓ src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > fires when the user edited the title and typed the generated title back
+ ✓ src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > compares with the latest generated title after a regenerate
+ Test Files  1 passed (1)
+      Tests  26 passed (26)

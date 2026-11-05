@@ -1,123 +1,139 @@
 # 图表评论设计
 
-**状态：** 已在 2026-10-01 产品讨论中批准，等待实现前的书面审阅  
-**范围：** 在图表旁提供公开讨论；保留独立的 ZenUML 支持入口；迁移六条已确认的历史实质反馈。  
-**系统记录：** 评论正文、作者、回复关系和权限由 Confluence Custom Content 评论保存；D1 或 Mixpanel 不保存评论正文。
+**状态：** 2026-10-01 产品讨论中批准；**2026-11-04 修订：评论改存为页面底部评论，加一个回到图表的链接**（见第 0 节）。第一个 PR 的范围见 [issue #1047](https://github.com/ZenUml/conf-app/issues/1047)。  
+**范围：** 读者对一张图表向作者发言；保留独立的 ZenUML 支持入口；历史反馈迁移和编辑、删除留到后续 PR。  
+**系统记录：** 评论正文、作者、回复关系和权限由 Confluence 页面底部评论保存；D1 或 Mixpanel 不保存评论正文。
+
+## 0. 2026-11-04 修订
+
+### 0.1 决定
+
+评论不再绑定在图表的 Custom Content 上，改为**发在图表所在页面的底部评论**，评论里带一个链接，点开后页面滚到该图表并高亮：
+
+```
+?zenumlDiagram=<customContentId>&zenumlLocal=<macro localId>&dv=<发表时的图表版本>
+```
+
+| 用途 | 参数 | 说明 |
+|---|---|---|
+| 这条评论属于哪张图表 | `zenumlDiagram` | 面板读取本页评论后，按它过滤；同一页同一张图表嵌几次，都显示同一个讨论 |
+| 点开链接后滚到哪个实例 | `zenumlLocal` | macro 的 `forgeContext.localId`，每个嵌入实例唯一 |
+| 发表于图表 vN | `dv` | 取发表时图表 Custom Content 的版本，面板据此显示"发表于图表 v3" |
+
+### 0.2 为什么改（2026-11-04，lite-stg 观察，日志见 [#1043](https://github.com/ZenUml/conf-app/issues/1043)）
+
+| 检查 | 结果 |
+|---|---|
+| 带 @ 提及的页面底部评论 | 被提及的人 18 到 30 秒内收到通知，2 次中 2 次 |
+| 带 @ 提及的图表（Custom Content）评论 | 约 3 到 4 分钟内没有通知，2 次中 0 次；这类评论也不显示在页面评论区 |
+| 评论里的带参数链接 | 读回后完整保留；页面打开时参数保留 |
+| 按链接参数过滤本页评论 | 可行，2 条评论里只命中 1 条 |
+| macro 能否读到页面地址和查询串 | 能：`forgeContext.extension.location`（`ApWrapper2.ts` 里的 `currentPageUrl`）；`view.getContext()` 官方文档没有列这个字段，Forge SDK 升级时要复查 |
+| 滚动并高亮图表 | 复用 Byline 一键放置已有的 `revealThisMacro()`（在 iframe 内聚焦 1px 元素，浏览器滚动 Confluence 的滚动容器） |
+| 同一张图表在一页出现两次 | 两个 macro 的 `localId` 不同，只有与参数一致的那个响应 |
+| 刷新是否重复触发 | iframe 里的 `sessionStorage` 刷新后保留，且同页所有 macro 共用，所以防重复的键要带 `localId` 和参数 |
+
+被放弃的方案：评论存在 Custom Content 上。原因：通知不到达，评论也不显示在页面上，且 Atlassian 文档没有说明它的通知行为。
+
+### 0.3 读者想评论的位置
+
+D1 `FeedbackReport`，2026-09-01 到 11-04：22 条真实反馈里 16 条是对图表内容的评论，**全部来自 `viewer` 界面**（页面里看图），编辑器、全屏、PNG 导出都是 0 条。所以入口放在 inline 查看界面，面板在全屏里打开（Figma 画面 01 的 1280px 宽度；Export PNG 同样的模式，PR #638）。
 
 ## 1. 已确定的产品行为
 
 ### 1.1 入口与范围
 
-- 图表工具栏显示「评论 · N」。N 表示该图表的主评论线程数。
-- 点击后在图表旁展开线程面板。
-- 每张图表按 `customContentId` 拥有独立讨论。同一 Custom Content 被嵌入多个页面时，评论归属仍由其真实容器决定，不能假定权限跟随每个嵌入页面。第一版仅在确认其容器为当前页面时开放评论；无法确认或跨页面引用时隐藏入口。复制产生新的 ID 后从空讨论开始，复制后仍引用旧 ID 时也必须经过上述容器校验。
-- 评论可见范围跟随 Confluence 对 Custom Content 及其容器的权限；这是 Confluence 内的公开讨论，不表示对互联网公开。
+- inline 图表工具栏显示「评论 · N」。N 表示该图表在本页的主评论线程数；懒加载，失败不影响图表渲染。
+- 点击后打开全屏，右侧显示线程面板（Figma 画面 01）。窄屏布局不在范围内（画面 02 与桌面优先规则冲突，见 #1043）。
+- 讨论的范围是"一个页面上的一张图表"：同一张图表被嵌在另一个页面时，那里是独立的讨论。
+- 评论可见范围跟随 Confluence 对该页面的权限；这是 Confluence 内的公开讨论，不表示对互联网公开。
 - 每条主评论显示头像、姓名、时间、回复；回复嵌套在主评论下。
-- 输入支持文字、链接和 `@` 同事。第一版不提供截图、图内标注、点赞、「已解决」或历史图表预览。
-- 用户可以编辑、删除自己的评论，但只有在平台实际返回相应能力时才显示操作；删除需要确认。
-- 图表更新后继续保留讨论。每条评论显示其发表时的图表版本（例如“发表于图表 v3”）；这里的版本是图表版本，不是评论自身的版本。
-- 图表没有可用 `customContentId` 时不显示评论按钮。
+- 输入支持文字和链接。第一版不提供截图、图内标注、点赞、「已解决」、历史图表预览，也不提供 `@` 选人。
+- 匿名访客和访客账号（guest）没有 Forge 用户令牌，不显示评论入口。
+- 图表更新后继续保留讨论；每条评论显示"发表于图表 vN"（取自链接里的 `dv`，不是评论自身的版本）。
+- 图表没有可用 `customContentId` 时不显示评论入口。
 
-原来的反馈入口改为 Bug 图标和「联系 ZenUML 支持」。它仍走支持反馈流程，内容不会自动公开。历史数据只迁移已批准的六条实质反馈，不迁移内部或测试性质的记录。
+原来的反馈入口仍保留（第一版不改）。把它改为 Bug 图标「联系 ZenUML 支持」留到后续 PR。
 
 ### 1.2 通知预期
 
-- 新主评论计划通知图表最后修改者及被 `@` 的人。
-- 回复计划通知被回复的人及被 `@` 的人。
-- 同一接收人去重，不通知评论者本人；只把仍有页面访问权限的用户列入计划。
-- 发布前显示计划通知对象。平台没有实际送达证据时，界面不得把“评论已保存”写成“通知已送达”。
-- 最后修改者无法解析时仍可发表评论，并可通过 `@` 指定接收人。
-- 历史迁移不主动 `@` 或额外通知最后修改者；必须实测并记录 Confluence 原生 watcher 是否产生副作用。
-
-上述通知是产品目标，不是已验证的平台承诺。通知验证失败时，通知相关能力是发布闸门，需回到产品评审调整，不得静默降级后宣称已完成。
+- 每条主评论自动 `@` 图表的最后修改者（来自 `DiagramAttribution.lastUpdatedByAccountId`）；回复自动 `@` 被回复的人。
+- 同一接收人去重，不通知评论者本人。
+- 发布前显示将通知的对象。平台没有送达证据时，界面不得把"评论已保存"写成"通知已送达"。
+- 最后修改者无法解析时仍可发表评论，只是不带 `@`。
+- 上述通知是产品目标，不是已验证的平台承诺（第 5 节闸门 1）。
 
 ## 2. 架构边界与数据流
 
 ### 2.1 组件职责
 
-1. **Comment service adapter**：以当前 Forge 用户身份调用 Confluence 评论接口，封装列表、创建主评论、创建回复、编辑和删除，并返回权限与错误类别。它接收 `customContentId` 和当前图表版本，不拥有评论数据库。
-2. **Diagram comment panel**：负责桌面布局、线程渲染、输入草稿、@ 选择、通知对象预览、加载/空/只读/失败状态。它不直接拼接 Confluence REST 请求。
-3. **Notification planner**：从当前 Custom Content 的 `version.authorId` 和用户选择的提及生成去重后的计划；实际通知由经验证的 Confluence 机制完成。它不伪造通知状态。
-4. **Migration runner**：执行一次受控的历史反馈转换，读取私有 allowlist，解析目标 Custom Content，复用评论数据映射，在验证过的迁移身份下调用 API，并写入私有幂等账本。应用身份无法使用时停止该条迁移并报告，不借用原提交者身份。
-5. **Analytics adapter**：只发送交互和结果的闭合枚举及计数，不发送评论正文、图表源码、客户名称、页面标题或提及用户 ID。
+1. **评论 adapter**：以当前 Forge 用户身份通过 `requestConfluence` 读写页面底部评论：按页读取并分页、创建主评论、创建回复（`parentCommentId`）。它构造并解析链接参数，不拥有评论数据库。
+2. **图表评论面板**：线程渲染、输入草稿、通知对象预览、加载、空、只读、失败状态。它不拼接 Confluence REST 请求。
+3. **定位**：macro 加载后读自己的页面地址，参数 `zenumlLocal` 等于自己的 `localId` 时调用 `revealThisMacro()`，用 `sessionStorage` 里带 `localId` 和参数的键保证每个标签页只触发一次。只在查看模式、页面高度稳定后触发。
+4. **Analytics adapter**：只发送闭合枚举和计数，见第 4 节。
 
-Confluence 是唯一的评论恢复来源；评论列表或发送不能依赖 Cloudflare 后端可用。评论版本标记若需要额外存储，也必须使用客户 Confluence 支持的表示；不能以 D1 作为评论恢复的必要条件。
+Confluence 是唯一的评论恢复来源；评论读写不依赖 Cloudflare 后端。
 
 ### 2.2 正常交互
 
-1. Viewer 已取得 `customContentId` 和当前 Custom Content 版本后，面板以当前用户身份读取评论。
-2. 读取成功显示线程；读权限存在而写权限不存在时显示只读状态和原因，仍允许阅读。
-3. 发布主评论或回复时，adapter 携带 `customContentId`、父评论 ID（回复时）和用户开始编写时看到的图表版本（回复只传平台要求的父评论关联，不假设允许同时传两个容器字段）；Confluence 返回的评论 ID 成为客户端确认依据。
-4. 编辑或删除先检查平台能力和当前用户身份；服务器拒绝时保留原内容并显示可理解的权限错误。
-5. 保存结果不确定（超时、连接断开）时先重新读取并做结果核对，禁止盲目重试造成重复评论。无法可靠核对时保留草稿并要求用户选择。
+1. 页面加载时不取评论。用户点击「评论」或页面需要数字时，才读取本页底部评论（共享的按页缓存，一页多个图表只取一次），按 `zenumlDiagram` 过滤。
+2. 读取成功显示线程；失败显示可理解的错误，图表本身不受影响。
+3. 发布时 adapter 创建带链接的页面底部评论，以 Confluence 返回的评论 ID 作为确认依据。
+4. 保存结果不确定（超时、连接断开）时先重新读取并核对，禁止盲目重试造成重复评论。无法核对时保留草稿并让用户选择。
+5. 429 或限流时退避并显示"稍后再试"，不阻塞图表渲染。
 
-评论正文可用 Confluence 支持的 ADF 结构承载；应用拥有的版本/迁移元数据必须使用经验证的稳定表示，并且不能冒充系统评论版本。若平台不能保存图表版本标记，版本标记功能在解决表示方式前不能发布。
-
-## 3. 权限、版本与迁移
+## 3. 权限与后续范围
 
 ### 3.1 权限
 
-- 正常用户交互的所有读写都以当前 Forge 用户调用；不建立应用自有 ACL，也不以 D1 判断页面权限。
-- 读评论要求用户能查看 Custom Content 及其容器；创建/回复/编辑/删除分别以 Confluence 返回的能力为准。
-- 当前 `manifest.yml` 已有 `read:comment:confluence` 和 `write:comment:confluence`。现有检查未发现 `delete:comment:confluence`，因此实现前必须完成 scope/API 审计；在审计通过前不得承诺删除可用。
-- 页面限制变化、用户失去访问权或评论被删除时，UI 以当前 API 结果为准，不缓存绕过权限的副本。
+- 所有读写以当前 Forge 用户调用；不建立应用自有 ACL，也不以 D1 判断页面权限。
+- `manifest.yml` 已有 `read:comment:confluence` 和 `write:comment:confluence`，各变体的清单裁剪脚本没有去掉它们。没有 `delete:comment:confluence`；新增 scope 是主版本升级，需要管理员同意，所以删除放到后续 PR。
+- 页面限制变化、用户失去访问权时，UI 以当前 API 结果为准，不缓存绕过权限的副本。
 
-### 3.2 历史反馈迁移
+### 3.2 后续 PR
 
-迁移输入只来自 git-ignored 的 [migration-selection.json](../../../private/local-data/diagram-comments/migration-selection.json)，其中保存已批准的六条记录选择，不把真实租户、页面、Cloud ID、正文或来源 ID写入本公共仓库。该文件当前状态是 `design-only-not-executed`；本设计不执行迁移。
-
-迁移是一次受控上线操作：
-
-- 对每条 allowlisted 记录解析唯一目标 `customContentId`；无法准确定位的条目跳过并报告，不猜测目标。
-- 原文必须完整保留；原提交日期和来源标记作为迁移说明保存。只有 Confluence 自己能赋予的真实作者身份才可使用；否则以应用身份发布，并清楚标明迁移来源和原提交日期，绝不冒充原作者，也不伪造系统创建时间。
-- 私有幂等账本至少记录源反馈 ID、目标 Custom Content ID、目标评论 ID、状态、尝试时间和错误类别。重复运行按源 ID + 目标 ID 去重，已确认成功的记录不再发布。
-- 迁移不主动 @，不向最后修改者发送应用额外通知；原生 watcher 的行为必须在演练中观察、记录并在正式迁移前接受。
-- 迁移采用单执行器串行执行，发布前写入 pending 状态；源 ID 对应的去重标记必须能从目标 Confluence 评论或属性中查询。网络结果不确定时先按标记核对，无法可靠匹配则停留在待核对状态，禁止重发。完成后重新读取每个目标的评论，与账本逐项对账；部分失败、权限变化和重复候选都单独报告。
-
-真实反馈正文和客户信息只能留在私有运行数据中，不能复制进本设计、测试 fixture、公开日志或 Mixpanel。
+- `@` 选人（已有 `read:user:confluence`、`search:confluence`，尚未端到端核对）。
+- 编辑和删除（需要删除所需的 scope 评审，也缺 Figma 里的删除确认画面，见 #1043）。
+- 六条已批准的历史反馈迁移：输入仍只来自 git 忽略的私有选择文件，不把真实租户、页面、正文写入公共仓库；迁移采用单执行器、幂等账本、不冒充原作者、不主动 `@`。设计不变，实现推迟。
+- 原反馈入口改成「联系 ZenUML 支持」，inline 面板。
 
 ## 4. Analytics 契约
 
-实现前的第一笔 feature commit 必须先更新 `src/utils/analytics/catalog.ts` 和 `src/utils/analytics/types.ts`。建议事件如下；公共属性仍按现有 catalog 自动补全。
+第一笔 feature commit 已在 `src/utils/analytics/catalog.ts` 和 `types.ts` 登记（feature_area `diagram_comments`）。所有事件保持全量，不采样：它们是用户操作，不是渲染。
 
 | 事件 | 触发 | 额外属性 |
 |---|---|---|
-| `diagram_comment_panel_opened` | 用户展开面板 | `feature_area: "diagram_comments"`, `surface: "viewer"` |
-| `diagram_comment_load_completed` | 评论读取结束 | `outcome: "succeeded" 或 "failed"`, `failure_reason` |
-| `diagram_comment_submit_requested` | 用户点击发布主评论或回复 | `thread_action: "root" \| "reply"`, `mention_count` |
-| `diagram_comment_submit_succeeded` | Confluence 返回已保存的评论 ID | `thread_action`, `mention_count`, `planned_notification_recipient_count`, `comment_id`, `root_comment_id` |
-| `diagram_comment_submit_failed` | 发布明确失败 | `thread_action`, `failure_reason`（闭合枚举） |
-| `diagram_comment_edit_completed` / `diagram_comment_delete_completed` | 编辑或删除操作结束 | `outcome`, `failure_reason` |
-| `diagram_comment_dismissed` | 用户关闭有草稿的面板 | `had_draft` |
-| `diagram_support_link_clicked` | 用户点击 Bug 图标/支持入口 | `feature_area: "feedback"`, `surface: "viewer"` |
+| `diagram_comment_entry_clicked` | 用户点击 inline 的「评论」 | `surface: "viewer"` |
+| `diagram_comment_panel_opened` | 全屏面板打开 | `surface: "fullscreen"` |
+| `diagram_comment_load_completed` | 本页评论读取结束 | `comment_load_outcome`, `comment_count`, `comment_failure_reason` |
+| `diagram_comment_submit_requested` | 用户点发布 | `comment_thread_action: "root" \| "reply"`, `comment_mention_count` |
+| `diagram_comment_submit_succeeded` | Confluence 返回已保存的评论 ID | `comment_thread_action`, `comment_mention_count`, `comment_planned_recipient_count` |
+| `diagram_comment_submit_failed` | 发布明确失败 | `comment_thread_action`, `comment_failure_reason`（闭合枚举） |
+| `diagram_comment_dismissed` | 用户关闭面板 | `comment_had_draft` |
+| `diagram_comment_link_revealed` | macro 因评论链接完成滚动 | `surface: "viewer"` |
 
-`root_comment_id` 用于把新主评论与后续回复关联；只使用 Confluence 生成的评论 ID，不发送正文或身份字段。按固定观察窗统计新主评论中获得至少一次他人回复的比例，同时单列自回复；成功事件加入 `is_self_reply` 布尔字段。历史迁移不进入新讨论分母。
-
-如需单独分析回复，沿用 `thread_action`，不再复制一套回复事件。事件不含正文、正文 hash、截图、源码、提及 account ID、客户名、页面标题或迁移源 ID；`mention_count` 只表示数量。迁移结果写私有运维账本，不以 Mixpanel 记录客户内容。
+事件不含正文、作者、account ID、页面标题、被提及的人。`planned_recipient_count` 是我们请求 Confluence 通知的人数，不是送达数。要看的比例：每次面板打开有多少次成功发布；每次成功发布有多少次 `link_revealed`（评论是否把读者带回图表）。
 
 ## 5. 验证与发布闸门
 
-### 已有证据
+### 5.1 已有证据（2026-11-04，lite-stg，人类 API 令牌，每项 1 到 2 次）
 
-- 当前 `manifest.yml` 的 Custom Content 模块声明支持 `comment` 子类型，并已有读写评论 scope（见文件约第 705、99、122 行）。
-- Confluence REST v2 评论接口文档描述了以 `customContentId` 关联评论及以 `parentCommentId` 创建回复：<https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-comment/>。
-- `src/model/DiagramAttribution.ts` 已把 Custom Content `version.authorId` 映射为 `lastUpdatedByAccountId`，可作为最后修改者计划的输入。
-- Atlassian Design System 有 Comment 组件和嵌套评论示例，可作为面板视觉和键盘交互参考：<https://atlassian.design/components/comment/>。
+见第 0.2 节的表。证据日志：[#1043](https://github.com/ZenUml/conf-app/issues/1043)。
 
-### 发布前必须取得的证据
+### 5.2 发布前必须取得的证据
 
-1. 在通用测试内容上真实验证列表、主评论、回复、当前用户权限、页面限制和复制/嵌入隔离；必须观察 UI 或网络结果，单元测试不能替代 UI 断言。
-2. 验证 `@` 的身份解析、通知最后修改者和回复对象、去重/排除自己，以及 API 创建评论是否触发与原生 UI 相同的通知。只能在平台证据存在时显示“已通知”。
-3. 验证图表版本标记能跨图表更新稳定保存，并确认使用的是图表版本而非评论版本；验证失败则阻止带版本标签的发布。
-4. 审计编辑/删除端点和 Forge scope；缺少删除能力时隐藏删除操作并重新评审承诺。
-5. 对超时后的读后核对、双击发布、分页/并发回复和迁移重复运行做测试；确认不存在重复评论或错误覆盖。
-6. 用截图、snapshot 或网络 intercept 记录 UI 结果；若 iframe 无法驱动，标记该断言为 `SKIPPED` 并记录 blocker，不以测试通过代替 UI 证据。
+1. **以 Forge 用户身份通过桥发的评论，会通知被提及的人。** 之前的试验都用人类 API 令牌，这一项没验证。验证失败时，通知相关能力是发布闸门，需回到产品评审，不得静默降级后宣称已完成。
+2. **产品代码里的定位**在一页两个 macro 的情况下只让匹配的那个滚动，刷新不重复，新标签页打开链接时会触发。
+3. 编辑模式、Live Docs、全屏、无写权限的读者上的行为（不会误触发，也不会破坏渲染）。
+4. 页面评论很多时的分页和 429 行为；一页多个图表只取一次评论。
+5. 双击发布、超时后核对的测试，确认不会产生重复评论。
+6. **UI 证据按顺序：Storybook，然后 Forge Tunnel，然后 CI 部署的 staging**，每阶段记录被测版本和截图；跳过或被阻塞的断言标为 SKIPPED 而不是通过。
 
-成功标准是：有权限的读者能在图表旁阅读、发表评论和回复；没有写权限的读者仍能阅读；通知行为与 UI 显示一致（原生平台可能额外通知关注者，实测后在界面说明；不声称能控制所有平台通知）；图表更新不丢失讨论；六条 allowlist 记录可逐条对账且重复运行幂等；“讨论获得回复”的比例可由事件衡量，而不是只看面板打开量。
+成功标准：有权限的读者能在 inline 图表旁进入评论、阅读、发表评论和回复；匿名访客和访客账号看不到入口且图表不受影响；通知行为与界面显示一致；评论里的链接把读者带回那张图表；图表更新不丢失讨论。
 
 ## 6. 明确不做的事
 
-- 不把评论正文或权限镜像进 D1，不把后台可用性作为图表渲染/编辑/评论恢复的前提。
-- 不把旧反馈全量公开，不迁移未列入六条 allowlist 的记录。
+- 不把评论正文或权限镜像进 D1，不把后台可用性作为图表渲染、编辑或评论的前提。
+- 不使用 Custom Content 评论（见 0.2）。
 - 不伪造历史作者或系统时间，不主动向历史评论对象发送新通知。
-- 不在第一版加入图内锚点、附件、点赞、解决状态或历史版本查看器。
+- 第一版不加图内锚点、附件、点赞、解决状态、历史版本查看器、`@` 选人、编辑、删除。

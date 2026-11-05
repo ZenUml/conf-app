@@ -140,6 +140,22 @@ describe('ai-generate-title onRequest', () => {
       expect(ai.run).toHaveBeenCalledTimes(2)
     })
 
+    it.each(['flowchart', 'flow chart', 'plantuml'])(
+      'does not call a %s diagram a ZenUML sequence diagram in the fallback prompt',
+      async (type) => {
+        const ai = {
+          run: vi
+            .fn()
+            .mockResolvedValueOnce({ response: REFUSAL })
+            .mockResolvedValueOnce({ response: 'Control Flow' }),
+        }
+        await onRequest({ request: req('POST', { dsl: 'A\nB', type }), env: { AI: ai as any } })
+        const fallbackPrompt = ai.run.mock.calls[1][1].messages[0].content
+        expect(fallbackPrompt).not.toMatch(/ZenUML|sequence/i)
+        expect(fallbackPrompt).toContain(type)
+      },
+    )
+
     it('answers 422 not_title_like when both models refuse', async () => {
       const ai = { run: vi.fn().mockResolvedValue({ response: REFUSAL }) }
       const response = await onRequest({ request: req('POST', { dsl: 'A\nB', type: 'flowchart' }), env: { AI: ai as any } })

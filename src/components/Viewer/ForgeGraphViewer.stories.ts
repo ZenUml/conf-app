@@ -49,6 +49,13 @@ const BUNDLED_ICON_GRAPH = `<mxGraphModel><root>
   <mxCell id="kubernetes" value="" style="aspect=fixed;html=1;image;image=img/lib/mscae/Kubernetes.svg;" vertex="1" parent="1"><mxGeometry x="260" y="20" width="60" height="60" as="geometry"/></mxCell>
 </root></mxGraphModel>`
 
+const MATH_GRAPH = `<mxGraphModel math="1"><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="pythagoras" value="$$x^2 + y^2 = z^2$$" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;" vertex="1" parent="1"><mxGeometry x="20" y="20" width="240" height="80" as="geometry"/></mxCell>
+  <mxCell id="fraction" value="\\(\\frac{a}{b} + \\sqrt{c}\\)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1"><mxGeometry x="300" y="20" width="240" height="80" as="geometry"/></mxCell>
+  <mxCell id="plain" value="PLAIN LABEL" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="20" y="140" width="240" height="60" as="geometry"/></mxCell>
+</root></mxGraphModel>`
+
 function countKubernetesBluePixels(image: HTMLImageElement): number {
   const canvas = document.createElement('canvas')
   canvas.width = image.naturalWidth
@@ -283,6 +290,38 @@ export const RealBundledIcons: Story = {
       // capture kept an external icon URL instead of embedding it.
       expect(countKubernetesBluePixels(preview)).toBeGreaterThan(500)
     }, { timeout: 15000 })
+  },
+}
+
+export const RealMathLabels: Story = {
+  name: 'Math labels typeset with the bundled MathJax',
+  render: () => ({
+    components: { ForgeGraphViewer },
+    setup() {
+      return useRealGraphFixture({ graphXml: MATH_GRAPH, title: 'Math labels', accountId: 'storybook-math-graph-user', contentId: 'storybook-math-graph' })
+    },
+    template: '<div style="width:900px;height:620px;margin:0 auto;background:#fff"><ForgeGraphViewer v-if="ready" :graph-xml="graphXml" /></div>',
+  }),
+  play: async ({ canvasElement }) => {
+    await waitFor(() => {
+      expect(canvasElement.querySelectorAll('.graph-viewer-canvas mjx-container')).toHaveLength(2)
+    }, { timeout: 15000 })
+
+    // While MathJax is missing the viewer keeps the canvas hidden, which blanks
+    // every label, plain ones too.
+    const plainLabel = [...canvasElement.querySelectorAll<HTMLElement>('.graph-viewer-canvas foreignObject div')]
+      .find((element) => element.textContent === 'PLAIN LABEL')
+    await waitFor(() => {
+      expect(plainLabel && getComputedStyle(plainLabel).visibility).toBe('visible')
+    })
+
+    // Forge's CSP refuses any other host, so MathJax loaded from elsewhere works
+    // here and fails in Confluence.
+    const startup = [...document.querySelectorAll<HTMLScriptElement>('script[src$="/startup.js"]')]
+      .map((script) => new URL(script.src))
+    expect(startup).toHaveLength(1)
+    expect(startup[0].origin).toBe(new URL(document.baseURI).origin)
+    expect(startup[0].pathname).toContain('/drawio/math4/es5/')
   },
 }
 

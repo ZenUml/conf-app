@@ -284,6 +284,16 @@ emitted when the feature flag is off, and `related_token_indicators_shown` is no
 
 Renamed 2026-09-08 from `ai_generation_*`; pre-release data carries the old names.
 
+### `ai_title_label_used`
+
+**Trigger:** a Graph has one short label and a title was requested (AI button or Publish). The label becomes the title without a model call, so no `ai_title_generation_*` or `ai_title_accepted` event fires. Fired in `useAutoTitle.ts`.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"ai"` |
+| `surface` | `"editor"` |
+| `macro_type` | `"graph"` |
+
 ### `ai_title_generation_requested`
 
 **Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts` for Sequence/Mermaid/PlantUML, Graph and OpenAPI editors.

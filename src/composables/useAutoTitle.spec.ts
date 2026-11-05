@@ -158,7 +158,7 @@ describe('useAutoTitle', () => {
     const badReply = "I'm ready to help. What is the DSL that describes the flowchart diagram?"
     vi.mocked(aiGenerateTitle).mockResolvedValue(okRes(badReply))
     const { generate } = useAutoTitle()
-    const p = generate('user', { code: 'Order Service', diagramType: DiagramType.Graph, currentTitle: '' })
+    const p = generate('user', { code: 'Order Service\nInventory', diagramType: DiagramType.Graph, currentTitle: '' })
     await runAnimation(badReply)
     await p
     expect(fakeStore.state.diagram.title).toBe('')
@@ -168,10 +168,115 @@ describe('useAutoTitle', () => {
     )
   })
 
+  it.each([
+    // Exact text seen in the title field on lite-stg, 2026-11-05: the backend cut it to 80 characters.
+    "Please provide the DSL describing the flowchart diagram. I'll help you create a",
+    'Please provide the DSL (Domain-Specific Language) describing the flowchart diagr',
+    "I'm ready to help. What is the DSL (Domain-Specific Language) describing the flo",
+    "I'm happy to help! However, I need a DSL (Domain Specific Language) describing a",
+    "Unfortunately, I don't see any DSL (Domain-Specific Language) provided. Please p",
+    "You didn't provide a DSL or any other information about the UML diagram. Can you",
+    "Based on the DSL, I don't see any specific details about the flowchart diagram.",
+    'To create a title for the flowchart diagram, I need a bit more information about',
+    "However, I need a bit more information about the flowchart diagram you'd like to",
+    'DSL',
+  ])('rejects model refusal text as a title: %s', async (reply) => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes(reply))
+    const { generate } = useAutoTitle()
+    const p = generate('user', { code: 'Start\nEnd', diagramType: DiagramType.Graph, currentTitle: '' })
+    await runAnimation(reply)
+    await p
+    expect(fakeStore.state.diagram.title).toBe('')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_title_generation_failed',
+      expect.objectContaining({ failure_reason: 'not_title_like' }),
+    )
+  })
+
+  it.each([
+    'DSL Parser Pipeline',
+    'I/O Request Handling',
+    'Provide Customer Feedback',
+    'Please Hold Call Flow',
+    'However Many Retries: Backoff Logic',
+    'Based on Role Access Control',
+    'User Needs Assessment',
+    'Sorry Page Routing',
+  ])('keeps a legitimate title that resembles refusal wording: %s', async (reply) => {
+    vi.mocked(aiGenerateTitle).mockResolvedValue(okRes(reply))
+    const { generate } = useAutoTitle()
+    const p = generate('user', { code: 'Start\nEnd', diagramType: DiagramType.Graph, currentTitle: '' })
+    await runAnimation(reply)
+    await p
+    expect(fakeStore.state.diagram.title).toBe(reply)
+  })
+
+  describe('Graph with a single short label (too little text for the model)', () => {
+    const ONE_LABEL = { code: 'Control', diagramType: DiagramType.Graph, currentTitle: '' }
+
+    it('does not call the model or set a title while editing', async () => {
+      const { generate } = useAutoTitle()
+      await generate('init', ONE_LABEL)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(aiGenerateTitle).not.toHaveBeenCalled()
+      expect(fakeStore.state.diagram.title).toBe('')
+    })
+
+    it('uses the label as the title on request, without the model and without AI events', async () => {
+      const { generate, autoNameAnimationDone } = useAutoTitle()
+      await generate('user', ONE_LABEL)
+      expect(aiGenerateTitle).not.toHaveBeenCalled()
+      expect(fakeStore.state.diagram.title).toBe('Control')
+      expect(autoNameAnimationDone.value).toBe(false)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'ai_title_label_used',
+        expect.objectContaining({ macro_type: 'graph' }),
+      )
+      expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_title_generation_requested', expect.anything())
+    })
+
+    it('still asks the model for two labels', async () => {
+      vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Storage Control'))
+      const { generate } = useAutoTitle()
+      const p = generate('init', { ...ONE_LABEL, code: 'Control\nStorage' })
+      await runAnimation('Storage Control')
+      await p
+      expect(aiGenerateTitle).toHaveBeenCalledTimes(1)
+    })
+
+    it('still asks the model for a shape description', async () => {
+      vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('EC2 Deployment'))
+      const { generate } = useAutoTitle()
+      const p = generate('init', { ...ONE_LABEL, code: 'Diagram shapes: ec2.' })
+      await runAnimation('EC2 Deployment')
+      await p
+      expect(aiGenerateTitle).toHaveBeenCalledTimes(1)
+    })
+
+    it('still asks the model for one label too long to be a title', async () => {
+      const longLabel = 'x'.repeat(81)
+      vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Summary'))
+      const { generate } = useAutoTitle()
+      const p = generate('init', { ...ONE_LABEL, code: longLabel })
+      await runAnimation('Summary')
+      await p
+      expect(aiGenerateTitle).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves a one-line Mermaid document to the model', async () => {
+      vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Empty Graph'))
+      const { generate } = useAutoTitle()
+      const p = generate('init', { code: 'graph TD', diagramType: DiagramType.Mermaid, currentTitle: '' })
+      await runAnimation('Empty Graph')
+      await p
+      expect(aiGenerateTitle).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('accepts a normal short title (positive guard against over-rejecting)', async () => {
     vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Processing Flow'))
     const { generate } = useAutoTitle()
-    const p = generate('user', { code: 'Order Service', diagramType: DiagramType.Graph, currentTitle: '' })
+    const p = generate('user', { code: 'Order Service\nInventory', diagramType: DiagramType.Graph, currentTitle: '' })
     await runAnimation('Order Processing Flow')
     await p
     expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Order Processing Flow')

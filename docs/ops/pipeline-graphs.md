@@ -21,7 +21,7 @@ flowchart LR
 | Event while a run is active | PR checks | PR validation |
 |---|---|---|
 | Newer push, old run still queued for the lock | Old run cancelled | Old run gets the lock, skips everything, releases the lock |
-| Newer push during the deploy | Old run cancelled | Deploy finishes, E2E is skipped |
+| Newer push during the deploy | Old run cancelled | Deploy finishes, E2E is skipped; cleanup looks for a child run for up to 60 s, then releases the lock |
 | Newer push during E2E | Old run cancelled | E2E finishes on the old commit |
 | Draft marked Ready, same commit | Not started again | Runs with E2E |
 | `test:all` dispatch | Not started | Runs with full E2E |

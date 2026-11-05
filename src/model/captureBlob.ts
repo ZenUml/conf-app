@@ -79,6 +79,54 @@ export function prepareSequenceCaptureSvg(svg: string, source: HTMLElement): str
   return isDataUrl ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialised)}` : serialised;
 }
 
+const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink';
+
+async function fetchAsDataUrl(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`captureBlob: image ${url} returned ${response.status}`);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error(`captureBlob: could not read image ${url}`));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Embed every `<image>` URL of a capture SVG as a data URL.
+ *
+ * An SVG drawn as an image cannot load external resources, so an un-embedded
+ * icon comes out as a broken-image glyph. html-to-image means to embed them, but
+ * it writes `href.baseVal`, and in Chromium that does not change the
+ * `xlink:href` attribute that DrawIO emits, so the serialised SVG keeps the URL.
+ * Rejects when an icon cannot be fetched: no PNG is better than a saved PNG with
+ * a broken icon, which would never be captured again for the same content.
+ */
+export async function inlineCaptureSvgImages(svg: string): Promise<string> {
+  const comma = svg.indexOf(',');
+  const markup = decodeURIComponent(svg.slice(comma + 1));
+  if (!markup.includes('<image')) return svg;
+
+  const parsed = new DOMParser().parseFromString(markup, 'image/svg+xml');
+  const hrefOf = (image: Element) => image.getAttributeNS(XLINK_NAMESPACE, 'href') ?? image.getAttribute('href') ?? '';
+  const images = [...parsed.querySelectorAll('image')].filter((image) => {
+    const href = hrefOf(image);
+    return href && !href.startsWith('data:');
+  });
+  if (images.length === 0) return svg;
+
+  const dataUrls = new Map(await Promise.all(
+    [...new Set(images.map(hrefOf))].map(async (url) => [url, await fetchAsDataUrl(url)] as const),
+  ));
+  images.forEach((image) => {
+    const dataUrl = dataUrls.get(hrefOf(image))!;
+    image.removeAttribute('href');
+    image.setAttributeNS(XLINK_NAMESPACE, 'xlink:href', dataUrl);
+  });
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(parsed))}`;
+}
+
 // @see https://developer.mozilla.org/en-US/docs/Web/HTML/Element/canvas#maximum_canvas_size
 const CANVAS_DIMENSION_LIMIT = 16384;
 
@@ -151,7 +199,7 @@ export async function captureBlob(
   // while the hosted diagram font (the one layout was measured with) is kept.
   const fontEmbedCSS = options.fontEmbedCSS ?? (await getDiagramFontEmbedCss());
   const svg = await htmlToImage.toSvg(node, fontEmbedCSS ? { ...options, fontEmbedCSS } : options);
-  const svgDataUrl = prepareSequenceCaptureSvg(svg, node);
+  const svgDataUrl = await inlineCaptureSvgImages(prepareSequenceCaptureSvg(svg, node));
   const img = await loadImage(svgDataUrl);
 
   const measured = measure(node);

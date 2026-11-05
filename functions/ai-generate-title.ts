@@ -12,6 +12,10 @@ function isOpenApiTitleRequest(type?: string): boolean {
   return /openapi/i.test((type || '').trim());
 }
 
+function isSequenceTitleRequest(type?: string): boolean {
+  return !type || /sequence/i.test(type);
+}
+
 // Robustly pull a title out of the model's free-form response. Llama often
 // ignores the "wrap in triple quotes" instruction (especially for sequence
 // DSLs), so fall back through: triple-quoted span -> any quoted span -> the
@@ -58,7 +62,9 @@ const strategies: Strategy[] = [
   async (ai, dsl, type) => {
     const systemPrompt = isOpenApiTitleRequest(type)
       ? 'Generate one concise title for the provided OpenAPI specification. Only output the title, nothing else.'
-      : 'You are an expert of ZenUML sequence diagram. Generate title for the given DSL. Only output the title, nothing else.';
+      : isSequenceTitleRequest(type)
+        ? 'You are an expert of ZenUML sequence diagram. Generate title for the given DSL. Only output the title, nothing else.'
+        : `Generate one concise title for the provided ${type} diagram. Only output the title, nothing else.`;
     const result = await (ai as any).run(FALLBACK_MODEL, {
       messages: [
         {

@@ -28,6 +28,8 @@ let loading: Promise<void> | null = null;
 let loaded = false;
 
 const MATHJAX_PLACEHOLDER = Object.freeze({});
+const MATH_SETTLE_TIMEOUT_MS = 30_000;
+let mathSettled: Promise<void> = Promise.resolve();
 
 /**
  * Where `drawio/` lives. Unset in the Confluence app, whose document base is
@@ -235,9 +237,32 @@ function documentMayUseMath(root: Element): boolean {
 export function ensureDrawioMathForDocument(root: Element | null | undefined): void {
   const w = window as typeof window & {
     MathJax?: unknown;
-    Editor?: { initMath: () => void };
+    Editor?: { initMath: () => void; onMathJaxDone?: () => void };
   };
-  if (!root || w.MathJax !== MATHJAX_PLACEHOLDER || !documentMayUseMath(root)) return;
+  const editor = w.Editor;
+  if (!root || !editor || w.MathJax !== MATHJAX_PLACEHOLDER || !documentMayUseMath(root)) return;
   delete w.MathJax;
-  w.Editor?.initMath();
+  editor.initMath();
+  mathSettled = new Promise((resolve) => {
+    const viewerDone = editor.onMathJaxDone;
+    editor.onMathJaxDone = function (this: unknown, ...args: []) {
+      viewerDone?.apply(this, args);
+      resolve();
+    };
+  });
+}
+
+/**
+ * True when MathJax is finished or was never needed; false after the timeout.
+ * The canvas is hidden until MathJax finishes, so a capture before that has
+ * blank labels. MathJax took 4.6 s on a cold staging load, 2026-11-05.
+ */
+export function whenDrawioMathSettled(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(false), MATH_SETTLE_TIMEOUT_MS);
+    void mathSettled.then(() => {
+      clearTimeout(timeout);
+      resolve(true);
+    });
+  });
 }

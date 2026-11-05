@@ -8,7 +8,7 @@ type DrawioWindow = typeof window & {
   DRAW_MATH_URL?: string;
   GraphViewer?: unknown;
   MathJax?: unknown;
-  Editor?: { initMath: () => void };
+  Editor?: { initMath: () => void; onMathJaxDone?: () => void };
 };
 
 const w = window as DrawioWindow;
@@ -174,6 +174,65 @@ describe('MathJax loading', () => {
     ensureDrawioMathForDocument(xmlNode('<mxGraphModel math="1"><root/></mxGraphModel>'));
 
     expect(initMath).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('whenDrawioMathSettled', () => {
+  const MATH_DOC = '<mxGraphModel math="1"><root/></mxGraphModel>';
+
+  beforeEach(() => {
+    vi.resetModules();
+    delete w.GraphViewer;
+    delete w.MathJax;
+    delete w.Editor;
+    document.head.innerHTML = '';
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function startMath() {
+    stubScriptLoading();
+    const loader = await import('./loadDrawioViewer');
+    await loader.ensureDrawioViewerLoaded();
+    const originalDone = vi.fn();
+    w.Editor = { initMath: () => { w.Editor!.onMathJaxDone = originalDone; } };
+    return { ...loader, originalDone };
+  }
+
+  it('is true at once for a document without math', async () => {
+    const { ensureDrawioMathForDocument, whenDrawioMathSettled } = await startMath();
+
+    ensureDrawioMathForDocument(xmlNode('<mxGraphModel math="0"><root/></mxGraphModel>'));
+
+    await expect(whenDrawioMathSettled()).resolves.toBe(true);
+  });
+
+  it('stays pending until the viewer reports MathJax done, and keeps the viewer callback', async () => {
+    const { ensureDrawioMathForDocument, whenDrawioMathSettled, originalDone } = await startMath();
+    ensureDrawioMathForDocument(xmlNode(MATH_DOC));
+
+    let settled: boolean | undefined;
+    void whenDrawioMathSettled().then((value) => { settled = value; });
+    await Promise.resolve();
+    expect(settled).toBeUndefined();
+
+    w.Editor!.onMathJaxDone!();
+    await vi.waitFor(() => expect(settled).toBe(true));
+    expect(originalDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('is false when MathJax does not finish in time', async () => {
+    const { ensureDrawioMathForDocument, whenDrawioMathSettled } = await startMath();
+    ensureDrawioMathForDocument(xmlNode(MATH_DOC));
+    vi.useFakeTimers();
+
+    const result = whenDrawioMathSettled();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(result).resolves.toBe(false);
   });
 });
 

@@ -613,6 +613,11 @@ export type AnalyticsEventName =
   // A Graph with one short label takes that label as its title on request. The
   // model is not called, so no ai_title_generation_* event fires.
   | "ai_title_label_used"
+  // A stored title is model refusal text saved before PR #1053 (isSavedRefusalTitle
+  // in lib/aiTitleGuard.js). surface=viewer: the header shows "Untitled diagram"
+  // instead, once per title the viewer renders. surface=editor: the editor
+  // cleared it on open, so the next Publish saves a real title. macro_type set.
+  | "saved_refusal_title_hidden"
   // AI entry-point impressions. Fire on each hidden -> visible transition of
   // the editor button (not on component re-renders), with macro_type so the
   // denominator can be compared directly with the existing click/request

@@ -178,8 +178,13 @@ permissions:
         - https://diagramly.ai
         - https://*.diagramly.ai
         - wss://*.diagramly.ai
+        # Stencil icons that DrawIO diagrams reference by absolute URL. html-to-image
+        # fetches them to embed in the PNG capture.
+        - https://icons.diagrams.net
     images:
       - https://*.googletagmanager.com
+      # Same icons, displayed by the Graph viewer and editor.
+      - https://icons.diagrams.net
     scripts:
       - https://*.googletagmanager.com
       - https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js

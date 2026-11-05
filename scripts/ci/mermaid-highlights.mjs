@@ -13,9 +13,7 @@
 // MERMAID_HIGHLIGHTS_CHROMIUM_EXECUTABLE to use a different browser.
 import { existsSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { once } from 'node:events';
 import { run } from 'node:test';
-import { spec } from 'node:test/reporters';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -55,16 +53,27 @@ export function verdict(counts) {
   return { ok: true, message: `${counts.tests} tests, ${counts.passed} passed, 0 skipped` };
 }
 
-async function main() {
-  // The test file runs in a child process, which inherits these.
-  Object.assign(process.env, resolveInputs());
-  const stream = run({ files: [TEST_FILE], cwd: ROOT });
+/** Run real child tests and reject incomplete execution on either runtime. */
+export async function runTests({ files = [TEST_FILE], cwd = ROOT } = {}) {
+  const stream = run({ files, cwd });
   let counts;
-  stream.on('test:summary', summary => { if (!summary.file) counts = summary.counts; });
-  const report = stream.compose(spec);
-  report.pipe(process.stdout);
-  await once(report, 'end');
-  const result = verdict(counts);
+  // Consume the standard events rather than node:test/reporters, which Bun
+  // does not implement. Only the overall summary determines the gate result.
+  for await (const { type, data } of stream) {
+    if (type === 'test:summary' && !data.file) counts = data.counts;
+    if (type === 'test:stdout') process.stdout.write(data.message);
+    else if (type === 'test:stderr') process.stderr.write(data.message);
+    else if (type === 'test:fail') {
+      console.error(`not ok - ${data.name}`);
+      if (data.details?.error) console.error(data.details.error);
+    } else if (type === 'test:pass') console.log(`ok - ${data.name}`);
+  }
+  return verdict(counts);
+}
+
+async function main() {
+  Object.assign(process.env, resolveInputs());
+  const result = await runTests();
   console.error(`mermaid-highlights: ${result.ok ? 'ok' : 'FAILED'} - ${result.message}`);
   process.exitCode = result.ok ? 0 : 1;
 }

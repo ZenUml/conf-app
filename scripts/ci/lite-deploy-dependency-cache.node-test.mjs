@@ -5,6 +5,7 @@ import { tmpdir, arch } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import yaml from 'js-yaml';
+import { installNodeLauncher } from './test-runtime-fixtures.mjs';
 
 const action = yaml.load(await readFile(new URL('../../.github/actions/wrangler-publish/action.yml', import.meta.url), 'utf8'));
 const steps = action.runs.steps;
@@ -37,6 +38,7 @@ test('candidate store restore/save runs only after an installed-tree miss; froze
 async function runResolver({ path = '/tmp/pnpm store/v10', hash = 'a'.repeat(64), platform = 'Linux', failure = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'lite-dependency-cache-test-'));
   try {
+    await installNodeLauncher(directory);
     const executable = join(directory, 'pnpm');
     await writeFile(executable, `#!${process.execPath}
 if (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(['store','path','--silent'])) process.exit(99);
@@ -88,13 +90,14 @@ test('candidate cache evidence distinguishes skipped store restore from attempte
   assert.equal(record.env.STORE_CACHE_HIT, '${{ steps.pnpm-store.outputs.cache-hit }}');
   const directory = await mkdtemp(join(tmpdir(), 'lite-dependency-evidence-test-'));
   try {
+    await installNodeLauncher(directory);
     for (const [installedHit, storeHit, expected] of [
       ['true', '', { installed_dependencies_hit: true, pnpm_store_requested: false, pnpm_store_hit: false }],
       ['false', 'true', { installed_dependencies_hit: false, pnpm_store_requested: true, pnpm_store_hit: true }],
       ['', '', { installed_dependencies_hit: false, pnpm_store_requested: true, pnpm_store_hit: false }],
     ]) {
       const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', record.run], { cwd: directory, encoding: 'utf8',
-        env: { PATH: dirname(process.execPath), CACHE_HIT: installedHit, STORE_CACHE_HIT: storeHit } });
+        env: { PATH: directory, CACHE_HIT: installedHit, STORE_CACHE_HIT: storeHit } });
       assert.equal(result.status, 0);
       assert.deepEqual(JSON.parse(await readFile(join(directory, 'lite-deploy-cache.json'), 'utf8')), expected);
     }

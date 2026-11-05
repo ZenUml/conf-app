@@ -717,7 +717,7 @@ jobs:
           echo "| Variant  | ${{ needs.resolve.outputs.variant }} |" >> $GITHUB_STEP_SUMMARY
           echo "| App type | ${TYPE} |" >> $GITHUB_STEP_SUMMARY
           echo "| Confluence site | ${SITE} |" >> $GITHUB_STEP_SUMMARY
-          node --input-type=module <<'NODE'
+          node --input-type=module - <<'NODE'
           import {readFileSync, appendFileSync} from 'node:fs';
           const read = file => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
           const dependencies = read('lite-deploy-cache.json');

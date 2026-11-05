@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "test:unit": "vitest --run",
+    "test:unit:bun": "bun node_modules/vitest/vitest.mjs --run",
+    "test:ci:bun": "bun test ./scripts/ci/*.node-test.mjs ./scripts/test-selection/tests/*.node-test.mjs",
     "test:ui-details": "playwright test -c tests/ui-details/playwright.config.ts",
     "test:mermaid-highlights": "node scripts/ci/mermaid-highlights.mjs",
     "test:export-modal": "playwright test -c tests/export-modal/playwright.config.ts",
@@ -224,6 +226,9 @@
       "core-js",
       "esbuild",
       "keytar"
-    ]
+    ],
+    "patchedDependencies": {
+      "vitest@2.1.9": "patches/vitest@2.1.9.patch"
+    }
   }
 }

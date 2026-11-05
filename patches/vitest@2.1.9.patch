@@ -1,0 +1,17 @@
+diff --git a/dist/chunks/vi.DgezovHB.js b/dist/chunks/vi.DgezovHB.js
+index 8232826a9c38a6a24cdd0477eafa89af3eee5618..f9cec9c4acc581a8b3d920d46749d9e74b31819e 100644
+--- a/dist/chunks/vi.DgezovHB.js
++++ b/dist/chunks/vi.DgezovHB.js
+@@ -3971,7 +3971,11 @@ function getImporter(name) {
+   const stackTrace = createSimpleStackTrace({ stackTraceLimit: 5 });
+   const stackArray = stackTrace.split("\n");
+   const importerStackIndex = stackArray.findIndex((stack2) => {
+-    return stack2.includes(` at Object.${name}`) || stack2.includes(`${name}@`);
++    // Bun formats method frames without the Object receiver (oven-sh/bun#43685).
++    // Accept the bare name only for a frame from this Vitest chunk.
++    return stack2.includes(` at Object.${name}`) || stack2.includes(`${name}@`) || (
++      stack2.includes(` at ${name} (`) && stack2.includes(import.meta.url.split("/").pop())
++    );
+   });
+   const stack = parseSingleStack(stackArray[importerStackIndex + 1]);
+   return stack?.file || "";

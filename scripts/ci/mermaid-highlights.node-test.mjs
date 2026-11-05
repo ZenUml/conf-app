@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, mkdtempSync, symlinkSync, unlinkSync, rmdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, symlinkSync, unlinkSync, rmdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -51,17 +51,24 @@ test('package.json exposes one command that CI and developers share', () => {
 });
 
 test('under CI, the highlight test file fails when its browser inputs are missing instead of skipping', () => {
-  const result = spawnSync(process.execPath, ['--test', HIGHLIGHT_TESTS], { env: childEnv({ CI: 'true' }), encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [process.versions.bun ? 'test' : '--test', HIGHLIGHT_TESTS], { env: childEnv({ CI: 'true' }), encoding: 'utf8' });
   assert.notEqual(result.status, 0, `exit ${result.status}\n${result.stdout}`);
   assert.match(`${result.stdout}${result.stderr}`, /MERMAID_HIGHLIGHTS_PLAYWRIGHT_MODULE/);
 });
 
 test('outside CI, the highlight test file still skips its browser tests so a plain checkout stays usable', () => {
-  const result = spawnSync(process.execPath, ['--test', HIGHLIGHT_TESTS], { env: childEnv(), encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [process.versions.bun ? 'test' : '--test', HIGHLIGHT_TESTS], { env: childEnv(), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout);
   // Count rather than pin: every test that does not pass must be a skip, and at
   // least one browser test must have been skipped.
-  const count = name => Number(result.stdout.match(new RegExp(`^(?:#|ℹ) ${name} (\\d+)$`, 'm'))?.[1]);
+  const output = `${result.stdout}${result.stderr}`;
+  const count = name => {
+    const node = output.match(new RegExp(`^(?:#|ℹ) ${name} (\\d+)$`, 'm'));
+    if (node) return Number(node[1]);
+    if (name === 'tests') return Number(output.match(/Ran (\d+) tests/)?.[1]);
+    const label = name === 'skipped' ? 'skip' : name;
+    return Number(output.match(new RegExp(`^\\s*(\\d+) ${label}$`, 'm'))?.[1] ?? 0);
+  };
   assert.ok(count('skipped') > 0, result.stdout);
   assert.equal(count('pass') + count('skipped'), count('tests'), result.stdout);
 });
@@ -128,6 +135,40 @@ test('a run only passes when every test ran and passed', async () => {
     assert.match(result.message, reason);
   }
 });
+
+for (const [outcome, body, expectedStatus, message] of [
+  ['pass', 'assert.equal(2 + 2, 4)', 0, '1 tests, 1 passed, 0 skipped'],
+  ['fail', 'assert.equal(2 + 2, 5)', 1, '1 failed of 1 tests'],
+  ['skip', 'assert.fail("a skipped fixture must not execute")', 1, '1 skipped of 1 tests'],
+]) {
+  test(`the actual runner executes a ${outcome} fixture and keeps the gate fail-closed`, () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'mermaid-runner-test-'));
+    try {
+      const file = path.join(directory, 'fixture.node-test.mjs');
+      writeFileSync(file, `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+test('real child assertion', { skip: ${outcome === 'skip'} }, () => {
+  assert.equal(Boolean(process.versions.bun), ${Boolean(process.versions.bun)});
+  ${body};
+});\n`);
+      const bootstrap = `import { runTests } from ${JSON.stringify(new URL('./mermaid-highlights.mjs', import.meta.url).href)};
+const result = await runTests({ files: [${JSON.stringify(file)}], cwd: ${JSON.stringify(directory)} });
+console.error('gate-result:' + JSON.stringify(result));
+process.exitCode = result.ok ? 0 : 1;`;
+      // A file entry avoids inheriting -e into node:test.run()'s own child.
+      const entry = path.join(directory, 'runner-entry.mjs');
+      writeFileSync(entry, bootstrap);
+      const result = spawnSync(process.execPath, [entry], {
+        env: childEnv(), encoding: 'utf8', timeout: 15000,
+      });
+      const output = `${result.stdout}${result.stderr}`;
+      assert.equal(result.status, expectedStatus, output);
+      assert.ok(output.includes('gate-result:' + JSON.stringify({ ok: expectedStatus === 0, message })), output);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test('Chromium installed for the E2E workspace is the Chromium the highlight tests launch', () => {
   // preview-e2e installs browsers with tests/e2e-tests' Playwright, while the

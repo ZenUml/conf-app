@@ -43,7 +43,8 @@ const options = file => createParseOptions(join(process.cwd(), file), new FileSy
 })().catch(error => { console.error(error.message); process.exit(1); });
 `;
 
-test('installed Forge typed parser changes program mode while preserving AST, diagnostics and rejections', async () => {
+// Two child parser runs each have a 30s limit; allow their bounded total.
+test('installed Forge typed parser changes program mode while preserving AST, diagnostics and rejections', { timeout: 65000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lite-parser-test-'));
   try {
     await writeFile(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true, target: 'ES2020' }, include: ['valid.ts', 'mismatch.ts', 'syntax.ts', 'duplicate.ts'] }));

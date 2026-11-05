@@ -109,7 +109,7 @@ runs:
       env:
         CACHE_LOCK_HASH: ${{ hashFiles('pnpm-lock.yaml') }}
       run: |
-        node --input-type=module <<'NODE'
+        node --input-type=module - <<'NODE'
         import {execFileSync} from 'node:child_process';
         import {appendFileSync} from 'node:fs';
         import {arch} from 'node:os';

@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import yaml from 'js-yaml';
+import { installNodeLauncher } from './test-runtime-fixtures.mjs';
 import { runtimeEvidence } from './lite-deploy-evidence.mjs';
 
 const deploy = yaml.load(await readFile(new URL('../../.github/workflows/staging-deploy.yml', import.meta.url), 'utf8'));
@@ -216,8 +217,9 @@ test('ordinary deployment summary records resolved mode/runtime and only whiteli
     await writeFile(join(directory, 'lite-deploy-cache.json'), JSON.stringify({ installed_dependencies_hit: true, pnpm_store_requested: false, pnpm_store_hit: 'must-not-emit', ignored: 'must-not-emit' }));
     await writeFile(join(directory, 'lite-deploy-studio-cache.json'), JSON.stringify({ studio_output_hit: true, studio_legacy_arm_output_valid: false }));
     const summary = join(directory, 'summary');
+    await installNodeLauncher(directory);
     const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', step.run.replaceAll('${{ needs.resolve.outputs.variant }}', 'lite')], {
-      cwd: directory, encoding: 'utf8', env: { PATH: dirname(process.execPath), GITHUB_STEP_SUMMARY: summary,
+      cwd: directory, encoding: 'utf8', env: { PATH: directory, GITHUB_STEP_SUMMARY: summary,
         PREPARATION_MODE: 'candidate', DEPLOY_RUNNER_LABEL: 'ubuntu-24.04-arm', APP_SHA: current, TOOLING_SHA: explicit },
     });
     assert.equal(result.status, 0);

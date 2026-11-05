@@ -48,6 +48,7 @@ import {
   validateBoardXml,
 } from "@/utils/graph/boardDocument";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { clearExternalIconState, startExternalIconProxy } from "@/utils/graph/externalIcons";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
 import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from "@/utils/viewport/wheelZoom";
 import { trackViewportControl } from "@/utils/viewport/trackViewportControl";
@@ -83,6 +84,7 @@ export default {
     this.renderViewer();
   },
   beforeUnmount() {
+    clearExternalIconState(this.$refs.graphContainer);
     this.captureResizeObserver?.disconnect();
     this.captureResizeObserver = null;
     this.disableWheelZoom();
@@ -164,6 +166,8 @@ export default {
         }
       }
       if (!container) return;
+      // A previous render's icon proxy result must not gate this render's capture.
+      clearExternalIconState(container);
       // Classify the effective document (including Board/prop overrides) before
       // parsing: whitespace is empty even if DrawIO rejects it. Rendering and
       // its failure telemetry retain their existing path.
@@ -217,6 +221,7 @@ export default {
         // painted diagram rather than an empty container.
         EventBus.$emit('viewerRenderSettled', 'graph');
         if (!emptyBody && !diagram?.loadError) reportDiagramReady(container, 'graph');
+        this.loadExternalIcons(container);
       } catch (e) {
         this.graphRendered = false;
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
@@ -229,6 +234,21 @@ export default {
         // was invisible on both sides of any Mixpanel ratio. This is the
         // failure side; it must fire even though macro_viewed above did not.
         trackViewerRenderCrash('graph', this.$store.getters.isDisplayMode, e);
+      }
+    },
+    /**
+     * Icons from icons.diagrams.net: Forge's CSP refuses that host, so they come
+     * from our backend as data URLs. The diagram has already rendered and is not
+     * held up: the icons are swapped in when the call settles. A failure leaves
+     * the diagram without them and makes PNG capture refuse it (captureBlob).
+     * Nothing here may break the render, hence the catch.
+     */
+    loadExternalIcons(container) {
+      const viewer = this.graphViewer;
+      try {
+        startExternalIconProxy({ viewer, container, track: trackAnalyticsEvent });
+      } catch (e) {
+        console.error('ForgeGraphViewer: external icon proxy could not start:', e);
       }
     },
     // GraphViewer's built-in 'zoom' toolbar item does exactly this

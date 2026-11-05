@@ -1,0 +1,6 @@
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > does not fire when the user edited the title before saving
+ FAIL  src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > does not fire when the user cleared the title and saved another one
+ FAIL  src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > does not fire when the saved title is empty
+ FAIL  src/composables/useAutoTitle.spec.ts > useAutoTitle > ai_title_accepted requires the saved title to be the generated title > compares with the latest generated title after a regenerate
+      Tests  4 failed | 22 passed (26)

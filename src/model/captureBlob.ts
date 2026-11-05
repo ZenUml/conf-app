@@ -1,6 +1,7 @@
 import * as htmlToImage from 'html-to-image';
 import { getDiagramFontState } from '../utils/fonts/diagramFontState';
 import { awaitExternalIcons } from '../utils/graph/externalIconState';
+import { withCaptureStage } from './captureFailure';
 
 /**
  * DOM -> PNG Blob, without html-to-image's `toBlob()`.
@@ -199,34 +200,46 @@ export async function captureBlob(
   // until they have loaded, and not at all when they could not: an SVG drawn as
   // an image cannot fetch them, and a PNG saved with broken icons is never
   // captured again for the same content. Diagrams without such icons skip this.
-  await awaitExternalIcons(node.matches?.('[data-diagram-capture-root]') ? node : node.querySelector('[data-diagram-capture-root]'));
+  // Each step is tagged with its stage (#1061), so a rejection, including a raw
+  // DOM `Event`, reaches the caller as a CaptureStageError that says where it
+  // stopped. It is still an Error rejection, with the original reason on `cause`.
+  await withCaptureStage('external_icons', () => awaitExternalIcons(
+    node.matches?.('[data-diagram-capture-root]') ? node : node.querySelector('[data-diagram-capture-root]'),
+  ));
   // Every export path funnels through here. `fontEmbedCSS` takes priority over
   // `skipFonts` in html-to-image, so other web fonts stay un-embedded as before
   // while the hosted diagram font (the one layout was measured with) is kept.
   const fontEmbedCSS = options.fontEmbedCSS ?? (await getDiagramFontEmbedCss());
-  const svg = await htmlToImage.toSvg(node, fontEmbedCSS ? { ...options, fontEmbedCSS } : options);
-  const svgDataUrl = await inlineCaptureSvgImages(prepareSequenceCaptureSvg(svg, node));
-  const img = await loadImage(svgDataUrl);
+  const svg = await withCaptureStage('dom_to_svg', async () =>
+    prepareSequenceCaptureSvg(
+      await htmlToImage.toSvg(node, fontEmbedCSS ? { ...options, fontEmbedCSS } : options),
+      node,
+    ));
+  const svgDataUrl = await withCaptureStage('inline_images', () => inlineCaptureSvgImages(svg));
+  const img = await withCaptureStage('svg_load', () => loadImage(svgDataUrl));
 
-  const measured = measure(node);
-  // naturalWidth/Height is the fallback for a node the layout reports as empty
-  // (the serialised SVG still carries the size html-to-image computed).
-  const width = measured.width || img.naturalWidth;
-  const height = measured.height || img.naturalHeight;
-  const ratio = options.pixelRatio || window.devicePixelRatio || 1;
+  const canvas = await withCaptureStage('canvas', () => {
+    const measured = measure(node);
+    // naturalWidth/Height is the fallback for a node the layout reports as empty
+    // (the serialised SVG still carries the size html-to-image computed).
+    const width = measured.width || img.naturalWidth;
+    const height = measured.height || img.naturalHeight;
+    const ratio = options.pixelRatio || window.devicePixelRatio || 1;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(width * ratio));
-  canvas.height = Math.max(1, Math.round(height * ratio));
-  clampCanvas(canvas);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(width * ratio));
+    c.height = Math.max(1, Math.round(height * ratio));
+    clampCanvas(c);
 
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('captureBlob: 2d canvas context unavailable');
-  if (options.backgroundColor) {
-    ctx.fillStyle = options.backgroundColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const ctx = c.getContext('2d');
+    if (!ctx) throw new Error('captureBlob: 2d canvas context unavailable');
+    if (options.backgroundColor) {
+      ctx.fillStyle = options.backgroundColor;
+      ctx.fillRect(0, 0, c.width, c.height);
+    }
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  });
 
   return new Promise<Blob | null>((resolve) => {
     canvas.toBlob((blob) => resolve(blob), 'image/png', 1);

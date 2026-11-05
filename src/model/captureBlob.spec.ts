@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as htmlToImage from 'html-to-image';
 import { captureBlob, inlineCaptureSvgImages, prepareSequenceCaptureSvg } from './captureBlob';
 import { getDiagramFontFaceCss } from '@zenuml/core';
+import { CaptureStageError } from './captureFailure';
+import { setExternalIconState, clearExternalIconState } from '../utils/graph/externalIconState';
 import { setDiagramFontState, _resetDiagramFontStateForTesting } from '../utils/fonts/diagramFontState';
 
 vi.mock('@/utils/requestUtil', () => ({ callRemote: vi.fn() }));
@@ -74,6 +76,73 @@ function stubCanvas() {
 function settlesWithin<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
   return Promise.race([p, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), ms))]);
 }
+
+describe('captureBlob failure stages (#1061)', () => {
+  let node: HTMLElement;
+  beforeEach(() => {
+    node = makeNode();
+    stubCanvas();
+    vi.spyOn(htmlToImage, 'toSvg').mockResolvedValue(SVG_URL);
+  });
+  afterEach(() => { node.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  async function rejection(p: Promise<unknown>): Promise<CaptureStageError> {
+    const err = await p.then(() => undefined, (e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(CaptureStageError);
+    return err as CaptureStageError;
+  }
+
+  it('tags a toSvg rejection with a raw DOM Event as dom_to_svg and keeps the Event as cause', async () => {
+    stubImage('ok');
+    const ev = new Event('error');
+    vi.spyOn(htmlToImage, 'toSvg').mockRejectedValue(ev);
+    const err = await rejection(captureBlob(node));
+    expect(err.stage).toBe('dom_to_svg');
+    expect(err.cause).toBe(ev);
+  });
+
+  it('tags an icon that cannot be embedded as inline_images', async () => {
+    stubImage('ok');
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="https://icons.example.com/a.svg"/></svg>';
+    vi.spyOn(htmlToImage, 'toSvg').mockResolvedValue(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    expect((await rejection(captureBlob(node))).stage).toBe('inline_images');
+  });
+
+  it('tags an SVG that will not load as svg_load', async () => {
+    class FailingImage {
+      onload: (() => void) | null = null;
+      onerror: ((e?: unknown) => void) | null = null;
+      #src = '';
+      get src() { return this.#src; }
+      set src(v: string) { this.#src = v; queueMicrotask(() => this.onerror?.(new Event('error'))); }
+    }
+    vi.stubGlobal('Image', FailingImage as unknown as typeof Image);
+    const err = await rejection(captureBlob(node));
+    expect(err.stage).toBe('svg_load');
+    expect(err.message).toMatch(/failed to load/);
+  });
+
+  it('tags a missing 2d context as canvas', async () => {
+    stubImage('ok');
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    expect((await rejection(captureBlob(node))).stage).toBe('canvas');
+  });
+
+  it('tags a failed icon proxy as external_icons', async () => {
+    stubImage('ok');
+    const root = document.createElement('div');
+    root.setAttribute('data-diagram-capture-root', '');
+    node.appendChild(root);
+    setExternalIconState(root, Promise.resolve({ ok: false, code: 'timeout' }));
+    try {
+      expect((await rejection(captureBlob(node))).stage).toBe('external_icons');
+    } finally {
+      clearExternalIconState(root);
+    }
+  });
+});
 
 describe('captureBlob', () => {
   let node: HTMLElement;

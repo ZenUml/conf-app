@@ -848,6 +848,17 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')
     })
 
+    it('shows the default title instead of a saved model refusal, and records it once', async () => {
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      store.state.diagram.title = 'Please provide the DSL that describes your flowchart and I will suggest a tit'
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')
+      const hidden = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'saved_refusal_title_hidden')
+      expect(hidden).toEqual([['saved_refusal_title_hidden', expect.objectContaining({ feature_area: 'ai', surface: 'viewer' })]])
+      wrapper.unmount()
+    })
+
     it('reveals top + bottom edges on mouseenter and hides on mouseleave', async () => {
       const wrapper = mountViewer()
       const surface = wrapper.find('.viewer-surface')

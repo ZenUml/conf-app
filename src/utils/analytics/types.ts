@@ -1119,6 +1119,10 @@ export type AnalyticsProperties = {
   // Error
   error_code?: string;
   error_name?: string;
+  // graph_icon_proxy_*: icons.diagrams.net URLs found in the diagram, and how
+  // many the backend returned as data URLs. Counts only, never URLs.
+  external_icon_count?: number;
+  icon_resolved_count?: number;
   // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
   // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
   // `operations` list on the host page, so `can_create_cc_type=false` is

@@ -828,6 +828,17 @@ export type AnalyticsEventName =
   // A Board macro whose independent document is missing, empty or malformed.
   // GenericViewer's load_failed_shown cannot separate this from a 404.
   | "graph_board_document_invalid"
+  // Graph macro whose diagram uses icons from icons.diagrams.net. Forge's CSP
+  // refuses that host, so the viewer asks our backend for the icons as data
+  // URLs. Fires only for diagrams that have such icons. requested: the backend
+  // call starts (`external_icon_count`). succeeded: every icon was applied
+  // (`icon_resolved_count`, `duration_ms`). failed: at least one icon is missing
+  // (`error_code`: timeout, http_<status>, bad_response, partial; partial also
+  // carries `icon_resolved_count`). A failed diagram still renders, without the
+  // missing icons, and PNG capture of it is refused.
+  | "graph_icon_proxy_requested"
+  | "graph_icon_proxy_succeeded"
+  | "graph_icon_proxy_failed"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"

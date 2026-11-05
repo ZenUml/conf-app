@@ -238,8 +238,8 @@ Rule for a Graph, by the text that `extractGraphText` finds:
 | Two or more labels | `Control`, `Storage` | Model | Model |
 | No labels, describable shapes | `Diagram shapes: ec2.` | Model | Model |
 
-When the model refuses, the title stays empty: no toast while editing, a toast from the AI
-button, and at Publish the user is asked to type a title.
+When the model refuses, the title stays empty: no toast while editing and a toast from the
+AI button. For a Graph, Publish then asks the user to type a title (`ensureTitle`).
 
 Measured on the staging endpoint with the Graph prompt, 2026-11-05: one label `Control`
 gave refusal text in 4 of 6 calls and the word `DSL` in 1 more. Two labels, three labels

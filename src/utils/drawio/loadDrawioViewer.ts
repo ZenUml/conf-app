@@ -70,8 +70,15 @@ function configureDrawioGlobals(): void {
     STYLE_PATH?: string;
     urlParams?: Record<string, string>;
     DRAW_MATH_URL?: string;
+    DRAWIO_BASE_URL?: string;
   };
 
+  // Read by viewer-static.min.js while it evaluates. Unset, it falls back to
+  // https://app.diagrams.net and GraphViewer prefixes relative image paths with
+  // that host, which Forge's CSP refuses: icons such as img/lib/azure2/... break
+  // and the PNG capture fails. Those icons ship under drawio/. No trailing slash:
+  // the viewer appends its own.
+  w.DRAWIO_BASE_URL = resolveDrawioAsset('drawio');
   w.mxLoadStylesheets = false;
   w.mxLoadResources = false;
   w.mxBasePath = drawioPath('mxgraph/');

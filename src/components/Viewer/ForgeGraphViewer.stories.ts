@@ -41,6 +41,27 @@ const WIDE_GRAPH = `<mxfile>
   </diagram>
 </mxfile>`
 
+const BUNDLED_ICON_GRAPH = `<mxGraphModel><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="control" value="BUNDLED ICONS" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="20" y="20" width="120" height="60" as="geometry"/></mxCell>
+  <mxCell id="subnet" value="" style="aspect=fixed;html=1;image;image=img/lib/azure2/networking/Subnet.svg;" vertex="1" parent="1"><mxGeometry x="170" y="20" width="60" height="60" as="geometry"/></mxCell>
+  <mxCell id="kubernetes" value="" style="aspect=fixed;html=1;image;image=img/lib/mscae/Kubernetes.svg;" vertex="1" parent="1"><mxGeometry x="260" y="20" width="60" height="60" as="geometry"/></mxCell>
+</root></mxGraphModel>`
+
+function countKubernetesBluePixels(image: HTMLImageElement): number {
+  const canvas = document.createElement('canvas')
+  canvas.width = image.naturalWidth
+  canvas.height = image.naturalHeight
+  const context = canvas.getContext('2d')!
+  context.drawImage(image, 0, 0)
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height)
+  let count = 0
+  for (let i = 0; i < data.length; i += 4) {
+    if (Math.abs(data[i] - 50) < 24 && Math.abs(data[i + 1] - 108) < 24 && Math.abs(data[i + 2] - 229) < 24) count++
+  }
+  return count
+}
+
 const meta: Meta<typeof ForgeGraphViewer> = {
   title: 'Viewer/ForgeGraphViewer',
   component: ForgeGraphViewer,
@@ -218,5 +239,48 @@ export const RealGraphPanZoom: Story = {
     await waitFor(() => {
       expect(readScale()).toBeLessThanOrEqual(before + 1)
     })
+  },
+}
+
+export const RealBundledIcons: Story = {
+  name: 'Real GraphViewer — bundled icons load from drawio/',
+  render: () => ({
+    components: { ForgeGraphViewer },
+    setup() {
+      return useRealGraphFixture({ graphXml: BUNDLED_ICON_GRAPH, title: 'Bundled icons', accountId: 'storybook-icons-graph-user', contentId: 'storybook-icons-graph' })
+    },
+    template: '<div style="width:900px;height:620px;margin:0 auto;background:#fff"><ForgeGraphViewer v-if="ready" :graph-xml="graphXml" /></div>',
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvasElement.textContent).toContain('BUNDLED ICONS')
+    }, { timeout: 15000 })
+
+    const iconUrls = () => [...canvasElement.querySelectorAll('.graph-viewer-canvas svg image')]
+      .map((image) => new URL(image.getAttribute('xlink:href') ?? image.getAttribute('href') ?? '', document.baseURI))
+    await waitFor(() => {
+      expect(iconUrls()).toHaveLength(2)
+    })
+    // Forge's CSP refuses any other host, so an icon served from elsewhere breaks
+    // in Confluence even though it would load here.
+    for (const url of iconUrls()) {
+      expect(url.origin).toBe(new URL(document.baseURI).origin)
+      expect(url.pathname).toContain('/drawio/img/lib/')
+      const response = await fetch(url)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('svg')
+    }
+
+    canvas.getByRole('button', { name: 'Export PNG' }).click()
+    await waitFor(() => {
+      const preview = canvasElement.querySelector<HTMLImageElement>('img[alt="Diagram preview"]')
+      if (!preview) throw new Error('icon graph export preview has not mounted')
+      expect(preview.src).toMatch(/^data:image\/png/)
+      expect(preview.naturalWidth).toBeGreaterThan(0)
+      // A broken-image glyph has no Kubernetes blue, so this fails when the
+      // capture kept an external icon URL instead of embedding it.
+      expect(countKubernetesBluePixels(preview)).toBeGreaterThan(500)
+    }, { timeout: 15000 })
   },
 }

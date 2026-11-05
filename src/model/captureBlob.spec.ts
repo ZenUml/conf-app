@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as htmlToImage from 'html-to-image';
-import { captureBlob, prepareSequenceCaptureSvg } from './captureBlob';
+import { captureBlob, inlineCaptureSvgImages, prepareSequenceCaptureSvg } from './captureBlob';
 import { getDiagramFontFaceCss } from '@zenuml/core';
 import { setDiagramFontState, _resetDiagramFontStateForTesting } from '../utils/fonts/diagramFontState';
 
@@ -176,5 +176,59 @@ describe('prepareSequenceCaptureSvg', () => {
     const source = document.createElement('div');
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="white" /></svg>';
     expect(prepareSequenceCaptureSvg(svg, source)).toBe(svg);
+  });
+});
+
+describe('inlineCaptureSvgImages', () => {
+  const asDataUrl = (markup: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+  const fromDataUrl = (url: string) => decodeURIComponent(url.slice(url.indexOf(',') + 1));
+  const iconSvg = (hrefs: string[]) => asDataUrl(
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${
+      hrefs.map((href) => `<image xlink:href="${href}" x="1" y="2" width="60" height="60"/>`).join('')
+    }</svg>`,
+  );
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('replaces an xlink:href icon URL with a data URL, because an SVG drawn as an image cannot load it', async () => {
+    const fetchIcon = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['<svg/>'], { type: 'image/svg+xml' }) }));
+    vi.stubGlobal('fetch', fetchIcon);
+
+    const result = fromDataUrl(await inlineCaptureSvgImages(iconSvg(['https://cdn.example/drawio/img/lib/a.svg'])));
+
+    expect(fetchIcon).toHaveBeenCalledWith('https://cdn.example/drawio/img/lib/a.svg');
+    expect(result).toContain('data:image/svg+xml;base64,');
+    expect(result).not.toContain('https://cdn.example/drawio/img/lib/a.svg');
+    expect(result).toContain('width="60"');
+  });
+
+  it('fetches a repeated icon once', async () => {
+    const fetchIcon = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['<svg/>'], { type: 'image/svg+xml' }) }));
+    vi.stubGlobal('fetch', fetchIcon);
+    const url = 'https://cdn.example/drawio/img/lib/a.svg';
+
+    const result = fromDataUrl(await inlineCaptureSvgImages(iconSvg([url, url, url])));
+
+    expect(fetchIcon).toHaveBeenCalledTimes(1);
+    expect(result).not.toContain(url);
+  });
+
+  it('leaves an SVG with only data URLs or no images byte for byte', async () => {
+    const fetchIcon = vi.fn();
+    vi.stubGlobal('fetch', fetchIcon);
+    const embedded = iconSvg(['data:image/png;base64,AAAA']);
+    const plain = asDataUrl('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>');
+
+    expect(await inlineCaptureSvgImages(embedded)).toBe(embedded);
+    expect(await inlineCaptureSvgImages(plain)).toBe(plain);
+    expect(fetchIcon).not.toHaveBeenCalled();
+  });
+
+  it('rejects when an icon cannot be fetched, so no PNG with a broken icon is saved', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+
+    await expect(inlineCaptureSvgImages(iconSvg(['https://cdn.example/missing.svg']))).rejects.toThrow('missing.svg');
   });
 });

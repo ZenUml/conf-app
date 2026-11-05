@@ -132,6 +132,71 @@ describe('createEditorIconLoader', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  describe('wait-expired event (#1062)', () => {
+    const names = () => track.mock.calls.map(([name]) => name);
+    const expired = () => track.mock.calls.filter(([name]) => name === 'graph_icon_proxy_wait_expired');
+
+    it('proxy answers within the wait: succeeded, no wait_expired', async () => {
+      vi.mocked(callRemote).mockResolvedValue({ icons: { [ICON]: DATA }, failed: {} });
+      const { win } = fakeFrame();
+      await createEditorIconLoader({ track, timeoutMs: 100 }).prepare(win, XML);
+      expect(names()).toContain('graph_icon_proxy_succeeded');
+      expect(names()).not.toContain('graph_icon_proxy_wait_expired');
+    });
+
+    it('wait expires, proxy answers later: one wait_expired with surface, wait_ms and count; succeeded stays unfired', async () => {
+      vi.useFakeTimers();
+      try {
+        let answer!: (v: unknown) => void;
+        vi.mocked(callRemote).mockReturnValue(new Promise((r) => { answer = r; }));
+        const { win } = fakeFrame();
+        const pending = createEditorIconLoader({ track, timeoutMs: 100 }).prepare(win, XML)!;
+        await vi.advanceTimersByTimeAsync(120);
+        await pending;
+        answer({ icons: { [ICON]: DATA }, failed: {} });
+        await vi.advanceTimersByTimeAsync(10);
+        expect(expired()).toEqual([[
+          'graph_icon_proxy_wait_expired',
+          { feature_area: 'macro', surface: 'editor', macro_type: 'graph', external_icon_count: 1, wait_ms: 100 },
+        ]]);
+        expect(names().filter((n) => n === 'graph_icon_proxy_failed')).toHaveLength(1);
+        expect(names()).not.toContain('graph_icon_proxy_succeeded');
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('wait expires, proxy fails later: one wait_expired and graph_icon_proxy_failed still fires', async () => {
+      vi.useFakeTimers();
+      try {
+        let fail!: (e: unknown) => void;
+        vi.mocked(callRemote).mockReturnValue(new Promise((_, r) => { fail = r; }));
+        const { win } = fakeFrame();
+        const pending = createEditorIconLoader({ track, timeoutMs: 100 }).prepare(win, XML)!;
+        await vi.advanceTimersByTimeAsync(120);
+        await pending;
+        fail(Object.assign(new Error('HTTP 502'), { status: 502 }));
+        await vi.advanceTimersByTimeAsync(10);
+        expect(expired()).toHaveLength(1);
+        expect(track).toHaveBeenCalledWith('graph_icon_proxy_failed', expect.objectContaining({ surface: 'editor', error_code: 'timeout' }));
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('a fast backend error is not a wait expiry', async () => {
+      vi.mocked(callRemote).mockRejectedValue(Object.assign(new Error('HTTP 502'), { status: 502 }));
+      const { win } = fakeFrame();
+      await createEditorIconLoader({ track, timeoutMs: 100 }).prepare(win, XML);
+      expect(names()).toContain('graph_icon_proxy_failed');
+      expect(names()).not.toContain('graph_icon_proxy_wait_expired');
+    });
+
+    it('no such icon in the diagram: no request, no event', () => {
+      const { win } = fakeFrame();
+      const loader = createEditorIconLoader({ track, timeoutMs: 100 });
+      expect(loader.prepare(win, '<mxfile><diagram><mxGraphModel><root/></mxGraphModel></diagram></mxfile>')).toBeNull();
+      expect(callRemote).not.toHaveBeenCalled();
+      expect(track).not.toHaveBeenCalled();
+    });
+  });
+
   it('does nothing when the frame has no graph class yet', () => {
     const loader = createEditorIconLoader({ track });
     expect(loader.prepare({} as any, XML)).toBeNull();

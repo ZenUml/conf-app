@@ -1140,6 +1140,52 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
   // by customContentId, which is the same fact whatever renders it. Never
   // awaited and never throws — the diagram is on the page either way.
   if (!editable) void maybeRevealPlacedMacro(recoveryPageId, customContentId, doc?.diagramType);
+
+  // And the same for a page opened from a diagram-comment link (#1047). Not
+  // behind the comments flag: a reader following a link someone else posted
+  // should land on the diagram whether or not they can write comments.
+  if (!editable) void maybeRevealFromCommentLink(doc?.diagramType);
+}
+
+/**
+ * The page was opened from a diagram-comment link: scroll to this macro and ring
+ * it when the link's `zenumlLocal` is this macro's own localId. The macro reads
+ * its page URL, query string included, from forgeContext.extension.location.
+ * Once per tab (sessionStorage), so a refresh does not flash again. View mode on
+ * the page only: the fullscreen modal has nothing to scroll.
+ */
+async function maybeRevealFromCommentLink(diagramType: string | undefined) {
+  try {
+    if (await isFullscreenMode()) return;
+    const ctx = forgeGlobal.forgeContext as { localId?: string; extension?: { location?: string } } | undefined;
+    const { linkRevealTarget, claimLinkReveal } = await import('@/features/diagramComments/revealFromLink');
+    const target = linkRevealTarget(ctx?.extension?.location, ctx?.localId);
+    if (!target) return;
+
+    let storage: Storage | undefined;
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      storage = undefined;
+    }
+    if (!claimLinkReveal(storage, target)) return;
+
+    await settled();
+    const { revealThisMacro } = await import('@/utils/byline/revealDiagram');
+    revealThisMacro();
+
+    const [{ trackAnalyticsEvent }, { toMacroType }] = await Promise.all([
+      import('@/utils/analytics/trackAnalyticsEvent'),
+      import('@/utils/byline/pageDiagrams'),
+    ]);
+    trackAnalyticsEvent('diagram_comment_link_revealed', {
+      feature_area: 'diagram_comments',
+      surface: 'viewer',
+      ...(diagramType ? { macro_type: toMacroType(diagramType) as MacroTypeValue } : {}),
+    });
+  } catch (e) {
+    console.debug('[comment-link reveal] skipped', e);
+  }
 }
 
 /**

@@ -1,6 +1,6 @@
 # PR 1057 evidence: Graph macros with math="1"
 
-Baseline: lite-stg before this PR (`DRAW_MATH_URL` default `viewer.diagrams.net`).
+Baseline: lite-stg before this PR (`DRAW_MATH_URL` default `viewer.diagrams.net`). The deployed SHA was not recorded at capture.
 Candidate: `ff133e5d`, CI run 42012254220, `Deploy: Lite` done 2026-11-05T10:58:42Z.
 Fixtures: `graph-math1.xml`, `graph-math0.xml` (fictional labels).
 Pages: lite-stg 382402598 (before), 382861499 (d31ba1e6), 382435791 (final); lite-dev 111214600, 111149066 (tunnel).
@@ -17,7 +17,7 @@ Pages: lite-stg 382402598 (before), 382861499 (d31ba1e6), 382435791 (final); lit
 
 Math file transfer on a cold staging load, math=1 frame: startup 6 KB, core 40 KB, svg 48 KB, tex 46 KB, asciimath 29 KB, safe 3 KB, font 556 KB. About 730 KB, 4.4 s from first request to last.
 
-`race-attachment-d31ba1e6.png` is the PNG from the first candidate, which rendered correctly but captured at 1.5 s, before MathJax finished. `ff133e5d` fixes that.
+`race-attachment-d31ba1e6.png` is the blank PNG from the first candidate. Its viewer rendered correctly, but the capture ran at 1.5 s, before MathJax finished. `ff133e5d` fixes that.
 
 ## Prevalence
 

@@ -22,7 +22,14 @@ const invoke = (body: unknown, context: any = ctx, headers: Record<string, strin
   onRequest({ request: request(body, headers), data: { forgeContext: context } as any });
 
 beforeEach(() => {
-  fetchMock = vi.fn(async () => svgReply());
+  // The Workers runtime refuses this mode outright (observed in workerd and on
+  // staging), where Node's fetch accepts it. A mock that ignored it hid the bug.
+  fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.redirect === 'error') {
+      throw new TypeError('Invalid redirect value, must be one of "follow" or "manual"');
+    }
+    return svgReply();
+  });
   vi.stubGlobal('fetch', fetchMock);
 });
 
@@ -38,7 +45,7 @@ describe('graph icon proxy', () => {
     const body: any = await res.json();
     expect(body.icons[ICON]).toBe(`data:image/svg+xml;base64,${btoa(SVG)}`);
     expect(body.failed).toEqual({});
-    expect(fetchMock).toHaveBeenCalledWith(ICON, expect.objectContaining({ redirect: 'error' }));
+    expect(fetchMock).toHaveBeenCalledWith(ICON, expect.objectContaining({ redirect: 'manual' }));
   });
 
   it('answers 401 without an authenticated Forge context', async () => {
@@ -92,16 +99,25 @@ describe('graph icon proxy', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('fetches with redirect:error, and reports a redirecting icon as failed instead of following it', async () => {
+  it('fetches with redirect:manual, and reports a redirecting icon as failed instead of following it', async () => {
+    fetchMock.mockImplementation(async (url: string) => (url === ICON
+      ? new Response(null, { status: 301, headers: { location: 'https://evil.example/a.svg' } })
+      : svgReply()));
+    const body: any = await (await invoke({ urls: [ICON, ICON_B] })).json();
+    expect(body.icons[ICON]).toBeUndefined();
+    expect(body.failed[ICON]).toBe('http_301');
+    expect(body.icons[ICON_B]).toMatch(/^data:image\/svg\+xml;base64,/);
+    for (const call of fetchMock.mock.calls) expect(call[1]).toMatchObject({ redirect: 'manual' });
+  });
+
+  it('reports a thrown upstream fetch per icon', async () => {
     fetchMock.mockImplementation(async (url: string) => {
-      if (url === ICON) throw new TypeError('redirect mode is set to error');
+      if (url === ICON) throw new TypeError('network down');
       return svgReply();
     });
     const body: any = await (await invoke({ urls: [ICON, ICON_B] })).json();
-    expect(body.icons[ICON]).toBeUndefined();
     expect(body.failed[ICON]).toBe('fetch_failed');
     expect(body.icons[ICON_B]).toMatch(/^data:image\/svg\+xml;base64,/);
-    for (const call of fetchMock.mock.calls) expect(call[1]).toMatchObject({ redirect: 'error' });
   });
 
   it('treats a 3xx or redirected response as failed', async () => {

@@ -70,8 +70,9 @@ function toBase64(bytes: Uint8Array): string {
 async function fetchIcon(href: string): Promise<Fetched> {
   let res: Response;
   try {
-    // 'error': a redirect must not take this fetch to another host.
-    res = await fetch(href, { redirect: 'error', signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), headers: { Accept: 'image/svg+xml,image/png' } });
+    // 'manual': a redirect must not take this fetch to another host, and the 3xx
+    // check below reports it. Workers has no redirect 'error': its fetch throws.
+    res = await fetch(href, { redirect: 'manual', signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), headers: { Accept: 'image/svg+xml,image/png' } });
   } catch {
     return { ok: false, code: 'fetch_failed' };
   }

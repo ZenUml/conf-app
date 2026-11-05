@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
@@ -35,7 +35,11 @@ describe('main AsyncAPI build coverage', () => {
   });
 
   it('keeps the AsyncAPI build check on pull requests', () => {
-    const steps = Object.values(workflowJobs('pr-validation')).flatMap((job: any) => job.steps ?? []);
+    // Any workflow a pull request starts counts: which one holds the job is not the point.
+    const pullRequestWorkflows = readdirSync('.github/workflows')
+      .map(file => load(readFileSync(`.github/workflows/${file}`, 'utf8')) as any)
+      .filter(workflow => workflow.on?.pull_request);
+    const steps = pullRequestWorkflows.flatMap(workflow => Object.values(workflow.jobs)).flatMap((job: any) => job.steps ?? []);
     expect(steps.map((step: any) => step.run)).toContain('pnpm build:asyncapi');
   });
 });

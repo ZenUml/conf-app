@@ -843,6 +843,11 @@ export type AnalyticsEventName =
   | "graph_icon_proxy_requested"
   | "graph_icon_proxy_succeeded"
   | "graph_icon_proxy_failed"
+  // Editor only: the bounded wait for the icon call ran out and the editor
+  // opened without the icons (#1062). Fires once per timed-out call, next to
+  // graph_icon_proxy_failed (error_code timeout). `wait_ms` is the configured
+  // wait, `external_icon_count` the icons requested. Counts only, never URLs.
+  | "graph_icon_proxy_wait_expired"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"

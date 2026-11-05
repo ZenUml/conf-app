@@ -1123,6 +1123,8 @@ export type AnalyticsProperties = {
   // many the backend returned as data URLs. Counts only, never URLs.
   external_icon_count?: number;
   icon_resolved_count?: number;
+  // graph_icon_proxy_wait_expired: the configured wait in milliseconds.
+  wait_ms?: number;
   // First per-icon code the backend reported (fetch_failed, http_<status>,
   // bad_content_type, too_large). Says why, where error_code says only "missing".
   upstream_error_code?: string;

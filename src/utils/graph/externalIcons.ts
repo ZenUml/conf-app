@@ -15,7 +15,7 @@ export type { IconProxyResult };
  * Forge's iframe CSP refuses that host and adding it to the manifest is a major
  * app version, so the viewer gets the icons from `/graph-icon-proxy` as data
  * URLs (`img-src` allows `data:`) and hands them to DrawIO's own image lookup.
- * Viewer and PNG capture only: the editor does not use this.
+ * The editor shares the request through `runIconProxy`; see editorExternalIcons.ts.
  */
 const PROXY_PATH = '/graph-icon-proxy';
 const URLS_PER_REQUEST = 50; // the backend's cap

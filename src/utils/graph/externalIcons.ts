@@ -156,6 +156,11 @@ export async function runIconProxy(options: {
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new TimeoutError()), timeoutMs); }),
     ]);
   } catch (error) {
+    // Editor only: say that the bounded wait ran out. The late answer stays
+    // ignored, as before; graph_icon_proxy_failed (timeout) still follows.
+    if (error instanceof TimeoutError && surface === 'editor') {
+      track('graph_icon_proxy_wait_expired', { ...base, wait_ms: timeoutMs });
+    }
     return fail(failureCode(error));
   } finally {
     clearTimeout(timer);

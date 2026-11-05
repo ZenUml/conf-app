@@ -1682,11 +1682,20 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 
 
 
+/** What the inline macro hands the Fullscreen modal so its comments panel can build a link back (#1047). */
+interface DiagramCommentsHandoff {
+  commentsPageId?: string;
+  commentsPageUrl?: string;
+  commentsLocalId?: string;
+  commentsDiagramVersion?: number;
+  commentsLastModifierId?: string;
+}
+
 // One open at a time. openModal() is an async bridge round trip with no
 // built-in guard, so a second click before it resolves issues a second modal.
 let fullscreenOpenInFlight = false;
 
-EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
+EventBus.$on('fullscreen', async (options?: { openExport?: boolean; openComments?: DiagramCommentsHandoff }) => {
   if (fullscreenOpenInFlight) return;
   fullscreenOpenInFlight = true;
   try {
@@ -1722,6 +1731,11 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
           // never been gated, and gating it here would both block the action and
           // report a paywall_triggered the user never asked for.
           ...(options?.openExport ? { openExport: true } : {}),
+          // Diagram comments entry (#1047): open the comments panel on arrival.
+          // The modal's own context does not carry the host PAGE url or this
+          // macro's localId (it is a different extension instance), so the inline
+          // macro hands them over; the comment link is built from them.
+          ...(options?.openComments ? { openComments: true, ...options.openComments } : {}),
         },
       }),
       onClosed: () => {

@@ -16,11 +16,11 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen || copyForAiMenuOpen, 'viewer-frame--connect-mcp': showConnectMcpDialog}" :data-stage="isFullscreenMode ? null : headerStage">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen || copyForAiMenuOpen, 'viewer-frame--connect-mcp': showConnectMcpDialog}" :data-stage="isFullscreenMode ? null : headerStage" @mouseenter="onViewerHoverForComments">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
-        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved, 'viewer-body--with-sidebar': !!$slots['viewer-sidebar']}">
+        <div class="viewer-body" :class="{'viewer-body--with-agent-rail': agentLinkRailReserved, 'viewer-body--with-sidebar': !!$slots['viewer-sidebar'], 'viewer-body--with-comments-rail': commentsRailVisible}">
         <div class="viewer-surface" :class="{'viewer-surface--hover': isHovering, 'viewer-surface--revealed': headerRevealed}"
              @mouseenter="isHovering = true" @mouseleave="isHovering = false"
              @focusin="onHeaderFocusIn" @focusout="onHeaderFocusOut">
@@ -301,6 +301,24 @@
                 </svg>
                 <span class="viewer-btn-label">MCP</span>
               </button>
+              <!-- Diagram comments (#1047): reader-to-author discussion about this
+                   diagram. Inline it opens Fullscreen with the panel; in Fullscreen
+                   it shows or hides the panel. Count loads on first hover. -->
+              <button
+                v-if="showCommentsEntry"
+                type="button"
+                class="viewer-btn-ghost viewer-act-comments"
+                aria-label="Comments"
+                title="Comments"
+                data-testid="diagram-comments-btn"
+                :aria-expanded="isFullscreenMode ? (commentsPanelOpen ? 'true' : 'false') : null"
+                @click="onCommentsClick"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 0 1 .778-.332 48.294 48.294 0 0 0 5.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+                </svg>
+                <span class="viewer-btn-label" data-testid="diagram-comments-label">{{ commentsLabel }}</span>
+              </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
                 @opened="onMoreMenuOpened" @closed="moreMenuOpen = false">
@@ -526,6 +544,24 @@
           </div>
         </div>
         <slot name="viewer-sidebar"></slot>
+        <!-- Diagram comments rail (#1047): Fullscreen only, on the right like the
+             Connect rail. Mounted only while open, so no comment is read before
+             someone asks. -->
+        <aside v-if="commentsRailVisible" class="comments-rail" data-testid="diagram-comments-rail">
+          <DiagramCommentsPanel
+            :page-id="commentsPageId"
+            :diagram-id="commentsDiagramId"
+            :local-id="commentsLocalId"
+            :diagram-version="commentsDiagramVersion"
+            :page-url="commentsPageUrl"
+            :diagram-title="title"
+            :last-modifier-id="commentsLastModifierId"
+            :current-account-id="currentAccountId || undefined"
+            :macro-type="commentsMacroType"
+            @close="closeCommentsPanel"
+            @count="onCommentsCount"
+          />
+        </aside>
         <!-- Fullscreen Connect rail (design §5.1, §9) — only mounted when the
              flag is on, the diagram type is MVP-supported, and we're actually
              in the Fullscreen modal. See connectToAgent()'s comment: this
@@ -620,7 +656,7 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isDiagramCommentsEnabled } from '@/apis/aiTitleFeatureFlag'
 import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
@@ -640,6 +676,9 @@ import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
 import { claimInlineMagicWriteback } from '@/utils/magic/inlineWriteback'
 import { viewerAccountKind } from '@/utils/magic/viewerAccount'
+import DiagramCommentsPanel from '@/features/diagramComments/DiagramCommentsPanel.vue'
+import { diagramCommentCount } from '@/features/diagramComments/pageCommentsCache'
+import { requestConfluenceJson } from '@/utils/byline/confluenceRequest'
 import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
@@ -713,6 +752,14 @@ export default {
     zoomHeaderTarget: null,
     canUserEdit: true,
     isHovering: false,
+    // Diagram comments (#1047). The flag, whether this viewer can write at all
+    // (anonymous visitors and guests carry no Forge user token), the root-thread
+    // count once someone hovers, and whether the Fullscreen panel is open.
+    commentsFlag: false,
+    commentsViewerKind: 'unknown',
+    commentCount: null,
+    commentsCountRequested: false,
+    commentsPanelOpen: false,
     // Staged header (see updateHeaderStage): collapse stage 0-3 of the inline
     // header, and what besides hover keeps its actions revealed.
     headerStage: 0,
@@ -830,6 +877,7 @@ export default {
     DiagramAttributionFooter,
     SecondDiagramPrompt,
     RelatedDiagramsFooter,
+    DiagramCommentsPanel,
   },
   computed: {
     ...mapState({
@@ -871,7 +919,8 @@ export default {
     // Anything that changes the header's content without resizing the viewer.
     headerLayoutSignature() {
       return JSON.stringify([this.title, this.headerModel, this.showCreateGuide, this.showAgentLinkConnect,
-        this.showAgentLinkBadge, this.isEmbedded, !!this.diagram?.recoveredFromOrphan, this.isLoadFailed]);
+        this.showAgentLinkBadge, this.isEmbedded, !!this.diagram?.recoveredFromOrphan, this.isLoadFailed,
+        this.showCommentsEntry, this.commentCount]);
     },
     moreMenuEntries() {
       return moreMenuItems({
@@ -930,6 +979,57 @@ export default {
     isExportEntryModal() {
       return this.isFullscreenMode
         && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport === true;
+    },
+    // ---- Diagram comments (#1047) ------------------------------------------
+    // The Fullscreen modal is a different extension instance, so it reads what
+    // the inline macro handed over (extension.modal.comments*) before its own context.
+    commentsModal() {
+      return window.forgeGlobal?.forgeContext?.extension?.modal ?? {};
+    },
+    commentsDiagramId() {
+      return this.relatedCustomContentId;
+    },
+    commentsPageId() {
+      const handed = this.commentsModal.commentsPageId;
+      const id = handed || this.currentPageId;
+      return id ? String(id) : '';
+    },
+    commentsPageUrl() {
+      return this.commentsModal.commentsPageUrl
+        || window.forgeGlobal?.forgeContext?.extension?.location
+        || window.initialContext?.currentPageUrl
+        || '';
+    },
+    commentsLocalId() {
+      return this.commentsModal.commentsLocalId || window.forgeGlobal?.forgeContext?.localId || undefined;
+    },
+    commentsDiagramVersion() {
+      const handed = this.commentsModal.commentsDiagramVersion;
+      return typeof handed === 'number' ? handed : this.diagramAttribution?.version;
+    },
+    commentsLastModifierId() {
+      return this.commentsModal.commentsLastModifierId || this.diagramAttribution?.lastUpdatedByAccountId || undefined;
+    },
+    commentsMacroType() {
+      return this.diagramType ?? 'none';
+    },
+    // Anonymous visitors and guests carry no Forge user token, so every comment
+    // call would fail for them: no entry at all rather than an entry that errors.
+    showCommentsEntry() {
+      return this.commentsFlag
+        && this.commentsViewerKind !== 'anonymous'
+        && this.commentsViewerKind !== 'guest'
+        && this.isDisplayMode
+        && !this.isLoadFailed
+        && !this.isExportEntryModal
+        && !!this.commentsDiagramId
+        && !!this.commentsPageId;
+    },
+    commentsLabel() {
+      return this.commentCount === null ? 'Comments' : `Comments · ${this.commentCount}`;
+    },
+    commentsRailVisible() {
+      return this.isFullscreenMode && this.showCommentsEntry && this.commentsPanelOpen;
     },
     // Mermaid-only fullscreen fix. In the fullscreen modal `wide` is false (it's
     // wired to autoResize), so the frame is .viewer-frame--auto (width: fit-content).
@@ -1445,6 +1545,7 @@ export default {
       this.architectureTokensEnabled = false;
     }
     this.createGuideFeatureEnabled = await isCreateGuideEnabled();
+    void this.resolveCommentsAvailability();
     // Live Agent Link real bridge (design §4.2/§4.4): once the flag resolves
     // ON and a real Forge-bridge context (globals.apWrapper) is available,
     // swap the placeholder for the ApWrapper2-backed bridge so writeDiagram
@@ -2447,9 +2548,64 @@ export default {
       // test treats `fullscreen` as a bare signal.
       if (openExport) {
         EventBus.$emit('fullscreen', { openExport: true });
+      } else if (options.openComments) {
+        EventBus.$emit('fullscreen', { openComments: options.openComments });
       } else {
         EventBus.$emit('fullscreen');
       }
+    },
+    // ---- Diagram comments (#1047) -----------------------------------------
+    // The count is a courtesy: it loads on the first hover, never on page load,
+    // and a failure leaves the plain "Comments" label. It must not touch the render.
+    onViewerHoverForComments() {
+      if (this.commentsCountRequested || this.isFullscreenMode || !this.showCommentsEntry) return;
+      this.commentsCountRequested = true;
+      diagramCommentCount(requestConfluenceJson, this.commentsPageId, this.commentsDiagramId)
+        .then((n) => { this.commentCount = n; })
+        .catch(() => { /* label stays "Comments" */ });
+    },
+    onCommentsClick() {
+      if (this.isFullscreenMode) {
+        this.commentsPanelOpen = !this.commentsPanelOpen;
+        return;
+      }
+      trackAnalyticsEvent('diagram_comment_entry_clicked', {
+        feature_area: 'diagram_comments',
+        surface: 'viewer',
+        macro_type: this.diagramType ?? 'none',
+      });
+      const ctx = window.forgeGlobal?.forgeContext;
+      this.fullscreen({
+        actionLocation: 'toolbar',
+        openComments: {
+          commentsPageId: this.commentsPageId,
+          commentsPageUrl: ctx?.extension?.location ?? window.initialContext?.currentPageUrl ?? '',
+          commentsLocalId: ctx?.localId,
+          ...(this.commentsDiagramVersion !== undefined ? { commentsDiagramVersion: this.commentsDiagramVersion } : {}),
+          ...(this.commentsLastModifierId ? { commentsLastModifierId: this.commentsLastModifierId } : {}),
+        },
+      });
+    },
+    closeCommentsPanel() {
+      this.commentsPanelOpen = false;
+    },
+    onCommentsCount(n) {
+      this.commentCount = n;
+    },
+    async resolveCommentsAvailability() {
+      try {
+        this.commentsFlag = await isDiagramCommentsEnabled();
+      } catch {
+        this.commentsFlag = false;
+      }
+      if (!this.commentsFlag) return;
+      try {
+        this.commentsViewerKind = await viewerAccountKind({
+          accountId: this.currentAccountId ?? undefined,
+          clientDomain: getClientDomain(),
+        });
+      } catch { /* Fail open, like an unknown answer; the backend refuses a token-less call. */ }
+      if (window.forgeGlobal?.forgeContext?.extension?.modal?.openComments === true) this.commentsPanelOpen = true;
     },
     showContentVersions(actionLocation) {
       if (actionLocation) trackEvent('show_content_versions', 'click', 'viewing', { action_location: actionLocation });
@@ -2963,6 +3119,17 @@ export default {
    .viewer-body--with-agent-rail (0,1,0) below and force its Connect-rail row
    back into a column. */
 .viewer-frame--fullscreen .viewer-body--with-agent-rail { flex-direction: row; }
+
+/* Diagram comments rail (#1047): the same two-column row as the Connect rail,
+   on the right, full height. The panel owns its own scroll and pinned compose box. */
+.viewer-frame--fullscreen .viewer-body--with-comments-rail { flex-direction: row; }
+.viewer-body--with-comments-rail .viewer-surface { flex: 1 1 auto; min-width: 0; }
+.comments-rail {
+  flex: 0 0 380px;
+  width: 380px;
+  display: flex;
+  min-height: 0;
+}
 
 /* The Source panel is position:fixed in fullscreen (ViewSourcePanel.vue) —
    out of layout flow — so neither .viewer-frame--auto's fit-content+auto-

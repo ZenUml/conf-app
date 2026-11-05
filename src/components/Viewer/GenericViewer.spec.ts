@@ -9,7 +9,9 @@ import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isDiagramCommentsEnabled } from '@/apis/aiTitleFeatureFlag'
+import { requestConfluenceJson } from '@/utils/byline/confluenceRequest'
+import { resetPageCommentsCache } from '@/features/diagramComments/pageCommentsCache'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import globals from '@/model/globals'
 import forgeRuntime from '@/model/globals/forgeGlobal'
@@ -60,6 +62,12 @@ vi.mock('@/apis/aiTitleFeatureFlag', () => ({
   isAgentLinkEnabled: vi.fn(() => Promise.resolve(false)),
   isArchitectureTokensEnabled: vi.fn(() => Promise.resolve(false)),
   isCreateGuideEnabled: vi.fn(() => Promise.resolve(false)),
+  isDiagramCommentsEnabled: vi.fn(() => Promise.resolve(false)),
+}))
+
+// Diagram comments read the page's comments through this helper (#1047).
+vi.mock('@/utils/byline/confluenceRequest', () => ({
+  requestConfluenceJson: vi.fn(),
 }))
 
 // The first release offers the headless MCP only (RELAY_SESSIONS_ENABLED is
@@ -3235,6 +3243,132 @@ describe('GenericViewer (chrome-less)', () => {
   // — the whole feature is gated behind agent-link-enabled, defaulting off.
   // Flag resolution is async (mounted()), so every assertion here awaits
   // flushPromises() after mount to let that promise settle before asserting.
+  describe('Diagram comments (#1047)', () => {
+    const PAGE_URL = 'https://example.atlassian.net/wiki/spaces/SD/pages/42/Order+flow'
+    const setForge = (modal?: Record<string, unknown>) => {
+      ;(window as any).forgeGlobal = {
+        forgeContext: {
+          cloudId: 'cloud-1',
+          localId: 'local-1',
+          extension: { content: { id: '42' }, location: PAGE_URL, ...(modal ? { modal } : {}) },
+        },
+      }
+    }
+    const rootLinkedTo = (diagram: string) => ({
+      id: 'c1',
+      body: {
+        atlas_doc_format: {
+          value: JSON.stringify({
+            version: 1,
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Open', marks: [{ type: 'link', attrs: { href: `${PAGE_URL}?zenumlDiagram=${diagram}` } }] }] }],
+          }),
+        },
+      },
+      version: { authorId: 'u1', createdAt: '2026-11-04T10:00:00Z' },
+    })
+    const commentsBtn = (w: ReturnType<typeof mountViewer>) => w.find('[data-testid="diagram-comments-btn"]')
+
+    beforeEach(() => {
+      resetPageCommentsCache()
+      vi.mocked(requestConfluenceJson).mockReset()
+      setForge()
+    })
+    afterEach(() => {
+      delete (window as any).forgeGlobal
+    })
+
+    it('shows no Comments button while the flag is off (default)', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(commentsBtn(wrapper).exists()).toBe(false)
+    })
+
+    it('shows the button, with a plain label, when the flag is on for a licensed viewer', async () => {
+      vi.mocked(isDiagramCommentsEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(commentsBtn(wrapper).exists()).toBe(true)
+      expect(wrapper.find('[data-testid="diagram-comments-label"]').text()).toBe('Comments')
+      // Nothing is read on page load.
+      expect(requestConfluenceJson).not.toHaveBeenCalled()
+    })
+
+    it.each(['guest', 'anonymous'] as const)('hides the button for a %s viewer, who has no Forge user token', async (kind) => {
+      const { viewerAccountKind } = await import('@/utils/magic/viewerAccount')
+      vi.mocked(viewerAccountKind).mockResolvedValueOnce(kind)
+      vi.mocked(isDiagramCommentsEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(commentsBtn(wrapper).exists()).toBe(false)
+    })
+
+    it('loads the count once, on the first hover, and shows it', async () => {
+      vi.mocked(isDiagramCommentsEnabled).mockResolvedValueOnce(true)
+      vi.mocked(requestConfluenceJson).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: [rootLinkedTo('content-123'), rootLinkedTo('someone-else')] }),
+      } as unknown as Response)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('.viewer-frame').trigger('mouseenter')
+      await flushPromises()
+      await wrapper.find('.viewer-frame').trigger('mouseenter')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="diagram-comments-label"]').text()).toBe('Comments · 1')
+      expect(requestConfluenceJson).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(requestConfluenceJson).mock.calls[0][0]).toContain('/wiki/api/v2/pages/42/footer-comments')
+    })
+
+    it('keeps the plain label when the count cannot be read', async () => {
+      vi.mocked(isDiagramCommentsEnabled).mockResolvedValueOnce(true)
+      vi.mocked(requestConfluenceJson).mockRejectedValue(new TypeError('Failed to fetch'))
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('.viewer-frame').trigger('mouseenter')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="diagram-comments-label"]').text()).toBe('Comments')
+    })
+
+    it('opens Fullscreen with the comments hand-off when clicked inline', async () => {
+      vi.mocked(isDiagramCommentsEnabled).mockResolvedValueOnce(true)
+      const emitSpy = vi.spyOn(EventBus, '$emit')
+      const wrapper = mountViewer()
+      await flushPromises()
+      await commentsBtn(wrapper).trigger('click')
+      expect(emitSpy).toHaveBeenCalledWith('fullscreen', {
+        openComments: expect.objectContaining({
+          commentsPageId: '42',
+          commentsPageUrl: PAGE_URL,
+          commentsLocalId: 'local-1',
+        }),
+      })
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'diagram_comment_entry_clicked',
+        expect.objectContaining({ feature_area: 'diagram_comments', surface: 'viewer' }),
+      )
+      emitSpy.mockRestore()
+    })
+
+    it('mounts the comments rail in Fullscreen when the modal was opened for comments, and closes it', async () => {
+      setForge({ macroMode: 'fullscreen', openComments: true, commentsPageId: '42', commentsPageUrl: PAGE_URL, commentsLocalId: 'local-1' })
+      vi.mocked(isDiagramCommentsEnabled).mockResolvedValueOnce(true)
+      const wrapper = mount(GenericViewer, { global: { plugins: [store], stubs: { DiagramCommentsPanel: true } } })
+      await flushPromises()
+      expect(wrapper.find('[data-testid="diagram-comments-rail"]').exists()).toBe(true)
+      await commentsBtn(wrapper).trigger('click')
+      expect(wrapper.find('[data-testid="diagram-comments-rail"]').exists()).toBe(false)
+    })
+
+    it('does not mount the rail in Fullscreen when the flag is off, even if the modal asks for it', async () => {
+      setForge({ macroMode: 'fullscreen', openComments: true })
+      const wrapper = mount(GenericViewer, { global: { plugins: [store], stubs: { DiagramCommentsPanel: true } } })
+      await flushPromises()
+      expect(wrapper.find('[data-testid="diagram-comments-rail"]').exists()).toBe(false)
+    })
+  })
+
   describe('Connect MCP (headless only)', () => {
     // agent_link_mcp_button_shown waits two animation frames for the header
     // layout. Run frames synchronously here so each viewer reports inside its

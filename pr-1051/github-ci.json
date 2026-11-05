@@ -1,0 +1,33 @@
+{
+  "verification_method": "Independent read-only gh run view for each run",
+  "verified_at_utc": "2026-11-05T07:07:26.187288+00:00",
+  "runs": [
+    {
+      "databaseId": 41983502346,
+      "headSha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "status": "completed",
+      "conclusion": "success",
+      "name": "PR validation",
+      "event": "pull_request",
+      "url": "https://github.com/ZenUml/conf-app/actions/runs/41983502346"
+    },
+    {
+      "databaseId": 41983502449,
+      "headSha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "status": "completed",
+      "conclusion": "success",
+      "name": "Export modal validation",
+      "event": "pull_request",
+      "url": "https://github.com/ZenUml/conf-app/actions/runs/41983502449"
+    },
+    {
+      "databaseId": 41983502310,
+      "headSha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "status": "completed",
+      "conclusion": "success",
+      "name": "Render MCP Worker",
+      "event": "pull_request",
+      "url": "https://github.com/ZenUml/conf-app/actions/runs/41983502310"
+    }
+  ]
+}

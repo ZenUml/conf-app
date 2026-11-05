@@ -1,0 +1,50 @@
+bun test v1.4.4 (38afee6c8)
+tools/mermaid-highlights/test/mermaid-highlights.node-test.mjs:
+ok - flowchart model snapshot is detached, preserves relation IDs and rejects unsupported diagrams
+(pass) flowchart model snapshot is detached, preserves relation IDs and rejects unsupported diagrams [3.48ms]
+ok - actual Mermaid curved edges, parallel paths and nested HTML labels get direct hover/selection
+(pass) actual Mermaid curved edges, parallel paths and nested HTML labels get direct hover/selection [917.66ms]
+ok - a source group endpoint binds to its actual Mermaid cluster and traces both connectors
+(pass) a source group endpoint binds to its actual Mermaid cluster and traces both connectors [522.21ms]
+ok - flowchart model keeps subgraph membership as a detached copy of Mermaid state
+(pass) flowchart model keeps subgraph membership as a detached copy of Mermaid state [0.30ms]
+ok - tracing a node keeps every enclosing subgraph frame and title visible
+(pass) tracing a node keeps every enclosing subgraph frame and title visible [990.38ms]
+ok - tracing a subgraph keeps its members and never paints the filled frame over them
+(pass) tracing a subgraph keeps its members and never paints the filled frame over them [525.14ms]
+ok - tracing a nested subgraph keeps members and nested boxes at every level and its outer frames
+(pass) tracing a nested subgraph keeps members and nested boxes at every level and its outer frames [593.92ms]
+ok - tracing a subgraph clones only its edge-connected nodes and keeps the rest visible in place
+(pass) tracing a subgraph clones only its edge-connected nodes and keeps the rest visible in place [660.82ms]
+ok - with a subgraph selected, crossing other nodes never repaints its contained members
+(pass) with a subgraph selected, crossing other nodes never repaints its contained members [689.18ms]
+ok - prepared SVG tracing a subgraph also clones only its edge-connected nodes
+(pass) prepared SVG tracing a subgraph also clones only its edge-connected nodes [474.56ms]
+ok - an empty subgraph binds as a node and the rest of the diagram still highlights
+(pass) an empty subgraph binds as a node and the rest of the diagram still highlights [745.40ms]
+ok - a connector that ends at an empty subgraph is traced from both ends
+(pass) a connector that ends at an empty subgraph is traced from both ends [949.97ms]
+ok - an empty subgraph inside another keeps the enclosing frame, and a traced frame keeps it without a copy
+(pass) an empty subgraph inside another keeps the enclosing frame, and a traced frame keeps it without a copy [552.00ms]
+ok - a subgraph that Mermaid drew as neither a frame nor its own node is still refused
+(pass) a subgraph that Mermaid drew as neither a frame nor its own node is still refused [475.23ms]
+ok - prepared SVG binds every source node, group and directed connector before enabling hover
+(pass) prepared SVG binds every source node, group and directed connector before enabling hover [472.80ms]
+ok - explicit edge IDs bind underscore-containing source IDs without delimiter guessing
+(pass) explicit edge IDs bind underscore-containing source IDs without delimiter guessing [534.00ms]
+ok - repeated attach and destroy restore exact Mermaid SVG and preserve existing click callback
+(pass) repeated attach and destroy restore exact Mermaid SVG and preserve existing click callback [699.23ms]
+ok - phone tap selects a Mermaid node and a second tap clears it
+(pass) phone tap selects a Mermaid node and a second tap clears it [604.58ms]
+ok - unresolved identities refuse attachment without changing an existing highlighted diagram
+(pass) unresolved identities refuse attachment without changing an existing highlighted diagram [923.98ms]
+ok - standalone Mermaid export retains HTML labels and works offline from saved SVG
+(pass) standalone Mermaid export retains HTML labels and works offline from saved SVG [871.88ms]
+ok - direct export preserves a nonbreaking space inside a quoted Mermaid label
+(pass) direct export preserves a nonbreaking space inside a quoted Mermaid label [732.61ms]
+ok - pan/zoom viewport keeps hit areas and paint aligned through later transforms
+(pass) pan/zoom viewport keeps hit areas and paint aligned through later transforms [623.60ms]
+ 22 pass
+ 0 fail
+Ran 22 tests across 1 file. [13.58s]
+mermaid-highlights: ok - 22 tests, 22 passed, 0 skipped

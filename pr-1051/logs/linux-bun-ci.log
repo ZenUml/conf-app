@@ -1,0 +1,164 @@
+METADATA HEADER (added; not raw output)
+Platform: Ubuntu 24.04 x86_64
+Source commit: d3910aa9c96654351adbac1baaa62e4cce08dbc1
+Runtime: Bun 1.4.4 (38afee6c8)
+Command: bun test ./scripts/ci/*.node-test.mjs ./scripts/test-selection/tests/*.node-test.mjs
+Observed exit code: 0 (raw .exit record)
+
+FULL POSITIVE RAW LOG (ANSI/path sanitization only)
+bun test v1.4.4 (38afee6c8)
+
+scripts/ci/daily-regression.node-test.mjs:
+(pass) daily fans out all four product transactions behind one shared migration gate [9.79ms]
+(pass) daily transaction keeps each deploy and gates both suites on backend and frontend identity [2.62ms]
+(pass) migration skip is opt-in and independent callers retain their migration defaults [25.51ms]
+
+scripts/ci/lite-deploy-benchmark.node-test.mjs:
+(pass) parallel preparation joins pending writes after another branch fails [1.80ms]
+(pass) benchmark retains shared staging lock and sequential, pinned alternating arms [1.12ms]
+(pass) every benchmark sample requires successful Lite install or upgrade [0.30ms]
+(pass) Studio fallback restores the original aggregate cache version before seeding lean output [0.32ms]
+(pass) accepts only three complete matched clean pairs and uses whole job median [1.34ms]
+(pass) rejects unequal assets, manifests and missing marker evidence [1.05ms]
+(pass) retry-driven faster median cannot establish the 20% goal [0.28ms]
+(pass) phase parser retains only fixed names, ignoring signed URLs and resource paths [0.27ms]
+(pass) candidate cannot prepare production and always reports all branch failures [169.31ms]
+
+scripts/ci/lite-deploy-dependency-cache.node-test.mjs:
+(pass) candidate store restore/save runs only after an installed-tree miss; frozen install always runs [0.27ms]
+(pass) actual resolver preserves setup-node v5 store path/cache version inputs and lowercase Node architecture key [89.49ms]
+(pass) store resolution rejects empty/relative/multiline paths, invalid keys and command failures without exposing errors [292.73ms]
+(pass) candidate cache evidence distinguishes skipped store restore from attempted miss using booleans only [40.78ms]
+
+scripts/ci/lite-deploy-install.node-test.mjs:
+(pass) candidate upgrades an existing installation directly and accepts already-current success [30.75ms]
+(pass) candidate installs a new site after the expected missing-upgrade-context failure [26.17ms]
+(pass) failed existing upgrade cannot qualify through an unsuccessful duplicate install [25.34ms]
+(pass) both command failures retain failure status and leave the site uninstalled [25.96ms]
+(pass) baseline and ordinary default retain original install-first lifecycle and failure semantics [139.35ms]
+
+scripts/ci/lite-deploy-parser.node-test.mjs:
+(pass) installed Forge typed parser changes program mode while preserving AST, diagnostics and rejections [6924.15ms]
+(pass) single-run setting applies only to candidate Forge deployment after source preparation [2.90ms]
+
+scripts/ci/lite-deploy-permissions-cache.node-test.mjs:
+(pass) public cache selection rejects auth stores, folders and output injection [0.37ms]
+(pass) installed CLI public cache path and versions define exact 12h keys [1096.32ms]
+(pass) installed CLI cache naturally rejects expired Swagger entries without changing expiry [0.55ms]
+(pass) installed permission linter refetches expired public docs and keeps fresh cached docs [134.31ms]
+(pass) candidate restores exactly the dedicated cache after frozen install and before preparation [3.38ms]
+
+scripts/ci/lite-deploy-runner.node-test.mjs:
+(pass) actual resolver automatically optimizes only exact Lite staging and supports baseline/hardware overrides [37.04ms]
+(pass) invalid modes, hardware and explicit candidate scope fail before publishing any output [41.15ms]
+(pass) all supplied resolver fields reject line delimiters before outputs and never echo the supplied value [43.68ms]
+(pass) automatic overlay requires a full immutable SHA while explicit aliases and unused workflow refs remain compatible [39.16ms]
+(pass) main, PR, daily, rerun and manual defaults resolve safely for current and older app source [36.36ms]
+(pass) every downstream branch consumes resolved mode and actual checkout provenance [1.09ms]
+(pass) pinned candidate tooling fills an older source checkout and rejects missing runtime helpers [51.37ms]
+(pass) deployment provenance resolves app/tooling aliases to their actual Git commit SHAs [62.64ms]
+(pass) ordinary deployment summary records resolved mode/runtime and only whitelisted cache booleans [18.24ms]
+(pass) benchmark hardware input affects only candidates and ARM legacy dependencies are sanitized before use [0.88ms]
+(pass) runtime evidence uses actual Node platform/architecture and a whitelisted runner label [0.40ms]
+
+scripts/ci/lite-deploy-studio-cache.node-test.mjs:
+(pass) valid pinned static output survives while nested native dependencies and links are removed [55.17ms]
+(pass) rejects partial-hit, removes static output and still cleans restored dependencies [47.30ms]
+(pass) rejects wrong-stamp, removes static output and still cleans restored dependencies [49.59ms]
+(pass) rejects whitespace-stamp, removes static output and still cleans restored dependencies [47.64ms]
+(pass) rejects missing-index, removes static output and still cleans restored dependencies [45.64ms]
+(pass) rejects stamp-link, removes static output and still cleans restored dependencies [44.87ms]
+(pass) rejects index-link, removes static output and still cleans restored dependencies [49.30ms]
+(pass) rejects nested-static-link, removes static output and still cleans restored dependencies [45.22ms]
+(pass) rejects output-link, removes static output and still cleans restored dependencies [44.80ms]
+(pass) mismatched Git source fails safely rather than rebuilding the wrong pin [58.50ms]
+(pass) symlinked parent directories are rejected without traversing their targets [44.47ms]
+
+scripts/ci/main-staging-parallel.node-test.mjs:
+(pass) one pinned shared migration gates every normal combined staging deployment [1.26ms]
+(pass) all four E2E lanes wait only for their own deploy and auth [2.22ms]
+(pass) a failed backend probe blocks every child dispatch while cleanup still runs [0.46ms]
+(pass) draft eligibility requires successful migrations and combined deploy with fresh coverage [3.10ms]
+(pass) helper defaults preserve ordinary staging and production deployment behavior [4.94ms]
+
+scripts/ci/main-workflows.node-test.mjs:
+(pass) manual controls belong to the five-node root, never direct child dispatch [2.89ms]
+(pass) main child plans consume the verified producer and complete variant inventories [2.47ms]
+(pass) daily gate blocks every draft while all four E2E lanes remain independent [2.13ms]
+(pass) root outcome reports the verified failed draft gate without adding a root job [1.44ms]
+
+scripts/ci/mermaid-highlights.node-test.mjs:
+(pass) pr-validation runs the Mermaid highlight runtime tests in the Viewer preview job, after Chromium is installed [1.23ms]
+(pass) main-build-preparation runs the Mermaid highlight runtime tests in the Viewer preview job, after Chromium is installed [1.04ms]
+(pass) package.json exposes one command that CI and developers share [0.38ms]
+(pass) under CI, the highlight test file fails when its browser inputs are missing instead of skipping [38.28ms]
+(pass) outside CI, the highlight test file still skips its browser tests so a plain checkout stays usable [40.53ms]
+(pass) the runner finds Playwright and the Mermaid bundle in this checkout [3.42ms]
+(pass) the runner keeps explicit inputs so a custom Playwright or bundle still works [0.32ms]
+(pass) the runner names the missing file instead of letting browser tests skip [0.44ms]
+(pass) the runner command exits non-zero with the missing path, before any browser starts [33.46ms]
+(pass) the runner command still runs when the checkout is reached through a symlink [35.09ms]
+(pass) a run only passes when every test ran and passed [0.94ms]
+(pass) the actual runner executes a pass fixture and keeps the gate fail-closed [73.06ms]
+(pass) the actual runner executes a fail fixture and keeps the gate fail-closed [76.81ms]
+(pass) the actual runner executes a skip fixture and keeps the gate fail-closed [71.82ms]
+(pass) Chromium installed for the E2E workspace is the Chromium the highlight tests launch [3.16ms]
+
+scripts/ci/mixpanel-isolation.node-test.mjs:
+(pass) pr-validation gates on the offline Mixpanel browser regression with installed Chromium [1.29ms]
+(pass) main-build-preparation gates on the offline Mixpanel browser regression with installed Chromium [0.81ms]
+
+scripts/ci/phase-recovery.node-test.mjs:
+(pass) recovery inspects phase failures rather than treating deployments as E2E [0.54ms]
+(pass) recovery rejects missing, ambiguous, running and rerun phase producers [0.20ms]
+(pass) recovery preserves build and draft failures as blockers [0.35ms]
+(pass) recovery CLI reads a phase run listing larger than the default 1 MiB buffer [39.99ms]
+(pass) recovery re-runs a root whose only real failures are E2E validations and the drafts they skipped [1.21ms]
+(pass) recovery explains a skipped draft by a failed auth bootstrap, which skips that variant validation [0.40ms]
+(pass) recovery still refuses when a draft failed for a reason other than a failed E2E validation [0.99ms]
+(pass) recovery does not excuse a draft skipped by a failed build or migration [0.32ms]
+(pass) recovery refuses when the draft phase run is missing, ambiguous, running or already rerun [0.38ms]
+(pass) recovery CLI prints the E2E-only list for the observed draft cascade [29.61ms]
+
+scripts/ci/wait-for-e2e.node-test.mjs:
+(pass) dispatch serializes regex without changing its escapes [0.30ms]
+(pass) waits for exact attempt and SHA instead of a stale run [0.22ms]
+(pass) PR dispatch uses branch ref and only the PR child inputs [0.08ms]
+(pass) phase dispatch carries version and exact producing run IDs without E2E inputs [0.06ms]
+(pass) phase E2E requires an active root and matching source provenance [0.57ms]
+(pass) children reject manual dispatch and reruns before verifying their parent [0.26ms]
+(pass) cleanup waits for child termination after requesting cancellation [0.57ms]
+(pass) cleanup fails if child is still active at the deadline [0.21ms]
+(pass) cleanup discovers a dispatched child after delayed run visibility [0.29ms]
+(pass) successful dispatch cannot silently disappear from cleanup [0.35ms]
+(pass) child accepts only an active staging parent in the matching attempt [0.29ms]
+(pass) root option artifact binds manual controls to source, run and attempt [0.81ms]
+(pass) root accepts a blocked daily gate only from its immutable draft producer [0.66ms]
+(pass) child discovery reads a run listing larger than the default 1 MiB buffer [16.34ms]
+(pass) cleanup finds the dispatched child in a run listing larger than 1 MiB [17.68ms]
+(pass) parent verification retries stale GitHub state and succeeds once it is fresh [0.82ms]
+(pass) parent verification throws the original error after the last attempt [0.32ms]
+(pass) parent verification does not retry real provenance errors [0.26ms]
+
+scripts/test-selection/tests/main-policy.node-test.mjs:
+(pass) baseline excludes current, failures, same SHA and unrelated commits [0.78ms]
+(pass) no ancestral baseline requires full validation [0.20ms]
+(pass) pagination rejects short incomplete inventory and malformed responses [0.85ms]
+(pass) pagination collects every page before using evidence [0.71ms]
+(pass) pagination requests pages 2..N together and keeps page order [1.42ms]
+(pass) pagination returns what the sequential loop returned when the inventory shrinks mid-fetch [1.00ms]
+(pass) pagination stops at the smallest total_count seen, even when a non-last page is short [0.51ms]
+(pass) pagination never has more than 6 page requests outstanding [2.34ms]
+(pass) pagination stops requesting pages after one page fails [1.59ms]
+(pass) latest completed failure blocks older success despite newer pending run [0.53ms]
+(pass) fresh successful manual ancestor passes, unrelated target fails [0.22ms]
+(pass) stale, missing and failed lookup block [0.24ms]
+(pass) bypass requires manual root and reason [0.22ms]
+(pass) completion chronology includes reruns of older run IDs [0.17ms]
+(pass) fresh workflow metadata cannot replace fresh test coverage [2.86ms]
+(pass) baseline follows successful completion order when an older main run is rerun [0.26ms]
+(pass) baseline lookup is bounded to a created window so the 1,000-result search cap is never reached [0.79ms]
+
+ 121 pass
+ 0 fail
+Ran 121 tests across 15 files. [10.54s]

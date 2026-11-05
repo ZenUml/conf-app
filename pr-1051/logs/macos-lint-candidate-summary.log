@@ -1,0 +1,3 @@
+EXCERPT: lint summary
+✖ 138 problems (0 errors, 138 warnings)
+  0 errors and 13 warnings potentially fixable with the `--fix` option.

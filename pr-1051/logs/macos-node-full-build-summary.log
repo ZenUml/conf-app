@@ -1,0 +1,10 @@
+EXCERPT: Full frontend plus MCP Apps build command and completion markers
+> confluence-plugin@1.1.0 build:full <repo>
+> PRODUCT_TYPE=full vite build --mode production && pnpm run build:mcp-app
+Building benchmark (d3910aa9) on codex/bun-test-compat
+vite v7.3.0 building client environment for production...
+✓ built in 18.20s
+> confluence-plugin@1.1.0 build:mcp-app <repo>
+> vite build -c vite.mcp-app.config.mjs
+vite v7.3.0 building client environment for production...
+✓ built in 7.54s

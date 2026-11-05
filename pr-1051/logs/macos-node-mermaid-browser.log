@@ -1,0 +1,23 @@
+ok - flowchart model snapshot is detached, preserves relation IDs and rejects unsupported diagrams
+ok - actual Mermaid curved edges, parallel paths and nested HTML labels get direct hover/selection
+ok - a source group endpoint binds to its actual Mermaid cluster and traces both connectors
+ok - flowchart model keeps subgraph membership as a detached copy of Mermaid state
+ok - tracing a node keeps every enclosing subgraph frame and title visible
+ok - tracing a subgraph keeps its members and never paints the filled frame over them
+ok - tracing a nested subgraph keeps members and nested boxes at every level and its outer frames
+ok - tracing a subgraph clones only its edge-connected nodes and keeps the rest visible in place
+ok - with a subgraph selected, crossing other nodes never repaints its contained members
+ok - prepared SVG tracing a subgraph also clones only its edge-connected nodes
+ok - an empty subgraph binds as a node and the rest of the diagram still highlights
+ok - a connector that ends at an empty subgraph is traced from both ends
+ok - an empty subgraph inside another keeps the enclosing frame, and a traced frame keeps it without a copy
+ok - a subgraph that Mermaid drew as neither a frame nor its own node is still refused
+ok - prepared SVG binds every source node, group and directed connector before enabling hover
+ok - explicit edge IDs bind underscore-containing source IDs without delimiter guessing
+ok - repeated attach and destroy restore exact Mermaid SVG and preserve existing click callback
+ok - phone tap selects a Mermaid node and a second tap clears it
+ok - unresolved identities refuse attachment without changing an existing highlighted diagram
+ok - standalone Mermaid export retains HTML labels and works offline from saved SVG
+ok - direct export preserves a nonbreaking space inside a quoted Mermaid label
+ok - pan/zoom viewport keeps hit areas and paint aligned through later transforms
+mermaid-highlights: ok - 22 tests, 22 passed, 0 skipped

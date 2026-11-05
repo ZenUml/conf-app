@@ -1,0 +1,410 @@
+{
+  "schema_version": 1,
+  "pull_request": "https://github.com/ZenUml/conf-app/pull/1051",
+  "baseline_sha": "fadc1009fd3e9ea5d7aad20337e980cbedd9a34a",
+  "candidate_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+  "versions": {
+    "node": "24.20.0",
+    "bun": "1.4.4 (38afee6c8)",
+    "pnpm": "10.34.5",
+    "vitest": "2.1.9",
+    "vite": "7.3.0",
+    "playwright": "1.59.1",
+    "chromium": "147.0.7727.15 (Playwright build 1217)"
+  },
+  "platforms": {
+    "original_linux": "isolated GCP e2-standard-4, Intel Broadwell, Ubuntu 24.04 x86_64",
+    "candidate_macos": "macOS arm64",
+    "candidate_linux": "Ubuntu 24.04 x86_64; independent candidate run at exact committed SHA"
+  },
+  "checks": [
+    {
+      "id": "linux_baseline_vitest_bun",
+      "platform": "original_linux",
+      "status": "inherited_failure",
+      "source": "original benchmark",
+      "exit_code": 1,
+      "passed": 5801,
+      "failed": 258,
+      "skipped": 3
+    },
+    {
+      "id": "linux_baseline_ci_bun",
+      "platform": "original_linux",
+      "status": "inherited_failure",
+      "source": "original benchmark",
+      "exit_code": 1,
+      "passed": 105,
+      "failed": 13,
+      "skipped": 0
+    },
+    {
+      "id": "macos_mock_red",
+      "platform": "candidate_macos",
+      "status": "expected_failure",
+      "candidate_patch_applied": false,
+      "exit_code": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0
+    },
+    {
+      "id": "macos_mock_green_subset",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 89,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "id": "macos_vitest_node",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 6060,
+      "failed": 0,
+      "skipped": 3,
+      "skip_provenance": "existing baseline skips",
+      "exit_provenance": "local-verification.json (parent-observed tool completion; counts checked from logs)"
+    },
+    {
+      "id": "macos_vitest_bun",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 6060,
+      "failed": 0,
+      "skipped": 3,
+      "skip_provenance": "existing baseline skips",
+      "exit_provenance": "local-verification.json (parent-observed tool completion; counts checked from logs)"
+    },
+    {
+      "id": "macos_ci_node",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 121,
+      "failed": 0,
+      "skipped": 0,
+      "exit_provenance": "actual-ci-results.json"
+    },
+    {
+      "id": "macos_ci_bun",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 121,
+      "failed": 0,
+      "skipped": 0,
+      "exit_provenance": "actual-ci-results.json"
+    },
+    {
+      "id": "macos_mermaid_browser_node",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "exit_provenance": "actual-browser-results.json"
+    },
+    {
+      "id": "macos_mermaid_browser_bun",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "exit_provenance": "actual-browser-results.json"
+    },
+    {
+      "id": "macos_lint_baseline",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "errors": 0,
+      "warnings": 138,
+      "exit_provenance": "local-verification.json (parent-observed tool completion; counts checked from logs)"
+    },
+    {
+      "id": "macos_lint_candidate",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "errors": 0,
+      "warnings": 138,
+      "exit_provenance": "local-verification.json (parent-observed tool completion; counts checked from logs)"
+    },
+    {
+      "id": "macos_node_full_and_mcp_build",
+      "platform": "candidate_macos",
+      "status": "passed",
+      "exit_code": 0,
+      "exit_provenance": "local-verification.json (parent-observed tool completion; counts checked from logs)"
+    },
+    {
+      "id": "github_ci",
+      "status": "passed",
+      "exit_code": null,
+      "url": "https://github.com/ZenUml/conf-app/actions/runs/41983502346",
+      "provenance": "github-ci.json; all three workflows independently confirmed completed/success at candidate SHA"
+    },
+    {
+      "id": "macos_real_mock_red",
+      "platform": "candidate_macos",
+      "status": "expected_failure",
+      "candidate_patch_applied": false,
+      "exit_code": 1,
+      "passed": 1,
+      "failed": 87,
+      "skipped": 0,
+      "exit_provenance": "local-verification.json"
+    },
+    {
+      "id": "linux_candidate_node_unit",
+      "platform": "candidate_linux",
+      "status": "passed",
+      "suite": "node-unit",
+      "exit_code": 0,
+      "passed": 6060,
+      "failed": 0,
+      "skipped": 3,
+      "log": "logs/linux-vitest-node-summary.log",
+      "command": "CI=true VITE_APP_VERSION=benchmark NODE_OPTIONS=--max-old-space-size=8192 node node_modules/vitest/vitest.mjs --run --maxWorkers=3",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "node-unit.exit from checksum-verified raw archive"
+    },
+    {
+      "id": "linux_candidate_bun_unit",
+      "platform": "candidate_linux",
+      "status": "passed",
+      "suite": "bun-unit",
+      "exit_code": 0,
+      "passed": 6060,
+      "failed": 0,
+      "skipped": 3,
+      "log": "logs/linux-vitest-bun-summary.log",
+      "command": "CI=true VITE_APP_VERSION=benchmark NODE_OPTIONS=--max-old-space-size=8192 bun node_modules/vitest/vitest.mjs --run --maxWorkers=3",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "bun-unit.exit from checksum-verified raw archive"
+    },
+    {
+      "id": "linux_candidate_node_ci",
+      "platform": "candidate_linux",
+      "status": "passed",
+      "suite": "node-ci",
+      "exit_code": 0,
+      "passed": 121,
+      "failed": 0,
+      "skipped": 0,
+      "log": "logs/linux-node-ci.log",
+      "command": "node --test ./scripts/ci/*.node-test.mjs ./scripts/test-selection/tests/*.node-test.mjs",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "node-ci.exit from checksum-verified raw archive"
+    },
+    {
+      "id": "linux_candidate_bun_ci",
+      "platform": "candidate_linux",
+      "status": "passed",
+      "suite": "bun-ci",
+      "exit_code": 0,
+      "passed": 121,
+      "failed": 0,
+      "skipped": 0,
+      "log": "logs/linux-bun-ci.log",
+      "command": "bun test ./scripts/ci/*.node-test.mjs ./scripts/test-selection/tests/*.node-test.mjs",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "bun-ci.exit from checksum-verified raw archive"
+    },
+    {
+      "id": "linux_candidate_node_mermaid",
+      "platform": "candidate_linux",
+      "status": "passed",
+      "suite": "node-mermaid",
+      "exit_code": 0,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "log": "logs/linux-node-mermaid-browser.log",
+      "command": "CI=true node scripts/ci/mermaid-highlights.mjs",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "node-mermaid.exit from checksum-verified raw archive"
+    },
+    {
+      "id": "linux_candidate_bun_mermaid",
+      "platform": "candidate_linux",
+      "status": "passed",
+      "suite": "bun-mermaid",
+      "exit_code": 0,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "log": "logs/linux-bun-mermaid-browser.log",
+      "command": "CI=true bun scripts/ci/mermaid-highlights.mjs",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "bun-mermaid.exit from checksum-verified raw archive"
+    }
+  ],
+  "ci_provenance": {
+    "eight_owned_ci_file_hashes_match_candidate_commit": true,
+    "source": "ci-source-hashes.json checked against git objects at candidate_sha",
+    "original_tests_retained": 118,
+    "added_real_reporter_regressions": 3
+  },
+  "limits": [
+    "Platforms differ; original Linux failures are not a same-machine before/after comparison.",
+    "No timing or speedup conclusion is claimed.",
+    "CLI/browser tests do not verify deployments or Confluence UI.",
+    "Application UI unchanged; ordered UI validation not applicable."
+  ],
+  "files": {
+    "logs/macos-node-ci.log": {
+      "source_log": "actual-node-ci.log",
+      "selection": "full log, ANSI removed and local paths sanitized",
+      "sha256": "417ea8e80617d20cd9f965255d26c2403387b0e222344fc068d32d7dc3d0827c"
+    },
+    "logs/macos-node-mermaid-browser.log": {
+      "source_log": "actual-node-mermaid-browser.log",
+      "selection": "full log, ANSI removed and local paths sanitized",
+      "sha256": "3dc98c22e5ff92cbcfcff4252b977e3e91651f41480d0503b31a558dbf9020a0"
+    },
+    "logs/macos-bun-ci.log": {
+      "source_log": "actual-bun-ci.log",
+      "selection": "full log, ANSI removed and local paths sanitized",
+      "sha256": "2f9ede52aac66db91c7adc94d7c14d5988a854e3f38e0337fee432ce5993339a"
+    },
+    "logs/macos-bun-mermaid-browser.log": {
+      "source_log": "actual-bun-mermaid-browser.log",
+      "selection": "full log, ANSI removed and local paths sanitized",
+      "sha256": "db5fc5c3ac8c657e5adda8e2c6f51ff2a893958132ce804840bd9404989df407"
+    },
+    "logs/macos-vitest-node-summary.log": {
+      "source_log": "vitest-full-node-final.log",
+      "selection": "final summary excerpt",
+      "sha256": "8c1be0ae62ec161493e93d39f3e0b9088306087c8ab61eebf8a4921485ef02a6"
+    },
+    "logs/macos-vitest-bun-summary.log": {
+      "source_log": "vitest-full-bun-final.log",
+      "selection": "final summary excerpt",
+      "sha256": "8063a9e5d43a8bf29d7000acd30ad39ec829fd5c3bbdf017d5b1c149bec9bc05"
+    },
+    "logs/macos-mock-regression-red.log": {
+      "source_log": "vitest-regression-red.log",
+      "selection": "selected failure diagnostic and summary",
+      "sha256": "0fe9cb7a1a9cf18600aa53419f66b35844508101c5ffdcfa96c39d41df11fe0b"
+    },
+    "logs/macos-mock-regression-green.log": {
+      "source_log": "vitest-real-green.log",
+      "selection": "selected regression pass line and subset summary",
+      "sha256": "b296a925c2cc1d354e49957d194b07f9991c9827219450b0d8697da7b6a87673"
+    },
+    "logs/macos-lint-baseline-summary.log": {
+      "source_log": "lint-baseline.log",
+      "selection": "final lint summary excerpt",
+      "sha256": "863b921ff07b473332a2cc462dbd1f6f18271ef54f01efd8b34917127620f7e5"
+    },
+    "logs/macos-lint-candidate-summary.log": {
+      "source_log": "lint.log",
+      "selection": "final lint summary excerpt",
+      "sha256": "863b921ff07b473332a2cc462dbd1f6f18271ef54f01efd8b34917127620f7e5"
+    },
+    "logs/macos-node-full-build-summary.log": {
+      "source_log": "build-full-final.log",
+      "selection": "selected commands and two completed Vite build markers",
+      "sha256": "2e40e0771af7619a728df8c8cba1bb6faeb0e36a4abbf01a4a1f022299410b51"
+    },
+    "logs/linux-inherited-baseline-summary.log": {
+      "source_log": "original benchmark vitest-bun-warmup.log and ci-script-tests-bun-warmup.log",
+      "selection": "selected failures and final totals",
+      "sha256": "57f09221b5fc596260d71b7ed52d4af6e0b60e0cefde860050dcdcc49c866bec"
+    },
+    "logs/macos-real-mock-red-summary.log": {
+      "source_log": "vitest-real-red.log",
+      "selection": "selected mock API failures and final two-file summary",
+      "sha256": "a7f2366c5f7c0ad5f4e4f7963e4e3429af82a70c4e9295cf4263d550da778729"
+    },
+    "logs/linux-vitest-node-summary.log": {
+      "source_log": "node-unit.log",
+      "selection": "selected unit summary",
+      "sha256": "c68e8064c1998ed1777d08c4979c702ac13a0ec1abccd6d0f6668d4744987cd6"
+    },
+    "logs/linux-vitest-bun-summary.log": {
+      "source_log": "bun-unit.log",
+      "selection": "selected unit summary",
+      "sha256": "6f9d81440226c915299a04c53d376ecc985ee26078f0970fbb532cf9afdf7717"
+    },
+    "logs/linux-node-ci.log": {
+      "source_log": "node-ci.log",
+      "selection": "full positive log with separately labelled metadata header",
+      "sha256": "6dc7a0bd253e673376c410b8c7adecd3f08be7a6adb1c6aaaaf61fed6852ea7e"
+    },
+    "logs/linux-bun-ci.log": {
+      "source_log": "bun-ci.log",
+      "selection": "full positive log with separately labelled metadata header",
+      "sha256": "0c9effb82952173f0a7a2c9ceb9b91abe09ba02b3fc59f35c6994d1e4431e5e3"
+    },
+    "logs/linux-node-mermaid-browser.log": {
+      "source_log": "node-mermaid.log",
+      "selection": "full positive log with separately labelled metadata header",
+      "sha256": "d100c2b81988948f3c4bed690a630c6ada761e8392dbb5b22969fc8627a33bea"
+    },
+    "logs/linux-bun-mermaid-browser.log": {
+      "source_log": "bun-mermaid.log",
+      "selection": "full positive log with separately labelled metadata header",
+      "sha256": "452a00b5076c6e44f9fb60ad2e8c36553800da3f7b0f23420b00346345d8347f"
+    }
+  },
+  "privacy_review": {
+    "local_paths_sanitized": true,
+    "customer_data_included": false,
+    "tokens_or_credentials_included": false,
+    "note": "Full positive CI/browser logs contain no URLs, email addresses or UUIDs; remaining artifacts are selected synthetic regression and summary excerpts.",
+    "metadata": "local-verification.json contains only public SHAs, tool versions, commands without credentials, and relative log names.",
+    "linux_metadata": "Only allowlisted version/source/count/command/checksum fields copied; hostnames, IPs, user accounts, full environment and VM metadata excluded.",
+    "final_scan": "Passed: home paths, customer hostnames, email addresses, UUIDs, IPv4 addresses, common credential/JWT formats, and ANSI escapes absent. Public GitHub metadata is intentional."
+  },
+  "execution_provenance": {
+    "unit_and_ci_browser": "Runtime/test contents match candidate; unit and CI/browser execution preceded commit creation. Eight CI file hashes independently match candidate git objects.",
+    "full_build": "Executed after candidate commit; build log identifies d3910aa9.",
+    "local_verification": "local-verification.json"
+  },
+  "github_ci_runs": [
+    {
+      "databaseId": 41983502346,
+      "headSha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "status": "completed",
+      "conclusion": "success",
+      "name": "PR validation",
+      "event": "pull_request",
+      "url": "https://github.com/ZenUml/conf-app/actions/runs/41983502346"
+    },
+    {
+      "databaseId": 41983502449,
+      "headSha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "status": "completed",
+      "conclusion": "success",
+      "name": "Export modal validation",
+      "event": "pull_request",
+      "url": "https://github.com/ZenUml/conf-app/actions/runs/41983502449"
+    },
+    {
+      "databaseId": 41983502310,
+      "headSha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "status": "completed",
+      "conclusion": "success",
+      "name": "Render MCP Worker",
+      "event": "pull_request",
+      "url": "https://github.com/ZenUml/conf-app/actions/runs/41983502310"
+    }
+  ],
+  "linux_archive_provenance": {
+    "sha256": "5b1baec943dacd9977dd2a26900cc7ec2cc15f6bb96b0711fa168e81dbf4856b",
+    "verified_evidence_file_count": 42,
+    "sanitized_metadata": "linux-summary.json",
+    "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+    "server_environment_published": false
+  },
+  "artifact_manifest": "SHA256SUMS"
+}

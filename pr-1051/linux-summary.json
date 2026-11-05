@@ -1,0 +1,85 @@
+{
+  "candidate": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+  "base": "fadc1009fd3e9ea5d7aad20337e980cbedd9a34a",
+  "os": "Ubuntu 24.04 x86_64",
+  "node": "24.20.0",
+  "bun": "1.4.4",
+  "pnpm": "10.34.5",
+  "worker_limit": 3,
+  "unit_env": {
+    "CI": "true",
+    "VITE_APP_VERSION": "benchmark",
+    "NODE_OPTIONS": "--max-old-space-size=8192"
+  },
+  "archive_sha256": "5b1baec943dacd9977dd2a26900cc7ec2cc15f6bb96b0711fa168e81dbf4856b",
+  "verified_evidence_file_count": 42,
+  "provenance": "Downloaded raw archive checksum independently verified; source SHA checked against candidate-environment record. Server environment/identity records are intentionally excluded.",
+  "results": [
+    {
+      "suite": "node-unit",
+      "exit_code": 0,
+      "passed": 6060,
+      "failed": 0,
+      "skipped": 3,
+      "log": "logs/linux-vitest-node-summary.log",
+      "command": "CI=true VITE_APP_VERSION=benchmark NODE_OPTIONS=--max-old-space-size=8192 node node_modules/vitest/vitest.mjs --run --maxWorkers=3",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "node-unit.exit from checksum-verified raw archive"
+    },
+    {
+      "suite": "bun-unit",
+      "exit_code": 0,
+      "passed": 6060,
+      "failed": 0,
+      "skipped": 3,
+      "log": "logs/linux-vitest-bun-summary.log",
+      "command": "CI=true VITE_APP_VERSION=benchmark NODE_OPTIONS=--max-old-space-size=8192 bun node_modules/vitest/vitest.mjs --run --maxWorkers=3",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "bun-unit.exit from checksum-verified raw archive"
+    },
+    {
+      "suite": "node-ci",
+      "exit_code": 0,
+      "passed": 121,
+      "failed": 0,
+      "skipped": 0,
+      "log": "logs/linux-node-ci.log",
+      "command": "node --test ./scripts/ci/*.node-test.mjs ./scripts/test-selection/tests/*.node-test.mjs",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "node-ci.exit from checksum-verified raw archive"
+    },
+    {
+      "suite": "bun-ci",
+      "exit_code": 0,
+      "passed": 121,
+      "failed": 0,
+      "skipped": 0,
+      "log": "logs/linux-bun-ci.log",
+      "command": "bun test ./scripts/ci/*.node-test.mjs ./scripts/test-selection/tests/*.node-test.mjs",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "bun-ci.exit from checksum-verified raw archive"
+    },
+    {
+      "suite": "node-mermaid",
+      "exit_code": 0,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "log": "logs/linux-node-mermaid-browser.log",
+      "command": "CI=true node scripts/ci/mermaid-highlights.mjs",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "node-mermaid.exit from checksum-verified raw archive"
+    },
+    {
+      "suite": "bun-mermaid",
+      "exit_code": 0,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "log": "logs/linux-bun-mermaid-browser.log",
+      "command": "CI=true bun scripts/ci/mermaid-highlights.mjs",
+      "source_sha": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+      "exit_provenance": "bun-mermaid.exit from checksum-verified raw archive"
+    }
+  ]
+}

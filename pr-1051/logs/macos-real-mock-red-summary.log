@@ -1,0 +1,5 @@
+EXCERPT: same-machine two-file unpatched reproduction
+TypeError: getAuthorizationHeader.mockReturnValue is not a function. (In 'getAuthorizationHeader.mockReturnValue(null)', 'getAuthorizationHeader.mockReturnValue' is undefined)
+TypeError: getAuthorizationHeader.mockReturnValue is not a function. (In 'getAuthorizationHeader.mockReturnValue("forge-jwt")', 'getAuthorizationHeader.mockReturnValue' is undefined)
+ Test Files  2 failed (2)
+      Tests  87 failed | 1 passed (88)

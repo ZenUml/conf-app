@@ -1,0 +1,12 @@
+INHERITED ORIGINAL LINUX BENCHMARK; NOT A CANDIDATE RUN
+
+vitest-bun-warmup.log
+TypeError: vi.mocked(getSessionReplayConfig).mockResolvedValue is not a function. (In 'vi.mocked(getSessionReplayConfig).mockResolvedValue({
+ Test Files  33 failed | 414 passed | 1 skipped (448)
+      Tests  258 failed | 5801 passed | 3 skipped (6062)
+
+ci-script-tests-bun-warmup.log
+error: No such built-in module: node:test/reporters
+ 105 pass
+ 13 fail
+Ran 118 tests across 15 files. [8.48s]

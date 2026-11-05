@@ -1,0 +1,80 @@
+{
+  "candidate": "d3910aa9c96654351adbac1baaa62e4cce08dbc1",
+  "baseline": "fadc1009fd3e9ea5d7aad20337e980cbedd9a34a",
+  "platform": "Darwin",
+  "arch": "arm64",
+  "recorded_at_utc": "2026-11-05T07:00:46.674714+00:00",
+  "node": "24.20.0",
+  "bun": "1.4.4",
+  "pnpm": "10.34.5",
+  "checks": [
+    {
+      "label": "lint",
+      "command": "pnpm lint",
+      "exit_code": 0,
+      "errors": 0,
+      "warnings": 138,
+      "log": "lint.log"
+    },
+    {
+      "label": "lint-baseline",
+      "command": "pnpm lint",
+      "exit_code": 0,
+      "errors": 0,
+      "warnings": 138,
+      "log": "lint-baseline.log"
+    },
+    {
+      "label": "vitest-bun",
+      "command": "CI=true VITE_APP_VERSION=benchmark NODE_OPTIONS=--max-old-space-size=8192 bun node_modules/vitest/vitest.mjs --run --maxWorkers=3 --minWorkers=1",
+      "exit_code": 0,
+      "passed": 6060,
+      "failed": 0,
+      "skipped": 3,
+      "log": "vitest-full-bun-final.log"
+    },
+    {
+      "label": "vitest-node",
+      "command": "CI=true VITE_APP_VERSION=benchmark NODE_OPTIONS=--max-old-space-size=8192 node node_modules/vitest/vitest.mjs --run --maxWorkers=3 --minWorkers=1",
+      "exit_code": 0,
+      "passed": 6060,
+      "failed": 0,
+      "skipped": 3,
+      "log": "vitest-full-node-final.log"
+    },
+    {
+      "label": "full-build",
+      "command": "CI=true VITE_APP_VERSION=benchmark NODE_OPTIONS=--max-old-space-size=8192 pnpm build:full",
+      "exit_code": 0,
+      "log": "build-full-final.log"
+    },
+    {
+      "label": "nested-mock-red",
+      "command": "bun node_modules/vitest/vitest.mjs --run tests/unit/vitestMockImporter.spec.ts --maxWorkers=1 --minWorkers=1",
+      "exit_code": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "log": "vitest-regression-red.log"
+    },
+    {
+      "label": "real-mock-red",
+      "command": "bun node_modules/vitest/vitest.mjs --run src/utils/analytics/trackAnalyticsEvent.spec.ts tests/unit/space-status.spec.ts --maxWorkers=2 --minWorkers=1",
+      "exit_code": 1,
+      "passed": 1,
+      "failed": 87,
+      "skipped": 0,
+      "log": "vitest-real-red.log"
+    },
+    {
+      "label": "real-mock-green",
+      "command": "bun node_modules/vitest/vitest.mjs --run tests/unit/vitestMockImporter.spec.ts src/utils/analytics/trackAnalyticsEvent.spec.ts tests/unit/space-status.spec.ts --maxWorkers=2 --minWorkers=1",
+      "exit_code": 0,
+      "passed": 89,
+      "failed": 0,
+      "skipped": 0,
+      "log": "vitest-real-green.log"
+    }
+  ],
+  "provenance": "Exit codes observed from exec_command/write_stdin completion in the parent Codex session; counts independently checked from the named logs. Unit runtime/test sources match candidate contents before commit; committed Full build ran on d3910aa9. Logs use local benchmark paths only; normalize the pinned Bun binary path to bun when reproducing."
+}

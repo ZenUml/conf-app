@@ -91,17 +91,22 @@ export function installIconResolver(viewer: Viewer, icons: Map<string, string>):
   graph?.refresh?.();
 }
 
-async function requestIcons(urls: string[]): Promise<{ icons: Record<string, unknown>; malformed: boolean }> {
+async function requestIcons(urls: string[]): Promise<{ icons: Record<string, unknown>; malformed: boolean; upstreamCode?: string }> {
   const icons: Record<string, unknown> = {};
   let malformed = false;
+  let upstreamCode: string | undefined;
   const chunks: string[][] = [];
   for (let i = 0; i < urls.length; i += URLS_PER_REQUEST) chunks.push(urls.slice(i, i + URLS_PER_REQUEST));
   const bodies = await Promise.all(chunks.map((chunk) => callRemote(PROXY_PATH, 'POST', { urls: chunk })));
   for (const body of bodies) {
     if (!body || typeof body !== 'object' || typeof body.icons !== 'object' || body.icons === null) malformed = true;
-    else Object.assign(icons, body.icons);
+    else {
+      Object.assign(icons, body.icons);
+      const first = Object.values(body.failed ?? {})[0];
+      if (!upstreamCode && typeof first === 'string') upstreamCode = first;
+    }
   }
-  return { icons, malformed };
+  return { icons, malformed, upstreamCode };
 }
 
 function failureCode(error: unknown): string {
@@ -136,8 +141,14 @@ export function startExternalIconProxy(options: {
   const startedAt = Date.now();
   track('graph_icon_proxy_requested', base);
 
-  const fail = (code: string, resolved = 0): IconProxyResult => {
-    track('graph_icon_proxy_failed', { ...base, error_code: code, icon_resolved_count: resolved, duration_ms: Date.now() - startedAt });
+  const fail = (code: string, resolved = 0, upstreamCode?: string): IconProxyResult => {
+    track('graph_icon_proxy_failed', {
+      ...base,
+      error_code: code,
+      icon_resolved_count: resolved,
+      duration_ms: Date.now() - startedAt,
+      ...(upstreamCode ? { upstream_error_code: upstreamCode } : {}),
+    });
     return { ok: false, code };
   };
 
@@ -168,8 +179,8 @@ export function startExternalIconProxy(options: {
       }
     }
     if (answer.malformed || (accepted.size === 0 && Object.keys(answer.icons).length > 0)) return fail('bad_response', accepted.size);
-    if (accepted.size === 0) return fail('none_resolved');
-    if (accepted.size < found.length) return fail('partial', accepted.size);
+    if (accepted.size === 0) return fail('none_resolved', 0, answer.upstreamCode);
+    if (accepted.size < found.length) return fail('partial', accepted.size, answer.upstreamCode);
     track('graph_icon_proxy_succeeded', { ...base, icon_resolved_count: accepted.size, duration_ms: Date.now() - startedAt });
     return { ok: true };
   };

@@ -121,6 +121,13 @@ describe('startExternalIconProxy', () => {
     await expect(awaitExternalIcons(container)).rejects.toThrow(/partial/);
   });
 
+  it('reports why the backend could not get the icons', async () => {
+    vi.mocked(callRemote).mockResolvedValue({ icons: {}, failed: { [ICON]: 'fetch_failed', [ICON_B]: 'fetch_failed' } });
+    const viewer = makeViewer(); const container = document.createElement('div');
+    await expect(startExternalIconProxy({ viewer, container, track })).resolves.toEqual({ ok: false, code: 'none_resolved' });
+    expect(track).toHaveBeenCalledWith('graph_icon_proxy_failed', expect.objectContaining({ error_code: 'none_resolved', upstream_error_code: 'fetch_failed' }));
+  });
+
   it('ignores a data URL for a URL it never asked for, and a value that is not a data image', async () => {
     vi.mocked(callRemote).mockResolvedValue({ icons: { [ICON]: 'https://evil.example/x.svg', 'https://other/x.svg': DATA }, failed: {} });
     const viewer = makeViewer();

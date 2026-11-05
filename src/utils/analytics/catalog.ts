@@ -834,8 +834,9 @@ export type AnalyticsEventName =
   // call starts (`external_icon_count`). succeeded: every icon was applied
   // (`icon_resolved_count`, `duration_ms`). failed: at least one icon is missing
   // (`error_code`: timeout, http_<status>, request_failed, bad_response,
-  // none_resolved, apply_failed, partial; partial also
-  // carries `icon_resolved_count`). A failed diagram still renders, without the
+  // none_resolved, apply_failed, partial; partial also carries
+  // `icon_resolved_count`; none_resolved and partial carry the backend's
+  // `upstream_error_code`). A failed diagram still renders, without the
   // missing icons, and PNG capture of it is refused.
   | "graph_icon_proxy_requested"
   | "graph_icon_proxy_succeeded"

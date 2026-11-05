@@ -1123,6 +1123,9 @@ export type AnalyticsProperties = {
   // many the backend returned as data URLs. Counts only, never URLs.
   external_icon_count?: number;
   icon_resolved_count?: number;
+  // First per-icon code the backend reported (fetch_failed, http_<status>,
+  // bad_content_type, too_large). Says why, where error_code says only "missing".
+  upstream_error_code?: string;
   // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
   // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
   // `operations` list on the host page, so `can_create_cc_type=false` is

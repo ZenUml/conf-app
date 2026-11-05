@@ -33,6 +33,7 @@
 
 <script>
 import { reportDiagramReady } from '@/utils/fullscreenReady';
+import { ensureDrawioMathForDocument } from '@/utils/drawio/loadDrawioViewer';
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
@@ -183,6 +184,7 @@ export default {
         // @ts-ignore
         const parsedXml = mxUtils.parseXml(this.effectiveGraphXml);
         const xmlNode = parsedXml?.documentElement;
+        ensureDrawioMathForDocument(xmlNode);
         // @ts-ignore
         this.graphViewer = new GraphViewer(container, xmlNode, {
           'auto-fit': true,

@@ -27,6 +27,8 @@ export const DRAWIO_PREFETCH_ASSETS: readonly string[] = [
 let loading: Promise<void> | null = null;
 let loaded = false;
 
+const MATHJAX_PLACEHOLDER = Object.freeze({});
+
 /**
  * Where `drawio/` lives. Unset in the Confluence app, whose document base is
  * its own origin. The MCP Apps view (src/mcp-app-view.ts) sets it: its frame's
@@ -71,6 +73,7 @@ function configureDrawioGlobals(): void {
     urlParams?: Record<string, string>;
     DRAW_MATH_URL?: string;
     DRAWIO_BASE_URL?: string;
+    MathJax?: unknown;
   };
 
   // Read by viewer-static.min.js while it evaluates. Unset, it falls back to
@@ -88,10 +91,17 @@ function configureDrawioGlobals(): void {
   w.IMAGE_PATH = drawioPath('images');
   w.STYLE_PATH = drawioPath('styles');
   w.urlParams = parseUrlParams(window.location.href);
-  // GraphViewer loads MathJax on every render, by default from
-  // viewer.diagrams.net, which the MCP host's CSP refuses. drawio/math4 ships
-  // with the build, so point the view at its own copy.
-  if (assetBase) w.DRAW_MATH_URL = drawioPath('math4/es5');
+  // By default the viewer loads MathJax from viewer.diagrams.net, which the Forge
+  // and MCP host CSPs refuse. Then a math="1" diagram stays hidden: the viewer
+  // hides its canvas until MathJax finishes, so every label stays blank, plain
+  // ones too. drawio/math4 ships with the build. Absolute: the viewer passes this
+  // on to MathJax's loader paths.
+  w.DRAW_MATH_URL = resolveDrawioAsset('drawio/math4/es5');
+  // viewer-static.min.js ends with Editor.initMath(), which fetches about 730 KB
+  // gzipped on every render. initMath does nothing if MathJax is defined, so this
+  // placeholder defers it to ensureDrawioMathForDocument, for the few diagrams
+  // that use math (1 of 9,571 Graph bodies in the D1 mirror, 2026-11-05).
+  w.MathJax = MATHJAX_PLACEHOLDER;
 }
 
 function ensureDrawioStylesheet(): void {
@@ -206,4 +216,28 @@ export function ensureDrawioViewerLoaded(base?: string): Promise<void> {
   });
 
   return loading;
+}
+
+/** A compressed `<diagram>` page holds text, not a model, so its flag cannot be read. */
+function documentMayUseMath(root: Element): boolean {
+  if (root.getAttribute('math') === '1') return true;
+  return Array.from(root.getElementsByTagName('diagram')).some((page) => {
+    const model = page.getElementsByTagName('mxGraphModel')[0];
+    return model ? model.getAttribute('math') === '1' : Boolean(page.textContent?.trim());
+  });
+}
+
+/**
+ * Starts MathJax if this document uses math. Call before `new GraphViewer`:
+ * initMath patches Editor.prototype.init, and only Editors created after that
+ * typeset their labels. Later calls do nothing, because MathJax is then real.
+ */
+export function ensureDrawioMathForDocument(root: Element | null | undefined): void {
+  const w = window as typeof window & {
+    MathJax?: unknown;
+    Editor?: { initMath: () => void };
+  };
+  if (!root || w.MathJax !== MATHJAX_PLACEHOLDER || !documentMayUseMath(root)) return;
+  delete w.MathJax;
+  w.Editor?.initMath();
 }

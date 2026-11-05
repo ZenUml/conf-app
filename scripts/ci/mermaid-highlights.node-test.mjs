@@ -29,7 +29,7 @@ function childEnv(extra = {}) {
   return { ...env, ...extra };
 }
 
-for (const name of ['pr-validation', 'main-build-preparation']) {
+for (const name of ['pr-checks', 'main-build-preparation']) {
   test(`${name} runs the Mermaid highlight runtime tests in the Viewer preview job, after Chromium is installed`, () => {
     const steps = workflow(name).jobs['preview-e2e'].steps;
     const index = stepName => steps.findIndex(step => step.name === stepName);

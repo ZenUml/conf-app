@@ -82,7 +82,7 @@ function quietAnalytics() {
 }
 
 const meta: Meta<typeof DiagramCommentsPanel> = {
-  title: 'Features/DiagramCommentsPanel',
+  title: 'Viewer/DiagramCommentsPanel',
   component: DiagramCommentsPanel,
   parameters: { layout: 'fullscreen' },
   args: {

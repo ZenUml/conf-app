@@ -1,4 +1,5 @@
 import { captureBlob } from '@/model/captureBlob';
+import { captureMacroType, captureStageOf, describeCaptureError } from '@/model/captureFailure';
 import md5 from 'md5';
 import {trackEvent} from '@/utils/window';
 import { toast } from '@/utils/toast';
@@ -285,7 +286,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number, makeTimeoutError: () =>
  * Convert diagram to PNG.
  * Uses iframe postMessage if mainFrame exists, otherwise uses html-to-image.
  */
-async function toPng(): Promise<Blob | null | undefined> {
+async function toPng(diagramType?: string): Promise<Blob | null | undefined> {
+  // Declared outside the try so the catch can report its size (#1061).
+  let node: HTMLElement | undefined;
   try {
     /*
     There are 3 options:
@@ -298,7 +301,7 @@ async function toPng(): Promise<Blob | null | undefined> {
       return await iframeToPng(mainFrame);
     }
 
-    const node = document.getElementsByClassName('screen-capture-content')[0] as HTMLElement;
+    node = document.getElementsByClassName('screen-capture-content')[0] as HTMLElement;
     // AWAIT so an *async* rejection from html-to-image is caught here. Previously
     // toPng returned the toBlob() promise directly; when html-to-image's internal
     // offscreen image fails to load (it throws a DOM `error` Event — common when
@@ -329,7 +332,16 @@ async function toPng(): Promise<Blob | null | undefined> {
     console.warn('Failed to convert to png', e);
     // Timeout gets its own label so it's countable separately from other
     // convert_to_png capture failures (a settled html-to-image rejection).
-    trackEvent(e instanceof ToPngTimeoutError ? 'toPng_timeout' : 'toPng_failed', 'convert_to_png', 'error');
+    // `error` category: never down-sampled (utils/window.ts), so every failure
+    // carries its reason (#1061). Fields are bounded and hold no diagram text.
+    const timedOut = e instanceof ToPngTimeoutError;
+    trackEvent(timedOut ? 'toPng_timeout' : 'toPng_failed', 'convert_to_png', 'error', {
+      capture_failure_stage: captureStageOf(e),
+      capture_error: describeCaptureError(e),
+      macro_type: captureMacroType(diagramType),
+      ...(node ? { capture_node_width: node.clientWidth, capture_node_height: node.clientHeight } : {}),
+      document_visibility: document.visibilityState,
+    });
     return undefined;
   } finally {
     trackEvent('toPng', 'convert_to_png', 'export');
@@ -408,7 +420,7 @@ export async function capturePng(
   const markdownMatches = () => document.querySelector('.screen-capture-content .markdown-document')
     ?.getAttribute('data-markdown-source-hash') === md5(content ?? '');
   if (diagramType === 'markdown' && !markdownMatches()) throw new Error('Markdown preview is still rendering');
-  const png = await toPng();
+  const png = await toPng(diagramType);
   if (diagramType === 'markdown' && !markdownMatches()) throw new Error('Markdown preview changed during capture');
   return png;
 }

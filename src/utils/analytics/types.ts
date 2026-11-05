@@ -4,6 +4,7 @@ import type { ProductType } from "./productType";
 import type {
   FeatureArea,
   MacroTypeValue,
+  CaptureFailureStage,
   Surface,
   EntryPoint,
   CreationOrigin,
@@ -1116,6 +1117,13 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // convert_to_png toPng_failed / toPng_timeout (#1061). Bounded: no diagram
+  // text, data URL or query string. See CaptureFailureStage in catalog.ts.
+  capture_failure_stage?: CaptureFailureStage;
+  capture_error?: string;
+  capture_node_width?: number;
+  capture_node_height?: number;
+  document_visibility?: string;
   // Error
   error_code?: string;
   error_name?: string;

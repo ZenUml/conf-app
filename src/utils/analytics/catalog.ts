@@ -40,6 +40,37 @@ export type MagicFailureReason =
   | "render_failed"
   | "source_changed";
 
+/**
+ * Where a failed DOM-to-PNG capture stopped (#1061). Carried as
+ * `capture_failure_stage` on the legacy `convert_to_png` events with
+ * `event_label` `toPng_failed` and `toPng_timeout`. Both keep their name and
+ * label, so existing dashboards still count them.
+ *
+ *   external_icons  the Graph icon proxy did not finish or failed
+ *   dom_to_svg      html-to-image could not serialise the node
+ *   inline_images   an `<image>` in the capture SVG could not be embedded
+ *   svg_load        the capture SVG would not load as an image
+ *   canvas          2d canvas unavailable
+ *   unknown         the failure carried no stage (any other rejection)
+ *
+ * Properties added to those two events (all bounded, none carry diagram text):
+ *   capture_failure_stage  one of the values above
+ *   capture_error          short text, URLs removed, at most 120 characters
+ *   macro_type             MacroTypeValue of the diagram; `none` when unknown
+ *   capture_node_width     capture node width in CSS px, when a node exists
+ *   capture_node_height    capture node height in CSS px, when a node exists
+ *   document_visibility    `document.visibilityState` at failure time
+ * A timeout never settled, so it has no stage: `capture_failure_stage` is
+ * `unknown` and the other fields are still sent.
+ */
+export type CaptureFailureStage =
+  | "external_icons"
+  | "dom_to_svg"
+  | "inline_images"
+  | "svg_load"
+  | "canvas"
+  | "unknown";
+
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"

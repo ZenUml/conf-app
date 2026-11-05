@@ -1,5 +1,6 @@
 import * as htmlToImage from 'html-to-image';
 import { getDiagramFontState } from '../utils/fonts/diagramFontState';
+import { awaitExternalIcons } from '../utils/graph/externalIconState';
 
 /**
  * DOM -> PNG Blob, without html-to-image's `toBlob()`.
@@ -194,6 +195,11 @@ export async function captureBlob(
   node: HTMLElement,
   options: CaptureBlobOptions = {},
 ): Promise<Blob | null> {
+  // A Graph diagram whose icons come through the backend proxy is not captured
+  // until they have loaded, and not at all when they could not: an SVG drawn as
+  // an image cannot fetch them, and a PNG saved with broken icons is never
+  // captured again for the same content. Diagrams without such icons skip this.
+  await awaitExternalIcons(node.matches?.('[data-diagram-capture-root]') ? node : node.querySelector('[data-diagram-capture-root]'));
   // Every export path funnels through here. `fontEmbedCSS` takes priority over
   // `skipFonts` in html-to-image, so other web fonts stay un-embedded as before
   // while the hosted diagram font (the one layout was measured with) is kept.

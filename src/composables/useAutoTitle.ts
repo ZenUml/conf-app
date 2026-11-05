@@ -28,6 +28,9 @@ const hasManuallyEditedTitle = ref(false)
 // generated, so each generated-then-edited title records exactly one modify.
 const aiTitleModifyTracked = ref(false)
 const lastGeneratedContentHash = ref<string | null>(null)
+// The title the model produced, as committed to the store. Read only while
+// autoNameAnimationDone is true; both are set together in generate().
+let lastGeneratedTitle = ''
 
 let genToken = 0
 
@@ -176,6 +179,7 @@ export function useAutoTitle() {
       store.dispatch('updateTitle', title)
       isAnimating.value = false
       isGeneratingTitle.value = false
+      lastGeneratedTitle = title
       autoNameAnimationDone.value = true
       aiTitleModifyTracked.value = false // fresh title → next manual edit is recordable
 
@@ -256,13 +260,15 @@ export function useAutoTitle() {
   }
 }
 
-export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }): void {
-  if (autoNameAnimationDone.value) {
+// Compare the saved title instead of tracking how it could have changed: an edit,
+// a clear and the OpenAPI spec-title fallback all reach the save with another title.
+export function notifyAiTitleSaved(opts: { title?: string; contentId?: string }): void {
+  if (autoNameAnimationDone.value && opts.title === lastGeneratedTitle) {
     trackAnalyticsEvent('ai_title_accepted', {
       feature_area: 'ai',
       surface: 'editor',
-      ...(opts?.title && { accepted_title: opts.title }),
-      ...(opts?.contentId && { content_id: opts.contentId }),
+      accepted_title: opts.title,
+      ...(opts.contentId && { content_id: opts.contentId }),
     })
     autoNameAnimationDone.value = false
   }
@@ -280,6 +286,7 @@ export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }
   hasManuallyEditedTitle.value = false
   aiTitleModifyTracked.value = false
   lastGeneratedContentHash.value = null
+  lastGeneratedTitle = ''
   genToken = 0
   resetFeatureFlagsForTests()
 }

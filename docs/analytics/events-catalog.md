@@ -330,14 +330,23 @@ Same properties as `ai_title_generation_requested`.
 
 ### `ai_title_accepted`
 
-**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths.
+**Trigger:** User saved the diagram and the saved title is exactly the latest AI-generated title. Fired at most once per generated title by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths. The event records the save attempt, so it can fire for a save that later fails.
+
+| Case | `ai_title_accepted` | `ai_title_modified` |
+|---|---|---|
+| Generated "Order Checkout", saved "Order Checkout" | fires | no |
+| Generated "Order Checkout", saved "Order Checkout EU" | no | fires |
+| Generated "Order Checkout", edited, typed "Order Checkout" back, saved | fires | fires |
+| Generated "Order Checkout", cleared, saved another or empty title | no | no |
 
 | Property | Notes |
 |---|---|
 | `feature_area` | `"ai"` |
 | `surface` | `"editor"` |
-| `accepted_title` | The AI-generated title string that was accepted |
+| `accepted_title` | The AI-generated title that was saved |
 | `content_id` | Custom content ID at the time of save |
+
+**Analysis break:** counts are not comparable across the first release of each variant that carries [PR #PR_NUMBER](https://github.com/ZenUml/conf-app/pull/PR_NUMBER), because older builds also fired this event when the user edited the generated title and saved. In those builds `accepted_title` can be the user's text, up to about 140 characters seen in Mixpanel, while the model title is capped at 80. Release dates: Diagramly pending, Lite pending, Full pending, AsyncAPI pending. Use the variant's release date, or split by `product_type` and `app_version`.
 
 ---
 

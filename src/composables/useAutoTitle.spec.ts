@@ -209,12 +209,70 @@ describe('useAutoTitle', () => {
     const p = generate('init', SEQ)
     await runAnimation('Order Checkout')
     await p
-    notifyAiTitleSaved()
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_title_accepted', expect.objectContaining({ feature_area: 'ai' }))
+    notifyAiTitleSaved({ title: 'Order Checkout' })
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'ai_title_accepted',
+      expect.objectContaining({ feature_area: 'ai', accepted_title: 'Order Checkout' }),
+    )
     // second call should not double-fire
     vi.mocked(trackAnalyticsEvent).mockClear()
-    notifyAiTitleSaved()
+    notifyAiTitleSaved({ title: 'Order Checkout' })
     expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('ai_title_accepted', expect.anything())
+  })
+
+  describe('ai_title_accepted requires the saved title to be the generated title', () => {
+    async function generateOrderCheckout() {
+      vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Checkout'))
+      const autoTitle = useAutoTitle()
+      const p = autoTitle.generate('init', SEQ)
+      await runAnimation('Order Checkout')
+      await p
+      return autoTitle
+    }
+    const acceptedCalls = () =>
+      vi.mocked(trackAnalyticsEvent).mock.calls.filter((c) => c[0] === 'ai_title_accepted')
+
+    it('does not fire when the user edited the title before saving', async () => {
+      const { markManualEdit } = await generateOrderCheckout()
+      markManualEdit()
+      notifyAiTitleSaved({ title: 'Order Checkout for EU customers' })
+      expect(acceptedCalls()).toHaveLength(0)
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_title_modified', expect.anything())
+    })
+
+    it('does not fire when the user cleared the title and saved another one', async () => {
+      // The OpenAPI save falls back to the title in the spec after a clear.
+      const { onTitleCleared } = await generateOrderCheckout()
+      onTitleCleared()
+      notifyAiTitleSaved({ title: 'Title From The Spec' })
+      expect(acceptedCalls()).toHaveLength(0)
+    })
+
+    it('does not fire when the saved title is empty', async () => {
+      const { onTitleCleared } = await generateOrderCheckout()
+      onTitleCleared()
+      notifyAiTitleSaved({ title: '' })
+      expect(acceptedCalls()).toHaveLength(0)
+    })
+
+    it('fires when the user edited the title and typed the generated title back', async () => {
+      const { markManualEdit } = await generateOrderCheckout()
+      markManualEdit()
+      notifyAiTitleSaved({ title: 'Order Checkout' })
+      expect(acceptedCalls()).toHaveLength(1)
+    })
+
+    it('compares with the latest generated title after a regenerate', async () => {
+      const { generate } = await generateOrderCheckout()
+      vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('New Title'))
+      const p = generate('user', SEQ)
+      await runAnimation('New Title')
+      await p
+      notifyAiTitleSaved({ title: 'Order Checkout' })
+      expect(acceptedCalls()).toHaveLength(0)
+      notifyAiTitleSaved({ title: 'New Title' })
+      expect(acceptedCalls()).toHaveLength(1)
+    })
   })
 
   it('markManualEdit fires ai_title_modified only when a title was already generated', async () => {

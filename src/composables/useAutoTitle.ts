@@ -3,6 +3,8 @@ import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
 import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { NOT_TITLE_LIKE, looksLikeTitle } from '@/lib/aiTitleGuard.js'
+import { singleShortLabel } from '@/utils/graph/extractGraphText'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -60,19 +62,6 @@ function titleTypeParam(diagramType: DiagramType, code: string): string {
   return DiagramType.Sequence
 }
 
-// The AI-title endpoint is expected to return a short title, not a chat
-// reply. Occasionally (e.g. when the extracted diagram signal is thin or
-// ambiguous) the model answers with a clarifying question instead of a
-// title — reject anything that isn't title-shaped rather than trust any
-// non-empty response. Conservative on purpose: legitimate short titles must
-// never trip these checks.
-function looksLikeTitle(s: string): boolean {
-  if (s.length > 100) return false
-  if (s.includes('\n')) return false
-  if (s.trimEnd().endsWith('?')) return false
-  return true
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -118,6 +107,22 @@ export function useAutoTitle() {
       if (trigger === 'user') toast({ message: 'Add some diagram code first', duration: 3000 })
       return
     }
+    // Rule for a Graph with too little text: one short label gives the model
+    // nothing to summarise, and it answers by asking for a DSL. Wait while the
+    // user is editing. When a title is requested (AI button or Publish), that
+    // label is the title. See docs/superpowers/specs/2026-05-31-ai-auto-title-design.md.
+    const loneLabel = diagramType === DiagramType.Graph ? singleShortLabel(code) : ''
+    if (loneLabel) {
+      if (trigger === 'user') {
+        store.dispatch('updateTitle', loneLabel)
+        trackAnalyticsEvent('ai_title_label_used', {
+          feature_area: 'ai',
+          surface: 'editor',
+          macro_type: 'graph',
+        })
+      }
+      return
+    }
     const contentHash = hashString(code)
     if (trigger === 'init') {
       if (hasManuallyEditedTitle.value) return
@@ -159,7 +164,7 @@ export function useAutoTitle() {
         return
       }
       if (!looksLikeTitle(title)) {
-        trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: 'not_title_like' })
+        trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: NOT_TITLE_LIKE })
         if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
         resetGenerating()
         return

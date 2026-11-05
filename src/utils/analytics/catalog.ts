@@ -610,6 +610,9 @@ export type AnalyticsEventName =
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
+  // A Graph with one short label takes that label as its title on request. The
+  // model is not called, so no ai_title_generation_* event fires.
+  | "ai_title_label_used"
   // AI entry-point impressions. Fire on each hidden -> visible transition of
   // the editor button (not on component re-renders), with macro_type so the
   // denominator can be compared directly with the existing click/request

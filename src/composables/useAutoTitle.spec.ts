@@ -158,7 +158,7 @@ describe('useAutoTitle', () => {
     const badReply = "I'm ready to help. What is the DSL that describes the flowchart diagram?"
     vi.mocked(aiGenerateTitle).mockResolvedValue(okRes(badReply))
     const { generate } = useAutoTitle()
-    const p = generate('user', { code: 'Order Service', diagramType: DiagramType.Graph, currentTitle: '' })
+    const p = generate('user', { code: 'Order Service\nInventory', diagramType: DiagramType.Graph, currentTitle: '' })
     await runAnimation(badReply)
     await p
     expect(fakeStore.state.diagram.title).toBe('')
@@ -276,7 +276,7 @@ describe('useAutoTitle', () => {
   it('accepts a normal short title (positive guard against over-rejecting)', async () => {
     vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Order Processing Flow'))
     const { generate } = useAutoTitle()
-    const p = generate('user', { code: 'Order Service', diagramType: DiagramType.Graph, currentTitle: '' })
+    const p = generate('user', { code: 'Order Service\nInventory', diagramType: DiagramType.Graph, currentTitle: '' })
     await runAnimation('Order Processing Flow')
     await p
     expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Order Processing Flow')

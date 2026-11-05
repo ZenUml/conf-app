@@ -32,7 +32,7 @@ type Viewer = {
   xmlNode?: unknown;
 };
 
-type Track = (name: any, props: any) => void;
+export type Track = (name: any, props: any) => void;
 
 export function findExternalIconUrls(xml: string): string[] {
   return [...new Set(xml.match(ICON_URL) ?? [])];
@@ -118,6 +118,68 @@ function failureCode(error: unknown): string {
 class TimeoutError extends Error {}
 
 /**
+ * The request, timeout, validation and telemetry shared by the viewer and the
+ * editor. `apply` runs with the accepted data URLs before the outcome is
+ * classified; throwing there reports `apply_failed`. Never rejects.
+ */
+export async function runIconProxy(options: {
+  urls: string[];
+  surface: 'viewer' | 'editor';
+  track: Track;
+  timeoutMs: number;
+  apply: (accepted: Map<string, string>) => void;
+}): Promise<{ result: IconProxyResult; accepted: Map<string, string> }> {
+  const { surface, track, timeoutMs, apply } = options;
+  const found = options.urls;
+  const urls = found.filter((url) => url.length <= MAX_URL_LENGTH);
+  const base = { feature_area: 'macro', surface, macro_type: 'graph', external_icon_count: found.length };
+  const startedAt = Date.now();
+  track('graph_icon_proxy_requested', base);
+  const accepted = new Map<string, string>();
+
+  const fail = (code: string, resolved = 0, upstreamCode?: string) => {
+    track('graph_icon_proxy_failed', {
+      ...base,
+      error_code: code,
+      icon_resolved_count: resolved,
+      duration_ms: Date.now() - startedAt,
+      ...(upstreamCode ? { upstream_error_code: upstreamCode } : {}),
+    });
+    return { result: { ok: false, code } as IconProxyResult, accepted };
+  };
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let answer: Awaited<ReturnType<typeof requestIcons>>;
+  try {
+    answer = await Promise.race([
+      requestIcons(urls),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new TimeoutError()), timeoutMs); }),
+    ]);
+  } catch (error) {
+    return fail(failureCode(error));
+  } finally {
+    clearTimeout(timer);
+  }
+  const asked = new Set(urls);
+  for (const [url, value] of Object.entries(answer.icons)) {
+    if (asked.has(url) && typeof value === 'string' && value.startsWith('data:image/')) accepted.set(url, value);
+  }
+  if (accepted.size > 0) {
+    try {
+      apply(accepted);
+    } catch (error) {
+      console.error('graph icon proxy: applying icons failed:', error);
+      return fail('apply_failed');
+    }
+  }
+  if (answer.malformed || (accepted.size === 0 && Object.keys(answer.icons).length > 0)) return fail('bad_response', accepted.size);
+  if (accepted.size === 0) return fail('none_resolved', 0, answer.upstreamCode);
+  if (accepted.size < found.length) return fail('partial', accepted.size, answer.upstreamCode);
+  track('graph_icon_proxy_succeeded', { ...base, icon_resolved_count: accepted.size, duration_ms: Date.now() - startedAt });
+  return { result: { ok: true }, accepted };
+}
+
+/**
  * Looks for external icons in the built viewer and, when there are any, fetches
  * and applies them. Returns null (no request, no event) for a diagram without
  * any. Otherwise returns the settled outcome, which is also registered on
@@ -136,56 +198,13 @@ export function startExternalIconProxy(options: {
     clearExternalIconState(container);
     return null;
   }
-  const urls = found.filter((url) => url.length <= MAX_URL_LENGTH);
-  const base = { feature_area: 'macro', surface: 'viewer', macro_type: 'graph', external_icon_count: found.length };
-  const startedAt = Date.now();
-  track('graph_icon_proxy_requested', base);
-
-  const fail = (code: string, resolved = 0, upstreamCode?: string): IconProxyResult => {
-    track('graph_icon_proxy_failed', {
-      ...base,
-      error_code: code,
-      icon_resolved_count: resolved,
-      duration_ms: Date.now() - startedAt,
-      ...(upstreamCode ? { upstream_error_code: upstreamCode } : {}),
-    });
-    return { ok: false, code };
-  };
-
-  const run = async (): Promise<IconProxyResult> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let answer: Awaited<ReturnType<typeof requestIcons>>;
-    try {
-      answer = await Promise.race([
-        requestIcons(urls),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new TimeoutError()), timeoutMs); }),
-      ]);
-    } catch (error) {
-      return fail(failureCode(error));
-    } finally {
-      clearTimeout(timer);
-    }
-    const asked = new Set(urls);
-    const accepted = new Map<string, string>();
-    for (const [url, value] of Object.entries(answer.icons)) {
-      if (asked.has(url) && typeof value === 'string' && value.startsWith('data:image/')) accepted.set(url, value);
-    }
-    if (accepted.size > 0) {
-      try {
-        installIconResolver(viewer, accepted);
-      } catch (error) {
-        console.error('graph icon proxy: applying icons failed:', error);
-        return fail('apply_failed');
-      }
-    }
-    if (answer.malformed || (accepted.size === 0 && Object.keys(answer.icons).length > 0)) return fail('bad_response', accepted.size);
-    if (accepted.size === 0) return fail('none_resolved', 0, answer.upstreamCode);
-    if (accepted.size < found.length) return fail('partial', accepted.size, answer.upstreamCode);
-    track('graph_icon_proxy_succeeded', { ...base, icon_resolved_count: accepted.size, duration_ms: Date.now() - startedAt });
-    return { ok: true };
-  };
-
-  const settled = run();
+  const settled = runIconProxy({
+    urls: found,
+    surface: 'viewer',
+    track,
+    timeoutMs,
+    apply: (accepted) => installIconResolver(viewer, accepted),
+  }).then(({ result }) => result);
   setExternalIconState(container, settled);
   return settled;
 }

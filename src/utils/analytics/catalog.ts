@@ -837,7 +837,9 @@ export type AnalyticsEventName =
   // none_resolved, apply_failed, partial; partial also carries
   // `icon_resolved_count`; none_resolved and partial carry the backend's
   // `upstream_error_code`). A failed diagram still renders, without the
-  // missing icons, and PNG capture of it is refused.
+  // missing icons, and PNG capture of it is refused. `surface` is `viewer` or
+  // `editor`; in the editor the load waits a bounded time for the call, then
+  // opens without the missing icons, and nothing gates capture.
   | "graph_icon_proxy_requested"
   | "graph_icon_proxy_succeeded"
   | "graph_icon_proxy_failed"

@@ -1,0 +1,84 @@
+name: Measure Vitest shards
+# Throwaway measurement. This branch is never merged. Three repeats of 1, 2, 3 and 4 shards.
+on:
+  push:
+    branches: [measure/vitest-shards]
+permissions:
+  contents: read
+jobs:
+  measure:
+    name: "n=${{ matrix.shards }} i=${{ matrix.index }} rep=${{ matrix.rep }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - { shards: 1, index: 1, rep: 1 }
+          - { shards: 2, index: 1, rep: 1 }
+          - { shards: 2, index: 2, rep: 1 }
+          - { shards: 3, index: 1, rep: 1 }
+          - { shards: 3, index: 2, rep: 1 }
+          - { shards: 3, index: 3, rep: 1 }
+          - { shards: 4, index: 1, rep: 1 }
+          - { shards: 4, index: 2, rep: 1 }
+          - { shards: 4, index: 3, rep: 1 }
+          - { shards: 4, index: 4, rep: 1 }
+          - { shards: 1, index: 1, rep: 2 }
+          - { shards: 2, index: 1, rep: 2 }
+          - { shards: 2, index: 2, rep: 2 }
+          - { shards: 3, index: 1, rep: 2 }
+          - { shards: 3, index: 2, rep: 2 }
+          - { shards: 3, index: 3, rep: 2 }
+          - { shards: 4, index: 1, rep: 2 }
+          - { shards: 4, index: 2, rep: 2 }
+          - { shards: 4, index: 3, rep: 2 }
+          - { shards: 4, index: 4, rep: 2 }
+          - { shards: 1, index: 1, rep: 3 }
+          - { shards: 2, index: 1, rep: 3 }
+          - { shards: 2, index: 2, rep: 3 }
+          - { shards: 3, index: 1, rep: 3 }
+          - { shards: 3, index: 2, rep: 3 }
+          - { shards: 3, index: 3, rep: 3 }
+          - { shards: 4, index: 1, rep: 3 }
+          - { shards: 4, index: 2, rep: 3 }
+          - { shards: 4, index: 3, rep: 3 }
+          - { shards: 4, index: 4, rep: 3 }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
+      - name: Run Vitest and record timing
+        env:
+          N: ${{ matrix.shards }}
+          I: ${{ matrix.index }}
+          REP: ${{ matrix.rep }}
+        run: |
+          ARGS=""
+          [ "$N" = 1 ] || ARGS="--shard=$I/$N"
+          START=$(date +%s.%N)
+          set +e
+          pnpm exec vitest --run $ARGS --reporter=default --reporter=json --outputFile.json=vitest.json
+          CODE=$?
+          set -e
+          END=$(date +%s.%N)
+          node --input-type=module -e "
+            import {readFileSync,writeFileSync} from 'node:fs';
+            import os from 'node:os';
+            const r=JSON.parse(readFileSync('vitest.json','utf8'));
+            const row={n:+process.env.N,i:+process.env.I,rep:+process.env.REP,seconds:+process.argv[1]-+process.argv[2],exit:+process.argv[3],files:r.numTotalTestSuites,testFiles:r.testResults.length,passed:r.numPassedTests,failed:r.numFailedTests,skipped:r.numPendingTests,cpus:os.cpus().length};
+            writeFileSync('row.json',JSON.stringify(row));console.log(JSON.stringify(row));
+          " "$END" "$START" "$CODE"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: row-n${{ matrix.shards }}-i${{ matrix.index }}-r${{ matrix.rep }}
+          path: row.json
+          retention-days: 7

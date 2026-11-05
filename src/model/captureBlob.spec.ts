@@ -4,6 +4,7 @@ import { captureBlob, inlineCaptureSvgImages, prepareSequenceCaptureSvg } from '
 import { getDiagramFontFaceCss } from '@zenuml/core';
 import { setDiagramFontState, _resetDiagramFontStateForTesting } from '../utils/fonts/diagramFontState';
 
+vi.mock('@/utils/requestUtil', () => ({ callRemote: vi.fn() }));
 vi.mock('@zenuml/core', () => ({
   getDiagramFontFaceCss: vi.fn(async () => undefined),
 }));
@@ -230,5 +231,22 @@ describe('inlineCaptureSvgImages', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
 
     await expect(inlineCaptureSvgImages(iconSvg(['https://cdn.example/missing.svg']))).rejects.toThrow('missing.svg');
+  });
+});
+
+describe('captureBlob and graph icons that the proxy could not load', () => {
+  it('rejects before any rendering, so no PNG is produced, when the icon proxy failed', async () => {
+    const { startExternalIconProxy } = await import('@/utils/graph/externalIcons');
+    const requestUtil = await import('@/utils/requestUtil');
+    vi.mocked(requestUtil.callRemote).mockRejectedValue(Object.assign(new Error('HTTP 500'), { status: 500 }));
+    (window as any).mxUtils = { getXml: () => 'image=https://icons.diagrams.net/assets/a.svg;' };
+    const node = document.createElement('div');
+    const root = document.createElement('div');
+    root.setAttribute('data-diagram-capture-root', '');
+    node.appendChild(root);
+    await startExternalIconProxy({ viewer: { xmlNode: {}, getImageUrl: (u: string) => u, graph: { refresh() {} } } as any, container: root, track: () => {} });
+    const toSvg = vi.spyOn(htmlToImage, 'toSvg');
+    await expect(captureBlob(node)).rejects.toThrow(/icon proxy/i);
+    expect(toSvg).not.toHaveBeenCalled();
   });
 });

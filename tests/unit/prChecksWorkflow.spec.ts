@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
@@ -17,12 +18,35 @@ describe('PR checks that do not touch staging', () => {
   });
 
   it('runs unit tests, the AsyncAPI build and the Viewer preview', () => {
-    expect(Object.keys(checks.jobs).sort()).toEqual(['build', 'preview-e2e']);
-    expect(checks.jobs.build.name).toBe('Build and Unit Test');
+    expect(Object.keys(checks.jobs).sort()).toEqual(['asyncapi-build', 'build', 'preview-e2e', 'unit']);
     expect(checks.jobs['preview-e2e'].name).toBe('E2E: Viewer preview');
-    const runs = checks.jobs.build.steps.map((step: any) => step.run);
-    expect(runs).toContain('pnpm test:unit');
+    const runs = checks.jobs['asyncapi-build'].steps.map((step: any) => step.run);
     expect(runs).toContain('pnpm build:asyncapi');
+    expect(runs).toContain('node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs');
+  });
+
+  it('splits the unit tests into four shards that all run even if one fails', () => {
+    const { unit } = checks.jobs;
+    expect(unit.strategy.matrix.shard).toEqual([1, 2, 3, 4]);
+    expect(unit.strategy['fail-fast']).toBe(false);
+    expect(unit.steps.map((step: any) => step.run)).toContain('pnpm test:unit --shard=${{ matrix.shard }}/4');
+    expect(JSON.stringify(unit.steps)).not.toContain('asyncapi-studio');
+  });
+
+  it('keeps one Build and Unit Test result that fails unless every part succeeded', () => {
+    const { build } = checks.jobs;
+    expect(build.name).toBe('Build and Unit Test');
+    expect(build.needs).toEqual(['unit', 'asyncapi-build']);
+    expect(build.if).toBe('${{ always() }}');
+    const env = build.steps[0].env;
+    expect(env.UNIT).toBe('${{ needs.unit.result }}');
+    expect(env.ASYNCAPI).toBe('${{ needs.asyncapi-build.result }}');
+    const script = build.steps[0].run;
+    for (const results of [['failure', 'success'], ['success', 'failure'], ['cancelled', 'success'], ['skipped', 'success']]) {
+      const { status } = spawnSync('bash', ['-c', script], { env: { UNIT: results[0], ASYNCAPI: results[1] } });
+      expect(status).not.toBe(0);
+    }
+    expect(spawnSync('bash', ['-c', script], { env: { UNIT: 'success', ASYNCAPI: 'success' } }).status).toBe(0);
   });
 
   it('never deploys and receives no staging credentials', () => {

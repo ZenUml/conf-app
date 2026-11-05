@@ -19,8 +19,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build and Unit Test
+  # Four shards take half the wall time of one job, for 68% more runner time.
+  # Measured on run 42038781539, three repeats each, median:
+  #   shards  slowest job  total runner time
+  #   1       178 s        178 s
+  #   2       133 s        241 s
+  #   3       103 s        297 s
+  #   4        89 s        299 s
+  # Three shards cost as much as four, so three is not offered.
+  unit:
+    name: Unit tests (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      # Unit integration tests discover the real E2E inventory through its config.
+      # Install its locked module dependencies only; --list needs no browsers.
+      - name: Install E2E discovery dependencies
+        run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
+      - run: pnpm test:unit --shard=${{ matrix.shard }}/4
+
+  asyncapi-build:
+    name: AsyncAPI build and CI script tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -74,11 +110,6 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-      # Unit integration tests discover the real E2E inventory through its config.
-      # Install its locked module dependencies only; --list needs no browsers.
-      - name: Install E2E discovery dependencies
-        run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
-      - run: pnpm test:unit
       - run: node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs
       # Verify the asyncapi variant builds even on feature-branch PRs. AsyncAPI
       # staging only deploys from the default branch (like full/diagramly), so
@@ -92,6 +123,22 @@ jobs:
           # pnpm install (some transitive deps pull it in but the Studio
           # build doesn't need it).
           PUPPETEER_SKIP_DOWNLOAD: "true"
+
+  # One result for people and tools that look for this name.
+  build:
+    name: Build and Unit Test
+    needs: [unit, asyncapi-build]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every part to succeed
+        env:
+          UNIT: ${{ needs.unit.result }}
+          ASYNCAPI: ${{ needs.asyncapi-build.result }}
+        run: |
+          echo "Unit tests: $UNIT; AsyncAPI build and CI script tests: $ASYNCAPI"
+          [ "$UNIT" = success ] && [ "$ASYNCAPI" = success ]
 
   preview-e2e:
     # The one E2E project that needs no Confluence site, no Forge app and no

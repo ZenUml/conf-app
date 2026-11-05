@@ -230,7 +230,7 @@ So when checking a PR before merge:
 - The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
 - `.md` / `docs/**` / `.claude/**` / `.cursor/**` / `packages/pr-agent-panel/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
 
-**PR jobs are in two workflows.** `PR checks` (`Build and Unit Test`, `E2E: Viewer preview`) takes no staging lock, and a newer push cancels its older run, so a `CANCELLED` run there is also normal. `PR validation` holds `conf-app-staging`; a run that a newer push overtook skips its staging jobs and ends green. Only jobs that need staging belong in `PR validation`, because the lock holds back the whole run. See [docs/ops/pipeline-graphs.md](docs/ops/pipeline-graphs.md).
+**PR jobs are in two workflows.** `PR checks` (four `Unit tests` shards, `AsyncAPI build and CI script tests`, the `Build and Unit Test` result job, `E2E: Viewer preview`) takes no staging lock, and a newer push cancels its older run, so a `CANCELLED` run there is also normal. `PR validation` holds `conf-app-staging`; a run that a newer push overtook skips its staging jobs and ends green. Only jobs that need staging belong in `PR validation`, because the lock holds back the whole run. See [docs/ops/pipeline-graphs.md](docs/ops/pipeline-graphs.md).
 
 ### Release order — diagramly → lite → full
 

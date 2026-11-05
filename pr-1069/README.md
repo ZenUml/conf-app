@@ -41,7 +41,25 @@ The BEFORE viewer play also shows an unrelated `header actions not yet revealed`
 
 Live auto-title did not refill the Mermaid field within 5 s; only "field emptied" is claimed for the tunnel.
 
-## 3. Not verified
+## 3. CI-deployed staging (lite-stg)
 
-- CI-deployed staging (lite-stg): pending the PR CI deploy.
+- Site: `lite-stg.atlassian.net`, robot test user (non-admin), agent-browser.
+- Fixture: throwaway page 384270477 (space SD) with one Mermaid macro (custom content 383844526)
+  and one Graph macro (383877329). Both titles set to the same synthetic refusal strings (version 2).
+- BEFORE: 2026-11-05 22:02 UTC. lite-stg served `main` (`af7c948d`). A main run had replaced the
+  branch deploy. Evidence: the deployed `GenericViewer` chunk embeds `af7c948d` and has no `saved_refusal_title_hidden`.
+- AFTER: PR run 42113924669 attempt 2, `Deploy: Lite` success at 22:49:29 UTC. The deployed
+  `GenericViewer` chunk embeds `579f6d11` (the PR merge commit for `539f822c`) and contains
+  `saved_refusal_title_hidden`. Dev bar shows `579f6d11…`.
+
+| Step | BEFORE (main) | AFTER (branch) |
+|---|---|---|
+| View page | `stg/stg-before-viewer.png`: Mermaid header shows the refusal text; Graph header text was the refusal string (accessibility snapshot) | `stg/stg-after-viewer.png`: both headers `Untitled diagram` |
+| Open Mermaid editor | not captured | `stg/stg-after-mermaid-editor.png`: refusal gone; live auto-title suggested `Order Processing` |
+| Open Graph editor | not captured | `stg/stg-after-graph-editor.png`: refusal gone; live auto-title suggested `User Navigation Flow` |
+| Close both editors without Publish, read both custom contents | n/a | both still version 2 with the original synthetic title |
+
+## 4. Not verified
+
 - Full / Diagramly variants: same code path, not run live.
+- Publishing from the editor after the clear (the new title saving) was not exercised live.

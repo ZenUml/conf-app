@@ -103,9 +103,17 @@ export function buildWwwAuthenticate(
   return parts.join(', ');
 }
 
-/** `<origin>/.well-known/oauth-protected-resource` for a given server origin. */
-export function metadataUrlFor(origin: string): string {
-  return new URL(PROTECTED_RESOURCE_METADATA_PATH, origin).toString();
+/**
+ * The metadata URL for a server origin, optionally for one resource path.
+ *
+ * With `resourcePath` it is the RFC 9728 §3.1 path-specific URL,
+ * `<origin>/.well-known/oauth-protected-resource<resourcePath>`, which is
+ * what the agent-link 401 points at: on an origin that also serves the
+ * sign-in-free /mcp/render, only a per-resource document is unambiguous
+ * (#1038).
+ */
+export function metadataUrlFor(origin: string, resourcePath = ''): string {
+  return new URL(`${PROTECTED_RESOURCE_METADATA_PATH}${resourcePath}`, origin).toString();
 }
 
 /**

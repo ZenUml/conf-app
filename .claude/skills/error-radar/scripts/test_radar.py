@@ -2,6 +2,7 @@
 import datetime as dt
 import os
 import sys
+import tempfile
 import unittest
 import unittest.mock
 
@@ -80,8 +81,32 @@ class RadarTest(unittest.TestCase):
 
     def test_spread_to_many_tenants(self):
         base = history(SIG, 15, tenants=("tenant-a",))
-        today = [(DAY, SIG, f"tenant-{i}", 2, 2) for i in range(10)]
+        today = [(DAY, SIG, f"tenant-{i}", 3, 3) for i in range(10)]
         self.assertIn("spread", kinds(radar.detect(rows(base + today), DAY), SIG))
+
+    def test_spread_needs_enough_events(self):
+        base = history(SIG, 15, tenants=("tenant-a",))
+        today = [(DAY, SIG, f"tenant-{i}", 1, 1) for i in range(10)]  # 10 tenants, 10 events
+        self.assertNotIn("spread", kinds(radar.detect(rows(base + today), DAY), SIG))
+
+    def test_catch_up_reports_each_missed_day_once(self):
+        yesterday = dt.date(2026, 10, 26)
+        self.assertEqual(radar.days_to_report(None, None, yesterday), [yesterday])
+        self.assertEqual(radar.days_to_report(None, dt.date(2026, 10, 24), yesterday),
+                         [dt.date(2026, 10, 25), yesterday])
+        self.assertEqual(radar.days_to_report(None, yesterday, yesterday), [])
+        # A long gap is capped rather than flooding the channel.
+        caught = radar.days_to_report(None, dt.date(2026, 9, 1), yesterday)
+        self.assertEqual((len(caught), caught[-1]), (radar.CATCH_UP_MAX_DAYS, yesterday))
+        self.assertEqual(radar.days_to_report(dt.date(2026, 10, 23), yesterday, yesterday), [dt.date(2026, 10, 23)])
+
+    def test_state_never_moves_backwards(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "sub", "last-day")
+            self.assertIsNone(radar.read_state(path))
+            radar.write_state(path, dt.date(2026, 10, 26))
+            radar.write_state(path, dt.date(2026, 10, 23))
+            self.assertEqual(radar.read_state(path), dt.date(2026, 10, 26))
 
     def test_weekend_compares_with_weekends(self):
         saturday = dt.date(2026, 10, 17)

@@ -88,15 +88,28 @@
       </div>
 
         <div class="context-details">
-          <button class="context-disclosure" type="button" :aria-expanded="contextExpanded" @click="toggleContextDetails">
+          <button class="context-disclosure" type="button" :aria-expanded="contextExpanded" aria-controls="feedback-context-panel" @click="toggleContextDetails">
             <svg aria-hidden="true" viewBox="0 0 12 12" :class="{ expanded: contextExpanded }"><path d="M2.5 4.5L6 8L9.5 4.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
             8 fields attached automatically
           </button>
-          <dl v-if="contextExpanded" ref="fieldsPanel">
-          <template v-for="item in contextItems" :key="item.label">
-            <dt>{{ item.label }}</dt><dd :class="{ unavailable: item.unavailable }" :title="item.value">{{ item.value }}</dd>
-          </template>
-          </dl>
+          <!-- Stays mounted so the grid-rows collapse can animate; inert + aria-hidden keep it out of the tab order and a11y tree while closed. -->
+          <div
+            id="feedback-context-panel"
+            ref="fieldsPanel"
+            class="context-panel"
+            :class="{ expanded: contextExpanded }"
+            :inert="!contextExpanded || undefined"
+            :aria-hidden="contextExpanded ? undefined : 'true'"
+            @transitionend.self="onPanelTransitionEnd"
+          >
+            <div class="context-panel-inner">
+              <dl>
+                <template v-for="item in contextItems" :key="item.label">
+                  <dt>{{ item.label }}</dt><dd :class="{ unavailable: item.unavailable }" :title="item.value">{{ item.value }}</dd>
+                </template>
+              </dl>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -177,6 +190,13 @@ async function toggleContextDetails() {
   if (!contextExpanded.value) return
   await nextTick()
   fieldsPanel.value?.scrollIntoView?.({ block: 'nearest' })
+}
+
+// The panel is only partly open when the click handler scrolls to it, so scroll again once it is fully open.
+function onPanelTransitionEnd(event: TransitionEvent) {
+  if (event.propertyName === 'grid-template-rows' && contextExpanded.value) {
+    fieldsPanel.value?.scrollIntoView?.({ block: 'nearest' })
+  }
 }
 
 async function captureView() {
@@ -283,6 +303,10 @@ textarea:focus { outline: 0; }
 .image-action-icon { width: 15px; height: 15px; flex: none; }
 .upload-button { display: inline-flex; }
 .context-disclosure { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 0; margin-left: -2px; border: 0; border-radius: 4px; background: transparent; color: #6b778c; cursor: pointer; font: 500 12px/1.4 inherit; transition: color 200ms ease; }.context-disclosure:hover,.context-disclosure[aria-expanded="true"] { color: #172b4d; }.context-disclosure:focus-visible { outline: 0; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #3b82f6; }.context-disclosure svg { width: 12px; height: 12px; flex: none; transition: transform 150ms ease; }.context-disclosure svg.expanded { transform: rotate(180deg); }
+.context-panel { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows 200ms cubic-bezier(.19, 1, .22, 1), opacity 200ms ease, visibility 0s linear 200ms; }
+.context-panel.expanded { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition-delay: 0s; }
+.context-panel-inner { min-height: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { .context-panel { transition: none; } }
 .context-details dl { margin: 10px 0 0; padding: 12px 14px; border-radius: 6px; background: #f9fafb; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 20px; font-size: 11px; }
 .context-details dt { color: #6b778c; }.context-details dd { min-width: 0; margin: 0; text-align: right; color: #172b4d; font: 400 11px/1.5 Menlo, "Fira Code", Monaco, "source-code-pro", "Ubuntu Mono", "DejaVu Sans Mono", Consolas, monospace; word-break: break-word; }
 .context-details dd.unavailable { color: #9ca3af; }

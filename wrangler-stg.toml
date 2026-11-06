@@ -20,6 +20,11 @@ ATLASSIAN_OAUTH_REDIRECT_URI = "https://conf-stg-lite.zenuml.com/agent-link/oaut
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf,49017727-af19-4ab6-8d5a-7d28108936b6" # ZenUML Lite, Full, Diagramly and AsyncAPI
 EXPECTED_FORGE_ENVIRONMENT_TYPE = "STAGING"
+# Retire the root RFC 9728 document so clients probing the sign-in-free
+# /mcp/render are not sent into an OAuth flow (#1038). Staging only, to test
+# agent-link sign-in in Claude.ai, Codex, VS Code Copilot and ChatGPT before
+# production. functions/agent-link/oauth/discovery.ts reads it.
+OAUTH_ROOT_RESOURCE_METADATA = "off"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is injected into [vars] at deploy time by wrangler-publish
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_STG
 
@@ -39,6 +44,11 @@ ENVIRONMENT = "production"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf,49017727-af19-4ab6-8d5a-7d28108936b6" # ZenUML Lite, Full, Diagramly and AsyncAPI
 EXPECTED_FORGE_ENVIRONMENT_TYPE = "STAGING"
+# Retire the root RFC 9728 document so clients probing the sign-in-free
+# /mcp/render are not sent into an OAuth flow (#1038). Staging only, to test
+# agent-link sign-in in Claude.ai, Codex, VS Code Copilot and ChatGPT before
+# production. functions/agent-link/oauth/discovery.ts reads it.
+OAUTH_ROOT_RESOURCE_METADATA = "off"
 # PAGE_CAPTURE_ALLOWED_DOMAINS is injected into [vars] at deploy time by wrangler-publish
 # Source value: GitHub Actions var PAGE_CAPTURE_ALLOWED_DOMAINS_STG
 

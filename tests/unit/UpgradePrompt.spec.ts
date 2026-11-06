@@ -198,7 +198,7 @@ describe('UpgradePrompt', () => {
     wrapper.unmount()
   })
 
-  it('shows copied state for 2 seconds then reverts to default', async () => {
+  it('holds the copied state for 2.5 seconds, fades, then reverts to default', async () => {
     vi.useFakeTimers()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
@@ -220,7 +220,11 @@ describe('UpgradePrompt', () => {
 
     expect(button().textContent).toContain('Copied')
 
+    // Still confirming at 2s: the hold is 2.5s, then a 0.3s fade.
     await vi.advanceTimersByTimeAsync(2000)
+    expect(button().textContent).toContain('Copied')
+
+    await vi.advanceTimersByTimeAsync(800)
     expect(button().textContent).toContain('Copy upgrade request')
 
     wrapper.unmount()

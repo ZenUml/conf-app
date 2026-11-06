@@ -12,6 +12,9 @@
 
 var RADAR_ERROR_NAME = /(_failed|_error|_missing|_timeout|_exception|orphan_observed)$/;
 var RADAR_MESSAGE_MAX = 160;
+// A 3-digit code right after "status", "code" or "HTTP" is the failure kind, not
+// an id: `{"status":403}` and `{"status":500}` are different errors.
+var RADAR_NUMBER = /((?:status|code|http)["'\s:=]*)([1-5]\d\d)(?!\d)|\d+/gi;
 
 function radarIsErrorEvent(name, props) {
   if (!name || name.charAt(0) === '$') return false;
@@ -38,7 +41,9 @@ function radarNormalize(message) {
   s = s.replace(/https?:\/\/[^\s"')]+/g, '<url>');
   s = s.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>');
   s = s.replace(/\b[0-9a-f]{16,}\b/gi, '<hex>');
-  s = s.replace(/\d+/g, '<n>');
+  s = s.replace(RADAR_NUMBER, function (m, prefix, httpStatus) {
+    return httpStatus ? prefix + httpStatus : '<n>';
+  });
   s = s.replace(/\s+/g, ' ').trim();
   if (s.length > RADAR_MESSAGE_MAX) s = s.slice(0, RADAR_MESSAGE_MAX) + '…';
   return s;

@@ -48,6 +48,7 @@ import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCached
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
+import { createEditorIconLoader } from "@/utils/graph/editorExternalIcons";
 import {
   buildDrawioEditorSrc,
   normalizeGraphEditorMode,
@@ -99,6 +100,28 @@ export default {
       if (this.$refs.drawioFrame) {
         this.$refs.drawioFrame.contentWindow?.postMessage(JSON.stringify(data), '*');
       }
+    },
+    /**
+     * The one path for every `load` (init, frame reload on mode switch, draft
+     * restore). Icons from icons.diagrams.net are fetched through our backend and
+     * installed in the frame first, so the cells draw them; the XML sent is the
+     * original. Waits only when there is something to fetch, for a bounded time,
+     * and loads even when that fails. A newer load supersedes an older pending one.
+     */
+    loadIntoFrame(xml) {
+      const ticket = ++this.loadTicket;
+      const send = () => {
+        if (ticket !== this.loadTicket || this.isUnmounted) return;
+        this.sendToFrame({ action: 'load', xml, autosave: 1 });
+      };
+      let pending = null;
+      try {
+        pending = this.iconLoader.prepare(this.$refs.drawioFrame?.contentWindow, xml);
+      } catch (e) {
+        console.error('ForgeGraphEditor: external icon setup failed:', e);
+      }
+      if (pending) pending.then(send, send);
+      else send();
     },
     xmlForLoad() {
       return this.xmlForMode(this.editorMode) || EMPTY_GRAPH;
@@ -153,7 +176,7 @@ export default {
       // every model change.
       const xml = this.xmlForLoad();
       if (xml) {
-        this.sendToFrame({ action: 'load', xml, autosave: 1 });
+        this.loadIntoFrame(xml);
       }
       this.scheduleMountModeSwitch();
     },
@@ -263,6 +286,8 @@ export default {
       draftScope: null,
       restoreListener: null,
       messageListener: null,
+      loadTicket: 0,
+      iconLoader: createEditorIconLoader({ track: trackAnalyticsEvent }),
     };
   },
   created() {
@@ -281,7 +306,7 @@ export default {
     // + local draft saver + close-guard, which all consume these events) would
     // never see live edits. Confluence persistence is unaffected — that still
     // runs only on the 'save' event.
-    const loadGraph = (xml) => this.sendToFrame({ action: 'load', xml, autosave: 1 });
+    const loadGraph = (xml) => this.loadIntoFrame(xml);
     this.messageListener = async ({ data }) => {
       if (!data) {
         console.warn('Empty message sent to drawio editor.');
@@ -455,7 +480,7 @@ export default {
       if (payload?.scope !== this.draftScope || !payload?.draft) return;
       if (payload.draft.graphEditorMode && payload.draft.graphEditorMode !== this.editorMode) return;
       try {
-        this.sendToFrame({ action: 'load', xml: payload.draft.code, autosave: 1 });
+        this.loadIntoFrame(payload.draft.code);
         if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
         this.drawioModified = true;
         this.setXmlForMode(this.editorMode, payload.draft.code);

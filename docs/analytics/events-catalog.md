@@ -50,6 +50,7 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `measured_sum_ms` | Sum of the above four phases; `duration_ms − measured_sum_ms` is the unattributed remainder |
 | `tab_hidden` | `true` when the browser tab was backgrounded during load; exclude from percentile calculations |
 | `space_admin_count` | Count of space admins resolved for the current space (only on `macro_viewed`) |
+| `license_active` | Full only. Forge `license.active` at render time. Absent on other variants, on staging and development (Forge returns no license there), and when Forge supplies no boolean. A Mixpanel breakdown groups absent values under `false`, so filter `product_type = full` and treat earlier Full events as unknown |
 | `content_state` | Body classification at render time (#113), by `classifyContentState()` in `src/utils/analytics/contentState.ts`: `"default"` (body equals the bundled starter for the type), `"authored"` (anything else), `"empty"` (type-specific body field null, undefined or whitespace-only). A `custom_content_id` that was once `authored` and is now `empty` is a high-confidence wipe. **Where `empty` is observable:** every body-carrying type reports it, because the viewers' empty-body branches still send `macro_viewed` (with the verdict, once per mount, and without attempting a render): `sequence`, `openapi`, `asyncapi` on their normal path; `mermaid`, `graph` and `markdown` (empty string) from the empty branch; `plantuml` from its loaded body, including direct fetch, SWR cache and revalidation: the existing example fallback still renders, but runtime-only metadata preserves the original empty verdict. Whitespace-only bodies also report `empty`: Mermaid keeps its existing empty branch; PlantUML and Graph report before their existing validation/parsing, even when that path rejects the body; Markdown renders normally and reads `empty` on that path. The empty-branch event fires only for a document that loaded with an empty body of the viewer's own type (`isLoadedEmptyBody`); a never-loaded shell emits nothing. Absent when the load failed or the diagram never loaded (no verdict, never `empty`). `graph` `default` = a byte match of the empty-canvas seed (lzutf8 bodies are decompressed first); it is best-effort and rarely reached, because the editor saves DrawIO's own re-serialised `payload.xml`, not the seed string, so a blank canvas saved through the editor reads `authored`. `embed` has no body of its own: the referenced document's own type component classifies the referenced body |
 | `layout_wait_ms` | Mermaid only. Wall time the viewer waited for a measurable SVG text layout after `mermaid.render()` threw `svg element not in render tree` (collapsed or hidden macro). Absent when no wait happened. Included in `duration_ms`; exclude present values from render-time percentiles (#706) |
 
@@ -302,6 +303,16 @@ emitted when the feature flag is off, and `related_token_indicators_shown` is no
 
 Renamed 2026-09-08 from `ai_generation_*`; pre-release data carries the old names.
 
+### `ai_title_label_used`
+
+**Trigger:** a Graph has one short label and a title was requested (AI button or Publish). The label becomes the title without a model call, so no `ai_title_generation_*` or `ai_title_accepted` event fires. Fired in `useAutoTitle.ts`.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"ai"` |
+| `surface` | `"editor"` |
+| `macro_type` | `"graph"` |
+
 ### `ai_title_generation_requested`
 
 **Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts` for Sequence/Mermaid/PlantUML, Graph and OpenAPI editors.
@@ -348,14 +359,23 @@ Same properties as `ai_title_generation_requested`.
 
 ### `ai_title_accepted`
 
-**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths.
+**Trigger:** User saved the diagram and the saved title is exactly the latest AI-generated title. Fired at most once per generated title by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths. The event records the save attempt, so it can fire for a save that later fails.
+
+| Case | `ai_title_accepted` | `ai_title_modified` |
+|---|---|---|
+| Generated "Order Checkout", saved "Order Checkout" | fires | no |
+| Generated "Order Checkout", saved "Order Checkout EU" | no | fires |
+| Generated "Order Checkout", edited, typed "Order Checkout" back, saved | fires | fires |
+| Generated "Order Checkout", cleared, saved another or empty title | no | no |
 
 | Property | Notes |
 |---|---|
 | `feature_area` | `"ai"` |
 | `surface` | `"editor"` |
-| `accepted_title` | The AI-generated title string that was accepted |
+| `accepted_title` | The AI-generated title that was saved |
 | `content_id` | Custom content ID at the time of save |
+
+**Analysis break:** counts are not comparable across the first release of each variant that carries [PR #1054](https://github.com/ZenUml/conf-app/pull/1054), because older builds also fired this event when the user edited the generated title and saved. In those builds `accepted_title` can be the user's text, up to about 140 characters seen in Mixpanel, while the model title is capped at 80. Release dates: Diagramly pending, Lite pending, Full pending, AsyncAPI pending. Use the variant's release date, or split by `product_type` and `app_version`.
 
 ---
 

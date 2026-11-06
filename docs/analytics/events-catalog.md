@@ -33,6 +33,8 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 **Trigger:** Every time a diagram macro finishes rendering — both viewer (display mode) and editor mode. Fired by `trackRenderTime()` in `src/utils/analytics/trackRenderTime.ts`.
 
+**Sampling (from 2026-11):** the first render of a macro on a surface per browser per UTC day is always sent with `view_of_day: "first"`. Later renders that day are sent at 10% with `view_of_day: "repeat"` and `sample_rate: 0.1` (`src/utils/analytics/macroViewOfDay.ts`). Count total renders as `sum(1 / sample_rate)`; count distinct viewers, macros and tenants from the events as before. Events without `view_of_day` (older builds, or a browser without storage) are unsampled. Timing percentiles (`duration_ms`, `cache_state`) read from a mix of all first views and a 10% sample of repeats, so weight by `1 / sample_rate` when repeat renders matter.
+
 | Property | Notes |
 |---|---|
 | `feature_area` | `"macro"` |
@@ -446,7 +448,7 @@ Same properties as `paywall_continue_used` with `remaining_attempts: 0`.
 
 ### `paywall_banner_shown`
 
-**Trigger:** The paywall warning banner (served from the `confluence:pageBanner` iframe) is committed to displaying. Fired in `PaywallWarningBanner.vue` on every eligible mount. There is no dismissal or impression-frequency suppression. `show_count` and optional `hours_since_last_shown` remain descriptive analytics properties.
+**Trigger:** The paywall warning banner (served from the `confluence:pageBanner` iframe) is committed to displaying. Fired in `PaywallWarningBanner.vue` on the first eligible mount per browser, site and space per UTC day (from 2026-11; before that, on every eligible mount). The banner itself still shows on every eligible load; only the event is daily. `show_count` keeps counting every display, so impressions between two events are the difference of their `show_count`; `hours_since_last_shown` is the gap to the previous display, not to the previous event.
 
 | Property | Notes |
 |---|---|

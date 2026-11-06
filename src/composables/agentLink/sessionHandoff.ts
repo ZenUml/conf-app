@@ -404,6 +404,10 @@ function subscribeToHandoffCore(
       // must be in the fingerprint to reach the Fullscreen modal.
       session.lockExpiresAt != null ? String(session.lockExpiresAt) : '',
       session.hitCap != null ? String(session.hitCap) : '',
+      // `noticeReason` is written on reconnect exhaustion onto a record that is
+      // already `suspended`, so it can be the ONLY change; without it the
+      // Fullscreen rail never swaps "reconnecting…" for "Connection lost".
+      session.noticeReason ?? '',
     ].join('\n')
     if (fingerprint !== lastDeliveredFingerprint) {
       lastDeliveredFingerprint = fingerprint

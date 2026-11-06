@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import ConnectPanel from './ConnectPanel.vue'
 
 const meta: Meta<typeof ConnectPanel> = {
-  title: 'Agent Link/Connect Panel',
+  title: 'Viewer/ConnectPanel',
   component: ConnectPanel,
   parameters: { layout: 'centered' },
   args: {

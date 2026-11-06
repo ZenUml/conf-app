@@ -1,0 +1,62 @@
+{
+  "version": "before",
+  "results": [
+    {
+      "scenario": "gemma-chat-shape",
+      "status": 500,
+      "title": "Error: Failed to extract title",
+      "models": [
+        "@cf/meta/llama-3.1-8b-instruct-fp8",
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      ]
+    },
+    {
+      "scenario": "non-string-output",
+      "status": 200,
+      "title": "[object Object]",
+      "models": [
+        "@cf/meta/llama-3.1-8b-instruct-fp8"
+      ]
+    },
+    {
+      "scenario": "primary-error",
+      "status": 200,
+      "title": "Fallback Title",
+      "models": [
+        "@cf/meta/llama-3.1-8b-instruct-fp8",
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      ]
+    }
+  ]
+}
+{
+  "version": "after",
+  "results": [
+    {
+      "scenario": "gemma-chat-shape",
+      "status": 200,
+      "title": "Order Processing",
+      "models": [
+        "@cf/google/gemma-4-26b-a4b-it"
+      ]
+    },
+    {
+      "scenario": "non-string-output",
+      "status": 200,
+      "title": "Fallback Title",
+      "models": [
+        "@cf/google/gemma-4-26b-a4b-it",
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      ]
+    },
+    {
+      "scenario": "primary-error",
+      "status": 200,
+      "title": "Fallback Title",
+      "models": [
+        "@cf/google/gemma-4-26b-a4b-it",
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      ]
+    }
+  ]
+}

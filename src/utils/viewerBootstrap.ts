@@ -1,5 +1,6 @@
 import { Component } from 'vue';
 import globals from '@/model/globals';
+import store from '@/model/store2';
 import { mountRoot } from '@/mount-root';
 import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
@@ -183,7 +184,17 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
       putCachedContent(customContentId, JSON.stringify(loadResult.doc));
       renderPerf.markContentSource('fetch');
     }
-    await options.afterLoad?.(doc);
+    // Every viewer's afterLoad captures the rendered iframe as the page's
+    // backup PNG. After a failed load the iframe shows the error panel and
+    // `doc` is NULL_DIAGRAM, whose empty body never matches the attachment's
+    // content hash — so running it uploaded a picture of the error panel over
+    // the last good backup. Run it only for a displayed load that succeeded,
+    // or outside display mode, where applyViewerLoadOutcome leaves the state
+    // null and does not classify.
+    const loadState = store.state.viewerLoadState;
+    if (loadState === 'ready' || loadState === null) {
+      await options.afterLoad?.(doc);
+    }
   } catch (error) {
     if (globals.apWrapper.isDisplayMode()) {
       applyViewerLoadOutcome({

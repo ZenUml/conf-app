@@ -333,6 +333,7 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "agent_link_mcp_dialog_opened",
   "agent_link_mcp_dialog_copied",
   "agent_link_mcp_dialog_closed",
+  "agent_link_mcp_promo_dismissed",
   "agent_link_mcp_initialized",
   "activation_nudge_clicked",
   "activation_served",

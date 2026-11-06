@@ -191,6 +191,37 @@ describe('OpenApiViewer', () => {
       expect(macroViewedCalls()).toHaveLength(1);
     });
 
+    // #113: content_state is a wipe signal, so a load that never delivered a
+    // body must NOT read as `empty`.
+    it.each([
+      ['authored', 'openapi: 3.0.0\ninfo:\n  title: Mine', 'authored'],
+      ['empty (a wiped body)', '  \n', 'empty'],
+    ])('carries content_state for a loaded %s body', (_label, code, expected) => {
+      mount(OpenApiViewer, {
+        props: { doc: { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code } },
+        global: { plugins: [store] },
+      });
+
+      expect(macroViewedCalls()[0][1].content_state).toBe(expected);
+    });
+
+    it('omits content_state when the load never delivered a document', async () => {
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+
+      expect(macroViewedCalls()[0][1]).not.toHaveProperty('content_state');
+    });
+
+    it('omits content_state when the load failed with a loadError', async () => {
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+      store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+
+      expect(macroViewedCalls()[0][1]).not.toHaveProperty('content_state');
+    });
+
     it('reports at mount when the content is already in hand (embed host, editor preview)', () => {
       mount(OpenApiViewer, {
         props: { doc: { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code: 'openapi: 3.0.0' } },

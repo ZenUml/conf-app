@@ -20,6 +20,26 @@ describe('contentCacheStore (SWR content cache, keyed by customContentId)', () =
     expect(getCachedContent('never')).toBeUndefined();
   });
 
+  // The cache-hit render path mounts the viewer straight from this entry and returns,
+  // never reaching the fetch that computes attribution. Without the attribution stored
+  // here, the diagram-attribution footer is absent on every repeat visit.
+  it('round-trips the diagram attribution alongside the doc', () => {
+    const attribution = {
+      customContentId: 'cc-1',
+      createdByAccountId: 'acct-created',
+      lastUpdatedByAccountId: 'acct-updated',
+    };
+    expect(putCachedContent('cc-1', DOC, attribution)).toBe(true);
+    expect(getCachedContent('cc-1')?.attribution).toEqual(attribution);
+  });
+
+  it('reads back entries written without attribution (pre-existing cache entries)', () => {
+    expect(putCachedContent('cc-1', DOC)).toBe(true);
+    const got = getCachedContent('cc-1');
+    expect(got?.doc).toBe(DOC);
+    expect(got?.attribution).toBeUndefined();
+  });
+
   it('keys by id — the hash changes when content changes (drives revalidate re-render)', () => {
     putCachedContent('cc-1', DOC);
     const changed = JSON.stringify({ diagramType: 'sequence', code: 'A.b()\nC.d()' });

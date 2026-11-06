@@ -62,7 +62,7 @@ EOF
 )"
 ```
 
-**Why Draft:** the `Build, Test and Draft Release` workflow skips `E2E: Lite` (the ~10-minute job) on Draft PRs. Iterate on the branch without paying the E2E cost on every push. When you want E2E to run, use `/ready-pr` (verify only) or `/ship-branch` / `/land-pr` (which auto-flip as part of merging).
+**Why Draft:** the `Build, Test and Draft Release` workflow skips `E2E: Lite` (the ~10-minute job) on Draft PRs. Iterate on the branch without paying the E2E cost on every push. When you want E2E to run, use `/ready-pr` (verify only) or `/land-branch` / `/land-pr` (which auto-flip as part of merging).
 
 If the user explicitly says "submit as ready" or "open as ready", omit `--draft`.
 

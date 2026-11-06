@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Repair Case Validation"
+  short_description: "Investigate, validate, and regress repair cases through L2→L3→L4"
+  default_prompt: "Use $ai-repair-case-validation to validate this AI Repair failure case."
+policy:
+  allow_implicit_invocation: true

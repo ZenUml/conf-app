@@ -1,11 +1,106 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   sampleRateFor,
   decideSample,
   EVENT_SAMPLE_RATES,
+  OCTOBER_REDUCED_EVENTS,
+  OCTOBER_RETAINED_EVENTS,
+  OCTOBER_STOP_EVENTS,
 } from "./eventSampling";
 
 describe("eventSampling", () => {
+  beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z")));
+  afterEach(() => vi.mocked(Date.now).mockRestore());
+
+  describe("October 2026 event budget", () => {
+    const october = Date.parse("2026-10-12T00:00:00Z");
+    const before = Date.parse("2026-09-30T23:59:59.999Z");
+    const after = Date.parse("2026-11-01T00:00:00Z");
+
+    it("keeps macro_viewed at full rate across September, October, and November", () => {
+      for (const time of [before, october, after]) {
+        expect(sampleRateFor("macro_viewed", time)).toBe(1);
+        expect(decideSample("macro_viewed", () => { throw new Error("RNG must not run"); }, time))
+          .toEqual({ keep: true, rate: 1 });
+      }
+    });
+
+    it("stops the seven named diagnostics only during the UTC budget window", () => {
+      for (const name of [
+        "cohorts_refreshed", "copy_for_ai_impression", "editor_global_replace_observed",
+        "report_macro_metrics", "snapshot_backfill_skipped", "viewport_control_used",
+        "whats_new_banner_evaluated",
+      ]) {
+        expect(sampleRateFor(name, october)).toBe(0);
+        expect(sampleRateFor(name, before)).toBe(name === "copy_for_ai_impression" || name === "report_macro_metrics" ? 0.1 : 1);
+        expect(sampleRateFor(name, after)).toBe(name === "copy_for_ai_impression" || name === "report_macro_metrics" ? 0.1 : 1);
+      }
+    });
+
+    it("retains core funnels, failures, and feedback/survey events", () => {
+      for (const name of [
+        "macro_viewed", "macro_create_started", "macro_save_succeeded", "paywall_gate_evaluated",
+        "snapshot_created", "ai_chat_prompt_failed", "attachment_upload_failed",
+        "feedback_report_opened", "targeted_survey_shown", "csat_displayed",
+        "magic_writeback_completed", "agent_link_mcp_tool_called",
+      ]) expect(sampleRateFor(name, october)).toBe(sampleRateFor(name, after));
+    });
+
+    it("keeps the complete paid conversion and Request Full funnel at current rates", () => {
+      const names = [
+        "paywall_banner_dismissed", "paywall_banner_shown", "paywall_bundle_cta_clicked",
+        "paywall_gate_evaluated", "paywall_triggered", "paywall_continue_used",
+        "paywall_continued_editing", "paywall_blocked_create", "paywall_blocked_edit",
+        "paywall_attempts_exhausted",
+        "paywall_marketplace_cta_clicked", "paywall_learn_more_clicked",
+        "upgrade_modal_shown", "upgrade_modal_dismissed",
+        "plan_usage_viewed", "plan_usage_purchase_clicked", "plan_usage_request_full_clicked",
+        "request_full_reason_copied", "request_full_atlassian_clicked", "request_full_guide_shown",
+      ];
+      for (const name of names) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(sampleRateFor(name, after));
+      }
+    });
+
+    it("reduces only listed success/info events to one tenth of their existing arrival rate", () => {
+      expect(sampleRateFor("copy_for_ai_clicked", october)).toBe(1);
+      expect(sampleRateFor("copy_for_ai_menu_opened", october)).toBe(0.1);
+      expect(sampleRateFor("diagram_attribution_shown", october)).toBe(0.005);
+      expect(sampleRateFor("space_admin_active", october)).toBe(0.01);
+      expect(sampleRateFor("convert_to_png", october)).toBe(0.01);
+      expect(sampleRateFor("analytics_dashboard_export", october)).toBe(0.1);
+      expect(sampleRateFor("create_attachmentmermaid", october)).toBe(0.01);
+      expect(sampleRateFor("create_attachmentmermaid", after)).toBe(0.1);
+      expect(sampleRateFor("new_unregistered_product_event", october)).toBe(1);
+    });
+
+    it("draws once against the final absolute rate", () => {
+      expect(decideSample("diagram_attribution_shown", () => 0.004, october)).toEqual({ keep: true, rate: 0.005 });
+      expect(decideSample("diagram_attribution_shown", () => 0.005, october)).toEqual({ keep: false, rate: 0.005 });
+      expect(decideSample("report_macro_metrics", () => 0, october)).toEqual({ keep: false, rate: 0 });
+    });
+
+    it("keeps the reviewed classes disjoint and paired success signals together", () => {
+      for (const name of OCTOBER_RETAINED_EVENTS) {
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(OCTOBER_STOP_EVENTS.has(name)).toBe(false);
+      }
+      for (const name of OCTOBER_REDUCED_EVENTS) {
+        expect(OCTOBER_STOP_EVENTS.has(name)).toBe(false);
+        expect(name).not.toMatch(/fail|error|reject|unavailable|blocked|invalid|missing|unresolved|refused|feedback|survey|csat/);
+      }
+      for (const name of [
+        "diagram_attribution_shown", "diagram_audience_registration_succeeded",
+        "related_diagrams_lookup_succeeded", "related_token_indicators_shown",
+        "whats_new_banner_shown",
+      ]) {
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(true);
+        expect(sampleRateFor(name, october)).toBeCloseTo(sampleRateFor(name, after) / 10);
+      }
+    });
+  });
   describe("sampleRateFor", () => {
     it("defaults unknown events to 1 (always emit)", () => {
       expect(sampleRateFor("macro_viewed")).toBe(1);
@@ -14,9 +109,20 @@ describe("eventSampling", () => {
       expect(sampleRateFor("something_brand_new")).toBe(1);
     });
 
-    it("drops the validated prefetch telemetry (rate 0)", () => {
-      expect(sampleRateFor("renderer_prefetch_started")).toBe(0);
-      expect(sampleRateFor("renderer_prefetch_completed")).toBe(0);
+    it("returns 0 for an event explicitly configured to never emit", () => {
+      // No production event is currently rate-0 (the last two — renderer
+      // prefetch's telemetry — were deleted 2026-09-02 along with their
+      // emit call sites), but the mechanism itself (rate 0 = never emit,
+      // documented above EVENT_SAMPLE_RATES) must still work for whichever
+      // event needs it next. A synthetic key exercises the branch without
+      // depending on today's config.
+      const key = "__test_zero_rate_event__";
+      EVENT_SAMPLE_RATES[key] = 0;
+      try {
+        expect(sampleRateFor(key)).toBe(0);
+      } finally {
+        delete EVENT_SAMPLE_RATES[key];
+      }
     });
 
     it("samples the high-volume diagnostics to 10%", () => {
@@ -32,6 +138,21 @@ describe("eventSampling", () => {
       expect(sampleRateFor("create_attachmentmermaid")).toBe(0.1);
       expect(sampleRateFor("create_attachmentplantuml")).toBe(0.1);
       expect(sampleRateFor("create_attachmentsequence")).toBe(0.1);
+    });
+
+    // copy_for_ai_impression is an instance-level event: 80,912 occurrences from
+    // 4,414 users in the 30 days to 2026-09-07, 19.4% of all billable volume.
+    // Its only consumer is a rate (clicks / impressions), so a sample answers it.
+    it("samples the Copy for AI impression to 10%", () => {
+      expect(sampleRateFor("copy_for_ai_impression")).toBe(0.1);
+    });
+
+    // The click side of the same rate must stay whole — it is ~166 users a
+    // month, contributes nothing to the bill, and sampling both sides would
+    // multiply the estimator's error for no saving.
+    it("leaves the Copy for AI click and menu events at full fidelity", () => {
+      expect(sampleRateFor("copy_for_ai_clicked")).toBe(1);
+      expect(sampleRateFor("copy_for_ai_menu_opened")).toBe(1);
     });
 
     it("leaves error / funnel events at full fidelity", () => {
@@ -51,8 +172,14 @@ describe("eventSampling", () => {
     });
 
     it("never keeps rate-0 events", () => {
-      const d = decideSample("renderer_prefetch_started", () => 0);
-      expect(d).toEqual({ keep: false, rate: 0 });
+      const key = "__test_zero_rate_event__";
+      EVENT_SAMPLE_RATES[key] = 0;
+      try {
+        const d = decideSample(key, () => 0);
+        expect(d).toEqual({ keep: false, rate: 0 });
+      } finally {
+        delete EVENT_SAMPLE_RATES[key];
+      }
     });
 
     it("keeps a fractional event only when rng falls under the rate", () => {

@@ -192,21 +192,28 @@ describe('privacy-safe row construction and counts', () => {
       toPrivacySafeRow(content({ id: '2', body: { raw: { value: '{' } } }), LITE_CUSTOM_CONTENT_TYPES[0], 'tenant'),
       toPrivacySafeRow(content({ id: '3', body: { raw: { value: '{}' } } }), LITE_CUSTOM_CONTENT_TYPES[0], 'tenant'),
       toPrivacySafeRow(content({ id: '4', body: { raw: { value: JSON.stringify({ diagramType: 'plantuml' }) } } }), LITE_CUSTOM_CONTENT_TYPES[0], 'tenant'),
+      // Lite stores AsyncAPI under the shared zenuml-content-sequence type
+      // (ADR-0005 Option A). DiagramType.AsyncApi is the string 'AsyncAPI', so
+      // this also pins the case-insensitive match — without its own bucket it
+      // would classify as unknown_diagram_type, i.e. corrupt content.
+      toPrivacySafeRow(content({ id: '5', body: { raw: { value: JSON.stringify({ diagramType: 'AsyncAPI' }) } } }), LITE_CUSTOM_CONTENT_TYPES[0], 'tenant'),
     ]);
     expect(rows.map((item) => item.row.parseStatus)).toEqual([
       'missing_body',
       'invalid_json',
       'unknown_diagram_type',
       'parsed',
+      'parsed',
     ]);
     const counts = countSnapshotRows(rows.map((item) => item.row));
     expect(counts).toEqual({
-      total: 4,
+      total: 5,
       sequence: 0,
       graph: 0,
       openapi: 0,
       mermaid: 0,
       plantuml: 1,
+      asyncapi: 1,
       unknown: 3,
     });
     expect(countsInvariant(counts)).toBe(true);
@@ -314,6 +321,7 @@ describe('daily scanner protocol', () => {
         openapi: 1,
         mermaid: 0,
         plantuml: 0,
+        asyncapi: 0,
         unknown: 1,
       },
     });

@@ -1,0 +1,49 @@
+<svg width="1400" height="1660" viewBox="0 0 1400 1660" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Toolbar glyphs extracted from the Figma frame
+    "03 - Icons revised per DESIGN.md" (file: ZenUML · Export canvas · Shottr layout).
+
+    This is a subset of that frame's SVG export: the icon <path> elements only, with
+    their `d` data and stroke attributes byte-identical to the export and left in the
+    frame's own coordinate space. The frame's background grid, labels and chrome are
+    dropped — they carry no geometry we implement.
+
+    src/components/ExportModal/adsIcons.ts must quote these `d` strings verbatim;
+    AdsIcon.spec.ts fails if it stops doing so. To change an icon, re-export the frame
+    and paste over the `d` here, then over the one in adsIcons.ts. Never hand-edit
+    coordinates in either file — see the figma-vector-extract skill.
+
+    Two glyphs (select, stamp) are drawn in the export as overlays on top of an earlier
+    draft glyph at the same slot; the overlay is the real icon and is what appears here.
+  -->
+
+  <!-- Close export -->
+  <path d="M84 112L92 104M84 104L92 112" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Copy image -->
+  <path d="M136.5 111.5V113.75C136.5 114.161 136.161 114.5 135.75 114.5H129.25C128.833 114.5 128.5 114.167 128.5 113.75V105.25C128.5 104.839 128.839 104.5 129.25 104.5H130.5C130.833 104.5 131.172 104.526 131.5 104.583M136.5 111.5H138.75C139.161 111.5 139.5 111.161 139.5 110.75V107.5C139.5 104.526 137.339 102.057 134.5 101.583C134.172 101.526 133.833 101.5 133.5 101.5H132.25C131.839 101.5 131.5 101.839 131.5 102.25V104.583M136.5 111.5H132.25C131.833 111.5 131.5 111.167 131.5 110.75V104.583M139.5 109V107.75C139.5 106.505 138.495 105.5 137.25 105.5H136.25C135.833 105.5 135.5 105.167 135.5 104.75V103.75C135.5 102.505 134.495 101.5 133.25 101.5H132.5" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Download image -->
+  <path d="M164 111V112.5C164 113.328 164.672 114 165.5 114H174.5C175.328 114 176 113.328 176 112.5V111M167 108L170 111L173 108M170 111V102" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Select annotations (overlay glyph) -->
+  <path d="M297.333 102V112.667L300.333 110L302.667 114.667L304.667 113.667L302.333 109H306.667L297.333 102Z" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Add text -->
+  <path d="M341 104V102.5H351V104M346 102.5V113.5M344 113.5H348" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Add arrow -->
+  <path d="M385 113L395 103M395 110.5V103H387.5" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Add callout -->
+  <path d="M433 105.5H439M433 107.5H436M429.5 108.505C429.5 109.573 430.25 110.505 431.302 110.656C432.057 110.771 432.818 110.854 433.589 110.911C433.818 110.927 434.031 111.052 434.161 111.245L436 114L437.839 111.245C437.969 111.052 438.182 110.927 438.411 110.911C439.177 110.854 439.937 110.771 440.698 110.656C441.75 110.505 442.5 109.573 442.5 108.505V104.495C442.5 103.427 441.75 102.495 440.698 102.344C439.141 102.115 437.573 102 436 102C434.406 102 432.839 102.115 431.302 102.344C430.25 102.495 429.5 103.427 429.5 104.495V108.505Z" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Draw rectangle -->
+  <path d="M475.5 105C475.5 104.172 476.172 103.5 477 103.5H483C483.828 103.5 484.5 104.172 484.5 105V111C484.5 111.828 483.828 112.5 483 112.5H477C476.172 112.5 475.5 111.828 475.5 111V105Z" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Add watermark (overlay glyph) -->
+  <path d="M518.667 114.667H529.333M521.333 110V108.667C521.333 107.333 522.667 107.333 522.667 106V104.667C522.365 104.397 522.152 104.041 522.056 103.648C521.961 103.254 521.987 102.841 522.132 102.462C522.276 102.084 522.532 101.758 522.866 101.529C523.199 101.299 523.595 101.176 524 101.176C524.405 101.176 524.801 101.299 525.134 101.529C525.468 101.758 525.724 102.084 525.868 102.462C526.013 102.841 526.039 103.254 525.944 103.648C525.848 104.041 525.635 104.397 525.333 104.667V106C525.333 107.333 526.667 107.333 526.667 108.667V110M519.333 110H528.667L530 112.667H518L519.333 110Z" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- More annotation tools — named in the design, not implemented (no defined menu) -->
+  <path d="M568.5 108C568.5 108.276 568.276 108.5 568 108.5C567.724 108.5 567.5 108.276 567.5 108C567.5 107.724 567.724 107.5 568 107.5C568.276 107.5 568.5 107.724 568.5 108ZM572.5 108C572.5 108.276 572.276 108.5 572 108.5C571.724 108.5 571.5 108.276 571.5 108C571.5 107.724 571.724 107.5 572 107.5C572.276 107.5 572.5 107.724 572.5 108ZM576.5 108C576.5 108.276 576.276 108.5 576 108.5C575.724 108.5 575.5 108.276 575.5 108C575.5 107.724 575.724 107.5 576 107.5C576.276 107.5 576.5 107.724 576.5 108Z" stroke="#6B7280" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

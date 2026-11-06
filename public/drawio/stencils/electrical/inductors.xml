@@ -90,10 +90,10 @@
 </shape>
 <shape aspect="variable" h="46" name="Compensation Inductor 1" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in1" perimeter="0" x="0" y="0.13"/>
-        <constraint name="in2" perimeter="0" x="0" y="0.87"/>
-        <constraint name="out1" perimeter="0" x="1" y="0.13"/>
-        <constraint name="out2" perimeter="0" x="1" y="0.87"/>
+        <constraint name="in1" perimeter="0" x="0" y="0.1304"/>
+        <constraint name="in2" perimeter="0" x="0" y="0.8696"/>
+        <constraint name="out1" perimeter="0" x="1" y="0.1304"/>
+        <constraint name="out2" perimeter="0" x="1" y="0.8696"/>
     </connections>
     <foreground>
         <path>
@@ -387,8 +387,8 @@
 </shape>
 <shape aspect="variable" h="60" name="Inductor 2" strokewidth="inherit" w="21.5">
     <connections>
-        <constraint name="in" perimeter="0" x="0.7" y="0"/>
-        <constraint name="out" perimeter="0" x="0.7" y="1"/>
+        <constraint name="in" perimeter="0" x="0.6977" y="0"/>
+        <constraint name="out" perimeter="0" x="0.6977" y="1"/>
     </connections>
     <background>
         <rect h="60" w="10" x="0" y="0"/>
@@ -427,8 +427,8 @@
 </shape>
 <shape aspect="variable" h="14.5" name="Inductor 4" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.55"/>
-        <constraint name="out" perimeter="0" x="1" y="0.55"/>
+        <constraint name="in" perimeter="0" x="0" y="0.5517"/>
+        <constraint name="out" perimeter="0" x="1" y="0.5517"/>
     </connections>
     <foreground>
         <ellipse h="3" w="3" x="78.5" y="11.5"/>
@@ -448,8 +448,8 @@
 </shape>
 <shape aspect="variable" h="14.07" name="Inductor 5" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.645"/>
-        <constraint name="out" perimeter="0" x="1" y="0.645"/>
+        <constraint name="in" perimeter="0" x="0" y="0.6446"/>
+        <constraint name="out" perimeter="0" x="1" y="0.6446"/>
     </connections>
     <foreground>
         <linejoin join="round"/>
@@ -476,8 +476,8 @@
 </shape>
 <shape aspect="variable" h="15.57" name="Inductor 6" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.583"/>
-        <constraint name="out" perimeter="0" x="1" y="0.583"/>
+        <constraint name="in" perimeter="0" x="0" y="0.5825"/>
+        <constraint name="out" perimeter="0" x="1" y="0.5825"/>
     </connections>
     <foreground>
         <ellipse h="3" w="3" x="78.5" y="12.57"/>
@@ -525,8 +525,8 @@
 </shape>
 <shape aspect="variable" h="23" name="Inductor 8" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.435"/>
-        <constraint name="out" perimeter="0" x="1" y="0.435"/>
+        <constraint name="in" perimeter="0" x="0" y="0.4348"/>
+        <constraint name="out" perimeter="0" x="1" y="0.4348"/>
     </connections>
     <background>
         <rect h="20" w="64" x="18" y="0"/>
@@ -546,8 +546,8 @@
 </shape>
 <shape aspect="variable" h="23" name="Inductor 9" strokewidth="inherit" w="100">
     <connections>
-        <constraint name="in" perimeter="0" x="0" y="0.435"/>
-        <constraint name="out" perimeter="0" x="1" y="0.435"/>
+        <constraint name="in" perimeter="0" x="0" y="0.4348"/>
+        <constraint name="out" perimeter="0" x="1" y="0.4348"/>
     </connections>
     <background>
         <rect h="20" w="64" x="18" y="0"/>
@@ -697,8 +697,8 @@
 <shape aspect="variable" h="250" name="Pot Trans 3 Windings" strokewidth="inherit" w="175">
     <connections>
         <constraint name="N" perimeter="0" x="0.5" y="0"/>
-        <constraint name="SW" perimeter="0" x="0.285" y="1"/>
-        <constraint name="SE" perimeter="0" x="0.715" y="1"/>
+        <constraint name="SW" perimeter="0" x="0.2857" y="1"/>
+        <constraint name="SE" perimeter="0" x="0.7143" y="1"/>
     </connections>
     <foreground>
         <path>
@@ -720,12 +720,12 @@
 </shape>
 <shape aspect="variable" h="150" name="Saturating Transformer" strokewidth="inherit" w="200">
     <connections>
-        <constraint name="NW" perimeter="0" x="0" y="0.165"/>
+        <constraint name="NW" perimeter="0" x="0" y="0.16667"/>
         <constraint name="W" perimeter="0" x="0" y="0.5"/>
-        <constraint name="SW" perimeter="0" x="0" y="0.835"/>
-        <constraint name="NE" perimeter="0" x="1" y="0.165"/>
+        <constraint name="SW" perimeter="0" x="0" y="0.83333"/>
+        <constraint name="NE" perimeter="0" x="1" y="0.16667"/>
         <constraint name="E" perimeter="0" x="1" y="0.5"/>
-        <constraint name="SE" perimeter="0" x="1" y="0.835"/>
+        <constraint name="SE" perimeter="0" x="1" y="0.83333"/>
     </connections>
     <foreground>
         <path>
@@ -958,8 +958,8 @@
 </shape>
 <shape aspect="variable" h="88" name="Variometer" strokewidth="inherit" w="150">
     <connections>
-        <constraint name="NW" perimeter="0" x="0" y="0.205"/>
-        <constraint name="SW" perimeter="0" x="0" y="0.77"/>
+        <constraint name="NW" perimeter="0" x="0" y="0.20455"/>
+        <constraint name="SW" perimeter="0" x="0" y="0.7727"/>
     </connections>
     <foreground>
         <path>

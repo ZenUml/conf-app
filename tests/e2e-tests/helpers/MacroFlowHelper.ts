@@ -24,6 +24,7 @@ import {
   expectModalClosed,
 } from './FullscreenModalHelper.js';
 import { dismissPaywallGate } from './paywallGate.js';
+import { dismissStarterGalleryIfPresent } from './starterGallery.js';
 
 export type MacroKind = 'sequence' | 'graph' | 'openapi';
 
@@ -71,6 +72,12 @@ export async function insertMacro(
   // crosses the limit. Doing it here covers every tests/fullscreen/ spec, and
   // it is a documented no-op on an under-limit space (see paywallGate.ts).
   await dismissPaywallGate(page, modalContentFrame(page, 'edit'));
+  // A brand-new sequence/mermaid/plantuml macro auto-opens the starter
+  // gallery on mount (Header.vue, "auto_first_open") — its backdrop eats
+  // clicks the same way the paywall gate's does. Graph/OpenAPI never trigger
+  // it (getTemplatesForType returns [] for those types), so this is a no-op
+  // there, but doing it unconditionally covers every insertMacro() caller.
+  await dismissStarterGalleryIfPresent(page, modalContentFrame(page, 'edit'));
   return { editorPage, macroName };
 }
 

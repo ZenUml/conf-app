@@ -1,3 +1,4 @@
+import { json } from '../OkResponse';
 import type { SpaceLicenseRecord } from './space-license'
 
 interface Env {
@@ -16,13 +17,6 @@ interface StripeCheckoutSession {
 interface StripeEvent {
   type: string
   data: { object: StripeCheckoutSession }
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
 }
 
 async function verifyStripeSignature(
@@ -142,34 +136,34 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context
 
   if (request.method !== 'POST') {
-    return jsonResponse(405, { error: 'method_not_allowed' })
+    return json({ error: 'method_not_allowed' }, { status: 405 })
   }
 
   if (!env.STRIPE_WEBHOOK_SECRET || !env.SPACE_LICENSE_KV) {
     console.error('Missing STRIPE_WEBHOOK_SECRET or SPACE_LICENSE_KV binding')
-    return jsonResponse(500, { error: 'server_configuration' })
+    return json({ error: 'server_configuration' }, { status: 500 })
   }
 
   const signature = request.headers.get('stripe-signature')
   if (!signature) {
-    return jsonResponse(400, { error: 'missing_signature' })
+    return json({ error: 'missing_signature' }, { status: 400 })
   }
 
   const payload = await request.text()
   const valid = await verifyStripeSignature(payload, signature, env.STRIPE_WEBHOOK_SECRET)
   if (!valid) {
-    return jsonResponse(400, { error: 'invalid_signature' })
+    return json({ error: 'invalid_signature' }, { status: 400 })
   }
 
   let event: StripeEvent
   try {
     event = JSON.parse(payload) as StripeEvent
   } catch {
-    return jsonResponse(400, { error: 'invalid_json' })
+    return json({ error: 'invalid_json' }, { status: 400 })
   }
 
   if (event.type !== 'checkout.session.completed') {
-    return jsonResponse(200, { received: true, action: 'ignored' })
+    return json({ received: true, action: 'ignored' }, { status: 200 })
   }
 
   const session = event.data.object
@@ -188,10 +182,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         console.error(
           `Stripe session ${session.id}: could not resolve cloudId for domain "${parsed.domain}"`
         )
-        return jsonResponse(500, {
+        return json({
           error: 'cloud_id_resolution_failed',
           message: `Could not resolve cloudId for ${parsed.domain}`,
-        })
+        }, { status: 500 })
       }
       cloudId = resolved
     }
@@ -202,11 +196,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       'Stripe session missing cloudId/spaceKey in metadata AND no parseable client_reference_id',
       session.id
     )
-    return jsonResponse(400, {
+    return json({
       error: 'missing_metadata',
       message:
         'Checkout session must carry cloudId+spaceKey metadata or a <domain>__<spaceKey> client_reference_id',
-    })
+    }, { status: 400 })
   }
 
   const activatedBy =
@@ -215,9 +209,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     await activateLicense(env.SPACE_LICENSE_KV, cloudId, spaceKey, session.id, activatedBy)
     console.log(`Space license activated: ${cloudId}/${spaceKey} via Stripe session ${session.id}`)
-    return jsonResponse(200, { received: true, cloudId, spaceKey })
+    return json({ received: true, cloudId, spaceKey }, { status: 200 })
   } catch (error) {
     console.error('Failed to activate license:', error)
-    return jsonResponse(500, { error: 'activation_failed' })
+    return json({ error: 'activation_failed' }, { status: 500 })
   }
 }

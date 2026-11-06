@@ -1,0 +1,78 @@
+name: Staging E2E — staging-asyncapi-e2e
+run-name: "staging-asyncapi-e2e · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id: {type: string, required: true}
+      parent-attempt: {type: string, required: true}
+      source-sha: {type: string, required: true}
+      root-run-id: {type: string, required: false, default: ''}
+      root-attempt: {type: string, required: false, default: ''}
+      suite: {type: string, default: insert}
+      timeout: {type: string, default: '11'}
+      grep: {type: string, default: ''}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parent:
+    name: Verify staging ownership
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source-sha }}
+      - name: Check the active parent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          ROOT_RUN_ID: ${{ inputs.root-run-id }}
+          ROOT_ATTEMPT: ${{ inputs.root-attempt }}
+          EXPECTED_PARENT_JOBS: '["Validate: AsyncAPI"]'
+        run: node scripts/ci/wait-for-e2e.mjs --verify-parent
+  regression:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      selection-scope: main
+      app: asyncapi@stg
+      suite: regression
+      grep: ${{ inputs.grep }}
+      auth-artifact: auth-state-pre-asyncapi-stg
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      ref: ${{ inputs.source-sha }}
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
+      timeout-minutes: 35
+      artifact-suffix: asyncapi-stg-regression
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  render:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      selection-scope: main
+      app: asyncapi@stg
+      suite: regression-render
+      grep: ${{ inputs.grep }}
+      auth-artifact: auth-state-pre-asyncapi-stg
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      ref: ${{ inputs.source-sha }}
+      shard-matrix: '[1]'
+      timeout-minutes: 25
+      artifact-suffix: asyncapi-stg-render
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

@@ -66,14 +66,16 @@ ZenUML for Confluence is an Atlassian app (hybrid Connect/Forge) that empowers u
    1. Some diagrams have data source as content-property
 7. Create a new page and add a sequence, a mermaid, a draw io diagram
 # Development
-## How to do integration test?
-1. Start vue server at 8080 and proxy to 5000 for descriptor: `yarn start:sit`
-2. Expose 8080 on air.zenuml.com: `yarn cloudflare:8080`
-3. Install https://air.zenuml.com/atlassian-connect.json
-4. Open the page with ZenUML macro
-   
-> We need two commands `start:local` and `start:sit` because hot-reload works 
-> only on one domain.
+## How to run locally
+
+1. Run `pnpm start:local` for the frontend only, or `pnpm start:sit` for the
+   frontend and local Cloudflare backend.
+2. Run `pnpm dev:url` to print the frontend URL. Use `pnpm dev:api:url` for the
+   backend, or `pnpm dev:routes` to list running services.
+3. Each linked git worktree gets its own branch-prefixed `.localhost` hostname,
+   so multiple worktrees can run concurrently without assigning ports manually.
+   The shared proxy listens on HTTP port 1355, avoiding sudo and local certificate
+   setup while each application receives a separate random internal port.
 
 ## Setup Cloudflare Pages project for development
 

@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2020, JGraph Ltd
- * Copyright (c) 2006-2020, draw.io AG
+ * Copyright (c) 2006-2024, JGraph Holdings Ltd
+ * Copyright (c) 2006-2024, draw.io AG
  */
 //Add a closure to hide the class private variables without changing the code a lot
 (function()
@@ -15,6 +15,13 @@ window.GitLabClient = function(editorUi)
 
 // Extends DrawioClient
 mxUtils.extend(GitLabClient, GitHubClient);
+
+/**
+ * Default GitLab server URL. Retained as an immutable class constant so the
+ * "has the URL been overridden?" check is not affected by Init.js mutating
+ * window.DRAWIO_GITLAB_URL in response to the ?gitlab= URL parameter.
+ */
+GitLabClient.DEFAULT_URL = 'https://gitlab.com';
 
 /**
  * Gitlab Client ID, see https://gitlab.com/oauth/applications/135239
@@ -41,13 +48,26 @@ GitLabClient.prototype.maxFileSize = 10000000 /*10MB*/;
  */
 GitLabClient.prototype.authToken = 'Bearer';
 
-GitLabClient.prototype.redirectUri = window.location.protocol + '//' + window.location.host + '/gitlab';
+GitLabClient.prototype.redirectUri = window.DRAWIO_SERVER_URL + 'gitlab';
 
 /**
  * Authorizes the client, gets the userId and calls <open>.
  */
 GitLabClient.prototype.authenticate = function(success, error)
 {
+	if (DRAWIO_GITLAB_URL !== GitLabClient.DEFAULT_URL && !Editor.enableCustomGitLabUrl)
+	{
+		this.ui.showDialog(new CustomGitLabUrlWarningDialog(
+			this.ui, DRAWIO_GITLAB_URL).container, 420, null, true, true);
+
+		if (error != null)
+		{
+			error({message: mxResources.get('accessDenied')});
+		}
+
+		return;
+	}
+
 	var req = new mxXmlRequest(this.redirectUri + '?getState=1', null, 'GET');
 	
 	req.send(mxUtils.bind(this, function(req)
@@ -81,10 +101,17 @@ GitLabClient.prototype.authenticateStep2 = function(state, success, error)
 				{
 					if (req.getStatus() >= 200 && req.getStatus() <= 299)
 					{
-						_token = JSON.parse(req.getText()).access_token;
-						this.setToken(_token);
-						this.setUser(null);
-						success();
+						try
+						{
+							_token = JSON.parse(req.getText()).access_token;
+							this.setToken(_token);
+							this.setUser(null);
+							success();
+						}
+						catch (e)
+						{
+							error({message: mxResources.get('authFailed'), retry: auth});
+						}
 					}
 					else 
 					{
@@ -386,7 +413,7 @@ GitLabClient.prototype.getFile = function(path, success, error, asLibrary, check
 		
 		// Handles .vsdx, Gliffy and PNG+XML files by creating a temporary file
 		if (!checkExists && (/\.v(dx|sdx?)$/i.test(path) || /\.gliffy$/i.test(path) ||
-			/\.pdf$/i.test(path) || (!this.ui.useCanvasForExport && binary)))
+			/\.pdf$/i.test(path) || (!Editor.useCanvasForExport && binary)))
 		{
 			// Should never be null
 			if (_token != null)
@@ -706,7 +733,7 @@ GitLabClient.prototype.saveFile = function(file, success, error, overwrite, mess
 	
 	var fn2 = mxUtils.bind(this, function()
 	{
-		if (this.ui.useCanvasForExport && /(\.png)$/i.test(path))
+		if (Editor.useCanvasForExport && /(\.png)$/i.test(path))
 		{
 			var p = this.ui.getPngFileProperties(this.ui.fileNode);
 			
@@ -776,7 +803,6 @@ GitLabClient.prototype.showGitLabDialog = function(showFiles, fn, hideNoFilesErr
 
 	var hd = document.createElement('h3');
 	mxUtils.write(hd, mxResources.get((showFiles) ? 'selectFile' : 'selectFolder'));
-	hd.style.cssText = 'width:100%;text-align:center;margin-top:0px;margin-bottom:12px';
 	content.appendChild(hd);
 
 	var div = document.createElement('div');
@@ -1228,15 +1254,23 @@ GitLabClient.prototype.showGitLabDialog = function(showFiles, fn, hideNoFilesErr
 		{
 			spinnerRequestStarted();
 			var req = new mxXmlRequest(this.baseUrl + '/groups/' + group.id + '/projects?per_page=100', null, 'GET');
-			
+
 			this.executeRequest(req, mxUtils.bind(this, function(req)
 			{
 				this.ui.tryAndHandle(mxUtils.bind(this, function()
 				{
-					callback(group, JSON.parse(req.getText()));
+					if (req.getStatus() == 404)
+					{
+						callback(group, []);
+					}
+					else
+					{
+						callback(group, JSON.parse(req.getText()));
+					}
+
 					spinnerRequestFinished();
 				}));
-			}), error);
+			}), error, true);
 		});
 		
 		listGroups(mxUtils.bind(this, function(groups)
@@ -1269,7 +1303,8 @@ GitLabClient.prototype.showGitLabDialog = function(showFiles, fn, hideNoFilesErr
 							{
 								if (inFlightRequests === 0)
 								{
-									var dlg = new FilenameDialog(this.ui, 'org/repo/ref', mxResources.get('ok'), mxUtils.bind(this, function(value)
+									var dlg = new FilenameDialog(this.ui, 'group/project', mxResources.get('ok'),
+										mxUtils.bind(this, function(value)
 									{
 										if (value != null)
 										{
@@ -1277,20 +1312,12 @@ GitLabClient.prototype.showGitLabDialog = function(showFiles, fn, hideNoFilesErr
 											
 											if (tokens.length > 1)
 											{
-												org = tokens[0];
-												repo = tokens[1];
-												path = null;
-												ref = null;
-												
-												if (tokens.length > 2)
-												{
-													ref = encodeURIComponent(tokens.slice(2, tokens.length).join('/'));
-													selectFile();
-												}
-												else
-												{
-													selectRef(null, true);
-												}
+												// Since paths and refs may contain slashes
+												// we parse as group/repo and select ref
+												org = tokens.slice(0, tokens.length - 1).join('/');
+												repo = tokens[tokens.length - 1];
+												path = '';
+												selectRef(null, true);
 											}
 											else
 											{
@@ -1359,7 +1386,6 @@ GitLabClient.prototype.showGitLabDialog = function(showFiles, fn, hideNoFilesErr
 												org = group.full_path;
 												repo = project.path;
 												path = '';
-			
 												selectRef(null, true);
 											}
 										})));

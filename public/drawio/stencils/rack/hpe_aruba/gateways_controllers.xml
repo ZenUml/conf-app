@@ -3,8 +3,8 @@
     <connections/>
     <foreground>
         <save/>
-        <strokecolor color="#4d4d4d"/>
-        <fillcolor color="#4d4d4d"/>
+        <strokecolor color="panelColor" default="#4d4d4d"/>
+        <fillcolor color="panelColor" default="#4d4d4d"/>
         <strokewidth width="0.2"/>
         <linejoin join="miter"/>
         <linecap cap="round"/>
@@ -17,7 +17,7 @@
         <rect h="22.216" w="163.401" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#b6b6b6"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor2" default="#262626"/>
         <strokewidth width="0.26999998"/>
         <linejoin join="round"/>
         <path>
@@ -34,7 +34,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#414141"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.10534163"/>
         <path>
             <move x="136.228" y="12.428"/>
@@ -50,7 +50,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#1a1a1a"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.26999998"/>
         <rect h="13.36" w="59.667" x="16.698" y="5.341"/>
         <fillstroke/>
@@ -68,7 +68,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <strokewidth width="0.10534164"/>
         <path>
             <move x="152.717" y="12.058"/>
@@ -92,7 +92,7 @@
         </path>
         <fill/>
         <strokecolor color="#414141"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.10534163"/>
         <path>
             <move x="73.699" y="6.187"/>
@@ -260,7 +260,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <strokewidth width="0.10534164"/>
         <path>
             <move x="70.32" y="18.277"/>
@@ -410,7 +410,7 @@
         </path>
         <fill/>
         <strokecolor color="#b6b6b6"/>
-        <fillcolor color="#333333"/>
+        <fillcolor color="portColor3" default="#333333"/>
         <strokewidth width="0.26999998"/>
         <path>
             <move x="113.031" y="14.951"/>
@@ -426,11 +426,11 @@
         </path>
         <fillstroke/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#899a8b"/>
+        <fillcolor color="displayColor" default="#829384"/>
         <rect h="4.774" w="18.34" x="133.466" y="3.632"/>
         <fillstroke/>
         <strokecolor color="#626262"/>
-        <fillcolor color="#f2f2f2"/>
+        <fillcolor color="ledColor2" default="#f2f2f2"/>
         <strokewidth width="0.40000001"/>
         <path>
             <move x="157.798" y="7.255"/>
@@ -451,7 +451,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#343434"/>
+        <fillcolor color="portColor3" default="#333333"/>
         <strokewidth width="0.26458332"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -480,7 +480,7 @@
         <save/>
         <save/>
         <strokecolor color="#505050"/>
-        <fillcolor color="#666666"/>
+        <fillcolor color="panelColor" default="#666666"/>
         <strokewidth width="0.2"/>
         <linejoin join="miter"/>
         <linecap cap="round"/>
@@ -492,7 +492,7 @@
         <fillalpha alpha="1"/>
         <rect h="22.216" w="163.401" x="0" y="0"/>
         <fillstroke/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="ledPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.26999998"/>
         <linejoin join="round"/>
         <rect h="15.812" w="6.5" x="154.404" y="3.191"/>
@@ -502,7 +502,7 @@
         <fillalpha alpha="0.87843137"/>
         <rect h="15.688" w="12.222" x="2.52" y="3.264"/>
         <stroke/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor" default="#1a1a1a"/>
         <fillalpha alpha="1"/>
         <path>
             <move x="158.985" y="14.236"/>
@@ -522,7 +522,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <strokewidth width="0.26458332"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -541,7 +541,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="ventColor" default="#d9d9d9"/>
         <strokewidth width="0.40000001"/>
         <linecap cap="round"/>
         <miterlimit limit="4"/>
@@ -549,7 +549,7 @@
         <dashed dashed="1"/>
         <rect h="16.604" w="115.627" x="24.153" y="5.634"/>
         <fill/>
-        <fillcolor color="#f8f8f8"/>
+        <fillcolor color="accentColor" default="#f8f8f8"/>
         <path>
             <move x="30.626" y="10.132"/>
             <line x="132.881" y="10.132"/>
@@ -584,7 +584,7 @@
         </path>
         <stroke/>
         <strokecolor color="#8a8a8a"/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <strokewidth width="0.2"/>
         <linejoin join="round"/>
         <linecap cap="round"/>
@@ -613,7 +613,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#9a9a9a"/>
+        <fillcolor color="powerPinColor" default="#9a9a9a"/>
         <strokewidth width="0.40000001"/>
         <linejoin join="miter"/>
         <path>
@@ -640,7 +640,7 @@
     <connections/>
     <foreground>
         <strokecolor color="#444444"/>
-        <fillcolor color="#4d4d4d"/>
+        <fillcolor color="panelColor" default="#4d4d4d"/>
         <strokewidth width="0.2"/>
         <linejoin join="miter"/>
         <linecap cap="round"/>
@@ -659,7 +659,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#212121"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <linejoin join="round"/>
         <path>
             <move x="136.764" y="5.107"/>
@@ -678,7 +678,7 @@
         <rect h="6.945" w="8.552" x="207.77" y="11.098"/>
         <fillstroke/>
         <strokecolor color="#343534"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor2" default="#829384"/>
         <strokewidth width="0.10534163"/>
         <path>
             <move x="213.874" y="11.959"/>
@@ -693,7 +693,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <strokewidth width="0.10534164"/>
         <path>
             <move x="210.495" y="11.611"/>
@@ -708,12 +708,12 @@
         </path>
         <fill/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#8c9e8e"/>
+        <fillcolor color="displayColor" default="#8c9e8e"/>
         <strokewidth width="0.2"/>
         <rect h="4.774" w="18.34" x="192.036" y="3.384"/>
         <fillstroke/>
         <strokecolor color="#343534"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor2" default="#829384"/>
         <strokewidth width="0.10534163"/>
         <path>
             <move x="178.22" y="17.701"/>
@@ -958,7 +958,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <strokewidth width="0.10534164"/>
         <path>
             <move x="174.841" y="18.049"/>
@@ -1180,7 +1180,7 @@
         </path>
         <fill/>
         <strokecolor color="#797979"/>
-        <fillcolor color="#f0f0f0"/>
+        <fillcolor color="ledColor" default="#f0f0f0"/>
         <strokewidth width="0.40000001"/>
         <path>
             <move x="216.021" y="3.118"/>
@@ -1198,7 +1198,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor2" default="#262626"/>
         <strokewidth width="0.2"/>
         <path>
             <move x="196.289" y="13.333"/>
@@ -1220,7 +1220,7 @@
     <foreground>
         <save/>
         <strokecolor color="#4e4e4e"/>
-        <fillcolor color="#666666"/>
+        <fillcolor color="panelColor" default="#666666"/>
         <strokewidth width="0.2"/>
         <linejoin join="miter"/>
         <linecap cap="round"/>
@@ -1239,7 +1239,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#6e6e6e"/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="ventColor" default="#d9d9d9"/>
         <linejoin join="round"/>
         <path>
             <move x="48.782" y="9.484"/>
@@ -1249,7 +1249,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <strokewidth width="0.5"/>
         <path>
             <move x="43.533" y="15.791"/>
@@ -1272,7 +1272,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#f8f8f8"/>
+        <fillcolor color="accentColor" default="#f8f8f8"/>
         <linejoin join="miter"/>
         <path>
             <move x="63.103" y="9.658"/>
@@ -1328,7 +1328,7 @@
         </path>
         <fill/>
         <strokecolor color="#232323"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="0.26999998"/>
         <linejoin join="round"/>
         <roundrect arcsize="20.279" h="11.697" w="15.524" x="178.331" y="6.968"/>
@@ -1336,7 +1336,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <strokewidth width="0.26458332"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1355,7 +1355,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#979797"/>
+        <fillcolor color="powerPinColor" default="#979797"/>
         <strokewidth width="0.5"/>
         <linecap cap="round"/>
         <miterlimit limit="4"/>
@@ -1379,12 +1379,12 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="ledPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.26999998"/>
         <linejoin join="round"/>
         <rect h="15.901" w="6.361" x="199.855" y="2.375"/>
         <fill/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor" default="#1a1a1a"/>
         <strokewidth width="0.5"/>
         <path>
             <move x="204.471" y="5.317"/>
@@ -1402,11 +1402,11 @@
         </path>
         <fill/>
         <strokecolor color="#404040"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.26999998"/>
         <rect h="6.823" w="8.276" x="5.841" y="11.593"/>
         <fillstroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor2" default="#292929"/>
         <strokewidth width="0.10534164"/>
         <path>
             <move x="8.492" y="12.083"/>
@@ -1421,12 +1421,12 @@
         </path>
         <fill/>
         <strokecolor color="#929292"/>
-        <fillcolor color="#333333"/>
+        <fillcolor color="portColor3" default="#333333"/>
         <strokewidth width="0.30000001"/>
         <rect h="6.485" w="2.761" x="23.502" y="11.61"/>
         <fillstroke/>
         <strokecolor color="#7c7c7c"/>
-        <fillcolor color="#303030"/>
+        <fillcolor color="portColor4" default="#303030"/>
         <strokewidth width="0.26999998"/>
         <rect h="1.173" w="3.83" x="16.458" y="17.092"/>
         <fillstroke/>
@@ -1443,18 +1443,18 @@
         <save/>
         <save/>
         <strokecolor color="#404040"/>
-        <fillcolor color="#4d4d4d"/>
+        <fillcolor color="panelColor" default="#4d4d4d"/>
         <strokewidth width="0.57"/>
         <rect h="62.973" w="433.585" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#1b1b1b"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.77"/>
         <linejoin join="round"/>
         <rect h="19.687" w="24.241" x="341.529" y="32.462"/>
         <fillstroke/>
         <strokecolor color="#3b3c3c"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="358.83" y="34.904"/>
@@ -1474,7 +1474,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <path>
             <move x="349.252" y="33.916"/>
             <line x="349.252" y="37.875"/>
@@ -1489,13 +1489,13 @@
         </path>
         <fill/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#88998a"/>
+        <fillcolor color="displayColor" default="#88998a"/>
         <strokewidth width="0.77"/>
         <linejoin join="round"/>
         <rect h="13.532" w="51.989" x="349.401" y="10.028"/>
         <fillstroke/>
         <strokecolor color="#4c4c4c"/>
-        <fillcolor color="#f2f2f2"/>
+        <fillcolor color="ledColor2" default="#f2f2f2"/>
         <strokewidth width="0.85"/>
         <ellipse h="9.626" w="9.626" x="408.312" y="4.571"/>
         <fillstroke/>
@@ -1503,7 +1503,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor2" default="#333333"/>
         <strokewidth width="0.75"/>
         <linecap cap="butt"/>
         <path>
@@ -1525,7 +1525,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#2b2b2b"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="220.614" y="15.321"/>
@@ -1543,7 +1543,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#3b3c3c"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.3"/>
         <linejoin join="round"/>
         <path>
@@ -1600,7 +1600,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <path>
             <move x="248.97" y="16.518"/>
             <line x="248.97" y="20.477"/>
@@ -1645,7 +1645,7 @@
         </path>
         <fill/>
         <strokecolor color="#3b3c3c"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.3"/>
         <linejoin join="round"/>
         <path>
@@ -1702,7 +1702,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <path>
             <move x="248.97" y="51.56"/>
             <line x="248.97" y="47.601"/>
@@ -1747,13 +1747,13 @@
         </path>
         <fill/>
         <strokecolor color="#4c4c4c"/>
-        <fillcolor color="#f2f2f2"/>
+        <fillcolor color="ledColor2" default="#f2f2f2"/>
         <strokewidth width="0.85"/>
         <linejoin join="round"/>
         <ellipse h="9.626" w="9.626" x="408.312" y="15.658"/>
         <fillstroke/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor3" default="#262626"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="193.537" y="38.717"/>
@@ -1806,7 +1806,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="accentColor" default="#d9d9d9"/>
         <path>
             <move x="193.565" y="29.386"/>
             <line x="213.712" y="29.386"/>
@@ -1838,7 +1838,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#808080"/>
-        <fillcolor color="#a6a6a6"/>
+        <fillcolor color="ledColor3" default="#a6a6a6"/>
         <strokewidth width="0.28"/>
         <linecap cap="butt"/>
         <path>
@@ -1928,7 +1928,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#b8b8b8"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor2" default="#333333"/>
         <strokewidth width="0.77"/>
         <linejoin join="round"/>
         <path>
@@ -1954,17 +1954,17 @@
         <save/>
         <save/>
         <strokecolor color="#424242"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666666"/>
         <strokewidth width="0.77"/>
         <rect h="62.973" w="433.744" x="0" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="ventColor" default="#d9d9d9"/>
         <rect h="46.776" w="324.746" x="54.449" y="16.136"/>
         <fill/>
-        <fillcolor color="#f8f8f8"/>
+        <fillcolor color="accentColor" default="#f8f8f8"/>
         <path>
             <move x="322.201" y="28.824"/>
             <line x="289.389" y="28.824"/>
@@ -2019,7 +2019,7 @@
         </path>
         <fill/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="1.13"/>
         <linejoin join="round"/>
         <path>
@@ -2038,7 +2038,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="20.844" y="50.578"/>
             <line x="12.361" y="42.047"/>
@@ -2052,7 +2052,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#9a9a9a"/>
+        <fillcolor color="powerPinColor" default="#9a9a9a"/>
         <path>
             <move x="25.523" y="22.594"/>
             <line x="25.523" y="19.767"/>
@@ -2074,10 +2074,10 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="ledPanelColor" default="#e6e6e6"/>
         <rect h="41.524" w="16.356" x="410.252" y="6.752"/>
         <fill/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor" default="#1a1a1a"/>
         <path>
             <move x="421.33" y="38.244"/>
             <curve x1="421.33" x2="419.701" x3="417.721" y1="40.224" y2="41.852" y3="41.852"/>
@@ -2099,7 +2099,7 @@
         </path>
         <fill/>
         <strokecolor color="#aaa"/>
-        <fillcolor color="#ddd"/>
+        <fillcolor color="screwColor" default="#dddddd"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <path>
@@ -2138,17 +2138,17 @@
     <foreground>
         <save/>
         <strokecolor color="#444"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666666"/>
         <strokewidth width="0.57"/>
         <rect h="62.973" w="629.48" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#8d9f90"/>
+        <fillcolor color="displayColor" default="#8d9f90"/>
         <linejoin join="round"/>
         <rect h="13.532" w="51.989" x="544.889" y="9.996"/>
         <fillstroke/>
         <strokecolor color="#5f5f5f"/>
-        <fillcolor color="#f2f2f2"/>
+        <fillcolor color="ledColor2" default="#f2f2f2"/>
         <path>
             <move x="613.081" y="9.209"/>
             <curve x1="613.081" x2="611.025" x3="608.527" y1="11.707" y2="13.762" y3="13.762"/>
@@ -2173,7 +2173,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#292929"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="402.341" y="31.85"/>
@@ -2215,7 +2215,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#353635"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="419.642" y="34.314"/>
@@ -2283,7 +2283,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <path>
             <move x="410.063" y="33.304"/>
             <line x="410.063" y="37.262"/>
@@ -2348,7 +2348,7 @@
         </path>
         <fill/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor2" default="#262626"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <path>
@@ -2390,7 +2390,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor3" default="#333333"/>
         <rect h="19.151" w="8.591" x="504.816" y="31.398"/>
         <fillstroke/>
     </foreground>
@@ -2403,14 +2403,14 @@
         <save/>
         <save/>
         <strokecolor color="#1c1c1c"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666666"/>
         <strokewidth width="0.57"/>
         <rect h="62.973" w="630.016" x="0" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#f8f8f8"/>
+        <fillcolor color="accentColor" default="#f8f8f8"/>
         <path>
             <move x="373.764" y="34.99"/>
             <line x="340.952" y="34.99"/>
@@ -2435,7 +2435,7 @@
         </path>
         <fill/>
         <strokecolor color="#3d3d3d"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <path>
@@ -2454,7 +2454,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="529.616" y="50.706"/>
             <line x="521.133" y="42.175"/>
@@ -2468,7 +2468,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#9b9b9b"/>
+        <fillcolor color="powerPinColor" default="#9b9b9b"/>
         <path>
             <move x="534.295" y="22.722"/>
             <line x="534.295" y="19.895"/>
@@ -2490,7 +2490,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="screwColor" default="#d9d9d9"/>
         <path>
             <move x="623.981" y="55.46"/>
             <curve x1="623.981" x2="622.481" x3="620.657" y1="57.283" y2="58.784" y3="58.784"/>
@@ -2535,7 +2535,7 @@
         </path>
         <fill/>
         <strokecolor color="#959595"/>
-        <fillcolor color="#ddd"/>
+        <fillcolor color="screwColor" default="#dddddd"/>
         <strokewidth width="1.42"/>
         <linejoin join="round"/>
         <path>
@@ -2562,7 +2562,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#3e3e3e"/>
-        <fillcolor color="#676767"/>
+        <fillcolor color="ventColor" default="#676767"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="277.803" y="32.521"/>
@@ -2576,16 +2576,16 @@
         </path>
         <fillstroke/>
         <strokecolor color="#a5a5a5"/>
-        <fillcolor color="#323232"/>
+        <fillcolor color="portColor" default="#323232"/>
         <rect h="8.428" w="18.562" x="84.942" y="42.678"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="ventColor2" default="#e6e6e6"/>
         <rect h="46.214" w="96.596" x="403.14" y="4.892"/>
         <fill/>
-        <fillcolor color="#f8f8f8"/>
+        <fillcolor color="accentColor" default="#f8f8f8"/>
         <path>
             <move x="496.454" y="35.332"/>
             <line x="463.642" y="35.332"/>
@@ -2639,10 +2639,10 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="ledPanelColor" default="#e6e6e6"/>
         <rect h="45.123" w="18.439" x="568.743" y="4.731"/>
         <fill/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor" default="#1a1a1a"/>
         <path>
             <move x="581.241" y="38.781"/>
             <curve x1="581.241" x2="579.612" x3="577.633" y1="40.76" y2="42.389" y3="42.389"/>
@@ -2673,28 +2673,28 @@
         <save/>
         <save/>
         <strokecolor color="#4f4f4f"/>
-        <fillcolor color="#595959"/>
+        <fillcolor color="panelColor" default="#595959"/>
         <strokewidth width="0.57"/>
         <rect h="62.973" w="629.48" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#c1c1c1"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="displayColor" default="#829384"/>
         <strokewidth width="0.77"/>
         <linejoin join="round"/>
         <rect h="13.532" w="51.989" x="544.889" y="9.996"/>
         <fillstroke/>
         <strokecolor color="#5d5d5d"/>
-        <fillcolor color="#f1f1f1"/>
+        <fillcolor color="ledColor2" default="#f1f1f1"/>
         <strokewidth width="0.57"/>
         <ellipse h="9.108" w="9.108" x="603.973" y="15.88"/>
         <fillstroke/>
         <ellipse h="9.108" w="9.108" x="603.973" y="4.655"/>
         <fillstroke/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor3" default="#333333"/>
         <rect h="19.151" w="8.591" x="504.816" y="31.398"/>
         <fillstroke/>
-        <fillcolor color="#353535"/>
+        <fillcolor color="portColor2" default="#353535"/>
         <linecap cap="butt"/>
         <path>
             <move x="572.206" y="51.296"/>
@@ -2715,7 +2715,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#2f2f2f"/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="portPanelColor" default="#d9d9d9"/>
         <strokewidth width="0.77"/>
         <linejoin join="round"/>
         <path>
@@ -2740,7 +2740,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#333"/>
-        <fillcolor color="#7e8e80"/>
+        <fillcolor color="ledColor" default="#7e8e80"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="302.588" y="34.016"/>
@@ -2772,7 +2772,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <path>
             <move x="293.01" y="33.306"/>
             <line x="293.01" y="37.265"/>
@@ -2807,7 +2807,7 @@
         </path>
         <fill/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor4" default="#262626"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <path>
@@ -2852,7 +2852,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#8c8c8c"/>
+        <fillcolor color="ledPanelColor" default="#8c8c8c"/>
         <path>
             <move x="12.192" y="8.43"/>
             <line x="24.708" y="8.43"/>
@@ -2864,7 +2864,7 @@
         </path>
         <fill/>
         <strokecolor color="#505050"/>
-        <fillcolor color="#ddd"/>
+        <fillcolor color="screwColor" default="#dddddd"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <path>
@@ -2878,6 +2878,10 @@
             <line x="227.09" y="10.779"/>
             <curve x1="229.718" x2="231.88" x3="231.88" y1="10.779" y2="12.942" y3="15.57"/>
             <close/>
+        </path>
+        <fillstroke/>
+        <fillcolor color="ledColor4" default="#dddddd"/>
+        <path>
             <move x="25.099" y="15.57"/>
             <line x="25.099" y="15.57"/>
             <curve x1="25.099" x2="22.936" x3="20.308" y1="18.198" y2="20.36" y3="20.36"/>
@@ -2896,12 +2900,12 @@
         <save/>
         <save/>
         <strokecolor color="#2f2f2f"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666666"/>
         <strokewidth width="0.77"/>
         <rect h="62.973" w="629.48" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#363636"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <path>
@@ -2930,7 +2934,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="205.062" y="42.538"/>
             <line x="213.348" y="50.777"/>
@@ -2955,7 +2959,7 @@
         </path>
         <fill/>
         <strokecolor color="#e8e8e8"/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor" default="#1a1a1a"/>
         <strokewidth width="0.85"/>
         <linejoin join="round"/>
         <path>
@@ -2979,7 +2983,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#959595"/>
-        <fillcolor color="#ddd"/>
+        <fillcolor color="screwColor" default="#dddddd"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="590.717" y="16.078"/>
@@ -2999,7 +3003,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor2" default="#dcdcdc"/>
         <path>
             <move x="10.483" y="54.501"/>
             <curve x1="10.483" x2="8.982" x3="7.159" y1="56.325" y2="57.825" y3="57.825"/>
@@ -3023,7 +3027,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#9a9a9a"/>
+        <fillcolor color="powerPinColor" default="#9a9a9a"/>
         <path>
             <move x="232.313" y="38.2"/>
             <line x="235.058" y="38.2"/>
@@ -3064,7 +3068,7 @@
         </path>
         <fill/>
         <strokecolor color="#a9a9a9"/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <path>
@@ -3107,7 +3111,7 @@
         </path>
         <stroke/>
         <strokecolor color="#353535"/>
-        <fillcolor color="#606060"/>
+        <fillcolor color="handleColor" default="#606060"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="543.636" y="35.898"/>
@@ -3128,37 +3132,10 @@
         <save/>
         <save/>
         <save/>
-        <save/>
-        <save/>
-        <strokecolor color="#0f0"/>
-        <fillcolor color="#f00"/>
-        <strokewidth width="0.77"/>
-        <fillalpha alpha="0.87"/>
-        <rect h="19.687" w="24.241" x="536.838" y="32.29"/>
-        <fillstroke/>
-        <restore/>
-        <rect/>
-        <stroke/>
-        <fillcolor color="#0f0"/>
-        <fillalpha alpha="0.87"/>
-        <path>
-            <move x="544.561" y="33.744"/>
-            <line x="544.561" y="37.702"/>
-            <line x="540.672" y="37.702"/>
-            <line x="540.672" y="47.6"/>
-            <line x="557.121" y="47.6"/>
-            <line x="557.121" y="37.702"/>
-            <line x="553.232" y="37.702"/>
-            <line x="553.232" y="33.744"/>
-            <line x="544.561" y="33.744"/>
-            <close/>
-        </path>
-        <fill/>
-        <restore/>
         <rect/>
         <stroke/>
         <strokecolor color="#343434"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <linejoin join="miter"/>
         <rect h="62.973" w="629.48" x="0" y="0"/>
@@ -3167,12 +3144,12 @@
         <rect/>
         <stroke/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#839585"/>
+        <fillcolor color="displayColor" default="#839585"/>
         <strokewidth width="0.57"/>
         <rect h="13.532" w="51.989" x="544.889" y="9.996"/>
         <fillstroke/>
         <strokecolor color="#7c7c7c"/>
-        <fillcolor color="#f2f2f2"/>
+        <fillcolor color="ledColor2" default="#f2f2f2"/>
         <path>
             <move x="613.081" y="9.209"/>
             <curve x1="613.081" x2="611.025" x3="608.527" y1="11.707" y2="13.762" y3="13.762"/>
@@ -3197,7 +3174,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor" default="#333"/>
         <rect h="19.151" w="8.591" x="504.816" y="31.398"/>
         <fillstroke/>
         <linecap cap="butt"/>
@@ -3220,7 +3197,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#272727"/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="portPanelColor" default="#d9d9d9"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="285.287" y="31.575"/>
@@ -3238,7 +3215,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#353535"/>
-        <fillcolor color="#819283"/>
+        <fillcolor color="ledColor" default="#819283"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="302.588" y="34.016"/>
@@ -3270,7 +3247,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor2" default="#292929"/>
         <path>
             <move x="293.01" y="33.028"/>
             <line x="293.01" y="36.987"/>
@@ -3295,7 +3272,7 @@
         </path>
         <fill/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor3" default="#262626"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="255.612" y="38.045"/>
@@ -3337,7 +3314,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#4a4a4a"/>
-        <fillcolor color="#8c8c8c"/>
+        <fillcolor color="ledPanelColor" default="#8c8c8c"/>
         <path>
             <move x="12.192" y="8.43"/>
             <line x="24.708" y="8.43"/>
@@ -3348,7 +3325,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#ddd"/>
+        <fillcolor color="ledColor3" default="#ddd"/>
         <path>
             <move x="231.88" y="15.783"/>
             <curve x1="231.88" x2="229.718" x3="227.09" y1="18.411" y2="20.573" y3="20.573"/>
@@ -3378,22 +3355,9 @@
         <save/>
         <save/>
         <save/>
-        <strokecolor color="#333"/>
-        <fillcolor color="#5f5f5f"/>
-        <strokewidth width="0.77"/>
-        <path>
-            <move x="543.636" y="35.898"/>
-            <curve x1="543.636" x2="541.176" x3="538.146" y1="32.868" y2="30.408" y3="30.408"/>
-            <line x="397.99" y="30.408"/>
-            <curve x1="394.96" x2="392.5" x3="392.5" y1="30.408" y2="32.868" y3="35.898"/>
-            <curve x1="392.5" x2="394.96" x3="397.99" y1="38.929" y2="41.389" y3="41.389"/>
-            <line x="538.146" y="41.389"/>
-            <curve x1="541.176" x2="543.636" x3="543.636" y1="41.389" y2="38.929" y3="35.898"/>
-            <close/>
-        </path>
-        <fillstroke/>
         <strokecolor color="#404040"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
+        <strokewidth width="0.77"/>
         <linejoin join="miter"/>
         <rect h="62.973" w="629.48" x="0" y="0"/>
         <fillstroke/>
@@ -3401,7 +3365,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#363636"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="204.595" y="54.951"/>
@@ -3429,7 +3393,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="205.062" y="42.538"/>
             <line x="213.348" y="50.777"/>
@@ -3454,7 +3418,7 @@
         </path>
         <fill/>
         <strokecolor color="#e8e8e8"/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor2" default="#1a1a1a"/>
         <strokewidth width="1.13"/>
         <path>
             <move x="616.751" y="39.414"/>
@@ -3477,7 +3441,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#8c8c8c"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="screwColor2" default="#e6e6e6"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="33.043" y="12.493"/>
@@ -3501,7 +3465,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#939393"/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <path>
             <move x="30.331" y="12.493"/>
             <curve x1="30.331" x2="28.573" x3="26.437" y1="14.628" y2="16.386" y3="16.386"/>
@@ -3519,7 +3483,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#ddd"/>
+        <fillcolor color="screwColor" default="#ddd"/>
         <path>
             <move x="590.717" y="16.078"/>
             <curve x1="590.717" x2="588.506" x3="585.819" y1="18.765" y2="20.976" y3="20.976"/>
@@ -3538,7 +3502,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <path>
             <move x="10.483" y="54.532"/>
             <line x="10.483" y="54.532"/>
@@ -3562,7 +3526,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#9a9a9a"/>
+        <fillcolor color="powerPinColor" default="#9a9a9a"/>
         <path>
             <move x="232.313" y="38.159"/>
             <line x="235.058" y="38.159"/>
@@ -3610,18 +3574,18 @@
         <save/>
         <save/>
         <strokecolor color="#464646"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <rect h="62.973" w="629.48" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#839585"/>
+        <fillcolor color="displayColor" default="#839585"/>
         <strokewidth width="0.77"/>
         <linejoin join="round"/>
         <rect h="13.532" w="51.989" x="544.889" y="9.995"/>
         <fillstroke/>
         <strokecolor color="#a5a5a5"/>
-        <fillcolor color="#f2f2f2"/>
+        <fillcolor color="ledColor2" default="#f2f2f2"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="613.08" y="9.208"/>
@@ -3647,7 +3611,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#343434"/>
+        <fillcolor color="portColor" default="#343434"/>
         <rect h="19.151" w="8.591" x="504.815" y="31.397"/>
         <fillstroke/>
         <linecap cap="butt"/>
@@ -3670,7 +3634,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#3d3d3d"/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="portPanelColor" default="#d9d9d9"/>
         <strokewidth width="0.77"/>
         <linejoin join="round"/>
         <path>
@@ -3695,7 +3659,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#d9d9d9"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor2" default="#262626"/>
         <path>
             <move x="255.612" y="38.044"/>
             <line x="275.567" y="38.044"/>
@@ -3736,7 +3700,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#494949"/>
-        <fillcolor color="#8c8c8c"/>
+        <fillcolor color="ledPanelColor" default="#8c8c8c"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="12.191" y="8.429"/>
@@ -3749,14 +3713,15 @@
         </path>
         <fillstroke/>
         <strokecolor color="#8d8d8d"/>
-        <fillcolor color="#ddd"/>
+        <fillcolor color="ledColor" default="#ddd"/>
         <ellipse h="9.58" w="9.58" x="15.518" y="10.566"/>
         <fillstroke/>
         <strokecolor color="#4d4d4d"/>
+        <fillcolor color="screwColor" default="#ddd"/>
         <ellipse h="9.58" w="9.58" x="222.299" y="10.992"/>
         <fillstroke/>
         <strokecolor color="#393939"/>
-        <fillcolor color="#809182"/>
+        <fillcolor color="ledColor3" default="#809182"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="302.588" y="34.015"/>
@@ -3788,7 +3753,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor3" default="#292929"/>
         <path>
             <move x="293.009" y="33.305"/>
             <line x="293.009" y="37.264"/>
@@ -3830,22 +3795,9 @@
         <save/>
         <save/>
         <save/>
-        <strokecolor color="#333"/>
-        <fillcolor color="#5c5c5c"/>
-        <strokewidth width="0.77"/>
-        <path>
-            <move x="543.636" y="35.898"/>
-            <curve x1="543.636" x2="541.176" x3="538.146" y1="32.868" y2="30.408" y3="30.408"/>
-            <line x="397.99" y="30.408"/>
-            <curve x1="394.96" x2="392.5" x3="392.5" y1="30.408" y2="32.868" y3="35.898"/>
-            <curve x1="392.5" x2="394.96" x3="397.99" y1="38.929" y2="41.389" y3="41.389"/>
-            <line x="538.146" y="41.389"/>
-            <curve x1="541.176" x2="543.636" x3="543.636" y1="41.389" y2="38.929" y3="35.898"/>
-            <close/>
-        </path>
-        <fillstroke/>
         <strokecolor color="#4b4b4b"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
+        <strokewidth width="0.77"/>
         <linejoin join="miter"/>
         <rect h="62.973" w="629.48" x="0" y="0"/>
         <fillstroke/>
@@ -3853,7 +3805,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#333"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="204.595" y="54.951"/>
@@ -3881,7 +3833,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="205.062" y="42.538"/>
             <line x="213.348" y="50.777"/>
@@ -3906,7 +3858,7 @@
         </path>
         <fill/>
         <strokecolor color="#dbdbdb"/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor2" default="#1a1a1a"/>
         <strokewidth width="1.13"/>
         <path>
             <move x="616.751" y="39.414"/>
@@ -3948,7 +3900,7 @@
         </path>
         <stroke/>
         <strokecolor color="#8c8c8c"/>
-        <fillcolor color="#eaeaea"/>
+        <fillcolor color="screwColor" default="#eaeaea"/>
         <path>
             <move x="33.043" y="12.493"/>
             <curve x1="33.043" x2="30.061" x3="26.437" y1="16.116" y2="19.098" y3="19.098"/>
@@ -3971,7 +3923,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#8e8e8e"/>
-        <fillcolor color="#ddd"/>
+        <fillcolor color="screwColor2" default="#ddd"/>
         <path>
             <move x="590.717" y="16.078"/>
             <curve x1="590.717" x2="588.506" x3="585.819" y1="18.765" y2="20.976" y3="20.976"/>
@@ -3990,7 +3942,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#dbdbdb"/>
+        <fillcolor color="screwColor3" default="#dbdbdb"/>
         <path>
             <move x="10.483" y="54.501"/>
             <curve x1="10.483" x2="8.982" x3="7.159" y1="56.325" y2="57.825" y3="57.825"/>
@@ -4014,7 +3966,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#9a9a9a"/>
+        <fillcolor color="powerPinColor" default="#9a9a9a"/>
         <path>
             <move x="232.313" y="38.159"/>
             <line x="235.058" y="38.159"/>
@@ -4061,17 +4013,17 @@
     <foreground>
         <save/>
         <strokecolor color="#404040"/>
-        <fillcolor color="#4d4d4d"/>
+        <fillcolor color="panelColor" default="#4d4d4d"/>
         <strokewidth width="0.57"/>
         <rect h="62.973" w="629.48" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#899b8c"/>
+        <fillcolor color="displayColor" default="#899b8c"/>
         <linejoin join="round"/>
         <rect h="13.532" w="51.989" x="544.889" y="9.996"/>
         <fillstroke/>
         <strokecolor color="#616161"/>
-        <fillcolor color="#f2f2f2"/>
+        <fillcolor color="ledColor" default="#f2f2f2"/>
         <strokewidth width="0.85"/>
         <path>
             <move x="613.081" y="9.209"/>
@@ -4097,7 +4049,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#1e1e1e"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="588.633" y="32.12"/>
@@ -4115,7 +4067,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#2d2d2d"/>
-        <fillcolor color="#7e8e80"/>
+        <fillcolor color="ledColor2" default="#7e8e80"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="605.935" y="34.562"/>
@@ -4135,7 +4087,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <path>
             <move x="596.356" y="33.659"/>
             <line x="596.356" y="37.618"/>
@@ -4160,18 +4112,18 @@
         </path>
         <fill/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#255ea7"/>
+        <fillcolor color="portColor2" default="#255ea7"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <rect h="19.151" w="8.591" x="504.816" y="31.398"/>
         <fillstroke/>
         <strokecolor color="#808080"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor3" default="#333"/>
         <strokewidth width="0.85"/>
         <rect h="3.324" w="10.154" x="570.808" y="48.105"/>
         <fillstroke/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor4" default="#262626"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="312.106" y="38.255"/>
@@ -4249,73 +4201,15 @@
         <save/>
         <save/>
         <save/>
-        <save/>
         <strokecolor color="#282828"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <rect h="62.973" w="630.016" x="0" y="0"/>
         <fillstroke/>
-        <strokecolor color="#0f0"/>
-        <fillcolor color="#f00"/>
-        <strokewidth width="0.79"/>
-        <linejoin join="round"/>
-        <fillalpha alpha="0.87"/>
-        <path>
-            <move x="570.086" y="5.766"/>
-            <curve x1="568.519" x2="567.246" x3="567.246" y1="5.766" y2="7.038" y3="8.606"/>
-            <line x="567.246" y="47.002"/>
-            <curve x1="567.246" x2="568.519" x3="570.086" y1="48.569" y2="49.842" y3="49.842"/>
-            <line x="598.167" y="49.842"/>
-            <curve x1="599.734" x2="601.007" x3="601.007" y1="49.842" y2="48.569" y3="47.002"/>
-            <line x="601.007" y="8.606"/>
-            <curve x1="601.007" x2="599.734" x3="598.167" y1="7.038" y2="5.766" y3="5.766"/>
-            <line x="570.086" y="5.766"/>
-            <close/>
-        </path>
-        <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#0f0"/>
-        <path>
-            <move x="579.973" y="47.023"/>
-            <line x="571.49" y="38.491"/>
-            <line x="571.49" y="18.064"/>
-            <line x="579.681" y="9.776"/>
-            <line x="592.113" y="9.776"/>
-            <curve x1="595.583" x2="597.183" x3="597.183" y1="9.776" y2="11.56" y3="15.09"/>
-            <line x="597.183" y="41.173"/>
-            <curve x1="597.183" x2="595.55" x3="592.015" y1="44.48" y2="47.023" y3="47.023"/>
-            <line x="579.973" y="47.023"/>
-            <close/>
-        </path>
-        <fill/>
-        <fillalpha alpha="0.87"/>
-        <path>
-            <move x="584.652" y="19.039"/>
-            <line x="584.652" y="16.212"/>
-            <line x="592.237" y="16.212"/>
-            <line x="592.237" y="19.039"/>
-            <line x="584.652" y="19.039"/>
-            <close/>
-            <move x="576.724" y="29.743"/>
-            <line x="576.724" y="26.916"/>
-            <line x="584.308" y="26.916"/>
-            <line x="584.308" y="29.743"/>
-            <line x="576.724" y="29.743"/>
-            <close/>
-            <move x="584.652" y="40.447"/>
-            <line x="584.652" y="37.621"/>
-            <line x="592.237" y="37.621"/>
-            <line x="592.237" y="40.447"/>
-            <line x="584.652" y="40.447"/>
-            <close/>
-        </path>
-        <fill/>
-        <restore/>
-        <rect/>
-        <stroke/>
-        <fillcolor color="#dadada"/>
+        <fillcolor color="screwColor" default="#dadada"/>
         <path>
             <move x="623.981" y="55.438"/>
             <curve x1="623.981" x2="622.481" x3="620.657" y1="57.261" y2="58.762" y3="58.762"/>
@@ -4340,46 +4234,46 @@
         </path>
         <fill/>
         <strokecolor color="#171717"/>
-        <fillcolor color="#404040"/>
+        <fillcolor color="accentColor" default="#404040"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <rect h="62.679" w="353.571" x="144.088" y="0.142"/>
         <fillstroke/>
         <strokecolor color="#929292"/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="ledPanelColor" default="#d9d9d9"/>
         <strokewidth width="0.85"/>
         <rect h="62.38" w="20.602" x="123.486" y="0.441"/>
         <fillstroke/>
         <strokecolor color="#282828"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="powerPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.57"/>
         <rect h="62.529" w="117.98" x="497.66" y="0.142"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="fanColor" default="#1a1a1a"/>
         <ellipse h="56.792" w="56.792" x="509.945" y="2.044"/>
         <fill/>
         <strokecolor color="#686868"/>
-        <fillcolor color="#fff"/>
+        <fillcolor color="fanColor2" default="#fff"/>
         <strokewidth width="1.98"/>
         <linejoin join="round"/>
         <ellipse h="31.242" w="31.242" x="522.72" y="14.819"/>
         <fillstroke/>
         <strokecolor color="#323232"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="ledColor" default="#e6e6e6"/>
         <strokewidth width="3.12"/>
         <ellipse h="8.658" w="8.658" x="599.485" y="49.423"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor2" default="#1a1a1a"/>
         <ellipse h="7.184" w="7.184" x="581.724" y="50.256"/>
         <fill/>
         <strokecolor color="#838383"/>
-        <fillcolor color="#dedede"/>
+        <fillcolor color="fanScrewColor" default="#dedede"/>
         <strokewidth width="0.57"/>
         <linejoin join="round"/>
         <path>
@@ -4426,7 +4320,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#7c7c7c"/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor2" default="#dcdcdc"/>
         <path>
             <move x="213.64" y="12.079"/>
             <line x="213.64" y="12.079"/>
@@ -4480,7 +4374,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#f1f1f1"/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor3" default="#1a1a1a"/>
         <strokewidth width="1.7"/>
         <path>
             <move x="138.222" y="37.801"/>
@@ -4501,7 +4395,7 @@
         <rect/>
         <stroke/>
         <strokecolor color="#424242"/>
-        <fillcolor color="#525252"/>
+        <fillcolor color="handleColor" default="#525252"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="94.468" y="9.561"/>
@@ -4517,7 +4411,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#e22926"/>
+        <fillcolor color="accentColor2" default="#e22926"/>
         <path>
             <move x="434.279" y="42.112"/>
             <line x="479.678" y="42.112"/>
@@ -4571,14 +4465,14 @@
         <save/>
         <save/>
         <strokecolor color="#3f3f3f"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.77"/>
         <rect h="61.7" w="340.097" x="0" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#404040"/>
+        <fillcolor color="accentColor" default="#404040"/>
         <path>
             <move x="12.427" y="19.923"/>
             <curve x1="12.427" x2="19.157" x3="26.892" y1="10.766" y2="5.66" y3="5.66"/>
@@ -4591,7 +4485,7 @@
         </path>
         <fill/>
         <strokecolor color="#3f3f3f"/>
-        <fillcolor color="#656565"/>
+        <fillcolor color="feetColor" default="#656565"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="302.238" y="61.699"/>
@@ -4609,23 +4503,23 @@
         </path>
         <fillstroke/>
         <strokecolor color="#1d1d1d"/>
-        <fillcolor color="#4d4d4d"/>
+        <fillcolor color="powerPanelColor" default="#4d4d4d"/>
         <rect h="20.089" w="16.272" x="30.441" y="26.218"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="powerColor" default="#262626"/>
         <ellipse h="10.848" w="10.848" x="32.986" y="28.83"/>
         <fill/>
-        <fillcolor color="#c7c7c7"/>
+        <fillcolor color="powerPinColor" default="#c7c7c7"/>
         <ellipse h="3.416" w="3.416" x="36.936" y="32.713"/>
         <fill/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor2" default="#1a1a1a"/>
         <ellipse h="4.888" w="4.888" x="54.414" y="36.129"/>
         <fill/>
         <strokecolor color="#1a1a1a"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.57"/>
         <rect h="24.509" w="101.518" x="67.003" y="21.597"/>
         <fillstroke/>
@@ -4633,7 +4527,7 @@
         <rect h="39.107" w="32.411" x="173.343" y="6.865"/>
         <fillstroke/>
         <strokecolor color="#4a4a4a"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.37"/>
         <path>
             <move x="160.226" y="24.354"/>
@@ -4689,7 +4583,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor" default="#292929"/>
         <path>
             <move x="148.361" y="23.131"/>
             <line x="148.361" y="28.034"/>
@@ -4747,7 +4641,7 @@
         </path>
         <fill/>
         <strokecolor color="#454545"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor2" default="#333"/>
         <strokewidth width="0.57"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -4766,11 +4660,11 @@
         <rect/>
         <stroke/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor2" default="#333"/>
         <strokewidth width="0.57"/>
         <rect h="9.754" w="22.066" x="239.12" y="33.567"/>
         <fillstroke/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="portColor3" default="#1a1a1a"/>
         <strokewidth width="0.28"/>
         <rect h="12.69" w="6.061" x="305.127" y="16.71"/>
         <fillstroke/>
@@ -4781,14 +4675,14 @@
     <foreground>
         <save/>
         <strokecolor color="#343434"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <rect h="61.7" w="340.097" x="0" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#404040"/>
+        <fillcolor color="accentColor" default="#404040"/>
         <path>
             <move x="12.428" y="19.924"/>
             <curve x1="12.428" x2="19.157" x3="26.892" y1="10.766" y2="5.661" y3="5.661"/>
@@ -4800,7 +4694,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#a6a6a6"/>
+        <fillcolor color="ledColor" default="#a6a6a6"/>
         <path>
             <move x="276.083" y="31.259"/>
             <line x="276.083" y="31.259"/>
@@ -4864,7 +4758,7 @@
         </path>
         <fill/>
         <strokecolor color="#343434"/>
-        <fillcolor color="#636363"/>
+        <fillcolor color="feetColor" default="#636363"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="302.239" y="61.7"/>
@@ -4887,7 +4781,7 @@
     <connections/>
     <foreground>
         <strokecolor color="#858585"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="panelColor" default="#e6e6e6"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="0" y="0"/>
@@ -4950,14 +4844,14 @@
         <save/>
         <save/>
         <strokecolor color="#373737"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <rect h="61.622" w="555.259" x="0" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#404040"/>
+        <fillcolor color="accentColor" default="#404040"/>
         <path>
             <move x="12.428" y="19.924"/>
             <curve x1="12.428" x2="19.157" x3="26.892" y1="10.766" y2="5.661" y3="5.661"/>
@@ -4970,19 +4864,19 @@
         </path>
         <fill/>
         <strokecolor color="#909090"/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="portColor" default="#1a1a1a"/>
         <strokewidth width="0.57"/>
         <rect h="10.607" w="5.303" x="25.379" y="29.212"/>
         <fillstroke/>
         <strokecolor color="#1a1a1a"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="1.13"/>
         <rect h="33.853" w="43.768" x="58.051" y="15.413"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="60.869" y="41.905"/>
             <line x="60.846" y="28.634"/>
@@ -5000,7 +4894,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#9a9a9a"/>
+        <fillcolor color="powerPinColor" default="#9a9a9a"/>
         <path>
             <move x="88.895" y="32.327"/>
             <line x="91.358" y="32.327"/>
@@ -5023,17 +4917,17 @@
         </path>
         <fill/>
         <strokecolor color="#1a1a1a"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.57"/>
         <rect h="37.798" w="123.149" x="239.481" y="12.713"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <rect h="32.708" w="26.855" x="395.697" y="17.297"/>
         <fill/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor2" default="#292929"/>
         <path>
             <move x="404.396" y="20.196"/>
             <line x="404.396" y="24.544"/>
@@ -5047,6 +4941,7 @@
             <close/>
         </path>
         <fill/>
+        <fillcolor color="portColor3" default="#292929"/>
         <path>
             <move x="345.932" y="14.102"/>
             <line x="345.932" y="18.079"/>
@@ -5111,7 +5006,7 @@
         </path>
         <fill/>
         <strokecolor color="#353535"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="355.555" y="48.057"/>
@@ -5263,7 +5158,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor3" default="#292929"/>
         <path>
             <move x="345.932" y="49.049"/>
             <line x="345.932" y="45.072"/>
@@ -5328,7 +5223,7 @@
         </path>
         <fill/>
         <strokecolor color="#e6e6e6"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor4" default="#333"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="502.69" y="40.191"/>
@@ -5346,7 +5241,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#909090"/>
-        <fillcolor color="#363534"/>
+        <fillcolor color="portColor5" default="#363534"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
         <path>
@@ -5367,14 +5262,14 @@
     <foreground>
         <save/>
         <strokecolor color="#343434"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <rect h="61.622" w="555.259" x="0" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#404040"/>
+        <fillcolor color="accentColor" default="#404040"/>
         <path>
             <move x="12.428" y="19.924"/>
             <curve x1="12.428" x2="19.157" x3="26.892" y1="10.766" y2="5.661" y3="5.661"/>
@@ -5386,7 +5281,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#a6a6a6"/>
+        <fillcolor color="ledColor" default="#a6a6a6"/>
         <path>
             <move x="461.885" y="30.772"/>
             <curve x1="461.885" x2="460.736" x3="459.34" y1="32.168" y2="33.317" y3="33.317"/>
@@ -5454,7 +5349,7 @@
     <foreground>
         <save/>
         <strokecolor color="#4a4a4a"/>
-        <fillcolor color="#595959"/>
+        <fillcolor color="earColor" default="#595959"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="0" y="0.008"/>
@@ -5514,13 +5409,13 @@
         </path>
         <fillstroke/>
         <strokecolor color="#4b4b4b"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <rect h="62.916" w="639.022" x="21.744" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#404040"/>
+        <fillcolor color="accentColor" default="#404040"/>
         <path>
             <move x="33.041" y="44.561"/>
             <line x="33.041" y="4.668"/>
@@ -5532,7 +5427,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="accentColor2" default="#1a1a1a"/>
         <path>
             <move x="321.644" y="4.597"/>
             <line x="512.989" y="4.597"/>
@@ -5549,7 +5444,7 @@
         </path>
         <fill/>
         <strokecolor color="#4e4e4e"/>
-        <fillcolor color="#595959"/>
+        <fillcolor color="ledPanelColor" default="#595959"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="634.939" y="9.465"/>
@@ -5564,8 +5459,8 @@
             <close/>
         </path>
         <fillstroke/>
-        <strokecolor color="#d56d88"/>
-        <fillcolor color="#e23662"/>
+        <strokecolor color="ledOutlineColor" default="#d56d88"/>
+        <fillcolor color="ledColor" default="#e23662"/>
         <path>
             <move x="610.365" y="17.615"/>
             <curve x1="610.365" x2="608.866" x3="607.044" y1="19.437" y2="20.936" y3="20.936"/>
@@ -5584,8 +5479,8 @@
             <close/>
         </path>
         <fillstroke/>
-        <strokecolor color="#474a47"/>
-        <fillcolor color="#7d9ed5"/>
+        <strokecolor color="ledOutlineColor2" default="#474a47"/>
+        <fillcolor color="ledColor2" default="#7d9ed5"/>
         <path>
             <move x="563.273" y="21.655"/>
             <curve x1="563.273" x2="562.409" x3="561.358" y1="22.706" y2="23.57" y3="23.57"/>
@@ -5595,7 +5490,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#78cf6c"/>
+        <fillcolor color="ledColor3" default="#78cf6c"/>
         <path>
             <move x="571.694" y="21.655"/>
             <curve x1="571.694" x2="570.829" x3="569.779" y1="22.706" y2="23.57" y3="23.57"/>
@@ -5617,7 +5512,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#ded69b"/>
+        <fillcolor color="ledColor4" default="#ded69b"/>
         <path>
             <move x="588.535" y="21.655"/>
             <curve x1="588.535" x2="587.67" x3="586.62" y1="22.706" y2="23.57" y3="23.57"/>
@@ -5627,7 +5522,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#78cf6c"/>
+        <fillcolor color="ledColor3" default="#78cf6c"/>
         <path>
             <move x="596.955" y="21.655"/>
             <curve x1="596.955" x2="596.091" x3="595.041" y1="22.706" y2="23.57" y3="23.57"/>
@@ -5648,7 +5543,7 @@
         <save/>
         <save/>
         <strokecolor color="#454545"/>
-        <fillcolor color="#454545"/>
+        <fillcolor color="earColor" default="#454545"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="0" y="0.007"/>
@@ -5692,13 +5587,13 @@
         </path>
         <fillstroke/>
         <strokecolor color="#404040"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <rect h="62.916" w="624.692" x="28.306" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="accentColor" default="#1a1a1a"/>
         <path>
             <move x="236.544" y="56.935"/>
             <line x="236.544" y="7.698"/>
@@ -5727,7 +5622,7 @@
         </path>
         <fill/>
         <strokecolor color="#cacaca"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor" default="#262626"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="485.938" y="38.139"/>
@@ -5745,12 +5640,12 @@
         </path>
         <fillstroke/>
         <strokecolor color="#cdcdcd"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor2" default="#333"/>
         <strokewidth width="0.77"/>
         <rect h="19.252" w="8.973" x="531.273" y="30.538"/>
         <fillstroke/>
         <strokecolor color="#222"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="614.108" y="31.308"/>
@@ -5768,7 +5663,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#393939"/>
-        <fillcolor color="#829384"/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="580.717" y="33.683"/>
@@ -5788,7 +5683,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor3" default="#292929"/>
         <path>
             <move x="621.733" y="32.734"/>
             <line x="621.733" y="36.692"/>
@@ -5822,12 +5717,12 @@
         <save/>
         <save/>
         <strokecolor color="#434343"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <rect h="62.916" w="653.888" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#090909"/>
-        <fillcolor color="#404040"/>
+        <fillcolor color="fanPanelColor" default="#404040"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="173.608" y="2.172"/>
@@ -5851,7 +5746,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#777"/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="244.912" y="12.271"/>
@@ -5877,6 +5772,7 @@
         <restore/>
         <rect/>
         <stroke/>
+        <fillcolor color="fanColor" default="#000"/>
         <path>
             <move x="177.87" y="7.097"/>
             <line x="228.44" y="7.097"/>
@@ -5898,7 +5794,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#df2c28"/>
+        <fillcolor color="handleColor2" default="#df2c28"/>
         <path>
             <move x="179.243" y="44.258"/>
             <line x="227.162" y="44.258"/>
@@ -5926,7 +5822,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="accentColor" default="#262626"/>
         <path>
             <move x="344.231" y="6.323"/>
             <line x="372.145" y="6.323"/>
@@ -5943,7 +5839,7 @@
         </path>
         <fill/>
         <strokecolor color="#4c4c4c"/>
-        <fillcolor color="#555"/>
+        <fillcolor color="handleColor" default="#555"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="376.883" y="9.018"/>
@@ -5965,7 +5861,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#353535"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="385.002" y="6.674"/>
@@ -5983,7 +5879,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#6b2142"/>
-        <fillcolor color="#843752"/>
+        <fillcolor color="fillColor2" default="#843752"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="404.026" y="50.007"/>
@@ -6001,7 +5897,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#4c4c4c"/>
-        <fillcolor color="#ebebeb"/>
+        <fillcolor color="ledColor" default="#ebebeb"/>
         <strokewidth width="1.7"/>
         <path>
             <move x="390.393" y="56.764"/>
@@ -6024,7 +5920,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="ledColor2" default="#262626"/>
         <path>
             <move x="398.495" y="57.5"/>
             <curve x1="398.495" x2="397.075" x3="395.348" y1="59.227" y2="60.648" y3="60.648"/>
@@ -6045,7 +5941,7 @@
         </path>
         <fill/>
         <strokecolor color="#999"/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <strokewidth width="0.61"/>
         <path>
             <move x="433.732" y="39.747"/>
@@ -6075,18 +5971,18 @@
         </path>
         <fillstroke/>
         <strokecolor color="#505050"/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="accentColor2" default="#d9d9d9"/>
         <strokewidth width="0.57"/>
         <rect h="46.916" w="152.269" x="449.92" y="5.383"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="ledPanelColor" default="#808080"/>
         <rect h="45.891" w="19.453" x="606.289" y="6.085"/>
         <fill/>
         <strokecolor color="#f1f1f1"/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="portColor" default="#1a1a1a"/>
         <strokewidth width="1.7"/>
         <path>
             <move x="620.721" y="38.961"/>
@@ -6110,7 +6006,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="398.428" y="48.996"/>
             <line x="387.915" y="39.922"/>
@@ -6134,7 +6030,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#999"/>
+        <fillcolor color="powerPinColor" default="#999"/>
         <path>
             <move x="402.091" y="38.412"/>
             <line x="409.654" y="38.412"/>
@@ -6182,7 +6078,7 @@
         <save/>
         <save/>
         <strokecolor color="#575757"/>
-        <fillcolor color="#454545"/>
+        <fillcolor color="earColor" default="#454545"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="0" y="0.008"/>
@@ -6226,14 +6122,14 @@
         </path>
         <fillstroke/>
         <strokecolor color="#424242"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <rect h="62.916" w="624.692" x="28.306" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="accentColor" default="#1a1a1a"/>
         <path>
             <move x="236.544" y="56.936"/>
             <line x="236.544" y="7.699"/>
@@ -6262,7 +6158,7 @@
         </path>
         <fill/>
         <strokecolor color="#d4d4d4"/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="portColor" default="#262626"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="485.938" y="38.139"/>
@@ -6280,11 +6176,11 @@
         </path>
         <fillstroke/>
         <strokecolor color="#c7c7c7"/>
-        <fillcolor color="#333"/>
+        <fillcolor color="portColor2" default="#333"/>
         <rect h="19.252" w="8.973" x="531.273" y="30.539"/>
         <fillstroke/>
         <strokecolor color="#232323"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <path>
             <move x="614.108" y="31.309"/>
             <line x="638.215" y="31.309"/>
@@ -6301,7 +6197,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#434443"/>
-        <fillcolor color="#819283"/>
+        <fillcolor color="ledColor" default="#819283"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="580.717" y="33.684"/>
@@ -6321,7 +6217,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor3" default="#292929"/>
         <path>
             <move x="621.733" y="32.735"/>
             <line x="621.733" y="36.693"/>
@@ -6355,12 +6251,12 @@
         <save/>
         <save/>
         <strokecolor color="#484848"/>
-        <fillcolor color="#666"/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokewidth width="0.57"/>
         <rect h="62.916" w="653.888" x="0" y="0"/>
         <fillstroke/>
         <strokecolor color="#090909"/>
-        <fillcolor color="#404040"/>
+        <fillcolor color="fanPanelColor" default="#404040"/>
         <path>
             <move x="173.608" y="2.172"/>
             <line x="245.108" y="2.172"/>
@@ -6383,7 +6279,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#a7a7a7"/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="244.912" y="12.271"/>
@@ -6409,6 +6305,7 @@
         <restore/>
         <rect/>
         <stroke/>
+        <fillcolor color="fanColor" default="#000"/>
         <path>
             <move x="177.87" y="7.097"/>
             <line x="228.44" y="7.097"/>
@@ -6430,7 +6327,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#e22d28"/>
+        <fillcolor color="handleColor2" default="#e22d28"/>
         <path>
             <move x="179.243" y="44.258"/>
             <line x="227.162" y="44.258"/>
@@ -6458,7 +6355,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="accentColor" default="#262626"/>
         <path>
             <move x="344.231" y="6.323"/>
             <line x="372.145" y="6.323"/>
@@ -6475,7 +6372,7 @@
         </path>
         <fill/>
         <strokecolor color="#3f3f3f"/>
-        <fillcolor color="#616161"/>
+        <fillcolor color="handleColor" default="#616161"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="376.883" y="9.018"/>
@@ -6497,7 +6394,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#343434"/>
-        <fillcolor color="#535353"/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="385.002" y="6.674"/>
@@ -6515,7 +6412,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#6b2142"/>
-        <fillcolor color="#843752"/>
+        <fillcolor color="fillColor2" default="#843752"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="404.026" y="50.007"/>
@@ -6533,7 +6430,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="#4c4c4c"/>
-        <fillcolor color="#f1f1f1"/>
+        <fillcolor color="ledColor" default="#f1f1f1"/>
         <strokewidth width="1.98"/>
         <path>
             <move x="390.393" y="56.764"/>
@@ -6556,7 +6453,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="ledColor2" default="#262626"/>
         <path>
             <move x="398.495" y="57.5"/>
             <curve x1="398.495" x2="397.075" x3="395.348" y1="59.227" y2="60.648" y3="60.648"/>
@@ -6577,7 +6474,7 @@
         </path>
         <fill/>
         <strokecolor color="#a1a1a1"/>
-        <fillcolor color="#dcdcdc"/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <strokewidth width="0.61"/>
         <path>
             <move x="433.732" y="39.747"/>
@@ -6607,18 +6504,18 @@
         </path>
         <fillstroke/>
         <strokecolor color="#505050"/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="accentColor2" default="#d9d9d9"/>
         <strokewidth width="0.57"/>
         <rect h="46.916" w="152.269" x="449.92" y="5.383"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="ledPanelColor" default="#808080"/>
         <rect h="45.891" w="19.453" x="606.289" y="6.085"/>
         <fill/>
         <strokecolor color="#f0f0f0"/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="ledColor3" default="#1a1a1a"/>
         <strokewidth width="1.98"/>
         <path>
             <move x="620.721" y="38.961"/>
@@ -6642,7 +6539,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="398.428" y="48.996"/>
             <line x="387.915" y="39.922"/>
@@ -6666,7 +6563,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#999"/>
+        <fillcolor color="powerPinColor" default="#999"/>
         <path>
             <move x="402.091" y="38.412"/>
             <line x="409.654" y="38.412"/>
@@ -6713,8 +6610,8 @@
     <foreground>
         <save/>
         <save/>
+        <fillcolor color="earColor" default="#454545"/>
         <strokecolor color="#404040"/>
-        <fillcolor color="#454545"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="0" y="0.007"/>
@@ -6757,14 +6654,14 @@
             <close/>
         </path>
         <fillstroke/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokecolor color="#444"/>
-        <fillcolor color="#666"/>
         <rect h="62.916" w="624.692" x="28.306" y="0"/>
         <fillstroke/>
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#1a1a1a"/>
+        <fillcolor color="accentColor" default="#1a1a1a"/>
         <path>
             <move x="236.544" y="56.935"/>
             <line x="236.544" y="7.698"/>
@@ -6792,8 +6689,8 @@
             <close/>
         </path>
         <fill/>
+        <fillcolor color="portColor" default="#262626"/>
         <strokecolor color="#d1d1d1"/>
-        <fillcolor color="#262626"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="485.938" y="38.139"/>
@@ -6810,12 +6707,12 @@
             <close/>
         </path>
         <fillstroke/>
+        <fillcolor color="portColor2" default="#333"/>
         <strokecolor color="#cbcbcb"/>
-        <fillcolor color="#333"/>
         <rect h="19.252" w="8.973" x="531.273" y="30.538"/>
         <fillstroke/>
+        <fillcolor color="portPanelColor" default="#e6e6e6"/>
         <strokecolor color="#242424"/>
-        <fillcolor color="#e6e6e6"/>
         <path>
             <move x="614.108" y="31.308"/>
             <line x="638.215" y="31.308"/>
@@ -6831,8 +6728,8 @@
             <close/>
         </path>
         <fillstroke/>
+        <fillcolor color="ledColor" default="#829384"/>
         <strokecolor color="#3e3e3e"/>
-        <fillcolor color="#829384"/>
         <strokewidth width="0.3"/>
         <path>
             <move x="580.717" y="33.683"/>
@@ -6852,7 +6749,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="portColor3" default="#292929"/>
         <path>
             <move x="621.733" y="32.734"/>
             <line x="621.733" y="36.692"/>
@@ -6885,13 +6782,13 @@
         <save/>
         <save/>
         <save/>
+        <fillcolor color="panelColor" default="#666"/>
         <strokecolor color="#404040"/>
-        <fillcolor color="#666"/>
         <strokewidth width="0.57"/>
         <rect h="62.916" w="653.888" x="0" y="0"/>
         <fillstroke/>
+        <fillcolor color="fanPanelColor" default="#404040"/>
         <strokecolor color="#0a0a0a"/>
-        <fillcolor color="#404040"/>
         <path>
             <move x="173.608" y="2.172"/>
             <line x="245.108" y="2.172"/>
@@ -6913,8 +6810,8 @@
             <close/>
         </path>
         <fillstroke/>
+        <fillcolor color="screwColor" default="#ddd"/>
         <strokecolor color="#a7a7a7"/>
-        <fillcolor color="#ddd"/>
         <path>
             <move x="244.912" y="12.214"/>
             <curve x1="244.912" x2="242.647" x3="239.894" y1="14.967" y2="17.232" y3="17.232"/>
@@ -6939,6 +6836,7 @@
         <restore/>
         <rect/>
         <stroke/>
+        <fillcolor color="fanColor" default="#000"/>
         <path>
             <move x="177.87" y="7.097"/>
             <line x="228.44" y="7.097"/>
@@ -6960,7 +6858,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#d42b26"/>
+        <fillcolor color="handleColor2" default="#d42b26"/>
         <path>
             <move x="179.243" y="44.258"/>
             <line x="227.162" y="44.258"/>
@@ -6988,7 +6886,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="accentColor" default="#262626"/>
         <path>
             <move x="344.231" y="6.323"/>
             <line x="372.145" y="6.323"/>
@@ -7004,8 +6902,8 @@
             <close/>
         </path>
         <fill/>
+        <fillcolor color="handleColor" default="#5f5f5f"/>
         <strokecolor color="#5b5b5b"/>
-        <fillcolor color="#5f5f5f"/>
         <strokewidth width="0.77"/>
         <path>
             <move x="376.883" y="9.018"/>
@@ -7026,8 +6924,8 @@
             <close/>
         </path>
         <fillstroke/>
+        <fillcolor color="powerPanelColor" default="#535353"/>
         <strokecolor color="#373737"/>
-        <fillcolor color="#535353"/>
         <strokewidth width="0.57"/>
         <path>
             <move x="385.002" y="6.674"/>
@@ -7044,8 +6942,8 @@
             <close/>
         </path>
         <fillstroke/>
+        <fillcolor color="fillColor2" default="#843752"/>
         <strokecolor color="#6a2142"/>
-        <fillcolor color="#843752"/>
         <path>
             <move x="404.026" y="50.007"/>
             <line x="418.742" y="50.007"/>
@@ -7061,8 +6959,8 @@
             <close/>
         </path>
         <fillstroke/>
+        <fillcolor color="ledColor" default="#ebebeb"/>
         <strokecolor color="#4c4c4c"/>
-        <fillcolor color="#ebebeb"/>
         <strokewidth width="1.7"/>
         <path>
             <move x="390.393" y="56.764"/>
@@ -7085,7 +6983,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#262626"/>
+        <fillcolor color="ledColor2" default="#262626"/>
         <path>
             <move x="398.495" y="57.5"/>
             <curve x1="398.495" x2="397.075" x3="395.348" y1="59.227" y2="60.648" y3="60.648"/>
@@ -7105,8 +7003,8 @@
             <close/>
         </path>
         <fill/>
+        <fillcolor color="screwColor" default="#dcdcdc"/>
         <strokecolor color="#929292"/>
-        <fillcolor color="#dcdcdc"/>
         <strokewidth width="0.61"/>
         <path>
             <move x="433.732" y="39.747"/>
@@ -7138,14 +7036,14 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#d9d9d9"/>
+        <fillcolor color="accentColor2" default="#d9d9d9"/>
         <rect h="46.916" w="152.269" x="449.92" y="5.383"/>
         <fill/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="ledPanelColor" default="#808080"/>
         <rect h="45.891" w="19.453" x="606.289" y="6.085"/>
         <fill/>
+        <fillcolor color="ledColor4" default="#1a1a1a"/>
         <strokecolor color="#f0f0f0"/>
-        <fillcolor color="#1a1a1a"/>
         <strokewidth width="1.98"/>
         <path>
             <move x="620.721" y="38.961"/>
@@ -7169,7 +7067,7 @@
         <restore/>
         <rect/>
         <stroke/>
-        <fillcolor color="#292929"/>
+        <fillcolor color="powerColor" default="#292929"/>
         <path>
             <move x="398.428" y="48.996"/>
             <line x="387.915" y="39.922"/>
@@ -7193,7 +7091,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#999"/>
+        <fillcolor color="powerPinColor" default="#999"/>
         <path>
             <move x="402.091" y="38.412"/>
             <line x="409.654" y="38.412"/>

@@ -5,7 +5,14 @@ import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { syncCustomContent } from "@/services/CustomContent";
 import forgeGlobal from "@/model/globals/forgeGlobal";
+import { _resetCreationFlowForTesting, getCreationFlowProps } from "@/utils/analytics/creationFlow";
 import macroMetrics from "@/services/MacroMetrics";
+import { EditorState, Transaction } from '@codemirror/state';
+import {
+  recordEditorTransaction,
+  resetEditorMutationSession,
+  startEditorMutationSession,
+} from '@/utils/analytics/editorMutationTelemetry';
 
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
@@ -52,6 +59,8 @@ describe('Persistence', function () {
     vi.mocked(syncCustomContent).mockClear();
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
+    _resetCreationFlowForTesting();
+    resetEditorMutationSession();
   });
 
   it('does NOT report macro metrics on save — the editor iframe is torn down on submit/close, which would kill a long enumeration; reporting is moved to editor-open', async () => {
@@ -118,6 +127,31 @@ describe('Persistence', function () {
     );
   })
 
+  it('macro_create_succeeded carries the creation origin handed over by the byline (#614)', async () => {
+    (forgeGlobal as any).forgeContext = { extension: { modal: { macroMode: 'editor', creationOrigin: 'byline_editor' } } };
+    _resetCreationFlowForTesting();
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_create_succeeded",
+      expect.objectContaining({ creation_origin: 'byline_editor', creation_flow_id: expect.any(String) })
+    );
+  })
+
+  it('macro_create_succeeded defaults to page_editor and shares its flow id with the start event (#614)', async () => {
+    _resetCreationFlowForTesting();
+    const started = getCreationFlowProps();
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+    const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'macro_create_succeeded')!;
+    expect(call[1]).toMatchObject({ creation_origin: 'page_editor', creation_flow_id: started.creation_flow_id });
+  })
+
+  it('macro_save_succeeded carries no creation properties (#614)', async () => {
+    await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing', diagramType: DiagramType.Sequence }, mockApWrapper);
+    const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'macro_save_succeeded')!;
+    expect(call[1]).not.toHaveProperty('creation_origin');
+    expect(call[1]).not.toHaveProperty('creation_flow_id');
+  })
+
   it('macro_create_succeeded carries a numeric save_duration_ms (publish latency)', async () => {
     await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith(
@@ -148,6 +182,43 @@ describe('Persistence', function () {
         macro_type: expect.any(String),
         operation_mode: "edit",
       })
+    );
+  })
+
+  it('macro_save_succeeded carries the text editor replacement-session summary', async () => {
+    const oldDoc = 'A -> B: hello';
+    startEditorMutationSession({
+      initialCode: oldDoc,
+      macroType: 'sequence',
+      operationMode: 'edit',
+      customContentId: 'existing-id',
+      journeyId: 'journey-1',
+      sessionId: 'session-1',
+      openedAt: 1_000,
+    }, {
+      now: () => 1_500,
+      readAttribution: () => null,
+    });
+    const transaction = EditorState.create({ doc: oldDoc }).update({
+      changes: { from: 0, to: oldDoc.length, insert: 'A -> B: goodbye' },
+      annotations: Transaction.userEvent.of('input.paste'),
+    });
+    recordEditorTransaction(transaction);
+    vi.mocked(trackAnalyticsEvent).mockClear();
+
+    await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing-id', diagramType: DiagramType.Sequence }, mockApWrapper);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      'macro_save_succeeded',
+      expect.objectContaining({
+        journey_id: 'journey-1',
+        session_id: 'session-1',
+        had_global_replace: true,
+        global_replace_count: 1,
+        post_replace_local_edit_count: 0,
+        net_delta_from_open_bucket: 'medium',
+        delta_from_last_replace_bucket: 'none',
+      }),
     );
   })
 

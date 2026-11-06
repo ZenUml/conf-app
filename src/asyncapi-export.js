@@ -30,6 +30,11 @@ const MAX_SPEC_CHARS = 40000;
 export const handler = async (payload) => {
   const ctx = extractExportContext(payload);
   const { customContentId } = ctx;
+  // conf-app#435: unlike the shared exportMacro (src/export.js), this handler
+  // only ever runs for the AsyncAPI macro family (zenuml-asyncapi-macro /
+  // zenuml-asyncapi-embed-macro — see manifest.yml), so macro_type is always
+  // known statically. No extra custom-content GET needed to resolve it.
+  ctx.macroType = 'asyncapi';
 
   await trackExportEvent('macro_export_requested', joinKeyProps(ctx));
 

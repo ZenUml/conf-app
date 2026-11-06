@@ -1,5 +1,6 @@
 // src/utils/documentOpening/types.ts
 import { Diagram } from '@/model/Diagram/Diagram';
+import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import type { OrphanDiagramKind } from '@/utils/orphanTelemetry';
 
 // Slice 1 of the content-opening unification
@@ -77,6 +78,7 @@ export interface DocumentOrigin {
 export interface OpenedDocument {
   doc: Diagram;
   origin: DocumentOrigin;
+  attribution?: DiagramAttribution | null;
 }
 
 export type OpenErrorKind = 'not_found';

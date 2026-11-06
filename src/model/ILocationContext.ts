@@ -6,10 +6,11 @@ export interface ILocationContext {
   target: LocationTarget;
 }
 
+// Values match what AtlasPage.getLocationTarget() returns (#361).
 export enum LocationTarget {
-  ContentView = 'contentview',
-  ContentEdit = 'contentedit',
-  ContentCreate = 'contentcreate'
+  ContentView = 'contentView',
+  ContentEdit = 'contentEdit',
+  ContentCreate = 'contentCreate'
 }
 export interface IContext {
   confluence: IConfluence;

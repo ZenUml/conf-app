@@ -1,8 +1,12 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 window.PLUGINS_BASE_PATH = '.';
 window.TEMPLATE_PATH = 'templates';
-window.DRAW_MATH_URL = 'math/es5';
+window.DRAW_MATH_URL = 'math4/es5';
 window.DRAWIO_BASE_URL = '.'; //Prevent access to online website since it is not allowed
-FeedbackDialog.feedbackUrl = 'https://log.draw.io/email';
+window.DRAWIO_SERVER_URL = '.';
 EditorUi.draftSaveDelay = 5000;
 //Disables eval for JS (uses shapes-14-6-5.min.js)
 mxStencilRegistry.allowEval = false;
@@ -37,6 +41,74 @@ mxStencilRegistry.allowEval = false;
 	// Overrides default mode
 	App.mode = App.MODE_DEVICE;
 	
+	// Automatic sync on conflicts
+	Editor.desktopAutoSync = true;
+
+	// Recovers drawio XML from PDFs where pdf-lib 2.6.0+ wrote the
+	// hex-encoded /Subject as a top-level indirect object instead of
+	// inside /ObjStm [jgraph/drawio-desktop#2394]
+	var origExtractGraphModelFromPdf = Editor.extractGraphModelFromPdf;
+
+	Editor.extractGraphModelFromPdf = function(base64)
+	{
+		var result = origExtractGraphModelFromPdf.apply(this, arguments);
+
+		if (result != null)
+		{
+			return result;
+		}
+
+		try
+		{
+			var data = base64.substring(base64.indexOf(',') + 1);
+			var f = (window.atob && !mxClient.IS_SF) ? atob(data) : Base64.decode(data, true);
+
+			// UTF-16-BE encoding of BOM + '%3Cmxfile' (URL-encoded '<mxfile')
+			var anchor = 'FEFF002500330043006D007800660069006C0065';
+			var pos = 0;
+
+			while ((pos = f.indexOf('/Subject <', pos)) > -1)
+			{
+				var hexStart = pos + 10;
+				var hexEnd = f.indexOf('>', hexStart);
+
+				if (hexEnd < 0)
+				{
+					break;
+				}
+
+				var hex = f.substring(hexStart, hexEnd).replace(/\s/g, '').toUpperCase();
+
+				if (hex.indexOf(anchor) === 0)
+				{
+					var decoded = '';
+
+					// Skip FEFF BOM, decode UTF-16-BE code units
+					for (var i = 4; i + 4 <= hex.length; i += 4)
+					{
+						decoded += String.fromCharCode(parseInt(hex.substr(i, 4), 16));
+					}
+
+					var xml = decodeURIComponent(decoded.
+						replace(/\\\(/g, '(').replace(/\\\)/g, ')'));
+
+					if (xml.indexOf('<mxfile') === 0)
+					{
+						return xml;
+					}
+				}
+
+				pos = hexEnd;
+			}
+		}
+		catch (e)
+		{
+			// Fall through to null
+		}
+
+		return null;
+	};
+
 	// Disables all external transmission functionality
 	App.prototype.isExternalDataComms = function()
 	{
@@ -50,44 +122,73 @@ mxStencilRegistry.allowEval = false;
 	EditDiagramDialog.showNewWindowOption = false;
 
 	PrintDialog.previewEnabled = false;
-	
-	PrintDialog.electronPrint = function(editorUi, allPages, pagesFrom, pagesTo, 
-			fit, sheetsAcross, sheetsDown, zoom, pageScale, pageFormat)
+
+	// Adds PDF with embedded XML as an editable file format (PDF export
+	// and re-save run through the local Electron export pipeline)
+	Editor.prototype.diagramFileTypes = Editor.prototype.diagramFileTypes.concat(
+		[{description: 'formatPdf', extension: 'pdf', mimeType: 'application/pdf'}]);
+
+	PrintDialog.electronPrint = function(editorUi, args)
 	{
-		var xml = '', title = '';
+		var graph = editorUi.editor.graph;
 		var file = editorUi.getCurrentFile();
-		
+
 		if (file)
 		{
 			file.updateFileData();
-			xml = editorUi.getFileData(true, null, null, null, null, false,
-				null, null, null, false, true);
-			title = file.title;
 		}
+
+		var xml = editorUi.getFileData(true, null, null, null,
+			!args.selection, false, null, null, null, false, true);
 		
-		var extras = {globalVars: editorUi.editor.graph.getExportVariables()};
+		var extras = {globalVars: graph.getExportVariables()};
 
 		if (Graph.translateDiagram)
 		{
 			extras.diagramLanguage = Graph.diagramLanguage;
 		}
 
+		if (args.grid)
+		{
+			extras.grid = {
+				size: graph.gridSize,
+				steps: graph.view.gridSteps,
+				color: graph.view.gridColor
+			};
+		}
+
+		// Passes hidden tags per page to export backend
+		var hiddenTagsMap = editorUi.getHiddenTagsMap();
+
+		if (hiddenTagsMap != null)
+		{
+			extras.hiddenTags = hiddenTagsMap;
+		}
+
 		new mxElectronRequest('export', {
+			fileTitle: editorUi.getBaseFilename(true),
 			print: true,
 			format: 'pdf',
 			xml: xml,
-			from: pagesFrom - 1,
-			to: pagesTo - 1,
-			allPages: allPages,
-			pageWidth: pageFormat.width,
-			pageHeight: pageFormat.height,
-			pageScale: pageScale,
-			fit: fit,
-			sheetsAcross: sheetsAcross,
-			sheetsDown: sheetsDown,
-			scale: zoom,
+			from: args.pagesFrom - 1,
+			to: args.pagesTo - 1,
+			allPages: args.allPages ? '1' : '0',
+			pageWidth: graph.pageFormat.width,
+			pageHeight: graph.pageFormat.height,
+			// Rendered pages span pageFormat * pageScale to match the editor's
+			// page breaks; the main process maps each rendered page onto one
+			// physical sheet via scaleFactor = 100 / pageScale. A hardcoded 1
+			// here printed the page cuts of an unscaled page grid
+			// [jgraph/drawio#5540]
+			pageScale: graph.pageScale,
+			fit: args.fit ? '1' : '0',
+			sheetsAcross: args.sheetsAcross,
+			sheetsDown: args.sheetsDown,
+			scale: args.scale,
 			extras: JSON.stringify(extras),
-			fileTitle: title
+			border: null,
+			pageMargin: args.border,
+			crop: args.crop ? '1' : '0'
 		}).send(function(){}, function(){});
 	};
 	
@@ -136,43 +237,32 @@ mxStencilRegistry.allowEval = false;
 				{
 					try
 					{
-						if (plugins[i].indexOf('..') >= 0)
+						// Resolved into a local variable as plugins is the live settings
+						// array and rewritten entries would be persisted on the next
+						// settings save, breaking resolution on the following start
+						var pluginUrl = plugins[i];
+
+						if (pluginUrl.indexOf('..') >= 0)
 						{
 							continue;
 						}
-						else if (plugins[i].startsWith('/plugins/'))
+						else if (pluginUrl.startsWith('/plugins/'))
 						{
-							plugins[i] = '.' + plugins[i];
+							pluginUrl = '.' + pluginUrl;
 						}
-						else if (plugins[i].startsWith('plugins/'))
+						else if (pluginUrl.startsWith('plugins/'))
 						{
-							plugins[i] = './' + plugins[i];
-						}
-						else
-						{
-							let pluginFile = await requestSync({
-								action: 'getPluginFile',
-								plugin: plugins[i]
-							});
-							
-							if (pluginFile != null)
-							{
-								plugins[i] = 'file://' + pluginFile;
-							}
-							else
-							{
-								continue; //skip not found files
-							}
+							pluginUrl = './' + pluginUrl;
 						}
 
-						try
+						// Only built-in plugins shipped with the app are supported;
+						// settings entries for the removed external plugins are skipped
+						if (!pluginUrl.startsWith('./plugins/'))
 						{
-							mxscript(plugins[i]);
+							continue;
 						}
-						catch (e)
-						{
-							// ignore
-						}
+
+						mxscript(pluginUrl);
 					}
 					catch (e)
 					{
@@ -195,11 +285,46 @@ mxStencilRegistry.allowEval = false;
 			break;
 		}
 
-		mxmeta(null, 'default-src \'self\'; connect-src \'self\' https://fonts.googleapis.com https://fonts.gstatic.com; img-src * data:; media-src *; font-src *; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com', 'Content-Security-Policy');
+		mxmeta(null, 'default-src \'self\'; connect-src \'self\' https://fonts.googleapis.com https://fonts.gstatic.com; img-src * data:; ' +
+			'media-src *; font-src * data:; frame-src \'self\'; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com', 'Content-Security-Policy');
 
 		//Disable web plugins loading
 		urlParams['plugins'] = '0';
 		origAppMain.apply(this, arguments);
+	};
+
+	var editorCongigure = Editor.configure;
+	Editor.configure = function(config)
+	{
+		editorCongigure.apply(this, arguments);
+
+		if (config != null)
+		{
+			if (config.desktopAutoSync != null)
+			{
+				Editor.desktopAutoSync = config.desktopAutoSync;
+			}
+
+			if (Editor.enableLocalFonts)
+			{
+				requestSync({action: 'getLocalFonts'}).then(function(fonts)
+				{
+					if (fonts != null && fonts.length > 0)
+					{
+						Editor.localFonts = fonts;
+
+						if (config.defaultFonts == null &&
+							config.customFonts == null)
+						{
+							Menus.prototype.defaultFonts = fonts;
+						}
+					}
+				}).catch(function()
+				{
+					// Ignore errors from font enumeration
+				});
+			}
+		}
 	};
 	
 	var menusInit = Menus.prototype.init;
@@ -208,11 +333,6 @@ mxStencilRegistry.allowEval = false;
 		menusInit.apply(this, arguments);
 
 		var editorUi = this.editorUi;
-
-		editorUi.actions.put('useOffline', new Action(mxResources.get('useOffline') + '...', function()
-		{
-			editorUi.openLink('https://www.draw.io/')
-		}));
 		
 		this.put('openRecent', new Menu(function(menu, parent)
 		{
@@ -265,40 +385,39 @@ mxStencilRegistry.allowEval = false;
 			this.addSubmenu('exportAs', menu, parent);
 			menu.addSeparator(parent);
 			this.addSubmenu('embed', menu, parent);
+			this.addMenuItems(menu, ['presentationMode'], parent);
 			menu.addSeparator(parent);
 			this.addMenuItems(menu, ['newLibrary', 'openLibrary'], parent);
 
-			var file = editorUi.getCurrentFile();
-			
-			if (file != null && editorUi.fileNode != null)
+			if (editorUi.getCurrentFile() != null && editorUi.fileNode != null)
 			{
-				var filename = (file.getTitle() != null) ?
-					file.getTitle() : editorUi.defaultFilename;
-				
-				if (!/(\.html)$/i.test(filename) &&
-					!/(\.svg)$/i.test(filename))
-				{
-					this.addMenuItems(menu, ['-', 'properties']);
-				}
+				this.addMenuItems(menu, ['-', 'properties']);
 			}
 			
-			this.addMenuItems(menu, ['-', 'pageSetup', 'print', '-', 'close'], parent);
-			// LATER: Find API for application.quit
+			this.addMenuItems(menu, ['-', 'pageSetup', 'print', '-', 'close', '-', 'exit'], parent);
 		})));
 	};
 
 	var graphCreateLinkForHint = Graph.prototype.createLinkForHint;
 	
-	Graph.prototype.createLinkForHint = function(href, label)
+	Graph.prototype.createLinkForHint = function(href, label, associatedCell)
 	{
-		var a = graphCreateLinkForHint.call(this, href, label);
+		var a = graphCreateLinkForHint.call(this, href, label, associatedCell);
 		
 		if (href != null && !this.isCustomLink(href))
 		{
 			// KNOWN: Event with gesture handler mouseUp the middle click opens a framed window
 			mxEvent.addListener(a, 'click', mxUtils.bind(this, function(evt)
 			{
-				this.openLink(a.getAttribute('href'), a.getAttribute('target'));
+				// The href is not written for links that did not pass the check
+				// in createLinkForHint, in which case there is nothing to open
+				var url = a.getAttribute('href');
+
+				if (url != null)
+				{
+					this.openLink(url, a.getAttribute('target'));
+				}
+
 				mxEvent.consume(evt);
 			}));
 		}
@@ -313,20 +432,25 @@ mxStencilRegistry.allowEval = false;
 
 	// Initializes the user interface
 	var editorUiInit = EditorUi.prototype.init;
-	EditorUi.prototype.init = function()
+	EditorUi.prototype.init = async function()
 	{
 		editorUiInit.apply(this, arguments);
 
 		var editorUi = this;
 		var graph = this.editor.graph;
 		
-		electron.registerMsgListener('isModified', () =>
+		electron.registerMsgListener('isModified', (uniqueId) =>
 		{
 			const currentFile = editorUi.getCurrentFile();
-			let reply = {isModified: false, draftPath: null};
+			let reply = {isModified: false, draftPath: null, uniqueId: uniqueId};
 
 			if (currentFile != null)
 			{
+				if (editorUi.editor.graph.isEditing())
+				{
+					editorUi.editor.graph.stopEditing();
+				}
+
 				reply.isModified = currentFile.isModified();
 				reply.draftPath = EditorUi.enableDrafts && currentFile.fileObject? currentFile.fileObject.draftFileName : null;
 			}
@@ -338,6 +462,33 @@ mxStencilRegistry.allowEval = false;
 		{
 			editorUi.getCurrentFile().removeDraft();
 			electron.sendMessage('draftRemoved', {});
+		});
+
+		electron.registerMsgListener('saveAndClose', (uniqueId) =>
+		{
+			const currentFile = editorUi.getCurrentFile();
+			let resultSent = false;
+
+			// Ensures a single result is sent even if the save flow calls
+			// more than one callback
+			let sendResult = (success) =>
+			{
+				if (!resultSent)
+				{
+					resultSent = true;
+					electron.sendMessage('saveAndClose-result', {uniqueId: uniqueId, success: success});
+				}
+			};
+
+			if (currentFile == null || !currentFile.isModified())
+			{
+				sendResult(true);
+			}
+			else
+			{
+				editorUi.saveFile(null, () => sendResult(true),
+					() => sendResult(false), () => sendResult(false));
+			}
 		});
 
 		// Adds support for libraries
@@ -398,7 +549,7 @@ mxStencilRegistry.allowEval = false;
 										graph.setSelectionCells(editorUi.importXml(xml));
 									});
 								}
-								else if (editorUi.isRemoteFileFormat(data, path))
+								else if (editorUi.isGliffyData(data, path))
 								{
 									editorUi.spinner.stop();
 									editorUi.showError(mxResources.get('error'), mxResources.get('notInDesktop'));
@@ -530,6 +681,22 @@ mxStencilRegistry.allowEval = false;
 		editorUi.keyHandler.bindAction(78, true, 'new'); // Ctrl+N
 		editorUi.keyHandler.bindAction(79, true, 'open'); // Ctrl+O
 
+		var isFullScreen = await requestSync('isFullscreen');
+
+		var fullscreenAction = editorUi.actions.addAction('fullscreen', async function()
+		{
+			electron.sendMessage('toggleFullscreen');
+			isFullScreen = await requestSync('isFullscreen');
+		});
+
+		fullscreenAction.visible = true;
+		fullscreenAction.setToggleAction(true);
+		
+		fullscreenAction.setSelectedCallback(function()
+		{
+			return isFullScreen;
+		});
+		
 		function createGraph()
 		{
 			var graph = new Graph();
@@ -600,7 +767,7 @@ mxStencilRegistry.allowEval = false;
 		{
 			origCut();
 			cloneMxCLipboardToSys();
-		}, null, 'sprite-cut', Editor.ctrlKey + '+X');
+		}, null, '', Editor.ctrlKey + '+X');
 		
 		var origCopy = this.actions.get('copy').funct;
 		
@@ -608,7 +775,7 @@ mxStencilRegistry.allowEval = false;
 		{
 			origCopy();
 			cloneMxCLipboardToSys();
-		}, null, 'sprite-copy', Editor.ctrlKey + '+C');
+		}, null, '', Editor.ctrlKey + '+C');
 		
 		//Get data from system clipboard for pase/pasteHere
 		var origPaste = this.actions.get('paste').funct;
@@ -617,7 +784,7 @@ mxStencilRegistry.allowEval = false;
 		{
 			cloneSysCLipboardToMx();
 			origPaste();
-		}, false, 'sprite-paste', Editor.ctrlKey + '+V');
+		}, false, '', Editor.ctrlKey + '+V');
 	
 		var origPasteHere = this.actions.get('pasteHere').funct;
 
@@ -635,7 +802,7 @@ mxStencilRegistry.allowEval = false;
 			var pasteHere = this.actions.get('pasteHere');
 			
 			paste.setEnabled(this.editor.graph.cellEditor.isContentEditing() || 
-					(graph.isEnabled() && !graph.isCellLocked(graph.getDefaultParent())));
+				(graph.isEnabled() && !graph.isCellLocked(graph.getDefaultParent())));
 			pasteHere.setEnabled(paste.isEnabled());
 		};
 		
@@ -653,7 +820,7 @@ mxStencilRegistry.allowEval = false;
 				}
 			}
 
-			editorUi.showDialog(new PluginsDialog(editorUi, async function(callback)
+			editorUi.showDialog(new PluginsDialog(editorUi, function(callback)
 			{
 				var div = document.createElement('div');
 				
@@ -678,78 +845,6 @@ mxStencilRegistry.allowEval = false;
 				}
 				
 				div.appendChild(pluginsSelect);
-				mxUtils.br(div);
-				mxUtils.br(div);
-				
-				title = document.createElement('span');
-				mxUtils.write(title, mxResources.get('extPlugins') + ': ');
-				div.appendChild(title);
-				
-				if (await requestSync('isPluginsEnabled'))
-				{
-					var extPluginsBtn = mxUtils.button(mxResources.get('selectFile') + '...', async function()
-					{
-						var warningMsgs = mxResources.get('pluginWarning').split('\\n');
-						var warningMsg = warningMsgs.pop(); //Last line in the message
-
-						if (!warningMsg) 
-						{
-							warningMsg = warningMsgs.pop();
-						}
-
-						if (!confirm(warningMsg)) 
-						{
-							return;
-						}
-						
-						var lastDir = localStorage.getItem('.lastPluginDir');
-						
-						var paths = await requestSync({
-							action: 'showOpenDialog',
-							defaultPath: lastDir || (await requestSync('getDocumentsFolder')),
-							filters: [
-								{ name: 'draw.io Plugins', extensions: ['js'] },
-								{ name: 'All Files', extensions: ['*'] }
-							],
-							properties: ['openFile']
-						});
-							
-						if (paths !== undefined && paths[0] != null)
-						{
-							try
-							{
-								let ret = await requestSync({
-									action: 'installPlugin',
-									filePath: paths[0]
-								});
-
-								localStorage.setItem('.lastPluginDir', ret.selDir);
-								callback(ret.pluginName);
-								editorUi.hideDialog();
-							}
-							catch (e)
-							{
-								if (e.message == 'fileExists')
-								{
-									alert(mxResources.get('fileExists'));
-								}
-								else
-								{
-									alert('Adding plugin failed.');
-								}
-							}
-						}
-					});
-					
-					extPluginsBtn.className = 'geBtn';
-					div.appendChild(extPluginsBtn);
-				}
-				else
-				{
-					title = document.createElement('span');
-					mxUtils.write(title, mxResources.get('pluginsDisabled'));
-					div.appendChild(title);
-				}
 							
 				var dlg = new CustomDialog(editorUi, div, mxUtils.bind(this, function()
 				{
@@ -759,15 +854,17 @@ mxStencilRegistry.allowEval = false;
 				}));
 				editorUi.showDialog(dlg.container, 300, 125, true, true);
 			},
-			async function(plugin)
+			function(plugin)
 			{
 				delete pluginsMap[plugin];
-				
-				await requestSync({
-					action: 'uninstallPlugin',
-					plugin: plugin
-				});
-			}, true).container, 360, 225, true, false);
+			}, true).container, 380, null, true, false);
+		});
+
+		editorUi.actions.addAction('exit', function()
+		{
+			electron.request({
+				action: 'exit'
+			});
 		});
 	}
 	
@@ -782,34 +879,6 @@ mxStencilRegistry.allowEval = false;
 			this.loadArgs(argsObj)
 		})
 
-		var editorUi = this;
-		
-		electron.registerMsgListener('export-vsdx', (argsObj) =>
-		{
-			var file = new LocalFile(editorUi, argsObj.xml, '');
-			
-			editorUi.fileLoaded(file);
-
-			try
-			{
-				editorUi.saveData = function(filename, format, data, mimeType, base64Encoded)
-				{
-					electron.sendMessage('export-vsdx-finished', data);
-				};
-				
-				var expSuccess = new VsdxExport(editorUi).exportCurrentDiagrams();
-
-				if (!expSuccess)
-				{
-					electron.sendMessage('export-vsdx-finished', null);
-				}
-			}
-			catch (e)
-			{
-				electron.sendMessage('export-vsdx-finished', null);
-			}
-		})	
-
 		//We do some async stuff during app loading so we need to know exactly when loading is finished (it is not when onload is finished)
 		electron.sendMessage('app-load-finished', null);
 
@@ -820,17 +889,22 @@ mxStencilRegistry.allowEval = false;
 	App.prototype.loadArgs = function(argsObj)
 	{
 		var paths = argsObj.args;
-		
-		// If a file is passed, and it is not an argument (has a leading -) 
+		var layoutName = argsObj.layout;
+		// Set by the --mermaid-image command-line flag (parsed in the desktop
+		// main process, like layout): opens .mmd/.mermaid files as a static
+		// image instead of an editable diagram.
+		var mermaidImage = argsObj.mermaidImage;
+
+		// If a file is passed, and it is not an argument (has a leading -)
 		if (paths !== undefined && paths[0] != null && paths[0].indexOf('-') != 0 && this.spinner.spin(document.body, mxResources.get('loading')))
 		{
 			var path = paths[0];
 			this.hideDialog();
-			
+
 			var success = mxUtils.bind(this, function(fileEntry, data, stat, name, isModified)
 			{
 				this.spinner.stop();
-				
+
 				if (data != null)
 				{
 					var file = new LocalFile(this, data, name || '');
@@ -838,6 +912,15 @@ mxStencilRegistry.allowEval = false;
 					file.stat = stat;
 					file.setModified(isModified? true : false);
 					this.fileLoaded(file);
+
+					// --layout: run the requested ELK layout once the diagram
+					// is loaded (applies to any opened file, generated or not).
+					// executeLayoutSpec (EditorUi) is shared with the embed
+					// "layout" action and the #create / load "layout" option.
+					if (layoutName != null)
+					{
+						this.executeLayoutSpec(layoutName);
+					}
 				}
 			});
 			
@@ -866,7 +949,7 @@ mxStencilRegistry.allowEval = false;
 			});
 			
 			// Tries to open the file
-			this.readGraphFile(success, error, path);
+			this.readGraphFile(success, error, path, null, mermaidImage);
 		}
 		// If no file is passed, but there is the "create-if-not-exists" flag
 		else if (argsObj.create != null)
@@ -882,23 +965,22 @@ mxStencilRegistry.allowEval = false;
 		}
 	}
 
+	// whenScriptReady (bundle-load poll) and the --layout resolver are shared
+	// with the webapp; see EditorUi.prototype.whenScriptReady /
+	// EditorUi.prototype.executeLayoutSpec in diagramly/EditorUi.js.
+
 	var origFileLoaded = EditorUi.prototype.fileLoaded;
 	
 	EditorUi.prototype.fileLoaded = async function(file)
 	{
 		var oldFile = this.getCurrentFile();
-		
+
 		if (oldFile != null)
 		{
 			//TODO This assumes the user confirmed discarding the file changes to get to this function?
 			if (EditorUi.enableDrafts)
 			{
 				oldFile.removeDraft();
-			}
-
-			if (oldFile.fileObject != null)
-			{
-				await requestSync({action: 'unwatchFile', path: oldFile.fileObject.path});
 			}
 		}
 		
@@ -925,51 +1007,150 @@ mxStencilRegistry.allowEval = false;
 			if (file.fileObject != null)
 			{
 				file.addToRecent();
-			
-				await requestSync({
-					action: 'watchFile', 
-					path: file.fileObject.path,
-					listener: mxUtils.bind(this, function(curr, prev) 
-					{
-						EditorUi.debug('EditorUi.watchFile', [this],
-							'file', [file], 'stat', [file.stat],
-							'curr', [curr], 'prev', [prev],
-							'inConflictState', file.inConflictState,
-							'unwatchedSaves', file.unwatchedSaves);
-						
-						//File is changed (not just accessed) && File is not already in a conflict state
-						if (curr.mtimeMs != prev.mtimeMs && !file.inConflictState)
-						{
-							//Ignore our own changes
-							if (file.unwatchedSaves || (file.stat != null && file.stat.mtimeMs == curr.mtimeMs))
-							{
-								file.unwatchedSaves = false;
-								return;
-							}
-							
-							file.inConflictState = true;
-
-							file.addConflictStatus(null, mxUtils.bind(this, function()
-							{
-								file.ui.editor.setStatus(mxUtils.htmlEntities(
-									mxResources.get('updatingDocument')));
-								file.synchronizeFile(mxUtils.bind(this, function()
-								{
-									file.handleFileSuccess(false);
-								}), mxUtils.bind(this, function(err)
-								{
-									file.handleFileError(err, true);
-								}));
-							}));
-						}
-					})
-				});
 			}
 		}
-		
+
+		this.watchFile(file);
 		origFileLoaded.apply(this, arguments);
 	};
+
+	var origSetCurrentFile = EditorUi.prototype.setCurrentFile;
+
+	EditorUi.prototype.setCurrentFile = function(file)
+	{
+		origSetCurrentFile.apply(this, arguments);
+		this.watchFile(file);
+	};
+
+	// Monitor the given file for changes
+	EditorUi.prototype.watchFile = async function(file)
+	{
+		// Saving a non-current file (eg. a library) must not unwatch
+		// the current file's path
+		if (file != null && file != this.getCurrentFile())
+		{
+			return;
+		}
+
+		var newPath = (file != null && file.fileObject != null &&
+			file == this.getCurrentFile()) ? file.fileObject.path : null;
+		
+		if (this.watchedPath != newPath)
+		{
+			this.unwatchPath(this.watchedPath);
+		}
+
+		if (newPath != null)
+		{
+			this.watchedPath = newPath;
+			this.watchPath(newPath);
+		}
+	};
 	
+	// Unwatches the given path
+	EditorUi.prototype.unwatchPath = async function(path)
+	{
+		if (path != null)
+		{
+			EditorUi.debug('EditorUi.unwatchPath', [this], 'path', [path]);
+
+			await requestSync({action: 'unwatchFile', path: path});
+		};
+	};
+
+	// Watches the path for changes
+	EditorUi.prototype.watchPath = async function(path)
+	{
+		if (path != null)
+		{
+			EditorUi.debug('EditorUi.watchPath', [this], 'path', [path]);
+
+			await requestSync({
+				action: 'watchFile', 
+				path: path,
+				listener: mxUtils.bind(this, function(curr, prev) 
+				{
+					var file = this.getCurrentFile();
+
+					if (file != null && file.fileObject != null &&
+						file.fileObject.path == path)
+					{
+						this.handleFileChange(curr, prev, file);
+					}
+				})
+			});
+		}
+	};
+
+	// Uses local picker
+	EditorUi.prototype.handleFileChange = function(curr, prev, file)
+	{
+		// File not deleted, changed (not just accessed) and not already in conflict state
+		if (curr.mtimeMs != 0 && curr.mtimeMs != prev.mtimeMs && !file.inConflictState)
+		{
+			//Ignore our own changes
+			if (file.unwatchedSaves || (file.stat != null && file.stat.mtimeMs == curr.mtimeMs))
+			{
+				file.unwatchedSaves = false;
+				return;
+			}
+
+			EditorUi.debug('EditorUi.handleFileChange', [this],
+				'file', [file], 'stat', [file.stat],
+				'curr', [curr], 'prev', [prev],
+				'unwatchedSaves', file.unwatchedSaves);
+
+			var addConflictStatus = mxUtils.bind(this, function(latestFile)
+			{
+				file.inConflictState = true;
+
+				file.addConflictStatus(null, mxUtils.bind(this, function()
+				{
+					file.ui.updateStatus(mxUtils.bind(this, function()
+					{
+						file.ui.editor.setStatus(mxUtils.htmlEntities(
+							mxResources.get('updatingDocument')));
+					}));
+
+					file.synchronizeFile(mxUtils.bind(this, function()
+					{
+						file.handleFileSuccess(false);
+					}), mxUtils.bind(this, function(err)
+					{
+						file.handleFileError(err, true);
+					}));
+				}));
+			});
+
+			// Checks checksums before notifiying in case of timestamp change
+			if (curr.size == prev.size)
+			{
+				file.getLatestVersion(mxUtils.bind(this, function(latestFile)
+				{
+					if (this.getHashValueForPages(file.getShadowPages()) !==
+						this.getHashValueForPages(latestFile.getShadowPages()))
+					{
+						addConflictStatus(latestFile);
+					}
+					else
+					{
+						// Adopts the new stat for timestamp-only changes (eg. FUSE
+						// mounts finalize mtime after write) so the next save
+						// doesn't misdetect a conflict
+						file.stat = latestFile.stat;
+
+						EditorUi.debug('EditorUi.handleFileChange', [this],
+							'No changes detected in file', [file]);
+					}
+				}), addConflictStatus);
+			}
+			else
+			{
+				addConflictStatus();
+			}
+		}
+	};
+
 	// Uses local picker
 	App.prototype.pickFile = function()
 	{
@@ -1011,6 +1192,7 @@ mxStencilRegistry.allowEval = false;
 			{
 				var library = new DesktopLibrary(this, data, fileEntry);
 				this.loadLibrary(library);
+				this.showSidebar();
 			}
 			catch (e)
 			{
@@ -1028,8 +1210,9 @@ mxStencilRegistry.allowEval = false;
 			action: 'showOpenDialog',
 			defaultPath: lastDir || (await requestSync('getDocumentsFolder')),
 			filters: [
-				{ name: 'draw.io Diagrams', extensions: ['drawio', 'xml', 'png', 'svg', 'html'] },
+				{ name: 'draw.io Diagrams', extensions: ['drawio', 'xml', 'png', 'svg', 'html', 'pdf'] },
         	    { name: 'VSDX Documents', extensions: ['vsdx'] },
+        	    { name: 'Mermaid', extensions: ['mmd', 'mermaid'] },
         	    { name: 'All Files', extensions: ['*'] }
 			],
 			properties: ['openFile']
@@ -1052,17 +1235,51 @@ mxStencilRegistry.allowEval = false;
 	
 	EditorUi.prototype.normalizeFilename = function(title, defaultExtension)
 	{
+		if (!title || typeof title !== 'string')
+		{
+			title = mxResources.get('untitledDiagram');
+		}
+
 		var tokens = title.split('.');
 		var ext = (tokens.length > 1) ? tokens[tokens.length - 1] : '';
 		defaultExtension = (defaultExtension != null) ? defaultExtension : 'drawio';
 
 		if (tokens.length == 1 || mxUtils.indexOf(['xml',
-			'html', 'drawio', 'png', 'svg'], ext) < 0)
+			'html', 'drawio', 'png', 'svg', 'pdf'], ext) < 0)
 		{
 			tokens.push(defaultExtension);
 		}
 
 		return tokens.join('.');
+	};
+
+	// Adds .pdf to the stripped extensions so exports of foo.drawio.pdf
+	// derive foo.* filenames like the other editable formats
+	EditorUi.prototype.getBaseFilename = function(ignorePageName)
+	{
+		var file = this.getCurrentFile();
+		var basename = (file != null && file.getTitle() != null) ? file.getTitle() : this.defaultFilename;
+
+		if (/(\.xml)$/i.test(basename) || /(\.html)$/i.test(basename) ||
+			/(\.svg)$/i.test(basename) || /(\.png)$/i.test(basename) ||
+			/(\.pdf)$/i.test(basename))
+		{
+			basename = basename.substring(0, basename.lastIndexOf('.'));
+		}
+
+		if (/(\.drawio)$/i.test(basename))
+		{
+			basename = basename.substring(0, basename.lastIndexOf('.'));
+		}
+
+		if (!ignorePageName && this.pages != null && this.pages.length > 1 &&
+			this.currentPage != null && this.currentPage.node.getAttribute('name') != null &&
+			this.currentPage.getName().length > 0)
+		{
+			basename = basename + '-' + this.currentPage.getName();
+		}
+
+		return basename;
 	};
 
 	//In order not to repeat the logic for opening a file, we collect files information here and use them in openLocalFile
@@ -1081,11 +1298,12 @@ mxStencilRegistry.allowEval = false;
 		origOpenFiles.apply(this, arguments);
 	};
 	
-	App.prototype.readGraphFile = function(fn, fnErr, path, noDraftCheck)
+	App.prototype.readGraphFile = function(fn, fnErr, path, noDraftCheck, mermaidImage)
 	{
 		var index = path.lastIndexOf('.png');
 		var isPng = index > -1 && index == path.length - 4;
 		var isVsdx = /\.vsdx$/i.test(path) || /\.vssx$/i.test(path);
+		var isMermaid = /\.mmd$/i.test(path) || /\.mermaid$/i.test(path);
 		var encoding = isVsdx? null : ((isPng || /\.pdf$/i.test(path)) ? 'base64' : 'utf-8');
 		var fileEntry = new Object(), stat = null;
 		fileEntry.path = path;
@@ -1110,16 +1328,11 @@ mxStencilRegistry.allowEval = false;
 						this.hideDialog();
 						fn(fileEntry, drafts[index].data, stat, null, true);
 						await requestSync({action: 'deleteFile', file: drafts[index].path});
-					}), mxUtils.bind(this, function(index)
+					}), mxUtils.bind(this, async function(index)
 					{
 						index = index || 0;
-					
-						// Discard draft
-						this.confirm(mxResources.get('areYouSure'), null, mxUtils.bind(this, async function()
-						{
-							await requestSync({action: 'deleteFile', file: drafts[index].path});
-							this.hideDialog();
-						}), mxResources.get('no'), mxResources.get('yes'));
+						await requestSync({action: 'deleteFile', file: drafts[index].path});
+						this.hideDialog();
 					}), null, null, null, (drafts.length > 1) ? drafts : null);
 					
 					this.showDialog(dlg.container, 640, 480, true, false);
@@ -1164,6 +1377,7 @@ mxStencilRegistry.allowEval = false;
 						try
 						{
 							this.loadLibrary(new LocalLibrary(this, xml, name));
+							this.showSidebar();
 						}
 						catch (e)
 						{
@@ -1182,15 +1396,78 @@ mxStencilRegistry.allowEval = false;
 				
 				return;
 			}
+			else if (isMermaid)
+			{
+				// Mermaid files are converted to a diagram and opened as a new,
+				// unsaved .drawio file (the Mermaid source is preserved on the
+				// resulting group/image for re-editing). Mirrors the VSDX/PDF
+				// import path. The --mermaid-image command-line flag opens the
+				// file as a static SVG image instead of an editable diagram.
+				var name = fileEntry.name;
+				var dot = name.lastIndexOf('.');
+				name = (dot >= 0 ? name.substring(0, dot) : name) + '.drawio';
+
+				// The Mermaid bundle loads asynchronously during startup, so a
+				// .mmd/.mermaid file passed on the command line can arrive before
+				// it is ready — wait for it before parsing.
+				this.whenScriptReady(EditorUi.isMermaidSupported, mxUtils.bind(this, function()
+				{
+					var onMermaid = mxUtils.bind(this, function(diagramXml)
+					{
+						fn(null, diagramXml, null, name, false);
+
+						// Mermaid files carry no stored view, so the default scroll
+						// can land at an arbitrary edge (e.g. the bottom of a tall
+						// flowchart). Apply the standard fit-on-load once the diagram
+						// is in place.
+						var ui = this;
+						window.setTimeout(function() { ui.fitInitialView(); }, 0);
+
+						checkDrafts();
+					});
+
+					var onMermaidError = mxUtils.bind(this, function(e)
+					{
+						fnErr(e);
+						checkDrafts();
+					});
+
+					if (mermaidImage)
+					{
+						this.parseMermaidImage(data, onMermaid, onMermaidError);
+					}
+					else
+					{
+						this.parseMermaidDiagram(data, null, mxUtils.bind(this, function(mermaidXml)
+						{
+							// normalize:true shifts the wrapped content so the group's
+							// padded bounds start at (0,0) — i.e. the diagram is inset
+							// from the page origin by groupPadding instead of sitting
+							// flush at (0,0) with the padding spilling into negative space.
+							onMermaid(mxMermaidToDrawio.wrapGroup(mermaidXml, data, null, {normalize: true}));
+						}), onMermaidError);
+					}
+				}), mxUtils.bind(this, function()
+				{
+					fnErr(new Error(mxResources.get('serviceUnavailableOrBlocked')));
+					checkDrafts();
+				}));
+
+				return;
+			}
 			else if (/\.pdf$/i.test(path))
 			{
-				var tmp = Editor.extractGraphModelFromPdf('data:application/pdf;base64,' + data);
-				
-				if (tmp != null)
+				// Opens PDFs with embedded XML in place as editable files
+				// like PNG below (previously extracted to a new .drawio file)
+				data = Editor.extractGraphModelFromPdf('data:application/pdf;base64,' + data);
+
+				// Stops before the file is bound to the path as a save
+				// would overwrite the PDF with an empty diagram
+				if (data == null)
 				{
-					var name = fileEntry.name;
-					fn(null, tmp, null, name.substring(0, name.lastIndexOf('.')) + '.drawio', false);
+					fnErr(new Error(mxResources.get('notADiagramFile')));
 					checkDrafts();
+
 					return;
 				}
 			}
@@ -1199,6 +1476,16 @@ mxStencilRegistry.allowEval = false;
 				// Detecting png by extension. Would need https://github.com/mscdex/mmmagic
 				// to do it by inspection
 				data = this.extractGraphModelFromPng('data:image/png;base64,' + data);
+
+				// Stops before the file is bound to the path as a save
+				// would overwrite the image with an empty diagram
+				if (data == null)
+				{
+					fnErr(new Error(mxResources.get('notADiagramFile')));
+					checkDrafts();
+
+					return;
+				}
 			}
 
 			electron.request({action: 'fileStat', file: path}, mxUtils.bind(this, function(stat_p)
@@ -1215,7 +1502,12 @@ mxStencilRegistry.allowEval = false;
 						if (file != null && file.fileObject != null && file.fileObject.path == path)
 						{
 							file.setEditable(false);
-							this.editor.setStatus('<div class="geStatusAlert">' + mxResources.get('readOnly') + '</div>');
+							this.updateStatus(mxUtils.bind(this, function()
+							{
+								this.editor.setStatus('<div class="geStatusBox" title="' +
+									mxUtils.htmlEntities(mxResources.get('readOnly')) + '">' +
+									mxUtils.htmlEntities(mxResources.get('readOnly')) + '</div>');
+							}));						
 						}
 					}
 				}));
@@ -1274,6 +1566,37 @@ mxStencilRegistry.allowEval = false;
 	{
 		this.saveAs(this.ui.getCopyFilename(this), success, error);
 	};
+
+	// Best-effort recovery source: the on-disk .bkp backup (last good save before
+	// the most recent overwrite). Returns a lossless prior-version candidate or
+	// null. See EditorUi.getRecoveryData / DrawioFile.getRecoveryVersion.
+	LocalFile.prototype.getRecoveryVersion = function(success, error)
+	{
+		if (this.fileObject == null || this.fileObject.path == null)
+		{
+			success(null);
+			return;
+		}
+
+		electron.request({action: 'getBkpFile', fileObject: {path: this.fileObject.path}},
+			mxUtils.bind(this, function(bkp)
+			{
+				if (bkp != null && bkp.data != null && this.ui.isFileDataLoadable(bkp.data))
+				{
+					success({type: 'backup',
+						label: mxResources.get('restoreBackupCopy'),
+						description: mxResources.get('recoveryVersionDesc'),
+						data: bkp.data, date: bkp.modified, lossy: false});
+				}
+				else
+				{
+					success(null);
+				}
+			}), mxUtils.bind(this, function()
+			{
+				success(null);
+			}));
+	};
 	
 	/**
 	 * Adds all listeners.
@@ -1291,74 +1614,137 @@ mxStencilRegistry.allowEval = false;
 		this.stat = stat;
 	};
 	
-	LocalFile.prototype.reloadFile = function(success)
+	LocalFile.prototype.isPdfFile = function()
 	{
-		if (this.fileObject == null)
+		return this.fileObject != null && /\.pdf$/i.test(this.fileObject.name);
+	};
+
+	// Autosave for PDF files re-runs the full export pipeline on every
+	// change, so it is off by default and opt-in via the autosave toggle
+	LocalFile.prototype.isAutosave = function()
+	{
+		if (this.isPdfFile())
 		{
-			this.ui.handleError({message: mxResources.get('fileNotFound')});
+			return !this.inConflictState && isPdfAutosaveEnabled();
 		}
-		else
+
+		return this.fileObject != null && DrawioFile.prototype.isAutosave.apply(this, arguments);
+	};
+
+	// Detaches PDF files from the global autosave option (see toggle below)
+	LocalFile.prototype.isAutosaveOptional = function()
+	{
+		return this.fileObject != null && !this.isPdfFile();
+	};
+
+	var isPdfAutosaveEnabled = function()
+	{
+		return localStorage.getItem('.pdfAutosave') == '1';
+	};
+
+	var setPdfAutosaveEnabled = function(ui, value)
+	{
+		localStorage.setItem('.pdfAutosave', (value) ? '1' : '0');
+
+		// Refreshes the autosave checkbox and menu item
+		ui.editor.fireEvent(new mxEventObject('autosaveChanged'));
+
+		var file = ui.getCurrentFile();
+
+		if (value && file != null && file.isModified())
 		{
-			this.ui.spinner.stop();
-			
-			var fn = mxUtils.bind(this, function()
-			{
-				this.setModified(false);
-				var page = this.ui.currentPage;
-				var viewState = this.ui.editor.graph.getViewState();
-				var selection = this.ui.editor.graph.getSelectionCells();
-				
-				if (this.ui.spinner.spin(document.body, mxResources.get('loading')))
-				{
-					this.ui.readGraphFile(mxUtils.bind(this, function(fileEntry, data, stat, name, isModified)
-					{
-						this.ui.spinner.stop();
-						
-						var file = new LocalFile(this.ui, data, '');
-						file.fileObject = fileEntry;
-						file.stat = stat;
-						file.setModified(isModified? true : false);
-						this.ui.fileLoaded(file);
-						this.ui.restoreViewState(page, viewState, selection);
-		
-						if (this.backupPatch != null)
-						{
-							this.patch([this.backupPatch]);
-						}
-						
-						if (success != null)
-						{
-							success();
-						}
-					}), mxUtils.bind(this, function(err)
-					{
-						this.handleFileError(err);
-					}), this.fileObject.path);
-				}
-			});
-	
-			if (this.isModified() && this.backupPatch == null)
-			{
-				this.ui.confirm(mxResources.get('allChangesLost'), mxUtils.bind(this, function()
-				{
-					this.handleFileSuccess(DrawioFile.SYNC == 'manual');
-				}), fn, mxResources.get('cancel'), mxResources.get('discardChanges'));
-			}
-			else
-			{
-				fn();
-			}
+			file.fileChanged();
 		}
 	};
 
-	LocalFile.prototype.isAutosave = function()
+	var isCurrentFilePdf = function(ui)
 	{
-		return this.fileObject != null && DrawioFile.prototype.isAutosave.apply(this, arguments);
+		var file = ui.getCurrentFile();
+
+		return file != null && file.constructor == LocalFile &&
+			file.isPdfFile() && file.isEditable();
 	};
-	
-	LocalFile.prototype.isAutosaveOptional = function()
+
+	// Repurposes the autosave action to toggle PDF autosave for PDF files
+	var origMenusInit = Menus.prototype.init;
+
+	Menus.prototype.init = function()
 	{
-		return this.fileObject != null;
+		origMenusInit.apply(this, arguments);
+
+		var editorUi = this.editorUi;
+		var action = editorUi.actions.get('autosave');
+
+		action.funct = function()
+		{
+			if (isCurrentFilePdf(editorUi))
+			{
+				setPdfAutosaveEnabled(editorUi, !isPdfAutosaveEnabled());
+			}
+			else
+			{
+				editorUi.editor.setAutosave(!editorUi.editor.autosave);
+			}
+		};
+
+		action.setSelectedCallback(function()
+		{
+			return action.isEnabled() && ((isCurrentFilePdf(editorUi)) ?
+				isPdfAutosaveEnabled() : editorUi.editor.autosave);
+		});
+	};
+
+	// Keeps the autosave menu item enabled for PDF files where
+	// isAutosaveOptional is false
+	var origUpdateActionStates = EditorUi.prototype.updateActionStates;
+
+	EditorUi.prototype.updateActionStates = function()
+	{
+		origUpdateActionStates.apply(this, arguments);
+
+		if (isCurrentFilePdf(this))
+		{
+			this.actions.get('autosave').setEnabled(true);
+		}
+	};
+
+	// Adds the autosave option for PDF files to the diagram format panel
+	// (the global autosave option is hidden via isAutosaveOptional)
+	var diagramFormatPanelAddOptions = DiagramFormatPanel.prototype.addOptions;
+
+	DiagramFormatPanel.prototype.addOptions = function(div)
+	{
+		div = diagramFormatPanelAddOptions.apply(this, arguments);
+
+		var ui = this.editorUi;
+
+		if (ui.editor.graph.isEnabled() && isCurrentFilePdf(ui))
+		{
+			div.appendChild(this.createOption(mxResources.get('autosave'), function()
+			{
+				return isPdfAutosaveEnabled();
+			}, function(checked)
+			{
+				setPdfAutosaveEnabled(ui, checked);
+			},
+			{
+				install: function(apply)
+				{
+					this.listener = function()
+					{
+						apply(isPdfAutosaveEnabled());
+					};
+
+					ui.editor.addListener('autosaveChanged', this.listener);
+				},
+				destroy: function()
+				{
+					ui.editor.removeListener(this.listener);
+				}
+			}));
+		}
+
+		return div;
 	};
 	
 	LocalFile.prototype.getTitle = function()
@@ -1373,19 +1759,19 @@ mxStencilRegistry.allowEval = false;
 	
 	var autoSaveEnabled = false;
 
-	LocalFile.prototype.save = function(revision, success, error, unloading, overwrite)
+	LocalFile.prototype.save = function(revision, success, error, unloading, overwrite, cancel)
 	{
 		if (!this.isEditable())
 		{
-			this.saveAs(this.title, success, error);
+			this.saveAs(this.title, success, error, cancel);
 			return;
 		}
 
 		DrawioFile.prototype.save.apply(this, [revision, mxUtils.bind(this, function()
 		{
-			this.saveFile(revision, mxUtils.bind(this, function() 
+			this.saveFile(revision, mxUtils.bind(this, function()
 			{
-				//Only for first save after auto save is enabled (excluding the save as [overwrite]) 
+				//Only for first save after auto save is enabled (excluding the save as [overwrite])
 				if (autoSaveEnabled && !overwrite && EditorUi.enableDrafts)
 				{
 					this.removeDraft();
@@ -1393,7 +1779,7 @@ mxStencilRegistry.allowEval = false;
 
 				autoSaveEnabled = false;
 				success.apply(this, arguments);
-			}), error, unloading, overwrite);
+			}), error, unloading, overwrite, cancel);
 		}), error, unloading, overwrite]);
 	};
 
@@ -1402,17 +1788,7 @@ mxStencilRegistry.allowEval = false;
 		return stat != null && this.stat != null && stat.mtimeMs != this.stat.mtimeMs;
 	};
 	
-	LocalFile.prototype.isEditable = function()
-	{
-		return this.editable != null? this.editable : this.ui.editor.editable;
-	};
-
-	LocalFile.prototype.setEditable = function(editable)
-	{
-		this.editable = editable;
-	};
-	
-	LocalFile.prototype.saveFile = async function(revision, success, error, unloading, overwrite)
+	LocalFile.prototype.saveFile = async function(revision, success, error, unloading, overwrite, cancel)
 	{
 		//Safeguard in case saveFile is called from online code in the future
 		if (typeof success !== 'function')
@@ -1427,7 +1803,7 @@ mxStencilRegistry.allowEval = false;
 		
 		if (!this.savingFile)
 		{
-			var fn = mxUtils.bind(this, function()
+			var fn = mxUtils.bind(this, function(fileSavedFn)
 			{
 				var doSave = mxUtils.bind(this, function(data, enc)
 				{
@@ -1466,8 +1842,14 @@ mxStencilRegistry.allowEval = false;
 						
 						this.fileSaved(savedData, lastDesc, mxUtils.bind(this, function()
 						{
+							this.ui.watchFile(this);
 							this.contentChanged();
 							
+							if (fileSavedFn != null)
+							{
+								fileSavedFn();
+							}
+
 							if (success != null)
 							{
 								success();
@@ -1493,7 +1875,23 @@ mxStencilRegistry.allowEval = false;
 					}));
 				});
 	
-				if (!/(\.png)$/i.test(this.fileObject.name))
+				// Libraries always save their XML data: the PDF and PNG
+				// branches below export the current diagram, which would
+				// replace the library contents
+				if (this instanceof LocalLibrary)
+				{
+					doSave(this.getData());
+				}
+				else if (this.isPdfFile())
+				{
+					var p = this.ui.getPdfFileProperties(this.ui.fileNode);
+
+					this.ui.getEmbeddedPdf(function(data)
+					{
+						doSave(data, 'binary');
+					}, error, p.notes);
+				}
+				else if (!/(\.png)$/i.test(this.fileObject.name))
 				{
 					doSave(this.getData());
 				}
@@ -1513,24 +1911,26 @@ mxStencilRegistry.allowEval = false;
 				if (this.fileObject == null)
 				{
 					var lastDir = localStorage.getItem('.lastSaveDir');
+					var isLibrary = this instanceof LocalLibrary;
 					var name = this.ui.normalizeFilename(this.getTitle(),
-						this.constructor == LocalLibrary ? 'xml' : null);
+						(isLibrary) ? 'xml' : null);
 					var ext = null;
-					
+
 					if (name != null)
 					{
 						var idx = name.lastIndexOf('.');
-						
+
 						if (idx > 0)
 						{
 							ext = name.substring(idx + 1);
 						}
 					}
-					
+
 					var path = await requestSync({
 						action: 'showSaveDialog',
 						defaultPath: (lastDir || (await requestSync('getDocumentsFolder'))) + '/' + name,
-						filters: this.ui.createFileSystemFilters(ext)
+						filters: (isLibrary) ? this.ui.createLibraryFileSystemFilters() :
+							this.ui.createFileSystemFilters(ext)
 					});
 
 					if (path != null)
@@ -1542,11 +1942,26 @@ mxStencilRegistry.allowEval = false;
 						this.fileObject.type = 'utf-8';
 						this.title = this.fileObject.name;
 						this.addToRecent();
-						fn();
+						fn(mxUtils.bind(this, function()
+						{
+							if (EditorUi.enableDrafts)
+							{
+								this.removeDraft(true);
+							}
+						}));
+
+						// Updates format panel to show autosave option
+						var editor = this.ui.editor;
+						editor.setAutosave(editor.autosave);
 					}
 					else
 					{
 						this.ui.spinner.stop();
+
+						if (cancel != null)
+						{
+							cancel();
+						}
 					}
 				}
 				else
@@ -1558,6 +1973,26 @@ mxStencilRegistry.allowEval = false;
 			{
 				error(e);
 			}
+		}
+		else if (cancel != null)
+		{
+			//Another save is already in progress (eg. autosave), this save request is dropped
+			cancel();
+		}
+	};
+
+
+	var origAddConflictStatus = LocalFile.prototype.addConflictStatus;
+
+	LocalFile.prototype.addConflictStatus = function(message, fn, latestFile)
+	{
+		if (Editor.desktopAutoSync && this.ui.editor.autosave)
+		{
+			fn();
+		}
+		else
+		{
+			origAddConflictStatus.apply(this, arguments);
 		}
 	};
 
@@ -1575,29 +2010,33 @@ mxStencilRegistry.allowEval = false;
 		this.ui.addRecent({id: this.fileObject.path, title: title});
 	};
 
-	LocalFile.prototype.saveAs = async function(title, success, error)
+	LocalFile.prototype.saveAs = async function(title, success, error, cancel)
 	{
 		try
 		{
-			var lastDir = localStorage.getItem('.lastSaveDir');
+			var lastDir = (this.fileObject != null && this.fileObject.path != null) ?
+				await requestSync({action: 'dirname', path: this.fileObject.path}) :
+				localStorage.getItem('.lastSaveDir');
+			var isLibrary = this instanceof LocalLibrary;
 			var name = this.ui.normalizeFilename(this.getTitle(),
-				this.constructor == LocalLibrary ? 'xml' : null);
+				(isLibrary) ? 'xml' : null);
 			var ext = null;
-			
+
 			if (name != null)
 			{
 				var idx = name.lastIndexOf('.');
-				
+
 				if (idx > 0)
 				{
 					ext = name.substring(idx + 1);
 				}
 			}
-			
+
 			var path = await requestSync({
 				action: 'showSaveDialog',
 				defaultPath: (lastDir || (await requestSync('getDocumentsFolder'))) + '/' + name,
-				filters: this.ui.createFileSystemFilters(ext)
+				filters: (isLibrary) ? this.ui.createLibraryFileSystemFilters() :
+					this.ui.createFileSystemFilters(ext)
 			});
 
 			if (path != null)
@@ -1610,7 +2049,15 @@ mxStencilRegistry.allowEval = false;
 				this.title = this.fileObject.name;
 				this.addToRecent();
 				this.setEditable(true); //In case original file is read only
-				this.save(false, success, error, null, true);
+				this.save(false, mxUtils.bind(this, function()
+				{
+					this.ui.watchFile(this);
+					success();
+				}), error, null, true);
+			}
+			else if (cancel != null)
+			{
+				cancel();
 			}
 		}
 		catch (e)
@@ -1618,9 +2065,24 @@ mxStencilRegistry.allowEval = false;
 			error(e);
 		}
 	};
-	
-	LocalFile.prototype.saveDraft = function()
+
+	// The web LocalLibrary.saveAs calls saveFile with the web signature
+	// (title, revision, ...), which hits the signature safeguard in the
+	// desktop saveFile above, so the desktop saveAs is used instead
+	LocalLibrary.prototype.saveAs = LocalFile.prototype.saveAs;
+
+	// LocalLibrary extends the pre-wrapper LocalFile, so without these it
+	// inherits the web save/saveFile: the web save calls saveAs, and the
+	// desktop saveAs above ends with save, which reopens the save dialog
+	// forever without ever writing the file [drawio-desktop#2518]
+	LocalLibrary.prototype.save = LocalFile.prototype.save;
+	LocalLibrary.prototype.saveFile = LocalFile.prototype.saveFile;
+
+	LocalFile.prototype.saveDraft = function(data)
 	{
+		// Save draft only if file is not saved (prevents creating draft file after actual file is saved)
+		if (!this.isModified()) return;
+
 		if (this.fileObject == null)
 		{
 			//Use indexed db for unsaved files
@@ -1628,10 +2090,13 @@ mxStencilRegistry.allowEval = false;
 		}
 		else
 		{
+			EditorUi.debug('LocalFile.saveDraft', [this],
+				'fileObject', [this.fileObject]);
+			
 			electron.request({
 				action: 'saveDraft',
 				fileObject: this.fileObject,
-				data: this.ui.getFileData()
+				data: (data != null) ? data : this.ui.getFileData()
 			}, mxUtils.bind(this, function(draftFileName)
 			{
 				this.fileObject.draftFileName = draftFileName;
@@ -1642,17 +2107,20 @@ mxStencilRegistry.allowEval = false;
 		}
 	};
 
-	LocalFile.prototype.removeDraft = async function()
+	LocalFile.prototype.removeDraft = async function(ignoreFileObject)
 	{
 		try
 		{
-			if (this.fileObject == null)
+			if (ignoreFileObject || this.fileObject == null)
 			{
 				//Use indexed db for unsaved files
 				DrawioFile.prototype.removeDraft.apply(this, arguments);
 			}
 			else if (this.fileObject.draftFileName != null)
 			{
+				EditorUi.debug('LocalFile.removeDraft', [this],
+					'draftFileName', [this.fileObject.draftFileName]);
+				
 				await requestSync({action: 'deleteFile', file: this.fileObject.draftFileName});
 			}
 		}
@@ -1689,17 +2157,33 @@ mxStencilRegistry.allowEval = false;
 				ext.push(obj);
 			}
 		}
-		
+
 		return ext;
 	};
-	
+
+	/**
+	 * Returns the save dialog filters for library files.
+	 */
+	App.prototype.createLibraryFileSystemFilters = function()
+	{
+		var filters = [];
+
+		for (var i = 0; i < this.editor.libraryFileTypes.length; i++)
+		{
+			filters.push({name: this.editor.libraryFileTypes[i].description,
+				extensions: this.editor.libraryFileTypes[i].extensions});
+		}
+
+		return filters;
+	};
+
 	/**
 	 * Loads the given file handle as a local file.
 	 */
-	App.prototype.saveFile = function(forceDialog)
+	App.prototype.saveFile = function(forceDialog, success, error, cancel)
 	{
 		var file = this.getCurrentFile();
-		
+
 		if (file != null)
 		{
 			if (!forceDialog && file.getTitle() != null)
@@ -1710,12 +2194,22 @@ mxStencilRegistry.allowEval = false;
 					{
 						file.removeDraft();
 					}
-					
+
 					file.handleFileSuccess(true);
+
+					if (success != null)
+					{
+						success();
+					}
 				}), mxUtils.bind(this, function(err)
 				{
 					file.handleFileError(err, true);
-				}));
+
+					if (error != null)
+					{
+						error(err);
+					}
+				}), null, null, cancel);
 			}
 			else
 			{
@@ -1731,12 +2225,22 @@ mxStencilRegistry.allowEval = false;
 						file.removeDraft();
 						file.fileObject = curFileObject;
 					}
-					
+
 					file.handleFileSuccess(true);
+
+					if (success != null)
+					{
+						success();
+					}
 				}), mxUtils.bind(this, function(err)
 				{
 					file.handleFileError(err, true);
-				}));
+
+					if (error != null)
+					{
+						error(err);
+					}
+				}), cancel);
 			}
 		}
 	};
@@ -1827,27 +2331,47 @@ mxStencilRegistry.allowEval = false;
 	App.prototype.checkForUpdates = function()
 	{
 		electron.sendMessage('checkForUpdates');
-	}
+	};
 	
 	App.prototype.toggleSpellCheck = function()
 	{
 		electron.sendMessage('toggleSpellCheck');
-	}
+	};
 
 	App.prototype.toggleStoreBkp = function()
 	{
 		electron.sendMessage('toggleStoreBkp');
-	}
+	};
 	
+	App.prototype.toggleGoogleFonts = function()
+	{
+		electron.sendMessage('toggleGoogleFonts');
+	};
+
 	App.prototype.openDevTools = function()
 	{
 		electron.sendMessage('openDevTools');
-	}
-	
+	};
+		
+	App.prototype.desktopZoomIn = function()
+	{
+		electron.sendMessage('zoomIn');
+	};
+
+	App.prototype.desktopZoomOut = function()
+	{
+		electron.sendMessage('zoomOut');
+	};
+
+	App.prototype.desktopResetZoom = function()
+	{
+		electron.sendMessage('resetZoom');
+	};
+
 	/**
 	 * Copies the given cells and XML to the clipboard as an embedded image.
 	 */
-	EditorUi.prototype.writeImageToClipboard = async function(dataUrl, w, h, error)
+	EditorUi.prototype.writeImageToClipboard = async function(dataUrl, w, h, type, success, error)
 	{
 		try
 		{
@@ -1856,10 +2380,18 @@ mxStencilRegistry.allowEval = false;
 				method: 'writeImage',
 				data: {dataUrl: dataUrl, w: w, h: h}
 			});
+
+			if (success != null)
+			{
+				success();
+			}
 		}
 		catch (e)
 		{
-			error(e);
+			if (error != null)
+			{
+				error(e);
+			}
 		}
 	};
 
@@ -1883,7 +2415,7 @@ mxStencilRegistry.allowEval = false;
 	
 	EditorUi.prototype.saveRequest = function(filename, format, fn, data, base64Encoded, mimeType)
 	{
-		var xhr = fn(null, '1');
+		var xhr = fn(filename, '1');
 		
 		if (xhr != null && this.spinner.spin(document.body, mxResources.get('saving')))
 		{
@@ -1945,14 +2477,57 @@ mxStencilRegistry.allowEval = false;
 		return this.response;
 	}
 	
-	//Direct export to pdf
-	EditorUi.prototype.createDownloadRequest = function(filename, format, ignoreSelection,
-		base64, transparent, currentPage, scale, border, grid, includeXml, pageRange, w, h)
+	// Direct export to pdf
+	EditorUi.prototype.createDownloadRequest = function(filename, format, ignoreSelection, base64,
+		transparent, currentPage, scale, border, grid, includeXml, pageRange, w, h, crop, margin,
+		fit, sheetsAcross, sheetsDown, shadows, icons)
 	{
-		var params = this.downloadRequestBuilder(filename, format, ignoreSelection,
-			base64, transparent, currentPage, scale, border, grid, includeXml, pageRange, w, h);
+		var params = this.downloadRequestBuilder(filename, format, ignoreSelection, base64,
+			transparent, currentPage, scale, border, grid, includeXml, pageRange, w, h, crop,
+			margin, fit, sheetsAcross, sheetsDown, shadows, icons);
 
 		return new mxElectronRequest('export', params);
+	};
+
+	// Renders all pages to PDF with the diagram XML embedded via the local
+	// export pipeline, mirroring getEmbeddedPng for PNG files. The optional
+	// icons argument adds notes as sticky note annotations.
+	EditorUi.prototype.getEmbeddedPdf = function(success, error, icons)
+	{
+		var req = this.createDownloadRequest(null, 'pdf', true, '0',
+			null, false, null, null, false, true, null, null, null,
+			null, null, null, null, null, null, icons);
+
+		req.send(function()
+		{
+			try
+			{
+				var data = req.getText();
+
+				// The main process replies with the raw PDF bytes
+				if (typeof data !== 'string')
+				{
+					var bytes = (data instanceof ArrayBuffer) ? new Uint8Array(data) : data;
+					var result = [];
+
+					for (var i = 0; i < bytes.length; i += 65536)
+					{
+						result.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 65536)));
+					}
+
+					data = result.join('');
+				}
+
+				success(data);
+			}
+			catch (e)
+			{
+				if (error != null)
+				{
+					error(e);
+				}
+			}
+		}, error);
 	};
 	
 	var origSetAutosave = Editor.prototype.setAutosave;
@@ -1983,7 +2558,8 @@ mxStencilRegistry.allowEval = false;
 			
 			editorUi.hideDialog();
 			
-			if ((format == 'png' || format == 'jpg' || format == 'jpeg') && editorUi.isExportToCanvas())
+			if ((format == 'png' || format == 'jpg' || format == 'jpeg') &&
+				editorUi.editor.isExportToCanvas())
 			{
 				if (format == 'png')
 				{
@@ -2028,7 +2604,11 @@ mxStencilRegistry.allowEval = false;
 	EditorUi.prototype.saveData = async function(filename, format, data, mimeType, base64Encoded)
 	{
 		var resume = (this.spinner != null && this.spinner.pause != null) ? this.spinner.pause() : function() {};
-		var lastDir = localStorage.getItem('.lastExpDir');
+		var file = this.getCurrentFile();
+		// Defaults to the folder of the current file like saveAs [jgraph/drawio-desktop#2132]
+		var lastDir = (file != null && file.fileObject != null && file.fileObject.path != null) ?
+			await requestSync({action: 'dirname', path: file.fileObject.path}) :
+			localStorage.getItem('.lastExpDir');
 		
 		// Spinner.stop is asynchronous so we must invoke save dialog asynchronously
 		// to give the spinner some time to stop spinning
@@ -2079,6 +2659,11 @@ mxStencilRegistry.allowEval = false;
 				          { name: 'XML Documents', extensions: ['xml'] }
 				       ];
 				break;
+				case 'txt':
+					filters = [
+				          { name: 'Plain Text', extensions: ['txt'] }
+				       ];
+				break;
 			};
 			
 			dlgConfig['filters'] = filters;
@@ -2105,10 +2690,10 @@ mxStencilRegistry.allowEval = false;
 					}, mxUtils.bind(this, function ()
 				    {
 						this.spinner.stop();
-		        	}), mxUtils.bind(this, function ()
+		        	}), mxUtils.bind(this, function (e)
 				    {
 						this.spinner.stop();
-						this.handleError({message: mxResources.get('errorSavingFile')});
+						this.handleError(e, mxResources.get('errorSavingFile'));
 		        	}));
 				}
 			}
@@ -2121,9 +2706,90 @@ mxStencilRegistry.allowEval = false;
 	{
 		this.readGraphFile(mxUtils.bind(this, function(fileEntry, data, stat)
 		{
-			var library = new DesktopLibrary(this, data, fileEntry);
-			this.loadLibrary(library);
-			success(library);
+			try
+			{
+				// Must not load the library here: the caller (App.loadLibraries)
+				// waits for all libraries and loads them in the stored order,
+				// an immediate load here would insert them in the random order
+				// in which the file reads complete
+				success(new DesktopLibrary(this, data, fileEntry));
+			}
+			catch (e)
+			{
+				error(e);
+			}
 		}), error, libPath);
+	};
+
+	// Returns the filesystem path for URLs that point to local files
+	// (file:// URLs, drive, UNC and absolute paths), null otherwise
+	Editor.getLocalFilePath = function(url)
+	{
+		if (url != null && url.substring(0, 7) == 'file://')
+		{
+			var path = decodeURIComponent(url.substring(7).split(/[?#]/)[0]);
+
+			// Removes leading slash before Windows drive letters (file:///C:/...)
+			return (/^\/[a-zA-Z]:/.test(path)) ? path.substring(1) : path;
+		}
+		else if (url != null && /^([a-zA-Z]:[\\\/]|[\\\/])/.test(url))
+		{
+			return url;
+		}
+
+		return null;
+	};
+
+	// Reads URLs that point to local files via the main process so libraries
+	// and templates configured with local paths or file:// URLs work in the
+	// desktop app [jgraph/drawio-desktop#1278]
+	var editorLoadUrl = Editor.prototype.loadUrl;
+
+	Editor.prototype.loadUrl = function(url, success, error, forceBinary, retry, dataUriPrefix, noBinary, headers)
+	{
+		try
+		{
+			var filename = Editor.getLocalFilePath(url);
+
+			if (filename == null)
+			{
+				editorLoadUrl.apply(this, arguments);
+			}
+			else
+			{
+				var binary = !noBinary && (forceBinary || /(\.png)($|\?)/i.test(url) ||
+					/(\.jpe?g)($|\?)/i.test(url) || /(\.gif)($|\?)/i.test(url) ||
+					/(\.pdf)($|\?)/i.test(url));
+
+				electron.request({action: 'readFile', filename: filename,
+					encoding: (binary) ? 'base64' : 'utf-8'}, function(data)
+				{
+					if (success != null)
+					{
+						if (binary)
+						{
+							data = ((dataUriPrefix != null) ? dataUriPrefix :
+								'data:image/png;base64,') + data;
+						}
+
+						success(data);
+					}
+				}, function(msg)
+				{
+					if (error != null)
+					{
+						error({message: (msg != null) ? msg :
+							mxResources.get('fileNotFound')});
+					}
+				});
+			}
+		}
+		catch (e)
+		{
+			if (error != null)
+			{
+				error(e);
+			}
+		}
 	};
 })();

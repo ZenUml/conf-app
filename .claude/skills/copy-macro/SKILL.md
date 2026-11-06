@@ -4,7 +4,7 @@ description: >
   E2E test for Confluence's "Make a copy" page action against pages that contain ZenUML macros
   (sequence, graph/DrawIO, OpenAPI). Verifies that after copy-then-edit, the macro on the new page
   correctly references a custom content owned by the new page — not the source page's customContent.
-  Drives the test via Playwright MCP and the Confluence REST v2 API. Non-destructive: never purges
+  Drives the test via agent-browser and the Confluence REST v2 API. Non-destructive: never purges
   custom content, only inspects state. Use when the user says "copy macro test", "test page copy",
   "verify cross-page-copy fix", "run the copy e2e", or whenever they want to validate the cross-page
   macro writeback behavior (PR #124 / ZEN-1170) on any Forge site.
@@ -64,12 +64,20 @@ Usage: `copy-macro [on <site>] [--source-page <pageId>] [--macro-type sequence|g
 For prod sites, the caller must specify both the tenant subdomain and source page id explicitly.
 Never auto-discover on prod.
 
-## Why Playwright MCP
+## Why a browser rather than the REST API
 
-Forge Custom UI iframes are sandboxed and cross-origin. Only Playwright MCP can drive UI inside them
-(see `CLAUDE.md` § "Browser Automation and Forge Iframes"). For pure REST inspection the skill uses
-`mcp__playwright__browser_evaluate` to run `fetch()` from inside the logged-in browser session —
-that avoids re-authenticating with API tokens.
+Forge Custom UI iframes are sandboxed and cross-origin. Three tools drive UI inside them —
+`agent-browser` (the default), `ego lite`, and Playwright MCP; see `CLAUDE.md`
+§ "Browser automation and Forge iframes". For pure REST inspection the skill runs `fetch()` from
+inside the logged-in browser session, which avoids re-authenticating with API tokens:
+
+```bash
+agent-browser --session conf-app --restore=stg eval "await (await fetch('/wiki/api/v2/...')).json()"
+```
+
+The Playwright MCP equivalent is `mcp__playwright__browser_evaluate`. Prefer agent-browser —
+Playwright MCP's single global extension pairing causes 120-second hangs whenever another Claude Code
+session is also using it, and recovery requires the user to run `/mcp` → Reconnect.
 
 ## The flow
 

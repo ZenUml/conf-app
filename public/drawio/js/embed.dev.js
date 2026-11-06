@@ -1,3 +1,7 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 (function(stylesheet, stencils)
 {
 	// Callbacks:
@@ -90,7 +94,7 @@
 
 			var script = document.createElement('script');
 			script.type = 'text/javascript';
-			script.src = 'https://app.diagrams.net/math/es5/startup.js';
+			script.src = 'https://app.diagrams.net/math4/es5/startup.js';
 			document.getElementsByTagName('head')[0].appendChild(script);
 		}
 	};
@@ -222,7 +226,8 @@
 						{
 							if (name == 'page')
 							{
-								return diagrams[0].getAttribute('name') || 'Page-1';
+								return diagrams[0].getAttribute('name') ||
+									mxResources.get('pageWithNumber', [1], 'Page-1');
 							}
 							else if (name == 'pagenumber')
 							{
@@ -303,24 +308,7 @@
 							
 							graph.doResizeContainer = function(width, height)
 							{
-								// Fixes container size for different box models
-								if (mxClient.IS_IE)
-								{
-									if (document.documentMode >= 9)
-									{
-										width += 3;
-										height += 5;
-									}
-									else
-									{
-										width += 1;
-										height += 1;
-									}
-								}
-								else
-								{
-									height += 1;
-								}
+								height += 1;
 								
 								if (this.maximumContainerSize != null)
 								{

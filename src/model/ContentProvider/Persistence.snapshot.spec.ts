@@ -1,15 +1,17 @@
 import { saveToPlatform } from '@/model/ContentProvider/Persistence';
 import { NULL_DIAGRAM, DiagramType } from '@/model/Diagram/Diagram';
-import { vi } from 'vitest';
+import { vi, beforeEach, afterEach } from 'vitest';
 import ApWrapper2 from '../ApWrapper2';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { syncCustomContent } from '@/services/CustomContent';
+import { markPublishClicked, trackPublishCompleted, _resetPublishTimingForTesting } from '@/utils/analytics/publishTiming';
 
 // Snapshot module is entirely mocked here — Task 3 only cares that the save
 // flow WIRES to it correctly (called with the right args, on the right
 // diagram types, and never lets a snapshot failure fail the save). The
 // module's own build/upload correctness is covered by SnapshotAttachment.spec.ts.
-const { mockBuildSnapshot, mockUploadSnapshot, mockSnapshotAttachmentName, mockSnapshotSkipReason } = vi.hoisted(() => ({
+const { mockBuildSnapshot, mockUploadSnapshot, mockSnapshotAttachmentName, mockSnapshotSkipReason, mockSnapshotFailureDetail } = vi.hoisted(() => ({
   mockBuildSnapshot: vi.fn(),
   mockUploadSnapshot: vi.fn(),
   mockSnapshotAttachmentName: vi.fn((ccId: string) => `zenuml-${ccId}.json`),
@@ -22,6 +24,20 @@ const { mockBuildSnapshot, mockUploadSnapshot, mockSnapshotAttachmentName, mockS
     if (s === 404) return 'page_not_published';
     return undefined;
   }),
+  // Faithful stand-in for the real extract-then-truncate helper (#398) — the
+  // module is fully mocked here, so this must mirror snapshotFailureDetail's
+  // observable behavior closely enough to exercise Persistence's wiring to it.
+  mockSnapshotFailureDetail: vi.fn((e: any) => {
+    const raw = String(e?.message ?? e);
+    let detail = raw;
+    const m = /"message"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(raw);
+    if (m?.[1]) detail = m[1];
+    const cls = /(?:^|[.\s])([A-Za-z]+Exception)\b/.exec(detail)?.[1];
+    return {
+      failure_reason: detail.substring(0, 200),
+      ...(cls ? { confluence_error_class: cls } : {}),
+    };
+  }),
 }));
 
 vi.mock('@/model/SnapshotAttachment', () => ({
@@ -29,6 +45,7 @@ vi.mock('@/model/SnapshotAttachment', () => ({
   uploadSnapshot: mockUploadSnapshot,
   snapshotAttachmentName: mockSnapshotAttachmentName,
   snapshotSkipReason: mockSnapshotSkipReason,
+  snapshotFailureDetail: mockSnapshotFailureDetail,
 }));
 
 const mockSave = vi.fn(() => ({ id: 'mocked_custom_content_id', version: { number: 3 } }));
@@ -65,6 +82,7 @@ describe('Persistence — snapshot save-path wiring (Task 3)', () => {
     mockSave.mockClear();
     mockBuildSnapshot.mockReset();
     mockUploadSnapshot.mockReset();
+    mockSnapshotFailureDetail.mockClear();
     vi.mocked(trackAnalyticsEvent).mockClear();
     (forgeGlobal as any).forgeContext = undefined;
   });
@@ -160,5 +178,148 @@ describe('Persistence — snapshot save-path wiring (Task 3)', () => {
     expect(result).toBe('mocked_custom_content_id');
     expect(mockUploadSnapshot).not.toHaveBeenCalled();
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('snapshot_create_failed', expect.anything());
+  });
+
+  // #398 (remaining site): Persistence.ts:152 built `failure_reason` with its
+  // own `String(e.message).substring(0, 200)` instead of routing through
+  // snapshotFailureDetail — the same envelope-eats-the-budget defect
+  // SnapshotAttachment.ts already fixed. These assert the save path now
+  // extracts the Confluence exception class BEFORE truncating, for both the
+  // failure event and the skip event.
+  const envelope = (status: number, cls: string, msg: string) =>
+    new Error(
+      `snapshot upload HTTP ${status}: ` +
+        JSON.stringify({
+          statusCode: status,
+          data: { authorized: true, valid: true, errors: [], successful: true },
+          message: `com.atlassian.confluence.api.service.exceptions.api.${cls}: ${msg}`,
+        }),
+    );
+
+  it('a 403 on save keeps the Confluence exception class instead of the raw envelope', async () => {
+    const snapshot = { version: 1, ccId: 'mocked_custom_content_id', dsl: 'A.method()', diagramType: DiagramType.Sequence, snapshotAt: 'now' };
+    mockBuildSnapshot.mockReturnValue(snapshot);
+    mockUploadSnapshot.mockRejectedValue(
+      envelope(403, 'PermissionException', 'User not permitted to update attachment'),
+    );
+
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.method()' }, mockApWrapper);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('snapshot_create_failed', expect.objectContaining({
+      surface: 'editor',
+      snapshot_trigger: 'save',
+      confluence_error_class: 'PermissionException',
+      failure_reason: expect.stringContaining('User not permitted to update attachment'),
+    }));
+    const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'snapshot_create_failed');
+    expect(call?.[1].failure_reason).not.toContain('statusCode');
+  });
+
+  it('a 404 on save keeps the Confluence exception class on the skip event', async () => {
+    const snapshot = { version: 1, ccId: 'mocked_custom_content_id', dsl: 'A.method()', diagramType: DiagramType.Sequence, snapshotAt: 'now' };
+    mockBuildSnapshot.mockReturnValue(snapshot);
+    mockUploadSnapshot.mockRejectedValue(
+      envelope(404, 'NotFoundException', 'No content found with id 12345'),
+    );
+
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.method()' }, mockApWrapper);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('snapshot_backfill_skipped', expect.objectContaining({
+      surface: 'editor',
+      snapshot_trigger: 'save',
+      snapshot_skip_reason: 'page_not_published',
+      confluence_error_class: 'NotFoundException',
+      failure_reason: expect.stringContaining('No content found with id 12345'),
+    }));
+  });
+});
+
+// Per-step publish timing: the snapshot upload and the awaited D1 mirror sync
+// both sit between the save and the editor's redirect, so they are part of
+// macro_publish_completed's publish_duration_ms. These assert Persistence
+// reports how long each took, and reports nothing for a step that did not run.
+describe('Persistence — per-step publish timing', () => {
+  // A controllable clock: each stubbed step advances it by a known amount.
+  let now = 0;
+  let perfNow: ReturnType<typeof vi.spyOn>;
+  const snapshot = { version: 1, ccId: 'mocked_custom_content_id', dsl: 'A.method()', diagramType: DiagramType.Sequence, snapshotAt: 'now' };
+  const sequenceDiagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence, code: 'A.method()' };
+
+  const publishEvent = () => {
+    trackPublishCompleted({ macro_type: 'sequence' });
+    const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'macro_publish_completed');
+    return call?.[1] as Record<string, unknown> | undefined;
+  };
+
+  beforeEach(() => {
+    now = 1000;
+    perfNow = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    _resetPublishTimingForTesting();
+    mockSave.mockClear();
+    mockBuildSnapshot.mockReset();
+    mockUploadSnapshot.mockReset();
+    vi.mocked(syncCustomContent).mockReset();
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    (forgeGlobal as any).forgeContext = undefined;
+  });
+
+  afterEach(() => {
+    perfNow.mockRestore();
+  });
+
+  it('reports how long the snapshot upload and the D1 mirror sync took', async () => {
+    mockBuildSnapshot.mockReturnValue(snapshot);
+    mockUploadSnapshot.mockImplementation(async () => { now += 2500; });
+    vi.mocked(syncCustomContent).mockImplementation(async () => { now += 400; });
+
+    markPublishClicked();
+    await saveToPlatform(sequenceDiagram, mockApWrapper);
+
+    expect(publishEvent()).toMatchObject({ snapshot_ms: 2500, mirror_sync_ms: 400 });
+  });
+
+  it('omits snapshot_ms when no snapshot was taken, but still reports the mirror sync', async () => {
+    mockBuildSnapshot.mockReturnValue(undefined);
+    vi.mocked(syncCustomContent).mockImplementation(async () => { now += 400; });
+
+    markPublishClicked();
+    await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<x/>' }, mockApWrapper);
+
+    const props = publishEvent();
+    expect(props).toMatchObject({ mirror_sync_ms: 400 });
+    expect(props).not.toHaveProperty('snapshot_ms');
+  });
+
+  it('still reports snapshot_ms when the upload fails — a slow failure is exactly the signal wanted', async () => {
+    mockBuildSnapshot.mockReturnValue(snapshot);
+    mockUploadSnapshot.mockImplementation(async () => { now += 5000; throw new Error('boom'); });
+
+    markPublishClicked();
+    await saveToPlatform(sequenceDiagram, mockApWrapper);
+
+    expect(publishEvent()).toMatchObject({ snapshot_ms: 5000 });
+  });
+
+  it('omits snapshot_ms when the upload was never reached (no host page id)', async () => {
+    mockBuildSnapshot.mockReturnValue(snapshot);
+    const wrapperNoPageId = { ...mockApWrapper, _getCurrentPageId: vi.fn(() => Promise.reject(new Error('no page id'))) } as any;
+
+    markPublishClicked();
+    await saveToPlatform(sequenceDiagram, wrapperNoPageId);
+
+    expect(mockUploadSnapshot).not.toHaveBeenCalled();
+    expect(publishEvent()).not.toHaveProperty('snapshot_ms');
+  });
+
+  it('records nothing and emits nothing for a save with no Publish click (autosave, viewer-side save)', async () => {
+    mockBuildSnapshot.mockReturnValue(snapshot);
+    mockUploadSnapshot.mockImplementation(async () => { now += 2500; });
+
+    await saveToPlatform(sequenceDiagram, mockApWrapper);
+
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('macro_publish_completed', expect.anything());
+    // ...and the next real publish does not inherit the autosave's timings.
+    markPublishClicked();
+    expect(publishEvent()).not.toHaveProperty('snapshot_ms');
   });
 });

@@ -1898,7 +1898,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="58.5" y="7.73"/>
             <curve x1="58.79" x2="59.08" x3="59.4" y1="7.58" y2="7.44" y3="7.34"/>
@@ -1946,7 +1946,7 @@
     <foreground>
         <save/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="68.61" y="7.73"/>
             <curve x1="68.9" x2="69.19" x3="69.51" y1="7.58" y2="7.44" y3="7.34"/>
@@ -2105,7 +2105,7 @@
     <foreground>
         <save/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="68.56" y="7.73"/>
             <curve x1="68.85" x2="69.15" x3="69.46" y1="7.58" y2="7.44" y3="7.34"/>
@@ -2210,7 +2210,7 @@
     <foreground>
         <save/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="64.53" y="7.73"/>
             <curve x1="64.82" x2="65.11" x3="65.42" y1="7.58" y2="7.44" y3="7.34"/>
@@ -2290,7 +2290,7 @@
     <foreground>
         <save/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="55.23" y="7.73"/>
             <curve x1="55.51" x2="55.81" x3="56.12" y1="7.58" y2="7.44" y3="7.34"/>
@@ -2434,7 +2434,7 @@
     <foreground>
         <save/>
         <strokecolor color="none"/>
-        <fillcolor color="#2372ba"/>
+        <fillcolor color="fillColor2" default="#2372ba"/>
         <path>
             <move x="72.76" y="7.73"/>
             <curve x1="73.05" x2="73.34" x3="73.66" y1="7.58" y2="7.44" y3="7.34"/>
@@ -4439,7 +4439,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#00adeb"/>
+        <fillcolor color="fillColor2" default="#00adeb"/>
         <path>
             <move x="56.86" y="16.88"/>
             <curve x1="55.58" x2="53.96" x3="52.37" y1="17.6" y2="17.78" y3="17.58"/>
@@ -4498,7 +4498,7 @@
     <foreground>
         <save/>
         <strokecolor color="none"/>
-        <fillcolor color="#00adeb"/>
+        <fillcolor color="fillColor2" default="#00adeb"/>
         <path>
             <move x="67.49" y="16.88"/>
             <curve x1="66.21" x2="64.59" x3="63.01" y1="17.6" y2="17.78" y3="17.58"/>
@@ -4721,7 +4721,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#00adeb"/>
+        <fillcolor color="fillColor2" default="#00adeb"/>
         <path>
             <move x="65.54" y="16.88"/>
             <curve x1="64.26" x2="62.64" x3="61.05" y1="17.6" y2="17.78" y3="17.58"/>
@@ -4780,7 +4780,7 @@
     <foreground>
         <save/>
         <strokecolor color="none"/>
-        <fillcolor color="#00adeb"/>
+        <fillcolor color="fillColor2" default="#00adeb"/>
         <path>
             <move x="63.58" y="16.88"/>
             <curve x1="62.3" x2="60.69" x3="59.1" y1="17.6" y2="17.78" y3="17.58"/>
@@ -4963,7 +4963,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#00adeb"/>
+        <fillcolor color="fillColor2" default="#00adeb"/>
         <path>
             <move x="54.35" y="16.88"/>
             <curve x1="53.07" x2="51.46" x3="49.87" y1="17.6" y2="17.78" y3="17.58"/>
@@ -5144,7 +5144,7 @@
         </path>
         <fillstroke/>
         <strokecolor color="none"/>
-        <fillcolor color="#00adeb"/>
+        <fillcolor color="fillColor2" default="#00adeb"/>
         <path>
             <move x="71.83" y="16.88"/>
             <curve x1="70.55" x2="68.93" x3="67.34" y1="17.6" y2="17.78" y3="17.58"/>

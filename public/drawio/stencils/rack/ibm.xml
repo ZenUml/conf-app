@@ -12,7 +12,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -122,7 +122,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <fillalpha alpha="0.232"/>
         <path>
             <move x="65.5" y="4.5"/>
@@ -196,7 +196,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -271,7 +271,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -358,7 +358,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -434,7 +434,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -544,7 +544,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -644,7 +644,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -759,7 +759,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -849,7 +849,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -964,7 +964,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1060,7 +1060,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1215,7 +1215,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1370,7 +1370,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1555,7 +1555,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1710,7 +1710,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -1860,7 +1860,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2020,7 +2020,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2170,7 +2170,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2347,7 +2347,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>
@@ -2507,7 +2507,7 @@
     </background>
     <foreground>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="panelColor" default="#000000"/>
         <strokewidth width="1"/>
         <linejoin join="miter"/>
         <linecap cap="butt"/>

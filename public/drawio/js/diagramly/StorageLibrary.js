@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2006-2017, JGraph Ltd
- * Copyright (c) 2006-2017, Gaudenz Alder
+ * Copyright (c) 2006-2017, JGraph Holdings Ltd
+ * Copyright (c) 2006-2017, draw.io AG
  */
 /**
  * Constructs a new point for the optional x and y coordinates. If no
@@ -32,6 +32,17 @@ StorageLibrary.prototype.type = 'L';
 StorageLibrary.prototype.isAutosave = function()
 {
 	return true;
+};
+
+/**
+ * Translates this point by the given vector.
+ * 
+ * @param {number} dx X-coordinate of the translation.
+ * @param {number} dy Y-coordinate of the translation.
+ */
+StorageLibrary.prototype.save = function(revision, success, error)
+{
+	this.saveAs(this.getTitle(), success, error);
 };
 
 /**

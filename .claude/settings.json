@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "HTTP calls (curl, scripts, browser automation) against https://whimet4.atlassian.net — ZenUML's own Confluence dev/test site, NOT a customer tenant. Read AND write: GET/POST/PUT/DELETE on Confluence REST v2 pages, custom content, and space/content properties, authenticated with FORGE_EMAIL / FORGE_API_TOKEN from the environment. Agents routinely need to delete stale space properties there (e.g. the zenuml-full-active marker that gates the Lite byline's displayConditions) and to create and clean up throwaway test pages. This covers whimet4.atlassian.net only; every other Atlassian site — staging, production, and any customer tenant — is still classified as usual."
+    ]
+  }
+}

@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import { mapForgeUserBehaviorEvent } from "../../functions/service/forgeUserBehavior";
 
 describe("mapForgeUserBehaviorEvent", () => {
-  it("maps page_viewed events to D1", () => {
+  it("maps page_updated events to D1", () => {
+    // avi:confluence:viewed:page was dropped from manifest.yml's subscribed
+    // triggers 2026-06-06 (it fired on every page view — see the manifest.yml
+    // comment above the trigger's `events:` list) and its EVENT_ACTIONS
+    // mapping was deleted 2026-09-02 as dead code; avi:confluence:updated:page
+    // is the trigger this webhook actually receives.
     const result = mapForgeUserBehaviorEvent(
       {
-        eventType: "avi:confluence:viewed:page",
+        eventType: "avi:confluence:updated:page",
         atlassianId: "user-123",
         eventCreatedDate: "2026-03-14T00:00:00.000Z",
         suppressNotifications: false,
@@ -33,7 +38,7 @@ describe("mapForgeUserBehaviorEvent", () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.action).toBe("page_viewed");
+    expect(result!.action).toBe("page_updated");
     expect(result!.content_id).toBe("page-1");
     expect(result!.cloud_id).toBe("cloud-1");
     expect(result!.space_key).toBe("ENG");

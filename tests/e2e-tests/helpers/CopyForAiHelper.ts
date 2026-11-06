@@ -26,6 +26,27 @@
 //    its own — even though the WRITE happens from inside that iframe, only
 //    the top-level document can read the OS clipboard back. Caller must grant
 //    permissions first via page.context().grantPermissions([...]).
+//  - Root cause of issue #420 ("outer readText() always comes back empty"),
+//    established by direct instrumentation on lite-stg, not by assumption —
+//    see primeClipboardPermissions()'s doc comment for the full mechanism
+//    and how each alternative (longer wait, explicit iframe focus) was
+//    ruled out. Short version: the write itself (GenericViewer.vue's
+//    copyToClipboard() / writeClipboardKeepingActivation()) executes inside
+//    the OOPIF's OWN document, whose origin is a per-install CDN host
+//    (observed: https://<uuid>.cdn.prod.atlassian-dev.net — NOT
+//    lite-stg.atlassian.net). context.grantPermissions([...]) with no
+//    `origin` option only registers the permission for the page's origin at
+//    call time — it does not propagate to the cross-origin child frame.
+//    Granting permissions for the OOPIF's resolved origin is necessary but
+//    not sufficient by itself: Chromium only recognizes that grant inside a
+//    given renderer/frame instance after one write attempt has already run
+//    there, so a single click right after granting still comes back empty;
+//    a second click succeeds. primeClipboardPermissions() below performs
+//    the origin grant plus that one required warm-up click; call it once,
+//    then use clickCopyForAiAndRead() for the click you actually assert on.
+//    This keeps the assertion on the real end-to-end payload (write happens
+//    for real, OS clipboard holds it, outer readText() proves it) rather
+//    than substituting a weaker signal like the tracking event alone.
 //  - The copy_for_ai_clicked Mixpanel event ships via mixpanel-browser's
 //    default transport: batch_requests=true, batch_flush_interval_ms=5000
 //    (node_modules/mixpanel-browser/src/mixpanel-core.js), POSTed to
@@ -135,14 +156,80 @@ export async function insertAndPublishGraphMacroForCopyForAiTest(
 }
 
 /**
+ * Grant clipboard permissions for BOTH the outer Confluence page's origin
+ * AND the Forge Custom UI OOPIF's own origin, then perform one throwaway
+ * "warm-up" click + read so a real, asserted click afterward reliably
+ * reaches the OS clipboard. Call this ONCE, before the click you actually
+ * want to measure.
+ *
+ * Why a warm-up click is required (issue #420), established empirically on
+ * lite-stg, not by assumption:
+ *  - The clipboard WRITE (GenericViewer.vue's copyToClipboard /
+ *    writeClipboardKeepingActivation) executes inside the OOPIF's own
+ *    document, whose origin is a per-install CDN host (observed on
+ *    lite-stg: https://<uuid>.cdn.prod.atlassian-dev.net) — NOT the outer
+ *    lite-stg.atlassian.net origin. context.grantPermissions([...]) called
+ *    with no `origin` only registers the permission for the page's origin
+ *    at call time; it does not propagate to a cross-origin child frame, so
+ *    the in-iframe write was previously unpermitted for its own origin.
+ *  - Explicitly granting permissions for the resolved OOPIF origin is
+ *    necessary but NOT sufficient on its own: a single click performed
+ *    immediately after that grant still fails (outer readText() still
+ *    comes back empty), while a SECOND click succeeds every time, with no
+ *    difference in wait time or focus state between the two attempts
+ *    (confirmed by direct instrumentation — hasFocus() is true and the
+ *    origin-scoped permission is already granted before both clicks; only
+ *    a completed prior write attempt in that frame changes the outcome).
+ *    This points to Chromium's permission state for the clipboard-write
+ *    descriptor being established lazily on first use inside a given
+ *    renderer/frame instance — a CDP-level grant issued before that first
+ *    use doesn't retroactively apply until one write attempt has run in
+ *    that frame. A throwaway warm-up click forces that one-time
+ *    registration; every click after it observes the grant correctly.
+ *  - This is a harness-only workaround for a Chromium/CDP automation
+ *    quirk, not a product bug: production users load the macro once and
+ *    click once, and Mixpanel confirms their writes succeed (see issue
+ *    #420 "Ground truth" section) — there's no user-facing "click twice"
+ *    requirement, only an automation-specific permission-registration gap.
+ */
+export async function primeClipboardPermissions(page: Page): Promise<void> {
+  const frame = viewerFrame(page, 'sequence');
+  const btn = frame.getByTestId('copy-for-ai-btn');
+  await expect(btn).toBeVisible({ timeout: 30_000 });
+
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+  const iframeElement = await frame.owner().elementHandle();
+  const oopif = await iframeElement?.contentFrame();
+  if (!oopif) {
+    throw new Error('primeClipboardPermissions: could not resolve the Copy for AI OOPIF content frame');
+  }
+  const oopifOrigin = await oopif.evaluate(() => location.origin);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: oopifOrigin });
+
+  // Warm-up click — outcome intentionally discarded (see doc comment above).
+  await btn.click();
+  await page.waitForTimeout(300);
+
+  // Wait out the ~2s Copied/Copy-failed -> idle revert (GenericViewer.vue's
+  // setCopyForAiState) so the caller's own click starts from a clean
+  // data-copy-state="idle" and its own assertions aren't looking at a stale
+  // transition from this warm-up click.
+  await expect(btn).toHaveAttribute('data-copy-state', 'idle', { timeout: 5_000 });
+}
+
+/**
  * Click "Copy for AI" and read the clipboard back from the OUTER page (see
- * file header caveat — NOT frame.evaluate on the iframe). Caller must grant
- * clipboard-read/clipboard-write permissions first.
+ * file header caveat — NOT frame.evaluate on the iframe, that throws
+ * "Document is not focused"). Caller MUST call primeClipboardPermissions()
+ * once before this — see its doc comment for why a bare grantPermissions()
+ * call is not enough (issue #420).
  */
 export async function clickCopyForAiAndRead(page: Page): Promise<string> {
   const frame = viewerFrame(page, 'sequence');
   const btn = frame.getByTestId('copy-for-ai-btn');
   await expect(btn).toBeVisible({ timeout: 30_000 });
+
   await btn.click();
   // Small settle window — the page-context fetch + clipboard write are async
   // (same pattern as ViewerActionsHelper.clickCopyCodeAndRead). No toast to

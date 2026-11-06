@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mixpanelImportServiceEvents,
+  mixpanelTrack,
   type MixpanelServiceEvent,
 } from "./mixpanelService";
 
@@ -40,6 +41,24 @@ describe("mixpanelImportServiceEvents", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("suppresses both user and service imports only when explicitly disabled in staging", async () => {
+    const staging = { MIXPANEL_DISABLED: "true", EXPECTED_FORGE_ENVIRONMENT_TYPE: "STAGING" };
+    const production = { MIXPANEL_DISABLED: "true", EXPECTED_FORGE_ENVIRONMENT_TYPE: "PRODUCTION" };
+    const userEvent = { event: "macro_export_requested", user_account_id: "test-account" };
+
+    await mixpanelTrack(userEvent, "mixpanel-token", staging);
+    await mixpanelImportServiceEvents([makeEvent()], "mixpanel-token", { runtime: staging });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await mixpanelTrack(userEvent, "mixpanel-token", production);
+    await mixpanelImportServiceEvents([makeEvent()], "mixpanel-token", { runtime: production });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.mixpanel.com/engage#profile-set",
+      "https://api.mixpanel.com/import",
+      "https://api.mixpanel.com/import",
+    ]);
   });
 
   it("imports an installation-level event without identify or a fake user id", async () => {

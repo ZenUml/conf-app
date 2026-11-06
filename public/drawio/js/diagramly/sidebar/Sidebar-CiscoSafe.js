@@ -1,3 +1,7 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 (function()
 {
 	// Adds Cisco Safe stencils
@@ -26,7 +30,7 @@
 	
 	Sidebar.prototype.addCiscoSafeArchitecturePalette = function()
 	{
-		var s = mxConstants.STYLE_VERTICAL_LABEL_POSITION + '=bottom;sketch=0;html=1;fillColor=#6ABD46;strokeColor=#ffffff;' + mxConstants.STYLE_VERTICAL_ALIGN + '=top;align=center;' + 
+		var s = mxConstants.STYLE_VERTICAL_LABEL_POSITION + '=bottom;sketch=0;html=1;fillColor=#6ABD46;strokeColor=#ffffff;bgColor=#C2E0AE;bgDotColor=#ffffff;' + mxConstants.STYLE_VERTICAL_ALIGN + '=top;align=center;' + 
 	 	'points=[[0.085,0.085,0],[0.915,0.085,0],[0.915,0.915,0],[0.085,0.915,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0.25,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0],[0,0.25,0]];pointerEvents=1;' + mxConstants.STYLE_SHAPE + "=mxgraph.cisco_safe.";
 		var gn = 'mxgraph.cisco_safe.architecture';
 		var dt = 'cisco safe architecture';

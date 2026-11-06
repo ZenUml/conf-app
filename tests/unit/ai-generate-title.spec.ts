@@ -96,6 +96,31 @@ describe('ai-generate-title onRequest', () => {
     const primaryModel = ai.run.mock.calls[0][0]
     const fallbackModel = ai.run.mock.calls[1][0]
     expect(primaryModel).not.toBe(fallbackModel)
+    expect(ai.run.mock.calls[0][1].messages[0].content).toContain('sequence diagram')
+    expect(ai.run.mock.calls[1][1].messages[0].content).toContain('ZenUML sequence diagram')
+  })
+
+  it('uses an OpenAPI-specific prompt in both model strategies', async () => {
+    const ai = {
+      run: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('primary unavailable'))
+        .mockResolvedValueOnce({ response: '"""Inventory API"""' }),
+    }
+    const request = req('POST', {
+      dsl: 'openapi: 3.0.0\ninfo:\n  title: Inventory',
+      type: 'OpenAPI specification',
+    })
+    const response = await onRequest({ request, env: { AI: ai as any } })
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('Inventory API')
+    expect(ai.run).toHaveBeenCalledTimes(2)
+    for (const call of ai.run.mock.calls) {
+      const systemPrompt = call[1].messages[0].content
+      expect(systemPrompt).toContain('OpenAPI specification')
+      expect(systemPrompt).not.toContain('sequence diagram')
+    }
   })
 
   it('returns 500 only when the response has no usable text', async () => {

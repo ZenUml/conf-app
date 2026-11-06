@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
-import { expect, userEvent, within } from 'storybook/test'
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 import CsatBanner from './CsatBanner.vue'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { CSAT_PENDING_KEY } from '@/utils/csat'
@@ -33,7 +33,7 @@ function installMocks() {
 }
 
 const meta: Meta<typeof CsatBanner> = {
-  title: 'Feedback/CsatBanner',
+  title: 'Page banner/CsatBanner',
   component: CsatBanner,
   tags: ['autodocs'],
   parameters: {
@@ -90,9 +90,12 @@ export const Feedback: Story = {
     // Click the 4th face ("Good")
     const faces = await canvas.findAllByRole('radio')
     await userEvent.click(faces[3])
-    // Comment input and Send should now be visible
-    await expect(canvas.getByPlaceholderText(/Add a comment/)).toBeVisible()
-    await expect(canvas.getByRole('button', { name: /Send/ })).toBeVisible()
+    // .pb-feedback-row animates in (pb-fade, 0.2s from opacity 0), so visibility
+    // has to be awaited rather than asserted on the frame after the click.
+    await waitFor(async () => {
+      await expect(canvas.getByPlaceholderText(/Add a comment/)).toBeVisible()
+      await expect(canvas.getByRole('button', { name: /Send/ })).toBeVisible()
+    })
   },
 }
 

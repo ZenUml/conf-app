@@ -278,7 +278,12 @@ describe('snapshotFailureDetail', () => {
   it('passes through a non-Confluence body unchanged (HTML page, transport error)', () => {
     const d = snapshotFailureDetail(new Error('network down'));
     expect(d.failure_reason).toBe('network down');
-    expect(d.confluence_error_class).toBeUndefined();
+    // Explicit 'none', never undefined. An omitted property and an unparseable
+    // class are indistinguishable in a Mixpanel query — the same ambiguity #398
+    // was filed about, and the reason #435 chose macro_type:'none' over omission.
+    // Recording it explicitly also separates "no class in this envelope" from
+    // "event predates the change".
+    expect(d.confluence_error_class).toBe('none');
   });
 
   it('handles a non-Error throwable', () => {
@@ -334,6 +339,28 @@ describe('maybeBackfillSnapshot — analytics emission', () => {
       confluence_error_class: 'PermissionException',
     });
     expect(mockTrack.mock.calls.some((c) => c[0] === 'snapshot_create_failed')).toBe(false);
+  });
+
+  it('stamps macro_type on snapshot_create_failed (#398)', async () => {
+    mockCallRemote.mockRejectedValue(envelope(500, 'InternalServerException', 'boom'));
+    await maybeBackfillSnapshot({ hostPageId: 'page-macro-1', ccId: '12345', diagram, isDisplayMode: true });
+    const call = mockTrack.mock.calls.find((c) => c[0] === 'snapshot_create_failed');
+    expect(call![1]).toMatchObject({ macro_type: 'mermaid' });
+  });
+
+  it('stamps macro_type on snapshot_backfill_skipped (#398)', async () => {
+    mockCallRemote.mockRejectedValue(envelope(403, 'PermissionException', 'not permitted'));
+    await maybeBackfillSnapshot({ hostPageId: 'page-macro-2', ccId: '12345', diagram, isDisplayMode: true });
+    const call = mockTrack.mock.calls.find((c) => c[0] === 'snapshot_backfill_skipped');
+    expect(call![1]).toMatchObject({ macro_type: 'mermaid' });
+  });
+
+  it('stamps macro_type on snapshot_created (#398)', async () => {
+    mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-new-3', versionNumber: 1 });
+    await maybeBackfillSnapshot({ hostPageId: 'page-macro-3', ccId: '12345', diagram, isDisplayMode: true });
+    const call = mockTrack.mock.calls.find((c) => c[0] === 'snapshot_created');
+    expect(call).toBeDefined();
+    expect(call![1]).toMatchObject({ macro_type: 'mermaid' });
   });
 });
 

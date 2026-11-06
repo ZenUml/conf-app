@@ -27,8 +27,20 @@ export const DRAWIO_PREFETCH_ASSETS: readonly string[] = [
 let loading: Promise<void> | null = null;
 let loaded = false;
 
+/**
+ * Where `drawio/` lives. Unset in the Confluence app, whose document base is
+ * its own origin. The MCP Apps view (src/mcp-app-view.ts) sets it: its frame's
+ * base URL is the host's sandbox, so every path must be absolute on our origin.
+ */
+let assetBase: string | undefined;
+
 function resolveDrawioAsset(path: string): string {
-  return new URL(path, document.baseURI).href;
+  return new URL(path, assetBase ?? document.baseURI).href;
+}
+
+/** `./drawio/<dir>` in the app (unchanged), absolute when an asset base is set. */
+function drawioPath(dir: string): string {
+  return assetBase ? resolveDrawioAsset(`drawio/${dir}`) : `./drawio/${dir}`;
 }
 
 function parseUrlParams(url: string): Record<string, string> {
@@ -57,17 +69,22 @@ function configureDrawioGlobals(): void {
     IMAGE_PATH?: string;
     STYLE_PATH?: string;
     urlParams?: Record<string, string>;
+    DRAW_MATH_URL?: string;
   };
 
   w.mxLoadStylesheets = false;
   w.mxLoadResources = false;
-  w.mxBasePath = './drawio/mxgraph/';
+  w.mxBasePath = drawioPath('mxgraph/');
   w.uiTheme = '';
-  w.SHAPES_PATH = './drawio/shapes';
-  w.STENCIL_PATH = './drawio/stencils';
-  w.IMAGE_PATH = './drawio/images';
-  w.STYLE_PATH = './drawio/styles';
+  w.SHAPES_PATH = drawioPath('shapes');
+  w.STENCIL_PATH = drawioPath('stencils');
+  w.IMAGE_PATH = drawioPath('images');
+  w.STYLE_PATH = drawioPath('styles');
   w.urlParams = parseUrlParams(window.location.href);
+  // GraphViewer loads MathJax on every render, by default from
+  // viewer.diagrams.net, which the MCP host's CSP refuses. drawio/math4 ships
+  // with the build, so point the view at its own copy.
+  if (assetBase) w.DRAW_MATH_URL = drawioPath('math4/es5');
 }
 
 function ensureDrawioStylesheet(): void {
@@ -154,9 +171,11 @@ export function isDrawioViewerLoaded(): boolean {
   return loaded && typeof w.GraphViewer !== 'undefined';
 }
 
-export function ensureDrawioViewerLoaded(): Promise<void> {
+/** @param base absolute URL that `drawio/` sits under; omit to use the document's base. */
+export function ensureDrawioViewerLoaded(base?: string): Promise<void> {
   if (isDrawioViewerLoaded()) return Promise.resolve();
   if (loading) return loading;
+  assetBase = base;
 
   loading = (async () => {
     ensureDrawioStylesheet();

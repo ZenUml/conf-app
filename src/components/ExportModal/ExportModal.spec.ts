@@ -2,6 +2,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { nextTick } from 'vue';
 import ExportModal from './ExportModal.vue';
+import { writeExportSession } from './exportSession';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
@@ -25,18 +26,33 @@ function mountModal(visible = true) {
 
 afterEach(() => {
   document.body.innerHTML = '';
+  writeExportSession(null);
 });
 
 describe('ExportModal — dialog semantics', () => {
-  it('marks the shell as a labelled modal dialog pointing at the settings heading', () => {
+  it('marks the shell as a labelled export dialog with its toolbar', () => {
     const wrapper = mountModal();
     const dialog = wrapper.find('.export-modal');
     expect(dialog.attributes('role')).toBe('dialog');
     expect(dialog.attributes('aria-modal')).toBe('true');
-    expect(dialog.attributes('aria-labelledby')).toBe('export-settings-title');
+    expect(dialog.attributes('aria-label')).toBe('Export image');
     expect(dialog.attributes('tabindex')).toBe('-1');
-    expect(wrapper.find('#export-settings-title').text()).toBe('Export Settings');
+    expect(wrapper.find('[role="toolbar"]').attributes('aria-label')).toBe('Export tools');
     wrapper.unmount();
+  });
+});
+
+describe('ExportModal — current visit session', () => {
+  it('restores completed annotations and one watermark after remounting', () => {
+    const first = mountModal();
+    const item = first.vm.state.annotations.add('note', { x: 0.3, y: 0.4 });
+    first.vm.state.annotations.update(item.id, { text: 'Keep this label' });
+    first.vm.state.watermarkVisible.value = true;
+    first.unmount();
+    const reopened = mountModal();
+    expect(reopened.vm.state.annotations.items.value.map(item => item.text)).toEqual(['Keep this label']);
+    expect(reopened.vm.state.watermarkVisible.value).toBe(true);
+    reopened.unmount();
   });
 });
 
@@ -72,6 +88,26 @@ describe('ExportModal — Escape layering', () => {
     await wrapper.find('.export-modal').trigger('keydown', { key: 'Escape' });
     expect(wrapper.vm.state.selectedAnnotation.value).toBe(null);
     expect(wrapper.emitted('close')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it('returns focus to the dialog when Escape removes a selected properties toolbar', async () => {
+    const wrapper = mountModal();
+    const item = wrapper.vm.state.annotations.add('callout', { x: 0.4, y: 0.4 });
+    wrapper.vm.state.annotations.update(item.id, { text: 'Retry happens here' });
+    wrapper.vm.state.annotations.select(item.id);
+    await nextTick();
+
+    const trigger = wrapper.find('button[aria-label="Download image"]');
+    (trigger.element as HTMLButtonElement).focus();
+    await trigger.trigger('keydown', { key: 'Escape' });
+
+    expect(wrapper.vm.state.annotations.selected.value).toBe(null);
+    expect(wrapper.vm.state.annotations.items.value).toHaveLength(1);
+    expect(document.activeElement).toBe(wrapper.find('.export-modal').element);
+
+    await wrapper.find('.export-modal').trigger('keydown', { key: 'Escape' });
+    expect(wrapper.emitted('close')).toHaveLength(1);
     wrapper.unmount();
   });
 });

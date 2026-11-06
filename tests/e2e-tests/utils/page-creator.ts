@@ -1,9 +1,14 @@
 import { Page } from '@playwright/test';
-import { testConfig, type MacroType } from '../config/test-config.js';
+import { testConfig } from '../config/test-config.js';
+import type { RenderMacroType } from '../config/apps.js';
 import { withLock } from './api-lock.js';
 
-/** One emoji per diagram/macro kind (stable set for E2E page titles). */
-const MACRO_EMOJI: Record<MacroType, string> = {
+/** One emoji per diagram/macro kind (stable set for E2E page titles).
+ *  Keyed on RenderMacroType, not MacroType: this class builds pages through the
+ *  REST API and `MacroOptions` below carries exactly these five. AsyncAPI has no
+ *  API-created form — its document is authored in Studio — so requiring an entry
+ *  for it would be a key nothing can ever look up. */
+const MACRO_EMOJI: Record<RenderMacroType, string> = {
   sequence: '💬',
   graph: '📐',
   openapi: '🔌',
@@ -191,8 +196,8 @@ export class PageCreator {
     return new Date().toISOString().slice(0, 16).replace('T', ' ');
   }
 
-  private activeMacroTypes(options: MacroOptions): MacroType[] {
-    const out: MacroType[] = [];
+  private activeMacroTypes(options: MacroOptions): RenderMacroType[] {
+    const out: RenderMacroType[] = [];
     if (options.sequence) out.push('sequence');
     if (options.graph) out.push('graph');
     if (options.openapi) out.push('openapi');

@@ -1,4 +1,8 @@
 /**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
+/**
  * Plugin for embed mode in Nextcloud
  */
 Draw.loadPlugin(function(ui)
@@ -460,7 +464,7 @@ Draw.loadPlugin(function(ui)
      */
     EmbedFile.prototype.setDescriptor = function(desc)
     {
-        this.desc = desc;
+        this.desc = desc || {};
     };
 
     /**
@@ -543,21 +547,27 @@ Draw.loadPlugin(function(ui)
     
     ui.installMessageHandler = function(callback)
     {
-        origInstallMessageHandler.call(this, function()
+        origInstallMessageHandler.call(this, function(xml, evt)
         {
+            try
+            {
+                // New empty files
+                if (JSON.parse(evt.data).xml == ' ') return;
+            }
+            catch (e) {} // Ignore
+
             callback.apply(this, arguments);
             
             var file = ui.getCurrentFile();
             loadDescriptor = loadDescriptor || {};
-            
+
             // New files call this twice, so we need to check if the file is loaded
             if (!loadDescriptor.isLoaded)
             {
+                loadDescriptor.isLoaded = true;
                 file.setDescriptor(loadDescriptor);
                 ui.fileLoaded(file, true);
             }
-
-            loadDescriptor.isLoaded = true;
         });
     }
     

@@ -7,7 +7,12 @@ critical dependency — is now **verified both directions** (§4).
 **Sequencing assumption:** **#360 ships first** — the activation flow is its missing producer
 (§6b), and it adds two cheap items to #360's release scope.
 **Decision:** build this; `#334` editor-templates and the demo-page port are out (evidence below)
+
 **Supersedes:** the 2026-07-26 v1/v2 drafts of this file
+
+**Runtime correction (2026-08-11):** `View as diagram` is prepared-AI-only. The
+temporary page-diagram list journey was removed; existing-diagram discovery belongs
+to the separate `Diagrams` byline.
 
 ---
 
@@ -328,8 +333,8 @@ fail-softs (verified) and the instruction page explains the rest.
 review, all fixed; 1958 unit tests green, vue-tsc clean). Built: manifest byline module +
 displayConditions gate + per-variant strip (yq-verified ship-matrix: lite/full ship only
 `newuser`, asyncapi neither, diagramly both); backend `functions/activation-prepared.ts` +
-D1 `PreparedDiagram` + routes/middleware; `BylineActivationDialog.vue` (prepared + has-content
-modes) + moduleKey routing + the `Sequence.vue` `readOnly` seam that stops the silent-save
+D1 `PreparedDiagram` + routes/middleware; `BylineActivationDialog.vue` (prepared AI preview)
+and moduleKey routing + the `Sequence.vue` `readOnly` seam that stops the silent-save
 defect; `ActivationPrepared` service; gated e2e + reusable property seed/remove helpers.
 
 Remaining:
@@ -351,7 +356,7 @@ Remaining:
    in-repo precedent. v1 completion ships copy-link only; the "Create a page" secondary waits
    on a spike.
 6. ~~**Dialog build.**~~ **BUILT** as `BylineActivationDialog.vue` (not from GetStarted — its
-   own state machine: loading theatre → preview/list → completion; error/cache-miss/
+   own state machine: loading theatre → preview → completion; error/cache-miss/
    capture-miss/mint-fail all degrade gracefully).
    - **"Edit diagram" nested-modal — needs a live probe.** `openModal` from inside a
      `viewportContainer:modal` byline is untested (recon open question); the code path exists

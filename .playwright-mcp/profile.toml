@@ -1,0 +1,9 @@
+version = 1
+project_id = "conf-app"
+profile_name = "Conf App"
+verification_url = "https://lite-dev.atlassian.net/wiki/home"
+allowed_origins = ["https://lite-dev.atlassian.net", "https://lite-stg.atlassian.net"]
+
+[identity.atlassian]
+account_id = "5f07a383ce15e8002618291d"
+reject_login_pages = true

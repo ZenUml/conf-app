@@ -1,4 +1,5 @@
 import { reactive, computed, ref, type Ref, type InjectionKey } from 'vue';
+import { useAnnotations, type AnnotationsState } from './useAnnotations';
 
 export interface Point {
   x: number;
@@ -52,6 +53,7 @@ export interface CalloutState {
 }
 
 export interface ExportState {
+  annotations: AnnotationsState;
   background: Ref<string>;
   customBgColor: Ref<string>;
   note: NoteState;
@@ -93,6 +95,7 @@ export interface ExportState {
 export const exportStateKey: InjectionKey<ExportState> = Symbol('exportState');
 
 export function useExportState(): ExportState {
+  const annotations = useAnnotations();
   const background = ref('white');
   const customBgColor = ref('#ffffff');
   const previewDataUrl = ref<string | null>(null);
@@ -209,6 +212,7 @@ export function useExportState(): ExportState {
   }
 
   return {
+    annotations,
     background,
     customBgColor,
     note,
@@ -243,4 +247,3 @@ export function useExportState(): ExportState {
     removeAnnotation,
   };
 }
-

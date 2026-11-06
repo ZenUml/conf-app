@@ -2,8 +2,8 @@
 	<shape aspect="variable" h="77" name="Diode" strokewidth="inherit" w="70">
 		<connections>
 			<constraint name="N" perimeter="0" x="0.5" y="0"/>
-			<constraint name="S1" perimeter="0" x="0.36" y="1"/>
-			<constraint name="S2" perimeter="0" x="0.64" y="1"/>
+			<constraint name="S1" perimeter="0" x="0.3571" y="1"/>
+			<constraint name="S2" perimeter="0" x="0.6429" y="1"/>
 		</connections>
 		<background>
 			<ellipse h="70" w="70" x="0" y="0"/>
@@ -33,10 +33,10 @@
 	</shape>
 	<shape aspect="variable" h="77" name="Double Diode" strokewidth="inherit" w="70">
 		<connections>
-			<constraint name="NW" perimeter="0" x="0.285" y="0"/>
-			<constraint name="NE" perimeter="0" x="0.715" y="0"/>
-			<constraint name="S1" perimeter="0" x="0.36" y="1"/>
-			<constraint name="S2" perimeter="0" x="0.64" y="1"/>
+			<constraint name="NW" perimeter="0" x="0.2857" y="0"/>
+			<constraint name="NE" perimeter="0" x="0.7143" y="0"/>
+			<constraint name="S1" perimeter="0" x="0.3571" y="1"/>
+			<constraint name="S2" perimeter="0" x="0.6429" y="1"/>
 		</connections>
 		<background>
 			<roundrect arcsize="21.43" h="70" w="70" x="0" y="0"/>
@@ -70,10 +70,10 @@
 	</shape>
 	<shape aspect="variable" h="77" name="Double Triode" strokewidth="inherit" w="70">
 		<connections>
-			<constraint name="NW" perimeter="0" x="0.285" y="0"/>
-			<constraint name="NE" perimeter="0" x="0.715" y="0"/>
-			<constraint name="S1" perimeter="0" x="0.36" y="1"/>
-			<constraint name="S2" perimeter="0" x="0.64" y="1"/>
+			<constraint name="NW" perimeter="0" x="0.2857" y="0"/>
+			<constraint name="NE" perimeter="0" x="0.7143" y="0"/>
+			<constraint name="S1" perimeter="0" x="0.3571" y="1"/>
+			<constraint name="S2" perimeter="0" x="0.6429" y="1"/>
 		</connections>
 		<background>
 			<roundrect arcsize="21.43" h="70" w="70" x="0" y="0"/>
@@ -116,8 +116,8 @@
 	<shape aspect="variable" h="77" name="Pentode" strokewidth="inherit" w="70">
 		<connections>
 			<constraint name="N" perimeter="0" x="0.5" y="0"/>
-			<constraint name="S1" perimeter="0" x="0.36" y="1"/>
-			<constraint name="S2" perimeter="0" x="0.64" y="1"/>
+			<constraint name="S1" perimeter="0" x="0.3571" y="1"/>
+			<constraint name="S2" perimeter="0" x="0.6429" y="1"/>
 		</connections>
 		<background>
 			<ellipse h="70" w="70" x="0" y="0"/>
@@ -166,8 +166,8 @@
 	<shape aspect="variable" h="87" name="Photocell" strokewidth="inherit" w="70">
 		<connections>
 			<constraint name="N" perimeter="0" x="0.5" y="0.11"/>
-			<constraint name="S1" perimeter="0" x="0.36" y="1"/>
-			<constraint name="S2" perimeter="0" x="0.64" y="1"/>
+			<constraint name="S1" perimeter="0" x="0.3571" y="1"/>
+			<constraint name="S2" perimeter="0" x="0.6429" y="1"/>
 		</connections>
 		<background>
 			<ellipse h="70" w="70" x="0" y="10"/>
@@ -213,8 +213,8 @@
 	<shape aspect="variable" h="77" name="Tetrode" strokewidth="inherit" w="70">
 		<connections>
 			<constraint name="N" perimeter="0" x="0.5" y="0"/>
-			<constraint name="S1" perimeter="0" x="0.36" y="1"/>
-			<constraint name="S2" perimeter="0" x="0.64" y="1"/>
+			<constraint name="S1" perimeter="0" x="0.3571" y="1"/>
+			<constraint name="S2" perimeter="0" x="0.6429" y="1"/>
 		</connections>
 		<background>
 			<ellipse h="70" w="70" x="0" y="0"/>
@@ -257,8 +257,8 @@
 	<shape aspect="variable" h="77" name="Triode" strokewidth="inherit" w="70">
 		<connections>
 			<constraint name="N" perimeter="0" x="0.5" y="0"/>
-			<constraint name="S1" perimeter="0" x="0.36" y="1"/>
-			<constraint name="S2" perimeter="0" x="0.64" y="1"/>
+			<constraint name="S1" perimeter="0" x="0.3571" y="1"/>
+			<constraint name="S2" perimeter="0" x="0.6429" y="1"/>
 		</connections>
 		<background>
 			<ellipse h="70" w="70" x="0" y="0"/>

@@ -5,7 +5,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const h = vi.hoisted(() => ({
   initializeContext: vi.fn().mockResolvedValue(undefined),
   callRemote: vi.fn(),
-  trackAnalyticsEvent: vi.fn(),
   forge: { forgeContext: { accountId: 'user-self', cloudId: 'cloud-1' } as any },
 }))
 
@@ -13,9 +12,6 @@ vi.mock('@/model/globals', () => ({
   default: { apWrapper: { initializeContext: h.initializeContext } },
 }))
 vi.mock('@/model/globals/forgeGlobal', () => ({ default: h.forge }))
-vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
-  trackAnalyticsEvent: h.trackAnalyticsEvent,
-}))
 vi.mock('@/utils/requestUtil', () => ({ callRemote: h.callRemote }))
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   getClientDomain: () => 'example-tenant',
@@ -73,7 +69,7 @@ describe('marker parsing and due logic', () => {
 })
 
 describe('maybeSendFirstSeenPing', () => {
-  it('happy path: POSTs, writes the marker with the accountId, fires the census event', async () => {
+  it('happy path: POSTs the census event and writes the marker with the accountId', async () => {
     await maybeSendFirstSeenPing(NOW)
 
     expect(h.callRemote).toHaveBeenCalledWith(
@@ -82,15 +78,6 @@ describe('maybeSendFirstSeenPing', () => {
       expect.objectContaining({ eventType: 'app_first_seen', atlassianId: 'user-self' })
     )
     expect(storedMarker()).toMatchObject({ accountId: 'user-self' })
-    expect(h.trackAnalyticsEvent).toHaveBeenCalledWith(
-      'app_first_seen',
-      expect.objectContaining({
-        feature_area: 'system',
-        surface: 'page_banner',
-        cloud_id: 'cloud-1',
-        account_id: 'user-self',
-      })
-    )
   })
 
   it('inside the 30-day window: exits before context init, no POST', async () => {
@@ -127,7 +114,6 @@ describe('maybeSendFirstSeenPing', () => {
 
     await maybeSendFirstSeenPing(NOW)
     expect(storedMarker()).toBeNull()
-    expect(h.trackAnalyticsEvent).not.toHaveBeenCalled()
 
     // Within backoff: no second POST even though no marker exists.
     vi.clearAllMocks()
@@ -141,13 +127,12 @@ describe('maybeSendFirstSeenPing', () => {
     expect(storedMarker()).toMatchObject({ accountId: 'user-self' })
   })
 
-  it('kill switch: {disabled:true} response writes the marker but fires NO event — fleet goes quiet', async () => {
+  it('kill switch: {disabled:true} response still writes the marker — fleet goes quiet', async () => {
     h.callRemote.mockResolvedValue({ disabled: true })
 
     await maybeSendFirstSeenPing(NOW)
 
     expect(storedMarker()).toMatchObject({ accountId: 'user-self', disabled: true })
-    expect(h.trackAnalyticsEvent).not.toHaveBeenCalled()
 
     // And the marker throttles exactly like a success.
     vi.clearAllMocks()

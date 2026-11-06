@@ -1,86 +1,134 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock @forge/bridge before importing the module under test so view.onClose
-// is a Vitest spy from the start.
-const onCloseHandlers: Array<() => void | Promise<void>> = [];
-vi.mock('@forge/bridge', () => ({
-  view: {
-    onClose: vi.fn(async (handler: () => void | Promise<void>) => {
-      onCloseHandlers.push(handler);
-    }),
-    getContext: vi.fn(async () => ({ cloudId: 'test-cloud' })),
-  },
-}));
-
-vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+const bridge = vi.hoisted(() => ({
+  callbacks: [] as Array<() => Promise<void>>,
+  onClose: vi.fn(),
   trackAnalyticsEvent: vi.fn(),
 }));
 
-import { setupCloseGuard } from './closeGuard';
-import { view } from '@forge/bridge';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+vi.mock('@forge/bridge', () => ({ view: { onClose: bridge.onClose } }));
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: bridge.trackAnalyticsEvent,
+}));
 
-beforeEach(() => {
-  onCloseHandlers.length = 0;
-  (view.onClose as any).mockClear();
-  vi.mocked(trackAnalyticsEvent).mockClear();
+let setupCloseGuard: typeof import('./closeGuard').setupCloseGuard;
+
+beforeEach(async () => {
+  vi.resetModules(); // A fresh iframe and one bridge registration per case.
+  bridge.callbacks.length = 0;
+  bridge.onClose.mockReset().mockImplementation(async (callback: () => Promise<void>) => {
+    bridge.callbacks.push(callback);
+  });
+  bridge.trackAnalyticsEvent.mockClear();
+  ({ setupCloseGuard } = await import('./closeGuard'));
 });
 
 describe('setupCloseGuard', () => {
-  it('registers a handler with view.onClose', () => {
-    const fn = vi.fn();
-    setupCloseGuard(fn);
-    expect(view.onClose).toHaveBeenCalledTimes(1);
-    expect(onCloseHandlers).toHaveLength(1);
+  it.each(['draft first', 'telemetry first'])('dispatches both subscribers with one bridge callback: %s', async (order) => {
+    const draft = vi.fn();
+    const telemetry = vi.fn();
+    if (order === 'draft first') {
+      setupCloseGuard(draft);
+      setupCloseGuard(telemetry);
+    } else {
+      setupCloseGuard(telemetry);
+      setupCloseGuard(draft);
+    }
+
+    expect(bridge.onClose).toHaveBeenCalledTimes(1);
+    await bridge.callbacks[0]();
+    expect(draft).toHaveBeenCalledTimes(1);
+    expect(telemetry).toHaveBeenCalledTimes(1);
   });
 
-  it('invokes the registered handler when Atlassian fires close', async () => {
-    const fn = vi.fn();
-    setupCloseGuard(fn);
-    await onCloseHandlers[0]();
-    expect(fn).toHaveBeenCalledTimes(1);
+  it('tears down each registration independently, including duplicate functions and remounts', async () => {
+    const handler = vi.fn();
+    const firstOff = setupCloseGuard(handler);
+    const secondOff = setupCloseGuard(handler);
+    firstOff();
+    firstOff();
+
+    await bridge.callbacks[0]();
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    secondOff();
+    await bridge.callbacks[0]();
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    setupCloseGuard(handler);
+    expect(bridge.onClose).toHaveBeenCalledTimes(1);
+    await bridge.callbacks[0]();
+    expect(handler).toHaveBeenCalledTimes(2);
   });
 
-  it('teardown disables future handler invocations', async () => {
-    const fn = vi.fn();
-    const off = setupCloseGuard(fn);
-    off();
-    await onCloseHandlers[0]();
-    expect(fn).not.toHaveBeenCalled();
-  });
-
-  it('swallows handler errors without crashing the close path', async () => {
-    const fn = vi.fn(() => { throw new Error('boom'); });
-    setupCloseGuard(fn);
-    // Should not reject — we explicitly catch and log.
-    await expect(onCloseHandlers[0]()).resolves.toBeUndefined();
-    expect(fn).toHaveBeenCalledTimes(1);
-  });
-
-  it('fires close_guard_rejected analytics when view.onClose rejects', async () => {
-    (view.onClose as any).mockRejectedValueOnce(new Error("onClose failed because this resource's view is not closable."));
-    const fn = vi.fn();
-    setupCloseGuard(fn);
-    // Allow the microtask queue to flush so the .catch() runs
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('close_guard_rejected', {
-      feature_area: 'system',
-      surface: 'editor',
+  it('skips a subscriber removed by an earlier callback and defers new subscribers', async () => {
+    const removed = vi.fn();
+    const added = vi.fn();
+    let offRemoved = () => {};
+    setupCloseGuard(() => {
+      offRemoved();
+      setupCloseGuard(added);
     });
+    offRemoved = setupCloseGuard(removed);
+
+    await bridge.callbacks[0]();
+    expect(removed).not.toHaveBeenCalled();
+    expect(added).not.toHaveBeenCalled();
+
+    await bridge.callbacks[0]();
+    expect(added).toHaveBeenCalledTimes(1);
   });
 
-  it('multiple guards register independently and each can be torn down', async () => {
-    const a = vi.fn();
-    const b = vi.fn();
-    const offA = setupCloseGuard(a);
-    setupCloseGuard(b);
+  it('starts later subscribers despite a synchronous throw or rejected promise', async () => {
+    const later = vi.fn();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    setupCloseGuard(() => { throw new Error('boom'); });
+    setupCloseGuard(() => Promise.reject(new Error('rejected')));
+    setupCloseGuard(later);
 
-    expect(onCloseHandlers).toHaveLength(2);
+    await expect(bridge.callbacks[0]()).resolves.toBeUndefined();
+    expect(later).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledTimes(2);
+    error.mockRestore();
+  });
 
-    offA();
-    await onCloseHandlers[0](); // disabled
-    await onCloseHandlers[1](); // active
-    expect(a).not.toHaveBeenCalled();
-    expect(b).toHaveBeenCalledTimes(1);
+  it('starts later subscribers before an unresolved handler settles', () => {
+    const later = vi.fn();
+    setupCloseGuard(() => new Promise<void>(() => {}));
+    setupCloseGuard(later);
+
+    void bridge.callbacks[0]();
+    expect(later).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains subscribers after registration rejection and retries on a later explicit setup', async () => {
+    bridge.onClose.mockRejectedValueOnce(new Error('not closable'));
+    const first = vi.fn();
+    const second = vi.fn();
+    setupCloseGuard(first);
+    await Promise.resolve();
+    await Promise.resolve();
+    setupCloseGuard(second);
+
+    expect(bridge.onClose).toHaveBeenCalledTimes(2);
+    expect(bridge.trackAnalyticsEvent).toHaveBeenCalledWith('close_guard_rejected', {
+      feature_area: 'system', surface: 'editor',
+    });
+    await bridge.callbacks[0]();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains subscribers after a synchronous registration throw and retries later', async () => {
+    bridge.onClose.mockImplementationOnce(() => { throw new Error('bridge threw'); });
+    const first = vi.fn();
+    const second = vi.fn();
+    setupCloseGuard(first);
+    setupCloseGuard(second);
+
+    expect(bridge.onClose).toHaveBeenCalledTimes(2);
+    await bridge.callbacks[0]();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
   });
 });

@@ -25,7 +25,7 @@ This makes `duration_ms` a reliable regression detector for **our own code's** c
 
 ## Baseline (captured 2026-06-05, last 7 days)
 
-Mixpanel project `3373228`, event `macro_viewed`, filter `duration_ms > 0`. (Project/event/filter reference: the **mixpanel** skill.)
+Mixpanel project `3373228`, event `macro_viewed`, filter `duration_ms > 0`. For every customer-wide re-query or baseline refresh, also apply the **mixpanel** skill's string-encoded `is_internal_client_domain = "false"` filter.
 
 | Macro type | p50 | p90 | p99 |
 |---|---|---|---|
@@ -43,7 +43,7 @@ Mixpanel project `3373228`, event `macro_viewed`, filter `duration_ms > 0`. (Pro
 
 ## How to re-query
 
-Run these three Mixpanel queries in parallel (project `3373228`, last 7 days, `duration_ms > 0`, breakdown by `macro_type`):
+Run these three Mixpanel queries in parallel (project `3373228`, last 7 days, excluding internal traffic via `is_internal_client_domain = "false"`, `duration_ms > 0`, breakdown by `macro_type`):
 
 ```
 metric: macro_viewed
@@ -51,6 +51,7 @@ measurement: aggregate-property / median   → p50
 measurement: aggregate-property / p90      → p90
 measurement: aggregate-property / p99      → p99
 filter: duration_ms > 0 (strips events without timing)
+filter: is_internal_client_domain equals "false" (use the string-encoded global filter from the mixpanel skill)
 breakdown: macro_type
 dateRange: last 7 days
 ```

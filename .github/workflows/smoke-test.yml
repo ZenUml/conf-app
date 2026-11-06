@@ -13,6 +13,11 @@ jobs:
       app: zenuml-lite@prod
       suite: insert
       artifact-suffix: lite-prod-smoke
+      # e2e-test.yml defaults to 8 minutes. Production adds a login round-trip and a
+      # slower site than staging: on 2026-09-01 the Lite insert shard 3/4 ran 8m29s
+      # and was reaped mid-test, so the wedged test never reported a name or a trace.
+      # 12 matches the budget build-test-deploy.yml already passes for staging Lite.
+      timeout-minutes: 12
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
@@ -20,13 +25,23 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   prod-full:
+    # `needs` keeps the three variants serial — one robot account, three production
+    # sites, and concurrent logins collide. `!cancelled()` stops it also gating on
+    # Lite's RESULT: on 2026-09-01 a Lite navigation wedge left Full and Diagramly
+    # unrun on both the scheduled run and its rerun, so a single Lite flake removed
+    # production evidence for the other two variants for the whole day. A job reaped
+    # by timeout-minutes is a job outcome, so this still runs; a human cancelling the
+    # workflow stops it, which `always()` would not. GitHub names `!cancelled()` the
+    # recommended alternative to `always()`.
     needs: prod-lite
+    if: ${{ !cancelled() }}
     name: Full Smoke Test (Prod)
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-full@prod
       suite: insert
       artifact-suffix: full-prod-smoke
+      timeout-minutes: 12
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
       password: ${{ vars.ZENUML_PROD_PASSWORD }}
@@ -34,12 +49,14 @@ jobs:
 
   prod-diagramly:
     needs: prod-full
+    if: ${{ !cancelled() }}
     name: Diagramly Smoke Test (Prod)
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: diagramly@prod
       suite: insert
       artifact-suffix: diagramly-prod-smoke
+      timeout-minutes: 12
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
       password: ${{ vars.ZENUML_PROD_PASSWORD }}

@@ -9,7 +9,7 @@
 // — assert the dispatch RAN, but don't fail if the result is true. The
 // dirty-after-edit case (:6) is the firm signal.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   expectFullscreenLayout,
@@ -27,7 +27,7 @@ import {
   readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('OpenAPI / Swagger — Create flow', () => {
+test.describe('OpenAPI / Swagger — Create flow', { tag: ['@test:openapi-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@fullscreen', '@openapi'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('openapi'), 'openapi not in profile');
 

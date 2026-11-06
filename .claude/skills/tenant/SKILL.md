@@ -1,30 +1,24 @@
 ---
 name: tenant
-description: >-
-  Look up ONE Confluence tenant (by domain / slug / cloudId) and answer "is this a paying
-  customer, how big are they, what state are they in" — across all ZenUML apps (Full / Lite /
-  Diagramly), including the Lite Stripe/KV space-license layer. Use whenever the question is about
-  a SINGLE tenant: "is <domain> a paying customer", "look up / who is <domain>", "tenant profile",
-  "how big is <domain>", "is X on a trial / when does the trial expire", or a tenant's paid status
-  for a paywall / conversion / extension-request decision. For cohort / rollup / portfolio questions
-  (total revenue, renewals due in a window, overdue payers, top payers) use the `marketplace-audit`
-  skill instead. Discriminator: one domain in the question -> this skill; a cohort/time-window/ranking
-  -> marketplace-audit. Triggers on tenant, whois, "is <domain> paying", paid status, tenant lookup,
-  cloudId, tenant profile, tenant size, trial expiry.
+description: >
+  Look up one Confluence site's verified product, license, payment, contact and pricing facts.
+  Use for tenant profiles, paid status, site size, trials and potential annual value. Reuses
+  Marketplace exports and the separate Lite KV layer; customer-followup owns action decisions.
+
 ---
 
 # Tenant lookup
 
 Answers per-tenant questions off Atlassian Marketplace license/transaction data **plus** the Lite
-Stripe/KV space-license layer. It's the single-tenant primitive over `marketplace-audit`'s engine
+Stripe/KV space-license layer. It's the single-tenant primitive over `marketplace`'s engine
 (`mp_report.py`) — same auth, cloudId join, and SQLite snapshot — so there is no separate code to
-drift. (The script physically lives under `marketplace-audit/scripts/`; this skill references it by
+drift. (The script physically lives under `marketplace/scripts/`; this skill references it by
 path, the same way `macro-count` references `mixpanel`'s script.)
 
 ## The one command you want
 
 ```bash
-S=.claude/skills/marketplace-audit/scripts/mp_report.py
+S=.claude/skills/marketplace/scripts/mp_report.py
 python3 $S whois <domain>          # the card: cloudId, users, per-app STATE, lifetime $, + Lite Layer-B KV
 python3 $S whois <domain> --json   # machine-readable (self-documents data vintage in --local mode)
 ```
@@ -34,10 +28,7 @@ python3 $S whois <domain> --json   # machine-readable (self-documents data vinta
 
 ## What the card encodes (the traps baked in)
 
-- **State per app, not a binary.** `FREE` (Lite free rider) / `TRIAL — expires D (⚠ Nd left)` (active
-  evaluation) / `PAID $X paid_thru D` / `LAPSED` (was paying, coverage ended). A `$0` is NOT "not a
-  customer": it may be an active trial (a hot conversion, e.g. a Full eval expiring in 2 days) or a
-  churned payer.
+- **Purchase and settlement are independent.** Inspect raw transactions alongside the license. The current `whois` helper can label positive transaction amounts `PAID` without checking `paymentStatus`; its `PAID`, `paying` and lifetime totals are not independent payment confirmation. Verify raw Paid/Fully paid/Open status, source IDs and service periods in the Marketplace export/snapshot. A valid commercial order with Open status establishes purchase, while settlement stays unconfirmed. Do not describe that customer as unpaid or without an order.
 - **Lite → Layer B auto-checked.** Lite is free on the Marketplace (`$0` by design); real Lite paid
   status lives in the **Stripe/KV space-license** layer. `whois` shells `wrangler kv … --remote`
   (the `--remote` is baked in — without it wrangler v4 reads LOCAL state and returns a false empty)
@@ -59,10 +50,16 @@ python3 $S tier <domain>   # quick tier / license-type / status
 `python3 $S sync` builds a local SQLite snapshot; then add `--local` to any command for
 byte-deterministic, offline, sub-100ms lookups. Billing may be stale (it prints the snapshot age and
 warns past 24h); Lite Layer-B is skipped in `--local` mode and says so. Use `--local` for batch /
-reproducible reports, live for "is X paying right now". See `marketplace-audit` for `sync` details.
+reproducible reports, live for "is X paying right now". See `marketplace` for `sync` details.
 
-## Related
+## Report shape
 
-- `marketplace-audit` — the cohort/rollup side: revenue, renewals due, overdue/lapsing, top payers.
-- `paywall` / `extend-space-license` — act on a Lite tenant's paid status once you know it.
-- `metrics` / `macro-count` — per-space KV / usage: whether the tenant is *using* the app (vs *paying*).
+Give company/site, purchase evidence, verified product/license facts, source-reported payment status, contact roles and evidence gaps. Preserve transaction/line IDs, sale dates, amounts and coverage rather than quoting only a lifetime total. The helper's `paying_any_layer` can be unknown when Lite is unchecked, but a true result still requires raw Marketplace/Stripe verification before claiming payment. Review transaction periods/refunds and overlapping invoices separately; Open-only orders must not be described as “no transaction found”.
+
+For purchase/renewal opportunities, pass a matched valid non-zero order with effective commercial license to `customer-followup` as a commercial win, even if settlement is Open. Exclude refunds, cancelled/voided orders and free-only rows. A paused support or technical conversation is separate from this commercial fact.
+
+For a decision, pass the facts to `customer-followup`. This lookup does not grant permission for product changes, free extensions, outreach or scheduling. Contact role is not established by a technical-contact label. Full trial expiry alone is not a reason to chase purchasing.
+
+Potential pricing comes from `marketplace/scripts/mp_pricing.py quote <seats>` using the current verified tier; report currency, source date and whether the amount is a public list price, quote or actual transaction. Keep long evidence and customer identities in `private/`.
+
+Related: `customer-lifecycle`, `customer-feedback`, `customer-followup`, `marketplace`, `macro-count`.

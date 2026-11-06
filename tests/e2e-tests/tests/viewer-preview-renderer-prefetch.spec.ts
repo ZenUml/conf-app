@@ -8,10 +8,20 @@
  * import-warm pulls the real module, and the localStorage throttle makes a
  * second run a no-op.
  *
- * Flags are Forge feature flags (@forge/bridge client SDK) and cannot
- * evaluate outside a Forge iframe — the run helper injects the getFlags
- * result; flag evaluation itself is unit-tested in flags.spec.ts. The
- * no-override case exercises the production fail-closed path.
+ * No feature-flag gating: `renderer-prefetch` / `renderer-prefetch-banner`
+ * shipped to 100% on lite/diagramly in June 2026 and the kill switch was
+ * retired in commit 2a0ccfce (2026-07-25) — `runRendererPrefetchIfDue` no
+ * longer takes a `getFlags` option, it always runs subject to the runtime
+ * guards (saveData, 2g, hidden tab, deviceMemory) only. This spec used to
+ * carry two additional cases ("flag off: no links" / "no flag override:
+ * fails closed") asserting the old fail-closed default; both were removed
+ * here (2026-08-16) because they tested a code path deleted by 2a0ccfce —
+ * the sibling unit spec (src/utils/prefetch/rendererPrefetch.spec.ts) was
+ * updated in that same commit, but this E2E spec was not, because nothing
+ * in CI ran it (see issue #374). `runPrefetchInPage`'s `flagOverride` param
+ * is now a harmless no-op, kept only so the remaining "flag on" test name
+ * still reads sensibly; do not add new fail-closed assertions here unless
+ * flag gating actually returns.
  *
  * Status: local-first (preview project), like all viewer-preview-* specs.
  *
@@ -23,12 +33,13 @@
  * - real Forge flag evaluation, CDN cache headers, cross-iframe warm flip
  *   (forge tunnel items — see docs/features/renderer-prefetch.md)
  */
-import { test, expect } from '@playwright/test'
+import { test, expect } from '../fixtures/mixpanel-test.js'
 import { clearPrefetchState, runPrefetchInPage, probeUrls } from '../helpers/rendererPrefetch'
+import { localDevUrl } from '../helpers/localDevUrl'
 
-const BASE = 'http://127.0.0.1:8080/viewer-preview.html'
+const BASE = localDevUrl('viewer-preview.html')
 
-test.describe('renderer prefetch — browser mechanics', () => {
+test.describe('renderer prefetch — browser mechanics', { tag: ['@viewer', '@mermaid', '@plantuml'] }, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE)
     await clearPrefetchState(page)
@@ -60,15 +71,4 @@ test.describe('renderer prefetch — browser mechanics', () => {
     expect(second.links).toHaveLength(0)
   })
 
-  test('flag off: no links, no done-key (a later flag flip can still warm)', async ({ page }) => {
-    const result = await runPrefetchInPage(page, 'banner', false)
-    expect(result.links).toHaveLength(0)
-    expect(result.doneKeySet).toBe(false)
-  })
-
-  test('no flag override (production path outside Forge): fails closed', async ({ page }) => {
-    const result = await runPrefetchInPage(page, 'macro')
-    expect(result.links).toHaveLength(0)
-    expect(result.doneKeySet).toBe(false)
-  })
 })

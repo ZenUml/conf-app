@@ -23,7 +23,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="50" y="45"/>
@@ -31,7 +31,7 @@
         </path>
         <stroke/>
         <strokewidth width="1"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <rect h="16" w="16" x="10" y="16"/>
         <fillstroke/>
         <rect h="16" w="16" x="10" y="37"/>
@@ -40,7 +40,7 @@
         <fillstroke/>
         <rect h="16" w="16" x="124" y="37"/>
         <fillstroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="87" y="39"/>
             <line x="87" y="51"/>
@@ -105,8 +105,8 @@
     <foreground>
         <fillstroke/>
         <strokewidth width="1"/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#e6e6e6"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <path>
             <move x="50" y="20"/>
             <line x="100" y="20"/>
@@ -115,7 +115,7 @@
             <close/>
         </path>
         <fillstroke/>
-        <fillcolor color="#a0a0a0"/>
+        <fillcolor color="fillColor2" default="#a0a0a0"/>
         <path>
             <move x="65" y="70"/>
             <line x="50" y="20"/>
@@ -124,7 +124,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="fillColor3" default="#808080"/>
         <path>
             <move x="65" y="70"/>
             <line x="50" y="20"/>
@@ -133,7 +133,7 @@
             <close/>
         </path>
         <fill/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="50" y="20"/>
             <line x="100" y="20"/>
@@ -169,19 +169,19 @@
     <foreground>
         <fillstroke/>
         <strokewidth width="2"/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="50" y="45"/>
             <line x="95" y="45"/>
         </path>
         <stroke/>
         <strokewidth width="1"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <rect h="25" w="25" x="10" y="28"/>
         <fillstroke/>
         <rect h="16" w="16" x="124" y="37"/>
         <fillstroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="87" y="39"/>
             <line x="87" y="51"/>
@@ -189,8 +189,8 @@
             <close/>
         </path>
         <fill/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#ffe040"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor2" default="#ffe040"/>
         <path>
             <move x="126" y="73"/>
             <arc large-arc-flag="1" rx="8.5" ry="8.5" sweep-flag="1" x="126" x-axis-rotation="0" y="64"/>
@@ -236,8 +236,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="65" y="45"/>
@@ -278,8 +278,8 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#808080"/>
-        <strokecolor color="#808080"/>
+        <fillcolor color="fillColor1" default="#808080"/>
+        <strokecolor color="fillColor1" default="#808080"/>
         <path>
             <move x="46" y="38"/>
             <line x="46" y="53"/>
@@ -318,8 +318,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="35" y="45"/>
@@ -340,7 +340,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <rect h="16" w="16" x="67" y="16"/>
         <fillstroke/>
         <rect h="16" w="16" x="10" y="37"/>
@@ -377,7 +377,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="10" y="45"/>
@@ -392,7 +392,7 @@
             <line x="45" y="45"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <ellipse h="8" w="8" x="41" y="41"/>
         <fill/>
         <ellipse h="8" w="8" x="101" y="20"/>
@@ -427,8 +427,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#e6e6e6"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <strokewidth width="2"/>
         <path>
             <move x="50" y="45"/>
@@ -440,7 +440,7 @@
         <fillstroke/>
         <rect h="16" w="16" x="10" y="37"/>
         <fillstroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="87" y="39"/>
             <line x="87" y="51"/>
@@ -474,8 +474,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#e6e6e6"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <strokewidth width="2"/>
         <path>
             <move x="50" y="45"/>
@@ -487,7 +487,7 @@
         <fillstroke/>
         <rect h="16" w="16" x="124" y="37"/>
         <fillstroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="87" y="39"/>
             <line x="87" y="51"/>
@@ -520,19 +520,19 @@
         <roundrect arcsize="7.5" h="40" w="60" x="0" y="0"/>
     </background>
     <foreground>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#e6e6e6"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <strokewidth width="2"/>
         <fillstroke/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="fillColor2" default="#808080"/>
         <roundrect arcsize="9.18" h="32.67" w="44.67" x="4.33" y="3"/>
         <fill/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <ellipse h="4" w="4" x="52" y="26"/>
         <fill/>
         <ellipse h="4" w="4" x="52" y="32"/>
         <fill/>
-        <strokecolor color="#00ff00"/>
+        <strokecolor color="strokeColor2" default="#00ff00"/>
         <path>
             <move x="12" y="23"/>
             <curve x1="12" x2="22" x3="22" y1="23" y2="18" y3="11"/>
@@ -569,7 +569,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="10" y="66"/>
@@ -585,7 +585,7 @@
             <line x="45" y="66"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <ellipse h="8" w="8" x="41" y="62"/>
         <fill/>
         <ellipse h="8" w="8" x="101" y="20"/>
@@ -625,7 +625,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="13" y="20"/>
             <arc large-arc-flag="0" rx="2" ry="2" sweep-flag="1" x="17" x-axis-rotation="0" y="20"/>
@@ -660,8 +660,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="10" y="45"/>
@@ -717,9 +717,9 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="1"/>
-        <fillcolor color="#ffe040"/>
+        <fillcolor color="fillColor1" default="#ffe040"/>
         <rect h="46" w="76" x="37" y="22"/>
         <fillstroke/>
         <path>
@@ -754,8 +754,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="65" y="45"/>
@@ -774,8 +774,8 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#808080"/>
-        <strokecolor color="#808080"/>
+        <fillcolor color="fillColor1" default="#808080"/>
+        <strokecolor color="fillColor1" default="#808080"/>
         <path>
             <move x="46" y="38"/>
             <line x="46" y="53"/>
@@ -806,7 +806,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <fillcolor color="#ffff00"/>
+        <fillcolor color="fillColor1" default="#ffff00"/>
         <path>
             <move x="10" y="0"/>
             <line x="12" y="2"/>
@@ -848,7 +848,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <fillcolor color="#ffff00"/>
+        <fillcolor color="fillColor1" default="#ffff00"/>
         <path>
             <move x="2" y="0"/>
             <line x="0" y="2"/>
@@ -898,8 +898,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="65" y="45"/>
@@ -945,8 +945,8 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#808080"/>
-        <strokecolor color="#808080"/>
+        <fillcolor color="fillColor1" default="#808080"/>
+        <strokecolor color="fillColor1" default="#808080"/>
         <path>
             <move x="46" y="38"/>
             <line x="46" y="53"/>
@@ -985,7 +985,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <path>
             <move x="50" y="20"/>
             <line x="100" y="20"/>
@@ -996,7 +996,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#a0a0a0"/>
+        <fillcolor color="fillColor2" default="#a0a0a0"/>
         <path>
             <move x="80" y="70"/>
             <line x="64" y="70"/>
@@ -1007,7 +1007,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="fillColor3" default="#808080"/>
         <path>
             <move x="71" y="70"/>
             <line x="64" y="70"/>
@@ -1018,7 +1018,7 @@
             <close/>
         </path>
         <fill/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="1"/>
         <path>
             <move x="50" y="20"/>
@@ -1056,9 +1056,9 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="1"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <path>
             <move x="40" y="25"/>
             <arc large-arc-flag="1" rx="35" ry="5" sweep-flag="1" x="110" x-axis-rotation="0" y="25"/>
@@ -1072,7 +1072,7 @@
             <arc large-arc-flag="1" rx="35" ry="5" sweep-flag="0" x="110" x-axis-rotation="0" y="25"/>
         </path>
         <stroke/>
-        <fillcolor color="#a0a0a0"/>
+        <fillcolor color="fillColor2" default="#a0a0a0"/>
         <path>
             <move x="40" y="25"/>
             <arc large-arc-flag="0" rx="35" ry="5" sweep-flag="0" x="85" x-axis-rotation="0" y="30"/>
@@ -1081,7 +1081,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="fillColor3" default="#808080"/>
         <path>
             <move x="40" y="25"/>
             <arc large-arc-flag="0" rx="35" ry="5" sweep-flag="0" x="60" x-axis-rotation="0" y="29.5"/>
@@ -1090,7 +1090,7 @@
             <close/>
         </path>
         <fill/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="40" y="25"/>
             <arc large-arc-flag="1" rx="35" ry="5" sweep-flag="0" x="110" x-axis-rotation="0" y="25"/>
@@ -1125,8 +1125,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#e6e6e6"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <strokewidth width="2"/>
         <rect h="60" w="40" x="15" y="15"/>
         <fillstroke/>
@@ -1139,7 +1139,7 @@
             <line x="102" y="70"/>
         </path>
         <stroke/>
-        <strokecolor color="#808080"/>
+        <strokecolor color="strokeColor2" default="#808080"/>
         <path>
             <move x="20" y="25"/>
             <line x="50" y="25"/>
@@ -1189,7 +1189,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="1"/>
         <path>
             <move x="12" y="65"/>
@@ -1234,8 +1234,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <fillcolor color="#808080"/>
-        <strokecolor color="#808080"/>
+        <fillcolor color="fillColor1" default="#808080"/>
+        <strokecolor color="fillColor1" default="#808080"/>
         <strokewidth width="2"/>
         <path>
             <move x="46" y="38"/>
@@ -1249,8 +1249,8 @@
             <line x="56" y="45.25"/>
         </path>
         <stroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#9ddbef"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor2" default="#9ddbef"/>
         <strokewidth width="1"/>
         <rect h="74" w="27" x="109" y="8"/>
         <fillstroke/>
@@ -1288,7 +1288,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="50" y="45"/>
@@ -1296,7 +1296,7 @@
         </path>
         <stroke/>
         <strokewidth width="1"/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="87" y="39"/>
             <line x="87" y="51"/>
@@ -1304,7 +1304,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <rect h="16" w="16" x="124" y="37"/>
         <fillstroke/>
         <ellipse h="16" w="16" x="10" y="19"/>
@@ -1348,8 +1348,8 @@
     <foreground>
         <fillstroke/>
         <strokewidth width="2"/>
-        <fillcolor color="#000000"/>
-        <strokecolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="132" y="37"/>
             <line x="140" y="45"/>
@@ -1367,8 +1367,8 @@
             <arc large-arc-flag="1" rx="35" ry="35" sweep-flag="0" x="55" x-axis-rotation="0" y="36"/>
         </path>
         <stroke/>
-        <fillcolor color="#808080"/>
-        <strokecolor color="#808080"/>
+        <fillcolor color="fillColor1" default="#808080"/>
+        <strokecolor color="fillColor1" default="#808080"/>
         <path>
             <move x="46" y="38"/>
             <line x="46" y="53"/>
@@ -1407,7 +1407,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="35" y="60"/>
@@ -1419,7 +1419,7 @@
         </path>
         <stroke/>
         <strokewidth width="1"/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <ellipse h="16" w="16" x="67" y="7"/>
         <fillstroke/>
         <rect h="20" w="30" x="20" y="60"/>
@@ -1462,7 +1462,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="10" y="45"/>
@@ -1477,7 +1477,7 @@
             <line x="45" y="45"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <ellipse h="8" w="8" x="41" y="41"/>
         <fill/>
         <ellipse h="8" w="8" x="101" y="20"/>
@@ -1512,8 +1512,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#e6e6e6"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <strokewidth width="1"/>
         <rect h="16" w="16" x="22" y="16"/>
         <fillstroke/>
@@ -1533,7 +1533,7 @@
             <line x="65" y="45"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="55.5" y="39"/>
             <line x="55.5" y="51"/>
@@ -1567,14 +1567,14 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="26" y="45"/>
             <line x="124" y="45"/>
         </path>
         <stroke/>
-        <fillcolor color="#e6e6e6"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <strokewidth width="1"/>
         <rect h="16" w="16" x="124" y="37"/>
         <fillstroke/>
@@ -1610,7 +1610,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="fillColor1" default="#808080"/>
         <strokewidth width="2"/>
         <path>
             <move x="46" y="38"/>
@@ -1619,19 +1619,19 @@
             <close/>
         </path>
         <fill/>
-        <strokecolor color="#808080"/>
+        <strokecolor color="fillColor1" default="#808080"/>
         <path>
             <move x="11" y="45"/>
             <line x="56" y="45"/>
         </path>
         <stroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="80" y="45"/>
             <line x="130" y="45"/>
         </path>
         <stroke/>
-        <fillcolor color="#9ddbef"/>
+        <fillcolor color="fillColor2" default="#9ddbef"/>
         <strokewidth width="1"/>
         <ellipse h="40" w="40" x="60" y="25"/>
         <fillstroke/>
@@ -1643,7 +1643,7 @@
             <arc large-arc-flag="0" rx="10" ry="10" sweep-flag="0" x="80" x-axis-rotation="0" y="53"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="132" y="37"/>
             <line x="140" y="45"/>
@@ -1684,14 +1684,14 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="65" y="45"/>
             <line x="110" y="45"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="107" y="39"/>
             <line x="107" y="51"/>
@@ -1699,7 +1699,7 @@
             <close/>
         </path>
         <fill/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="fillColor1" default="#808080"/>
         <path>
             <move x="46" y="38"/>
             <line x="46" y="53"/>
@@ -1707,13 +1707,13 @@
             <close/>
         </path>
         <fill/>
-        <strokecolor color="#808080"/>
+        <strokecolor color="fillColor1" default="#808080"/>
         <path>
             <move x="11" y="45.25"/>
             <line x="56" y="45.25"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="69" y="37"/>
             <line x="77" y="45"/>
@@ -1722,7 +1722,7 @@
             <close/>
         </path>
         <fill/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="1"/>
         <path>
             <move x="132" y="37"/>
@@ -1758,8 +1758,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <fillcolor color="#000000"/>
-        <strokecolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <ellipse h="8" w="8" x="21" y="76"/>
         <fill/>
@@ -1828,8 +1828,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#e6e6e6"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <strokewidth width="1"/>
         <rect h="16" w="16" x="124" y="16"/>
         <fillstroke/>
@@ -1840,7 +1840,7 @@
         <rect h="16" w="16" x="124" y="37"/>
         <fillstroke/>
         <strokewidth width="2"/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="50" y="45"/>
             <line x="95" y="45"/>
@@ -1879,8 +1879,8 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#e6e6e6"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#e6e6e6"/>
         <strokewidth width="1"/>
         <rect h="16" w="16" x="124" y="37"/>
         <fillstroke/>
@@ -1894,7 +1894,7 @@
             <line x="63" y="45"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="55.5" y="39"/>
             <line x="55.5" y="51"/>
@@ -1930,15 +1930,15 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
-        <fillcolor color="#9ddbef"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
+        <fillcolor color="fillColor1" default="#9ddbef"/>
         <strokewidth width="1"/>
         <ellipse h="66" w="110" x="30" y="12"/>
         <fillstroke/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="accentColor" default="#ffffff"/>
         <rect h="26" w="26" x="88" y="32"/>
         <fillstroke/>
-        <fillcolor color="#808080"/>
+        <fillcolor color="fillColor2" default="#808080"/>
         <path>
             <move x="46" y="38"/>
             <line x="46" y="53"/>
@@ -1946,7 +1946,7 @@
             <close/>
         </path>
         <fill/>
-        <strokecolor color="#808080"/>
+        <strokecolor color="fillColor2" default="#808080"/>
         <strokewidth width="2"/>
         <path>
             <move x="11" y="45"/>
@@ -1979,7 +1979,7 @@
     </background>
     <foreground>
         <fillstroke/>
-        <strokecolor color="#000000"/>
+        <strokecolor color="strokeColor1" default="#000000"/>
         <strokewidth width="2"/>
         <path>
             <move x="20" y="45"/>
@@ -1988,7 +1988,7 @@
             <line x="75" y="70"/>
         </path>
         <stroke/>
-        <fillcolor color="#000000"/>
+        <fillcolor color="strokeColor1" default="#000000"/>
         <path>
             <move x="69" y="69"/>
             <line x="81" y="69"/>

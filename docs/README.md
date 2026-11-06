@@ -34,6 +34,7 @@ Developer documentation for the ZenUML Confluence Cloud Add-on. See `CLAUDE.md` 
 - [Paywall](features/paywall.md) — strategy, implementation, bypass notes, metered soft-paywall mechanics
 - [Export pipeline](features/export-pipeline.md) — attachment export pipeline
 - [Fullscreen modal](features/fullscreen-modal.md) — fullscreen bridge modal lessons
+- [MCP Apps diagram view](features/mcp-app-view.md) — the view hosts like claude.ai render, its separate build, and its Pages deploy
 
 **Operations:**
 - [Cloudflare Pages](ops/cloudflare-pages.md) — project table (lite/full/diagramly), CI sources, secrets

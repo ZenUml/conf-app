@@ -1,6 +1,5 @@
 /**
- * $Id: mxRack.js,v 1.5 2014/01/21 13:10:37 gaudenz Exp $
- * Copyright (c) 2006-2013, JGraph Ltd
+ * Copyright (c) 2006-2013, JGraph Holdings Ltd
  */
 //**********************************************************************************************************************************************************
 //Rack Numbering
@@ -352,14 +351,18 @@ function mxRackNeatPatch(bounds, fill, stroke, strokewidth)
 */
 mxUtils.extend(mxRackNeatPatch, mxShape);
 
-mxRackNeatPatch.prototype.cst = 
+mxRackNeatPatch.prototype.cst =
 {
 		SHAPE_RACK_NEAT_PATCH : 'mxgraph.rackGeneral.neatPatch'
 };
 
+mxRackNeatPatch.prototype.customProperties = [
+	{name: 'bodyColor', dispName: 'Body Color', defVal: '#666666', type: 'color', primary:true}
+];
+
 /**
 * Function: paintVertexShape
-* 
+*
 * Paints the vertex shape.
 */
 mxRackNeatPatch.prototype.paintVertexShape = function(c, x, y, w, h)
@@ -372,7 +375,7 @@ mxRackNeatPatch.prototype.paintVertexShape = function(c, x, y, w, h)
 
 mxRackNeatPatch.prototype.background = function(c, w, h)
 {
-	c.setFillColor('#666666');
+	c.setFillColor(mxUtils.getValue(this.style, 'bodyColor', '#666666'));
 	c.rect(0, 0, w, h);
 	c.fillAndStroke();
 };
@@ -832,6 +835,7 @@ mxRackRackCabinet3.prototype.cst =
 		SHAPE_RACK_RACK_CABINET : 'mxgraph.rackGeneral.rackCabinet3',
 		UNIT_NUM : 'unitNum',
 		UNIT_HEIGHT : 'rackUnitSize',
+		UNIT_DIR_LEFT : 'rackUnitDirLeft',
 		TEXT_COLOR : 'textColor',
 		NUM_DIR : 'numDir',
 		NUMBER_DISPLAY : 'numDisp',
@@ -842,17 +846,42 @@ mxRackRackCabinet3.prototype.cst =
 		TEXT_SIZE : 'textSize'
 };
 
+// Updates the child layout margins so that the 33px allowance for the
+// numbering column (9px frame + 24px numbers) is on the numbered side
+mxRackRackCabinet3.updateNumberMargins = function(graph, dirLeft, numDisp)
+{
+	var cells = graph.getSelectionCells();
+
+	for (var i = 0; i < cells.length; i++)
+	{
+		var style = graph.getCellStyle(cells[i]);
+		var left = (dirLeft != null) ? dirLeft != '0' :
+			mxUtils.getValue(style, 'rackUnitDirLeft', 1) != 0;
+		var margin = (((numDisp != null) ? numDisp :
+			mxUtils.getValue(style, 'numDisp', 'descend')) == 'off') ? 9 : 33;
+
+		graph.setCellStyles('marginLeft', (left) ? margin : 9, [cells[i]]);
+		graph.setCellStyles('marginRight', (left) ? 9 : margin, [cells[i]]);
+	}
+};
+
 mxRackRackCabinet3.prototype.customProperties = [
 	{name: 'startUnit', dispName: 'Starting unit', type: 'int', defVal: 1},
+	{name: 'rackUnitDirLeft', dispName: 'Numbering on left', type: 'boolean', defVal: true,
+		onChange: function(graph, newValue)
+		{
+			mxRackRackCabinet3.updateNumberMargins(graph, newValue, null);
+		}
+	},
 	{name: 'rackUnitSize', dispName: 'Unit height', type: 'float', defVal: 14.8},
-	{name: 'fillColor2', dispName: 'Panel Color', type: 'color', defVal: '#ffffff'},
-	{name: 'textColor', dispName: 'Number text color', type: 'color', defVal: '#666666'},
+	{name: 'fillColor2', dispName: 'Panel Color', type: 'color', defVal: '#ffffff', primary: true},
+	{name: 'textColor', dispName: 'Number text color', type: 'color', defVal: '#666666', primary: true},
 	{name: 'textSize', dispName: 'Text size', type: 'float', defVal: '12'},
 	{name: 'numDisp', dispName: 'Display Numbers', type: 'enum', defVal: 'descend',
 		enumList: [{val: 'off', dispName: 'Off'}, {val: 'ascend', dispName: 'Ascending'}, {val: 'descend', dispName: 'Descending'}],
 		onChange: function(graph, newValue)
 		{
-			graph.setCellStyles('marginLeft', (newValue == 'off') ? 9 : 33, graph.getSelectionCells());
+			mxRackRackCabinet3.updateNumberMargins(graph, null, newValue);
 		}
 	}
 ];
@@ -869,10 +898,19 @@ mxRackRackCabinet3.prototype.paintVertexShape = function(c, x, y, w, h)
 	var unitNum = Math.round((h - 42) / unitH);
 	var fontSize = parseFloat(mxUtils.getValue(this.style, mxRackRackCabinet3.prototype.cst.TEXT_SIZE, '12'));
 	var numDisp = mxUtils.getValue(this.style, mxRackRackCabinet3.prototype.cst.NUMBER_DISPLAY, mxRackRackCabinet3.prototype.cst.ON);
+	var unitDirLeft = mxUtils.getValue(this.style, mxRackRackCabinet3.prototype.cst.UNIT_DIR_LEFT, true);
 
 	if (numDisp !== mxRackRackCabinet3.prototype.cst.OFF)
 	{
-		c.translate(x + fontSize * 2, y);
+		if (unitDirLeft)
+		{	// numbering on left
+			c.translate(x + fontSize * 2, y);
+		}
+		else
+		{	// numbering on right
+			c.translate(x, y);
+		}
+
 		w = w - fontSize * 2;
 	}
 	else
@@ -887,7 +925,7 @@ mxRackRackCabinet3.prototype.paintVertexShape = function(c, x, y, w, h)
 
 	if (numDisp !== mxRackRackCabinet3.prototype.cst.OFF)
 	{
-		this.sideText(c, h, unitNum, unitH, fontSize, numDisp);
+		this.sideText(c, h, w, unitNum, unitH, fontSize, numDisp, unitDirLeft);
 	};
 };
 
@@ -921,25 +959,30 @@ mxRackRackCabinet3.prototype.foreground = function(c, w, h)
 	c.stroke();
 };
 
-mxRackRackCabinet3.prototype.sideText = function(c, h, unitNum, unitH, fontSize, numDisp)
+mxRackRackCabinet3.prototype.sideText = function(c, h, w, unitNum, unitH, fontSize, numDisp, unitDirLeft)
 {
 	var fontColor = mxUtils.getValue(this.style, mxRackRackCabinet3.prototype.cst.TEXT_COLOR, '#666666');
 	var startUnit = mxUtils.getValue(this.style, 'startUnit', 1);
 	c.setFontSize(fontSize);
 	c.setFontColor(fontColor);
+	var x = 0;
+	if (!unitDirLeft)
+	{
+		x = w + 2 * fontSize;
+	}
 
 	if (numDisp === mxRackRackCabinet3.prototype.cst.DIR_ASC)
 	{
 		for (var i = 0; i < unitNum; i++)
 		{
-			c.text(-fontSize, 21 + unitH * 0.5 + i * unitH, 0, 0, (i + startUnit).toString(), mxConstants.ALIGN_CENTER, mxConstants.ALIGN_MIDDLE, 0, null, 0, 0, 0);
+			c.text(x - fontSize, 21 + unitH * 0.5 + i * unitH, 0, 0, (i + startUnit).toString(), mxConstants.ALIGN_CENTER, mxConstants.ALIGN_MIDDLE, 0, null, 0, 0, 0);
 		};
 	}
 	else if (numDisp === mxRackRackCabinet3.prototype.cst.DIR_DESC || numDisp === mxRackRackCabinet3.prototype.cst.DIR_ON)
 	{
 		for (var i = 0; i < unitNum; i++)
 		{
-			c.text(-fontSize, h - 21 - unitH * 0.5 - i * unitH, 0, 0, (i + startUnit).toString(), mxConstants.ALIGN_CENTER, mxConstants.ALIGN_MIDDLE, 0, null, 0, 0, 0);
+			c.text(x - fontSize, h - 21 - unitH * 0.5 - i * unitH, 0, 0, (i + startUnit).toString(), mxConstants.ALIGN_CENTER, mxConstants.ALIGN_MIDDLE, 0, null, 0, 0, 0);
 		};
 	};
 
@@ -949,8 +992,8 @@ mxRackRackCabinet3.prototype.sideText = function(c, h, unitNum, unitH, fontSize,
 
 	for (var i = 0; i < unitNum + 1; i++)
 	{
-		c.moveTo(-2 * fontSize, 21 + i * unitH);
-		c.lineTo(0, 21 + i * unitH);
+		c.moveTo(x - 2 * fontSize, 21 + i * unitH);
+		c.lineTo(x, 21 + i * unitH);
 	};
 
 	c.stroke();
@@ -1458,14 +1501,18 @@ function mxRackChannelBase(bounds, fill, stroke, strokewidth)
  */
 mxUtils.extend(mxRackChannelBase, mxShape);
 
-mxRackChannelBase.prototype.cst = 
+mxRackChannelBase.prototype.cst =
 {
 		SHAPE_RACK_CHANNEL_BASE : 'mxgraph.rackGeneral.channelBase'
 };
 
+mxRackChannelBase.prototype.customProperties = [
+	{name: 'footColor', dispName: 'Foot Color', defVal: '#000000', type: 'color', primary:true}
+];
+
 /**
  * Function: paintVertexShape
- * 
+ *
  * Paints the vertex shape.
  */
 mxRackChannelBase.prototype.paintVertexShape = function(c, x, y, w, h)
@@ -1491,7 +1538,7 @@ mxRackChannelBase.prototype.background = function(c, w, h)
 
 mxRackChannelBase.prototype.foreground = function(c, w, h)
 {
-	c.setFillColor('#000000');
+	c.setFillColor(mxUtils.getValue(this.style, 'footColor', '#000000'));
 	c.rect(10, h - 15, 5, 15);
 	c.fillAndStroke();
 	c.rect(w - 15, h - 15, 5, 15);

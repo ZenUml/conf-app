@@ -47,6 +47,18 @@ describe("_middleware", () => {
     expect(authenticate).toHaveBeenCalledOnce();
   });
 
+  it("authenticates recovery clients but leaves the signed webhook and support token boundary independent", async () => {
+    for (const path of ['/api/fullscreen-recovery', '/api/fullscreen-recovery/']) {
+      await authMiddleware({ request: new Request(`https://example.test${path}`), next: vi.fn().mockResolvedValue(new Response()), env: {}, data: {} } as never);
+    }
+    expect(authenticate).toHaveBeenCalledTimes(2);
+    vi.mocked(authenticate).mockClear();
+    for (const path of ['/api/fullscreen-recovery-webhook', '/api/support/fullscreen-recovery', '/api/support/fullscreen-recovery-mail']) {
+      await authMiddleware({ request: new Request(`https://example.test${path}`), next: vi.fn().mockResolvedValue(new Response()), env: {}, data: {} } as never);
+    }
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+
   it("redacts /d and /i request URLs before logging (client-privacy policy)", () => {
     expect(redactedRequestUrlForLogging("https://conf-lite.zenuml.com/d/bc8bb5b3-09d2-4932-b68c-9b56fab8e34a/425987?t=abc.def"))
       .toBe("https://conf-lite.zenuml.com/d [redacted]");

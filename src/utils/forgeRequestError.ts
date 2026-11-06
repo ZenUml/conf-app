@@ -27,8 +27,10 @@ export class ForgeRequestError extends Error {
   readonly htmlTitle: string | undefined;
   /** False when the body parsed as JSON and the error comes from the HTTP status alone (opt-in). */
   readonly nonJson: boolean;
+  /** Raw `Retry-After` response header, when the bridge passed one through (429/503). */
+  readonly retryAfter: string | undefined;
 
-  constructor(opts: { status: number; method: string; url: string; contentType: string; body: string; nonJson?: boolean }) {
+  constructor(opts: { status: number; method: string; url: string; contentType: string; body: string; nonJson?: boolean; retryAfter?: string | null }) {
     const bodyPrefix = opts.body.replace(/\s+/g, ' ').trim().slice(0, BODY_PREFIX_LENGTH);
     const method = opts.method.toUpperCase();
     const endpoint = `${method} ${templateUrl(opts.url)}`;
@@ -42,6 +44,7 @@ export class ForgeRequestError extends Error {
     this.contentType = opts.contentType;
     this.bodyPrefix = bodyPrefix;
     this.htmlTitle = parseHtmlTitle(opts.body);
+    this.retryAfter = opts.retryAfter || undefined;
   }
 }
 

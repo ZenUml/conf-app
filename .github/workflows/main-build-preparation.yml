@@ -47,39 +47,8 @@ jobs:
         # Skip submodules at checkout — `submodules: recursive` tries to clone
         # the `private` submodule (ZenUml/conf-app-private) which the default
         # GITHUB_TOKEN cannot access ("Repository not found"), aborting checkout
-        # before the build runs. The asyncapi build needs vendor/asyncapi-studio
-        # only — initialise it explicitly below.
-      - name: Init asyncapi-studio submodule
-        run: git submodule update --init --depth 1 vendor/asyncapi-studio
-      # Capture the submodule SHA so the cache key changes only when the
-      # studio pin moves — every PR that doesn't bump vendor/asyncapi-studio
-      # reuses the previous build artifacts.
-      - name: Resolve asyncapi-studio submodule SHA
-        id: studio-sha
-        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      # Cache Studio build output + its node_modules. On a cache hit:
-      #   - static/asyncapi-studio/.studio-commit already matches the pin,
-      #     so scripts/build-studio.sh fast-paths out (no pnpm install,
-      #     no Next.js build) — saves ~60–90s per CI run.
-      #   - vendor/asyncapi-studio/node_modules being restored means a
-      #     forced rebuild (FORCE_REBUILD=1) is also cheap because pnpm
-      #     install in the submodule short-circuits.
-      # Cache key includes scripts/build-studio.sh hash so changes to the
-      # build logic invalidate the cache. The fallback restore-keys lets
-      # us still pull node_modules even if the submodule SHA moved (saves
-      # most of the pnpm install on pin bumps).
-      - name: Cache asyncapi Studio build
-        uses: actions/cache@v5
-        with:
-          path: |
-            static/asyncapi-studio
-            vendor/asyncapi-studio/node_modules
-            vendor/asyncapi-studio/apps/*/node_modules
-            vendor/asyncapi-studio/packages/*/node_modules
-          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
-          restore-keys: |
-            studio-${{ steps.studio-sha.outputs.sha }}-
-            studio-
+        # before the build runs. This job builds no bundle: the build-prod matrix
+        # below already builds all four variants on main, so it needs no submodule.
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
       - name: Setup Node
@@ -97,18 +66,6 @@ jobs:
         run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
       - run: pnpm test:unit
       - run: node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs
-      # Verify the asyncapi variant builds even on feature-branch PRs. The
-      # staging-asyncapi job below only runs on the default branch (like
-      # full/diagramly), so this is the smoke test for PRs.
-      # The Cache step above usually makes this near-instant (vite build only).
-      - name: Verify asyncapi build
-        run: pnpm build:asyncapi
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-          # Skip Puppeteer's chromium download inside the Studio submodule's
-          # pnpm install (some transitive deps pull it in but the Studio
-          # build doesn't need it).
-          PUPPETEER_SKIP_DOWNLOAD: "true"
   
   preview-e2e:
     if: needs.parent.outputs.run == 'true'
@@ -121,7 +78,7 @@ jobs:
     # was collected but never gated: it only ran when someone remembered to
     # start Vite and run it by hand.
     name: "E2E: Viewer preview"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Generous next to a ~2 min expectation: the whole point of this job is to
     # be cheap and quiet, so give a cold pnpm store room rather than reap it.
     timeout-minutes: 12

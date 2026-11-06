@@ -138,6 +138,14 @@ describe("mixpanelImportServiceEvents", () => {
     expect(fetchMock.mock.calls[0][1].body).toBe(fetchMock.mock.calls[1][1].body);
   });
 
+  it("preserves bounded scenario code arrays for service events", async () => {
+    await mixpanelImportServiceEvents([
+      makeEvent({ properties: { scenario_codes: ['inspect_details', 'present'] } }),
+    ], "mixpanel-token");
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body[0].properties.scenario_codes).toEqual(['inspect_details', 'present']);
+  });
+
   it.each([
     ["reserved identity", { user_account_id: "not-a-user" }],
     ["reserved insert id", { "$insert_id": "caller-override" }],
@@ -164,7 +172,7 @@ describe("mixpanelImportServiceEvents", () => {
         "mixpanel-token",
         { batchSize: 1 },
       ),
-    ).rejects.toThrow("property must be scalar: contents");
+    ).rejects.toThrow("property must be a bounded string array: contents");
 
     expect(fetchMock).not.toHaveBeenCalled();
   });

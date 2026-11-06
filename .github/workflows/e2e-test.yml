@@ -307,7 +307,7 @@ jobs:
     # `needs` would skip this job with it. A failed bootstrap still stops the
     # shards: nothing they could do without a session is worth a runner.
     if: ${{ !cancelled() && (needs.auth.result == 'success' || needs.auth.result == 'skipped') && (!inputs.planned || (needs.plan.result == 'success' && needs.plan.outputs.count != '0')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Reap a wedged shard before a human would (a test stuck at the 300s test
     # timeout x3 retries = ~15 min), while leaving room for the SLOWEST legit
     # shard to finish AND for a wedge to fail named-with-trace.

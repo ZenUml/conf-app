@@ -160,6 +160,41 @@ describe('Header', () => {
       expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
     });
 
+    it('still installs draft protection when reading the preference throws', async () => {
+      // Storage can throw (blocked site data, sandboxed iframe). mounted() must
+      // not reject before the draft saver / restore handler / close guard exist.
+      const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => {
+        if (key === 'zenuml-preferred-diagram-type') throw new DOMException('denied', 'SecurityError');
+        return null;
+      });
+      try {
+        const w = mountWith({ id: '', isNew: true, typeRequested: false, diagramType: DiagramType.Sequence, title: 'T' });
+        await flushPromises();
+
+        // The draft-restore handler is registered at the end of mounted().
+        EventBus.$emit('draft-restore', { scope: 'new:diagram', draft: { code: 'Restored->Me: hi', title: 'Restored', diagramType: 'sequence', buffers: {} } });
+        await w.vm.$nextTick();
+        expect(store.state.diagram.title).toBe('Restored');
+        expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('still switches the diagram type when saving the preference throws', async () => {
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      try {
+        const w = mountWith({ id: 'x1', isNew: false, typeRequested: false, diagramType: DiagramType.Sequence });
+        await flushPromises();
+        expect(() => { (w.vm as any).diagramType = DiagramType.Mermaid; }).not.toThrow();
+        expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('never overrules a type the user just picked', async () => {
       // The byline's picker (and a pasted /new/<type> link) seed the doc and set
       // typeRequested. Without this guard the preference won, so choosing

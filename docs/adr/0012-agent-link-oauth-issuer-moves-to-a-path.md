@@ -37,15 +37,29 @@ The last two are origin-wide, and both described agent-link. A client adding `/m
 
 Codex then still found step 3. That document sat at the root only because the issuer was the bare origin: RFC 8414 §3 puts the document at the well-known prefix followed by the issuer's path, and a bare origin has no path.
 
+### Update, 2026-11-06: the render server now has its own origin
+
+Since commit `0f835c6` (2026-11-04, [docs/ops/render-mcp-deployment.md](../ops/render-mcp-deployment.md)), a separate Cloudflare Worker serves the render server:
+- at its canonical address, `https://zenuml.com/mcp`;
+- and on routes for the old `conf-lite.zenuml.com/mcp*` aliases.
+
+Checked on 2026-11-06:
+- `zenuml.com` advertises no OAuth: every `.well-known` OAuth path returns 404;
+- `codex mcp add zenuml-render --url https://zenuml.com/mcp` (Codex CLI 0.166.0) adds the server with no OAuth flow.
+
+So option 2 below already exists for any client given the canonical URL. This ADR now matters only for the old `conf-lite.zenuml.com/mcp` and `/mcp/render` addresses. Those still share an origin with agent-link's OAuth documents, and the Claude directory listing in review and the published plugin configs still use them.
+
 ## Options
 
 1. **Move the issuer to a path, `<origin>/agent-link`.** Its document then lives at `/.well-known/oauth-authorization-server/agent-link` (RFC 8414 §3.1). Only a client that agent-link's protected-resource document points there will read it. Nothing at the root advertises OAuth.
-2. **Serve the render server from its own origin.** This is cleaner in principle. But the Claude directory listing `zenuml-diagrams`, which is in review, and the published plugin configs name `conf-lite.zenuml.com/mcp/render`, and a submitted connector's URL can only be changed through Anthropic.
+2. **Serve the render server from its own origin.** Done for `https://zenuml.com/mcp` (see the update above). It does not help clients configured with the old `conf-lite.zenuml.com` addresses: the Claude directory listing `zenuml-diagrams`, which is in review, and the published plugin configs. A submitted connector's URL can only be changed through Anthropic.
 3. **Keep the root document and live with the extra sign-in attempt.** Every client that runs OAuth discovery keeps the "first try fails" behaviour.
 
 ## Decision
 
-**Option 1, behind one flag.** `OAUTH_ROOT_AS_METADATA=off` makes `<origin>/agent-link` the issuer. Option 2 stays as the fallback if a client turns out to need the root document.
+**Option 1, behind one flag, for the old addresses.** `OAUTH_ROOT_AS_METADATA=off` makes `<origin>/agent-link` the issuer.
+
+Publishing `https://zenuml.com/mcp` everywhere is the primary fix. If every client of the old addresses can be moved to it, including the Claude listing through Anthropic, the flag need never be turned on in production. This ADR then records an option that was available but not needed.
 
 ### What the flag changes
 

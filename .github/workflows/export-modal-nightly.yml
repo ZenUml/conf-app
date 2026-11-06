@@ -14,7 +14,7 @@ name: Export modal validation
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**']
+    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**', 'workers/render-mcp/**', '.github/workflows/render-mcp-deploy.yml', 'scripts/ci/check-render-mcp.mjs', 'scripts/ci/wait-for-render-mcp*']
   schedule:
     # 04:17 UTC. smoke-test.yml runs at 02:00 and daily-regression.yml at 03:00 (both
     # use the shared robot account / staging), e2e-flake-ranking.yml at 03:00 on
@@ -35,7 +35,7 @@ permissions:
 jobs:
   export-modal:
     name: "Export modal (standalone dev server)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The suite takes about 5.5 min once dependencies are in. 20 min leaves room for a
     # cold pnpm store and a cold Playwright browser download.
     timeout-minutes: 20

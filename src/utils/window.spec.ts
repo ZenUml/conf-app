@@ -83,7 +83,8 @@ describe('window utils', async () => {
   })
 
   describe('event sampling (legacy trackEvent path)', () => {
-    beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z')))
+    // Base rates: before the event budget began.
+    beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-15T00:00:00Z')))
     afterEach(() => vi.mocked(Date.now).mockRestore())
 
     it('emits October success events with the final absolute rate and keeps errors full-rate', async () => {

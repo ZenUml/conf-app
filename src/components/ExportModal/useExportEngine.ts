@@ -1,6 +1,7 @@
 import { captureBlob } from '@/model/captureBlob';
 import { computeExportPixelRatio } from './exportPixelRatio';
-import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
+import { isPlantUmlSource } from '@/utils/plantuml/fetchPng';
+import type { Surface } from '@/utils/analytics/catalog';
 import { saveAs } from 'file-saver';
 import {
   VIEWBOX_REF_W,
@@ -31,6 +32,8 @@ export interface ExportContext {
   macroType?: string;
   /** The diagram's text source (the PlantUML body for a PlantUML macro). */
   source?: string;
+  /** The macro surface the export was started from, for PlantUML's PNG event. */
+  surface?: Surface;
 }
 
 const MAX_FILENAME_LENGTH = 60;
@@ -435,19 +438,18 @@ function svgToImage(svgString: string): Promise<HTMLImageElement> {
 /**
  * The un-annotated diagram raster, before background and overlay compositing.
  *
- * PlantUML takes a different route. Its diagram is an SVG fetched from the
- * remote PlantUML server and inlined with `v-html`; html-to-image cannot
- * reliably rasterize that inlined remote SVG, which is what made the Export PNG
- * button produce a blank, effectively zero-pixel image. The server publishes a
- * ready raster at /plantuml/png/<encoded> — take it. (Attachment.ts has done
- * this for the silent backup PNG since 2026-07; `utils/plantuml/fetchPng.ts` is
- * the shared fetch.)
+ * PlantUML takes a different route: its raster comes from
+ * `utils/plantuml/png.ts`, not the DOM. With the local renderer (ADR-0010) that
+ * is the engine's SVG drawn on a canvas, so the source never leaves the
+ * browser; otherwise it is the server's ready raster at /plantuml/png/<encoded>,
+ * because html-to-image cannot reliably rasterize the inlined remote server SVG
+ * (that made the Export PNG button produce a blank, zero-pixel image).
+ * Attachment.ts uses the same module for the silent backup PNG.
  *
- * Unlike the backup path, a failed server fetch here does NOT fall back to the
- * DOM capture: that path is the broken one, and silently handing the user a
- * blank download is worse than an error they can act on. The macro cannot have
- * rendered at all without reaching the same host, so a failure here is a real
- * fault worth surfacing as `plantuml_fetch_failed`.
+ * Unlike the backup path, a failed raster here does NOT fall back to the DOM
+ * capture: that path is the broken one for the server SVG, and silently
+ * handing the user a blank download is worse than an error they can act on.
+ * A failure is surfaced as `plantuml_fetch_failed`.
  */
 type BaseCapture =
   | {
@@ -456,13 +458,17 @@ type BaseCapture =
       /**
        * The node the raster was scraped from, and therefore the node whose
        * layout the crop step must measure. `null` when the raster did not come
-       * from the DOM at all (PlantUML's server PNG), which is also the signal
-       * that no crop applies: the server renders the diagram at its own bounds,
+       * from the DOM at all (PlantUML's raster), which is also the signal
+       * that no crop applies: it is drawn at the diagram's own bounds,
        * with none of the layout column the DOM capture has to trim away.
        */
       cropNode: HTMLElement | null;
     }
   | { ok: false; reason: CaptureFailureReason };
+
+// Export PNG draws PlantUML at twice the diagram's own pixel size: the dialog
+// fits a small diagram to its canvas and a 1x raster turned soft there.
+export const PLANTUML_EXPORT_PIXEL_RATIO = 2;
 
 async function acquireBaseBlob(
   effectiveBg: string | undefined,
@@ -470,13 +476,10 @@ async function acquireBaseBlob(
   context?: ExportContext,
 ): Promise<BaseCapture> {
   if (context?.macroType === 'plantuml' && isPlantUmlSource(context.source)) {
-    try {
-      const blob = await fetchPlantUmlPngBlob(context.source!);
-      if (blob) return { ok: true, blob, cropNode: null };
-      console.warn('[useExportEngine] PlantUML server returned no PNG raster');
-    } catch (e) {
-      console.warn('[useExportEngine] PlantUML server PNG fetch failed:', e);
-    }
+    const { producePlantUmlPng } = await import('@/utils/plantuml/png');
+    const result = await producePlantUmlPng(context.source!, { purpose: 'export', surface: context.surface ?? 'modal', pixelRatio: PLANTUML_EXPORT_PIXEL_RATIO });
+    if (result.ok) return { ok: true, blob: result.blob, cropNode: null };
+    console.warn(`[useExportEngine] no PlantUML PNG raster (${result.source}: ${result.failure})`);
     return { ok: false, reason: 'plantuml_fetch_failed' };
   }
 

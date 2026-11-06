@@ -5,6 +5,7 @@ import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { renderPlantUmlLocally, PlantUmlLocalRenderError } from '@/utils/plantuml/engine';
+import { clearPlantUmlSvgCache } from '@/utils/plantuml/server';
 import { PLANTUML_RENDERER_STORAGE_KEY, resetPlantUmlRendererForTests } from '@/utils/plantuml/renderer';
 import { isPlantUmlLocalRendererEnabled } from '@/apis/aiTitleFeatureFlag';
 
@@ -58,6 +59,7 @@ describe('PlantUml local renderer (ADR-0010)', () => {
   enableAutoUnmount(afterEach);
 
   beforeEach(() => {
+    clearPlantUmlSvgCache();
     vi.clearAllMocks();
     resetPlantUmlRendererForTests();
     localStorage.setItem(PLANTUML_RENDERER_STORAGE_KEY, 'local');

@@ -1,8 +1,6 @@
 import { SyntaxValidationResult } from '../validate/types';
-import { plantumlEncode } from './encode';
+import { fetchPlantUmlSvg } from './server';
 import { plantUmlRenderer } from './renderer';
-
-const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml';
 
 // Cache validation results to avoid duplicate API calls
 const validationCache = new Map<string, { result: SyntaxValidationResult; timestamp: number }>();
@@ -10,7 +8,7 @@ const CACHE_TTL = 2000; // Cache for 2 seconds
 
 /**
  * Validates PlantUML syntax using the official PlantUML server.
- * Sends code to https://www.plantuml.com/plantuml/svg/YOUR_ENCODED_CODE
+ * Sends code to the PlantUML server's /svg/ endpoint (see ./server)
  * and checks if the SVG contains syntax error indicators.
  * Results are cached for 2 seconds to avoid duplicate API calls.
  */
@@ -70,12 +68,12 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
     // markers as the server, so only the source of the SVG changes. When the
     // engine cannot draw the diagram (include, crash), validation falls back
     // to the server exactly as the viewer's render does.
+    // PlantUML returns 400 for syntax errors, but still includes SVG with error details,
+    // so the server path reads the body even for 400 status. The viewer's render
+    // reuses this same response (#929).
     const response = (await plantUmlRenderer()) === 'local'
       ? await renderLocallyOrOnServer(trimmed)
       : await fetchFromServer(trimmed);
-    
-    // PlantUML returns 400 for syntax errors, but still includes SVG with error details
-    // So we need to read the response body even for 400 status
     const svgText = await response.text();
     
     // Check if SVG contains syntax error indicators
@@ -135,8 +133,10 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
 
 type SvgResponse = Pick<Response, 'ok' | 'status' | 'text'>;
 
-function fetchFromServer(code: string): Promise<SvgResponse> {
-  return fetch(`${PLANTUML_SERVER}/svg/${plantumlEncode(code)}`);
+/** The shared server fetch (#929), shaped like the Response the local path also returns. */
+async function fetchFromServer(code: string): Promise<SvgResponse> {
+  const { ok, status, svgText } = await fetchPlantUmlSvg(code);
+  return { ok, status, text: async () => svgText };
 }
 
 /** The local engine's SVG, shaped like the fetch Response the server path reads. */

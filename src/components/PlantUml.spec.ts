@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import PlantUml from '@/components/PlantUml.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { clearPlantUmlSvgCache } from '@/utils/plantuml/server';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { validatePlantUmlSyntax } from '@/utils/plantuml/validate';
 import Example from '@/utils/sequence/Example';
@@ -69,6 +70,7 @@ describe('PlantUml pan/zoom viewport', () => {
   enableAutoUnmount(afterEach);
 
   beforeEach(() => {
+    clearPlantUmlSvgCache();
     vi.clearAllMocks();
     vi.mocked(validatePlantUmlSyntax).mockResolvedValue({ valid: true, error: null, location: null });
     // jsdom lays nothing out, and DiagramViewport refuses to attach to a 0 x 0

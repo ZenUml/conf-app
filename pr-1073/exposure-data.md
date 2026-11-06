@@ -1,5 +1,7 @@
 # PR #1073 — does moving Connect MCP into the More menu reduce inline exposure?
 
+**Outcome (2026-11-07):** the move was reverted in `826e9602`; the inline header button stays for every viewer, as on main. This note is the data that informed that decision.
+
 Queried 2026-11-07 (Mixpanel project 3373228, Insights/Funnels via the Mixpanel MCP).
 Window: last 30 days (≈ 2026-10-08 → 2026-11-06). The header button started emitting
 `agent_link_mcp_button_shown` the week of 2026-10-12, so the window covers its whole life.
@@ -47,12 +49,6 @@ Reports: [shown/opened/copied by surface × placement](https://mixpanel.com/proj
 - The "editors only" gate checks edit permission, not editing; most licensed Confluence users
   can edit pages, so it removes far fewer viewers than the 89% who never edit.
 - The Fullscreen card and editor surfaces need to recover ~4 opens a week to break even.
-
-## Measurement change in this PR
-
-Before `e3d00edb`, `shown` for the `more_menu` placement fired when the entry became
-available, not when the menu opened, so it would have counted everyone and understated the
-placement's click-through. From `e3d00edb` it fires on menu open.
 
 ## Limits
 

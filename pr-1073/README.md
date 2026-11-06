@@ -1,6 +1,6 @@
 # PR #1073 — MCP promo surfaces: review evidence
 
-- BEFORE: `ff56c579` (origin/main merge-base). AFTER: `0f835a92` (branch `feat/mcp-promo-surfaces`).
+- BEFORE: `ff56c579` (origin/main merge-base). AFTER: `826e9602` (branch `feat/mcp-promo-surfaces`). Screenshots first captured at `0f835a92`; recaptured at `826e9602` after the inline header button was kept for everyone.
 - Source: Storybook static builds (`npx storybook build`, PRODUCT_TYPE unset → lite default), served locally and captured with Playwright + Chrome. Fixture data only.
 - Agent-link flag on via the stories' `mockAgentLinkEnabled` (standalone path of `isAgentLinkEnabled`).
 
@@ -8,10 +8,10 @@
 
 | Story | BEFORE | AFTER |
 |---|---|---|
-| `Viewer/GenericViewer` › Header redesign — Mermaid inline (play opens More) | `inline-more-menu-before.png`: MCP button in header, no Copy for AI, menu without MCP | `inline-more-menu-after.png`: Copy for AI back in header, "Edit with AI tools · NEW" menu entry |
+| `Viewer/GenericViewer` › Header redesign — Mermaid inline (play opens More) | `inline-more-menu-before.png`: MCP button in header, menu without MCP | `inline-more-menu-after.png`: unchanged from BEFORE (header button kept for everyone) |
 | `Viewer/GenericViewer` › Header redesign — Mermaid fullscreen | `fullscreen-before.png`: MCP header button | `fullscreen-after.png`: same header + bottom-left promo card |
 
-DOM checks (compare.mjs): inline BEFORE `connect-mcp-btn`=1, `copy-for-ai-btn`=0; AFTER 0 / 1 and menu contains "Edit with AI tools". Fullscreen: `mcp-promo-card` 0 → 1.
+DOM checks (compare.mjs) at `826e9602`: inline BEFORE and AFTER both `connect-mcp-btn`=1, `copy-for-ai-btn`=0, identical menu items. Fullscreen: `mcp-promo-card` 0 → 1, header button unchanged.
 
 ## AFTER only (new surfaces; no equivalent on main)
 
@@ -19,6 +19,8 @@ DOM checks (compare.mjs): inline BEFORE `connect-mcp-btn`=1, `copy-for-ai-btn`=0
 - `editor-new-diagram.png`, `editor-new-diagram-dialog.png` — `Editor/Diagram/WorkspaceMcpPromo` › New diagram card, and its draft-and-paste prompt.
 - `editor-tip.png` — › Typing tip after 400 typed chars (story types 10 × 40 chars).
 - `card.png`, `tip.png` — `Shared/McpPromoCard`.
+
+Exposure data behind the placement decision: `exposure-data.md`.
 
 Capture scripts: `shoot.mjs`, `compare.mjs` (expect Storybook builds served on :6107 after / :6108 before).
 

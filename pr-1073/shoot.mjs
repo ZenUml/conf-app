@@ -4,12 +4,6 @@ const { chromium } = require('@playwright/test')
 
 const BASE = 'http://127.0.0.1:6107/iframe.html?viewMode=story&id='
 const stories = [
-  { id: 'viewer-genericviewer--mcp-promo-inline-more-menu', file: 'viewer-more-menu.png', w: 900, h: 640,
-    async act(page) {
-      await page.waitForSelector('[data-testid="more-menu-connect-mcp"]', { timeout: 15000 })
-    },
-    checks: ['[data-testid="copy-for-ai-btn"]', '[data-testid="more-menu-connect-mcp"]', '[data-testid="more-menu-connect-mcp-new"]'],
-    absent: ['[data-testid="connect-mcp-btn"]'] },
   { id: 'viewer-genericviewer--mcp-promo-fullscreen-card', file: 'fullscreen-card.png', w: 1280, h: 800,
     checks: ['[data-testid="mcp-promo-card"]', '[data-testid="connect-mcp-btn"]'] },
   { id: 'viewer-genericviewer--mcp-promo-fullscreen-card', file: 'fullscreen-card-dialog.png', w: 1280, h: 800,

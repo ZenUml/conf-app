@@ -12,7 +12,7 @@ const meta: Meta<typeof TabSwitcher> = {
     docs: {
       description: {
         component:
-          'Diagram-type tab strip in the editor Header (Sequence / Mermaid / PlantUML / Markdown). Each tab is a coloured dot plus a visible label, with an underline accent on the active tab. Labels remain visible at narrow widths. Selecting a tab writes zenuml-preferred-diagram-type to localStorage.',
+          'Diagram-type tab strip in the editor Header (Sequence / Mermaid / PlantUML / Markdown). Each tab is a coloured dot plus a visible label, with an underline accent on the active tab. Labels remain visible at narrow widths. Selecting a tab emits the change; the parent Header persists the preference.',
       },
     },
   },

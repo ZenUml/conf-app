@@ -418,6 +418,7 @@ export default defineConfig(({ command }) => ({
       '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
       '**/tests/e2e-tests/**',
       '**/tests/export-modal/**',
+      '**/tests/ui-details/**',
       '**/packages/**',
       // Scratch dir — sessions park ad-hoc Playwright specs here; a stray
       // *.spec.ts under tmp/ otherwise fails the whole run at collection.

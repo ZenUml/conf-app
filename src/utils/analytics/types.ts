@@ -4,6 +4,7 @@ import type { ProductType } from "./productType";
 import type {
   FeatureArea,
   MacroTypeValue,
+  CaptureFailureStage,
   Surface,
   EntryPoint,
   CreationOrigin,
@@ -1116,9 +1117,23 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // convert_to_png toPng_failed / toPng_timeout (#1061). Bounded: no diagram
+  // text, data URL or query string. See CaptureFailureStage in catalog.ts.
+  capture_failure_stage?: CaptureFailureStage;
+  capture_error?: string;
+  capture_node_width?: number;
+  capture_node_height?: number;
+  document_visibility?: string;
   // Error
   error_code?: string;
   error_name?: string;
+  // graph_icon_proxy_*: icons.diagrams.net URLs found in the diagram, and how
+  // many the backend returned as data URLs. Counts only, never URLs.
+  external_icon_count?: number;
+  icon_resolved_count?: number;
+  // First per-icon code the backend reported (fetch_failed, http_<status>,
+  // bad_content_type, too_large). Says why, where error_code says only "missing".
+  upstream_error_code?: string;
   // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
   // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
   // `operations` list on the host page, so `can_create_cc_type=false` is

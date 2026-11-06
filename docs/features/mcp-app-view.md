@@ -1,5 +1,7 @@
 # MCP Apps diagram view
 
+The public render endpoint now has a separate deployment target described in [Independent public render MCP deployment](../ops/render-mcp-deployment.md). That target builds the same view without a Forge release. The Pages build described below remains in use for the authenticated Confluence integration.
+
 The headless MCP endpoint (`POST /agent-link/mcp`, `functions/agent-link/oauth/headlessMcp.ts`) answers `read_diagram`, `create_diagram` and `update_diagram` with a rendered diagram, not just DSL text. It does this through the MCP Apps extension (`io.modelcontextprotocol/ui`, [spec](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx)). The host (claude.ai, the Claude desktop app, …) fetches a `ui://` resource and mounts it in a sandboxed iframe. That page is **the view**.
 
 It draws:

@@ -40,6 +40,37 @@ export type MagicFailureReason =
   | "render_failed"
   | "source_changed";
 
+/**
+ * Where a failed DOM-to-PNG capture stopped (#1061). Carried as
+ * `capture_failure_stage` on the legacy `convert_to_png` events with
+ * `event_label` `toPng_failed` and `toPng_timeout`. Both keep their name and
+ * label, so existing dashboards still count them.
+ *
+ *   external_icons  the Graph icon proxy did not finish or failed
+ *   dom_to_svg      html-to-image could not serialise the node
+ *   inline_images   an `<image>` in the capture SVG could not be embedded
+ *   svg_load        the capture SVG would not load as an image
+ *   canvas          2d canvas unavailable
+ *   unknown         the failure carried no stage (any other rejection)
+ *
+ * Properties added to those two events (all bounded, none carry diagram text):
+ *   capture_failure_stage  one of the values above
+ *   capture_error          short text, URLs removed, at most 120 characters
+ *   macro_type             MacroTypeValue of the diagram; `none` when unknown
+ *   capture_node_width     capture node width in CSS px, when a node exists
+ *   capture_node_height    capture node height in CSS px, when a node exists
+ *   document_visibility    `document.visibilityState` at failure time
+ * A timeout never settled, so it has no stage: `capture_failure_stage` is
+ * `unknown` and the other fields are still sent.
+ */
+export type CaptureFailureStage =
+  | "external_icons"
+  | "dom_to_svg"
+  | "inline_images"
+  | "svg_load"
+  | "canvas"
+  | "unknown";
+
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
@@ -610,6 +641,14 @@ export type AnalyticsEventName =
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
+  // A Graph with one short label takes that label as its title on request. The
+  // model is not called, so no ai_title_generation_* event fires.
+  | "ai_title_label_used"
+  // A stored title is model refusal text saved before PR #1053 (isSavedRefusalTitle
+  // in lib/aiTitleGuard.js). surface=viewer: the header shows "Untitled diagram"
+  // instead, once per title the viewer renders. surface=editor: the editor
+  // cleared it on open, so the next Publish saves a real title. macro_type set.
+  | "saved_refusal_title_hidden"
   // AI entry-point impressions. Fire on each hidden -> visible transition of
   // the editor button (not on component re-renders), with macro_type so the
   // denominator can be compared directly with the existing click/request
@@ -828,6 +867,21 @@ export type AnalyticsEventName =
   // A Board macro whose independent document is missing, empty or malformed.
   // GenericViewer's load_failed_shown cannot separate this from a 404.
   | "graph_board_document_invalid"
+  // Graph macro whose diagram uses icons from icons.diagrams.net. Forge's CSP
+  // refuses that host, so the viewer asks our backend for the icons as data
+  // URLs. Fires only for diagrams that have such icons. requested: the backend
+  // call starts (`external_icon_count`). succeeded: every icon was applied
+  // (`icon_resolved_count`, `duration_ms`). failed: at least one icon is missing
+  // (`error_code`: timeout, http_<status>, request_failed, bad_response,
+  // none_resolved, apply_failed, partial; partial also carries
+  // `icon_resolved_count`; none_resolved and partial carry the backend's
+  // `upstream_error_code`). A failed diagram still renders, without the
+  // missing icons, and PNG capture of it is refused. `surface` is `viewer` or
+  // `editor`; in the editor the load waits a bounded time for the call, then
+  // opens without the missing icons, and nothing gates capture.
+  | "graph_icon_proxy_requested"
+  | "graph_icon_proxy_succeeded"
+  | "graph_icon_proxy_failed"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"

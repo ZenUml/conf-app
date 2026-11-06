@@ -3,7 +3,10 @@ import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION, PLANTUML_SVG
 import { plantumlEncode } from '@/utils/plantuml/encode';
 import { compress } from '@/utils/compress';
 
-const drawio = vi.hoisted(() => ({ ensureDrawioViewerLoaded: vi.fn(async (_base?: string) => {}) }));
+const drawio = vi.hoisted(() => ({
+  ensureDrawioViewerLoaded: vi.fn(async (_base?: string) => {}),
+  ensureDrawioMathForDocument: vi.fn(),
+}));
 vi.mock('@/utils/drawio/loadDrawioViewer', () => drawio);
 
 const swagger = vi.hoisted(() => {
@@ -15,6 +18,15 @@ const swagger = vi.hoisted(() => {
 });
 vi.mock('swagger-ui', () => ({ default: swagger.SwaggerUI }));
 vi.mock('swagger-ui/dist/swagger-ui.css', () => ({}));
+
+const sequence = vi.hoisted(() => ({ setDiagramFontUrl: vi.fn(), render: vi.fn(async () => {}) }));
+vi.mock('@zenuml/core', () => ({
+  default: Object.assign(vi.fn(function () { return { render: sequence.render }; }), {
+    setDiagramFontUrl: sequence.setDiagramFontUrl,
+  }),
+}));
+vi.mock('@zenuml/core/fonts/IBMPlexSans-Regular-Latin1.woff2?url', () => ({ default: 'https://view.example/mcp-app/assets/plex.woff2' }));
+vi.mock('@zenuml/core/fonts/MS-Sans-Serif.ttf?url', () => ({ default: 'https://view.example/mcp-app/assets/mssans.ttf' }));
 
 describe('extractDiagram', () => {
   // The host decides which of these shapes it hands us, and the answer has
@@ -265,6 +277,29 @@ function deliver(structuredContent: Record<string, unknown>): void {
   } as MessageEvent);
 }
 
+describe('drawing a Sequence result', () => {
+  it('configures hosted fonts before the first render in the host sandbox', async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    sequence.setDiagramFontUrl.mockClear();
+    sequence.render.mockClear();
+    sequence.render.mockImplementationOnce(async () => {
+      // Check at render time: configuring after render still attempts the
+      // embedded data: font, which strict MCP host CSP refuses.
+      expect(sequence.setDiagramFontUrl.mock.calls).toEqual([
+        ['https://view.example/mcp-app/assets/plex.woff2'],
+        ['https://view.example/mcp-app/assets/mssans.ttf', 'MS Sans Serif'],
+      ]);
+    });
+
+    deliver({ diagramType: 'Sequence', dsl: 'Alice->Bob.hello()' });
+
+    await vi.waitFor(() => expect(sequence.render).toHaveBeenCalledWith(
+      'Alice->Bob.hello()', { theme: 'theme-default', stickyOffset: false },
+    ));
+    await vi.waitFor(() => expect(document.querySelector('#app')?.textContent).toBe(''));
+  });
+});
+
 describe('drawing a Graph result', () => {
   const GraphViewer = vi.fn();
   const parseXml = vi.fn((xml: string) => new DOMParser().parseFromString(xml, 'text/xml'));
@@ -273,6 +308,7 @@ describe('drawing a Graph result', () => {
     document.body.innerHTML = '<div id="app"></div>';
     GraphViewer.mockClear();
     drawio.ensureDrawioViewerLoaded.mockClear();
+    drawio.ensureDrawioMathForDocument.mockClear();
     vi.stubGlobal('GraphViewer', GraphViewer);
     vi.stubGlobal('mxUtils', { parseXml });
   });
@@ -288,6 +324,9 @@ describe('drawing a Graph result', () => {
     expect(document.querySelector('#app')?.contains(container)).toBe(true);
     expect((node as Element).nodeName).toBe('mxGraphModel');
     expect(config).toMatchObject({ 'auto-fit': true, lightbox: false });
+    // Before the GraphViewer: only Editors created after initMath typeset math.
+    expect(drawio.ensureDrawioMathForDocument.mock.calls[0][0]).toBe(node);
+    expect(drawio.ensureDrawioMathForDocument.mock.invocationCallOrder[0]).toBeLessThan(GraphViewer.mock.invocationCallOrder[0]);
   });
 
   it('decompresses a legacy compressed record before drawing it', async () => {

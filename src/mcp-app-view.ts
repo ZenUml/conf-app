@@ -212,7 +212,7 @@ async function renderGraph(el: HTMLElement, source: string): Promise<void> {
   }
   if (!xml.startsWith('<')) throw new Error('the diagram is not DrawIO XML');
 
-  const { ensureDrawioViewerLoaded } = await import('@/utils/drawio/loadDrawioViewer');
+  const { ensureDrawioMathForDocument, ensureDrawioViewerLoaded } = await import('@/utils/drawio/loadDrawioViewer');
   await ensureDrawioViewerLoaded(viewOrigin());
   const w = window as typeof window & {
     mxUtils: { parseXml(xml: string): Document };
@@ -223,7 +223,9 @@ async function renderGraph(el: HTMLElement, source: string): Promise<void> {
   el.appendChild(container);
   // No toolbar and no lightbox: both link out to diagrams.net, which this
   // frame cannot open. Same options as ForgeGraphViewer.vue otherwise.
-  new w.GraphViewer(container, w.mxUtils.parseXml(xml).documentElement, {
+  const xmlNode = w.mxUtils.parseXml(xml).documentElement;
+  ensureDrawioMathForDocument(xmlNode);
+  new w.GraphViewer(container, xmlNode, {
     'auto-fit': true,
     border: 10,
     lightbox: false,
@@ -339,7 +341,13 @@ async function render(payload: DiagramPayload): Promise<void> {
       el.appendChild(img);
       await loaded;
     } else if (type === 'sequence') {
-      const { default: ZenUml } = await import('@zenuml/core');
+      const [{ default: ZenUml }, { configureDiagramFonts }] = await Promise.all([
+        import('@zenuml/core'),
+        import('@/utils/fonts/configureDiagramFonts'),
+      ]);
+      // Host CSP can refuse core's embedded data: fonts. Vite resolves these
+      // hosted font assets from the module URL, rather than the host sandbox.
+      configureDiagramFonts(ZenUml);
       el.innerHTML = '';
       const zenuml = new ZenUml(el);
       // Read-only: no onContentChange, so nothing here can write back. The

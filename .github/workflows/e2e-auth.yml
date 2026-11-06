@@ -48,7 +48,7 @@ on:
 jobs:
   auth:
     name: auth bootstrap
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # EVERY caller logs in as the same robot account and reads the same
     # `vars.ATLASSIAN_OTP`, so any two bootstraps that overlap can be handed the
     # same TOTP code and the loser fails. Observed 2026-09-01: two zenuml-lite@stg

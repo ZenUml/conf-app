@@ -86,27 +86,63 @@ export interface HeadlessContext {
   onGrantEvent?: GrantEventSink;
 }
 
+/**
+ * MCP tool annotations. Both connector directories (Claude's and ChatGPT's)
+ * reject a tool that lacks a `title` and the hint that applies to it, and
+ * Claude derives auto-permissions from them: read-only tools run without a
+ * prompt, destructive ones always ask. So every tool that writes to
+ * Confluence is destructive here, including the two that only add — Claude's
+ * review criteria ask for `destructiveHint: true` on any tool that modifies
+ * data, and a page created or a macro appended is a publish others can see.
+ */
+export interface HeadlessToolAnnotations {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  /** True when a call reaches beyond this server into the user's Confluence. */
+  openWorldHint: boolean;
+}
+
 export interface HeadlessToolDescriptor {
   name: string;
+  title: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations: HeadlessToolAnnotations;
+}
+
+function readOnly(title: string): Pick<HeadlessToolDescriptor, 'title' | 'annotations'> {
+  return {
+    title,
+    annotations: { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  };
+}
+
+function write(title: string, idempotentHint: boolean): Pick<HeadlessToolDescriptor, 'title' | 'annotations'> {
+  return {
+    title,
+    annotations: { title, readOnlyHint: false, destructiveHint: true, idempotentHint, openWorldHint: true },
+  };
 }
 
 export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   {
     name: 'list_sites',
+    ...readOnly('List Confluence sites'),
     description:
-      'List the Confluence sites your ZenUML authorization can reach, with the cloudId each other tool needs. Start here. Read-only.',
+      'List the Confluence sites your ZenUML authorization can reach, each with the cloudId that identifies it. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'list_diagrams',
+    ...readOnly('List diagrams'),
     description:
-      'List ZenUML diagrams on a site, most-recently-modified first. Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
+      'List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
         pageId: { type: 'string', description: 'Optional. Only diagrams on this page.' },
         limit: { type: 'number', description: 'Optional. Max rows (default 25, capped at 100).' },
       },
@@ -115,25 +151,27 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'read_diagram',
+    ...readOnly('Read diagram'),
     description:
-      'Read one diagram’s source (the DSL or spec text) and diagramType by its contentId, as listed by list_diagrams. Edit that source and send all of it back with update_diagram. Read-only.',
+      'Read one diagram by its contentId: its title, diagramType, version, and complete source (the DSL or spec text), and show it to the user. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
-        contentId: { type: 'string', description: 'From list_diagrams.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
+        contentId: { type: 'string', description: 'The diagram\'s contentId.' },
       },
       required: ['cloudId', 'contentId'],
     },
   },
   {
     name: 'read_page',
+    ...readOnly('Read page'),
     description:
       'Read a Confluence page: its title, version, space, and body in Confluence storage format. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
         pageId: { type: 'string', description: 'The Confluence page id.' },
       },
       required: ['cloudId', 'pageId'],
@@ -141,12 +179,13 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'create_page',
+    ...write('Create page', false),
     description:
-      'Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML): paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.',
+      'Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML), documented at https://confluence.atlassian.com/doc/confluence-storage-format-790796544.html: paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
         parentPageId: { type: 'string', description: 'The page to create this one under; it also fixes the space.' },
         title: { type: 'string', description: 'Must be unique within the space, as Confluence requires.' },
         body: { type: 'string', description: 'Confluence storage format (XHTML).' },
@@ -157,13 +196,14 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'update_page',
+    ...write('Update page', true),
     description:
-      'Replace a page’s body, and optionally its title. Send the COMPLETE new body — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.',
+      'Replace a page’s body, and optionally its title. Send the COMPLETE new body in Confluence storage format (https://confluence.atlassian.com/doc/confluence-storage-format-790796544.html) — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
-        pageId: { type: 'string', description: 'From read_page.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
+        pageId: { type: 'string', description: 'The Confluence page id.' },
         body: { type: 'string', description: 'The complete new body, in Confluence storage format.' },
         title: { type: 'string', description: 'Optional. Leave out to keep the current title.' },
         version: {
@@ -178,19 +218,21 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'get_status',
+    ...readOnly('Get connection status'),
     description:
       'Which mode this connection is in, who it acts as, and which ZenUML app each reachable site runs. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'update_diagram',
+    ...write('Update diagram', true),
     description:
-      'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change. To rename only, send the unchanged source with the new `title`.',
+      'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, update it again with the source it had before the change. To rename only, send the unchanged source with the new `title`. Shows the updated diagram to the user.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
-        contentId: { type: 'string', description: 'From list_diagrams.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
+        contentId: { type: 'string', description: 'The diagram\'s contentId.' },
         dsl: { type: 'string', description: 'The complete new source. Not a patch.' },
         summary: { type: 'string', description: 'Optional. Note for the version history.' },
         title: {
@@ -203,12 +245,13 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
   },
   {
     name: 'create_diagram',
+    ...write('Create diagram on page', false),
     description:
-      'Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).',
+      'Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version, and shows the diagram to the user. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
         pageId: { type: 'string', description: 'The Confluence page to place it on.' },
         type: {
           type: 'string',
@@ -293,6 +336,7 @@ interface CustomContentRow {
   version?: { createdAt?: unknown; number?: unknown };
   pageId?: unknown;
   spaceId?: unknown;
+  body?: { raw?: { value?: unknown } };
 }
 
 /** The site row for `cloudId`, or a refusal. Every write path starts here. */
@@ -577,11 +621,35 @@ function guardPageBody(current: string, next: string): { ok: true } | { ok: fals
   return { ok: true };
 }
 
+/**
+ * Is this the graph-only custom-content type? lite/full store graphs under
+ * their own `-graph` type and every other diagram type under the other one
+ * (customContentTypeFor here; DIAGRAM_TYPE_TO_CONTENT_KEY in ApWrapper2.ts).
+ * The reverse does not hold: older graphs sit under the sequence type too.
+ */
+function isGraphContentType(type: unknown): boolean {
+  return typeof type === 'string' && type.endsWith('-graph');
+}
+
+/**
+ * What kind of diagram a listed row is. The custom-content type cannot say:
+ * the sequence type holds mermaid, plantuml, OpenAPI and older graphs alike,
+ * and listing it as `type` led an agent to call a Mermaid flowchart a sequence
+ * diagram (zenuml-review, 2026-10-24). Graph-type rows are fetched without a
+ * body, so their (possibly large) XML never travels.
+ */
+function listedDiagramType(row: CustomContentRow): string | null {
+  if (isGraphContentType(row.type)) return 'graph';
+  const stored = parseStoredDiagram(row.body?.raw?.value).diagramType;
+  if (!stored) return null;
+  return canonicalDiagramType(stored) ?? stored;
+}
+
 function diagramRow(row: CustomContentRow) {
   return {
     contentId: typeof row.id === 'string' ? row.id : String(row.id ?? ''),
     title: typeof row.title === 'string' ? row.title : '',
-    type: typeof row.type === 'string' ? row.type : '',
+    diagramType: listedDiagramType(row),
     pageId: typeof row.pageId === 'string' ? row.pageId : undefined,
     modifiedAt: typeof row.version?.createdAt === 'string' ? row.version.createdAt : undefined,
   };
@@ -661,7 +729,8 @@ export async function callHeadlessTool(
       const rows: CustomContentRow[] = [];
       if (pageId) {
         // The page-scoped endpoint takes no type filter, so filter on the way out.
-        const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250`);
+        // Bodies come along for the diagram type; one page's worth is small.
+        const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250&body-format=raw`);
         if (res.status !== 200) {
           throw new HeadlessToolError('Confluence refused the listing.', 'upstream', { status: res.status });
         }
@@ -673,7 +742,8 @@ export async function callHeadlessTool(
           // Newest first at the source: the default is oldest first, and the
           // sort below only reorders what came back — so without this the tool
           // returned each type's OLDEST `limit` rows as "most recent".
-          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&${NEWEST_FIRST}`);
+          const body = isGraphContentType(type) ? '' : '&body-format=raw';
+          const res = await get(`/wiki/api/v2/custom-content?type=${encodeURIComponent(type)}&limit=${limit}&${NEWEST_FIRST}${body}`);
           // A 404 is Confluence saying this variant never wrote that type —
           // information, not a failure (the same rule macroIdentity applies).
           if (res.status === 404) continue;
@@ -824,6 +894,12 @@ export async function callHeadlessTool(
         diff: verdict.diff,
         unvalidated: verdict.unvalidated,
         titleChanged: !!requestedTitle && requestedTitle !== currentTitle,
+        // What the MCP Apps view draws (extractDiagram in src/mcp-app-view.ts
+        // matches `diagramType` + `dsl`). Without these the view under an
+        // update showed "No diagram in this result." in claude.ai (2026-10-24).
+        title: requestedTitle || currentTitle,
+        diagramType: stored.diagramType,
+        dsl,
       };
     }
 
@@ -996,6 +1072,10 @@ export async function callHeadlessTool(
         pageVersion: pageVersion + 1,
         macroCount: countExtensions(adf),
         gate: gate.reason,
+        // The view's payload, as update_diagram returns it.
+        title,
+        diagramType: storedType,
+        dsl,
       };
     }
 

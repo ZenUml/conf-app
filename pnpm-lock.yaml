@@ -104,6 +104,9 @@ importers:
       '@mermaid-js/mermaid-zenuml':
         specifier: 1.0.0
         version: 1.0.0(@babel/core@7.29.0)(@babel/template@7.28.6)(@types/react@18.3.31)(mermaid@11.17.2)(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.4))
+      '@plantuml/core':
+        specifier: 1.2026.9
+        version: 1.2026.9
       '@sentry/cloudflare':
         specifier: ^9.5.0
         version: 9.47.1(@cloudflare/workers-types@4.20260103.0)
@@ -2904,6 +2907,9 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
+
+  '@plantuml/core@1.2026.9':
+    resolution: {integrity: sha512-Qy46og9hEb+wOFtjUfniWkl/BDwHpDuebQX5rF+35s9PS2G4cKZf1iWw4E/ELLQ0pTkESPDoQTbKWcc3ZyVcVA==}
 
   '@playwright/test@1.59.1':
     resolution: {integrity: sha512-PG6q63nQg5c9rIi4/Z5lR5IVF7yU5MqmKaPOe0HSc0O2cX1fPi96sUQu5j7eo4gKCkB2AnNGoWt7y4/Xx3Kcqg==}
@@ -13690,6 +13696,8 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
+
+  '@plantuml/core@1.2026.9': {}
 
   '@playwright/test@1.59.1':
     dependencies:

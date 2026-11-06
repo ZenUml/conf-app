@@ -108,7 +108,7 @@ describe('headless authentication', () => {
     const res = await call(env, null, 'tools/list');
     expect(res.status).toBe(401);
     const challenge = res.headers.get('WWW-Authenticate')!;
-    expect(challenge).toContain(`resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`);
+    expect(challenge).toContain(`resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource/agent-link/mcp"`);
     // "you need a token" is not an error about a token
     expect(challenge).not.toContain('error=');
   });
@@ -168,6 +168,44 @@ describe('headless RPC', () => {
       'update_diagram',
       'update_page',
     ]);
+  });
+
+  it('annotates every tool the way the connector directories require', async () => {
+    // Claude's and ChatGPT's directories both reject a tool without a title
+    // and its read-only or destructive hint, and Claude prompts before every
+    // destructive call — so each write tool must say it is one.
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'tools/list');
+    const body = (await res.json()) as {
+      result: { tools: Array<{ name: string; title?: string; annotations?: Record<string, unknown> }> };
+    };
+    for (const tool of body.result.tools) {
+      expect(tool.title, tool.name).toBeTruthy();
+      expect(tool.annotations?.title, tool.name).toBe(tool.title);
+      expect(typeof tool.annotations?.readOnlyHint, tool.name).toBe('boolean');
+      expect(tool.annotations?.destructiveHint, tool.name).toBe(!tool.annotations?.readOnlyHint);
+      expect(tool.annotations?.openWorldHint, tool.name).toBe(true);
+    }
+    const writes = body.result.tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name).sort();
+    expect(writes).toEqual(['create_diagram', 'create_page', 'update_diagram', 'update_page']);
+  });
+
+  it('keeps every tool and parameter description about that tool alone', async () => {
+    // Claude's directory asks submitters to confirm that tool descriptions
+    // carry no instructions about other tools; the cross-tool workflow lives
+    // in the server instructions instead.
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'tools/list');
+    const body = (await res.json()) as { result: { tools: Array<{ name: string; description: string; inputSchema: unknown }> } };
+    const names = body.result.tools.map((t) => t.name);
+    for (const tool of body.result.tools) {
+      const text = `${tool.description} ${JSON.stringify(tool.inputSchema)}`;
+      for (const other of names.filter((n) => n !== tool.name)) {
+        expect(text, `${tool.name} mentions ${other}`).not.toContain(other);
+      }
+    }
   });
 
   it('answers initialize without an Atlassian round trip', async () => {
@@ -496,7 +534,7 @@ describe('tool usage analytics', () => {
 describe('challenge construction', () => {
   it('names the metadata document for this origin', () => {
     expect(challengeFor(MCP, 'missing')).toBe(
-      `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`,
+      `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource/agent-link/mcp"`,
     );
   });
 });

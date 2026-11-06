@@ -4,6 +4,7 @@ import type { ProductType } from "./productType";
 import type {
   FeatureArea,
   MacroTypeValue,
+  CaptureFailureStage,
   Surface,
   EntryPoint,
   CreationOrigin,
@@ -14,10 +15,17 @@ import type {
   CacheState,
   ContentState,
   CacheSource,
+  PlantUmlRenderer,
+  PlantUmlLocalFailureReason,
+  PlantUmlUnresolvedInclude,
+  PlantUmlPngPurpose,
+  PlantUmlPngFailure,
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
   DashboardFormatFilter,
+  DiagramLocationsLoadOutcome,
+  DiagramLocationsFilter,
   AgentLinkDisconnectReason,
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
@@ -39,6 +47,8 @@ import type {
   AgentLinkMcpCopyTarget,
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
+  AgentLinkRenderValidation,
+  AgentLinkRenderTypeSource,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -68,6 +78,23 @@ import type {
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
+  feature?: 'fullscreen';
+  policy_version?: 'fullscreen-contact-v1';
+  attempt_id?: string;
+  recovery_request_id?: string;
+  recovery_grant_id?: string;
+  recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
+  recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
+  recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
+  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'>;
+  access_source?: 'existing' | 'temporary' | 'fail_open';
+  duration_days?: number;
+  mail_state?: 'queued' | 'accepted' | 'delivered' | 'bounced' | 'failed' | 'delivery_unknown';
+  template_version?: string;
+  recovery_mail_id?: string;
+  support_outcome?: 'customer_replied' | 'next_step_agreed' | 'closed';
+
   /** Markdown render outcomes; counts only, never document contents. */
   markdown_mermaid_blocks?: number;
   markdown_failed_blocks?: number;
@@ -195,6 +222,8 @@ export type AnalyticsProperties = {
   png_export_placeholder_reason?: 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'missing';
   /** Property operation whose failure did not interrupt saving or export. */
   png_export_property_operation?: 'read' | 'create' | 'update';
+  /** Why a PNG state property write was skipped rather than failed. */
+  png_export_skip_reason?: 'page_unavailable';
   // AI Repair performance lifecycle (ai_repair_requested / _succeeded /
   // _failed), plus the benign ordinary-chat ai_chat_no_change outcome.
   // `duration_ms` below is click-to-visible-result wall time;
@@ -308,6 +337,21 @@ export type AnalyticsProperties = {
   // PlantUML paste normalisation (conf-app#632)
   diagrams_pasted?: number;
   paste_truncated?: boolean;
+  // ADR-0010 self-hosted PlantUML rendering
+  plantuml_renderer?: PlantUmlRenderer;
+  plantuml_failure_reason?: PlantUmlLocalFailureReason;
+  plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
+  // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
+  // library for this render. On macro_viewed (local renders) and on
+  // plantuml_local_render_failed. Absent when nothing was rewritten.
+  plantuml_include_rewritten?: boolean;
+  // ADR-0010 step 6: on plantuml_png_produced / plantuml_png_failed.
+  plantuml_png_source?: PlantUmlRenderer;
+  plantuml_png_purpose?: PlantUmlPngPurpose;
+  plantuml_png_failure?: PlantUmlPngFailure;
+  // True when a backup raster was drawn (local) or re-fetched (server) at a
+  // higher resolution so it reaches the PDF column width (resolution.ts).
+  plantuml_png_upscaled?: boolean;
 
   // AI
   prompt_length?: number;
@@ -575,6 +619,15 @@ export type AnalyticsProperties = {
   // ('page_read_failed', 'page_write_failed'). Absent for the others, which
   // never made a request that returned one.
   http_status?: number;
+  // Diagram locations (Plan and usage, plan_usage_locations_*). Counts and
+  // outcomes only: no page ids, page titles, search text or space keys, which
+  // are customer content. `page_index` counts fetched batches from 0.
+  load_outcome?: DiagramLocationsLoadOutcome;
+  locations_filter?: DiagramLocationsFilter;
+  listed_count?: number;
+  hidden_count?: number;
+  has_more?: boolean;
+  page_index?: number;
   // Which store armed the unplaced banner. 'property' is the Confluence content
   // property — cross-user, and gated server-side by displayConditions, so the
   // iframe only boots on pages that have it. 'marker' is the per-browser
@@ -792,6 +845,9 @@ export type AnalyticsProperties = {
   cache_state?: CacheState;
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
+  // Full only: Forge `license.active` at render time. Absent on other variants
+  // and whenever Forge supplies no boolean; Forge also reports false for free apps.
+  license_active?: boolean;
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.
@@ -1034,6 +1090,10 @@ export type AnalyticsProperties = {
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;
   mcp_client_name?: string;
   mcp_client_version?: string;
+  // render_diagram on the public render endpoint (`mcp_mode: 'render'`): did
+  // the source parse.
+  render_validation?: AgentLinkRenderValidation;
+  render_type_source?: AgentLinkRenderTypeSource;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is
@@ -1057,9 +1117,23 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // convert_to_png toPng_failed / toPng_timeout (#1061). Bounded: no diagram
+  // text, data URL or query string. See CaptureFailureStage in catalog.ts.
+  capture_failure_stage?: CaptureFailureStage;
+  capture_error?: string;
+  capture_node_width?: number;
+  capture_node_height?: number;
+  document_visibility?: string;
   // Error
   error_code?: string;
   error_name?: string;
+  // graph_icon_proxy_*: icons.diagrams.net URLs found in the diagram, and how
+  // many the backend returned as data URLs. Counts only, never URLs.
+  external_icon_count?: number;
+  icon_resolved_count?: number;
+  // First per-icon code the backend reported (fetch_failed, http_<status>,
+  // bad_content_type, too_large). Says why, where error_code says only "missing".
+  upstream_error_code?: string;
   // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
   // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
   // `operations` list on the host page, so `can_create_cc_type=false` is
@@ -1128,6 +1202,15 @@ export type AnalyticsProperties = {
   failed_request?: string;
   response_content_type?: string;
   response_title?: string;
+  // attachment_upload_rate_limited / attachment_upload_deferred. The cooldown
+  // after a 429 comes from the response's Retry-After header when the bridge
+  // passes one through ('header', with `retry_after_s`), else a fixed default
+  // ('default'); `cooldown_ms` is what was applied after clamping.
+  // `cooldown_remaining_ms` is how long a skipped view still had to wait.
+  retry_after_source?: 'header' | 'default';
+  retry_after_s?: number;
+  cooldown_ms?: number;
+  cooldown_remaining_ms?: number;
   // load_custom_content_v2_missing: why the custom content could not be
   // loaded. `load_status` is 'not_found' only for an all-404 NOT_FOUND
   // envelope (the case that triggers recovery), else 'other_error';

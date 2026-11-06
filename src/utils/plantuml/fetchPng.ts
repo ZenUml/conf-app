@@ -15,11 +15,11 @@
  * costs one request to a host the diagram already had to reach in order to
  * render at all.
  *
- * Shared by both PNG producers:
- *  - `model/Attachment.ts`  — the silent backup PNG used by PDF/Word export
- *  - `components/ExportModal/useExportEngine.ts` — the interactive Export PNG
- * Each caller owns its own telemetry and fallback policy; this module is a
- * plain fetch with no side effects.
+ * Used only through `./png.ts`, which asks the server only when the renderer
+ * is `server` or the local engine cannot draw the diagram (ADR-0010): with the
+ * local renderer the PNG is the engine's SVG drawn on a canvas instead. That
+ * module owns telemetry and the upscale; this one is a plain fetch with no
+ * side effects.
  */
 
 export const PLANTUML_PNG_SERVER = 'https://www.plantuml.com/plantuml/png/';

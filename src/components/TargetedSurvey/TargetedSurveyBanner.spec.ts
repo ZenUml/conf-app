@@ -75,13 +75,18 @@ describe('targeted survey page banner', () => {
     const hidden = show(); await tick();
     expect(hidden.text()).toBe('');
     expect(remote.mock.calls.filter((call) => call[1] === 'PATCH')).toHaveLength(0);
+    vi.useFakeTimers();
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     remote.mockImplementation((_path, method) => method === 'PUT'
       ? Promise.resolve({ claimed: true, claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10', leaseMs: 1030 })
       : new Promise(() => {}));
-    const pending = show(); await tick();
+    const pending = show();
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushPromises();
     expect(pending.text()).toContain('Help us improve ZenUML');
-    await new Promise((resolve) => setTimeout(resolve, 35));
+    await vi.advanceTimersByTimeAsync(35);
+    await flushPromises();
     expect(pending.text()).toBe('');
     expect(track).not.toHaveBeenCalledWith('targeted_survey_shown', expect.anything());
   });

@@ -28,6 +28,18 @@
 
 import zenuml from '@mermaid-js/mermaid-zenuml';
 
+/**
+ * The only Mermaid site config in this iframe. `initialize()` in Mermaid 11 is
+ * not a merge: it resets to Mermaid's defaults and applies just what it is
+ * given, so a second call anywhere silently drops these settings (#931).
+ */
+export const MERMAID_CONFIG = Object.freeze({
+  // Every render is initiated explicitly. Auto-start also scans the
+  // document and can overlap our render queue with an untracked pass.
+  startOnLoad: false,
+  theme: 'neutral',
+});
+
 // Bundle-relative path; resolved at runtime against `document.baseURI`.
 const MERMAID_PATH = 'vendor/mermaid/mermaid.esm.min.mjs';
 
@@ -76,12 +88,7 @@ export async function loadMermaid(deps: LoadMermaidDeps = {}): Promise<any> {
           // which URL produced the unusable module. This one does.
           throw new Error(`mermaid module at ${url} has no initialize()`);
         }
-        instance.initialize({
-          // Every render is initiated explicitly. Auto-start also scans the
-          // document and can overlap our render queue with an untracked pass.
-          startOnLoad: false,
-          theme: 'neutral',
-        });
+        instance.initialize(MERMAID_CONFIG);
         // Register before sharing the instance with renderers and validators.
         // The extension's SVG renderer loads only when a ZenUML diagram is used.
         await instance.registerExternalDiagrams([zenuml], { lazyLoad: true });

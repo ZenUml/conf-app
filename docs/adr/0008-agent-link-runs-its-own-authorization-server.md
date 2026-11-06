@@ -79,7 +79,9 @@ What already exists, and bears on the choice:
 2. **The AS is the minimum the spec forces, and no more.** Concretely:
 
    - `GET /.well-known/oauth-authorization-server` — RFC 8414, a static
-     document.
+     document. (Amended by [ADR 0012](0012-agent-link-oauth-issuer-moves-to-a-path.md):
+     behind `OAUTH_ROOT_AS_METADATA=off` the issuer becomes `<origin>/agent-link`
+     and this document moves to `/.well-known/oauth-authorization-server/agent-link`.)
    - `POST /agent-link/oauth/register` — DCR. Accepts `redirect_uris` and a
      client name; stores them in KV under a generated `client_id`. No client
      secrets (public clients + PKCE), no client management UI, no token

@@ -188,7 +188,7 @@
                    differs by job. Same gate as View Source (text-DSL types
                    only) — not restricted by edit permission or fullscreen,
                    mirroring that button's audience. -->
-              <div v-if="showViewSource && !showAgentLinkConnect && copyForAiSlotSettled" class="copy-for-ai-split viewer-act-copy">
+              <div v-if="showViewSource && !connectMcpInToolbar && copyForAiSlotSettled" class="copy-for-ai-split viewer-act-copy">
                 <button
                   type="button"
                   class="viewer-btn-ghost copy-for-ai-split-primary"
@@ -278,15 +278,15 @@
                 </button>
               </template>
               <!-- Connect MCP (agent-link flag on, agent-editable types) takes
-                   the Copy for AI slot, inline and in fullscreen, and opens
-                   ConnectMcpDialog with the headless MCP setup and a prompt
-                   naming this diagram. Inline it is labelled "MCP" at stage 0,
-                   icon-only from stage 1, and stage 3 moves it into More; it
-                   reveals on hover like the rest of the header. Fullscreen
-                   always labels it. Tooltip and accessible name say
+                   the Copy for AI slot in the fullscreen header, always
+                   labelled, and opens ConnectMcpDialog with the headless MCP
+                   setup and a prompt naming this diagram. Inline it is not a
+                   header button: editors get it as the "Edit with AI tools"
+                   More-menu entry (MCP promo surfaces, 2026-11), so the inline
+                   header keeps Copy for AI. Tooltip and accessible name say
                    "Connect MCP". -->
               <button
-                v-if="showAgentLinkConnect"
+                v-if="connectMcpInToolbar"
                 type="button"
                 class="viewer-btn-ghost viewer-act-connect-mcp"
                 aria-label="Connect MCP"
@@ -321,6 +321,7 @@
                       role="menuitem"
                       tabindex="-1"
                       class="overflow-menu-item"
+                      :class="{ 'overflow-menu-item--mcp': item === 'connect-mcp' }"
                       :data-testid="`more-menu-${item}`"
                       :disabled="item === 'debug' && isDownloadingDebug"
                       @click="onMoreMenuSelect(item, close)"
@@ -330,7 +331,14 @@
                           <path :d="moreMenuMeta[item].icon" />
                         </svg>
                       </span>
-                      <span>{{ moreMenuMeta[item].label }}</span>
+                      <span v-if="item === 'connect-mcp'" class="more-menu-mcp-text">
+                        <span class="more-menu-mcp-row">
+                          <span>Edit with AI tools</span>
+                          <span v-if="showMcpMenuNew" class="more-menu-mcp-new" data-testid="more-menu-connect-mcp-new">NEW</span>
+                        </span>
+                        <span class="more-menu-mcp-sub">Claude, Cursor, VS Code via MCP</span>
+                      </span>
+                      <span v-else>{{ moreMenuMeta[item].label }}</span>
                     </button>
                   </template>
                 </template>
@@ -571,6 +579,16 @@
           @close="closeConnectMcpDialog"
           @copy="onConnectMcpCopied"
         />
+        <!-- MCP promo, Fullscreen: a dismissible corner card (Figma "ZenUML –
+             MCP promo mockups" #1). Display rules in mcpPromo.ts. -->
+        <McpPromoCard
+          v-if="showFullscreenMcpCard"
+          class="viewer-mcp-promo-card"
+          title="Draw diagrams from your AI tools"
+          body="Create and update diagrams from Claude, Cursor or VS Code — using your code as the source."
+          @cta="onMcpPromoCta('fullscreen_card')"
+          @dismiss="onMcpPromoDismiss('fullscreen_card')"
+        />
       </div>
     </template>
 
@@ -610,6 +628,8 @@ import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
+import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
+import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
 import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
 import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
@@ -686,6 +706,22 @@ const ICON_PATHS = {
   mcp: 'M2.05 11.25L11.49 1.81C12.79 0.51 14.91 0.51 16.21 1.81C17.51 3.11 17.51 5.23 16.21 6.53L9.08 13.66M9.18 13.56L16.21 6.53C17.51 5.23 19.63 5.23 20.93 6.53L20.98 6.58C22.28 7.88 22.28 10 20.98 11.3L12.44 19.84C12.01 20.27 12.01 20.98 12.44 21.41L14.19 23.17M13.85 4.17L6.87 11.15C5.56 12.46 5.56 14.57 6.87 15.87C8.17 17.18 10.28 17.18 11.59 15.87L18.57 8.89',
   bug: 'M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25',
 };
+// The "NEW" label on the inline "Edit with AI tools" menu entry stops
+// showing after this date (released 2026-11; about 30 days).
+const MCP_MENU_NEW_UNTIL = Date.parse('2026-12-15T00:00:00Z');
+const MCP_MENU_NEW_SEEN_KEY = 'zenuml.mcpMenuNewSeen';
+function mcpMenuNewSeenKey(scope) {
+  return `${MCP_MENU_NEW_SEEN_KEY}:${scope.cloudId || '-'}:${scope.accountId || '-'}`;
+}
+// Fails "seen" (no label) when storage is unavailable, so the label never
+// sticks around for a viewer whose click cannot be remembered.
+function readMcpMenuNewSeen(scope) {
+  try { return window.localStorage.getItem(mcpMenuNewSeenKey(scope)) === '1'; } catch { return true; }
+}
+function writeMcpMenuNewSeen(scope) {
+  try { window.localStorage.setItem(mcpMenuNewSeenKey(scope), '1'); } catch { /* ignore */ }
+}
+
 const MORE_MENU_META = {
   'source': { label: 'Source', icon: ICON_PATHS.code },
   'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
@@ -741,6 +777,16 @@ export default {
     copyForAiImpressionTracked: false,
     // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
     showConnectMcpDialog: false,
+    // Whether the viewer has opened "Edit with AI tools" from the menu
+    // (hides its NEW label). Read from localStorage in created().
+    mcpMenuNewSeen: false,
+    // MCP promo (mcpPromo.ts): the shared state, whether it allowed a promo
+    // when the flag resolved, and whether this mount has since hidden it
+    // (dismissed, CTA clicked, or the viewer copied from the dialog).
+    mcpPromoState: null,
+    mcpPromoAllowed: false,
+    mcpPromoHidden: false,
+    mcpPromoShownTracked: false,
     // Per-viewer daily dedupe for agent_link_mcp_button_shown
     // (connectMcpShown.ts); null until the flag resolves on.
     connectMcpShownRecord: null,
@@ -823,6 +869,7 @@ export default {
     DiagramViewport,
     ViewSourcePanel,
     ConnectMcpDialog,
+    McpPromoCard,
     ConnectPanel,
     LinkStatusChip,
     LiveBadge,
@@ -865,7 +912,9 @@ export default {
         magic: this.showInlineRefined,
         pages: 0,
         hasEdit: this.showEdit && !this.isFullscreenMode,
-        connectMcp: this.showAgentLinkConnect && !this.isFullscreenMode,
+        // Inline, Connect MCP no longer takes the Copy for AI slot (it is a
+        // More-menu entry), so it never changes the header's width.
+        connectMcp: false,
       };
     },
     // Anything that changes the header's content without resizing the viewer.
@@ -877,7 +926,8 @@ export default {
       return moreMenuItems({
         stage: this.headerStage,
         hasSource: this.showViewSource,
-        connectMcp: this.showAgentLinkConnect,
+        connectMcp: false,
+        mcpMenuItem: this.connectMcpInMenu,
         isCustomContent: this.isCustomContent,
         hasDeeplinkHost: !!this.deeplinkHost,
         fullscreen: this.isFullscreenMode,
@@ -1039,7 +1089,7 @@ export default {
     },
     // agent_link_mcp_button_shown: the button is rendered for a viewer.
     connectMcpShownEligible() {
-      return this.showAgentLinkConnect
+      return (this.connectMcpInToolbar || this.connectMcpInMenu)
         && this.connectMcpShownRecord !== null
         && this.isDisplayMode
         && !this.hideHeader
@@ -1047,7 +1097,7 @@ export default {
     },
     // Where the button sits and how it shows, for the analytics properties.
     connectMcpPlacement() {
-      return !this.isFullscreenMode && this.headerStage >= 3 ? 'more_menu' : 'toolbar';
+      return this.isFullscreenMode ? 'toolbar' : 'more_menu';
     },
     // Fullscreen headers are always visible; inline ones reveal on hover.
     connectMcpEffectiveReveal() {
@@ -1060,7 +1110,7 @@ export default {
         && !this.isLoadFailed
         && this.showViewSource
         && this.copyForAiSlotSettled
-        && !this.showAgentLinkConnect;
+        && !this.connectMcpInToolbar;
     },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
@@ -1116,7 +1166,32 @@ export default {
     // the async flag, so Copy for AI never flashes and then swaps out. The
     // other text types never show Connect MCP, so they need not wait.
     copyForAiSlotSettled() {
-      return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
+      return this.agentLinkFlagResolved || !this.agentLinkMvpSupported || !this.isFullscreenMode;
+    },
+    // Fullscreen header button (labelled, in the Copy for AI slot).
+    connectMcpInToolbar() {
+      return this.showAgentLinkConnect && this.isFullscreenMode;
+    },
+    // Inline "Edit with AI tools" More-menu entry. Editors only: the agent
+    // acts as the viewer, and the promo is aimed at people who author.
+    // Fullscreen corner card. Same audience as the menu entry (editors), only
+    // where the header button exists, and never over a failed load.
+    showFullscreenMcpCard() {
+      return this.connectMcpInToolbar
+        && !!this.canUserEdit
+        && this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed
+        && this.mcpPromoAllowed
+        && !this.mcpPromoHidden;
+    },
+    connectMcpInMenu() {
+      return this.showAgentLinkConnect && !this.isFullscreenMode && !!this.canUserEdit;
+    },
+    // The "NEW" label on that entry: until the viewer first opens it from the
+    // menu, and not past MCP_MENU_NEW_UNTIL.
+    showMcpMenuNew() {
+      return !this.mcpMenuNewSeen && Date.now() < MCP_MENU_NEW_UNTIL;
     },
     // Connect MCP takes Copy for AI's slot but not its sparkles: with the same
     // icon, icon-only and hover-revealed, a customer could not find it
@@ -1289,6 +1364,21 @@ export default {
         }));
       })));
     },
+    showFullscreenMcpCard(visible) {
+      if (!visible || this.mcpPromoShownTracked) return;
+      this.mcpPromoShownTracked = true;
+      this.mcpPromoState?.recordShown();
+      const record = createConnectMcpShownRecord({
+        cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
+        accountId: this.currentAccountId,
+        placement: 'fullscreen_card',
+      });
+      if (!record.recordShown()) return;
+      trackAnalyticsEvent('agent_link_mcp_button_shown', this.connectMcpAnalytics({
+        mcp_button_placement: 'fullscreen_card',
+        mcp_button_reveal: 'always',
+      }));
+    },
     copyForAiImpressionEligible: {
       immediate: true,
       handler(eligible) {
@@ -1432,10 +1522,14 @@ export default {
       this.agentLinkFeatureEnabled = false;
     } finally {
       if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
-        this.connectMcpShownRecord = createConnectMcpShownRecord({
+        const promoScope = {
           cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
           accountId: this.currentAccountId,
-        });
+        };
+        this.connectMcpShownRecord = createConnectMcpShownRecord(promoScope);
+        this.mcpPromoState = createMcpPromoState(promoScope);
+        this.mcpPromoAllowed = this.mcpPromoState.canShow();
+        this.mcpMenuNewSeen = readMcpMenuNewSeen(promoScope);
       }
       this.agentLinkFlagResolved = true;
     }
@@ -2023,7 +2117,7 @@ export default {
       switch (item) {
         case 'source': close(); this.openViewSource(where); return;
         case 'copy-for-ai': this.copyForAi('generic', where); close(); return;
-        case 'connect-mcp': close(); this.openConnectMcpDialog(where); return;
+        case 'connect-mcp': close(); this.markMcpMenuNewSeen(); this.openConnectMcpDialog(where); return;
         case 'copy-diagram-link': this.copyDeeplink(where); close(); return;
         case 'export-png': close(); this.openExport(where); return;
         case 'versions': close(); this.showContentVersions(where); return;
@@ -2318,8 +2412,28 @@ export default {
       this.connectMcpOpenedAt = Date.now();
       trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics({
         mcp_button_reveal: this.connectMcpEffectiveReveal,
-        ...(where === 'header_more_menu' ? { action_location: where } : {}),
+        ...(where === 'header_more_menu' ? { action_location: where, mcp_button_placement: 'more_menu' } : {}),
+        ...(where === 'fullscreen_card' ? { mcp_button_placement: where } : {}),
       }));
+    },
+    onMcpPromoCta(placement) {
+      this.mcpPromoHidden = true;
+      this.openConnectMcpDialog(placement);
+    },
+    onMcpPromoDismiss(placement) {
+      this.mcpPromoHidden = true;
+      this.mcpPromoState?.dismiss();
+      trackAnalyticsEvent('agent_link_mcp_promo_dismissed', this.connectMcpAnalytics({
+        mcp_button_placement: placement,
+      }));
+    },
+    markMcpMenuNewSeen() {
+      if (this.mcpMenuNewSeen) return;
+      this.mcpMenuNewSeen = true;
+      writeMcpMenuNewSeen({
+        cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
+        accountId: this.currentAccountId,
+      });
     },
     closeConnectMcpDialog() {
       if (!this.showConnectMcpDialog) return;
@@ -2329,6 +2443,10 @@ export default {
       }));
     },
     onConnectMcpCopied(target, ok) {
+      if (ok) {
+        this.mcpPromoState?.markEngaged();
+        this.mcpPromoHidden = true;
+      }
       trackAnalyticsEvent('agent_link_mcp_dialog_copied', this.connectMcpAnalytics({
         mcp_copy_target: target,
         outcome: ok ? 'copied' : 'clipboard_failed',
@@ -2807,6 +2925,29 @@ export default {
    the viewport; the flex chain lets .viewer-canvas absorb the extra space and
    center its (possibly short) diagram in it, without touching isWide's own
    width math above. */
+/* MCP promo corner card (Fullscreen): bottom-left over the canvas, below
+   dialogs (ConnectMcpDialog overlay is z-index 6). */
+.viewer-mcp-promo-card {
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 5;
+}
+/* "Edit with AI tools" More-menu entry: two lines plus a NEW label. */
+.overflow-menu-item--mcp { align-items: flex-start; }
+.more-menu-mcp-text { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.more-menu-mcp-row { display: inline-flex; align-items: center; gap: 6px; }
+.more-menu-mcp-new {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #6E5DC6;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+}
+.more-menu-mcp-sub { font-size: 12px; color: #626F86; }
 .viewer-frame--fullscreen {
   min-height: 100vh;
   display: flex;

@@ -1,10 +1,10 @@
 import type { DiagramType } from '@/model/Diagram/Diagram'
 import {
   ensureDiagramlyDiagram,
-  getDiagramlyJobStatus,
   startDiagramChatModification,
   type DiagramlyJobStatus,
 } from '@/services/GenerateService'
+import { DiagramlyJobPollError, pollDiagramlyJob } from '@/services/diagramlyJob'
 
 export type AIChatSessionStage =
   | 'ensuring'
@@ -148,23 +148,6 @@ export function getAIChatFailureTelemetry(error: unknown): AIChatFailureTelemetr
   }
 }
 
-function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
-  assertNotAborted(signal)
-  return new Promise((resolve, reject) => {
-    const handleAbort = () => {
-      clearTimeout(timeout)
-      signal?.removeEventListener('abort', handleAbort)
-      reject(createAbortError())
-    }
-
-    signal?.addEventListener('abort', handleAbort, { once: true })
-    const timeout = setTimeout(() => {
-      signal?.removeEventListener('abort', handleAbort)
-      resolve()
-    }, Math.max(0, delayMs))
-  })
-}
-
 function stageFromStatus(
   status: DiagramlyJobStatus,
 ): AIChatSessionStage | undefined {
@@ -257,115 +240,115 @@ export async function runAIChatSession(
   assertNotAborted(options.signal)
   options.onStage?.('queued')
 
-  const deadline = Date.now() + Math.max(0, timeoutMs)
-  while (true) {
-    assertNotAborted(options.signal)
-    pollCount += 1
-    let status: DiagramlyJobStatus
-    try {
-      status = await getDiagramlyJobStatus(jobId)
-    } catch (error) {
-      if (options.signal?.aborted) throw createAbortError()
+  let status: DiagramlyJobStatus
+  try {
+    status = await pollDiagramlyJob(jobId, {
+      signal: options.signal,
+      deadlineMs: Date.now() + Math.max(0, timeoutMs),
+      intervalMs: Math.max(0, pollIntervalMs),
+      onPoll: (count) => { pollCount = count },
+      onStatus: (progress) => {
+        const progressStage = stageFromStatus(progress)
+        if (progressStage) options.onStage?.(progressStage, progress)
+      },
+    })
+  } catch (error) {
+    if (error instanceof DiagramlyJobPollError) {
+      pollCount = error.pollCount
+      if (error.kind === 'aborted') throw createAbortError()
+      if (error.kind === 'timeout') {
+        throw new AIChatSessionError(
+          `Diagram update timed out after ${timeoutMs}ms`,
+          'timeout',
+          'timeout',
+          pollCount,
+        )
+      }
       throw sessionFailure(
-        error,
+        error.cause ?? error,
         'poll',
         'status_poll_failed',
         pollCount,
         'Failed to read the AI Chat job status',
       )
     }
-    assertNotAborted(options.signal)
+    throw error
+  }
 
-    const stage = stageFromStatus(status)
-    if (stage) options.onStage?.(stage, status)
+  if (status.status === 'COMPLETED') {
+    const updatedCode = status.output?.diagramCode
+    if (!updatedCode) {
+      throw new AIChatSessionError(
+        'Diagramly job completed without diagram code',
+        'sync',
+        'diagram_code_missing',
+        pollCount,
+      )
+    }
 
-    if (status.status === 'COMPLETED') {
-      const updatedCode = status.output?.diagramCode
-      if (!updatedCode) {
+    const resultTelemetry = {
+      ...(status.output?.repairAttempts !== undefined
+        ? { repairAttempts: status.output.repairAttempts }
+        : {}),
+      ...(status.output?.durationMs !== undefined
+        ? { backendDurationMs: status.output.durationMs }
+        : {}),
+      ...(status.output?.llmDurationMs !== undefined
+        ? { backendLlmDurationMs: status.output.llmDurationMs }
+        : {}),
+    }
+
+    if (status.output?.noChange === true) {
+      if (options.errorMessage?.trim()) {
         throw new AIChatSessionError(
-          'Diagramly job completed without diagram code',
-          'sync',
-          'diagram_code_missing',
+          'Diagramly syntax repair completed without a persisted change',
+          'server',
+          'job_failed',
           pollCount,
         )
       }
-
-      const resultTelemetry = {
-        ...(status.output?.repairAttempts !== undefined
-          ? { repairAttempts: status.output.repairAttempts }
-          : {}),
-        ...(status.output?.durationMs !== undefined
-          ? { backendDurationMs: status.output.durationMs }
-          : {}),
-        ...(status.output?.llmDurationMs !== undefined
-          ? { backendLlmDurationMs: status.output.llmDurationMs }
-          : {}),
-      }
-
-      if (status.output?.noChange === true) {
-        if (options.errorMessage?.trim()) {
-          throw new AIChatSessionError(
-            'Diagramly syntax repair completed without a persisted change',
-            'server',
-            'job_failed',
-            pollCount,
-          )
-        }
-        return {
-          diagramId,
-          diagramCreated,
-          updatedCode,
-          noChange: true,
-          jobId,
-          pollCount,
-          ...resultTelemetry,
-        }
-      }
-
-      options.onStage?.('syncing', status)
-      const versionId = status.output?.versionId
-      if (!versionId) {
-        throw new AIChatSessionError(
-          'Diagramly job completed without a persisted version',
-          'sync',
-          'version_id_missing',
-          pollCount,
-        )
-      }
-
       return {
         diagramId,
         diagramCreated,
         updatedCode,
-        versionId,
-        versionNumber: status.output?.versionNumber,
-        createdAt: status.output?.createdAt,
+        noChange: true,
         jobId,
         pollCount,
         ...resultTelemetry,
       }
     }
 
-    if (status.status === 'FAILED' || status.status === 'CANCELLED') {
+    options.onStage?.('syncing', status)
+    const versionId = status.output?.versionId
+    if (!versionId) {
       throw new AIChatSessionError(
-        status.error ||
-          status.message ||
-          `Diagram update ${status.status.toLowerCase()}`,
-        'server',
-        status.status === 'FAILED' ? 'job_failed' : 'job_cancelled',
+        'Diagramly job completed without a persisted version',
+        'sync',
+        'version_id_missing',
         pollCount,
       )
     }
 
-    const remainingMs = deadline - Date.now()
-    if (remainingMs <= 0) {
-      throw new AIChatSessionError(
-        `Diagram update timed out after ${timeoutMs}ms`,
-        'timeout',
-        'timeout',
-        pollCount,
-      )
+    return {
+      diagramId,
+      diagramCreated,
+      updatedCode,
+      versionId,
+      versionNumber: status.output?.versionNumber,
+      createdAt: status.output?.createdAt,
+      jobId,
+      pollCount,
+      ...resultTelemetry,
     }
-    await wait(Math.min(Math.max(0, pollIntervalMs), remainingMs), options.signal)
   }
+
+  // pollDiagramlyJob only resolves with a terminal status: FAILED or CANCELLED here.
+  throw new AIChatSessionError(
+    status.error ||
+      status.message ||
+      `Diagram update ${status.status.toLowerCase()}`,
+    'server',
+    status.status === 'CANCELLED' ? 'job_cancelled' : 'job_failed',
+    pollCount,
+  )
 }

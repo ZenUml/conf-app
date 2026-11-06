@@ -212,12 +212,6 @@ export async function restoreDiagramlyVersion(
   }) as RestoreDiagramlyVersionResult;
 }
 
-export async function getFixDiagramStatus(
-  jobId: string
-): Promise<DiagramlyJobStatus> {
-  return getDiagramlyJobStatus(jobId);
-}
-
 export async function getDiagramlyJobStatus(
   jobId: string,
 ): Promise<DiagramlyJobStatus> {

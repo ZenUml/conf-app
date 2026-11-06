@@ -159,7 +159,6 @@ export default {
       }
     },
     async renderOnServer(code) {
-      // Usually the response validation just fetched (#929): shared, not refetched.
       const response = await fetchPlantUmlSvg(code);
       if (!response.ok) {
         throw new Error(`PlantUML server returned ${response.status}`);
@@ -226,10 +225,11 @@ export default {
       this.loading = true;
       this.error = null;
       try {
-        // Phase 0b: render_ms = time to draw: the engine run, or the server
-        // round trip (recorded once). Note this excludes the 500ms mount
-        // debounce, which lands in the unattributed remainder — itself a
-        // finding for Phase 1.
+        // Phase 0b: render_ms = time to draw: the engine run, or the time to get
+        // the server SVG (recorded once). On the server path that is usually the
+        // response validation just fetched (#929), so it is near zero; the round
+        // trip itself lands in the unattributed remainder. First mount renders
+        // right after validation; only edits go through the 500 ms debounce.
         let renderer = await plantUmlRenderer();
         this.svg = await renderPerf.time('render', async () => {
           if (renderer === 'local') {

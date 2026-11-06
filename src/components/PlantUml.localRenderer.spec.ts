@@ -5,8 +5,8 @@ import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { renderPlantUmlLocally, PlantUmlLocalRenderError } from '@/utils/plantuml/engine';
-import { PLANTUML_RENDERER_STORAGE_KEY, resetPlantUmlRendererForTests } from '@/utils/plantuml/renderer';
 import { clearPlantUmlSvgCache } from '@/utils/plantuml/server';
+import { PLANTUML_RENDERER_STORAGE_KEY, resetPlantUmlRendererForTests } from '@/utils/plantuml/renderer';
 import { isPlantUmlLocalRendererEnabled } from '@/apis/aiTitleFeatureFlag';
 
 // ADR-0010: with the local renderer chosen, the viewer draws with the
@@ -59,7 +59,7 @@ describe('PlantUml local renderer (ADR-0010)', () => {
   enableAutoUnmount(afterEach);
 
   beforeEach(() => {
-    clearPlantUmlSvgCache(); // server responses are shared across specs within the TTL (#929)
+    clearPlantUmlSvgCache();
     vi.clearAllMocks();
     resetPlantUmlRendererForTests();
     localStorage.setItem(PLANTUML_RENDERER_STORAGE_KEY, 'local');

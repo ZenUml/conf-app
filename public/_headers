@@ -1,0 +1,10 @@
+# Cloudflare Pages response headers for static files (Functions responses are
+# not affected). Vite copies public/ into dist/, the Pages deploy root.
+
+# The MCP Apps view's renderer chunks (#1038). Their filenames carry a content
+# hash and change with every build, so a cached copy can never be stale. Pages'
+# default (max-age=14400, must-revalidate) made a returning user's browser
+# re-check hundreds of KB on a slow link. view.html itself is not hashed and is
+# not matched here.
+/mcp-app/assets/*
+  Cache-Control: public, max-age=31536000, immutable

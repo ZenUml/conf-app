@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import yaml from "js-yaml";
 import { getManifestEditYqArgs } from "./scripts/forge-wizard.mjs";
 import { UNPLACED_PROPERTY_KEY } from "./src/utils/byline/unplacedProperty";
@@ -149,4 +149,25 @@ describe("unplaced-diagram banner — the property key both sides depend on", ()
       expect(rekey?.with?.cmd).toContain('"zenuml-unplaced-diagrams-asyncapi"');
     });
   }
+});
+
+describe("workflows that install Playwright browsers", () => {
+  // Playwright 1.59 refuses `install` on ubuntu-latest once that image is 26.04:
+  // "Playwright does not support chromium on ubuntu26.04-x64". Jobs with a browser
+  // cache hide this until the cache misses; a job without one fails every run.
+  const dir = "./.github/workflows";
+  const installers = readdirSync(dir).flatMap((file) => {
+    const workflow: any = yaml.load(readFileSync(`${dir}/${file}`, "utf-8"));
+    return Object.entries<any>(workflow.jobs ?? {})
+      .filter(([, job]) => (job.steps ?? []).some((step: any) => /playwright install/.test(step.run ?? "")))
+      .map(([id, job]) => ({ job: `${file}#${id}`, runner: job["runs-on"] }));
+  });
+
+  it("finds the jobs that install browsers", () => {
+    expect(installers.length).toBeGreaterThan(0);
+  });
+
+  it.each(installers)("$job pins a runner Playwright supports", ({ runner }) => {
+    expect(runner).toBe("ubuntu-24.04");
+  });
 });

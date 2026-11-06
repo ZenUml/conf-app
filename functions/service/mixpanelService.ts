@@ -16,6 +16,7 @@ export interface MixpanelTrackPayload {
 }
 
 export type MixpanelScalar = string | number | boolean | undefined | null;
+export type MixpanelPropertyValue = MixpanelScalar | readonly string[];
 
 /**
  * One backend-owned event for Mixpanel's Import API.
@@ -28,7 +29,7 @@ export type MixpanelScalar = string | number | boolean | undefined | null;
  */
 export interface MixpanelServiceEvent {
   event: AnalyticsEventName;
-  properties: Record<string, MixpanelScalar>;
+  properties: Record<string, MixpanelPropertyValue>;
   distinctId: string;
   insertId: string;
   time: number;
@@ -134,6 +135,13 @@ function validateServiceEvent(event: MixpanelServiceEvent): void {
   for (const [key, value] of Object.entries(event.properties)) {
     if (RESERVED_SERVICE_PROPERTIES.has(key)) {
       throw new Error(`Mixpanel service event property is reserved: ${key}`);
+    }
+    if (Array.isArray(value)) {
+      if (value.length < 1 || value.length > 20
+        || value.some((item) => typeof item !== 'string' || item.length < 1 || item.length > 128)) {
+        throw new Error(`Mixpanel service event property must be a bounded string array: ${key}`);
+      }
+      continue;
     }
     if (value !== null && value !== undefined && !["string", "number", "boolean"].includes(typeof value)) {
       throw new Error(`Mixpanel service event property must be scalar: ${key}`);

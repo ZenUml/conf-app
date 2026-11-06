@@ -398,6 +398,19 @@ Optional keyword hints (secondary — not exhaustive or sufficient on their own)
 
 **Collect results for Step 3.** Record **pass | fail | skipped** per planned check (skill name or short description). If the delta was genuinely tiny (e.g. docs-only), state **"Focused tests: N/A — no product behaviour changed"** with a one-line justification — not "no keywords matched."
 
+#### 2.7 Verifying a fix's effect after release (when the release carries a customer-facing fix)
+
+The spot check proves the fix works on our pages; this proves it reached the affected customer. Read-only:
+
+```bash
+python3 .claude/skills/release-app/scripts/effect_check.py --site <client_domain> --variant <variant> --tag <published tag>
+# defaults: --event convert_to_png --fail-label toPng_failed,toPng_timeout --ok-label toPng --ok-sample-rate 0.1 (fallback when an event has no sample_rate) --days-before 7
+```
+
+It splits Mixpanel events at the tag's `publishedAt` and prints, before and after: events, users, failures, successes (raw and de-sampled), attempts, failure rate, views, the versions seen, and what each previously failing `macro_uuid` did after the release. Verdict is one of `IMPROVED`, `NO ATTEMPTS YET (unproven)`, `NO BASELINE`, `REGRESSED / NOT FIXED`.
+
+**Count attempts, not just failures.** Zero failures after a release proves nothing unless attempts happened: many flows emit nothing when there is no work to do (PNG capture runs only when the page attachment is missing or stale), and success events are often sampled while errors are not. Report `NO ATTEMPTS YET` as unproven and say what would produce an attempt (a view of an affected macro, an edit). For a per-macro cause breakdown of PNG failures use the **png-capture-triage** skill.
+
 ### Step 3 — Report
 
 For `preflight`, report instead:

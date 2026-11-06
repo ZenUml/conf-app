@@ -142,6 +142,29 @@ async function parseZenuml(dsl: string): Promise<ParseDslResult> {
 }
 
 // ---- Mermaid --------------------------------------------------------------
+/** Upper bound on one error message; jison's "Expecting …" token list can run long. */
+export const MAX_ERROR_MESSAGE_CHARS = 300;
+
+/**
+ * Collapse a multi-line parser message into one bounded line an agent can act
+ * on. jison (flowchart/sequence/class) throws four lines:
+ *   Parse error on line 3:
+ *   ...lowchart TD A -->
+ *   ---------------------^
+ *   Expecting 'AMP', 'COLON', …, got 'EOF'
+ * The source excerpt and caret only line up in a monospace view beside the
+ * source, and the line number already says where, so both are dropped; the
+ * header and the "Expecting …" line are kept. Langium messages are already a
+ * single line and pass through unchanged apart from the length cap.
+ */
+export function summarizeParserMessage(raw: string): string {
+  const lines = raw.split(/\r?\n/);
+  const caret = lines.findIndex((l) => /^\s*-*\^\s*$/.test(l));
+  const kept = lines.filter((l, i) => l.trim() !== '' && i !== caret && !(caret > 1 && i === caret - 1));
+  const text = kept.map((l) => l.trim()).join(' ') || 'Parse error';
+  return text.length > MAX_ERROR_MESSAGE_CHARS ? `${text.slice(0, MAX_ERROR_MESSAGE_CHARS - 1)}…` : text;
+}
+
 async function parseMermaid(dsl: string): Promise<ParseDslResult> {
   const mermaid = await getMermaid();
   try {
@@ -152,14 +175,14 @@ async function parseMermaid(dsl: string): Promise<ParseDslResult> {
     // grammars put "line N, column M" in the message text.
     const err = e as { hash?: { loc?: { first_line: number; first_column: number } }; message?: string };
     const loc = err?.hash?.loc;
-    const firstLine = String(err?.message ?? 'Parse error').split('\n')[0];
+    const message = summarizeParserMessage(String(err?.message ?? 'Parse error'));
     if (loc) {
-      return { ok: false, errors: [{ line: loc.first_line, col: loc.first_column, message: firstLine }] };
+      return { ok: false, errors: [{ line: loc.first_line, col: loc.first_column, message }] };
     }
     const m = /line (\d+),? column (\d+)/i.exec(String(err?.message ?? ''));
     return {
       ok: false,
-      errors: [{ line: m ? Number(m[1]) : 1, col: m ? Number(m[2]) : 0, message: firstLine }],
+      errors: [{ line: m ? Number(m[1]) : 1, col: m ? Number(m[2]) : 0, message }],
     };
   }
 }

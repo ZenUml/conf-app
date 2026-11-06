@@ -86,7 +86,7 @@ vi.mock('@/utils/plantuml/engine', () => ({
   renderPlantUmlLocally: (...args: any[]) => mockRenderPlantUmlLocally(...args),
 }));
 
-import createAttachmentIfContentChanged, { capturePng } from './Attachment';
+import createAttachmentIfContentChanged from './Attachment';
 import { ForgeRequestError } from '@/utils/forgeRequestError';
 import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 

@@ -175,9 +175,9 @@ export async function fetchPlantUmlPng(code: string, surface: Surface): Promise<
 }
 
 /**
- * Produce the backup PNG for a diagram. PlantUML routes to the deterministic
- * raster above (local engine SVG, or the server's PNG); every other type
- * captures the rendered DOM via toPng().
+ * Produce the backup PNG for a diagram. PlantUML routes to the raster above
+ * (local engine SVG, or the server's PNG); every other type captures the
+ * rendered DOM via toPng().
  */
 // Exported for the byline activation dialog's completion screen (mint a
 // deeplink PNG). NOTE: DOM capture is scoped to '.screen-capture-content' /

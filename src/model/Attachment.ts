@@ -11,7 +11,6 @@ import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { Surface } from '@/utils/analytics/catalog';
 import { describePngStateFailure, writePngState } from '@/lib/pngExportState.js';
-import { rateLimitCooldownRemainingMs, startRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 import { capturePng, blobToBase64 } from '@/model/attachment/capturePng';
 import {
   AttachmentUploadHttpError,
@@ -25,6 +24,7 @@ import {
 // here so existing importers keep working.
 export { capturePng, blobToBase64 } from '@/model/attachment/capturePng';
 export { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/attachment/confluenceErrors';
+import { rateLimitCooldownRemainingMs, startRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 type PngState = 'generating' | 'waiting_for_publish' | 'generation_failed' | 'upload_denied' | 'upload_failed' | 'ready';
 

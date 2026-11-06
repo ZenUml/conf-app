@@ -3,7 +3,7 @@ name: PR validation
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**']
+    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**', 'workers/render-mcp/**', '.github/workflows/render-mcp-deploy.yml', 'scripts/ci/check-render-mcp.mjs', 'scripts/ci/wait-for-render-mcp*']
 
   workflow_dispatch:
     inputs:
@@ -129,7 +129,7 @@ jobs:
     # was collected but never gated: it only ran when someone remembered to
     # start Vite and run it by hand.
     name: "E2E: Viewer preview"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Generous next to a ~2 min expectation: the whole point of this job is to
     # be cheap and quiet, so give a cold pnpm store room rather than reap it.
     timeout-minutes: 12

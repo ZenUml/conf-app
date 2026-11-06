@@ -3,7 +3,7 @@ import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
 import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { DiagramType } from '@/model/Diagram/Diagram'
-import { NOT_TITLE_LIKE, looksLikeTitle } from '@/lib/aiTitleGuard.js'
+import { NOT_TITLE_LIKE, isSavedRefusalTitle, looksLikeTitle } from '@/lib/aiTitleGuard.js'
 import { singleShortLabel } from '@/utils/graph/extractGraphText'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'
@@ -234,6 +234,19 @@ export function useAutoTitle() {
     lastGeneratedContentHash.value = null
   }
 
+  // Call once when an editor opens a diagram. A title saved before PR #1053 can
+  // be model refusal text: empty it, so the normal title rules give the next
+  // Publish a real title. Nothing is written until the user publishes.
+  function clearSavedRefusalTitle(macroType: string): void {
+    if (!isSavedRefusalTitle(store.state.diagram.title)) return
+    store.dispatch('updateTitle', '')
+    trackAnalyticsEvent('saved_refusal_title_hidden', {
+      feature_area: 'ai',
+      surface: 'editor',
+      macro_type: macroType as any,
+    })
+  }
+
   function reset(): void {
     genToken += 1
     isGeneratingTitle.value = false
@@ -261,6 +274,7 @@ export function useAutoTitle() {
     dismiss,
     markManualEdit,
     onTitleCleared,
+    clearSavedRefusalTitle,
     reset,
   }
 }

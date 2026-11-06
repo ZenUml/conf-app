@@ -607,6 +607,31 @@ export const Default: Story = {
   },
 }
 
+/**
+ * A title saved before PR #1053 can be model refusal text. The header shows
+ * "Untitled diagram" instead; the stored title is not changed.
+ */
+export const SavedRefusalTitle: Story = {
+  name: 'Saved refusal title — shows Untitled diagram',
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Please provide the DSL that describes your flowchart and I will suggest a tit',
+        mermaidCode: SAMPLE_MERMAID,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+  play: async () => {
+    // The title is visible without hover, so no revealHeader().
+    const canvas = within(document.body)
+    await waitFor(() => expect(document.querySelector('.viewer-title')?.textContent?.trim()).toBe('Untitled diagram'))
+    await expect(canvas.queryByText(/Please provide the DSL/)).toBeNull()
+  },
+}
+
 // ---------------------------------------------------------------------------
 // 1b. TitleRename — click-to-rename title (no editor modal)
 // ---------------------------------------------------------------------------

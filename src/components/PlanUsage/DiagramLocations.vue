@@ -94,7 +94,7 @@
             </thead>
             <tbody>
               <tr v-for="row in pageRows" :key="row.contentId" data-testid="diagram-locations-row">
-                <td class="diagram-cell">{{ row.diagramTitle || 'Untitled diagram' }}</td>
+                <td class="diagram-cell">{{ visibleDiagramTitle(row.diagramTitle) || 'Untitled diagram' }}</td>
                 <td>{{ typeLabel(row.diagramType) }}</td>
                 <td>{{ row.spaceName || row.spaceKey }}</td>
                 <td class="page-cell">{{ pageLabel(row) }}</td>
@@ -155,6 +155,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import globals from '@/model/globals'
 import { openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { visibleDiagramTitle } from '@/lib/aiTitleGuard.js'
 import type { AnalyticsEventName, DiagramLocationsFilter } from '@/utils/analytics/catalog'
 import type { AnalyticsProperties } from '@/utils/analytics/types'
 import { ForgeRequestError } from '@/utils/forgeRequestError'

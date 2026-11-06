@@ -42,6 +42,35 @@ describe('useAutoTitle', () => {
   })
   afterEach(() => vi.useRealTimers())
 
+  describe('clearSavedRefusalTitle', () => {
+    const REFUSAL = 'Please provide the DSL that describes your flowchart and I will suggest a tit'
+
+    it('empties a saved refusal title so the next Publish saves a real one', async () => {
+      fakeStore.state.diagram.title = REFUSAL
+      const { clearSavedRefusalTitle, generate } = useAutoTitle()
+      clearSavedRefusalTitle('mermaid')
+      expect(fakeStore.state.diagram.title).toBe('')
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith('saved_refusal_title_hidden', {
+        feature_area: 'ai', surface: 'editor', macro_type: 'mermaid',
+      })
+      vi.mocked(aiGenerateTitle).mockResolvedValue(okRes('Checkout Flow'))
+      const run = generate('init', { ...SEQ, currentTitle: fakeStore.state.diagram.title })
+      await runAnimation('Checkout Flow')
+      await run
+      expect(aiGenerateTitle).toHaveBeenCalledTimes(1)
+      expect(fakeStore.state.diagram.title).toBe('Checkout Flow')
+    })
+
+    it('leaves a title a person typed', () => {
+      fakeStore.state.diagram.title = 'Why do we need retries?'
+      const { clearSavedRefusalTitle } = useAutoTitle()
+      clearSavedRefusalTitle('mermaid')
+      expect(fakeStore.state.diagram.title).toBe('Why do we need retries?')
+      expect(fakeStore.dispatch).not.toHaveBeenCalled()
+      expect(trackAnalyticsEvent).not.toHaveBeenCalled()
+    })
+  })
+
   it('keeps AI title generation enabled without a feature-flag lookup', async () => {
     const { aiTitleEnabled } = useAutoTitle()
     expect(aiTitleEnabled.value).toBe(true)

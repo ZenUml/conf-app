@@ -23,7 +23,7 @@
           @click="openDiagram(d)"
         >
           <span class="row__body">
-            <span class="row__title">{{ d.title || 'Untitled diagram' }}</span>
+            <span class="row__title">{{ visibleDiagramTitle(d.title) || 'Untitled diagram' }}</span>
             <span class="row__meta">
               {{ typeLabel(d.diagramType) }}<template v-if="d.spaceKey"> · {{ d.spaceKey }}</template>
             </span>
@@ -122,6 +122,7 @@
 </template>
 
 <script setup>
+import { visibleDiagramTitle } from '@/lib/aiTitleGuard.js'
 // confluence:homepageFeed card (see manifest.yml). Confluence renders this in
 // the right panel of the Home page — a surface with no page/content context,
 // so "insert a macro here" is not an actionable link the way it is from

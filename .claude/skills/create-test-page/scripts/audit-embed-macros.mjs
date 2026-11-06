@@ -10,6 +10,7 @@
 // Usage: node audit-embed-macros.mjs --site zenuml [--limit-pages 9999]
 
 import { parseArgs } from "node:util";
+import { matchesMacroKey } from "./embed-macro-key.mjs";
 
 const SITES = {
   zenuml: { host: "zenuml.atlassian.net" },
@@ -135,7 +136,7 @@ function extractEmbedMacros(adf, key) {
   const out = [];
   function walk(n) {
     if (!n) return;
-    if ((n.type === "extension" || n.type === "bodiedExtension") && (n.attrs?.extensionKey || "").includes(key)) {
+    if ((n.type === "extension" || n.type === "bodiedExtension") && matchesMacroKey(n.attrs?.extensionKey, key)) {
       const params = n.attrs?.parameters || {};
       const ccId = params.macroParams?.customContentId?.value || params.guestParams?.customContentId || params.guestParams?.["custom-content-id"] || null;
       out.push({ ccId, guestKeys: Object.keys(params.guestParams || {}) });

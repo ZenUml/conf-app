@@ -11,6 +11,7 @@
 // Output: a small JSON summary of created pages per macro type.
 
 import { parseArgs } from "node:util";
+import { DIAGRAM_TYPE } from "./macro-diagram-types.mjs";
 
 const SITES = {
   "lite-dev": { host: "lite-dev.atlassian.net", appId: "8ad26115-211f-4216-971b-0540f606303d", envId: "26ad8f7e-aa24-4afe-83a3-e8216f9e5220", envName: "DEVELOPMENT", suffix: "-lite", ns: "lite" },
@@ -46,13 +47,13 @@ const MACRO_CONFIGS = {
   sequence: {
     moduleKey: `zenuml-sequence-macro${site.suffix}`,
     extensionTitle: "Diagram (Mermaid, PlantUML & ZenUML) Lite",
-    body: () => ({ diagramType: "sequence", code: "A.method() {\n  B.call()\n}\n", title: `seq-icopy-${ts}` }),
+    body: () => ({ diagramType: DIAGRAM_TYPE.sequence, code: "A.method() {\n  B.call()\n}\n", title: `seq-icopy-${ts}` }),
   },
   mermaid: {
     moduleKey: `zenuml-sequence-macro${site.suffix}`,
     extensionTitle: "Diagram (Mermaid, PlantUML & ZenUML) Lite",
     body: () => ({
-      diagramType: "mermaid",
+      diagramType: DIAGRAM_TYPE.mermaid,
       code: "",
       mermaidCode: "graph TD\n  A[icopy-source] --> B[edited?]\n",
       title: `mmd-icopy-${ts}`,
@@ -62,7 +63,7 @@ const MACRO_CONFIGS = {
     moduleKey: `zenuml-graph-macro${site.suffix}`,
     extensionTitle: "Graph (DrawIO) Lite",
     body: () => ({
-      diagramType: "graph",
+      diagramType: DIAGRAM_TYPE.graph,
       graphXml: `<mxfile><diagram name="Page-1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="icopy-source" vertex="1" parent="1"><mxGeometry x="40" y="40" width="160" height="40" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>`,
       title: `graph-icopy-${ts}`,
     }),
@@ -71,7 +72,7 @@ const MACRO_CONFIGS = {
     moduleKey: `zenuml-openapi-macro${site.suffix}`,
     extensionTitle: "OpenAPI / Swagger Lite",
     body: () => ({
-      diagramType: "openapi",
+      diagramType: DIAGRAM_TYPE.openapi,
       code: `openapi: 3.0.0\ninfo:\n  title: icopy-source\n  version: 1.0.0\npaths: {}\n`,
       title: `oas-icopy-${ts}`,
     }),

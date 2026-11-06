@@ -19,6 +19,7 @@
 //   SHARED_SECRET='...from D1 ClientInstallation...' \
 //   DOMAIN=example-tenant \
 //   PAGE_ID=1234567890 \
+//   CONTENT_TYPE=ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence \
 //   node scripts/connect-jwt-probe.mjs
 //
 // Pull the shared secret from D1 (example):
@@ -29,10 +30,11 @@
 
 import { SignJWT } from 'jose';
 import { createHash } from 'node:crypto';
+import { buildProbeRequest, qshInput } from './connect-jwt-probe-request.mjs';
 
-const { ADDON_KEY, SHARED_SECRET, DOMAIN, PAGE_ID } = process.env;
+const { ADDON_KEY, SHARED_SECRET, DOMAIN, PAGE_ID, CONTENT_TYPE } = process.env;
 
-const required = { ADDON_KEY, SHARED_SECRET, DOMAIN, PAGE_ID };
+const required = { ADDON_KEY, SHARED_SECRET, DOMAIN, PAGE_ID, CONTENT_TYPE };
 const missing = Object.entries(required).filter(([, v]) => !v).map(([k]) => k);
 if (missing.length) {
   console.error(`Missing env vars: ${missing.join(', ')}`);
@@ -41,11 +43,13 @@ if (missing.length) {
 }
 
 const baseUrl = `https://${DOMAIN}.atlassian.net/wiki`;
-const requestPath = `/api/v2/pages/${PAGE_ID}/custom-content`;
+// The v2 listing needs `type`, and `body-format=raw` is what returns the body
+// (and so macroUuid). The same canonical query goes into the QSH and the URL.
+const request = buildProbeRequest({ pageId: PAGE_ID, type: CONTENT_TYPE });
 
 // Atlassian Connect QSH: SHA256 of `${METHOD}&${canonicalPath}&${sortedQuery}`.
 // canonicalPath is the URI relative to the context path (`/wiki`).
-const qsh = createHash('sha256').update(`GET&${requestPath}&`).digest('hex');
+const qsh = createHash('sha256').update(qshInput('GET', request)).digest('hex');
 
 const now = Math.floor(Date.now() / 1000);
 const secret = new TextEncoder().encode(SHARED_SECRET);
@@ -57,7 +61,7 @@ const token = await new SignJWT({ qsh })
   .setExpirationTime(now + 60)
   .sign(secret);
 
-const url = `${baseUrl}${requestPath}`;
+const url = `${baseUrl}${request.path}?${request.query}`;
 console.error(`GET ${url}`);
 
 const res = await fetch(url, {

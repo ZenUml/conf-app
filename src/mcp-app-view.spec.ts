@@ -292,6 +292,19 @@ describe('drawing a PlantUML result', () => {
     expect(JSON.stringify(reports())).not.toContain('azure');
   });
 
+  it('says the download failed, not that the library is missing, when a chunk will not load', async () => {
+    renderPlantUmlLocally.mockRejectedValue(Object.assign(new Error('chunk 404'), { reason: 'load_failed' }));
+    result({ diagramType: 'plantuml', dsl: '@startuml\n!include <C4/C4_Context>\n@enduml' });
+
+    await vi.waitFor(() =>
+      expect(document.querySelector('#app')?.textContent).toMatch(/Could not download the diagram renderer/),
+    );
+    expect(document.querySelector('#app')?.textContent).not.toMatch(/chunk 404/);
+    expect(reports()[0].body).toEqual({
+      macro_type: 'plantuml', render_outcome: 'failed', plantuml_renderer: 'failed', plantuml_failure_reason: 'load_failed',
+    });
+  });
+
   it('never lets a failed report break the drawing', async () => {
     beacon.mockImplementation(() => { throw new Error('blocked'); });
     result({ diagramType: 'plantuml', dsl: '@startuml\n@enduml' });

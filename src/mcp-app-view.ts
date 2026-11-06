@@ -335,6 +335,10 @@ function reportRender(type: string, failure?: unknown): void {
   }
 }
 
+// A dynamic import that failed stays failed for this document, so the useful
+// retry is a fresh view: asking again opens a new frame.
+const DOWNLOAD_FAILED = 'Could not download the diagram renderer. The connection may be slow or blocked; ask again to retry.';
+
 async function render(payload: DiagramPayload): Promise<void> {
   const el = document.getElementById('app');
   if (!el) return;
@@ -346,13 +350,9 @@ async function render(payload: DiagramPayload): Promise<void> {
     try {
       await load;
     } catch (e) {
-      // A dynamic import that failed stays failed for this document, so the
-      // useful retry is a fresh view: asking again opens a new frame.
       console.error('[zenuml] renderer download failed', e);
       reportRender(type, e);
-      status(
-        'Could not download the diagram renderer. The connection may be slow or blocked; ask again to retry.',
-      );
+      status(DOWNLOAD_FAILED);
       return;
     }
   }
@@ -391,7 +391,9 @@ async function render(payload: DiagramPayload): Promise<void> {
       return;
     }
   } catch (e) {
-    status(`Could not draw the diagram: ${e instanceof Error ? e.message : String(e)}`);
+    // A chunk that only this diagram needs (C4, themes) failed after the engine loaded.
+    const downloadFailed = (e as { reason?: unknown } | undefined)?.reason === 'load_failed';
+    status(downloadFailed ? DOWNLOAD_FAILED : `Could not draw the diagram: ${e instanceof Error ? e.message : String(e)}`);
     reportRender(type, e);
     return;
   }

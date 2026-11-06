@@ -30,7 +30,7 @@
  * SVG had, and validate.ts reads them unchanged.
  */
 import type { PlantUmlLocalFailureReason, PlantUmlUnresolvedInclude } from '@/utils/analytics/catalog';
-import { installPlantUmlStdlibLoader, rewriteHostedIncludes } from './stdlib';
+import { installPlantUmlStdlibLoader, rewriteHostedIncludes, takeHostedLoadFailure } from './stdlib';
 import { joinContinuationLines, selectServerBlock } from './unwrap';
 
 export class PlantUmlLocalRenderError extends Error {
@@ -81,7 +81,11 @@ const OPTIONAL_DATA: ReadonlyArray<[RegExp, () => Promise<unknown>]> = [
 ];
 
 async function loadOptionalData(code: string): Promise<void> {
-  await Promise.all(OPTIONAL_DATA.filter(([needs]) => needs.test(code)).map(([, load]) => load()));
+  try {
+    await Promise.all(OPTIONAL_DATA.filter(([needs]) => needs.test(code)).map(([, load]) => load()));
+  } catch (err) {
+    throw new PlantUmlLocalRenderError('load_failed', `PlantUML data failed to load: ${(err as Error)?.message ?? err}`);
+  }
 }
 
 // PlantUML's crash page and its unresolved-include message are both drawn as a
@@ -104,9 +108,12 @@ function unresolvedKind(svg: string): PlantUmlUnresolvedInclude {
 
 const SYNTAX_ERROR_MARKER = 'Syntax Error?';
 
-function classify(svg: string, includeRewritten: boolean): string {
+function classify(svg: string, includeRewritten: boolean, hostedLoadFailed: boolean): string {
   if (svg.includes(CRASH_MARKER)) {
     throw new PlantUmlLocalRenderError('engine_error', 'The PlantUML engine crashed on this diagram', undefined, includeRewritten);
+  }
+  if (hostedLoadFailed && ERROR_PAGE_MARKER.test(svg) && INCLUDE_MARKER.test(svg)) {
+    throw new PlantUmlLocalRenderError('load_failed', 'A hosted PlantUML library failed to load', undefined, includeRewritten);
   }
   if (ERROR_PAGE_MARKER.test(svg) && INCLUDE_MARKER.test(svg)) {
     throw new PlantUmlLocalRenderError(
@@ -151,7 +158,7 @@ export function renderPlantUmlLocally(code: string): Promise<string> {
       renderToString(engineSource.split('\n'), resolve, (message) =>
         reject(new PlantUmlLocalRenderError('engine_error', `PlantUML engine error: ${message}`, undefined, rewritten)));
     });
-    return classify(raw, rewritten);
+    return classify(raw, rewritten, takeHostedLoadFailure());
   })();
   renders.set(source, { svg, at: now });
   svg.catch(() => renders.delete(source));

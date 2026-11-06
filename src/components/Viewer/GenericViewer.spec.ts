@@ -520,6 +520,26 @@ describe('GenericViewer (chrome-less)', () => {
           vi.useRealTimers();
         }
       });
+
+      // Auto activation loads the feedback state twice (before and after the
+      // Refined render). With no accountId nothing is persisted, so a second
+      // load that lands after the vote must not bring the survey back.
+      it('keeps an unpersisted inline vote when a feedback load lands after it', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+          store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+          const wrapper = await mountMagic();
+          await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-layout-feedback"]').exists()).toBe(true));
+          await wrapper.find('[data-testid="magic-layout-feedback"]').findAll('button').find(b => b.text() === 'Original')!.trigger('click');
+
+          const vm = wrapper.vm as any;
+          await vm.loadMagicFeedback(vm.diagram.magic, vm.diagram.mermaidCode);
+          await vi.advanceTimersByTimeAsync(4100);
+          expect(wrapper.find('[data-testid="magic-layout-feedback"]').exists()).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     // Forge sends no user token on invokeRemote for guest and anonymous viewers,

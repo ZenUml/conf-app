@@ -120,6 +120,85 @@ describe('forge-upload-attachment', () => {
     );
   });
 
+  describe('same-name create recovery (#75)', () => {
+    const duplicate = 'Cannot add a new attachment with same file name as an existing attachment';
+    function recoveryFetch(options: { matching?: boolean; missing?: boolean; lookupStatus?: number; retryStatus?: number; wrapped?: boolean } = {}) {
+      fetchMock.mockImplementation(async (url: string, init: any = {}) => {
+        if (String(url).includes('/api/v2/pages/')) return fetchResponse(200, '{"status":"current"}');
+        if (init.method === 'PUT') return fetchResponse(200, '{}');
+        if (init.method === 'POST') {
+          if (String(url).endsWith('/data')) return fetchResponse(options.retryStatus ?? 200, 'success');
+          return fetchResponse(options.wrapped ? 200 : 400, JSON.stringify({ statusCode: 400, message: duplicate }));
+        }
+        return fetchResponse(options.lookupStatus ?? 200, JSON.stringify({ results: options.missing ? [] : [{
+          id: 'att-existing-9', title: basePayload.attachmentName, version: { number: 4 },
+          metadata: { comment: options.matching ? basePayload.hash : 'old' },
+        }] }));
+      });
+    }
+
+    it.each([false, true])('retries one data POST and stamps the resolved version (wrapped=%s)', async (wrapped) => {
+      recoveryFetch({ wrapped });
+      const json = await readJson(await onRequest({ request: makeRequest(basePayload), data: FORGE_DATA } as any));
+      expect(json).toEqual({ ok: true, attachmentId: 'att-existing-9', versionNumber: 5 });
+      const lookup = fetchMock.mock.calls.find(([url, init]) => String(url).includes('?filename=') && init.method !== 'POST');
+      expect(lookup?.[1].headers.Authorization).toBe('Bearer sys-token');
+      expect(lookup?.[0]).toContain('filename=zenuml-abc-uuid.png&expand=version,metadata');
+      const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST');
+      expect(posts).toHaveLength(2);
+      expect(posts[1][0]).toContain('/att-existing-9/data');
+      const put = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT');
+      expect(JSON.parse(put![1].body)).toMatchObject({ id: 'att-existing-9', version: { number: 5 }, metadata: { comment: basePayload.hash } });
+    });
+
+    it('skips the data retry and metadata PUT when a competing upload already stored this hash', async () => {
+      recoveryFetch({ matching: true });
+      const json = await readJson(await onRequest({ request: makeRequest(basePayload), data: FORGE_DATA } as any));
+      expect(json).toEqual({ ok: true, attachmentId: 'att-existing-9', versionNumber: 4 });
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+    });
+
+    it.each([{ missing: true }, { lookupStatus: 403 }])('preserves the original 400 when lookup cannot resolve the name (%j)', async (options) => {
+      recoveryFetch(options);
+      const json = await readJson(await onRequest({ request: makeRequest(basePayload), data: FORGE_DATA } as any));
+      expect(json).toMatchObject({ ok: false, status: 400, body: expect.stringContaining(duplicate) });
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+    });
+
+    it('does not retry a failed recovery POST again', async () => {
+      recoveryFetch({ retryStatus: 400 });
+      const json = await readJson(await onRequest({ request: makeRequest(basePayload), data: FORGE_DATA } as any));
+      expect(json).toMatchObject({ ok: false, status: 400 });
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+    });
+
+    it.each([
+      { payload: basePayload, body: 'another bad request' },
+      { payload: { ...basePayload, attachmentId: 'att-existing-9' }, body: duplicate },
+    ])('does not recover an unrelated 400 or an existing-attachment update (%j)', async ({ payload, body }) => {
+      routeFetch({ upload: fetchResponse(400, body) });
+      const json = await readJson(await onRequest({ request: makeRequest(payload), data: FORGE_DATA } as any));
+      expect(json).toMatchObject({ ok: false, status: 400, body });
+      expect(fetchMock.mock.calls).toHaveLength(2);
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+    });
+
+    it('uses the same recovery for queued save-time uploads', async () => {
+      recoveryFetch();
+      let work: Promise<any> | undefined;
+      const json = await readJson(await onRequest({
+        request: makeRequest({ ...basePayload, async: true }), data: FORGE_DATA,
+        waitUntil: (promise: Promise<any>) => { work = promise; },
+      } as any));
+      expect(json).toEqual({ ok: true, queued: true });
+      await work;
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/att-existing-9/data'))).toBe(true);
+    });
+  });
+
   it('rejects when the calling user cannot read the target page (confused-deputy guard)', async () => {
     routeFetch({ read: fetchResponse(403, 'no access') });
 
@@ -177,6 +256,13 @@ describe('forge-upload-attachment', () => {
     const req = makeRequest(basePayload, { 'x-forge-oauth-system': '' });
     const res = await onRequest({ request: req, data: FORGE_DATA } as any);
     expect((await readJson(res)).status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('answers 403 no_user_credential when the system token is present but the user token is missing', async () => {
+    const res = await onRequest({ request: makeRequest(basePayload, { 'x-forge-oauth-user': '' }), data: FORGE_DATA } as any);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'no_user_credential' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -309,7 +395,7 @@ describe('forge-upload-attachment', () => {
         expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/properties'))).toBe(false);
       });
 
-      async function runWithPngState(uploadStatus: number, stateWriteStatus = 200) {
+      async function runWithPngState(uploadStatus: number, stateWriteStatus = 200, stateReadStatus = 200) {
         const attemptId = 'attempt-12345678';
         const start = Date.now() - 1000;
         const property = {
@@ -329,6 +415,7 @@ describe('forge-upload-attachment', () => {
               property.version.number++;
               return Promise.resolve(new Response('{}'));
             }
+            if (stateReadStatus !== 200) return Promise.resolve(new Response('', { status: stateReadStatus }));
             return Promise.resolve(new Response(JSON.stringify({ results: [property] })));
           }
           if (target.includes('/child/attachment/') && init?.method === 'PUT') return Promise.resolve(fetchResponse(200, '{}'));
@@ -373,8 +460,20 @@ describe('forge-upload-attachment', () => {
         const { property, events, ack } = await runWithPngState(200, 500);
         expect(ack).toEqual({ ok: true, queued: true });
         expect(property.value.state).toBe('generating');
-        expect(events.some(e => e.event === 'png_export_state_persistence_failed')).toBe(true);
+        const failed = events.find(e => e.event === 'png_export_state_persistence_failed');
+        expect(failed?.properties).toMatchObject({ png_export_property_operation: 'update', failure_reason: 'put_http_500', http_status: 500 });
         expect(events.some(e => e.event === 'attachment_upload_async_succeeded')).toBe(true);
+      });
+
+      it('reports a page whose properties endpoint 404s for the app as a skip, not a failure', async () => {
+        const { property, events } = await runWithPngState(403, 200, 404);
+        expect(property.value.state).toBe('generating');
+        expect(events.some(e => e.event === 'png_export_state_persistence_failed')).toBe(false);
+        const skipped = events.find(e => e.event === 'png_export_state_persistence_skipped');
+        expect(skipped?.properties).toMatchObject({
+          png_export_property_operation: 'read', failure_reason: 'read_http_404', http_status: 404,
+          png_export_skip_reason: 'page_unavailable', surface: 'backend',
+        });
       });
 
       it('distinguishes a properties-PUT failure', async () => {

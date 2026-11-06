@@ -2,6 +2,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 import type { ForgeRequestContext, ForgeRequestData } from '../utils/authenticate';
 import { getAtlassianInstanceClientDomain } from '../utils/dbUtils';
+import { json } from '../OkResponse';
 
 type FeedbackSurface = 'viewer' | 'editor' | 'fullscreen' | 'png_export' | 'get_started' | 'dashboard';
 
@@ -41,12 +42,7 @@ interface ParsedScreenshot {
   contentType: string;
 }
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  });
-}
+const NO_STORE = { 'cache-control': 'no-store' };
 
 function boundedString(value: unknown, max: number, allowEmpty = false): string | null {
   if (typeof value !== 'string') return null;
@@ -142,22 +138,22 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
   const fit = data.forgeContext;
   const accountId = fit ? verifiedAccountId(fit) : null;
   if (!fit || !accountId || !fit.cloudId || !fit.forgeAppId || !fit.installationId) {
-    return json(401, { ok: false, error: 'unauthorized' });
+    return json({ ok: false, error: 'unauthorized' }, { status: 401, headers: NO_STORE });
   }
-  if (!env.DB) return json(503, { ok: false, error: 'server_configuration' });
+  if (!env.DB) return json({ ok: false, error: 'server_configuration' }, { status: 503, headers: NO_STORE });
 
   let raw: unknown;
   try {
     raw = await request.json();
   } catch {
-    return json(400, { ok: false, error: 'invalid_json' });
+    return json({ ok: false, error: 'invalid_json' }, { status: 400, headers: NO_STORE });
   }
   const input = parseInput(raw);
-  if (!input) return json(400, { ok: false, error: 'invalid_report' });
+  if (!input) return json({ ok: false, error: 'invalid_report' }, { status: 400, headers: NO_STORE });
 
   const screenshot = input.screenshot === undefined ? undefined : parseScreenshot(input.screenshot);
   if (input.screenshot !== undefined && !screenshot) {
-    return json(400, { ok: false, error: 'invalid_screenshot' });
+    return json({ ok: false, error: 'invalid_screenshot' }, { status: 400, headers: NO_STORE });
   }
   const clientDomain = await getAtlassianInstanceClientDomain(env.DB, fit.cloudId);
   const reportReference = await reportReferenceFor(fit, accountId, input.submissionId);
@@ -197,14 +193,14 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
   } catch (error) {
     // Do not log the report body or upstream database error: both may contain
     // customer content. The caller receives a stable retryable failure.
-    return json(503, { ok: false, error: 'storage_unavailable', retryable: true });
+    return json({ ok: false, error: 'storage_unavailable', retryable: true }, { status: 503, headers: NO_STORE });
   }
 
-  return json(201, {
+  return json({
     ok: true,
     reportReference,
     artifacts: {
       screenshot: screenshot ? 'retained_30_days' : 'not_provided',
     },
-  });
+  }, { status: 201, headers: NO_STORE });
 };

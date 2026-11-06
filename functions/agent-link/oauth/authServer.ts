@@ -69,6 +69,7 @@ import {
 import { canonicalizeResource } from './protectedResource';
 import { isValidChallenge, verifyPkce } from './pkce';
 import type { RefreshLedger } from './refreshLedger';
+import { json } from '../../OkResponse';
 
 /** Why the token endpoint revoked a refresh chain (agent_link_oauth_chain_revoked's `reason`). */
 export type ChainRevokeReason = 'refresh_reused' | 'client_mismatch';
@@ -84,12 +85,8 @@ export interface AsDeps {
 
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' };
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
-}
-
 function oauthError(status: number, error: string, description?: string): Response {
-  return json(status, description ? { error, error_description: description } : { error });
+  return json(description ? { error, error_description: description } : { error }, { status, headers: JSON_HEADERS });
 }
 
 function escapeHtml(raw: string): string {
@@ -177,7 +174,7 @@ export async function handleRegister(request: Request, deps: AsDeps): Promise<Re
   };
   await saveClient(deps.store, client);
 
-  return json(201, {
+  return json({
     client_id: client.clientId,
     client_id_issued_at: Math.floor(now / 1000),
     redirect_uris: client.redirectUris,
@@ -186,7 +183,7 @@ export async function handleRegister(request: Request, deps: AsDeps): Promise<Re
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     scope: DEFAULT_MCP_SCOPE,
-  });
+  }, { status: 201, headers: JSON_HEADERS });
 }
 
 // ------------------------------------------------------------- authorization
@@ -588,13 +585,13 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       { userId: record.userId, clientId: record.clientId, scope: record.scope, resource: record.resource, chainId, ledger: !!deps.refreshLedger },
       now,
     );
-    return json(200, {
+    return json({
       access_token: token,
       token_type: 'Bearer',
       expires_in: expiresInSeconds,
       refresh_token: refresh,
       scope: record.scope,
-    });
+    }, { status: 200, headers: JSON_HEADERS });
   }
 
   if (body.grant_type === 'refresh_token') {
@@ -643,13 +640,13 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
             expiresAtMs: pair.accessExpiresAtMs,
           }, now);
           await completeRefresh({ outcome: result.status, userId: pair.record.userId, reuseAgeMs: result.reuseAgeMs });
-          return json(200, {
+          return json({
             access_token: pair.accessToken,
             token_type: 'Bearer',
             expires_in: Math.max(1, Math.ceil((pair.accessExpiresAtMs - now) / 1000)),
             refresh_token: pair.refreshToken,
             scope: pair.scope,
-          });
+          }, { status: 200, headers: JSON_HEADERS });
         }
         if (result.status === 'client_mismatch' || result.status === 'reused') {
           try {
@@ -706,13 +703,13 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
       now,
     );
     const refresh = await issueRefreshToken(deps.store, record);
-    return json(200, {
+    return json({
       access_token: token,
       token_type: 'Bearer',
       expires_in: expiresInSeconds,
       refresh_token: refresh,
       scope: record.scope,
-    });
+    }, { status: 200, headers: JSON_HEADERS });
   }
 
   return oauthError(400, 'unsupported_grant_type', 'supported: authorization_code, refresh_token');

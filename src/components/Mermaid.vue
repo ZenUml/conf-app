@@ -20,6 +20,7 @@
 </template>
 
 <script>
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 import { renderMermaid } from '@/utils/mermaid/renderMermaid'
 import { normalizeSvgSizing } from '@/utils/mermaid/normalizeSvgSizing'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
@@ -27,6 +28,7 @@ import EventBus from "@/EventBus";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import globals from '@/model/globals';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { isLoadedEmptyBody, viewContentState } from '@/utils/analytics/contentState';
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent';
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
@@ -77,10 +79,21 @@ export default {
   },
   async mounted() {
     const code = this.mermaidCode;
-    if (!code) return;
+    if (!code) {
+      // #113: an empty body is the wipe signal. Report the view, with the
+      // verdict, without attempting a render. A shell that never loaded has no
+      // verdict (isLoadedEmptyBody) and stays silent.
+      if (isLoadedEmptyBody(this.$store.state.diagram, DiagramType.Mermaid)) {
+        trackRenderTime('mermaid', this.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      return;
+    }
     const applied = await this.renderAndApply(code, true);
     if (applied) {
-      trackRenderTime('mermaid', this.isDisplayMode);
+      trackRenderTime(
+        'mermaid', this.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.$store.state.diagram, DiagramType.Mermaid),
+      );
       EventBus.$emit('diagramLoaded', code, DiagramType.Mermaid);
     }
     await globals.apWrapper.initializeContext();
@@ -211,6 +224,7 @@ export default {
       await this.initializeViewport();
       if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
       this.installHighlights();
+      reportDiagramReady(this.$el, 'mermaid');
       return true;
     },
     async runMermaid(code) {

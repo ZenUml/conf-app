@@ -134,3 +134,36 @@ export const ConnectMcpOpen: Story = {
     await expect(canvas.getByText(/list_diagrams/)).toBeVisible()
   },
 }
+
+/**
+ * The Full app in production (ADR 0011): its own backend is conf-full, but the
+ * setup command names the Lite backend, where Full's MCP sign-in completes.
+ */
+export const ConnectMcpFullProduction: Story = {
+  name: 'Connect MCP row, Full production',
+  loaders: [
+    () => {
+      forgeGlobal.isForge = false
+      forgeGlobal.isLite = false
+      forgeGlobal.isDiagramly = false
+      forgeGlobal.isAsyncApi = false
+      forgeGlobal.zenumlRemoteBaseUrl = 'https://conf-full.zenuml.com'
+      forgeGlobal.forgeContext = { environmentType: 'PRODUCTION', cloudId: 'example-cloud-id' }
+      try {
+        localStorage.setItem('mockAgentLinkEnabled', 'true')
+      } catch {
+        /* storage blocked: the row stays hidden, which the play below reports */
+      }
+      return {}
+    },
+  ],
+  play: async () => {
+    const canvas = within(document.body)
+    const toggle = await canvas.findByRole('button', { name: /Connect MCP/ })
+    await userEvent.click(toggle)
+    await waitFor(() =>
+      expect(canvas.getByText(/conf-lite\.zenuml\.com\/agent-link\/mcp/)).toBeVisible()
+    )
+    await expect(canvas.queryByText(/conf-full\.zenuml\.com/)).toBeNull()
+  },
+}

@@ -12,6 +12,7 @@
 
 <script>
 // Import ZenUml dynamically instead of statically
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 // import ZenUml from "@zenuml/core";
 import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
@@ -19,6 +20,7 @@ import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
 import DiagramTransformViewport from "./Viewer/DiagramTransformViewport.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { viewContentState } from "@/utils/analytics/contentState";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import * as renderPerf from "@/utils/analytics/renderPerf";
 import { configureDiagramFonts } from "@/utils/fonts/configureDiagramFonts";
@@ -92,7 +94,10 @@ export default {
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
       setDiagramFontState(detectDiagramFontState());
-      trackRenderTime('sequence', this.isDisplayMode);
+      trackRenderTime(
+        'sequence', this.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.$store.state.diagram, DiagramType.Sequence),
+      );
       // The awaits above can span seconds (cold ZenUML chunk + render). If the
       // user switched diagram type meanwhile, emitting the sequence `code`
       // with the NEW store diagramType would upload a mislabeled attachment
@@ -118,6 +123,7 @@ export default {
     // null after unmount — belt-and-braces for the guard in `mounted()`
     // above (see the 2026-09-01 replay comment there).
     this._unmountedDuringLoad = true;
+    this._readyObserver?.disconnect();
   },
   methods: {
     async render() {
@@ -131,7 +137,8 @@ export default {
       const scopeTheme = id
         ? localStorage.getItem(getThemeStorageKey(id))
         : sessionStorage.getItem(getThemeStorageKey());
-      await zenuml.render(this.$store.state.diagram.code, {
+      const renderedCode = this.$store.state.diagram.code;
+      await zenuml.render(renderedCode, {
         // stickyOffset is used only at view mode or edit when the iframe scroll out of the viewport
         // In fullscreen viewer or editor mode, the iFrame element is not scrollable, so we don't need to offset.
         // Note when the iframe is not scrollable, the stickyOffset does not have any effect.
@@ -161,6 +168,21 @@ export default {
           }
         }
       });
+      this._readyObserver?.disconnect();
+      if (!this._unmountedDuringLoad && renderedCode?.trim() && this.code === renderedCode
+        && (await zenuml.parse(renderedCode)).pass) {
+        // Core may debounce a later render. Wait for real diagram DOM, not render()'s promise alone.
+        const report = () => {
+          if (this._unmountedDuringLoad || this.code !== renderedCode) return;
+          const diagram = this.$refs.zenuml?.querySelector('.sequence-diagram');
+          if (!diagram?.querySelector('.participant')) return;
+          this._readyObserver?.disconnect();
+          reportDiagramReady(diagram, 'sequence');
+        };
+        this._readyObserver = new MutationObserver(report);
+        this._readyObserver.observe(this.$refs.zenuml, { childList: true, subtree: true });
+        report();
+      }
       // ZenUML moves creation participants in its own $nextTick, so the DOM is
       // not final when render() resolves; measuring immediately reads a stale
       // width. ViewResizer used a 10ms setTimeout for the same reason.

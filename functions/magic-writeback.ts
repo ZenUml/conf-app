@@ -1,5 +1,6 @@
 import { OkResponse, response } from './OkResponse';
 import type { ForgeRequestData } from './utils/authenticate';
+import { requireForgeUserToken } from './utils/forgeUserToken';
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -38,7 +39,6 @@ export async function onRequest({ request, data, env }: {
 }): Promise<Response> {
   if (request.method !== 'POST') return response(405, 'Method not allowed');
   const c = data.forgeContext;
-  const user = request.headers.get('x-forge-oauth-user');
   const app = request.headers.get('x-forge-oauth-system');
   if (!c?.cloudId || !c.forgeAppId || !c.environmentId || !c.installationId
     || !c.apiBaseUrl || !app || !TYPES[c.forgeAppId]) return response(401, 'Missing authenticated context');
@@ -54,7 +54,8 @@ export async function onRequest({ request, data, env }: {
   // for guest and anonymous viewers. The app context above is valid, so this is
   // not a 401. The viewer's own credential is the only one that may read the
   // target, so there is no fallback to the app token for that viewer.
-  if (!c.accountId || !user) return response(403, 'no_user_credential');
+  const user = requireForgeUserToken(request);
+  if (!c.accountId || user instanceof Response) return response(403, 'no_user_credential');
   const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`];
   const result = (outcome: string, artifact?: Artifact) => OkResponse({ outcome, ...(artifact ? { artifact } : {}) });
   // Reason codes are fixed strings or HTTP statuses only: no bodies, hashes, tokens or error text.

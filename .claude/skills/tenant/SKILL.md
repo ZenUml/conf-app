@@ -1,19 +1,21 @@
 ---
 name: tenant
 description: >
-  Look up one Confluence site's verified product, license, payment, contact and pricing facts.
-  Use for tenant profiles, paid status, site size, trials and potential annual value. Reuses
-  Marketplace exports and the separate Lite KV layer; customer-followup owns action decisions.
+  Look up verified Confluence tenant seat counts (Marketplace license users), product, license,
+  payment, contact and pricing facts. Use for one site or a batch whenever the request asks for
+  seats, license users, user count, site size or license tier (席位、座席、用户数), and for tenant
+  profiles, paid status, trials or potential annual value. Reuses Marketplace exports and the
+  separate Lite KV layer; customer-followup owns action decisions.
 
 ---
 
 # Tenant lookup
 
-Answers per-tenant questions off Atlassian Marketplace license/transaction data **plus** the Lite
-Stripe/KV space-license layer. It's the single-tenant primitive over `marketplace`'s engine
-(`mp_report.py`) — same auth, cloudId join, and SQLite snapshot — so there is no separate code to
-drift. (The script physically lives under `marketplace/scripts/`; this skill references it by
-path, the same way `macro-count` references `mixpanel`'s script.)
+Answers single-tenant and batch questions off Atlassian Marketplace license/transaction data
+**plus** the Lite Stripe/KV space-license layer. It's the single-tenant primitive over
+`marketplace`'s engine (`mp_report.py`) — same auth, cloudId join, and SQLite snapshot — so there is
+no separate code to drift. (The script physically lives under `marketplace/scripts/`; this skill
+references it by path, the same way `macro-count` references `mixpanel`'s script.)
 
 ## The one command you want
 
@@ -22,6 +24,12 @@ S=.claude/skills/marketplace/scripts/mp_report.py
 python3 $S whois <domain>          # the card: cloudId, users, per-app STATE, lifetime $, + Lite Layer-B KV
 python3 $S whois <domain> --json   # machine-readable (self-documents data vintage in --local mode)
 ```
+
+For a seat-count request, use the `users` value parsed from the Marketplace license `tier`. Mixpanel
+active users, viewers and editors are usage measures, not seats. For multiple tenants, sync once,
+record the snapshot time, then run `whois <domain> --local --json` for every requested domain. If a
+live query or fresh sync fails, report the seat count as unknown or use a dated verified snapshot
+with its date; do not substitute a usage metric.
 
 **Always read `whois` before concluding anything about a tenant's paid status** — a naive Marketplace
 `$0` is the single most common wrong answer here.

@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { measureCacheState, trackRenderTime } from "./trackRenderTime";
 import { trackAnalyticsEvent } from "./trackAnalyticsEvent";
 import { getRenderIdentity } from "./renderIdentity";
+import forgeGlobal from "@/model/globals/forgeGlobal";
 import { setDiagramFontState, _resetDiagramFontStateForTesting } from "@/utils/fonts/diagramFontState";
 
 vi.mock("./trackAnalyticsEvent", () => ({
@@ -132,6 +133,38 @@ describe("trackRenderTime", () => {
   afterEach(() => {
     delete (window as { __macroLoadStart?: number }).__macroLoadStart;
     vi.restoreAllMocks();
+  });
+
+  describe("license_active", () => {
+    const originalContext = forgeGlobal.forgeContext;
+
+    function viewedProps(): Record<string, unknown> {
+      trackRenderTime("mermaid", true);
+      return vi.mocked(trackAnalyticsEvent).mock.calls[0][1] as unknown as Record<string, unknown>;
+    }
+
+    afterEach(() => {
+      forgeGlobal.forgeContext = originalContext;
+      vi.unstubAllEnvs();
+    });
+
+    it.each([true, false])("sends Forge license.active=%s on Full", (active) => {
+      vi.stubEnv("PRODUCT_TYPE", "full");
+      forgeGlobal.forgeContext = { ...originalContext, license: { active } };
+      expect(viewedProps().license_active).toBe(active);
+    });
+
+    it("omits the property on Full when Forge supplies no boolean", () => {
+      vi.stubEnv("PRODUCT_TYPE", "full");
+      forgeGlobal.forgeContext = { ...originalContext, license: undefined };
+      expect(viewedProps()).not.toHaveProperty("license_active");
+    });
+
+    it("omits the property on Lite, where Forge reports false for a free app", () => {
+      vi.stubEnv("PRODUCT_TYPE", "lite");
+      forgeGlobal.forgeContext = { ...originalContext, license: { active: false } };
+      expect(viewedProps()).not.toHaveProperty("license_active");
+    });
   });
 
   it("defaults render_mode='live_render' and cache_source='none' for the 2-arg callers", () => {
@@ -309,5 +342,32 @@ describe("scheduleRendererPrefetch (post-render hook)", () => {
     trackRenderTime("graph", true);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(runRendererPrefetchIfDue).not.toHaveBeenCalled();
+  });
+});
+
+describe("trackRenderTime content_state (#113)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.__macroLoadStart = performance.now();
+  });
+
+  afterEach(() => {
+    delete (window as { __macroLoadStart?: number }).__macroLoadStart;
+  });
+
+  it("adds content_state to macro_viewed when the caller supplies one", () => {
+    trackRenderTime("sequence", true, "live_render", "none", "authored");
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+      "macro_viewed",
+      expect.objectContaining({ content_state: "authored" })
+    );
+  });
+
+  it("omits the key entirely when there is no verdict", () => {
+    trackRenderTime("sequence", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[0];
+    expect(props).not.toHaveProperty("content_state");
   });
 });

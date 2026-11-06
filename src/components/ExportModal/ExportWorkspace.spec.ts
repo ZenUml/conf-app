@@ -311,6 +311,30 @@ describe('export workspace', () => {
     wrapper.unmount();
   });
 
+  // beginDrag() captures the pointer on the annotation canvas, so in a real
+  // browser the click/dblclick that follows a press on an annotation is
+  // retargeted to the <svg>, never the <g> it was pressed on (measured in
+  // Chromium, #649: pointerdown rect, then click and dblclick on svg.annotation-canvas).
+  // jsdom does not model capture, so dispatch the dblclick where the browser does.
+  it('re-enters text editing when a double-click lands on the capturing canvas', async () => {
+    const { state, wrapper, canvas } = mountWithPreview();
+    await placeText(wrapper, canvas, 'Before');
+    await wrapper.get('[data-annotation-id]').trigger('pointerdown', { clientX: 300, clientY: 200, button: 0 });
+    await canvas.trigger('pointerup', { clientX: 300, clientY: 200, button: 0 });
+    await canvas.trigger('dblclick');
+    expect(wrapper.find('[aria-label="Annotation text"]').exists()).toBe(true);
+    expect(state.annotations.selected.value?.text).toBe('Before');
+    wrapper.unmount();
+  });
+
+  it('ignores a double-click on empty canvas', async () => {
+    const { wrapper, canvas } = mountWithPreview();
+    await canvas.trigger('pointerdown', { clientX: 300, clientY: 200, button: 0 });
+    await canvas.trigger('dblclick');
+    expect(wrapper.find('[aria-label="Annotation text"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('tracks the live draft width while re-editing, not the last committed text', async () => {
     const { state, wrapper, canvas } = mountWithPreview();
     await placeText(wrapper, canvas, 'iiiiiiiiii');
@@ -393,13 +417,22 @@ describe('export workspace', () => {
     const { state, wrapper } = mountWithPreview();
     expect(wrapper.find('.busy-status').exists()).toBe(false);
 
+    vi.useFakeTimers();
     state.isExporting.value = true;
     await wrapper.vm.$nextTick();
+    // Busy at once (buttons disabled, aria-busy), but no visible cue yet: an
+    // export that finishes inside 300 ms would only flash the toolbar.
+    expect(wrapper.get('.export-workspace').attributes('aria-busy')).toBe('true');
+    expect(wrapper.find('.busy-status').exists()).toBe(false);
+    expect(wrapper.get('[aria-label="Download image"]').attributes('disabled')).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(300);
     const status = wrapper.get('[role="status"]');
     expect(status.text()).toContain('Exporting');
     expect(status.find('.spinner').exists()).toBe(true);
     expect(wrapper.get('.export-workspace').attributes('aria-busy')).toBe('true');
     wrapper.unmount();
+    vi.useRealTimers();
   });
 
   it('discards a fresh label on Escape even when the input then blurs', async () => {

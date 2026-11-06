@@ -202,17 +202,16 @@ describe('forge-custom-content error handling (conf-app#267)', () => {
     vi.clearAllMocks();
   });
 
-  it('returns a JSON 400 (not a text/plain 500) when the OAuth user header is missing', async () => {
+  it('returns a JSON 403 no_user_credential (not a text/plain 500) when the OAuth user header is missing', async () => {
     const db = makeDB({ rowExists: true });
     const env = { DB: { prepare: db.prepare } };
     const req = makeRequest({ contentId: 'cc-1' }, /* withAuth */ false);
 
     const res = await onRequest({ request: req, env, data: FORGE_DATA } as any);
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     expect(res.headers.get('content-type')).toContain('application/json');
-    const json: any = await res.json();
-    expect(json.error).toContain('x-forge-oauth-user');
+    expect(await res.json()).toEqual({ error: 'no_user_credential' });
     // No re-fetch, no DB writes when input is rejected up front.
     expect(getCustomContentFromConfluenceForForge).not.toHaveBeenCalled();
     expect(db.calls.length).toBe(0);
@@ -381,5 +380,21 @@ describe('architecture-token index on save', () => {
 
     expect(res.status).toBe(200);
     expect((db as any).batch).not.toHaveBeenCalled();
+  });
+});
+
+describe('forge-custom-content viewer without a user credential', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('answers 403 no_user_credential when a valid FIT arrives with a system token but no user token', async () => {
+    const db = makeDB({ rowExists: false });
+    const req = makeRequest({ contentId: 'cc-1' }, false);
+    req.headers.set('x-forge-oauth-system', 'sys-token');
+    const res = await onRequest({ request: req, env: { DB: { prepare: db.prepare } }, data: FORGE_DATA } as any);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'no_user_credential' });
+    expect(getCustomContentFromConfluenceForForge).not.toHaveBeenCalled();
   });
 });

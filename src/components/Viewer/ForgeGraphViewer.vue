@@ -32,10 +32,14 @@
 </template>
 
 <script>
+import { reportDiagramReady } from '@/utils/fullscreenReady';
+import { ensureDrawioMathForDocument } from '@/utils/drawio/loadDrawioViewer';
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import DiagramViewportToolbar from "@/components/Viewer/DiagramViewportToolbar.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { isLoadedEmptyBody, viewContentState } from "@/utils/analytics/contentState";
+import { DiagramType } from "@/model/Diagram/Diagram";
 import EventBus from "@/EventBus";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import {
@@ -45,6 +49,7 @@ import {
   validateBoardXml,
 } from "@/utils/graph/boardDocument";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
+import { clearExternalIconState, startExternalIconProxy } from "@/utils/graph/externalIcons";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
 import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from "@/utils/viewport/wheelZoom";
 import { trackViewportControl } from "@/utils/viewport/trackViewportControl";
@@ -72,6 +77,7 @@ export default {
       currentPage: 0,
       pageCount: 0,
       graphRendered: false,
+      emptyViewReported: false,
       wheelZoomHandler: null,
     };
   },
@@ -79,6 +85,7 @@ export default {
     this.renderViewer();
   },
   beforeUnmount() {
+    clearExternalIconState(this.$refs.graphContainer);
     this.captureResizeObserver?.disconnect();
     this.captureResizeObserver = null;
     this.disableWheelZoom();
@@ -108,7 +115,14 @@ export default {
   watch: {
     effectiveGraphXml() {
       this.renderViewer();
-    }
+    },
+    // #113: the shell mounts with graphXml '' and the document arrives later.
+    // A wiped body is '' too, so effectiveGraphXml does not change and the
+    // watcher above stays silent. The type flipping from Unknown is the signal
+    // that a document landed; emptyViewReported keeps this to one report.
+    '$store.state.diagram.diagramType'() {
+      if (!this.effectiveGraphXml && !this.emptyViewReported) this.renderViewer();
+    },
   },
   methods: {
     failBoardLoad(errorCode, cause) {
@@ -152,7 +166,18 @@ export default {
           return;
         }
       }
-      if (!container || !this.effectiveGraphXml) return;
+      if (!container) return;
+      // A previous render's icon proxy result must not gate this render's capture.
+      clearExternalIconState(container);
+      // Classify the effective document (including Board/prop overrides) before
+      // parsing: whitespace is empty even if DrawIO rejects it. Rendering and
+      // its failure telemetry retain their existing path.
+      const emptyBody = isLoadedEmptyBody({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph);
+      if (!this.emptyViewReported && emptyBody) {
+        this.emptyViewReported = true;
+        trackRenderTime('graph', this.$store.getters.isDisplayMode, 'live_render', 'none', 'empty');
+      }
+      if (!this.effectiveGraphXml) return;
       container.innerHTML = '';
       try {
         // GraphViewer accepts <mxfile> (multi-page) and raw <mxGraphModel>
@@ -163,6 +188,7 @@ export default {
         // @ts-ignore
         const parsedXml = mxUtils.parseXml(this.effectiveGraphXml);
         const xmlNode = parsedXml?.documentElement;
+        ensureDrawioMathForDocument(xmlNode);
         // @ts-ignore
         this.graphViewer = new GraphViewer(container, xmlNode, {
           'auto-fit': true,
@@ -183,12 +209,21 @@ export default {
         this.graphRendered = true;
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
-        trackRenderTime('graph', this.$store.getters.isDisplayMode);
+        // Classify the XML that was rendered (effectiveGraphXml honours the
+        // `graphXml` prop and the Board document), not just store.graphXml.
+        if (!emptyBody) {
+          trackRenderTime(
+            'graph', this.$store.getters.isDisplayMode, 'live_render', 'none',
+            viewContentState({ ...diagram, graphXml: this.effectiveGraphXml }, DiagramType.Graph),
+          );
+        }
         // Graph emits no 'diagramLoaded' (that event belongs to the text-DSL
         // renderers). An export-entry Fullscreen open waits for this before it
         // opens the export dialog, so the dialog's first capture is of a
         // painted diagram rather than an empty container.
         EventBus.$emit('viewerRenderSettled', 'graph');
+        if (!emptyBody && !diagram?.loadError) reportDiagramReady(container, 'graph');
+        this.loadExternalIcons(container);
       } catch (e) {
         this.graphRendered = false;
         console.error('ForgeGraphViewer: GraphViewer init failed:', e);
@@ -201,6 +236,21 @@ export default {
         // was invisible on both sides of any Mixpanel ratio. This is the
         // failure side; it must fire even though macro_viewed above did not.
         trackViewerRenderCrash('graph', this.$store.getters.isDisplayMode, e);
+      }
+    },
+    /**
+     * Icons from icons.diagrams.net: Forge's CSP refuses that host, so they come
+     * from our backend as data URLs. The diagram has already rendered and is not
+     * held up: the icons are swapped in when the call settles. A failure leaves
+     * the diagram without them and makes PNG capture refuse it (captureBlob).
+     * Nothing here may break the render, hence the catch.
+     */
+    loadExternalIcons(container) {
+      const viewer = this.graphViewer;
+      try {
+        startExternalIconProxy({ viewer, container, track: trackAnalyticsEvent });
+      } catch (e) {
+        console.error('ForgeGraphViewer: external icon proxy could not start:', e);
       }
     },
     // GraphViewer's built-in 'zoom' toolbar item does exactly this

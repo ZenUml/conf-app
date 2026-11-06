@@ -74,6 +74,8 @@ export interface ExportState {
   isExporting: Ref<boolean>;
   isCopying: Ref<boolean>;
   copySucceeded: Ref<boolean>;
+  /** True while the "Copied" feedback fades out, just before `copySucceeded` resets. */
+  copyFading: Ref<boolean>;
   exportError: Ref<string | null>;
   selectedAnnotation: Ref<'note' | 'arrow' | 'watermark' | 'callout' | null>;
 
@@ -105,6 +107,7 @@ export function useExportState(): ExportState {
   const isExporting = ref(false);
   const isCopying = ref(false);
   const copySucceeded = ref(false);
+  const copyFading = ref(false);
   const exportError = ref<string | null>(null);
   const activeTool = ref<ActiveTool>(null);
   const arrowPoints = ref<ArrowPoints | null>(null);
@@ -233,6 +236,7 @@ export function useExportState(): ExportState {
     isExporting,
     isCopying,
     copySucceeded,
+    copyFading,
     exportError,
     selectedAnnotation,
     backgrounds,

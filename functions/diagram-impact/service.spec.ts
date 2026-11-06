@@ -123,10 +123,6 @@ describe('diagram impact service', () => {
     })).rejects.toMatchObject<Partial<DiagramImpactRequestError>>({ status: 401, code: 'missing_principal' });
 
     await expect(getDiagramImpactSummary({
-      env: { DB: fakeDb() }, data, forgeOAuthUser: '', customContentId: 'content-a',
-    })).rejects.toMatchObject<Partial<DiagramImpactRequestError>>({ status: 400, code: 'missing_user_token' });
-
-    await expect(getDiagramImpactSummary({
       env: { DB: fakeDb() }, data, forgeOAuthUser: 'token', customContentId: ' ',
     })).rejects.toMatchObject<Partial<DiagramImpactRequestError>>({ status: 400, code: 'invalid_content_id' });
   });

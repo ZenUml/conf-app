@@ -214,6 +214,21 @@ Two rules follow. A sudden step change in one event's volume — check `eventSam
 release that carried it **before** proposing any mechanism. And a ratio between two events is only
 valid when both carry the same rate; otherwise extrapolate both first.
 
+## Analytics bootstrap timing (#707)
+
+Every frontend event carries the per-iframe `analytics_init_ms` super-property:
+monotonic milliseconds from the first retained track call to Mixpanel init
+completion, including the replay-config wait. Later events reuse that value;
+it excludes enrichment and event delivery. Use its distribution to tune the
+3,000 ms replay-config timeout.
+
+`session_replay_source = 'timeout'` means replay is off because the flag lookup
+did not answer before that deadline. It is distinct from `'off'` (a resolved
+off decision, an override, or a thrown lookup). `analytics_init_degraded` fires
+once after a timeout with `reason = 'session_replay_config_timeout'` and
+`timeout_ms = 3000`. The October 2026 budget override skips the flag lookup,
+so the timeout path becomes active on 2026-11-01 UTC for flag-driven iframes.
+
 ## Hot events (the ones you actually query)
 
 | Event | Means | Key props / gotcha |

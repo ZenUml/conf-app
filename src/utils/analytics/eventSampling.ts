@@ -14,7 +14,7 @@
 //
 // Single source of truth: change a rate here, and it takes effect on the next
 // deploy across every call site of that event — no per-site edits.
-import { isOctoberBillingBudgetActive } from "@/lib/octoberBudgetWindow.js";
+import { isEventBudgetActive } from "@/lib/octoberBudgetWindow.js";
 
 export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // --- Sampled to 10% -------------------------------------------------------
@@ -68,6 +68,17 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // denominator toward heavier viewers and makes the measured discovery rate a
   // slight UNDER-estimate. Take the pre-sampling 3.76% as the reference point.
   copy_for_ai_impression: 0.1,
+
+  // --- Quota reduction 2026-10-31 -------------------------------------------
+  // PNG lifecycle diagnostic (docs/features/png-export-state.md), added
+  // 2026-10-19 unsampled. 29,438 events in the 7 days to 2026-10-30 across
+  // both transports (10.3% of billable volume); the browser half is
+  // 13.4k/week. It feeds state-mix trends, which survive extrapolation.
+  // The Forge export transport samples its own emit in exportSampling.js.
+  png_export_state_changed: 0.1,
+  // A 404 on the page-properties endpoint (draft/deleted/not visible), not a
+  // fault. `png_export_state_persistence_failed` stays unsampled.
+  png_export_state_persistence_skipped: 0.1,
 };
 
 // Prefix rules apply when no exact match is found. `create_attachment` is
@@ -77,8 +88,9 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, number]> = [
   ["create_attachment", 0.1],
 ];
 
-// October 2026 cost control: only these conf-app browser event names are
-// stopped. Other products in the shared Mixpanel project are unaffected.
+// Event budget, started October 2026 and kept in force (isEventBudgetActive;
+// the OCTOBER_ names record when it began). Only these conf-app browser event
+// names are stopped. Other products in the shared Mixpanel project are unaffected.
 export const OCTOBER_STOP_EVENTS = new Set<string>([
   "cohorts_refreshed",
   "copy_for_ai_impression",
@@ -394,7 +406,7 @@ export function sampleRateFor(name: string, now = Date.now()): number {
       }
     }
   }
-  if (!isOctoberBillingBudgetActive(now)) return currentRate;
+  if (!isEventBudgetActive(now)) return currentRate;
   if (OCTOBER_STOP_EVENTS.has(name)) return 0;
   if (OCTOBER_RETAINED_EVENTS.has(name)) return currentRate;
   // The legacy `create_attachment<diagramType>` family has a dynamic suffix.

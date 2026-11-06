@@ -61,6 +61,17 @@ describe('GET /api/architecture-tokens/related', () => {
     expect((await onRequest(c)).status).toBe(401);
   });
 
+  it('valid context and system token but no user token → 403 no_user_credential', async () => {
+    const c = ctx('https://x/api/architecture-tokens/related?customContentId=1');
+    c.request = new Request('https://x/api/architecture-tokens/related?customContentId=1', {
+      headers: { 'x-forge-oauth-system': 'sys' },
+    });
+    const res = await onRequest(c);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'no_user_credential' });
+    expect(relatedDiagrams).not.toHaveBeenCalledWith({}, 'cid', '1', expect.anything(), expect.anything(), undefined);
+  });
+
   it('service throw → 200 with error_kind, never 500', async () => {
     (relatedDiagrams as any).mockRejectedValueOnce(new Error('d1 down'));
     const res = await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=1'));

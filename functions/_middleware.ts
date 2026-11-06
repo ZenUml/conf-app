@@ -1,14 +1,17 @@
 import { oauthDiscoveryResponse } from "./agent-link/oauth/discovery";
+import { openaiAppsChallengeResponse } from "./agent-link/openaiAppsChallenge";
+import type { OpenAiAppsChallengeEnv } from "./agent-link/openaiAppsChallenge";
 import authenticate from "./utils/authenticate";
 import type { ForgeRequestData } from "./utils/authenticate";
 import * as Sentry from "@sentry/cloudflare";
+import { json } from './OkResponse';
 
 // JSON + explicit Content-Type so this remote-facing 500 is parseable by the
 // Forge bridge instead of being rejected as `text/plain` (see OkResponse.ts).
 // Inlined from functions/ServerErrorResponse.ts 2026-09-02 — this was its
 // only caller.
 function serverErrorResponse(): Response {
-  return new Response(JSON.stringify({ error: 'Something went wrong' }), {
+  return json({ error: 'Something went wrong' }, {
     status: 500,
     statusText: 'Internal Server Error',
     headers: {
@@ -17,8 +20,10 @@ function serverErrorResponse(): Response {
   });
 }
 
-interface Env {
+interface Env extends OpenAiAppsChallengeEnv {
   SENTRY_DSN?: string;
+  /** 'off' stops serving the agent-link document at the bare RFC 9728 path (#1038). */
+  OAUTH_ROOT_RESOURCE_METADATA?: string;
 }
 
 export const AUTHENTICATED_PATHS = [
@@ -29,9 +34,13 @@ export const AUTHENTICATED_PATHS = [
   '/deeplink-ticket',
   '/activation-prepared',
   '/magic-writeback',
+  // FIT only. Guest and anonymous viewers send no user token, so the handler
+  // must never ask for one.
+  '/graph-icon-proxy',
   '/api/diagram-impact',
   '/api/architecture-tokens',
   '/api/feedback-report',
+  '/api/fullscreen-recovery',
   '/api/targeted-survey',
   // Conversion queue endpoints re-verify the FIT themselves, but the claim
   // response's app identity (environmentId for the ADF extensionKey rewrite)
@@ -112,15 +121,23 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     // received a request (verified 2026-09-25; the SPA answered instead).
     // They are public by definition: a client that has never authenticated has
     // to be able to read them to find out how to authenticate.
-    const discovery = oauthDiscoveryResponse(request.url);
+    const discovery = oauthDiscoveryResponse(request.url, {
+      rootResourceMetadata: env.OAUTH_ROOT_RESOURCE_METADATA,
+    });
     if (discovery) return discovery;
+
+    // ChatGPT's directory domain check, public for the same reason.
+    const openaiChallenge = openaiAppsChallengeResponse(request, env);
+    if (openaiChallenge) return openaiChallenge;
 
     const isDeeplinkTicket = isDeeplinkTicketPath(pathname);
     if (isDeeplinkTicket && request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: DEEPLINK_TICKET_CORS_HEADERS });
     }
 
-    if (AUTHENTICATED_PATHS.some(path => pathname.startsWith(path))) {
+    if (AUTHENTICATED_PATHS.some(path => path === '/api/fullscreen-recovery'
+      ? pathname === path || pathname === `${path}/`
+      : pathname.startsWith(path))) {
       const response = await authenticate({request, env, data});
       if(response.status !== 200) {
         return isDeeplinkTicket ? withDeeplinkTicketCors(response) : response;

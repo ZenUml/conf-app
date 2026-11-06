@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to define mocks before they're used in vi.mock factories
-const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence, mockRecordPublishStep } = vi.hoisted(() => {
+const { mockTrackEvent, mockTrackAnalyticsEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCallRemote, mockRequestConfluence, mockRecordPublishStep } = vi.hoisted(() => {
   const mockTrackEvent = vi.fn();
+  const mockTrackAnalyticsEvent = vi.fn();
   const mockRecordPublishStep = vi.fn();
   const mockApWrapper = {
     _getCurrentPageId: vi.fn(),
@@ -16,6 +17,7 @@ const { mockTrackEvent, mockApWrapper, mockGetContext, mockForgeRequest, mockCal
 
   return {
     mockTrackEvent,
+    mockTrackAnalyticsEvent,
     mockApWrapper,
     mockGetContext,
     mockForgeRequest,
@@ -35,6 +37,10 @@ vi.mock('@/model/captureBlob', () => ({
 // Per-step publish timing: only the save-time PNG capture reports into it.
 vi.mock('@/utils/analytics/publishTiming', () => ({
   recordPublishStep: (...args: any[]) => mockRecordPublishStep(...args)
+}));
+
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: (...args: any[]) => mockTrackAnalyticsEvent(...args)
 }));
 
 // Mock md5
@@ -73,10 +79,19 @@ vi.mock('@forge/bridge', () => ({
   requestConfluence: (...args: any[]) => mockRequestConfluence(...args)
 }));
 
+// ADR-0010: the in-browser PlantUML engine needs a canvas-backed browser, so
+// tests that opt into the local renderer get a canned SVG from it.
+const { mockRenderPlantUmlLocally } = vi.hoisted(() => ({ mockRenderPlantUmlLocally: vi.fn() }));
+vi.mock('@/utils/plantuml/engine', () => ({
+  renderPlantUmlLocally: (...args: any[]) => mockRenderPlantUmlLocally(...args),
+}));
+
 import createAttachmentIfContentChanged, { capturePng } from './Attachment';
 import { ForgeRequestError } from '@/utils/forgeRequestError';
+import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 import { captureBlob } from '@/model/captureBlob';
+import { CaptureStageError } from '@/model/captureFailure';
 import md5 from 'md5';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
@@ -109,6 +124,9 @@ describe('Attachment', () => {
     vi.clearAllMocks();
     // Reset window state
     delete (window as any).createAttachmentInProgress;
+    // A 429 test leaves a site cooldown behind; never let it defer later tests.
+    localStorage.clear();
+    resetRateLimitCooldown();
     // Setup default mocks for Forge
     mockGetContext.mockResolvedValue({
       extension: { config: { customContentId: 'test-uuid' } }
@@ -331,6 +349,117 @@ describe('Attachment', () => {
       );
 
       consoleErrorSpy.mockRestore();
+    });
+
+    describe('Confluence rate limit (429)', () => {
+      const html429 = (retryAfter?: string) => new ForgeRequestError({
+        status: 429,
+        method: 'GET',
+        url: '/wiki/api/v2/pages/123456/attachments?filename=zenuml-x.png',
+        contentType: 'text/html;charset=utf-8',
+        body: '<!doctype html><html><head><title>HTTP Status 429 – Too Many Requests</title></head></html>',
+        retryAfter,
+      });
+      const analyticsCalls = (name: string) => mockTrackAnalyticsEvent.mock.calls.filter(c => c[0] === name);
+
+      it('defers instead of failing, and records the cooldown from Retry-After', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValue(html429('120'));
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_failed', expect.any(String), expect.anything(),
+        );
+        expect(analyticsCalls('attachment_upload_rate_limited')).toEqual([[
+          'attachment_upload_rate_limited',
+          expect.objectContaining({
+            surface: 'viewer',
+            http_status: 429,
+            failed_request: 'GET /wiki/api/v2/pages/{id}/attachments',
+            retry_after_source: 'header',
+            retry_after_s: 120,
+            cooldown_ms: 120_000,
+          }),
+        ]]);
+        expect((window as any).createAttachmentInProgress).toBe(false);
+      });
+
+      it('uses the default cooldown when there is no Retry-After header', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValue(html429());
+
+        await createAttachmentIfContentChanged('test content');
+
+        const [, props] = analyticsCalls('attachment_upload_rate_limited')[0];
+        expect(props).toMatchObject({ retry_after_source: 'default', cooldown_ms: 5 * 60 * 1000 });
+        expect(props).not.toHaveProperty('retry_after_s');
+      });
+
+      it('skips the next view-time backfill without any request while the cooldown runs', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429());
+        await createAttachmentIfContentChanged('test content');
+        mockApWrapper.getAttachmentsV2.mockClear();
+
+        await createAttachmentIfContentChanged('other content');
+
+        expect(mockApWrapper.getAttachmentsV2).not.toHaveBeenCalled();
+        expect(mockRequestConfluence).not.toHaveBeenCalled();
+        expect(analyticsCalls('attachment_upload_deferred')).toEqual([[
+          'attachment_upload_deferred',
+          expect.objectContaining({ surface: 'viewer', cooldown_remaining_ms: expect.any(Number) }),
+        ]]);
+        expect(analyticsCalls('attachment_upload_deferred')[0][1].cooldown_remaining_ms).toBeGreaterThan(0);
+      });
+
+      it('retries once the cooldown has passed', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+          mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429('60'));
+          await createAttachmentIfContentChanged('test content');
+          vi.setSystemTime(Date.now() + 61_000);
+          mockApWrapper.getAttachmentsV2.mockClear();
+
+          await createAttachmentIfContentChanged('test content').catch(() => {});
+
+          expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
+          expect(analyticsCalls('attachment_upload_deferred')).toHaveLength(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('still attempts a save-time write during the cooldown', async () => {
+        mockApWrapper.getAttachmentsV2.mockRejectedValueOnce(html429());
+        await createAttachmentIfContentChanged('test content');
+        mockApWrapper.getAttachmentsV2.mockClear();
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockCallRemote.mockResolvedValue({ ok: true, queued: true });
+
+        await createAttachmentIfContentChanged('test content', undefined, { customContentId: 'test-uuid', fromSave: true });
+
+        expect(mockApWrapper.getAttachmentsV2).toHaveBeenCalledTimes(1);
+        expect(analyticsCalls('attachment_upload_deferred')).toHaveLength(0);
+      });
+
+      it('treats a 429 on the data POST the same way', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockRequestConfluence.mockResolvedValue({
+          ok: false,
+          status: 429,
+          text: vi.fn().mockResolvedValue('Too Many Requests'),
+        });
+
+        await expect(createAttachmentIfContentChanged('test content')).resolves.toBeUndefined();
+
+        expect(mockCallRemote).not.toHaveBeenCalledWith('/forge-upload-attachment', expect.anything(), expect.anything());
+        expect(analyticsCalls('attachment_upload_rate_limited')[0][1]).toMatchObject({
+          failed_request: 'POST attachment data',
+          retry_after_source: 'default',
+        });
+        expect(mockTrackEvent).not.toHaveBeenCalledWith(
+          expect.any(String), 'attachment_upload_failed', expect.any(String), expect.anything(),
+        );
+      });
     });
 
     it('records the status and failing call when the attachments GET gets an HTML page', async () => {
@@ -822,6 +951,185 @@ describe('Attachment', () => {
       expect(String(props.error_message)).not.toContain('"authorized"');
     });
 
+    // #75 — the existence gate reads v2 but the write is v1. When v2 misses an
+    // attachment v1 already holds (visibility lag, or a concurrent upload from
+    // another iframe on the same page), the create POST 400s with "same file
+    // name". That must recover by re-resolving via v1 and uploading a new version.
+    describe('same-file-name 400 recovery (#75)', () => {
+      const sameNameBody = JSON.stringify({
+        statusCode: 400,
+        data: { authorized: true, valid: true, errors: [], successful: true },
+        message:
+          'com.atlassian.confluence.api.service.exceptions.api.BadRequestException: Cannot add a new attachment with same file name as an existing attachment: zenuml-test-uuid.png',
+      });
+      const resp = (ok: boolean, status: number, body: string) => ({
+        ok,
+        status,
+        text: vi.fn().mockResolvedValue(body),
+      });
+      const sameName = () => resp(false, 400, sameNameBody);
+      const v1ReadUrl =
+        '/wiki/rest/api/content/page-123/child/attachment?filename=zenuml-test-uuid.png&expand=version,metadata';
+
+      // Attachment-endpoint POSTs answer from a queue (the last entry repeats);
+      // every other requestConfluence call (page-property reads) gets an empty 200.
+      let uploadResponses: ReturnType<typeof resp>[] = [];
+      const uploadUrls = () =>
+        mockRequestConfluence.mock.calls.map((c: unknown[]) => c[0] as string).filter((u) => u.includes('/child/attachment'));
+
+      beforeEach(() => {
+        uploadResponses = [];
+        mockRequestConfluence.mockReset();
+        mockRequestConfluence.mockImplementation(async (url: string) => {
+          if (!url.includes('/child/attachment')) return resp(true, 200, '{}');
+          return uploadResponses.length > 1 ? uploadResponses.shift() : uploadResponses[0];
+        });
+        mockForgeRequest.mockReset();
+        mockForgeRequest.mockResolvedValue({});
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]); // v2 miss
+      });
+
+      it('retries once as a new version and reports success with a recovery marker', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')]; // create 400s, new-version POST lands
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 1 } }, { id: 'att-old', version: { number: 4 } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual([
+          '/wiki/rest/api/content/page-123/child/attachment',
+          '/wiki/rest/api/content/page-123/child/attachment/att-old/data',
+        ]);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'updated',
+          'attachment_upload_succeeded',
+          'export',
+          expect.objectContaining({
+            version_number: 5,
+            attachment_id: 'att-old',
+            recovered_from: 'same_name_400',
+          }),
+        );
+        expect(
+          mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed'),
+        ).toHaveLength(0);
+      });
+
+      it('skips the retry when the other writer already stored this metaKey (race between iframes)', async () => {
+        uploadResponses = [sameName()]; // only the create POST; a retry would be a 2nd POST
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 3 }, metadata: { comment: 'hash-test content' } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual(['/wiki/rest/api/content/page-123/child/attachment']);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'updated',
+          'attachment_upload_succeeded',
+          'export',
+          expect.objectContaining({
+            attachment_id: 'att-old',
+            recovered_from: 'same_name_400',
+            skipped_duplicate: true,
+          }),
+        );
+        expect(
+          mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed'),
+        ).toHaveLength(0);
+      });
+
+      it('still retries when the existing attachment carries a different comment', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')];
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl
+            ? { results: [{ id: 'att-old', version: { number: 3 }, metadata: { comment: 'hash-other' } }] }
+            : {},
+        );
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toHaveLength(2);
+      });
+
+      it('does not mark a normal create as recovered', async () => {
+        uploadResponses = [resp(true, 200, JSON.stringify({ results: [{ id: 'attachment-123' }] }))];
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(uploadUrls()).toEqual(['/wiki/rest/api/content/page-123/child/attachment']);
+        const succeeded = mockTrackEvent.mock.calls.find(
+          (c: unknown[]) => c[1] === 'attachment_upload_succeeded',
+        );
+        expect(succeeded?.[0]).toBe('created');
+        expect(succeeded?.[3]).not.toHaveProperty('recovered_from');
+      });
+
+      it('keeps a properties denial after the recovery POST from rerunning the upload as the app', async () => {
+        uploadResponses = [sameName(), resp(true, 200, 'success')];
+        mockForgeRequest.mockImplementation(async (url: string, method: string) => {
+          if (url === v1ReadUrl) return { results: [{ id: 'att-old', version: { number: 4 } }] };
+          if (method === 'PUT') return { statusCode: 403, message: 'denied' };
+          return {};
+        });
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toMatchObject({ status: 403 });
+        expect(uploadUrls()).toHaveLength(2);
+        expect(mockCallRemote).not.toHaveBeenCalled();
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_failed', 'export', expect.objectContaining({ http_status: 403, via_app_fallback: false }),
+        );
+      });
+
+      it('passes the resolved update target to the app when the recovery POST is denied', async () => {
+        uploadResponses = [sameName(), resp(false, 403, 'denied')];
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl ? { results: [{ id: 'att-old', version: { number: 4 } }] } : {},
+        );
+        mockCallRemote.mockResolvedValue({ ok: true, attachmentId: 'att-old', versionNumber: 5 });
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(mockCallRemote).toHaveBeenCalledWith('/forge-upload-attachment', 'POST', expect.objectContaining({
+          attachmentId: 'att-old', versionNumber: 5,
+        }));
+      });
+
+      it('still fails with the original error when v1 cannot find the attachment', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        uploadResponses = [sameName()];
+        mockForgeRequest.mockResolvedValue({ results: [] });
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow(/same file name/);
+
+        expect(uploadUrls()).toHaveLength(1);
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_400',
+          'attachment_upload_failed',
+          'export',
+          expect.anything(),
+        );
+      });
+
+      it('retries only once when the new-version upload also fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        uploadResponses = [sameName()]; // every attachment POST answers same-name
+        mockForgeRequest.mockImplementation(async (url: string) =>
+          url === v1ReadUrl ? { results: [{ id: 'att-old', version: { number: 1 } }] } : {},
+        );
+
+        await expect(createAttachmentIfContentChanged('test content')).rejects.toThrow();
+
+        expect(uploadUrls()).toHaveLength(2);
+      });
+    });
+
     it('salvages the message from a truncated envelope (backend relays 500 chars)', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
@@ -1153,6 +1461,30 @@ describe('Attachment', () => {
         expect(succeeded).toBeUndefined();
       });
 
+      it('records a real guest denial from the async backend as upload_denied and http_403', async () => {
+        vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+        mockCallRemote.mockRejectedValue(Object.assign(new Error('HTTP 403: no_user_credential'), { status: 403 }));
+        let property: any;
+        mockRequestConfluence.mockImplementation(async (_url: string, opts: any) => {
+          if (opts.method === 'GET') return {
+            ok: true, json: async () => ({ results: property ? [{ id: 'property-1', version: { number: 1 }, value: property }] : [] }),
+          };
+          property = JSON.parse(opts.body).value;
+          return { ok: true };
+        });
+
+        await expect(createAttachmentIfContentChanged('test content', 'sequence', {
+          customContentId: 'saved-id-1000', fromSave: true,
+        })).rejects.toMatchObject({ status: 403 });
+
+        expect(property).toMatchObject({ state: 'upload_denied', customContentId: 'saved-id-1000' });
+        expect(mockTrackEvent).toHaveBeenCalledWith(
+          'http_403', 'attachment_upload_failed', 'export', expect.objectContaining({ http_status: 403 }),
+        );
+        expect(mockTrackEvent.mock.calls.some((call: any[]) => call[1] === 'attachment_upload_queued')).toBe(false);
+      });
+
       it('reports how long the save-time PNG capture took as attachment_capture_ms', async () => {
         vi.mocked(captureBlob).mockResolvedValue(new Blob(['test'], { type: 'image/png' }));
         mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
@@ -1383,11 +1715,112 @@ describe('Attachment', () => {
 
       // Recorded as a convert_to_png capture error — NOT a mislabeled
       // attachment_upload_failed / non_error_thrown.
-      expect(mockTrackEvent).toHaveBeenCalledWith('toPng_failed', 'convert_to_png', 'error');
+      expect(mockTrackEvent).toHaveBeenCalledWith('toPng_failed', 'convert_to_png', 'error', expect.any(Object));
       expect(mockTrackEvent).toHaveBeenCalledWith('toPng', 'convert_to_png', 'export');
       const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
       expect(failedCalls).toHaveLength(0);
       expect((window as any).createAttachmentInProgress).toBe(false);
+    });
+
+    describe('toPng_failed / toPng_timeout properties (#1061)', () => {
+      function mountCaptureNode(width: number, height: number) {
+        document.body.innerHTML = '';
+        const el = document.createElement('div');
+        el.className = 'screen-capture-content';
+        Object.defineProperty(el, 'clientWidth', { value: width, configurable: true });
+        Object.defineProperty(el, 'clientHeight', { value: height, configurable: true });
+        document.body.appendChild(el);
+        return el;
+      }
+      const failureProps = () => {
+        const call = mockTrackEvent.mock.calls.find((c: unknown[]) => c[0] === 'toPng_failed');
+        expect(call).toBeDefined();
+        return call![3] as Record<string, unknown>;
+      };
+
+      it('records stage, macro type, node size, visibility and readable error text', async () => {
+        mountCaptureNode(640, 0);
+        const img = document.createElement('img');
+        const ev = new Event('error');
+        Object.defineProperty(ev, 'target', { value: img });
+        vi.mocked(captureBlob).mockRejectedValue(new CaptureStageError('inline_images', ev));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'graph');
+
+        expect(mockTrackEvent).toHaveBeenCalledWith('toPng_failed', 'convert_to_png', 'error', {
+          capture_failure_stage: 'inline_images',
+          capture_error: 'image error event',
+          macro_type: 'graph',
+          capture_node_width: 640,
+          capture_node_height: 0,
+          document_visibility: document.visibilityState,
+        });
+      });
+
+      it('uses stage unknown and a readable text for an untagged raw Event', async () => {
+        mountCaptureNode(10, 10);
+        vi.mocked(captureBlob).mockRejectedValue(new Event('error'));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'mermaid');
+
+        expect(failureProps()).toMatchObject({
+          capture_failure_stage: 'unknown',
+          capture_error: 'error event',
+          macro_type: 'mermaid',
+        });
+      });
+
+      it('never puts a URL, data URL or query string in capture_error', async () => {
+        mountCaptureNode(10, 10);
+        vi.mocked(captureBlob).mockRejectedValue(new Error('image https://icons.example.com/a.svg?k=v and data:image/png;base64,QUJDREVGRw== failed'));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'graph');
+
+        const text = String(failureProps().capture_error);
+        expect(text).not.toMatch(/example\.com|QUJD|\?|data:/);
+        expect(text.length).toBeLessThanOrEqual(120);
+      });
+
+      it('reports macro_type none when the diagram type is not passed', async () => {
+        mountCaptureNode(10, 10);
+        vi.mocked(captureBlob).mockRejectedValue(new Error('x'));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(failureProps().macro_type).toBe('none');
+      });
+
+      it('sends the same fields on toPng_timeout', async () => {
+        vi.useFakeTimers();
+        try {
+          mountCaptureNode(300, 120);
+          vi.mocked(captureBlob).mockImplementation(() => new Promise(() => {}));
+          mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+          const pending = createAttachmentIfContentChanged('test content', 'openapi');
+          const flush = expect(pending).resolves.toBeUndefined();
+          await vi.advanceTimersByTimeAsync(15_000);
+          await flush;
+
+          const call = mockTrackEvent.mock.calls.find((c: unknown[]) => c[0] === 'toPng_timeout');
+          expect(call).toBeDefined();
+          expect(call![2]).toBe('error');
+          expect(call![3]).toMatchObject({
+            capture_failure_stage: 'unknown',
+            macro_type: 'openapi',
+            capture_node_width: 300,
+            capture_node_height: 120,
+            document_visibility: document.visibilityState,
+          });
+          expect(String(call![3].capture_error)).toMatch(/did not settle/);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     it('bounds a hung html-to-image toBlob() with a timeout, so the capture fails instead of hanging forever', async () => {
@@ -1414,7 +1847,7 @@ describe('Attachment', () => {
 
         // Timeout is recorded under its own label so it's countable separately
         // from other convert_to_png capture failures (e.g. a DOM error Event).
-        expect(mockTrackEvent).toHaveBeenCalledWith('toPng_timeout', 'convert_to_png', 'error');
+        expect(mockTrackEvent).toHaveBeenCalledWith('toPng_timeout', 'convert_to_png', 'error', expect.any(Object));
         expect(mockTrackEvent).toHaveBeenCalledWith('toPng', 'convert_to_png', 'export');
         const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
         expect(failedCalls).toHaveLength(0);
@@ -1504,6 +1937,52 @@ describe('Attachment', () => {
       expect(captureBlob).toHaveBeenCalled();
       expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
       vi.unstubAllGlobals();
+    });
+
+    // ── ADR-0010 step 6: with the local renderer, the backup never reaches plantuml.com ──
+    it('PlantUML (local renderer): rasterises the engine SVG at the PDF target width and uploads it, with no plantuml.com request', async () => {
+      localStorage.setItem('plantumlRenderer', 'local');
+      mockRenderPlantUmlLocally.mockResolvedValue(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100px" height="50px" viewBox="0 0 100 50"><text>A</text></svg>');
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      class StubImage {
+        onload: (() => void) | null = null;
+        set src(_v: string) { setTimeout(() => this.onload?.(), 0); }
+      }
+      vi.stubGlobal('Image', StubImage);
+      const sizes: number[][] = [];
+      const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        { fillStyle: '', fillRect: vi.fn(), drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+      const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, cb: BlobCallback) {
+        sizes.push([this.width, this.height]);
+        cb(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+      } as HTMLCanvasElement['toBlob']);
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true, status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-pu-local' }] })),
+      });
+      mockForgeRequest.mockResolvedValue({});
+
+      try {
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock.mock.calls.filter((c: unknown[]) => String(c[0]).includes('plantuml.com'))).toHaveLength(0);
+        expect(captureBlob).not.toHaveBeenCalled();
+        expect(sizes).toEqual([[1400, 700]]);
+        expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('plantuml_png_produced', expect.objectContaining({
+          surface: 'viewer', plantuml_png_source: 'local', plantuml_png_purpose: 'backup', plantuml_png_upscaled: true,
+        }));
+        // The legacy server labels stay server-only.
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png')).toBeUndefined();
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+      } finally {
+        localStorage.removeItem('plantumlRenderer');
+        getContext.mockRestore();
+        toBlob.mockRestore();
+        vi.unstubAllGlobals();
+      }
     });
 
     // ── PlantUML dpi upscale (fixes pixelated small-diagram exports) ──

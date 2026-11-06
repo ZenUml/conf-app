@@ -8,12 +8,15 @@
 </template>
 
 <script>
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import SwaggerUIBundle from 'swagger-ui';
 import "swagger-ui/dist/swagger-ui.css";
 import SpecListener from '@/utils/spec-listener';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { trackRenderTime } from '@/utils/analytics/trackRenderTime';
+import { viewContentState } from '@/utils/analytics/contentState';
+import { DiagramType } from '@/model/Diagram/Diagram';
 import EventBus from '@/EventBus';
 import { trackViewerRenderCrash } from '@/utils/analytics/trackViewerRenderCrash';
 
@@ -100,7 +103,10 @@ export default {
       // SwaggerUI renders asynchronously internally — this measures
       // time-to-content, not time-to-full-paint. Best approximation available
       // without a render callback.
-      trackRenderTime('openapi', this.$store.getters.isDisplayMode);
+      trackRenderTime(
+        'openapi', this.$store.getters.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.effectiveDoc, DiagramType.OpenApi),
+      );
       // See ForgeGraphViewer: OpenAPI emits no 'diagramLoaded' either, and an
       // export-entry Fullscreen open needs a readiness signal to capture from.
       EventBus.$emit('viewerRenderSettled', 'openapi');
@@ -120,6 +126,18 @@ export default {
           dom_id: '#swagger-ui',
           presets: [SwaggerUIBundle.presets.apis],
           plugins: [SwaggerUIBundle.plugins.DownloadUrl, SpecListener],
+          onComplete: () => {
+            const doc = this.effectiveDoc;
+            const code = doc?.value?.code || doc?.code;
+            const parsed = window.ui?.specSelectors?.specJson?.();
+            // onComplete follows Swagger's updateJsonSpec, not merely content fetch.
+            if (!this.loadError && code?.trim()
+              && window.ui?.specSelectors?.specStr?.() === code
+              && (parsed?.get?.('openapi') || parsed?.get?.('swagger'))
+              && window.ui?.errSelectors?.allErrors?.().size === 0) {
+              reportDiagramReady(this.$refs.swaggerUi, 'openapi');
+            }
+          },
         });
         window.ui = ui;
       } catch (e) {

@@ -1,3 +1,4 @@
+import { json } from '../OkResponse';
 import type { ForgeRequestData } from '../utils/authenticate';
 import {
   KV_EXPIRATION_TTL_SECONDS,
@@ -5,7 +6,7 @@ import {
   authenticateMetricsRequest,
   errorResponse,
   isSnapshotEnrolled,
-  jsonResponse,
+  NO_STORE_HEADERS,
   metricsKvKey,
   normalizeCounts,
   readLatestPointer,
@@ -31,16 +32,16 @@ export const onRequest = async ({
 }) => {
   try {
     if (request.method !== 'POST') {
-      return jsonResponse({ error: 'Method Not Allowed' }, 405);
+      return json({ error: 'Method Not Allowed' }, { status: 405, headers: NO_STORE_HEADERS });
     }
     let body: LegacyUpdateBody;
     try {
       body = await request.json<LegacyUpdateBody>();
     } catch {
-      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+      return json({ error: 'Invalid JSON body' }, { status: 400, headers: NO_STORE_HEADERS });
     }
     if (typeof body.space !== 'string' || !body.space || !body.metrics) {
-      return jsonResponse({ error: 'Missing required fields' }, 400);
+      return json({ error: 'Missing required fields' }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     const context = await authenticateMetricsRequest(request, env, {
@@ -49,7 +50,7 @@ export const onRequest = async ({
     });
     const enrolled = await isSnapshotEnrolled(env, context);
     if (enrolled && await readLatestPointer(env, context)) {
-      return jsonResponse({ success: true, ignored: 'snapshot-managed' });
+      return json({ success: true, ignored: 'snapshot-managed' }, { headers: NO_STORE_HEADERS });
     }
 
     assertCounts(body.metrics);
@@ -70,7 +71,7 @@ export const onRequest = async ({
     await env.confluence_plugin_features.put(key, JSON.stringify(domainData), {
       expirationTtl: KV_EXPIRATION_TTL_SECONDS,
     });
-    return jsonResponse({ success: true });
+    return json({ success: true }, { headers: NO_STORE_HEADERS });
   } catch (error) {
     return errorResponse(error);
   }

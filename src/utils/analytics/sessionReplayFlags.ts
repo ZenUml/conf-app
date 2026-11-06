@@ -45,7 +45,9 @@ import { getContext } from '@/model/globals/forgeGlobal';
 export const FULL_FLAG = 'session-replay-full';
 export const SAMPLED_FLAG = 'session-replay';
 
-export type SessionReplaySource = 'targeted' | 'sampled' | 'off';
+// 'timeout' is never returned by getSessionReplayConfig: trackAnalyticsEvent
+// substitutes it when the bounded flag wait is cut short (#707).
+export type SessionReplaySource = 'targeted' | 'sampled' | 'off' | 'timeout';
 
 export interface SessionReplayConfig {
   /** `record_sessions_percent` to pass to `mixpanel.init`. */

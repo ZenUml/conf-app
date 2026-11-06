@@ -4,7 +4,10 @@ import ForgeGraphViewer from '@/components/Viewer/ForgeGraphViewer.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { callRemote } from '@/utils/requestUtil';
+import { awaitExternalIcons } from '@/utils/graph/externalIcons';
 
+vi.mock('@/utils/requestUtil', () => ({ callRemote: vi.fn() }));
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
 }));
@@ -55,6 +58,19 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
     };
     // @ts-ignore — DrawIO globals, loaded at runtime by loadDrawioViewer.ts.
     window.mxUtils = { parseXml: vi.fn(() => ({ documentElement: {} })) };
+  });
+
+  it('reports a whitespace body once when DrawIO rejects it, preserving render-failure telemetry (#113)', async () => {
+    store.state.diagram.graphXml = ' \n\t ';
+    // @ts-ignore — DrawIO globals
+    window.mxUtils.parseXml = vi.fn(() => { throw new Error('bad xml'); });
+    // @ts-ignore — DrawIO globals
+    window.GraphViewer = vi.fn();
+    mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(viewerLoadFailedCalls()).toHaveLength(1));
+    expect(window.mxUtils.parseXml).toHaveBeenCalledWith(' \n\t ');
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
   });
 
   it('fits Graph axes from the current scaled bounds and centres the same graph', () => {
@@ -131,6 +147,69 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       expect(macroViewedCalls()).toHaveLength(1);
     });
     expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  // #113: an empty body is the wipe signal, so the empty branch still reports
+  // the view with the verdict and does not construct a GraphViewer.
+  it('emits one macro_viewed with content_state=empty for a loaded empty body and does not render (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '' };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+    // @ts-ignore
+    expect(window.GraphViewer).not.toHaveBeenCalled();
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it('emits no macro_viewed for an empty body that never loaded (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  // bootstrapForgeViewer mounts the NULL_DIAGRAM shell (graphXml '') and the
+  // document arrives later. A wiped body is '' too, so effectiveGraphXml never
+  // changes ('' -> '') and its watcher alone would never re-enter renderViewer.
+  it('reports content_state=empty once when a wiped document arrives after the shell mounted (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+    store.state.diagram = { ...NULL_DIAGRAM };
+
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    expect(macroViewedCalls()).toHaveLength(0);
+
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '' };
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+
+    expect(macroViewedCalls()).toHaveLength(1);
+    expect(macroViewedCalls()[0][1]).toMatchObject({ macro_type: 'graph', content_state: 'empty' });
+    // @ts-ignore
+    expect(window.GraphViewer).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('classifies a non-empty body as before (one event, authored) (#113)', async () => {
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => ({ diagrams: [{}], currentPage: 0 }));
+
+    mount(ForgeGraphViewer, { global: { plugins: [store] } });
+
+    await vi.waitFor(() => expect(macroViewedCalls()).toHaveLength(1));
+    expect(macroViewedCalls()[0][1]).toMatchObject({ content_state: 'authored' });
   });
 
   it('publishes the rendered graph box for export framing', async () => {
@@ -344,5 +423,75 @@ describe('ForgeGraphViewer page navigation', () => {
     expect(selectPage).toHaveBeenCalledWith(1);
     expect(nav().find('.viewer-page-nav-label').text()).toBe('2 of 3');
     expect(wrapper.find('.viewer-pill-btn').exists()).toBe(false);
+  });
+});
+
+describe('ForgeGraphViewer external icons (icons.diagrams.net through the backend proxy)', () => {
+  const ICON = 'https://icons.diagrams.net/assets/azure/1/Azure_Service_Bus_Queues.svg';
+  const DATA = 'data:image/svg+xml;base64,PHN2Zy8+';
+  const iconCalls = (name: string) => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([n]) => n === name);
+  let viewer: any;
+
+  const setup = (decodedXml: string) => {
+    vi.clearAllMocks();
+    window.__macroLoadStart = 0;
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: VALID_XML };
+    // @ts-ignore — DrawIO globals
+    window.mxUtils = { parseXml: vi.fn(() => ({ documentElement: {} })), getXml: vi.fn(() => decodedXml) };
+    viewer = { diagrams: [], xmlNode: {}, getImageUrl: vi.fn((u: string) => u), graph: { refresh: vi.fn() } };
+    // @ts-ignore
+    window.GraphViewer = vi.fn(() => viewer);
+  };
+
+  it('makes no proxy call and fires no icon event for a diagram without external icons', async () => {
+    setup('<mxGraphModel><root><mxCell style="image=img/lib/a.svg;"/></root></mxGraphModel>');
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(macroViewedCalls()).toHaveLength(1));
+    expect(callRemote).not.toHaveBeenCalled();
+    expect(iconCalls('graph_icon_proxy_requested')).toHaveLength(0);
+    expect(viewer.getImageUrl(ICON)).toBe(ICON);
+    await expect(awaitExternalIcons(wrapper.get('.graph-viewer-canvas').element)).resolves.toBeUndefined();
+  });
+
+  it('renders first, then swaps in the proxied icon: the viewer does not wait for the backend', async () => {
+    setup(`<mxGraphModel><root><mxCell style="image=${ICON};"/></root></mxGraphModel>`);
+    let answer!: (v: unknown) => void;
+    vi.mocked(callRemote).mockReturnValue(new Promise((r) => { answer = r; }));
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    // Rendered and reported while the backend call is still open.
+    expect(window.GraphViewer).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(macroViewedCalls()).toHaveLength(1));
+    expect(wrapper.vm.graphRendered).toBe(true);
+    expect(viewer.graph.refresh).not.toHaveBeenCalled();
+    expect(callRemote).toHaveBeenCalledWith('/graph-icon-proxy', 'POST', { urls: [ICON] });
+
+    answer({ icons: { [ICON]: DATA }, failed: {} });
+    await awaitExternalIcons(wrapper.get('.graph-viewer-canvas').element);
+    expect(viewer.getImageUrl(ICON)).toBe(DATA);
+    expect(viewer.graph.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the diagram rendered when the proxy fails, but refuses PNG capture', async () => {
+    setup(`<mxGraphModel><root><mxCell style="image=${ICON};"/></root></mxGraphModel>`);
+    vi.mocked(callRemote).mockRejectedValue(Object.assign(new Error('HTTP 502'), { status: 502 }));
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(macroViewedCalls()).toHaveLength(1));
+    await expect(awaitExternalIcons(wrapper.get('.graph-viewer-canvas').element)).rejects.toThrow(/http_502/);
+    expect(wrapper.vm.graphRendered).toBe(true);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+    expect(viewer.graph.refresh).not.toHaveBeenCalled();
+    expect(iconCalls('graph_icon_proxy_failed')).toHaveLength(1);
+  });
+
+  it('forgets a failed proxy when the next render has no external icons', async () => {
+    setup(`<mxGraphModel><root><mxCell style="image=${ICON};"/></root></mxGraphModel>`);
+    vi.mocked(callRemote).mockRejectedValue(new Error('boom'));
+    const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+    const container = wrapper.get('.graph-viewer-canvas').element;
+    await expect(awaitExternalIcons(container)).rejects.toThrow();
+    (window.mxUtils as any).getXml = vi.fn(() => '<mxGraphModel><root/></mxGraphModel>');
+    store.state.diagram = { ...store.state.diagram, graphXml: '<mxGraphModel><root><mxCell id="x"/></root></mxGraphModel>' };
+    await wrapper.vm.$nextTick();
+    await expect(awaitExternalIcons(container)).resolves.toBeUndefined();
   });
 });

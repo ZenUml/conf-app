@@ -1,8 +1,7 @@
 import "swagger-ui/dist/swagger-ui.css";
 import './assets/tailwind.css'
 
-import createAttachmentIfContentChanged from "@/model/Attachment";
-import {trackEvent, serializeError} from "@/utils/window";
+import { scheduleAttachmentRefresh } from "@/model/attachment/scheduleAttachmentRefresh";
 import globals from '@/model/globals';
 import OpenApiViewer from "@/components/Viewer/OpenApiViewer.vue";
 import EventBus from './EventBus'
@@ -39,20 +38,7 @@ async function loadDiagram(): Promise<ViewerLoadDiagramResult> {
 }
 
 function afterLoad(doc: Diagram | undefined) {
-  setTimeout(async function () {
-    try {
-      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        await createAttachmentIfContentChanged(doc?.code ?? '', 'openapi');
-      } else {
-        console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
-      }
-    } catch (e) {
-      // Do not re-throw the error
-      console.error("Error when creating attachment", e);
-      trackEvent(serializeError(e), 'create_attachment', 'error');
-    }
-
-  }, 1500);
+  scheduleAttachmentRefresh(() => doc?.code ?? '', 'openapi');
 }
 
 async function initializeMacro() {

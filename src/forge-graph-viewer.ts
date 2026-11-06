@@ -1,5 +1,5 @@
-import createAttachmentIfContentChanged from "@/model/Attachment";
-import {trackEvent, serializeError} from "@/utils/window";
+import { scheduleAttachmentRefresh } from "@/model/attachment/scheduleAttachmentRefresh";
+import {trackEvent} from "@/utils/window";
 import globals from '@/model/globals';
 import {decompress} from '@/utils/compress';
 import ForgeGraphViewer from "@/components/Viewer/ForgeGraphViewer.vue";
@@ -164,31 +164,15 @@ function afterLoad(doc: Diagram | undefined) {
     }
   }
 
-  setTimeout(async function () {
-    try {
-      // ZEN-1170 Defect 1: the missing-customContentId case is handled
-      // centrally inside createAttachmentIfContentChanged (Attachment.ts)
-      // — it emits the `missing_custom_content_id` skip telemetry and
-      // returns early. Per-callsite fast paths previously here suppressed
-      // that central event, hiding the highest-volume class of skips.
-      if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
-        // A PNG with blank labels would stay: the content hash stops a later
-        // upload. Skipping leaves the hash unset, so a later view tries again.
-        if (!(await whenDrawioMathSettled())) {
-          trackEvent('graph_math_not_ready', 'create_attachment', 'warning');
-          return;
-        }
-        await createAttachmentIfContentChanged(graphXml ?? '', 'graph');
-      } else {
-        console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");
-      }
-    } catch (e) {
-      // Do not re-throw the error
-      console.error("Error when creating attachment", e);
-      trackEvent(serializeError(e), 'create_attachment', 'error');
-    }
-
-  }, 1500);
+  scheduleAttachmentRefresh(() => graphXml ?? '', 'graph', undefined,
+    // A PNG with blank labels would stay: the content hash stops a later
+    // upload. Skipping leaves the hash unset, so a later view tries again.
+    async () => {
+      if (await whenDrawioMathSettled()) return true;
+      trackEvent('graph_math_not_ready', 'create_attachment', 'warning');
+      return false;
+    },
+  );
 }
 
 async function initializeMacro() {

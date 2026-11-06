@@ -96,7 +96,10 @@ export default {
       }
       return;
     }
-    await this.validateAndRender(this.plantUmlCode);
+    // A page view: nothing is being typed, so the edit debounce would only
+    // hold the already-fetched SVG back from first paint (~500 ms of the
+    // viewer's unattributed load time, see #929's metric note).
+    await this.validateAndRender(this.plantUmlCode, { immediate: true });
     // Type may have switched during the async render — the gated computed
     // would then be `false` and the store diagramType stale. Skip; the new
     // type's component emits its own diagramLoaded.
@@ -180,7 +183,11 @@ export default {
       await this.$nextTick();
       await this.$refs.viewport?.attach();
     },
-    async validateAndRender(code) {
+    /**
+     * `immediate` renders as soon as validation passes; the default holds the
+     * render behind the 500 ms debounce, which is for keystrokes in the editor.
+     */
+    async validateAndRender(code, { immediate = false } = {}) {
       // Check if linter already validated and found an error
       // This avoids duplicate validation calls
       const currentError = this.$store.state.error;
@@ -207,7 +214,11 @@ export default {
       this.$store.dispatch('updateError', null);
       
       // Proceed with rendering
-      this.debouncedRender(code);
+      if (immediate) {
+        this.fetchSvg(code);
+      } else {
+        this.debouncedRender(code);
+      }
     },
     async fetchSvg(code) {
       if (!code) return;
@@ -217,8 +228,8 @@ export default {
         // Phase 0b: render_ms = time to draw: the engine run, or the time to get
         // the server SVG (recorded once). On the server path that is usually the
         // response validation just fetched (#929), so it is near zero; the round
-        // trip itself lands before the 500ms mount debounce, in the unattributed
-        // remainder.
+        // trip itself lands in the unattributed remainder. First mount renders
+        // right after validation; only edits go through the 500 ms debounce.
         let renderer = await plantUmlRenderer();
         this.svg = await renderPerf.time('render', async () => {
           if (renderer === 'local') {

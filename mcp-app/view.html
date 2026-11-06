@@ -8,6 +8,13 @@
          page and not the SPA shell, which Cloudflare Pages serves with a 200
          for any unknown path. Removing it disables the view. -->
     <meta name="mcp-app" content="zenuml-diagram">
+    <style>
+      /* Keep wide diagrams reachable inside the host's fixed-width iframe. */
+      #app {
+        max-width: 100%;
+        overflow-x: auto;
+      }
+    </style>
   </head>
   <body>
     <!-- The MCP Apps view (functions/agent-link/oauth/mcpApps.ts serves this

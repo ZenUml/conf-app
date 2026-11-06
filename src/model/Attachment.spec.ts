@@ -79,11 +79,19 @@ vi.mock('@forge/bridge', () => ({
   requestConfluence: (...args: any[]) => mockRequestConfluence(...args)
 }));
 
+// ADR-0010: the in-browser PlantUML engine needs a canvas-backed browser, so
+// tests that opt into the local renderer get a canned SVG from it.
+const { mockRenderPlantUmlLocally } = vi.hoisted(() => ({ mockRenderPlantUmlLocally: vi.fn() }));
+vi.mock('@/utils/plantuml/engine', () => ({
+  renderPlantUmlLocally: (...args: any[]) => mockRenderPlantUmlLocally(...args),
+}));
+
 import createAttachmentIfContentChanged from './Attachment';
 import { ForgeRequestError } from '@/utils/forgeRequestError';
 import { _resetForTesting as resetRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 
 import { captureBlob } from '@/model/captureBlob';
+import { CaptureStageError } from '@/model/captureFailure';
 import md5 from 'md5';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
@@ -1683,11 +1691,112 @@ describe('Attachment', () => {
 
       // Recorded as a convert_to_png capture error — NOT a mislabeled
       // attachment_upload_failed / non_error_thrown.
-      expect(mockTrackEvent).toHaveBeenCalledWith('toPng_failed', 'convert_to_png', 'error');
+      expect(mockTrackEvent).toHaveBeenCalledWith('toPng_failed', 'convert_to_png', 'error', expect.any(Object));
       expect(mockTrackEvent).toHaveBeenCalledWith('toPng', 'convert_to_png', 'export');
       const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
       expect(failedCalls).toHaveLength(0);
       expect((window as any).createAttachmentInProgress).toBe(false);
+    });
+
+    describe('toPng_failed / toPng_timeout properties (#1061)', () => {
+      function mountCaptureNode(width: number, height: number) {
+        document.body.innerHTML = '';
+        const el = document.createElement('div');
+        el.className = 'screen-capture-content';
+        Object.defineProperty(el, 'clientWidth', { value: width, configurable: true });
+        Object.defineProperty(el, 'clientHeight', { value: height, configurable: true });
+        document.body.appendChild(el);
+        return el;
+      }
+      const failureProps = () => {
+        const call = mockTrackEvent.mock.calls.find((c: unknown[]) => c[0] === 'toPng_failed');
+        expect(call).toBeDefined();
+        return call![3] as Record<string, unknown>;
+      };
+
+      it('records stage, macro type, node size, visibility and readable error text', async () => {
+        mountCaptureNode(640, 0);
+        const img = document.createElement('img');
+        const ev = new Event('error');
+        Object.defineProperty(ev, 'target', { value: img });
+        vi.mocked(captureBlob).mockRejectedValue(new CaptureStageError('inline_images', ev));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'graph');
+
+        expect(mockTrackEvent).toHaveBeenCalledWith('toPng_failed', 'convert_to_png', 'error', {
+          capture_failure_stage: 'inline_images',
+          capture_error: 'image error event',
+          macro_type: 'graph',
+          capture_node_width: 640,
+          capture_node_height: 0,
+          document_visibility: document.visibilityState,
+        });
+      });
+
+      it('uses stage unknown and a readable text for an untagged raw Event', async () => {
+        mountCaptureNode(10, 10);
+        vi.mocked(captureBlob).mockRejectedValue(new Event('error'));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'mermaid');
+
+        expect(failureProps()).toMatchObject({
+          capture_failure_stage: 'unknown',
+          capture_error: 'error event',
+          macro_type: 'mermaid',
+        });
+      });
+
+      it('never puts a URL, data URL or query string in capture_error', async () => {
+        mountCaptureNode(10, 10);
+        vi.mocked(captureBlob).mockRejectedValue(new Error('image https://icons.example.com/a.svg?k=v and data:image/png;base64,QUJDREVGRw== failed'));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content', 'graph');
+
+        const text = String(failureProps().capture_error);
+        expect(text).not.toMatch(/example\.com|QUJD|\?|data:/);
+        expect(text.length).toBeLessThanOrEqual(120);
+      });
+
+      it('reports macro_type none when the diagram type is not passed', async () => {
+        mountCaptureNode(10, 10);
+        vi.mocked(captureBlob).mockRejectedValue(new Error('x'));
+        mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+        await createAttachmentIfContentChanged('test content');
+
+        expect(failureProps().macro_type).toBe('none');
+      });
+
+      it('sends the same fields on toPng_timeout', async () => {
+        vi.useFakeTimers();
+        try {
+          mountCaptureNode(300, 120);
+          vi.mocked(captureBlob).mockImplementation(() => new Promise(() => {}));
+          mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+
+          const pending = createAttachmentIfContentChanged('test content', 'openapi');
+          const flush = expect(pending).resolves.toBeUndefined();
+          await vi.advanceTimersByTimeAsync(15_000);
+          await flush;
+
+          const call = mockTrackEvent.mock.calls.find((c: unknown[]) => c[0] === 'toPng_timeout');
+          expect(call).toBeDefined();
+          expect(call![2]).toBe('error');
+          expect(call![3]).toMatchObject({
+            capture_failure_stage: 'unknown',
+            macro_type: 'openapi',
+            capture_node_width: 300,
+            capture_node_height: 120,
+            document_visibility: document.visibilityState,
+          });
+          expect(String(call![3].capture_error)).toMatch(/did not settle/);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     it('bounds a hung html-to-image toBlob() with a timeout, so the capture fails instead of hanging forever', async () => {
@@ -1714,7 +1823,7 @@ describe('Attachment', () => {
 
         // Timeout is recorded under its own label so it's countable separately
         // from other convert_to_png capture failures (e.g. a DOM error Event).
-        expect(mockTrackEvent).toHaveBeenCalledWith('toPng_timeout', 'convert_to_png', 'error');
+        expect(mockTrackEvent).toHaveBeenCalledWith('toPng_timeout', 'convert_to_png', 'error', expect.any(Object));
         expect(mockTrackEvent).toHaveBeenCalledWith('toPng', 'convert_to_png', 'export');
         const failedCalls = mockTrackEvent.mock.calls.filter((c: unknown[]) => c[1] === 'attachment_upload_failed');
         expect(failedCalls).toHaveLength(0);
@@ -1804,6 +1913,52 @@ describe('Attachment', () => {
       expect(captureBlob).toHaveBeenCalled();
       expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
       vi.unstubAllGlobals();
+    });
+
+    // ── ADR-0010 step 6: with the local renderer, the backup never reaches plantuml.com ──
+    it('PlantUML (local renderer): rasterises the engine SVG at the PDF target width and uploads it, with no plantuml.com request', async () => {
+      localStorage.setItem('plantumlRenderer', 'local');
+      mockRenderPlantUmlLocally.mockResolvedValue(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100px" height="50px" viewBox="0 0 100 50"><text>A</text></svg>');
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      class StubImage {
+        onload: (() => void) | null = null;
+        set src(_v: string) { setTimeout(() => this.onload?.(), 0); }
+      }
+      vi.stubGlobal('Image', StubImage);
+      const sizes: number[][] = [];
+      const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        { fillStyle: '', fillRect: vi.fn(), drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+      const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, cb: BlobCallback) {
+        sizes.push([this.width, this.height]);
+        cb(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+      } as HTMLCanvasElement['toBlob']);
+      mockApWrapper.getAttachmentsV2.mockResolvedValue([]);
+      mockRequestConfluence.mockResolvedValue({
+        ok: true, status: 200,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'att-pu-local' }] })),
+      });
+      mockForgeRequest.mockResolvedValue({});
+
+      try {
+        await createAttachmentIfContentChanged('@startuml\nA->B\n@enduml', 'plantuml');
+
+        expect(fetchMock.mock.calls.filter((c: unknown[]) => String(c[0]).includes('plantuml.com'))).toHaveLength(0);
+        expect(captureBlob).not.toHaveBeenCalled();
+        expect(sizes).toEqual([[1400, 700]]);
+        expect(mockTrackAnalyticsEvent).toHaveBeenCalledWith('plantuml_png_produced', expect.objectContaining({
+          surface: 'viewer', plantuml_png_source: 'local', plantuml_png_purpose: 'backup', plantuml_png_upscaled: true,
+        }));
+        // The legacy server labels stay server-only.
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'plantuml_server_png')).toBeUndefined();
+        expect(mockTrackEvent.mock.calls.find((c: unknown[]) => c[1] === 'attachment_upload_succeeded')).toBeDefined();
+      } finally {
+        localStorage.removeItem('plantumlRenderer');
+        getContext.mockRestore();
+        toBlob.mockRestore();
+        vi.unstubAllGlobals();
+      }
     });
 
     // ── PlantUML dpi upscale (fixes pixelated small-diagram exports) ──

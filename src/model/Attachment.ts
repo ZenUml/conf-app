@@ -9,7 +9,8 @@ import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import { writePngState } from '@/lib/pngExportState.js';
+import type { Surface } from '@/utils/analytics/catalog';
+import { describePngStateFailure, writePngState } from '@/lib/pngExportState.js';
 import { capturePng, blobToBase64 } from '@/model/attachment/capturePng';
 import {
   AttachmentUploadHttpError,
@@ -35,11 +36,14 @@ async function recordPngState(
 ): Promise<void> {
   try {
   const { requestConfluence } = await import('@forge/bridge');
+  // Full reason (`post_http_409`, `property_timeout`) plus `http_status`, the
+  // same vocabulary as the backend surfaces. A 404 page is a skip, not a fault.
   const reportFailure = (operation: 'read' | 'create' | 'update', error: unknown) => {
-    trackAnalyticsEvent('png_export_state_persistence_failed', {
+    const { outcome, ...failure } = describePngStateFailure(operation, error);
+    trackAnalyticsEvent(outcome === 'skipped' ? 'png_export_state_persistence_skipped' : 'png_export_state_persistence_failed', {
       feature_area: 'macro', surface, page_id: pageId,
       custom_content_id: customContentId, png_export_property_operation: operation,
-      failure_reason: error instanceof Error ? error.message.split('_')[0] : 'unknown',
+      ...failure,
     });
   };
   const ok = await writePngState(
@@ -47,7 +51,12 @@ async function recordPngState(
       method: method as 'GET' | 'POST' | 'PUT',
       ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
     }),
-    { pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt },
+    {
+      pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt,
+      // The editor's save blocks on this write under a 6s cap that must also
+      // cover the PNG capture, so it gets no conflict-retry time beyond one request.
+      ...(surface === 'editor' ? { deadlineMs: 1500 } : {}),
+    },
     reportFailure,
   );
   if (ok) trackAnalyticsEvent('png_export_state_changed', {
@@ -285,8 +294,9 @@ async function renderAttachmentPng(
   hash: string,
   content?: string,
   diagramType?: string,
+  surface: Surface = 'viewer',
 ): Promise<{ blob: Blob; effectiveHash: string }> {
-  let blob = await capturePng(diagramType, content);
+  let blob = await capturePng(diagramType, content, surface);
   if (blob && content !== undefined && diagramType) {
     try {
       const { injectDiagramSource } = await import('@/utils/pngMetadata');
@@ -722,7 +732,8 @@ async function createAttachmentIfContentChanged(
 
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
       const captureStartedAt = performance.now();
-      const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+      const { blob, effectiveHash } = await renderAttachmentPng(
+        hash, content, diagramType, opts?.fromSave ? 'editor' : 'viewer');
       pngCaptureCompleted = true;
       // Publish timing: only the save-time capture is on the publish path (a
       // view-time backfill is not), and only a produced PNG is timed — a failed

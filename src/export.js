@@ -2,7 +2,7 @@
 import api, { route, routeFromAbsolute } from '@forge/api';
 import { readPngDimensions } from './lib/pngDimensions.js';
 import { decideExportSample } from './lib/exportSampling.js';
-import { readPngState, writePngState } from './lib/pngExportState.js';
+import { describePngStateFailure, readPngState, writePngState } from './lib/pngExportState.js';
 
 // ---------------------------------------------------------------------------
 // Analytics — Phase 1 instrumentation (spec: docs/superpowers/specs/2026-05-12-pdf-export-paywall-strategy-design.md)
@@ -475,13 +475,14 @@ export const handler = async (payload) => {
       const propertyFailures = [];
       const propertyFailure = (operation, error) => {
         console.warn(`Export: PNG state ${operation} failed: ${error?.message}`);
-        propertyFailures.push({ operation, reason: /^\w+_http_\d+$/.test(error?.message ?? '') ? error.message : 'request_error' });
+        propertyFailures.push({ operation, error });
       };
       const reportPropertyFailures = async () => {
         for (const failure of propertyFailures.splice(0)) {
-          await trackExportEvent('png_export_state_persistence_failed', {
+          const { outcome, ...described } = describePngStateFailure(failure.operation, failure.error);
+          await trackExportEvent(outcome === 'skipped' ? 'png_export_state_persistence_skipped' : 'png_export_state_persistence_failed', {
             ...joinKeyProps(ctx), png_export_property_operation: failure.operation,
-            failure_reason: failure.reason, surface: 'backend',
+            ...described, surface: 'backend',
           });
         }
       };

@@ -390,20 +390,39 @@ describe('space-status API (KV-only)', () => {
     // which are identical for every user on the same space. Without 'private' a
     // shared/CDN cache could serve one user's isPaid:true to a different,
     // unlicensed user on the same space — a cross-user paywall bypass.
-    it('returns Cache-Control: private, max-age=300 for successful responses', async () => {
+    it('caches a confirmed unpaid decision privately for five minutes', async () => {
       (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
       (validateContextToken as any).mockResolvedValue({
         payload: { context: { cloudId: 'cloud-abc' } },
       });
+      const first = vi.fn(async () => null);
+      const db = { prepare: vi.fn(() => ({ bind: vi.fn(() => ({ first })) })) };
 
       const ctx = createMockContext({
         url: 'https://example.com/api/space-status?spaceKey=ENG',
         headers: { 'x-forge-oauth-user': 'user-123', Authorization: 'Bearer forge-jwt' },
-        env: makeEnv(),
+        env: makeEnv({ DB: db }),
       });
 
       const response = await onRequest(ctx);
       expect(response.headers.get('Cache-Control')).toBe('private, max-age=300');
+      expect(await response.json()).toEqual({ isPaid: false, decisionKnown: true });
+      expect(first).toHaveBeenCalledOnce();
+    });
+
+    it('does not cache an unknown decision when D1 is absent', async () => {
+      (getAuthorizationHeader as any).mockReturnValue('forge-jwt');
+      (validateContextToken as any).mockResolvedValue({
+        payload: { context: { cloudId: 'cloud-abc' } },
+      });
+      const ctx = createMockContext({
+        url: 'https://example.com/api/space-status?spaceKey=ENG',
+        headers: { Authorization: 'Bearer forge-jwt' },
+        env: makeEnv(),
+      });
+      const response = await onRequest(ctx);
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+      expect(await response.json()).toEqual({ isPaid: false, decisionKnown: false });
     });
   });
 
@@ -426,6 +445,7 @@ describe('space-status API (KV-only)', () => {
       const response = await onRequest(ctx);
       const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
+      expect(body.decisionKnown).toBe(false);
     });
   });
 
@@ -465,6 +485,7 @@ describe('space-status API (KV-only)', () => {
       expect(response.status).toBe(200);
       const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
+      expect(body.decisionKnown).toBe(true);
       expect(body.source).toBe('paid_rail');
       expect(db.prepare).toHaveBeenCalledTimes(1);
       expect(db.bind).toHaveBeenCalledWith('cloud-abc', expect.any(String));
@@ -487,6 +508,7 @@ describe('space-status API (KV-only)', () => {
       expect(response.status).toBe(200);
       const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
+      expect(body.decisionKnown).toBe(true);
       expect(body.source).toBeUndefined();
     });
 
@@ -507,6 +529,7 @@ describe('space-status API (KV-only)', () => {
       expect(response.status).toBe(200);
       const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
+      expect(body.decisionKnown).toBe(false);
     });
 
     it('a user license still wins over paid_rail (order: user → space → paid_rail)', async () => {
@@ -523,8 +546,8 @@ describe('space-status API (KV-only)', () => {
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
       });
-      // A qualifying paid_rail row also exists, but must never be reached —
-      // the user license short-circuits before the D1 query.
+      // A qualifying paid_rail row also exists. The user license remains the
+      // source, while D1 is read to establish decisionKnown for Fullscreen.
       const db = makeD1({ row: { 1: 1 } });
 
       const ctx = createMockContext({
@@ -536,8 +559,9 @@ describe('space-status API (KV-only)', () => {
       const response = await onRequest(ctx);
       const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(true);
+      expect(body.decisionKnown).toBe(true);
       expect(body.source).toBe('user_license');
-      expect(db.prepare).not.toHaveBeenCalled();
+      expect(db.prepare).toHaveBeenCalledOnce();
     });
 
     it('an expired space-level license also falls through to the paid_rail check (second not-paid exit)', async () => {
@@ -583,6 +607,7 @@ describe('space-status API (KV-only)', () => {
       const response = await onRequest(ctx);
       const body = (await response.json()) as SpaceStatusResponse;
       expect(body.isPaid).toBe(false);
+      expect(body.decisionKnown).toBe(false);
     });
   });
 });

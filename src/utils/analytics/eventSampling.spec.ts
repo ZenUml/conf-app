@@ -9,10 +9,11 @@ import {
 } from "./eventSampling";
 
 describe("eventSampling", () => {
-  beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-01T00:00:00Z")));
+  // Base-rate assertions below describe the rates before the event budget began.
+  beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-15T00:00:00Z")));
   afterEach(() => vi.mocked(Date.now).mockRestore());
 
-  describe("October 2026 event budget", () => {
+  describe("event budget (from October 2026, ongoing)", () => {
     const october = Date.parse("2026-10-12T00:00:00Z");
     const before = Date.parse("2026-09-30T23:59:59.999Z");
     const after = Date.parse("2026-11-01T00:00:00Z");
@@ -25,7 +26,7 @@ describe("eventSampling", () => {
       }
     });
 
-    it("stops the seven named diagnostics only during the UTC budget window", () => {
+    it("stops the seven named diagnostics from October 2026 onward", () => {
       for (const name of [
         "cohorts_refreshed", "copy_for_ai_impression", "editor_global_replace_observed",
         "report_macro_metrics", "snapshot_backfill_skipped", "viewport_control_used",
@@ -33,7 +34,7 @@ describe("eventSampling", () => {
       ]) {
         expect(sampleRateFor(name, october)).toBe(0);
         expect(sampleRateFor(name, before)).toBe(name === "copy_for_ai_impression" || name === "report_macro_metrics" ? 0.1 : 1);
-        expect(sampleRateFor(name, after)).toBe(name === "copy_for_ai_impression" || name === "report_macro_metrics" ? 0.1 : 1);
+        expect(sampleRateFor(name, after)).toBe(0);
       }
     });
 
@@ -72,7 +73,8 @@ describe("eventSampling", () => {
       expect(sampleRateFor("convert_to_png", october)).toBe(0.01);
       expect(sampleRateFor("analytics_dashboard_export", october)).toBe(0.1);
       expect(sampleRateFor("create_attachmentmermaid", october)).toBe(0.01);
-      expect(sampleRateFor("create_attachmentmermaid", after)).toBe(0.1);
+      expect(sampleRateFor("create_attachmentmermaid", before)).toBe(0.1);
+      expect(sampleRateFor("create_attachmentmermaid", after)).toBe(0.01);
       expect(sampleRateFor("new_unregistered_product_event", october)).toBe(1);
     });
 
@@ -97,7 +99,8 @@ describe("eventSampling", () => {
         "whats_new_banner_shown",
       ]) {
         expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(true);
-        expect(sampleRateFor(name, october)).toBeCloseTo(sampleRateFor(name, after) / 10);
+        expect(sampleRateFor(name, october)).toBeCloseTo(sampleRateFor(name, before) / 10);
+        expect(sampleRateFor(name, after)).toBe(sampleRateFor(name, october));
       }
     });
   });
@@ -123,6 +126,13 @@ describe("eventSampling", () => {
       } finally {
         delete EVENT_SAMPLE_RATES[key];
       }
+    });
+
+    it("samples the PNG lifecycle diagnostics but keeps their failure event", () => {
+      const november = Date.parse("2026-11-15T00:00:00Z");
+      expect(sampleRateFor("png_export_state_changed", november)).toBe(0.1);
+      expect(sampleRateFor("png_export_state_persistence_skipped", november)).toBe(0.1);
+      expect(sampleRateFor("png_export_state_persistence_failed", november)).toBe(1);
     });
 
     it("samples the high-volume diagnostics to 10%", () => {

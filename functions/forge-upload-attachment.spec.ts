@@ -259,6 +259,13 @@ describe('forge-upload-attachment', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('answers 403 no_user_credential when the system token is present but the user token is missing', async () => {
+    const res = await onRequest({ request: makeRequest(basePayload, { 'x-forge-oauth-user': '' }), data: FORGE_DATA } as any);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'no_user_credential' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects when there is no verified forge context (apiBaseUrl)', async () => {
     const res = await onRequest({ request: makeRequest(basePayload), data: {} } as any);
     expect((await readJson(res)).status).toBe(401);
@@ -388,7 +395,7 @@ describe('forge-upload-attachment', () => {
         expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/properties'))).toBe(false);
       });
 
-      async function runWithPngState(uploadStatus: number, stateWriteStatus = 200) {
+      async function runWithPngState(uploadStatus: number, stateWriteStatus = 200, stateReadStatus = 200) {
         const attemptId = 'attempt-12345678';
         const start = Date.now() - 1000;
         const property = {
@@ -408,6 +415,7 @@ describe('forge-upload-attachment', () => {
               property.version.number++;
               return Promise.resolve(new Response('{}'));
             }
+            if (stateReadStatus !== 200) return Promise.resolve(new Response('', { status: stateReadStatus }));
             return Promise.resolve(new Response(JSON.stringify({ results: [property] })));
           }
           if (target.includes('/child/attachment/') && init?.method === 'PUT') return Promise.resolve(fetchResponse(200, '{}'));
@@ -452,8 +460,20 @@ describe('forge-upload-attachment', () => {
         const { property, events, ack } = await runWithPngState(200, 500);
         expect(ack).toEqual({ ok: true, queued: true });
         expect(property.value.state).toBe('generating');
-        expect(events.some(e => e.event === 'png_export_state_persistence_failed')).toBe(true);
+        const failed = events.find(e => e.event === 'png_export_state_persistence_failed');
+        expect(failed?.properties).toMatchObject({ png_export_property_operation: 'update', failure_reason: 'put_http_500', http_status: 500 });
         expect(events.some(e => e.event === 'attachment_upload_async_succeeded')).toBe(true);
+      });
+
+      it('reports a page whose properties endpoint 404s for the app as a skip, not a failure', async () => {
+        const { property, events } = await runWithPngState(403, 200, 404);
+        expect(property.value.state).toBe('generating');
+        expect(events.some(e => e.event === 'png_export_state_persistence_failed')).toBe(false);
+        const skipped = events.find(e => e.event === 'png_export_state_persistence_skipped');
+        expect(skipped?.properties).toMatchObject({
+          png_export_property_operation: 'read', failure_reason: 'read_http_404', http_status: 404,
+          png_export_skip_reason: 'page_unavailable', surface: 'backend',
+        });
       });
 
       it('distinguishes a properties-PUT failure', async () => {

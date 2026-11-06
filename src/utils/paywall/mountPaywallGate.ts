@@ -1,8 +1,10 @@
+import { isFullscreenRecoveryEligible } from './fullscreenRecoveryEligibility';
+import { mountFullscreenRecovery, observeOrdinaryFullscreenReady } from './fullscreenRecoveryGate';
 import { setEditJourneyMeta } from '@/utils/journeyTracking';
 import { Component } from 'vue';
 import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
-import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { Diagram } from '@/model/Diagram/Diagram';
 import PaywallGate from '@/components/UpgradePrompt/PaywallGate.vue';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import {
@@ -26,7 +28,6 @@ import {
 import type { Surface } from '@/utils/analytics/catalog';
 import { isBylineModal } from '@/utils/paywall/modalOrigin';
 import {
-  isFullscreenViewerBlocked,
   isPageEditorEditBlocked,
   isPageEditorCreateBlocked,
 } from '@/utils/paywall/preEditGate';
@@ -186,37 +187,24 @@ export async function tryFullscreenViewerPaywall(opts: {
   if (!isFullscreen || isEditor) return false;
 
   const customerSuccess = useCustomerSuccessService();
-  // No variant gate here on purpose: this runs on every fullscreen-viewer
-  // mount regardless of product_type. initialize() itself no-ops the
-  // Lite-only bits internally (persistTargetingMarker checks isLite()); the
-  // paywall block below is separately Lite-scoped via shouldBlockActions.
   await customerSuccess.initialize();
-  const viewerBlocked = isFullscreenViewerBlocked(
-    isFullscreen,
-    isEditor,
-    customerSuccess.shouldBlockActions.value,
-  );
-  trackGateEvaluated(customerSuccess, 'fullscreen_viewer', viewerBlocked);
-  if (!viewerBlocked) {
-    return false;
-  }
-
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_TRIGGERED, {
-    ui_component: UIComponent.MODAL,
-    action_type: 'fullscreen_viewer',
-    ...getUpgradeContext(),
+  const eligible = isFullscreenRecoveryEligible({
+    isLite: globals.apWrapper.isLite(),
+    count: customerSuccess.macrosCreated.value,
+    countSource: customerSuccess.macroCountSource.value,
+    paidKnown: customerSuccess.spacePaidStatusKnown?.value === true,
+    paid: customerSuccess.spacePaid.value,
+    policySource: customerSuccess.paywallPolicySource.value,
+    spaceKey: customerSuccess.spaceKey.value,
   });
-
-  await mountUnderPaywallGate({
-    doc: opts.doc ?? NULL_DIAGRAM,
-    content: opts.content,
-    contentProps: opts.contentProps,
-    macroKind: opts.macroKind,
-    customerSuccess,
-    logTag: 'fullscreen-viewer',
-    actionType: 'fullscreen_viewer',
-  });
-  return true;
+  const recovery = eligible
+    ? await mountFullscreenRecovery({ ...opts, spaceKey: customerSuccess.spaceKey.value!,
+      existingExemption: customerSuccess.paywallPolicySource.value === 'exemption' })
+    : 'disabled';
+  trackGateEvaluated(customerSuccess, 'fullscreen_viewer', recovery === 'handled');
+  if (recovery === 'handled') return true;
+  observeOrdinaryFullscreenReady(recovery === 'unavailable' ? 'fail_open' : 'existing');
+  return false;
 }
 
 /**
@@ -235,9 +223,7 @@ export async function tryPageEditorPaywall(opts: {
   onContinueEditing?: () => void;
 }): Promise<boolean> {
   const customerSuccess = useCustomerSuccessService();
-  // No variant gate here either — same reasoning as tryFullscreenViewerPaywall
-  // above: initialize() runs unconditionally, Lite-only behaviour lives
-  // inside it (persistTargetingMarker) and in shouldBlockActions below.
+  // Initialize every variant; Lite-only editor behavior remains inside the service.
   await customerSuccess.initialize();
   const editBlocked = !!opts.customContentId && isPageEditorEditBlocked(
     opts.customContentId,

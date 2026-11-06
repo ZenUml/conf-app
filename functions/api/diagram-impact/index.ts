@@ -1,7 +1,8 @@
 import { OkResponse, response } from '../../OkResponse';
 import type { ForgeRequestData } from '../../utils/authenticate';
+import { requireForgeUserToken } from '../../utils/forgeUserToken';
 import {
-  DiagramImpactRequestError,
+  diagramImpactFailure,
   getDiagramImpactSummary,
   type DiagramImpactEnv,
 } from '../../diagram-impact/service';
@@ -9,11 +10,6 @@ import {
 const FORBIDDEN_IDENTITY_FIELDS = new Set([
   'cloudId', 'forgeAppId', 'accountId', 'tenant', 'clientDomain', 'pageId', 'spaceKey',
 ]);
-
-function failure(error: unknown): Response {
-  if (error instanceof DiagramImpactRequestError) return response(error.status, error.code);
-  return response(500, 'impact_unavailable');
-}
 
 export const onRequest = async ({
   request,
@@ -29,14 +25,16 @@ export const onRequest = async ({
   if ([...url.searchParams.keys()].some((key) => FORBIDDEN_IDENTITY_FIELDS.has(key))) {
     return response(400, 'invalid_request');
   }
+  const forgeOAuthUser = requireForgeUserToken(request);
+  if (forgeOAuthUser instanceof Response) return forgeOAuthUser;
   try {
     return OkResponse(await getDiagramImpactSummary({
       env,
       data,
-      forgeOAuthUser: request.headers.get('x-forge-oauth-user'),
+      forgeOAuthUser,
       customContentId: url.searchParams.get('customContentId'),
     }));
   } catch (error) {
-    return failure(error);
+    return diagramImpactFailure(error);
   }
 };

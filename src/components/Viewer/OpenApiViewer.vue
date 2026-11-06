@@ -8,6 +8,7 @@
 </template>
 
 <script>
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import SwaggerUIBundle from 'swagger-ui';
 import "swagger-ui/dist/swagger-ui.css";
@@ -125,6 +126,18 @@ export default {
           dom_id: '#swagger-ui',
           presets: [SwaggerUIBundle.presets.apis],
           plugins: [SwaggerUIBundle.plugins.DownloadUrl, SpecListener],
+          onComplete: () => {
+            const doc = this.effectiveDoc;
+            const code = doc?.value?.code || doc?.code;
+            const parsed = window.ui?.specSelectors?.specJson?.();
+            // onComplete follows Swagger's updateJsonSpec, not merely content fetch.
+            if (!this.loadError && code?.trim()
+              && window.ui?.specSelectors?.specStr?.() === code
+              && (parsed?.get?.('openapi') || parsed?.get?.('swagger'))
+              && window.ui?.errSelectors?.allErrors?.().size === 0) {
+              reportDiagramReady(this.$refs.swaggerUi, 'openapi');
+            }
+          },
         });
         window.ui = ui;
       } catch (e) {

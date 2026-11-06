@@ -81,14 +81,15 @@ export async function forgeRequest(url: string, method: string = 'GET', data: an
   // ForgeRequestError carrying the status instead of a bare SyntaxError.
   const text = await response.text();
   const contentType = response.headers.get('content-type') ?? '';
+  const retryAfter = response.headers.get('retry-after');
   let parsed: any;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text });
+    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text, retryAfter });
   }
   if (options.throwOnHttpError && !response.ok) {
-    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text, nonJson: false });
+    throw new ForgeRequestError({ status: response.status, method, url, contentType, body: text, nonJson: false, retryAfter });
   }
   return parsed;
 }
@@ -126,7 +127,9 @@ export async function callRemote(
   const response = await forgeCallRemote(url, method, data);
   if (response.status !== 200 && response.status !== 201) {
     const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body);
-    throw new Error(`HTTP ${response.status}: ${body || 'No body'}`);
+    throw Object.assign(new Error(`HTTP ${response.status}: ${body || 'No body'}`), {
+      status: response.status,
+    });
   }
 
   return response.body;

@@ -40,6 +40,37 @@ export type MagicFailureReason =
   | "render_failed"
   | "source_changed";
 
+/**
+ * Where a failed DOM-to-PNG capture stopped (#1061). Carried as
+ * `capture_failure_stage` on the legacy `convert_to_png` events with
+ * `event_label` `toPng_failed` and `toPng_timeout`. Both keep their name and
+ * label, so existing dashboards still count them.
+ *
+ *   external_icons  the Graph icon proxy did not finish or failed
+ *   dom_to_svg      html-to-image could not serialise the node
+ *   inline_images   an `<image>` in the capture SVG could not be embedded
+ *   svg_load        the capture SVG would not load as an image
+ *   canvas          2d canvas unavailable
+ *   unknown         the failure carried no stage (any other rejection)
+ *
+ * Properties added to those two events (all bounded, none carry diagram text):
+ *   capture_failure_stage  one of the values above
+ *   capture_error          short text, URLs removed, at most 120 characters
+ *   macro_type             MacroTypeValue of the diagram; `none` when unknown
+ *   capture_node_width     capture node width in CSS px, when a node exists
+ *   capture_node_height    capture node height in CSS px, when a node exists
+ *   document_visibility    `document.visibilityState` at failure time
+ * A timeout never settled, so it has no stage: `capture_failure_stage` is
+ * `unknown` and the other fields are still sent.
+ */
+export type CaptureFailureStage =
+  | "external_icons"
+  | "dom_to_svg"
+  | "inline_images"
+  | "svg_load"
+  | "canvas"
+  | "unknown";
+
 export type MacroTypeValue =
   | "sequence"
   | "mermaid"
@@ -237,6 +268,45 @@ export type ContentState = "default" | "authored" | "empty";
 // `cc_body` = SVG co-stored in the custom-content body (Phase 2);
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
 export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
+
+// Which engine drew a PlantUML diagram (ADR-0010). `server` = the public
+// www.plantuml.com server, which receives the diagram source; `local` = the
+// @plantuml/core engine in the viewer's own browser, which sends nothing;
+// `server_fallback` = the local engine was chosen but could not draw this
+// diagram, so the server drew it and received the source after all.
+// Rides on macro_viewed for macro_type=plantuml only; absent elsewhere.
+export type PlantUmlRenderer = "server" | "local" | "server_fallback";
+
+// Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
+// is NOT a failure: the engine draws it like the server did, and the existing
+// syntax-error path reports it.
+//   load_failed  — the engine chunk did not load (network, CSP)
+//   include      — an !include / stdlib library the engine could not resolve
+//   engine_error — the engine crashed or called its error callback, or the
+//                  source holds several complete diagrams, which the server
+//                  merges and the engine cannot
+export type PlantUmlLocalFailureReason = "load_failed" | "include" | "engine_error";
+
+// For a `include` failure (ADR-0010): what kind of include the engine could not
+// resolve. `stdlib` = a `<lib/...>` library we do not host yet; `url` = an
+// `!include https://...` (the engine has no network access); `local` = a file
+// path. Never carries the library name, URL or path.
+export type PlantUmlUnresolvedInclude = "stdlib" | "url" | "local";
+
+// ADR-0010 step 6: what a PlantUML PNG raster was made for.
+//   backup         — the silent `zenuml-<id>.png` attachment PDF/Word export reads
+//   export         — the interactive Export PNG download / clipboard copy
+//   export_preview — the Export PNG dialog's preview of that same raster
+export type PlantUmlPngPurpose = "backup" | "export" | "export_preview";
+
+// ADR-0010 step 6: why no PlantUML PNG raster came back.
+//   raster_failed       — the local SVG drew but could not be rasterised on a
+//                         canvas (decode, canvas or encode failure). The server
+//                         is NOT asked instead: the viewer drew this diagram
+//                         locally, so its source must not leave the browser now.
+//   server_no_png       — plantuml.com answered without an image/png body
+//   server_fetch_failed — the plantuml.com request itself threw (network, CORS)
+export type PlantUmlPngFailure = "raster_failed" | "server_no_png" | "server_fetch_failed";
 
 // Where the diagram CONTENT (the macro's doc) came from on this render — distinct
 // from cache_source, which is about the rendered SVG.
@@ -450,6 +520,25 @@ export type AnalyticsEventName =
   // was present and only the first was kept, because the macro renders a single
   // diagram and merging them silently produced a picture the author never wrote.
   | "plantuml_paste_normalized"
+  // ADR-0010: the in-browser PlantUML engine could not draw a body it was
+  // asked to draw, and the viewer fell back to the plantuml.com server.
+  // `plantuml_failure_reason` says why; `surface` says viewer or editor.
+  // Never carries the source. Read against macro_viewed with
+  // plantuml_renderer=local vs server_fallback before widening the rollout.
+  // For reason=include, `plantuml_unresolved_include` says which kind of
+  // include still needs the server (stdlib / url / local).
+  | "plantuml_local_render_failed"
+  // ADR-0010 step 6: a PlantUML PNG raster was produced (`_produced`) or not
+  // (`_failed`). `plantuml_png_source` says who drew it, reusing the
+  // PlantUmlRenderer values: `local` = rasterised from the in-browser engine's
+  // SVG, nothing sent; `server` / `server_fallback` = fetched from
+  // plantuml.com/plantuml/png, which received the source. `plantuml_png_purpose`
+  // says what for (backup / export / export_preview). `_produced` carries
+  // `plantuml_png_upscaled` for a backup raised toward the PDF target width;
+  // `_failed` carries `plantuml_png_failure`. A `server_fallback` event also
+  // carries the engine's `plantuml_failure_reason`. Never carries the source.
+  | "plantuml_png_produced"
+  | "plantuml_png_failed"
   // Fires the instant the editor begins its redirect after a Publish/Save —
   // i.e. immediately before view.submit() / view.close(). Carries
   // `publish_duration_ms`, the user-perceived click→redirect latency. This is a
@@ -519,6 +608,10 @@ export type AnalyticsEventName =
   // Persisted PNG lifecycle changes and best-effort property failures.
   | "png_export_state_changed"
   | "png_export_state_persistence_failed"
+  // An expected, benign non-write: the page's properties endpoint 404s for
+  // this identity (unpublished draft, deleted page, or a page the app cannot
+  // see). Kept apart from _failed so that event means a real fault.
+  | "png_export_state_persistence_skipped"
   // Export PNG dialog (ExportModal.vue): richer overlay-annotated PNG export
   // (background + note/arrow/callout/watermark overlays), tracked separately
   // from the generic macro_export_* triple above (unused by any call site as
@@ -555,6 +648,9 @@ export type AnalyticsEventName =
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
+  // A Graph with one short label takes that label as its title on request. The
+  // model is not called, so no ai_title_generation_* event fires.
+  | "ai_title_label_used"
   // AI entry-point impressions. Fire on each hidden -> visible transition of
   // the editor button (not on component re-renders), with macro_type so the
   // denominator can be compared directly with the existing click/request
@@ -773,9 +869,38 @@ export type AnalyticsEventName =
   // A Board macro whose independent document is missing, empty or malformed.
   // GenericViewer's load_failed_shown cannot separate this from a 404.
   | "graph_board_document_invalid"
+  // Graph macro whose diagram uses icons from icons.diagrams.net. Forge's CSP
+  // refuses that host, so the viewer asks our backend for the icons as data
+  // URLs. Fires only for diagrams that have such icons. requested: the backend
+  // call starts (`external_icon_count`). succeeded: every icon was applied
+  // (`icon_resolved_count`, `duration_ms`). failed: at least one icon is missing
+  // (`error_code`: timeout, http_<status>, request_failed, bad_response,
+  // none_resolved, apply_failed, partial; partial also carries
+  // `icon_resolved_count`; none_resolved and partial carry the backend's
+  // `upstream_error_code`). A failed diagram still renders, without the
+  // missing icons, and PNG capture of it is refused. `surface` is `viewer` or
+  // `editor`; in the editor the load waits a bounded time for the call, then
+  // opens without the missing icons, and nothing gates capture.
+  | "graph_icon_proxy_requested"
+  | "graph_icon_proxy_succeeded"
+  | "graph_icon_proxy_failed"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // Contact recovery: intent, durable request, successful view and support outcomes
+  // stay separate. Never put email addresses or free-form customer text in events.
+  | "fullscreen_recovery_gate_shown"
+  | "fullscreen_recovery_action_selected"
+  | "fullscreen_recovery_request_submitted"
+  | "fullscreen_recovery_request_completed"
+  | "fullscreen_recovery_request_failed"
+  | "fullscreen_view_ready"
+  | "fullscreen_recovery_activation_completed"
+  | "fullscreen_recovery_activation_failed"
+  | "fullscreen_recovery_mail_status_changed"
+  | "fullscreen_recovery_support_outcome_recorded"
+  | "fullscreen_recovery_manual_extension_completed"
+  | "fullscreen_recovery_manual_extension_failed"
   // Diagram viewport (pan/zoom) controls in fullscreen, normal viewer, and editor
   // preview. `macro_type` says which renderer was being zoomed, `viewport_input`
   // which control did it.
@@ -1279,6 +1404,20 @@ export type AnalyticsEventName =
   // performs: not-current -> this skip; `current` -> a real failure labelled
   // `app_no_access` (the app cannot see the page — #211), never a skip.
   | "attachment_upload_async_skipped"
+  // Confluence rate-limited the PNG attachment write: a 429 on the attachments
+  // GET, the data POST or the properties PUT. Production 2026-10-22/23 showed
+  // these as the whole non-JSON `attachment_upload_failed` bucket (an HTML
+  // "HTTP Status 429 – Too Many Requests" page on the attachments GET), mostly
+  // from one site whose page views each fire a backfill. The write is deferred
+  // (the next view after the cooldown retries), not failed, and starts a
+  // per-site cooldown. Properties: page_id, custom_content_id,
+  // attachment_name, http_status, failed_request, retry_after_source,
+  // retry_after_s, cooldown_ms.
+  | "attachment_upload_rate_limited"
+  // A view-time backfill skipped without sending any request because this
+  // site's rate-limit cooldown is still running. Properties: page_id,
+  // custom_content_id, cooldown_remaining_ms.
+  | "attachment_upload_deferred"
   // Daily macro-count inventory snapshots. These are emitted by the
   // Cloudflare snapshot service, not by the browser tracker. Registering them
   // here keeps the shared analytics vocabulary explicit before the scheduled
@@ -1520,6 +1659,16 @@ export type AnalyticsEventName =
   // Cursor, …). Tool arguments and results are never sent.
   | "agent_link_mcp_tool_called"
   | "agent_link_mcp_initialized"
+  // The public render endpoint (POST /mcp/render, no sign-in) reuses
+  // the AA pair and the MCP Apps view pair (`agent_link_app_view_*`) rather
+  // than adding events: every one of them carries `mcp_mode: 'render'`.
+  // `_tool_called` for render_diagram also carries `macro_type` and
+  // `render_validation`, so how often agents send source that does not parse
+  // is readable per type, and `render_type_source` (given | detected), since
+  // `diagramType` is optional and inferred from the source when omitted. No user or site exists on this path. A call refused
+  // by the per-address limit is `mcp_tool_outcome: 'rate_limited'`; when the
+  // limiter could not decide (D1 missing or failing) and let the call through,
+  // `reason: 'rate_limit_unavailable'` rides the successful call.
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1625,7 +1774,43 @@ export type AnalyticsEventName =
   // action already covered by `advocacy_message_copied`).
   | "request_full_guide_shown"
   | "request_full_reason_copied"
-  | "request_full_atlassian_clicked";
+  | "request_full_atlassian_clicked"
+  // "Diagram locations" (conf-app#848): the screen behind "View diagram
+  // locations" on the Plan and usage page. It lists the site's stored
+  // diagrams with the page each one was created on (its owning page), read
+  // as the viewer so Confluence applies their permissions. Macro placements
+  // that embed a diagram stored on another page are not enumerated, so every
+  // count on these events is a count of stored diagrams, never of placements.
+  // `plan_usage_locations_shown` fires when the screen opens (`space_count` =
+  // spaces with a reported count, `macro_count` = the reported site total).
+  // `plan_usage_locations_loaded` fires per fetched batch (`page_index` 0 =
+  // the first), with `load_outcome`, `listed_count`, `hidden_count` (records
+  // whose page the viewer cannot read — omitted from the UI, counted here),
+  // `has_more` and `duration_ms`. `plan_usage_locations_load_failed` fires
+  // instead when a batch threw or Confluence answered a non-2xx the viewer
+  // cannot act on (`http_status`).
+  // `plan_usage_locations_filtered` fires on each search, space / type filter,
+  // clear, page or page-size change (`locations_filter`), with `listed_count`
+  // = matching rows after the change.
+  // `plan_usage_locations_page_clicked` fires when "Open page" opens a row's
+  // owning page (`macro_type` = the diagram on that row).
+  | "plan_usage_locations_shown"
+  | "plan_usage_locations_loaded"
+  | "plan_usage_locations_load_failed"
+  | "plan_usage_locations_filtered"
+  | "plan_usage_locations_page_clicked";
+
+/**
+ * How one Diagram-locations batch resolved. `ok` listed at least one row;
+ * `empty` found no stored diagram the viewer can list in that space;
+ * `forbidden` means Confluence refused the space or its custom content for
+ * this viewer (403 / 404), which is an answer, not a failure. Failures carry
+ * `failed` on plan_usage_locations_load_failed.
+ */
+export type DiagramLocationsLoadOutcome = "ok" | "empty" | "forbidden" | "failed";
+
+/** Which control changed the Diagram-locations result set. */
+export type DiagramLocationsFilter = "search" | "space" | "type" | "clear" | "page" | "page_size";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the
@@ -1763,16 +1948,33 @@ export type AgentLinkMcpButtonReveal = "always" | "hover";
 
 // How a Connect MCP dialog connects the agent: 'headless' = the agent signs
 // in with OAuth and edits through Confluence directly (the only mode offered
-// in the first release); 'relay' = a macro-minted session over the live relay.
-export type AgentLinkMcpMode = "headless" | "relay";
+// in the first release); 'relay' = a macro-minted session over the live relay;
+// 'render' = the public render-only endpoint (POST /mcp/render), which
+// needs no sign-in and no Atlassian site. Its events carry no user id, so they
+// all share Mixpanel's unknown_user_account_id; split them by `mcp_mode`.
+export type AgentLinkMcpMode = "headless" | "relay" | "render";
+
+// Whether render_diagram's source parsed (agent_link_mcp_tool_called with
+// `mcp_mode: 'render'`). 'valid' = the dialect's parser accepted it;
+// 'invalid' = it reported errors, which go back to the agent beside the
+// diagram; 'unvalidated' = a type with no parser here (Graph).
+export type AgentLinkRenderValidation = "valid" | "invalid" | "unvalidated";
+
+// Where render_diagram's diagram type came from: 'given' = the agent passed
+// `diagramType`; 'detected' = it left it out and the server inferred it from
+// the source. 'detected' with render_validation 'invalid' is the case worth
+// watching: it can mean detection picked the wrong language.
+export type AgentLinkRenderTypeSource = "given" | "detected";
 
 // How one headless `tools/call` ended (agent_link_mcp_tool_called).
 // 'success' = the tool returned a result; 'tool_error' = the tool refused with
 // a HeadlessToolError (its code rides `reason`); 'scope_denied' = the token
 // lacks the diagram.read / diagram.write scope the tool needs;
 // 'unknown_tool' = no such tool (`mcp_tool` is then 'unknown', never the
-// client's string); 'exception' = an unexpected throw (a 500).
-export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception";
+// client's string); 'exception' = an unexpected throw (a 500);
+// 'rate_limited' = the public render endpoint (`mcp_mode: 'render'`) refused
+// the call because its caller's address passed the per-minute limit.
+export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" | "unknown_tool" | "exception" | "rate_limited";
 
 // Which branch of the §9.1 Lite paywall gate decided a headless create.
 // 'paid' = a live space or user licence, or a non-Lite variant, so the limit

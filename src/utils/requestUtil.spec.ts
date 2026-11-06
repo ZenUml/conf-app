@@ -1,11 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { forgeRequest, loadPaginatedDataUntil } from './requestUtil';
+import { callRemote, forgeRequest, loadPaginatedDataUntil } from './requestUtil';
 import { ForgeRequestError, templateUrl } from './forgeRequestError';
 
 const mockRequestConfluence = vi.fn();
+const mockInvokeRemote = vi.fn();
 vi.mock('@forge/bridge', () => ({
   requestConfluence: (...args: any[]) => mockRequestConfluence(...args),
+  invokeRemote: (...args: any[]) => mockInvokeRemote(...args),
 }));
+
+describe('callRemote', () => {
+  it('preserves a real denial status for attachment failure classification', async () => {
+    mockInvokeRemote.mockResolvedValue({ status: 403, body: { error: 'no_user_credential' } });
+    await expect(callRemote('/forge-upload-attachment', 'POST', {})).rejects.toMatchObject({
+      status: 403,
+      message: 'HTTP 403: {"error":"no_user_credential"}',
+    });
+  });
+});
 
 describe('loadPaginatedDataUntil', () => {
   const pages: Record<string, any> = {
@@ -73,6 +85,16 @@ describe('forgeRequest', () => {
     });
     expect(error.bodyPrefix.startsWith('<!doctype html> <html>')).toBe(true);
     expect(error.message).toContain('HTTP 503');
+  });
+
+  it('keeps the Retry-After header of a 429 page, and none when absent', async () => {
+    mockRequestConfluence.mockResolvedValueOnce(new Response('<html><title>HTTP Status 429 – Too Many Requests</title></html>', {
+      status: 429, headers: { 'content-type': 'text/html;charset=utf-8', 'retry-after': '30' },
+    }));
+    expect(await forgeRequest('/wiki/api/v2/pages/1/attachments').catch(e => e)).toMatchObject({ status: 429, retryAfter: '30' });
+
+    mockRequestConfluence.mockResolvedValueOnce(new Response('<html></html>', { status: 429 }));
+    expect((await forgeRequest('/wiki/api/v2/pages/1/attachments').catch(e => e)).retryAfter).toBeUndefined();
   });
 
   it('throws ForgeRequestError for an empty body, keeping the method', async () => {

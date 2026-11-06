@@ -7,6 +7,7 @@ import { mixpanelTrack } from '../../service/mixpanelService';
 import { createRefreshLedger } from './refreshLedger';
 import { issuerFor } from './asMetadata';
 import type { D1Database } from '@cloudflare/workers-types';
+import { json } from '../../OkResponse';
 
 interface Env extends OAuthEnv {
   MIXPANEL_TOKEN?: string;
@@ -25,7 +26,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, waitUnti
         }, env.MIXPANEL_TOKEN, env).catch(() => undefined));
       }
     } catch { /* malformed body cannot contain a trustworthy grant type */ }
-    return new Response(JSON.stringify({ error: 'temporarily_unavailable' }), {
+    return json({ error: 'temporarily_unavailable' }, {
       status: 503, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
     });
   }

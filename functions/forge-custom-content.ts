@@ -4,6 +4,7 @@ import { upsertAtlassianInstance } from "./utils/dbUtils";
 import { captureError } from "./utils/sentry";
 import { indexDiagramOnSave } from "./architecture-tokens/indexOnSave";
 import type { ForgeRequestData } from "./utils/authenticate";
+import { requireForgeUserToken } from "./utils/forgeUserToken";
 
 export interface Env {
   DB: D1Database;
@@ -23,10 +24,8 @@ export const onRequest = async ({
   data: ForgeRequestData;
 }) => {
   // Input validation — return parseable 4xx JSON, never throw into a generic 500.
-  const forgeOAuthUser = request.headers.get('x-forge-oauth-user');
-  if (!forgeOAuthUser) {
-    return response(400, 'Missing x-forge-oauth-user header - not a valid Forge request');
-  }
+  const forgeOAuthUser = requireForgeUserToken(request);
+  if (forgeOAuthUser instanceof Response) return forgeOAuthUser;
 
   let body: any;
   try {

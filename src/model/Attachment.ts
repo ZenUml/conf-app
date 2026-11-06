@@ -9,7 +9,9 @@ import type { Attachment } from '@/model/ConfluenceTypes';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import { writePngState } from '@/lib/pngExportState.js';
+import type { Surface } from '@/utils/analytics/catalog';
+import { describePngStateFailure, writePngState } from '@/lib/pngExportState.js';
+import { rateLimitCooldownRemainingMs, startRateLimitCooldown } from '@/utils/attachment/rateLimitCooldown';
 import { capturePng, blobToBase64 } from '@/model/attachment/capturePng';
 import {
   AttachmentUploadHttpError,
@@ -34,11 +36,14 @@ async function recordPngState(
 ): Promise<void> {
   try {
   const { requestConfluence } = await import('@forge/bridge');
+  // Full reason (`post_http_409`, `property_timeout`) plus `http_status`, the
+  // same vocabulary as the backend surfaces. A 404 page is a skip, not a fault.
   const reportFailure = (operation: 'read' | 'create' | 'update', error: unknown) => {
-    trackAnalyticsEvent('png_export_state_persistence_failed', {
+    const { outcome, ...failure } = describePngStateFailure(operation, error);
+    trackAnalyticsEvent(outcome === 'skipped' ? 'png_export_state_persistence_skipped' : 'png_export_state_persistence_failed', {
       feature_area: 'macro', surface, page_id: pageId,
       custom_content_id: customContentId, png_export_property_operation: operation,
-      failure_reason: error instanceof Error ? error.message.split('_')[0] : 'unknown',
+      ...failure,
     });
   };
   const ok = await writePngState(
@@ -46,7 +51,12 @@ async function recordPngState(
       method: method as 'GET' | 'POST' | 'PUT',
       ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
     }),
-    { pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt },
+    {
+      pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, startAttempt,
+      // The editor's save blocks on this write under a 6s cap that must also
+      // cover the PNG capture, so it gets no conflict-retry time beyond one request.
+      ...(surface === 'editor' ? { deadlineMs: 1500 } : {}),
+    },
     reportFailure,
   );
   if (ok) trackAnalyticsEvent('png_export_state_changed', {
@@ -284,8 +294,9 @@ async function renderAttachmentPng(
   hash: string,
   content?: string,
   diagramType?: string,
+  surface: Surface = 'viewer',
 ): Promise<{ blob: Blob; effectiveHash: string }> {
-  let blob = await capturePng(diagramType, content);
+  let blob = await capturePng(diagramType, content, surface);
   if (blob && content !== undefined && diagramType) {
     try {
       const { injectDiagramSource } = await import('@/utils/pngMetadata');
@@ -525,7 +536,7 @@ async function uploadAttachmentViaApp(
   } catch (e) {
     // callRemote throws on a non-2xx transport response (e.g. the function
     // itself 500'd); normalise so the failure is labelled consistently.
-    throw new AttachmentUploadHttpError(0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
+    throw new AttachmentUploadHttpError(extractHttpStatus(e) ?? 0, `app fallback transport error: ${(e as Error)?.message ?? e}`);
   }
   const result: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
   if (!result?.ok) {
@@ -658,6 +669,22 @@ async function createAttachmentIfContentChanged(
     return;
   }
 
+  // A recent 429 on this site means Confluence is rate-limiting this user's
+  // requests; a view-time backfill now would only add to them. Defer it: the
+  // first view after the cooldown retries. The save-time write is a single
+  // user action, so it always tries.
+  const rateLimitSite = getCloudId() ?? 'unknown';
+  const cooldownRemainingMs = opts?.fromSave ? 0 : rateLimitCooldownRemainingMs(rateLimitSite);
+  if (cooldownRemainingMs > 0) {
+    trackAnalyticsEvent('attachment_upload_deferred', {
+      feature_area: 'macro', surface: 'viewer',
+      page_id: ctx.page_id, custom_content_id: macroCustomContentId,
+      attachment_name: ctx.attachment_name,
+      cooldown_remaining_ms: cooldownRemainingMs,
+    });
+    return;
+  }
+
   window.createAttachmentInProgress = true;
 
   // Set once the user-side write 401/403s and the app-authenticated fallback is
@@ -705,7 +732,8 @@ async function createAttachmentIfContentChanged(
 
       // Render once — the same PNG bytes feed the user attempt AND the fallback.
       const captureStartedAt = performance.now();
-      const { blob, effectiveHash } = await renderAttachmentPng(hash, content, diagramType);
+      const { blob, effectiveHash } = await renderAttachmentPng(
+        hash, content, diagramType, opts?.fromSave ? 'editor' : 'viewer');
       pngCaptureCompleted = true;
       // Publish timing: only the save-time capture is on the publish path (a
       // view-time backfill is not), and only a produced PNG is timed — a failed
@@ -832,6 +860,30 @@ async function createAttachmentIfContentChanged(
   } catch (e: any) {
     const httpStatus = extractHttpStatus(e);
     const viaAppFallback = fallbackFromStatus !== undefined;
+    // 429: Confluence is rate-limiting this user. The write did not fail, it
+    // was refused for now, and the next view after the cooldown retries it.
+    // Start the site-wide cooldown so the other macros' backfills stand down
+    // too, and record it as its own outcome rather than a failure.
+    if (httpStatus === 429) {
+      const cooldown = startRateLimitCooldown(
+        rateLimitSite,
+        e instanceof ForgeRequestError ? e.retryAfter : undefined,
+      );
+      if (pngAttemptStarted) await recordPngState(attachmentPageId, macroCustomContentId,
+        'upload_failed', pngAttemptId, pngStartedAt, hash, undefined, opts?.fromSave ? 'editor' : 'viewer');
+      trackAnalyticsEvent('attachment_upload_rate_limited', {
+        feature_area: 'macro', surface: opts?.fromSave ? 'editor' : 'viewer',
+        page_id: ctx.page_id, custom_content_id: macroCustomContentId,
+        attachment_name: ctx.attachment_name,
+        http_status: 429,
+        failed_request: e instanceof ForgeRequestError ? e.endpoint
+          : e instanceof AttachmentUploadHttpError ? 'POST attachment data' : 'unknown',
+        retry_after_source: cooldown.source,
+        ...(cooldown.retryAfterS !== undefined ? { retry_after_s: cooldown.retryAfterS } : {}),
+        cooldown_ms: cooldown.cooldownMs,
+      });
+      return;
+    }
     // A 404 on the attachment POST means the parent page is not (yet) an
     // addressable published v1 content: it's an unpublished/draft/uncommitted
     // page. This reaches us in three shapes, all of which are the SAME benign

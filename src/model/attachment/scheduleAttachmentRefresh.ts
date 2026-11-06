@@ -9,6 +9,9 @@ import { trackEvent, serializeError } from '@/utils/window';
  * `getContent` is evaluated when the timer fires, not when this is called.
  * A caller that must snapshot the content earlier passes `() => captured`.
  *
+ * `readyToCapture` runs just before the upload; resolving false skips this
+ * attempt (it does the reporting itself). The graph viewer waits for MathJax.
+ *
  * Error reports use event `create_attachment` with a `diagram_type` property.
  * Cut-over 2026-10-23: before it, forgeIndex reported
  * `create_attachment<diagramType>` (no separator, e.g. `create_attachmentsequence`);
@@ -18,6 +21,7 @@ export function scheduleAttachmentRefresh(
   getContent: () => string,
   diagramType: string,
   delayMs = 1500,
+  readyToCapture?: () => Promise<boolean>,
 ): void {
   setTimeout(async () => {
     try {
@@ -29,6 +33,7 @@ export function scheduleAttachmentRefresh(
       if (globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
         // Loaded on demand: forgeIndex used to import Attachment lazily to
         // keep it out of the main chunk.
+        if (readyToCapture && !(await readyToCapture())) return;
         const { default: createAttachmentIfContentChanged } = await import('@/model/Attachment');
         await createAttachmentIfContentChanged(getContent(), diagramType);
       } else {

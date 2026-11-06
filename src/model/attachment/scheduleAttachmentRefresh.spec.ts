@@ -61,6 +61,20 @@ describe('scheduleAttachmentRefresh', () => {
     expect(h.upload).toHaveBeenCalledTimes(1);
   });
 
+  it('skips the upload when readyToCapture resolves false', async () => {
+    const ready = vi.fn().mockResolvedValue(false);
+    scheduleAttachmentRefresh(() => 'a', 'graph', undefined, ready);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(h.upload).not.toHaveBeenCalled();
+  });
+
+  it('uploads when readyToCapture resolves true', async () => {
+    scheduleAttachmentRefresh(() => 'a', 'graph', undefined, async () => true);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(h.upload).toHaveBeenCalledWith('a', 'graph');
+  });
+
   it('does not upload outside display mode', async () => {
     h.isDisplayMode.mockReturnValue(false);
     scheduleAttachmentRefresh(() => 'a', 'sequence');

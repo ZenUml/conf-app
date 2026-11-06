@@ -13,7 +13,7 @@ import {
   reportLegacyContentPropertyValueUnexpected,
 } from '@/utils/legacyContentPropertyTelemetry';
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
-import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { ensureDrawioViewerLoaded, whenDrawioMathSettled } from '@/utils/drawio/loadDrawioViewer';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { guardEditClick } from '@/utils/guardEditClick';
@@ -164,7 +164,15 @@ function afterLoad(doc: Diagram | undefined) {
     }
   }
 
-  scheduleAttachmentRefresh(() => graphXml ?? '', 'graph');
+  scheduleAttachmentRefresh(() => graphXml ?? '', 'graph', undefined,
+    // A PNG with blank labels would stay: the content hash stops a later
+    // upload. Skipping leaves the hash unset, so a later view tries again.
+    async () => {
+      if (await whenDrawioMathSettled()) return true;
+      trackEvent('graph_math_not_ready', 'create_attachment', 'warning');
+      return false;
+    },
+  );
 }
 
 async function initializeMacro() {

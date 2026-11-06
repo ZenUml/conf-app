@@ -34,7 +34,7 @@ function typecheck(cwd) {
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (out += d));
     child.on('error', fail);
-    child.on('close', () => done(out));
+    child.on('close', (code) => done({ out, code }));
   });
 }
 
@@ -66,6 +66,40 @@ export function newErrors(base, head) {
   return added.sort();
 }
 
+/**
+ * Decide the ratchet outcome from the tsc runs ({ out, code }) of head and base.
+ * Head is unparseable whenever its tsc exits non-zero but yields zero parseable
+ * error lines (missing tsconfig, TS18003, TS5083, ...): a count of 0 must not
+ * read as "improved" in that case, whatever base reports.
+ */
+export function evaluate(headRun, baseRun) {
+  const head = parseErrors(headRun.out);
+  const base = parseErrors(baseRun.out);
+  const summary = (sha) => `functions/ type errors: base ${total(base)} (${String(sha).slice(0, 8)}), head ${total(head)}`;
+  const headUnparseable = headRun.code !== 0 && total(head) === 0;
+  const bothUnparseable = total(head) === 0 && total(base) === 0 && /error|Cannot find/i.test(headRun.out + baseRun.out);
+  if (headUnparseable || bothUnparseable) {
+    return {
+      exitCode: 2,
+      summary,
+      lines: ['tsc produced output with no parseable TS errors; refusing to pass:\n' + (headRun.out || baseRun.out)],
+    };
+  }
+  if (total(head) > total(base)) {
+    const added = newErrors(base, head);
+    return {
+      exitCode: 1,
+      summary,
+      lines: [
+        `\nHead has ${total(head) - total(base)} more error(s) than base. Errors not matched in base (${added.length}):`,
+        ...added.map((e) => `  ${e}`),
+        '\nFix them, or lower the count elsewhere in this PR. Run: pnpm typecheck:functions',
+      ],
+    };
+  }
+  return { exitCode: 0, summary, lines: ['OK: no new type errors in functions/.'] };
+}
+
 async function main() {
   const baseSha = resolveBase();
   const tmp = mkdtempSync(join(tmpdir(), 'functions-tc-base-'));
@@ -77,24 +111,11 @@ async function main() {
     if (!existsSync(join(baseDir, 'functions', 'tsconfig.json'))) {
       copyFileSync(join(root, 'functions', 'tsconfig.json'), join(baseDir, 'functions', 'tsconfig.json'));
     }
-    const [headOut, baseOut] = await Promise.all([typecheck(root), typecheck(baseDir)]);
-    const head = parseErrors(headOut);
-    const base = parseErrors(baseOut);
-    if (total(head) === 0 && total(base) === 0 && /error|Cannot find/i.test(headOut + baseOut)) {
-      console.error('tsc produced output with no parseable TS errors; refusing to pass:\n' + (headOut || baseOut));
-      process.exitCode = 2;
-      return;
-    }
-    console.log(`functions/ type errors: base ${total(base)} (${baseSha.slice(0, 8)}), head ${total(head)}`);
-    const added = newErrors(base, head);
-    if (total(head) > total(base)) {
-      console.error(`\nHead has ${total(head) - total(base)} more error(s) than base. Errors not matched in base (${added.length}):`);
-      for (const e of added) console.error(`  ${e}`);
-      console.error('\nFix them, or lower the count elsewhere in this PR. Run: pnpm typecheck:functions');
-      process.exitCode = 1;
-      return;
-    }
-    console.log('OK: no new type errors in functions/.');
+    const [headRun, baseRun] = await Promise.all([typecheck(root), typecheck(baseDir)]);
+    const result = evaluate(headRun, baseRun);
+    console.log(result.summary(baseSha));
+    for (const line of result.lines) (result.exitCode === 0 ? console.log : console.error)(line);
+    process.exitCode = result.exitCode;
   } finally {
     try { git('worktree', 'remove', '--force', baseDir); } catch { /* best effort */ }
     rmSync(tmp, { recursive: true, force: true });

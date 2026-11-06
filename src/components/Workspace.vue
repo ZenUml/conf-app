@@ -45,11 +45,43 @@
             <div class="code-pane-scroll flex-grow overflow-auto" style="min-height: 0;">
               <editor/>
             </div>
+            <!-- MCP promo, editor tip (useEditorMcpPromo): docked under the
+                 code after sustained manual typing. -->
+            <div v-if="mcpShowTip && !showAIChat" class="editor-mcp-tip-dock">
+              <McpPromoCard
+                variant="tip"
+                title="Skip the typing — let Claude or Cursor write this diagram from your code."
+                cta-label="Connect MCP Server"
+                @cta="mcpOnCta('editor_tip')"
+                @dismiss="mcpOnDismiss('editor_tip')"
+              />
+            </div>
           </div>
           <div id="workspace-right" class="diagram min-w-0 overflow-auto" style="overflow: auto;">
             <DiagramPortal :hide-header="true" />
           </div>
         </div>
+        <!-- MCP promo, new diagram (useEditorMcpPromo): over the preview
+             while the starter code is untouched. -->
+        <McpPromoCard
+          v-if="mcpShowNewDiagramCard && !showAIChat"
+          class="editor-mcp-new-card"
+          title="Start from your code"
+          body="Let Claude, Cursor or VS Code draft this diagram from your codebase, then paste it here."
+          cta-label="Generate with AI (MCP)"
+          @cta="mcpOnCta('editor_new_diagram')"
+          @dismiss="mcpOnDismiss('editor_new_diagram')"
+        />
+        <ConnectMcpDialog
+          :visible="mcpDialogVisible"
+          :diagram-title="diagramTitle"
+          :cloud-id="mcpDialogTarget.cloudId"
+          :page-id="mcpDialogTarget.pageId"
+          :content-id="mcpDialogTarget.contentId"
+          :prompt="mcpDialogPrompt"
+          @close="mcpCloseDialog"
+          @copy="mcpOnCopied"
+        />
         <!-- The code panel's own toggle: one button, anchored to the corner
              the panel occupies, that both hides and shows it. It does not
              move or swap between states — only the chevron turns around and
@@ -57,7 +89,7 @@
              exactly where it was last used. Not rendered while AI chat is
              open: that panel owns this pane's visibility then. -->
         <button
-          v-if="!showAIChat"
+          v-if="!showAIChat && !mcpDialogVisible"
           type="button"
           class="code-panel-toggle"
           :aria-label="showCodeEditor ? 'Hide code panel' : 'Show code panel'"
@@ -97,6 +129,11 @@
   import type { CodePanelToggleTrigger } from '@/utils/analytics/catalog'
   import { DiagramType } from '@/model/Diagram/Diagram'
   import { getCodeFromDiagram, getStoreUpdateAction } from '@/model/Diagram/DiagramTypeConfig'
+  import { computed } from 'vue'
+  import { useStore } from 'vuex'
+  import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
+  import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
+  import { useEditorMcpPromo } from '@/composables/agentLink/useEditorMcpPromo'
 
   // split.js reports pane sizes as percentages of the workspace width.
   //
@@ -121,6 +158,25 @@
     name: 'Workspace',
     props: {
       msg: String
+    },
+    setup() {
+      const store = useStore()
+      const promo = useEditorMcpPromo({
+        diagramType: computed(() => store.state.diagram.diagramType),
+        code: computed(() => getCodeFromDiagram(store.state.diagram, store.state.diagram.diagramType) || ''),
+        diagramId: computed(() => store.state.diagram.id || undefined),
+      })
+      return {
+        mcpShowNewDiagramCard: promo.showNewDiagramCard,
+        mcpShowTip: promo.showTip,
+        mcpOnCta: promo.onCta,
+        mcpOnDismiss: promo.onDismiss,
+        mcpDialogVisible: promo.dialogVisible,
+        mcpDialogTarget: promo.dialogTarget,
+        mcpDialogPrompt: promo.dialogPrompt,
+        mcpCloseDialog: promo.closeDialog,
+        mcpOnCopied: promo.onCopied,
+      }
     },
     data() {
       return {
@@ -306,12 +362,30 @@
       AIChatPanel,
       ChevronDoubleLeftIcon,
       ChevronDoubleRightIcon,
+      McpPromoCard,
+      ConnectMcpDialog,
     }
   }
 </script>
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->
 <style>
+/* MCP promo (useEditorMcpPromo). The tip docks under the code; the
+   new-diagram card floats over the preview's bottom-right corner, below the
+   Connect MCP dialog overlay (z-index 6). */
+.editor-mcp-tip-dock {
+  flex-shrink: 0;
+  /* Bottom padding clears .code-panel-toggle, which floats over the pane's
+     bottom-left corner. Background matches CodeMirror's dracula theme. */
+  padding: 8px 12px 44px;
+  background: #282A36;
+}
+.editor-mcp-new-card {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 5;
+}
 .split {
   display: flex;
   flex-direction: row;

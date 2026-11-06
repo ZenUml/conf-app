@@ -73,8 +73,12 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
-.mcp-promo {
+/* Zero specificity, so a host class can position the card (absolute/fixed)
+   without fighting this default anchor for the close button. */
+:where(.mcp-promo) {
   position: relative;
+}
+.mcp-promo {
   display: flex;
   gap: 10px;
   box-sizing: border-box;

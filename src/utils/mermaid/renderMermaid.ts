@@ -1,4 +1,5 @@
 import { loadMermaid } from './loadMermaid';
+import { enqueueMermaid as enqueueRender } from './mermaidQueue';
 import { readMermaidFlowchartModel } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
 
 export interface MermaidRenderResult {
@@ -12,23 +13,6 @@ export interface MermaidFlowchartModel {
   nodes: { id: string; domId: string }[];
   edges: { id: string; source: string; target: string }[];
   groups: { id: string; nodes: string[] }[];
-}
-
-// Mermaid owns shared parser/renderer state and inserts a temporary `d${id}`
-// node into document.body while it measures the SVG. Concurrent render() calls
-// can remove or mutate that node out from under one another, producing
-// Chromium's `svg element not in render tree` failure. Keep the complete
-// render-and-cleanup operation exclusive across every caller in this iframe.
-let renderTail: Promise<void> = Promise.resolve();
-
-function enqueueRender<T>(operation: () => Promise<T>): Promise<T> {
-  const result = renderTail.then(operation);
-  // A failed diagram must not poison the queue for every later diagram.
-  renderTail = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
 }
 
 /** Parse within Mermaid's shared-state queue without producing a second SVG. */
@@ -62,7 +46,4 @@ export function renderMermaid(id: string, source: string, options: { captureFlow
   });
 }
 
-// Test seam: callers must reset only after their queued work has settled.
-export function __resetMermaidRenderQueueForTests(): void {
-  renderTail = Promise.resolve();
-}
+export { __resetMermaidQueueForTests as __resetMermaidRenderQueueForTests } from './mermaidQueue';

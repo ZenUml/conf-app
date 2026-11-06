@@ -22,7 +22,7 @@ import {
   type HeadlessContext,
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
-import { readUiResource, uiCapability, uiResourceList, withUiMeta, UI_EXTENSION_ID } from './mcpApps';
+import { readUiResource, uiCapability, uiResourceList, withUiMeta } from './mcpApps';
 import type { GateEnv } from './headlessGate';
 import type { GrantEvent } from './tokenStore';
 import { mixpanelTrack } from '../../service/mixpanelService';
@@ -31,6 +31,9 @@ import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
 import { issuerFor } from './asMetadata';
 import { json } from '../../OkResponse';
+import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from '../mcpProtocol';
+// Retain the existing module API for authenticated clients and tests.
+export { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from '../mcpProtocol';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -111,8 +114,6 @@ export interface HeadlessEnv extends OAuthEnv, GateEnv {
  * a diagram it already created. The call is therefore bounded and its result
  * is not awaited by the caller.
  */
-const ANALYTICS_TIMEOUT_MS = 2_000;
-
 /** Which event each write tool reports under. Absent = not a write, so nothing is emitted. */
 const WRITE_EVENT_BY_TOOL: Record<string, string | undefined> = {
   create_diagram: 'agent_link_diagram_created',
@@ -120,14 +121,6 @@ const WRITE_EVENT_BY_TOOL: Record<string, string | undefined> = {
   create_page: 'agent_link_page_created',
   update_page: 'agent_link_page_updated',
 };
-
-/** Bound a fire-and-forget analytics call so it cannot outlive the request it describes. */
-function withTimeout(work: Promise<unknown>): Promise<void> {
-  return Promise.race([
-    work.then(() => undefined),
-    new Promise<void>((resolve) => setTimeout(resolve, ANALYTICS_TIMEOUT_MS)),
-  ]).catch(() => undefined);
-}
 
 async function trackWrite(
   env: HeadlessEnv,
@@ -159,43 +152,6 @@ async function trackWrite(
   } catch {
     // analytics must never fail a write that already happened
   }
-}
-
-/**
- * The host fetched the MCP Apps view — the only proof it did.
- *
- * Without this we cannot separate "this host never declared the extension" from
- * "it negotiated and then did not render", and the second is a live upstream bug
- * (modelcontextprotocol/ext-apps#671). Fire-and-forget on the same timeout as
- * every other call here: a slow Mixpanel must not delay a view.
- */
-/**
- * MCP PROTOCOL revisions we can speak, newest first.
- *
- * These are revisions of the MCP protocol itself. '2026-01-26' was in this list
- * and must never be again: that is the date of the MCP APPS EXTENSION spec, not
- * a protocol revision, and because it sorted first every client that asked for
- * anything unlisted was answered with it. A version string no client
- * recognises fails the whole connection — Claude Desktop reported "zenuml
- * returned an error when connecting" and 13 of 13 handshakes on 2026-10-03 were
- * answered '2026-01-26' before this was caught.
- *
- * Keep protocol revisions and extension-spec dates apart. The extension version
- * belongs in the capability payload (mcpApps.ts), never here.
- */
-const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
-
-function negotiateProtocolVersion(requested: unknown): string {
-  return typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
-    ? requested
-    : SUPPORTED_PROTOCOL_VERSIONS[0];
-}
-
-/** Did the client advertise the MCP Apps extension in its initialize params? */
-export function clientDeclaresUi(params: unknown): boolean {
-  const ext = (params as { capabilities?: { extensions?: Record<string, unknown> } } | undefined)
-    ?.capabilities?.extensions;
-  return !!ext && Object.prototype.hasOwnProperty.call(ext, UI_EXTENSION_ID);
 }
 
 /**
@@ -429,7 +385,7 @@ export interface HeadlessMcpDeps {
   /**
    * The Pages context's waitUntil. When given, usage events run after the
    * response is sent instead of delaying it; without it (tests) they are
-   * awaited, still bounded by ANALYTICS_TIMEOUT_MS.
+   * awaited, still bounded by the shared analytics timeout.
    */
   waitUntil?: (work: Promise<unknown>) => void;
 }
@@ -521,7 +477,7 @@ export async function handleHeadlessRpc(
         capabilities: { tools: {}, resources: {}, extensions: uiCapability() },
         serverInfo: { name: 'conf-agent-link-headless', version: '0.1.0' },
         instructions:
-          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
+          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. To change a diagram, find its contentId with list_diagrams, read it with read_diagram, then send the complete edited source to update_diagram. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
       });
     }
 

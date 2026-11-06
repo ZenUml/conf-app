@@ -80,6 +80,8 @@ Skip this step only if the user explicitly said "submit only" / "don't babysit" 
 
 ## Output
 
+Before reporting submission, apply `../pr-review-support-materials/SKILL.md` to the created or reused PR. Publish a top-of-description support section with BEFORE/AFTER evidence, accessible artifact links, and the actual validation/CI status. Reuse evidence collected by validate-branch; do not rerun unchanged checks just to package them. If checks are blocked or failed, publish that limitation honestly.
+
 Report:
 
 - **SUBMITTED** — PR number, URL, branch name, whether it was opened as Draft (note "mark Ready for Review when you want E2E to run"), **and the babysit-pr result** (PASSED / failures + fixes / retries exhausted).

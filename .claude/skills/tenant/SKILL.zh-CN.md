@@ -1,12 +1,12 @@
-本文件仅供中文审阅。英文主文件：[SKILL.md](SKILL.md)。规则、执行和后续修改以英文主文件为准；本译本不作为独立 skill 入口。同步日期：2026-09-28。
+本文件仅供中文审阅。英文主文件：[SKILL.md](SKILL.md)。规则、执行和后续修改以英文主文件为准；本译本不作为独立 skill 入口。同步日期：2026-11-01。
 
 技能名称：tenant
 
-用途：查询某个 Confluence 站点经核实的产品、许可证、付款、联系人和定价事实。适用于租户资料、付款状态、站点规模、试用和潜在年度价值。复用 Marketplace 导出和独立的 Lite KV 层；采取行动的判断由 `customer-followup` 负责。
+用途：查询一个或一批 Confluence 租户经核实的席位数（Marketplace 许可证用户数）、产品、许可证、付款、联系人和定价事实。用户询问席位、座席、用户数、站点规模或许可证档位时使用，也适用于租户资料、付款状态、试用和潜在年度价值。复用 Marketplace 导出和独立的 Lite KV 层；采取行动的判断由 `customer-followup` 负责。
 
 # 租户查询
 
-根据 Atlassian Marketplace 许可证/交易数据**以及**Lite Stripe/KV 空间许可证层，回答单个租户的问题。它是 `marketplace` 引擎（`mp_report.py`）上的单租户基础查询——认证方式、cloudId 关联和 SQLite 快照均相同，因此不存在另一套会发生漂移的代码。（脚本实际位于 `marketplace/scripts/` 下；本 skill 按路径引用它，和 `macro-count` 引用 `mixpanel` 脚本的方式相同。）
+根据 Atlassian Marketplace 许可证/交易数据**以及**Lite Stripe/KV 空间许可证层，回答单个或一批租户的问题。它是 `marketplace` 引擎（`mp_report.py`）上的单租户基础查询——认证方式、cloudId 关联和 SQLite 快照均相同，因此不存在另一套会发生漂移的代码。（脚本实际位于 `marketplace/scripts/` 下；本 skill 按路径引用它，和 `macro-count` 引用 `mixpanel` 脚本的方式相同。）
 
 ## 你需要的那条命令
 
@@ -15,6 +15,8 @@ S=.claude/skills/marketplace/scripts/mp_report.py
 python3 $S whois <domain>          # 信息卡：cloudId、用户数、各应用 STATE、累计金额，以及 Lite Layer-B KV
 python3 $S whois <domain> --json   # 机器可读（--local 模式会注明数据时间）
 ```
+
+查询席位时，使用 `whois` 从 Marketplace 许可证 `tier` 解析出的 `users` 值。Mixpanel 的活跃用户、浏览者和编辑者是使用指标，不是席位。查询多个租户时，只同步一次并记录快照时间，然后对每个域名运行 `whois <domain> --local --json`。如果实时查询或新快照同步失败，将席位数报告为未知，或使用带日期的已验证历史快照；不得用使用指标代替席位。
 
 **对租户的付款状态作任何结论前，都先读取 `whois`**——Marketplace 上天真的 `$0` 是这里最常见的错误答案。
 

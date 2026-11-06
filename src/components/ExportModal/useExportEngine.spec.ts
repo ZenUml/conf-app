@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/model/captureBlob', () => ({ captureBlob: vi.fn(), default: vi.fn() }));
 vi.mock('file-saver', () => ({ saveAs: vi.fn() }));
+// ADR-0010: the real engine needs a canvas-backed browser; local-renderer
+// tests get a canned SVG from it.
+const { renderPlantUmlLocally } = vi.hoisted(() => ({ renderPlantUmlLocally: vi.fn() }));
+vi.mock('@/utils/plantuml/engine', () => ({ renderPlantUmlLocally }));
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
 
 import { captureBlob } from '@/model/captureBlob';
 import { saveAs } from 'file-saver';
@@ -541,6 +546,25 @@ describe('useExportEngine', () => {
       expect(captureBlob).toHaveBeenCalledWith(explicitEl, expect.any(Object));
     });
 
+    it('rasterises at the source vector resolution, not the on-screen size', async () => {
+      // Production page 2774138946's second macro: a PlantUML SVG with a
+      // 4647x1469 viewBox laid out in a 562px column exported 562x178.
+      const node = document.createElement('div');
+      Object.defineProperty(node, 'clientWidth', { value: 562, configurable: true });
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 4647 1469');
+      svg.getBoundingClientRect = () => ({ width: 562, height: 178 }) as DOMRect;
+      node.appendChild(svg);
+      vi.mocked(captureBlob).mockResolvedValue(null);
+
+      const { exportDiagram } = useExportEngine();
+      await exportDiagram(baseOptions(), 'Login flow', node);
+      expect(captureBlob).toHaveBeenCalledWith(
+        node,
+        expect.objectContaining({ pixelRatio: expect.closeTo(4647 / 562, 4) }),
+      );
+    });
+
     it('returns blob_null when the capture yields no blob, without saving', async () => {
       const node = document.createElement('div');
       vi.mocked(captureBlob).mockResolvedValue(null);
@@ -697,6 +721,37 @@ describe('useExportEngine — PlantUML server PNG', () => {
     expect(result).toEqual({ ok: false, reason: 'plantuml_fetch_failed' });
     expect(captureBlob).not.toHaveBeenCalled();
     expect(saveAs).not.toHaveBeenCalled();
+  });
+
+  it('with the local renderer, exports the engine SVG drawn on a canvas and never asks plantuml.com', async () => {
+    localStorage.setItem('plantumlRenderer', 'local');
+    const drawnSizes: number[][] = [];
+    vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation(function (this: HTMLCanvasElement, cb: BlobCallback) {
+      drawnSizes.push([this.width, this.height]);
+      cb(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+    } as HTMLCanvasElement['toBlob']);
+    renderPlantUmlLocally.mockResolvedValue(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="600px" height="400px" viewBox="0 0 600 400"><text>Alice</text></svg>');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const { exportDiagram } = useExportEngine();
+      const result = await exportDiagram(baseOptions(), 'Login flow', null, {
+        macroType: 'plantuml',
+        source: PLANTUML_SOURCE,
+      });
+
+      expect(result).toEqual({ ok: true });
+      expect(renderPlantUmlLocally).toHaveBeenCalledWith(PLANTUML_SOURCE);
+      // Drawn at twice the SVG's 600x400 (PLANTUML_EXPORT_PIXEL_RATIO).
+      expect(drawnSizes).toContainEqual([1200, 800]);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(captureBlob).not.toHaveBeenCalled();
+      expect(saveAs).toHaveBeenCalled();
+    } finally {
+      localStorage.removeItem('plantumlRenderer');
+    }
   });
 
   it('still DOM-captures when the macro type is plantuml but the source is not PlantUML text', async () => {

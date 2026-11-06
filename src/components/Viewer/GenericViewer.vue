@@ -1034,6 +1034,16 @@ export default {
     agentLinkMvpSupported() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
     },
+    // Connect MCP (headless) covers every type the headless server can read
+    // and write, which is wider than the relay MVP above: Graph and OpenAPI
+    // are created and updated by create_diagram / update_diagram too. Markdown
+    // and AsyncAPI stay out until the server takes them. The relay affordances
+    // (badge, Fullscreen rail, thinking overlay) keep agentLinkMvpSupported,
+    // since the in-tab bridge only writes text DSL.
+    connectMcpSupported() {
+      return this.agentLinkMvpSupported
+        || [DiagramType.Graph, DiagramType.OpenApi].includes(this.diagramType);
+    },
     // View Source (#333): text-DSL types only. NOT gated on canUserEdit — the
     // audience includes readers without edit permission.
     showViewSource() {
@@ -1110,7 +1120,7 @@ export default {
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
     showAgentLinkConnect() {
       // With relay sessions on, fullscreen connects through its rail instead.
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported
+      return this.agentLinkFeatureEnabled && this.connectMcpSupported
         && !(this.isFullscreenMode && RELAY_SESSIONS_ENABLED);
     },
     // The Copy for AI slot renders only once it is known not to be Connect
@@ -1118,7 +1128,7 @@ export default {
     // the async flag, so Copy for AI never flashes and then swaps out. The
     // other text types never show Connect MCP, so they need not wait.
     copyForAiSlotSettled() {
-      return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
+      return this.agentLinkFlagResolved || !this.connectMcpSupported;
     },
     // Connect MCP takes Copy for AI's slot but not its sparkles: with the same
     // icon, icon-only and hover-revealed, a customer could not find it
@@ -1444,7 +1454,7 @@ export default {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
     } finally {
-      if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
+      if (this.agentLinkFeatureEnabled && this.connectMcpSupported) {
         this.connectMcpShownRecord = createConnectMcpShownRecord({
           cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
           accountId: this.currentAccountId,

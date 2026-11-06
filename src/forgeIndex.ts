@@ -1143,6 +1143,51 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
 }
 
 /**
+ * A page opened from a diagram-comment link (#1047): scroll to this macro and ring
+ * it when the link's `zenumlLocal` is this macro's own localId. The macro reads its
+ * page URL, query string included, from forgeContext.extension.location. Run from
+ * main() after the viewer has loaded, because loadHeavyComponents returns early for
+ * a sequence-family diagram rendered from the content cache. Not behind the comments
+ * flag: a reader following a link someone else posted should land on the diagram.
+ */
+async function revealFromCommentLink() {
+  try {
+    const { runCommentLinkReveal } = await import('@/features/diagramComments/runCommentLinkReveal');
+    let storage: Storage | undefined;
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      storage = undefined;
+    }
+    await runCommentLinkReveal({
+      isFullscreen: async () => !!(await isFullscreenMode()),
+      isEditor: async () => !!(await isEditorMode()),
+      context: forgeGlobal.forgeContext as { localId?: string; extension?: { location?: string } } | undefined,
+      storage,
+      settled: () => settled(),
+      reveal: () => {
+        void import('@/utils/byline/revealDiagram').then(m => m.revealThisMacro());
+      },
+      track: () => {
+        void Promise.all([
+          import('@/utils/analytics/trackAnalyticsEvent'),
+          import('@/utils/byline/pageDiagrams'),
+        ]).then(([{ trackAnalyticsEvent }, { toMacroType }]) => {
+          const type = store.state.diagram?.diagramType;
+          trackAnalyticsEvent('diagram_comment_link_revealed', {
+            feature_area: 'diagram_comments',
+            surface: 'viewer',
+            ...(type ? { macro_type: toMacroType(type) as MacroTypeValue } : {}),
+          });
+        });
+      },
+    });
+  } catch (e) {
+    console.debug('[comment-link reveal] skipped', e);
+  }
+}
+
+/**
  * The receiving half of the one-click place (see utils/byline/revealDiagram.ts
  * for why a focus is what scrolls Confluence).
  *
@@ -1201,6 +1246,7 @@ async function main() {
   // Phase 2: Load heavy components
   try {
     await loadHeavyComponents(criticalData);
+    void revealFromCommentLink();
     if (!criticalData.feedbackHandled) {
       const context = await initForgeContext();
       const { installFeedbackHost } = await import('@/features/feedback/mountFeedback');
@@ -1636,11 +1682,20 @@ EventBus.$on('exit', async (showWarning: boolean) => {
 
 
 
+/** What the inline macro hands the Fullscreen modal so its comments panel can build a link back (#1047). */
+interface DiagramCommentsHandoff {
+  commentsPageId?: string;
+  commentsPageUrl?: string;
+  commentsLocalId?: string;
+  commentsDiagramVersion?: number;
+  commentsLastModifierId?: string;
+}
+
 // One open at a time. openModal() is an async bridge round trip with no
 // built-in guard, so a second click before it resolves issues a second modal.
 let fullscreenOpenInFlight = false;
 
-EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
+EventBus.$on('fullscreen', async (options?: { openExport?: boolean; openComments?: DiagramCommentsHandoff }) => {
   if (fullscreenOpenInFlight) return;
   fullscreenOpenInFlight = true;
   try {
@@ -1676,6 +1731,11 @@ EventBus.$on('fullscreen', async (options?: { openExport?: boolean }) => {
           // never been gated, and gating it here would both block the action and
           // report a paywall_triggered the user never asked for.
           ...(options?.openExport ? { openExport: true } : {}),
+          // Diagram comments entry (#1047): open the comments panel on arrival.
+          // The modal's own context does not carry the host PAGE url or this
+          // macro's localId (it is a different extension instance), so the inline
+          // macro hands them over; the comment link is built from them.
+          ...(options?.openComments ? { openComments: true, ...options.openComments } : {}),
         },
       }),
       onClosed: () => {

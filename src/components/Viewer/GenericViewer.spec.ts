@@ -3414,8 +3414,12 @@ describe('GenericViewer (chrome-less)', () => {
 
     it('reports agent_link_mcp_button_shown once per viewer per day, not per macro', async () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      mountViewer()
+      const first = mountViewer()
       await flushPromises()
+      await settleLayout()
+      // Inline, an unopened More menu is not an impression.
+      expect(shownCalls()).toHaveLength(0)
+      await openMoreMenu(first)
       await settleLayout()
       expect(shownCalls()).toEqual([[
         'agent_link_mcp_button_shown',
@@ -3432,8 +3436,9 @@ describe('GenericViewer (chrome-less)', () => {
 
       // A second macro on the same page (same storage) stays quiet.
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      mountViewer()
+      const second = mountViewer()
       await flushPromises()
+      await openMoreMenu(second)
       await settleLayout()
       expect(shownCalls()).toHaveLength(1)
     })

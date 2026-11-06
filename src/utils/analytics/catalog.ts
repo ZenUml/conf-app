@@ -1642,7 +1642,9 @@ export type AnalyticsEventName =
   // diagram in the macro editor ('editor_new_diagram'), and a tip docked in
   // the editor's code pane after sustained manual typing ('editor_tip').
   // Each placement fires agent_link_mcp_button_shown (deduped per placement
-  // per viewer per UTC day) and its opens carry the same placement.
+  // per viewer per UTC day) and its opens carry the same placement. For the
+  // inline More-menu entry ('more_menu'), shown fires when the menu is opened
+  // with the entry in it, not when the entry becomes available.
   // dismissed = the promo's × was clicked; it carries `mcp_button_placement`
   // and the promo is not shown again on any surface for that viewer.
   | "agent_link_mcp_promo_dismissed"

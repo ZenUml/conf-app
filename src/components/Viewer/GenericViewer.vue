@@ -1087,9 +1087,11 @@ export default {
     showViewSource() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
     },
-    // agent_link_mcp_button_shown: the button is rendered for a viewer.
+    // agent_link_mcp_button_shown: the entry is actually in front of the
+    // viewer — the Fullscreen header button, or the inline More-menu entry
+    // once the menu is open (an unopened menu is not an impression).
     connectMcpShownEligible() {
-      return (this.connectMcpInToolbar || this.connectMcpInMenu)
+      return (this.connectMcpInToolbar || (this.connectMcpInMenu && this.moreMenuOpen))
         && this.connectMcpShownRecord !== null
         && this.isDisplayMode
         && !this.hideHeader

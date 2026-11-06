@@ -1,8 +1,10 @@
 import { ref } from 'vue'
 import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
-import { isAiTitleEnabled, resetAiTitleFlagForTests } from '@/apis/aiTitleFeatureFlag'
+import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { NOT_TITLE_LIKE, looksLikeTitle } from '@/lib/aiTitleGuard.js'
+import { singleShortLabel } from '@/utils/graph/extractGraphText'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -10,7 +12,10 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 export const TYPEWRITER_MS_PER_CHAR = 40
 export const SPARK_FADEOUT_MS = 400
 
-const aiTitleEnabled = ref(false)
+// AI title generation is available in every product. Keep this state for the
+// UI's loading and animation flow, but do not make a runtime feature-flag
+// request before exposing the control.
+const aiTitleEnabled = ref(true)
 const isGeneratingTitle = ref(false)
 const isAnimating = ref(false)
 const displayedTitle = ref('')
@@ -25,9 +30,11 @@ const hasManuallyEditedTitle = ref(false)
 // generated, so each generated-then-edited title records exactly one modify.
 const aiTitleModifyTracked = ref(false)
 const lastGeneratedContentHash = ref<string | null>(null)
+// The title the model produced, as committed to the store. Read only while
+// autoNameAnimationDone is true; both are set together in generate().
+let lastGeneratedTitle = ''
 
 let genToken = 0
-let flagLoaded = false
 
 const MERMAID_TYPE_MAP: Record<string, string> = {
   graph: 'flow chart',
@@ -54,20 +61,8 @@ function titleTypeParam(diagramType: DiagramType, code: string): string {
   // labels as `code`. 'flowchart' nudges the model to summarise the labelled
   // nodes as a process/structure rather than a sequence of messages.
   if (diagramType === DiagramType.Graph) return 'flowchart'
+  if (diagramType === DiagramType.OpenApi) return 'OpenAPI specification'
   return DiagramType.Sequence
-}
-
-// The AI-title endpoint is expected to return a short title, not a chat
-// reply. Occasionally (e.g. when the extracted diagram signal is thin or
-// ambiguous) the model answers with a clarifying question instead of a
-// title — reject anything that isn't title-shaped rather than trust any
-// non-empty response. Conservative on purpose: legitimate short titles must
-// never trip these checks.
-function looksLikeTitle(s: string): boolean {
-  if (s.length > 100) return false
-  if (s.includes('\n')) return false
-  if (s.trimEnd().endsWith('?')) return false
-  return true
 }
 
 function delay(ms: number): Promise<void> {
@@ -103,16 +98,6 @@ function resetGenerating(): void {
 }
 
 export function useAutoTitle() {
-  async function initFlag(): Promise<void> {
-    if (flagLoaded) return
-    try {
-      aiTitleEnabled.value = await isAiTitleEnabled()
-      flagLoaded = true
-    } catch (e) {
-      console.error('Failed to load AI_TITLE flag', e)
-    }
-  }
-
   async function generate(
     trigger: 'init' | 'user',
     opts: { code: string; diagramType: DiagramType; currentTitle: string },
@@ -123,6 +108,22 @@ export function useAutoTitle() {
     if (isGeneratingTitle.value) return
     if (!(code || '').trim()) {
       if (trigger === 'user') toast({ message: 'Add some diagram code first', duration: 3000 })
+      return
+    }
+    // Rule for a Graph with too little text: one short label gives the model
+    // nothing to summarise, and it answers by asking for a DSL. Wait while the
+    // user is editing. When a title is requested (AI button or Publish), that
+    // label is the title. See docs/superpowers/specs/2026-05-31-ai-auto-title-design.md.
+    const loneLabel = diagramType === DiagramType.Graph ? singleShortLabel(code) : ''
+    if (loneLabel) {
+      if (trigger === 'user') {
+        store.dispatch('updateTitle', loneLabel)
+        trackAnalyticsEvent('ai_title_label_used', {
+          feature_area: 'ai',
+          surface: 'editor',
+          macro_type: 'graph',
+        })
+      }
       return
     }
     const contentHash = hashString(code)
@@ -146,7 +147,7 @@ export function useAutoTitle() {
       generation_source: isRegenerate ? 'regenerate' : trigger,
       prompt_length: code.length,
     }
-    trackAnalyticsEvent('ai_generation_requested', trackProps)
+    trackAnalyticsEvent('ai_title_generation_requested', trackProps)
 
     try {
       const res: any = await aiGenerateTitle({ dsl: code, type: titleTypeParam(diagramType, code) })
@@ -154,7 +155,7 @@ export function useAutoTitle() {
       if (!res.ok) {
         const errText = await res.text()
         if (token !== genToken) return
-        trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: errText })
+        trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: errText })
         if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
         resetGenerating()
         return
@@ -166,13 +167,13 @@ export function useAutoTitle() {
         return
       }
       if (!looksLikeTitle(title)) {
-        trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: 'not_title_like' })
+        trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: NOT_TITLE_LIKE })
         if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
         resetGenerating()
         return
       }
 
-      trackAnalyticsEvent('ai_generation_succeeded', trackProps)
+      trackAnalyticsEvent('ai_title_generation_succeeded', trackProps)
       lastGeneratedContentHash.value = contentHash
       isAnimating.value = true
       showDismiss.value = true
@@ -183,6 +184,7 @@ export function useAutoTitle() {
       store.dispatch('updateTitle', title)
       isAnimating.value = false
       isGeneratingTitle.value = false
+      lastGeneratedTitle = title
       autoNameAnimationDone.value = true
       aiTitleModifyTracked.value = false // fresh title → next manual edit is recordable
 
@@ -193,7 +195,7 @@ export function useAutoTitle() {
       sparkFadingOut.value = false
     } catch (e) {
       if (token !== genToken) return
-      trackAnalyticsEvent('ai_generation_failed', { ...trackProps, failure_reason: String(e) })
+      trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: String(e) })
       if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
       resetGenerating()
     }
@@ -255,7 +257,6 @@ export function useAutoTitle() {
     showDismiss,
     autoNameAnimationDone,
     hasManuallyEditedTitle,
-    initFlag,
     generate,
     dismiss,
     markManualEdit,
@@ -264,20 +265,22 @@ export function useAutoTitle() {
   }
 }
 
-export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }): void {
-  if (autoNameAnimationDone.value) {
+// Compare the saved title instead of tracking how it could have changed: an edit,
+// a clear and the OpenAPI spec-title fallback all reach the save with another title.
+export function notifyAiTitleSaved(opts: { title?: string; contentId?: string }): void {
+  if (autoNameAnimationDone.value && opts.title === lastGeneratedTitle) {
     trackAnalyticsEvent('ai_title_accepted', {
       feature_area: 'ai',
       surface: 'editor',
-      ...(opts?.title && { accepted_title: opts.title }),
-      ...(opts?.contentId && { content_id: opts.contentId }),
+      accepted_title: opts.title,
+      ...(opts.contentId && { content_id: opts.contentId }),
     })
     autoNameAnimationDone.value = false
   }
 }
 
 ;(useAutoTitle as any).__resetForTests = () => {
-  aiTitleEnabled.value = false
+  aiTitleEnabled.value = true
   isGeneratingTitle.value = false
   isAnimating.value = false
   displayedTitle.value = ''
@@ -288,7 +291,7 @@ export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }
   hasManuallyEditedTitle.value = false
   aiTitleModifyTracked.value = false
   lastGeneratedContentHash.value = null
+  lastGeneratedTitle = ''
   genToken = 0
-  flagLoaded = false
-  resetAiTitleFlagForTests()
+  resetFeatureFlagsForTests()
 }

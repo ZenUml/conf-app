@@ -1,0 +1,38 @@
+{
+  "positive_concepts": {
+    "capture_pipeline": ["page capture", "content capture", "page snapshot", "page-content capture", "截取页面内容", "内容截取", "page snapshots"],
+    "kill_switch": ["kill switch", "page_capture_enabled", "总开关"],
+    "allowlist": ["page_capture_allowed_domains", "allowlist", "allowed domains"],
+    "forge_r2_infra": ["forge-page-capture", "atlassian-events"],
+    "tenant_capture_question": ["being captured", "is captured", "有没有截取", "截取到"]
+  },
+  "description_required_concepts": ["capture_pipeline"],
+  "recommended_threshold": 0.34,
+  "negative_patterns": [],
+  "should_trigger": [
+    { "text": "check if page capture is working in production", "family": "en_direct" },
+    { "text": "is the page-capture kill switch on for lite staging", "family": "en_direct" },
+    { "text": "what's in PAGE_CAPTURE_ALLOWED_DOMAINS right now", "family": "en_env_var" },
+    { "text": "add airwallex to the page snapshot allowlist for production", "family": "en_write" },
+    { "text": "我们在哪配置哪些网站会截取页面内容", "family": "zh_config" },
+    { "text": "看一下现在生产环境哪些网站我们会截取页面内容", "family": "zh_status" },
+    { "text": "有没有截取到airwallex最近的页面内容", "family": "zh_read" },
+    { "text": "read the captured snapshot for content id 141000755", "family": "en_read" },
+    { "text": "turn off content capture for the full app in production", "family": "en_write_kill_switch" },
+    { "text": "查一下page-capture的kill switch状态", "family": "zh_direct" }
+  ],
+  "should_not_trigger": [
+    { "text": "check the forge feature flag status for renderer-prefetch", "family": "adjacent_flag" },
+    { "text": "look up how many macros are in this space", "family": "adjacent_macro_count" },
+    { "text": "is this tenant on the Lite paywall", "family": "adjacent_paywall" },
+    { "text": "query mixpanel for macro_viewed volume this week", "family": "adjacent_analytics" },
+    { "text": "check the CustomContentVersion history for this page", "family": "adjacent_custom_content" },
+    { "text": "why is the sequence diagram rendering slowly", "family": "adjacent_render_perf" },
+    { "text": "release the lite app to production", "family": "adjacent_release" }
+  ],
+  "near_neighbor": [
+    { "text": "check if this Forge feature flag is enabled in production", "family": "flag_vs_kill_switch" },
+    { "text": "look at the D1 AtlassianInstance table for this cloudId", "family": "d1_generic" },
+    { "text": "check macro custom content storage for this space", "family": "custom_content_vs_snapshot" }
+  ]
+}

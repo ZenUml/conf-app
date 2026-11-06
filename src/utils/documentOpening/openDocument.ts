@@ -31,10 +31,12 @@ export async function openDocument(opts: OpenDocumentOptions): Promise<OpenOutco
       reportOrphanObserved(pageId, contentId, target.macroType, loaded.probeResult, {
         recoveryUsed: true,
         recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+        directFetch: loaded,
       });
     } else if (!doc) {
       reportOrphanObserved(pageId, contentId, target.macroType, loaded.probeResult, {
         recoveryUsed: false,
+        directFetch: loaded,
       });
     }
   }

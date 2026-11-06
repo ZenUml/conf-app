@@ -2,7 +2,8 @@ import { createApp } from 'vue';
 import globals from '@/model/globals';
 
 /**
- * Lite byline modal host (`zenuml-byline-diagrams`).
+ * Diagram-index byline modal host (`zenuml-byline-diagrams`; Lite, Full and
+ * AsyncAPI).
  *
  * Confluence boots this iframe only when the user clicks the byline item —
  * measured 2026-08-01, 5 opens against 39,197 macro views on the variants that

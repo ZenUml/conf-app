@@ -45,7 +45,7 @@
             <div class="flex flex-shrink-0 items-center px-4 py-2 justify-between border-b">
               <input v-model="filterKeyword"
                 placeholder="search in title and content"
-                class="block p-2 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
+                class="block p-2 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:outline-none focus:shadow-[inset_0_0_0_1px_rgba(9,30,66,.16),0_0_0_1px_rgba(9,30,66,.55),0_2px_10px_rgba(9,30,66,.06)] dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white">
             </div>
             <div class="flex-1 overflow-y-auto">
               <div v-for="containerPage in filteredPageList"
@@ -111,8 +111,8 @@
 
 <script>
 import PublishButton from "@/components/PublishButton.vue";
-import { DiagramType, getDiagramData } from "@/model/Diagram/Diagram";
-import { loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
+import { DiagramType } from "@/model/Diagram/Diagram";
+import { getDiagramData, loadForgeViewerComponent } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
 import { AtlasPage } from "@/model/page/AtlasPage";
 import _ from 'lodash';
@@ -146,7 +146,6 @@ export default {
       return DiagramType;
     },
     filteredCustomContentList() {
-      console.debug(`current filterKeyword: ${this.filterKeyword}`);
 
       const results = this.customContentList.filter(item => {
         if (!item?.id) {
@@ -165,7 +164,6 @@ export default {
         }
         return false;
       });
-      console.debug(`filteredCustomContentList:`, results);
       return results;
     },
     filteredPageList() {
@@ -173,7 +171,6 @@ export default {
       const emptyContainer = { id: '', title: '' };
       const pages = Object.keys(map).map(k => Object.assign({}, map[k][0].container || emptyContainer, { customContents: map[k] }));
       const sorted = _.sortBy(pages, [p => p.title?.toLowerCase()]);
-      console.debug(`filteredPageList:`, sorted);
       return sorted;
     },
     previewComponent() {
@@ -206,7 +203,6 @@ export default {
   watch: {
     picked: {
       async handler(newPicked) {
-        console.log('DocumentList - picked', newPicked);
         // Capture the initial selection as the baseline for dirty-state detection.
         // `picked` is set asynchronously by initializeForForge/Connect, so we can't
         // capture in mounted(); the first non-empty value is our baseline.
@@ -284,12 +280,10 @@ export default {
       const context = await initForgeContext();
       const customContentId = context.extension?.config?.customContentId;
       
-      console.debug(`Forge mode - custom content id: ${customContentId}`);
       
       if (customContentId) {
         // Load the specific custom content
         const customContent = await globals.apWrapper.getCustomContentByIdV2(customContentId);
-        console.debug(`Forge mode - loaded custom content:`, customContent);
         
         if (customContent) {
           this.picked = customContent;
@@ -298,8 +292,7 @@ export default {
       }
       
       // Load all custom content for the list
-      this.customContentList = await globals.apWrapper.searchCustomContentForge();
-      console.debug(`Forge mode - loaded custom content list:`, this.customContentList);
+      this.customContentList = await globals.apWrapper.searchCustomContent();
     },
 
     setFilter(docType) {
@@ -325,11 +318,9 @@ export default {
 
         window.diagram = diagram;
 
-        console.log('DocumentList: Updated store with selected document', diagram);
       }
     },
     async getPreviewComponentForForge(diagramType) {
-      console.log('getPreviewComponentForForge', diagramType);
       if (this.previewComponentCache[diagramType]) {
         return this.previewComponentCache[diagramType];
       }

@@ -65,6 +65,7 @@ import {
 import { capturePng, blobToBase64 } from '@/model/Attachment';
 import { callRemote } from '@/utils/requestUtil';
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink';
+import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from '@/model/saveFailureDiagnosis';
 
 const LOADING_MIN_MS = 1800; // theatre floor even on a fast cache hit
 // Diagram types DiagramPortal can render read-only in the preview. Graph
@@ -169,7 +170,14 @@ export default {
         this.phase = 'completion';
       } catch (e) {
         console.error('byline: useThisDiagram failed', e);
-        this.errorCopy = 'Saving the diagram failed. Please try again.';
+        // A create-time 404 is probed once (save_failed_diagnosed); a proven
+        // permission gap is named instead of "try again" (which cannot help).
+        const diagnosed = await diagnoseSaveFailure(
+          e, { surface: 'byline', macro_type: store.state.diagram.diagramType }, globals.apWrapper,
+        );
+        this.errorCopy = diagnosed === GENERIC_SAVE_FAILED_MESSAGE
+          ? 'Saving the diagram failed. Please try again.'
+          : diagnosed;
         this.phase = 'error';
       } finally {
         this.busy = false;
@@ -198,7 +206,7 @@ export default {
         });
       } catch (e) {
         console.error('byline: editDiagram failed', e);
-        await this.mintDeeplink().catch(() => {});
+        await this.mintDeeplink();
         this.phase = 'completion';
       } finally {
         this.busy = false;
@@ -206,7 +214,7 @@ export default {
     },
 
     async afterEdit() {
-      await this.mintDeeplink().catch(() => {});
+      await this.mintDeeplink();
       trackAnalyticsEvent('activation_completed', baseProps({
         macro_type: store.state.diagram.diagramType,
         activation_path: 'copy_link',

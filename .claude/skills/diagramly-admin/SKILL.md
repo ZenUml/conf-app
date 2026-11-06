@@ -76,7 +76,7 @@ console.log(b.results[0]); // check .type and .status
 
 - The page renders **two iframes** (`iFrameResizer2` hidden, `iFrameResizer3` visible at 1410×626)
 - Use `#iFrameResizer3` as the target for `browser_snapshot` and `browser_type`/`browser_click`
-- Playwright crosses the cross-origin boundary; chrome-devtools-mcp and claude-in-chrome cannot
+- agent-browser (default; `frame --url`/`frame @ref`, then `snapshot`/`click`/`eval`) and Playwright MCP both cross the cross-origin boundary; chrome-devtools-mcp and claude-in-chrome cannot
 
 ## Related skills
 

@@ -31,7 +31,9 @@ import {
  * KNOWN GAP, deliberate: nothing removes the marker on Full UNINSTALL — Forge
  * has no reliable uninstall event (the plan doc's defect #2), so a site that
  * drops Full keeps its Lite byline hidden until the marker is cleaned by hand.
- * Recorded in the `full_presence_write` catalog entry as well.
+ * There is no analytics event for this write: the `full_presence_write` catalog
+ * entry was deleted 2026-09-02 as unwired instrumentation (zero
+ * trackAnalyticsEvent callers), so the gap is visible only in the Forge logs.
  */
 
 export const FULL_PRESENCE_KEY = 'zenuml-full-active';

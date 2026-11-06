@@ -50,11 +50,18 @@ describe('AsyncAPI export resolver (src/asyncapi-export.js)', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '' })));
     process.env.MIXPANEL_TOKEN = 'unit-test-token';
+    // These specs assert on the CONTENT of the emitted events, so the quota
+    // sampling in src/lib/exportSampling.js must not decide whether they run.
+    // A draw of 0 is below every configured rate, so every event is kept; the
+    // drop path has its own coverage in tests/unit/exportSampling.spec.ts.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
     asAppRequest.mockReset();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     delete process.env.MIXPANEL_TOKEN;
   });
 

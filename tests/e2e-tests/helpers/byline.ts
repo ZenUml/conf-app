@@ -1,4 +1,5 @@
-import { Frame, Page, expect } from '@playwright/test';
+import { Frame, Page } from '@playwright/test';
+import { dismissStarterGalleryIfPresent } from './starterGallery.js';
 
 /**
  * Driving the Lite byline (`zenuml-byline-diagrams`).
@@ -28,7 +29,8 @@ import { Frame, Page, expect } from '@playwright/test';
  * e2e runs on lite-stg, which has only Lite — but tighten this to require the
  * suffix before pointing these tests at a site carrying both.
  */
-const BYLINE_TITLE = /^Diagrams\b/;
+// "Diagrams" on Lite and Full; the AsyncAPI app titles the same entry "API Docs".
+const BYLINE_TITLE = /^(Diagrams|API Docs)\b/;
 
 /**
  * Confluence's test id for a Forge contentBylineItem button. Distinct from its
@@ -207,6 +209,7 @@ export async function createDiagramFromByline(
   await bylineFrame.locator(`[data-testid="byline-type-${typeKey}"]`).first().click();
 
   const editor = await appFrameWithSelector(page, 'button:has-text("Publish")', bylineFrame);
+  await dismissStarterGalleryIfPresent(page, editor);
   // Same shape as EditorPage.interactWithForgeDiagramMacro: the title input is
   // the first text field, and Publish only enables once it has a value.
   await editor.locator('input[type="text"]').first().fill(title);
@@ -215,19 +218,34 @@ export async function createDiagramFromByline(
 }
 
 /**
- * Assert the Lite paywall modal is up inside `frame`.
+ * The byline's AsyncAPI create path.
  *
- * `continue-editing-btn` is the load-bearing element: the Lite paywall is a
- * METERED soft gate, so its presence (label "Continue editing without upgrading
- * (N)") is what proves the gate fired. At N=0 it is replaced by
- * `continue-attempts-exhausted`, so accept either — both mean blocked.
+ * Split from createDiagramFromByline rather than branching inside it, because
+ * the editor the tile opens is a different program: AsyncAPI Studio in a NESTED
+ * iframe, not the diagram editor. Two concrete differences the shared helper
+ * cannot absorb —
+ *
+ *  - No title field. Studio derives the custom-content title from the spec's
+ *    own `info.title` (buildAsyncApiSaveDiagram parses it), so
+ *    `input[type="text"].first()` matches nothing here and Publish is enabled
+ *    from the start.
+ *  - Publish needs the nested Studio to have painted. saveSpec() reads the
+ *    document out of localStorage, which the Studio iframe only writes once it
+ *    has booted; clicking too early saves the template rather than what is on
+ *    screen. tests/asyncapi/macro-create-edit.spec.ts settles the same way, for
+ *    the same reason.
+ *
+ * Returns after Publish is clicked, so the caller can assert on the post-create
+ * panel exactly as it does for the other types.
  */
-export async function expectPaywallModal(frame: Frame): Promise<void> {
-  const gate = frame.locator(
-    '[data-testid="continue-editing-btn"], [data-testid="continue-attempts-exhausted"]',
-  );
-  await expect(
-    gate.first(),
-    'expected the Lite paywall modal over the byline-opened editor',
-  ).toBeVisible({ timeout: 30000 });
+export async function createAsyncApiDiagramFromByline(
+  page: Page,
+  bylineFrame: Frame,
+): Promise<void> {
+  await bylineFrame.locator('[data-testid="byline-type-asyncapi"]').first().click();
+
+  const editor = await appFrameWithSelector(page, 'button:has-text("Publish")', bylineFrame);
+  await dismissStarterGalleryIfPresent(page, editor);
+  await page.waitForTimeout(3000);
+  await editor.locator('button:has-text("Publish")').click();
 }

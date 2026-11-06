@@ -68,6 +68,21 @@ export function mapLiteMacroKey(liteKey: string): string | null {
   // Embed macros reference other diagrams' ids and need an old->new mapping
   // built after everything they point at is converted — phase 2.
   if (fullKey === 'zenuml-embed-macro') return null;
+  // Lite ships the AsyncAPI macro (ADR-0005 Option A); Full does NOT — the
+  // full/diagramly manifestEdits strip it via test("zenuml-asyncapi"). The
+  // custom content would migrate fine (Lite files AsyncAPI under the shared
+  // zenuml-content-sequence type, which fullContentTypeForLiteType maps
+  // cleanly), but rewriting the ADF to a module Full has no manifest entry for
+  // republishes the page with a BROKEN macro where a working diagram was.
+  // Leaving it as a Lite macro is strictly better than that.
+  //
+  // Full IS expected to enable AsyncAPI later. TO LIFT: delete these two lines
+  // AND add the key to LITE_DISCOVERY_MACRO_KEYS below, in the same commit —
+  // see the "To lift" checklist in docs/adr/0005-asyncapi-macro-in-lite-full-
+  // feasibility.md, which also covers the manifest/build work Full needs first.
+  // Within this function nothing else changes: the key mapping and content-type
+  // mapping above are already generic.
+  if (fullKey === 'zenuml-asyncapi-macro') return null;
   return fullKey;
 }
 
@@ -182,6 +197,11 @@ interface JobStats {
   pagesFailed: number;
   macrosConverted: number;
   macrosSkippedEmbed: number;
+  // Counted separately from macrosSkippedUnknownKey: these are a deliberate,
+  // known skip (Full ships no AsyncAPI macro — see mapLiteMacroKey), not an
+  // unrecognised key. A non-zero value here tells the operator exactly what
+  // was left behind on Lite rather than burying it in an "unknown" bucket.
+  macrosSkippedAsyncApi: number;
   macrosSkippedUnknownKey: number;
   macrosSkippedBodyMissing: number;
   dryRun: boolean;
@@ -221,6 +241,17 @@ async function confluenceJson(path: ReturnType<typeof route>, init?: ConfluenceI
 }
 
 /** Effective batch size for this job. */
+/**
+ * Macro keys the space sweep searches for. Exported so a test can pin the
+ * invariant that makes the cursorless sweep terminate: EVERY key here must be
+ * convertible by mapLiteMacroKey. See resolvePageIds for what breaks otherwise.
+ */
+export const LITE_DISCOVERY_MACRO_KEYS = [
+  'zenuml-sequence-macro-lite',
+  'zenuml-openapi-macro-lite',
+  'zenuml-graph-macro-lite',
+] as const;
+
 export function batchLimitFor(job: { pageBatchLimit?: number | null }): number {
   const override = job.pageBatchLimit;
   return typeof override === 'number' && override > 0 && override <= PAGE_BATCH_LIMIT
@@ -240,12 +271,25 @@ async function resolvePageIds(job: ClaimedJob): Promise<string[]> {
     return job.pageIds.slice(offset, offset + limit);
   }
   if (!job.spaceKey) return [];
-  const liteMacroKeys = [
-    'zenuml-sequence-macro-lite',
-    'zenuml-openapi-macro-lite',
-    'zenuml-graph-macro-lite',
-  ];
-  const cql = `space = "${job.spaceKey}" and macro in (${liteMacroKeys
+  // ONLY keys mapLiteMacroKey can actually convert belong here. The no-cursor
+  // sweep above depends on a page dropping out of this query once converted;
+  // a key that never converts would match forever, re-reading the same pages
+  // every tick and holding slots in the batch. Worse, a batch made entirely of
+  // such pages yields macrosConverted === 0, which shouldRequeue reads as
+  // "nothing left to do" — the job would report `done` with convertible pages
+  // still unmigrated. So `zenuml-asyncapi-macro-lite` is deliberately NOT
+  // listed while mapLiteMacroKey skips it.
+  //
+  // Consequence, accepted: a page whose ONLY Lite macro is AsyncAPI is never
+  // visited, so it contributes nothing to macrosSkippedAsyncApi. That stat
+  // counts AsyncAPI macros on pages that also carry a convertible macro —
+  // a floor on what stayed behind, not a total.
+  //
+  // TO LIFT: add the key here in the same change that stops mapLiteMacroKey
+  // returning null for asyncapi — never before it. Full enabling AsyncAPI is
+  // planned; docs/adr/0005-asyncapi-macro-in-lite-full-feasibility.md carries
+  // the ordered checklist.
+  const cql = `space = "${job.spaceKey}" and macro in (${LITE_DISCOVERY_MACRO_KEYS
     .map((k) => `"${k}"`)
     .join(', ')})`;
   const ids: string[] = [];
@@ -345,6 +389,7 @@ async function convertPage(
     const liteContentId = node.attrs.parameters?.guestParams?.customContentId;
     if (!fullKey) {
       if (parsed.macroKey === 'zenuml-embed-macro-lite') stats.macrosSkippedEmbed += 1;
+      else if (parsed.macroKey === 'zenuml-asyncapi-macro-lite') stats.macrosSkippedAsyncApi += 1;
       else stats.macrosSkippedUnknownKey += 1;
       continue;
     }
@@ -447,6 +492,7 @@ export async function runConversionTick(): Promise<void> {
     pagesFailed: 0,
     macrosConverted: 0,
     macrosSkippedEmbed: 0,
+    macrosSkippedAsyncApi: 0,
     macrosSkippedUnknownKey: 0,
     macrosSkippedBodyMissing: 0,
     dryRun: job.dryRun,

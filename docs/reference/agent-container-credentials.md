@@ -1,3 +1,8 @@
+> **STALE as of 2026-09-11.** The environment this file describes no longer exists. The
+> current "Conf App" cloud environment has no credentials and a Trusted network policy that
+> blocks Atlassian, Cloudflare and Mixpanel. Current state and setup steps:
+> [docs/ops/cloud-work-from-phone.md](../ops/cloud-work-from-phone.md).
+
 # Agent container — credentials & reachable systems
 
 What an agent session running in the Claude Code remote container (claude.ai/code,

@@ -1,11 +1,40 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { isSequenceFamilyEntry } from './macroEntryRouting';
-import { reportOrphanObserved, type OrphanDiagramKind } from './orphanTelemetry';
 import { trackEvent } from '@/utils/window';
 
-vi.mock('@/utils/window', () => ({
+const h = vi.hoisted(() => ({
+  context: {} as any,
+  loadCustomContentWithOrphanRecovery: vi.fn(),
+  bootstrapForgeViewer: vi.fn(async () => undefined),
+  ensureDrawioViewerLoaded: vi.fn(async () => undefined),
+}));
+
+vi.mock('@/utils/window', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/utils/window')>(),
   trackEvent: vi.fn(),
 }));
+vi.mock('@/model/Attachment', () => ({ default: vi.fn() }));
+vi.mock('@/model/globals', () => ({
+  default: {
+    apWrapper: {
+      loadCustomContentWithOrphanRecovery: h.loadCustomContentWithOrphanRecovery,
+      findLegacyCustomContentByUuid: vi.fn(),
+      isDisplayMode: vi.fn(() => false),
+      canUserEdit: vi.fn(() => false),
+    },
+  },
+}));
+vi.mock('@/model/globals/forgeGlobal', () => ({
+  getContext: vi.fn(async () => h.context),
+  openModal: vi.fn(),
+}));
+vi.mock('@/utils/viewerBootstrap', () => ({
+  bootstrapForgeViewer: h.bootstrapForgeViewer,
+}));
+vi.mock('@/utils/drawio/loadDrawioViewer', () => ({
+  ensureDrawioViewerLoaded: h.ensureDrawioViewerLoaded,
+}));
+vi.mock('@/EventBus', () => ({ default: { $on: vi.fn() } }));
 
 describe('isSequenceFamilyEntry', () => {
   // The sequence family (sequence/mermaid/plantuml) all ship under the
@@ -52,77 +81,42 @@ describe('isSequenceFamilyEntry', () => {
   });
 });
 
-/**
- * De-dup invariant (the #320/#321 follow-up fix). A single macro load must fire
- * `customcontent_orphan_observed` at most ONCE with the correct diagram_kind.
- *
- * `simulateOrphanReporters` mirrors the post-fix code paths that can report an
- * orphan for one load:
- *   - the shared Custom UI entry (forgeIndex.ts) — reports 'sequence' ONLY when
- *     it renders the macro itself, i.e. isSequenceFamilyEntry() is true;
- *   - the dedicated viewer/editor entry (forge-graph-*, forge-swagger-*,
- *     forge-embed-*) — reports its own diagram_kind for the type it owns.
- *
- * Before the fix, the shared entry reported for EVERY type (hardcoded
- * 'sequence'), so graph/openapi/embed loads double-fired. The gate on
- * isSequenceFamilyEntry is what makes this exactly-once.
- */
-type MacroCase = {
-  label: string;
-  moduleKey: string | undefined;
-  modalDiagramType?: string;
-  /** the diagram_kind the dedicated entry reports, or null if forgeIndex renders it */
-  delegateKind: OrphanDiagramKind | null;
-  /** the single diagram_kind we expect to survive for one orphan load */
-  expectedKind: OrphanDiagramKind;
-};
-
-function simulateOrphanReporters(c: MacroCase) {
-  const isSequence = isSequenceFamilyEntry(c.moduleKey, c.modalDiagramType);
-  // Shared entry (forgeIndex): only reports for the family it renders itself.
-  if (isSequence) {
-    reportOrphanObserved('page-1', 'orphan-1', 'sequence', undefined, { recoveryUsed: false });
-  }
-  // Dedicated entry: reports for the type it owns.
-  if (!isSequence && c.delegateKind) {
-    reportOrphanObserved('page-1', 'orphan-1', c.delegateKind, undefined, { recoveryUsed: false });
-  }
-}
-
-describe('customcontent_orphan_observed fires exactly once per load', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const cases: MacroCase[] = [
-    { label: 'sequence viewer/editor', moduleKey: 'zenuml-sequence-macro-lite', delegateKind: null, expectedKind: 'sequence' },
-    { label: 'mermaid modal', moduleKey: undefined, modalDiagramType: 'mermaid', delegateKind: null, expectedKind: 'sequence' },
-    { label: 'graph viewer/editor', moduleKey: 'zenuml-graph-macro-lite', delegateKind: 'graph', expectedKind: 'graph' },
-    { label: 'openapi viewer/editor', moduleKey: 'zenuml-openapi-macro-lite', delegateKind: 'openapi', expectedKind: 'openapi' },
-    { label: 'embed viewer', moduleKey: 'zenuml-embed-macro-lite', delegateKind: 'embed', expectedKind: 'embed' },
-  ];
-
-  it.each(cases)('$label fires one event labeled $expectedKind', (c) => {
-    simulateOrphanReporters(c);
-
-    expect(trackEvent).toHaveBeenCalledTimes(1);
-    const props = vi.mocked(trackEvent).mock.calls[0][3] as { diagram_kind: string };
-    expect(props.diagram_kind).toBe(c.expectedKind);
-    // Regression guard: no mislabeled 'sequence' event on a non-sequence macro.
-    if (c.expectedKind !== 'sequence') {
-      expect(props.diagram_kind).not.toBe('sequence');
-    }
+describe('delegated viewer orphan telemetry', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.context = {
+      extension: {
+        content: { id: 'page-1' },
+        config: { customContentId: 'orphan-1' },
+      },
+    };
+    h.loadCustomContentWithOrphanRecovery.mockResolvedValue({
+      customContent: undefined,
+      directFetchStatus: 'not_found',
+    });
   });
 
-  it('would double-fire (and mislabel) if the shared entry ignored the gate', () => {
-    // Reproduces the pre-fix bug: shared entry reports 'sequence' unconditionally
-    // AND the graph delegate reports 'graph' → two events, one mislabeled.
-    reportOrphanObserved('page-1', 'orphan-1', 'sequence', undefined, { recoveryUsed: false });
-    reportOrphanObserved('page-1', 'orphan-1', 'graph', undefined, { recoveryUsed: false });
+  it('the graph viewer load reports its own kind once', async () => {
+    await import('@/forge-graph-viewer');
+    await vi.waitFor(() => expect(h.bootstrapForgeViewer).toHaveBeenCalled());
+    const options = h.bootstrapForgeViewer.mock.calls.at(-1)?.[0] as any;
+    await options.loadDiagram();
 
-    expect(trackEvent).toHaveBeenCalledTimes(2);
-    const kinds = vi.mocked(trackEvent).mock.calls.map(
-      (call) => (call[3] as { diagram_kind: string }).diagram_kind,
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+    expect(trackEvent).toHaveBeenCalledWith(
+      'orphan-1', 'customcontent_orphan_observed', 'warning',
+      expect.objectContaining({ diagram_kind: 'graph' }),
     );
-    // The gate removes exactly the spurious 'sequence' one for graph loads.
-    expect(kinds).toEqual(['sequence', 'graph']);
+  });
+
+  it('the embed viewer load reports its own kind once', async () => {
+    const { loadDiagram } = await import('@/forge-embed-viewer');
+    await loadDiagram();
+
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+    expect(trackEvent).toHaveBeenCalledWith(
+      'orphan-1', 'customcontent_orphan_observed', 'warning',
+      expect.objectContaining({ diagram_kind: 'embed' }),
+    );
   });
 });

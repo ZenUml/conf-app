@@ -1,7 +1,7 @@
 // src/utils/analytics/renderPerf.spec.ts
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { markAppEntry, markContentSource, time, getTimings, _resetForTesting } from "./renderPerf";
+import { markAppEntry, markContentSource, markLayoutWait, time, getTimings, _resetForTesting } from "./renderPerf";
 
 describe("renderPerf", () => {
   let nowSpy: ReturnType<typeof vi.spyOn>;
@@ -108,6 +108,15 @@ describe('P1.3 fetch split', () => {
     });
     const t = getTimings();
     expect(t.measured_sum_ms).toBe(t.fetch_ms);
+  });
+
+  it('markLayoutWait is surfaced as layout_wait_ms, stays out of measured_sum_ms, and resets', () => {
+    expect(getTimings().layout_wait_ms).toBeUndefined();
+    markLayoutWait(15_200.4);
+    expect(getTimings().layout_wait_ms).toBe(15_200);
+    expect(getTimings().measured_sum_ms).toBeUndefined();
+    _resetForTesting();
+    expect(getTimings().layout_wait_ms).toBeUndefined();
   });
 
 });

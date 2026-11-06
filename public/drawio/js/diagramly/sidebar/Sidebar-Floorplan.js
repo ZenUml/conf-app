@@ -1,3 +1,7 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 (function()
 {
 	// Adds Floorplan shapes
@@ -101,6 +105,8 @@
 					150, 120, '', 'Desk Corner 2', null, null, this.getTagsForStencil(gn, 'desk_corner_2', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'dresser;', 
 					100, 65, '', 'Dresser', null, null, this.getTagsForStencil(gn, 'dresser', dt).join(' ')),
+			this.createVertexTemplateEntry(s + 'drying_machine;aspect=fixed;', 
+					60, 60, '', 'Drying Machine', null, null, this.getTagsForStencil(gn, 'drying machine', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'elevator;', 
 					100, 100, '', 'Elevator', null, null, this.getTagsForStencil(gn, 'elevator', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'fireplace;', 
@@ -125,7 +131,7 @@
 					75, 62, '', 'Range 2', null, null, this.getTagsForStencil(gn, 'range_2', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'refrigerator;', 
 					60, 62, '', 'Refrigerator', null, null, this.getTagsForStencil(gn, 'refrigerator', dt).join(' ')),
-			this.createVertexTemplateEntry(s + 'shower2;', 
+			this.createVertexTemplateEntry(s + 'shower2;',
 					100, 100, '', 'Shower', null, null, this.getTagsForStencil(gn, 'shower', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'sink_1;', 
 					40, 35, '', 'Sink 1', null, null, this.getTagsForStencil(gn, 'sink_1', dt).join(' ')),
@@ -139,9 +145,11 @@
 					200, 200, '', 'Spiral Stairs', null, null, this.getTagsForStencil(gn, 'spiral_stairs', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'table;', 
 					90, 50, '', 'Table', null, null, this.getTagsForStencil(gn, 'table', dt).join(' ')),
-			this.createVertexTemplateEntry(s + 'toilet;', 
+			this.createVertexTemplateEntry(s + 'toilet_2;',
 					50, 67, '', 'Toilet', null, null, this.getTagsForStencil(gn, 'toilet', dt).join(' ')),
-			this.createVertexTemplateEntry(s + 'water_cooler;', 
+			this.createVertexTemplateEntry(s + 'washing_machine;aspect=fixed;', 
+					60, 60, '', 'Washing Machine', null, null, this.getTagsForStencil(gn, 'washing machine', dt).join(' ')),
+			this.createVertexTemplateEntry(s + 'water_cooler_2;',
 					40, 40, '', 'Water Cooler', null, null, this.getTagsForStencil(gn, 'water_cooler', dt).join(' ')),
 			this.createVertexTemplateEntry(s + 'workstation;', 
 					50, 40, '', 'Workstation', null, null, this.getTagsForStencil(gn, 'workstation', dt).join(' ')),

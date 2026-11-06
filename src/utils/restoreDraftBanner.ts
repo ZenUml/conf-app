@@ -95,7 +95,9 @@ function show(payload: DraftPayload) {
   discardBtn.style.cssText = btnBase;
   discardBtn.addEventListener('click', async () => {
     trackAnalyticsEvent('draft_discarded', draftProps(payload));
-    try { await clearDraft(payload.scope); } catch { /* noop */ }
+    // clearDraft self-guards (getCloudId + localStorage.removeItem both catch
+    // internally) — it never rejects.
+    await clearDraft(payload.scope);
     EventBus.$emit('draft-discard', payload);
     dismiss();
   });

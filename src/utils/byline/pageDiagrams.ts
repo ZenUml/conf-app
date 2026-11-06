@@ -1,4 +1,6 @@
-import { DiagramType, getDiagramData } from '@/model/Diagram/Diagram'
+import { DiagramType } from '@/model/Diagram/Diagram'
+import { inferLegacyDiagramType, inferLegacySpecType } from '@/model/Diagram/legacyDiagramType'
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig'
 
 /**
  * Lite byline (docs/superpowers/specs/2026-07-25-lite-byline-activation-design.md).
@@ -22,6 +24,7 @@ const COPYABLE_TYPES: ReadonlyArray<string> = [
   DiagramType.Sequence,
   DiagramType.Mermaid,
   DiagramType.PlantUml,
+  DiagramType.Markdown,
 ]
 
 export interface PageDiagram {
@@ -58,14 +61,38 @@ const TYPE_LABELS: Record<string, string> = {
   [DiagramType.Sequence]: 'Sequence',
   [DiagramType.Mermaid]: 'Flowchart',
   [DiagramType.PlantUml]: 'Flowchart',
+  [DiagramType.Markdown]: 'Markdown',
   [DiagramType.Graph]: 'Graph',
   [DiagramType.OpenApi]: 'OpenAPI',
   [DiagramType.AsyncApi]: 'AsyncAPI',
   [DiagramType.Embed]: 'Embed',
 }
 
+/**
+ * Both tables in this file are keyed on the `DiagramType` enum, and two of its
+ * members are not spelled the way the app stores them: the enum says `OpenAPI`
+ * and `AsyncAPI` while real custom-content bodies store `openapi` / `asyncapi`.
+ * Verified on lite-dev 2026-08-21 — custom content 67600411 ("Demo · OpenAPI")
+ * carries `{"diagramType":"openapi"}`, while sequence / mermaid / graph store
+ * values that already match their enum members exactly.
+ *
+ * An exact-match lookup therefore misses on OpenAPI and AsyncAPI, and every
+ * caller silently degrades: `typeLabel` returns "Diagram" and `toMacroType`
+ * returns "none", so an OpenAPI diagram reads as an untyped one on the byline
+ * and its events land in the catch-all analytics bucket. Fold the key instead
+ * of casting one spelling to the other, so both spellings resolve and an
+ * unrecognised type still reaches the fallback.
+ */
+function lookup(table: Record<string, string>, diagramType: string): string | undefined {
+  const exact = table[diagramType]
+  if (exact) return exact
+  const folded = String(diagramType ?? '').toLowerCase()
+  const key = Object.keys(table).find((k) => k.toLowerCase() === folded)
+  return key ? table[key] : undefined
+}
+
 export function typeLabel(diagramType: string): string {
-  return TYPE_LABELS[diagramType] || 'Diagram'
+  return lookup(TYPE_LABELS, diagramType) || 'Diagram'
 }
 
 /**
@@ -80,6 +107,7 @@ const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
   [DiagramType.Sequence]: 'sequence',
   [DiagramType.Mermaid]: 'mermaid',
   [DiagramType.PlantUml]: 'plantuml',
+  [DiagramType.Markdown]: 'markdown',
   [DiagramType.Graph]: 'graph',
   [DiagramType.OpenApi]: 'openapi',
   [DiagramType.AsyncApi]: 'asyncapi',
@@ -87,7 +115,7 @@ const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
 }
 
 export function toMacroType(diagramType: string): string {
-  return MACRO_TYPE_BY_DIAGRAM_TYPE[diagramType] || 'none'
+  return lookup(MACRO_TYPE_BY_DIAGRAM_TYPE, diagramType) || 'none'
 }
 
 /**
@@ -111,6 +139,7 @@ const MODAL_ROUTING_TYPE: Record<string, string> = {
   [DiagramType.Sequence]: 'sequence',
   [DiagramType.Mermaid]: 'mermaid',
   [DiagramType.PlantUml]: 'sequence',
+  [DiagramType.Markdown]: 'sequence',
   [DiagramType.Graph]: 'graph',
   [DiagramType.OpenApi]: 'openapi',
   [DiagramType.AsyncApi]: 'asyncapi',
@@ -118,7 +147,45 @@ const MODAL_ROUTING_TYPE: Record<string, string> = {
 }
 
 export function toModalDiagramType(diagramType: string): string {
-  return MODAL_ROUTING_TYPE[diagramType] || 'sequence'
+  // Through `lookup`, not a bare index, for the reason its docblock gives: real
+  // stored bodies spell these `openapi` / `asyncapi` while the enum members are
+  // `OpenAPI` / `AsyncAPI`, so an exact-match index MISSES on exactly the two
+  // types that route by modal.diagramType and nothing else. The miss was silent
+  // and total — it fell through to 'sequence', so opening an OpenAPI diagram
+  // from the byline list handed the sequence viewer a swagger document. The
+  // sibling tables in this file already fold; this one was left behind.
+  return lookup(MODAL_ROUTING_TYPE, diagramType) || 'sequence'
+}
+
+/**
+ * The type of a body that predates the `diagramType` field.
+ *
+ * Left as Unknown, such a row reads "Diagram", opens in the wrong renderer and
+ * fails Add to page with `unresolved_macro_key` — silently, from the user's
+ * side (whimet4, 2026-10-16: every Full-era diagram on an old page). These
+ * bodies are common wherever the app has been installed for years, which is
+ * exactly where Full now ships this panel.
+ *
+ * An API spec is recognised by its own text first, so a spec stored in the
+ * shared content type is never mistaken for a sequence diagram. The AsyncAPI
+ * app's `async-api-doc` type holds nothing else, so it stops there. Elsewhere
+ * the remaining fields decide: `graphXml` is a Graph, then the text-DSL rule
+ * the sequence viewer applies to the same bodies (model/Diagram/
+ * legacyDiagramType). A row's type picks the macro Add to page places — a spec
+ * goes under the OpenAPI macro, a DSL body under the sequence macro — and each
+ * renders what the row says. Full ships no AsyncAPI macro, so an AsyncAPI
+ * spec there stays Unknown rather than being given a key the app cannot
+ * render.
+ */
+function inferLegacyType(body: any, productType: string | undefined): string | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const spec = inferLegacySpecType(body)
+  if (spec === DiagramType.AsyncApi && productType !== 'asyncapi' && productType !== 'lite') {
+    return undefined
+  }
+  if (spec || productType === 'asyncapi') return spec
+  if (typeof body.graphXml === 'string' && body.graphXml) return DiagramType.Graph
+  return inferLegacyDiagramType(body)
 }
 
 /**
@@ -126,7 +193,10 @@ export function toModalDiagramType(diagramType: string): string {
  * the modal's list. Accepts the array of responses (one per probed content
  * type) exactly as the REST layer returns them, including error-shaped ones.
  */
-export function parsePageDiagrams(responses: Array<any>): PageDiagram[] {
+export function parsePageDiagrams(
+  responses: Array<any>,
+  productType: string | undefined = import.meta.env.PRODUCT_TYPE,
+): PageDiagram[] {
   const out: PageDiagram[] = []
   const seen = new Set<string>()
 
@@ -152,12 +222,16 @@ export function parsePageDiagrams(responses: Array<any>): PageDiagram[] {
         body = null
       }
 
-      const diagramType = typeof body?.diagramType === 'string' ? body.diagramType : DiagramType.Unknown
+      const diagramType =
+        typeof body?.diagramType === 'string'
+          ? body.diagramType
+          : inferLegacyType(body, productType) ?? DiagramType.Unknown
       const copyable = COPYABLE_TYPES.includes(diagramType)
       let source = ''
       if (copyable) {
         try {
-          source = getDiagramData(body) || ''
+          // The inferred type, not the body's: a legacy body has none of its own.
+          source = getDiagramData({ ...body, diagramType }) || ''
         } catch {
           source = ''
         }

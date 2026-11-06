@@ -1,123 +1,93 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { createStore } from 'vuex';
+import Header from '@/components/Header/Header.vue';
+import EventBus from '@/EventBus';
 import { DiagramType } from '@/model/Diagram/Diagram';
+import extendedStore from '@/model/store2/ExtendedStore';
+import { trackEvent } from '@/utils/window';
 
-describe('Change Detection', () => {
-  let originalCode = '';
-  let originalMermaidCode = '';
-  let mockStore: any;
+vi.mock('@/utils/window', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/utils/window')>(),
+  trackEvent: vi.fn(),
+}));
+vi.mock('@/apis/aiTitleFeatureFlag', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/apis/aiTitleFeatureFlag')>(),
+  isAiChatEnabled: vi.fn().mockResolvedValue(false),
+}));
+
+function makeStore(diagramType: DiagramType, initialCode: string) {
+  return createStore({
+    ...extendedStore,
+    state: {
+      ...extendedStore.state,
+      diagram: {
+        id: 'existing-diagram',
+        title: 'Test diagram',
+        diagramType,
+        code: diagramType === DiagramType.Sequence ? initialCode : '',
+        mermaidCode: diagramType === DiagramType.Mermaid ? initialCode : '',
+        isNew: false,
+      },
+    } as any,
+  });
+}
+
+describe('Header exit change detection', () => {
+  const wrappers: Array<ReturnType<typeof mount>> = [];
+  let emit: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    // Reset original code values
-    originalCode = 'original sequence code';
-    originalMermaidCode = 'original mermaid code';
-    
-    // Mock store state
-    mockStore = {
-      state: {
-        diagram: {
-          id: 'test-id',
-          diagramType: DiagramType.Sequence,
-          code: originalCode,
-          mermaidCode: originalMermaidCode,
-          isNew: false
-        }
-      }
-    };
+    localStorage.clear();
+    vi.mocked(trackEvent).mockClear();
+    emit = vi.spyOn(EventBus, '$emit').mockImplementation(() => undefined);
   });
 
-  describe('hasChanges function', () => {
-    it('should return false when no changes are made', () => {
-      // Simulate the hasChanges function logic
-      const hasChanges = () => {
-        const currentCode = mockStore.state.diagram.code || '';
-        const currentMermaidCode = mockStore.state.diagram.mermaidCode || '';
-        
-        if (mockStore.state.diagram.diagramType === DiagramType.Mermaid) {
-          return currentMermaidCode !== originalMermaidCode;
-        } else {
-          return currentCode !== originalCode;
-        }
-      };
+  afterEach(() => {
+    wrappers.splice(0).forEach((wrapper) => wrapper.unmount());
+    emit.mockRestore();
+  });
 
-      expect(hasChanges()).toBe(false);
-    });
+  it.each([
+    ['sequence code', DiagramType.Sequence, 'code'],
+    ['Mermaid code', DiagramType.Mermaid, 'mermaidCode'],
+  ] as const)('reports unchanged and changed %s from the mounted editor', async (_label, diagramType, field) => {
+    const store = makeStore(diagramType, 'original');
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    wrappers.push(wrapper);
+    await flushPromises();
 
-    it('should return true when sequence code is changed', () => {
-      // Update the code in store
-      mockStore.state.diagram.code = 'modified sequence code';
-      
-      const hasChanges = () => {
-        const currentCode = mockStore.state.diagram.code || '';
-        const currentMermaidCode = mockStore.state.diagram.mermaidCode || '';
-        
-        if (mockStore.state.diagram.diagramType === DiagramType.Mermaid) {
-          return currentMermaidCode !== originalMermaidCode;
-        } else {
-          return currentCode !== originalCode;
-        }
-      };
+    (wrapper.vm as any).exit();
+    expect(emit).toHaveBeenLastCalledWith('exit', false);
+    expect(trackEvent).toHaveBeenLastCalledWith(
+      '',
+      'before_edit_macro_exit',
+      diagramType,
+      expect.objectContaining({ had_changes: false }),
+    );
 
-      expect(hasChanges()).toBe(true);
-    });
+    store.state.diagram[field] = 'edited';
+    await wrapper.vm.$nextTick();
+    (wrapper.vm as any).exit();
+    expect(emit).toHaveBeenLastCalledWith('exit', true);
+    expect(trackEvent).toHaveBeenLastCalledWith(
+      '',
+      'before_edit_macro_exit',
+      diagramType,
+      expect.objectContaining({ had_changes: true }),
+    );
+  });
 
-    it('should return true when mermaid code is changed', () => {
-      // Change diagram type to Mermaid and update code
-      mockStore.state.diagram.diagramType = DiagramType.Mermaid;
-      mockStore.state.diagram.mermaidCode = 'modified mermaid code';
-      
-      const hasChanges = () => {
-        const currentCode = mockStore.state.diagram.code || '';
-        const currentMermaidCode = mockStore.state.diagram.mermaidCode || '';
-        
-        if (mockStore.state.diagram.diagramType === DiagramType.Mermaid) {
-          return currentMermaidCode !== originalMermaidCode;
-        } else {
-          return currentCode !== originalCode;
-        }
-      };
+  it('normalizes an absent code buffer to the original empty buffer', async () => {
+    const store = makeStore(DiagramType.Sequence, '');
+    const wrapper = mount(Header, { global: { plugins: [store] } });
+    wrappers.push(wrapper);
+    await flushPromises();
 
-      expect(hasChanges()).toBe(true);
-    });
+    store.state.diagram.code = undefined as any;
+    await wrapper.vm.$nextTick();
+    (wrapper.vm as any).exit();
 
-    it('should handle empty code values', () => {
-      // Test with empty original code
-      originalCode = '';
-      originalMermaidCode = '';
-      mockStore.state.diagram.code = '';
-      mockStore.state.diagram.mermaidCode = '';
-      
-      const hasChanges = () => {
-        const currentCode = mockStore.state.diagram.code || '';
-        const currentMermaidCode = mockStore.state.diagram.mermaidCode || '';
-        
-        if (mockStore.state.diagram.diagramType === DiagramType.Mermaid) {
-          return currentMermaidCode !== originalMermaidCode;
-        } else {
-          return currentCode !== originalCode;
-        }
-      };
-
-      expect(hasChanges()).toBe(false);
-    });
-
-    it('should handle undefined code values', () => {
-      // Test with undefined values
-      originalCode = '';
-      originalMermaidCode = '';
-      mockStore.state.diagram.code = undefined;
-      mockStore.state.diagram.mermaidCode = undefined;
-      
-      const hasChanges = () => {
-        const currentCode = mockStore.state.diagram.code || '';
-        const currentMermaidCode = mockStore.state.diagram.mermaidCode || '';
-        
-        if (mockStore.state.diagram.diagramType === DiagramType.Mermaid) {
-          return currentMermaidCode !== originalMermaidCode;
-        } else {
-          return currentCode !== originalCode;
-        }
-      };
-
-      expect(hasChanges()).toBe(false);
-    });
+    expect(emit).toHaveBeenLastCalledWith('exit', false);
   });
 });

@@ -1,10 +1,12 @@
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
-import { Diagram, DiagramType, NULL_DIAGRAM, getDiagramData } from '@/model/Diagram/Diagram';
+import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
+import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import store from '@/model/store2';
 import type { DiagramLoadError, ViewerLoadState } from '@/model/store2/types';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import { serializeError } from '@/utils/window';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { decompress } from '@/utils/compress';
 import type { DiagramAttribution } from '@/model/DiagramAttribution';
 
@@ -43,7 +45,6 @@ export function publishLoadedDiagram(doc: Diagram | undefined, loadError?: Diagr
   // a terminal error rather than an endless "Loading embedded diagram…".
   store.state.diagramLoadComplete = true;
   window.diagram = diagram;
-  console.log('loadDiagram - window.diagram', window.diagram);
   return diagram;
 }
 
@@ -67,9 +68,12 @@ export interface ViewerLoadOutcome {
   loadError: DiagramLoadError | null;
 }
 
+// Same resolver the viewers load with (config → modal → pasted typed deeplink).
+// Reading config/modal only mis-classified a macro placed by pasting a deeplink
+// as `failed_without_source` when it failed to load, hiding the retry
+// affordance and sending an undefined id to the orphan/related-content paths.
 export function getForgeCustomContentId(): string | undefined {
-  const extension = forgeGlobal.forgeContext?.extension;
-  return extension?.config?.customContentId ?? extension?.modal?.customContentId;
+  return resolveEffectiveCustomContentId(forgeGlobal.forgeContext);
 }
 
 export function isDisplayableDiagram(
@@ -119,6 +123,26 @@ export function classifyViewerLoadOutcome(
   const customContentId = input.customContentId ?? getForgeCustomContentId();
   const loadError = input.loadError ?? null;
 
+  // A loader may retain the fetched document for diagnostics/compatibility
+  // while explicitly reporting that the requested REPRESENTATION is invalid
+  // (a Board macro whose independent document is empty or malformed). Only
+  // such a `terminal` error beats displayability.
+  //
+  // A plain loadError must NOT: forge-graph-viewer.ts and forgeIndex.ts both
+  // set one when the customContent fetch misses, and the ZEN-1170 legacy
+  // recovery paths below that point can still restore `doc`. Letting any error
+  // win turned every successful legacy recovery into an error panel — 16
+  // graph-viewer restores in the 30 days to 2026-08-26, plus the sequence
+  // family. Those loaders now clear the error on recovery; this guard is the
+  // second half of that fix.
+  if (loadError?.terminal) {
+    return {
+      state: customContentId ? 'failed_with_source' : 'failed_without_source',
+      diagram: input.doc ?? NULL_DIAGRAM,
+      loadError,
+    };
+  }
+
   if (isDisplayableDiagram(input.doc, input.macroKind)) {
     return {
       state: 'ready',
@@ -145,6 +169,24 @@ export function classifyViewerLoadOutcome(
 export function setViewerLoadState(state: ViewerLoadState, loadError: DiagramLoadError | null = null): void {
   store.state.viewerLoadState = state;
   store.state.loadError = loadError;
+}
+
+/**
+ * Classify and publish the load state for a sequence-family doc that's
+ * ALREADY known-renderable — it's what mounted on screen — rather than one
+ * just returned from a fetch. Extracted so forgeIndex.ts's content-SWR
+ * `mountSequenceViewer` (the single call site shared by both the cache-hit
+ * render and the background-revalidate remount) has a testable unit for the
+ * 2026-08-19 fix: that function used to mount the doc without ever calling
+ * setViewerLoadState, leaving store.state.viewerLoadState stuck at its
+ * initial `null` for ~66% of sequence-family viewer views (see the "BUG FIX"
+ * comment on mountSequenceViewer). Classifies with the same
+ * isDisplayableDiagram check classifyViewerLoadOutcome uses, rather than
+ * hardcoding 'ready', so a blank/unrenderable cached doc still reports
+ * 'failed_with_source'.
+ */
+export function setSequenceViewerLoadState(doc: Diagram): void {
+  setViewerLoadState(isDisplayableDiagram(doc, 'sequence') ? 'ready' : 'failed_with_source');
 }
 
 export function applyViewerLoadOutcome(input: ViewerLoadOutcomeInput): Diagram {

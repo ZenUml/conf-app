@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "deck",
+  "title": "docs/analysis/2026-08-19-graph-board-ux-pitch.html",
+  "entry": "docs/analysis/2026-08-19-graph-board-ux-pitch.html",
+  "renderer": "deck-html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-08-19T11:28:31.478Z",
+  "updatedAt": "2026-08-19T11:28:31.478Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

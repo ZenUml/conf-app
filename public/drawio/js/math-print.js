@@ -1,3 +1,7 @@
+/**
+ * Copyright (c) 2020-2025, JGraph Holdings Ltd
+ * Copyright (c) 2020-2025, draw.io AG
+ */
 (function() {
 	window.MathJax =
 	{
@@ -10,7 +14,18 @@
 		{
 			load: [(window.opener.urlParams['math-output'] == 'html') ?
 				'output/chtml' : 'output/svg', 'input/tex',
-				'input/asciimath', 'ui/safe']
+				'input/asciimath', 'ui/safe'],
+			paths: {
+				'fonts': window.opener.DRAW_MATH_URL + '/fonts',
+				'mathjax-tex': window.opener.DRAW_MATH_URL + '/fonts/mathjax-tex-font',
+				'mathjax-mhchem-extension': window.opener.DRAW_MATH_URL + '/fonts/mathjax-mhchem-font-extension',
+				'mathjax-bbm-extension': window.opener.DRAW_MATH_URL + '/fonts/mathjax-bbm-font-extension',
+				'mathjax-bboldx-extension': window.opener.DRAW_MATH_URL + '/fonts/mathjax-bboldx-font-extension',
+				'mathjax-dsfont-extension': window.opener.DRAW_MATH_URL + '/fonts/mathjax-dsfont-font-extension',
+			}
+		},
+		output: {
+			font: 'mathjax-tex',
 		},
 		startup:
 		{
@@ -37,6 +52,6 @@
 			  	
   	if (t != null)
   	{
-  		t.parentNode.insertBefore(s, t);
+  		t.parentNode.appendChild(s);
   	}
 })();

@@ -17,16 +17,19 @@ import {
   type EditorTemplate,
 } from './EditorTemplates';
 
+// Headless parser entry: `new ZenUml(el)` mounts a React root, and since
+// @zenuml/core 4.4 a font-load re-render can fire after jsdom teardown.
 async function zenumlParses(dsl: string): Promise<boolean> {
-  const ZenUml = (await import('@zenuml/core')).default;
-  const zenuml = new ZenUml(document.createElement('div'));
-  const result = await zenuml.parse(dsl);
-  return !!result.pass;
+  // @ts-expect-error -- root tsconfig `moduleResolution: "node"` cannot see `exports` subpaths
+  const { validate } = (await import('@zenuml/core/parser')) as {
+    validate(code: string): { pass: boolean };
+  };
+  return validate(dsl).pass;
 }
 
 describe('EditorTemplates — data integrity', () => {
-  it('every editor-reachable diagram type (getEditorDiagramOptions) has 6-10 templates', () => {
-    const options = getEditorDiagramOptions();
+  it('each diagram tab with a template gallery has 6-10 templates', () => {
+    const options = getEditorDiagramOptions().filter(({ value }) => value !== DiagramType.Markdown);
     expect(options.length).toBeGreaterThan(0);
     for (const { value } of options) {
       const templates = getTemplatesForType(value);

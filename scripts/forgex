@@ -8,11 +8,7 @@ load_env() {
   echo "Loading: $file"
   while IFS='=' read -r key value; do
     [[ -z "$key" || "$key" =~ ^# ]] && continue
-    if [[ ${#value} -gt 20 ]]; then
-      echo "  $key=${value:0:20}..."
-    else
-      echo "  $key=$value"
-    fi
+    echo "  $key=<redacted>"
   done < "$file"
   set -a
   source "$file"
@@ -27,6 +23,18 @@ fi
 
 if [[ -f "$LOCAL_FILE" ]]; then
   load_env "$LOCAL_FILE"
+fi
+
+# Joint-debug supplies a one-process remote override after loading the normal
+# developer config. Deployment must use the same manifest remote as the tunnel.
+if [[ -n "${JOINT_DEBUG_BACKEND_API_BASE_URL:-}" ]]; then
+  if [[ ! "$JOINT_DEBUG_BACKEND_API_BASE_URL" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
+    echo "ERROR: JOINT_DEBUG_BACKEND_API_BASE_URL must be an HTTPS origin." >&2
+    exit 1
+  fi
+  case "${1:-}" in
+    deploy|install|tunnel) export BACKEND_API_BASE_URL="$JOINT_DEBUG_BACKEND_API_BASE_URL" ;;
+  esac
 fi
 
 # Substitute {{VAR}} templates with env values

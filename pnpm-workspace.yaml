@@ -1,6 +1,7 @@
 packages:
   - "."
   - "forge-console"
+  - "local-crm"
   - "workers/cron-aggregate"
   - "workers/agent-link"
 # pnpm ≥10 ignores package.json's pnpm.onlyBuiltDependencies; approvals live

@@ -5,7 +5,6 @@ import store from "@/model/store2";
 let currentApp: any = null; // Keep track of mounted app
 
 export function mountRoot(doc: Diagram, component: Component, props: Record<string, any> = {}) {
-  console.debug('Mounting root', doc);
   store.state.diagram = doc;
   store.state.diagramAttribution = null;
   // A fresh mount starts before the real doc is loaded; publishLoadedDiagram
@@ -17,7 +16,6 @@ export function mountRoot(doc: Diagram, component: Component, props: Record<stri
     // Unmount existing app if it exists
     if (currentApp) {
       currentApp.unmount();
-      console.debug('Unmounted existing app');
     }
 
     // Create and mount new app

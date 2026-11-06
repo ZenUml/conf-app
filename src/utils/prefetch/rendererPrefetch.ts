@@ -20,8 +20,11 @@
  * singleton — a <link rel=prefetch> of the entry would NOT fetch its static
  * import chunks). PlantUML renders server-side; nothing to prefetch.
  *
- * Never throws. Fires analytics only on an actual attempt (≤1 per deploy per
- * browser profile — see throttle.ts), never on the skip path.
+ * Never throws. Runs at most once per deploy per browser profile — see
+ * throttle.ts. The dedicated renderer_prefetch_started/_completed Mixpanel
+ * events were removed 2026-09-02 (sampled to 0 — warm-vs-cold render is
+ * already measured via macro_viewed.cache_state); this comment is the only
+ * remaining trace of that telemetry.
  *
  * No feature flag: this ran at 100% on lite and diagramly from June 2026 and
  * the `renderer-prefetch` / `renderer-prefetch-banner` Forge flags were retired
@@ -34,12 +37,16 @@
 
 import { DRAWIO_PREFETCH_ASSETS } from '@/utils/drawio/loadDrawioViewer';
 import { loadMermaid } from '@/utils/mermaid/loadMermaid';
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
-import type { PrefetchHost, PrefetchOutcome } from '@/utils/analytics/catalog';
 import { getBuildKey, isPrefetchDone, isPrefetchDue, markPrefetchDone, tryClaimLock, releaseLock, type KvStore } from './throttle';
 
 export { isPrefetchDue };
 import { prefetchUrls, fetchPrefetchManifest, type PrefetchResult, type PrefetchManifest } from './prefetchAssets';
+
+// Local now that the renderer_prefetch_started/_completed telemetry (and its
+// catalog.ts PrefetchHost/PrefetchOutcome types) is gone — these describe the
+// still-live prefetch mechanics, not any analytics payload.
+export type PrefetchHost = 'macro' | 'banner';
+export type PrefetchOutcome = 'completed' | 'partial' | 'failed' | 'timed_out';
 
 export type PrefetchRenderer = 'graph' | 'mermaid' | 'sequence' | 'openapi';
 
@@ -60,10 +67,9 @@ export interface RunOptions {
   getManifest?: () => Promise<PrefetchManifest>;
   prefetch?: typeof prefetchUrls;
   warmMermaid?: () => Promise<unknown>;
-  track?: typeof trackAnalyticsEvent;
 }
 
-interface Guards {
+export interface Guards {
   saveData: boolean;
   effectiveType?: string;
   allowImportWarm: boolean;
@@ -111,35 +117,13 @@ async function run(opts: RunOptions): Promise<void> {
   let attempted = false;
   try {
     attempted = true;
-    const startedAt = now();
     const exclude = new Set(opts.excludeRenderers ?? []);
     const renderers = ALL_RENDERERS.filter((r) => !exclude.has(r));
-    const track = opts.track ?? trackAnalyticsEvent;
 
-    track('renderer_prefetch_started', {
-      feature_area: 'system',
-      surface: opts.host === 'banner' ? 'page_banner' : 'viewer',
-      prefetch_host: opts.host,
-      prefetch_renderers: renderers.join(','),
-      ...(guards.effectiveType ? { effective_type: guards.effectiveType } : {}),
-      save_data: guards.saveData,
-    });
-
-    const outcome = await withDeadline(
+    await withDeadline(
       executePrefetch(renderers, guards, deadlineMs, opts, now),
       deadlineMs,
     );
-
-    track('renderer_prefetch_completed', {
-      feature_area: 'system',
-      surface: opts.host === 'banner' ? 'page_banner' : 'viewer',
-      prefetch_host: opts.host,
-      prefetch_renderers: renderers.join(','),
-      prefetch_outcome: outcome.outcome,
-      prefetch_assets_count: outcome.requested,
-      prefetch_failed_count: outcome.failed,
-      prefetch_duration_ms: now() - startedAt,
-    });
   } finally {
     // A failed/timed-out attempt is not retried until the next deploy: this
     // is an optimization, and retry storms cost users real bandwidth.
@@ -148,13 +132,13 @@ async function run(opts: RunOptions): Promise<void> {
   }
 }
 
-interface ExecOutcome {
+export interface ExecOutcome {
   outcome: PrefetchOutcome;
   requested: number;
   failed: number;
 }
 
-async function executePrefetch(
+export async function executePrefetch(
   renderers: readonly PrefetchRenderer[],
   guards: Guards,
   deadlineMs: number,

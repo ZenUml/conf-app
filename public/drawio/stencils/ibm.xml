@@ -4,7 +4,7 @@
     <foreground>
         <rect h="64" w="64" x="0" y="0"/>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="33.73" y="11.71"/>
             <curve x1="34.23" x2="34.73" x3="35.23" y1="11.71" y2="11.81" y3="11.81"/>
@@ -41,7 +41,7 @@
     <foreground>
         <rect h="64" w="64" x="0" y="0"/>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="32.03" y="9"/>
             <arc large-arc-flag="0" rx="0.94" ry="0.94" sweep-flag="0" x="31.1" x-axis-rotation="0" y="9.96"/>
@@ -119,7 +119,7 @@
     <foreground>
         <rect h="64" w="64" x="0" y="0"/>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="21.8" y="7"/>
             <line x="21.8" y="18.2"/>
@@ -234,7 +234,7 @@
     <foreground>
         <rect h="64" w="64" x="0" y="0"/>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="31.9" y="26.6"/>
             <curve x1="27" x2="23" x3="23" y1="26.6" y2="22.6" y3="17.7"/>
@@ -297,7 +297,7 @@
     <foreground>
         <rect h="64" w="64" x="0" y="0"/>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="13.16" y="8.9"/>
             <line x="13.16" y="12"/>
@@ -325,7 +325,7 @@
     <foreground>
         <rect h="64" w="64" x="0" y="0"/>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="31.85" y="6.85"/>
             <curve x1="30.73" x2="27.68" x3="24.71" y1="6.85" y2="6.95" y3="8.96"/>
@@ -392,7 +392,7 @@
     <foreground>
         <rect h="64" w="64" x="0" y="0"/>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="32.03" y="9"/>
             <arc large-arc-flag="0" rx="0.94" ry="0.94" sweep-flag="0" x="31.1" x-axis-rotation="0" y="9.96"/>
@@ -502,7 +502,7 @@
     <foreground>
         <rect h="64" w="64" x="0" y="0"/>
         <fill/>
-        <fillcolor color="#ffffff"/>
+        <fillcolor color="iconColor" default="#ffffff"/>
         <path>
             <move x="21.12" y="9.52"/>
             <line x="21.12" y="15.15"/>

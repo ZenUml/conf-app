@@ -1,0 +1,85 @@
+name: PR E2E validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      parent-run-id:
+        required: true
+        type: string
+      source-sha:
+        required: true
+        type: string
+      parent-attempt:
+        type: string
+        default: '1'
+      grep:
+        required: false
+        type: string
+        default: ''
+      mode:
+        required: true
+        type: string
+
+run-name: "PR E2E · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+
+permissions:
+  contents: read
+  actions: read
+
+# This workflow deliberately owns the expanded shard graph. The parent PR run
+# has one E2E validation node that waits for this result.
+jobs:
+  parent:
+    name: Verify staging ownership
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the active parent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
+          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
+          EXPECTED_PARENT_JOBS: '["E2E validation"]'
+        run: node scripts/ci/wait-for-e2e.mjs --verify-parent
+  lite:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      ref: ${{ inputs.source-sha }}
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      app: zenuml-lite@stg
+      suite: regression
+      auth-artifact: auth-state-pre-lite-stg
+      grep: ${{ inputs.grep }}
+      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
+      # PR #761's passing shard took about 15m with setup and uploads.
+      timeout-minutes: 20
+      artifact-suffix: lite-stg
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  render:
+    needs: parent
+    uses: ./.github/workflows/e2e-test.yml
+    with:
+      planned: true
+      ref: ${{ inputs.source-sha }}
+      source-run-id: ${{ inputs.parent-run-id }}
+      source-attempt: ${{ inputs.parent-attempt }}
+      app: zenuml-lite@stg
+      suite: render
+      auth-artifact: auth-state-pre-lite-stg
+      grep: ${{ inputs.grep }}
+      shard-matrix: '[1]'
+      artifact-suffix: lite-stg-render
+    secrets:
+      username: ${{ vars.ZENUML_STAGE_USERNAME }}
+      password: ${{ vars.ZENUML_STAGE_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}

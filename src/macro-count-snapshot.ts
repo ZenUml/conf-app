@@ -28,6 +28,11 @@ export type CountField =
   | 'openapi'
   | 'mermaid'
   | 'plantuml'
+  // Lite ships the AsyncAPI macro (ADR-0005 Option A), stored under the shared
+  // zenuml-content-sequence type like OpenAPI. Without its own bucket every
+  // such row would land in `unknown` with parseStatus 'unknown_diagram_type',
+  // i.e. indistinguishable from genuinely corrupt content.
+  | 'asyncapi'
   | 'unknown';
 
 export type FailureStage =
@@ -60,6 +65,7 @@ export interface MacroCounts {
   openapi: number;
   mermaid: number;
   plantuml: number;
+  asyncapi: number;
   unknown: number;
 }
 
@@ -149,6 +155,7 @@ const COUNT_FIELDS: readonly CountField[] = [
   'openapi',
   'mermaid',
   'plantuml',
+  'asyncapi',
   'unknown',
 ];
 
@@ -188,6 +195,7 @@ export function emptyCounts(): MacroCounts {
     openapi: 0,
     mermaid: 0,
     plantuml: 0,
+    asyncapi: 0,
     unknown: 0,
   };
 }
@@ -288,6 +296,9 @@ export function normalizeDiagramType(value: unknown): CountField {
     case 'openapi': return 'openapi';
     case 'mermaid': return 'mermaid';
     case 'plantuml': return 'plantuml';
+    // DiagramType.AsyncApi is the string 'AsyncAPI' — matched here lowercased,
+    // like OpenAPI above.
+    case 'asyncapi': return 'asyncapi';
     default: return 'unknown';
   }
 }

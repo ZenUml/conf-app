@@ -6,6 +6,7 @@ import {
   resolveLocalContentId,
   newlyCreatedId,
   buildDiagramDeeplink,
+  typedDeeplinkHostForProductType,
   parseDiagramDeeplink,
   resolveLocalTypedContentId,
 } from './embedDeeplink';
@@ -47,8 +48,11 @@ describe('deeplinkHostForProductType', () => {
     expect(deeplinkHostForProductType(productType)).toBe(expectedHost);
   });
 
-  // asyncapi deeplinks are deferred — its viewer doesn't route through
-  // GenericViewer, so there is no host to mint against yet.
+  // No asyncapi row: this is the per-VARIANT host for the bare 3-segment embed
+  // link, and the asyncapi variant's viewer doesn't route through GenericViewer,
+  // so there is no host to mint against. Unrelated to the 4-segment TYPED
+  // `/d/asyncapi/...` link below, which Lite does mint from the byline — that
+  // one is keyed on diagram type and always uses confluence.zenuml.com.
   // Mixed-arity rows ([string, string] | [undefined, string]) need an
   // explicit tuple type — otherwise vitest/TS infers a union of fixed-length
   // tuples and a single-parameter callback can't satisfy both arities
@@ -122,27 +126,42 @@ describe('newlyCreatedId', () => {
 
 describe('typed diagram deeplinks', () => {
   it('mints a 4-segment link per supported type', () => {
-    for (const type of ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi']) {
-      expect(buildDiagramDeeplink(type, CLOUD, '42'))
+    for (const type of ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi', 'asyncapi']) {
+      expect(buildDiagramDeeplink(type, CLOUD, '42', 'lite'))
         .toBe(`https://confluence.zenuml.com/d/${type}/${CLOUD}/42`);
     }
   });
 
-  // Minting must stay on the host the typed autoConvert matchers in
-  // manifest.yml list, or a pasted link silently fails to convert.
-  it('mints on the host the manifest matchers are written against', () => {
-    expect(buildDiagramDeeplink('graph', CLOUD, '42'))
-      .toContain('https://confluence.zenuml.com/');
+  // Minting must stay on the host the variant's typed autoConvert matchers
+  // list, or a pasted link silently fails to convert — and on a DIFFERENT host
+  // per byline-shipping variant, or two installed apps race for one paste.
+  it('mints on the host each variant\'s manifest matchers are written against', () => {
+    expect(buildDiagramDeeplink('graph', CLOUD, '42', 'lite'))
+      .toBe(`https://confluence.zenuml.com/d/graph/${CLOUD}/42`);
+    expect(buildDiagramDeeplink('graph', CLOUD, '42', 'full'))
+      .toBe(`https://conf-full.zenuml.com/d/graph/${CLOUD}/42`);
+    expect(buildDiagramDeeplink('openapi', CLOUD, '42', 'asyncapi'))
+      .toBe(`https://zenapi.zenuml.com/d/openapi/${CLOUD}/42`);
+    const hosts = ['lite', 'full', 'asyncapi'].map(typedDeeplinkHostForProductType);
+    expect(new Set(hosts).size).toBe(hosts.length);
   });
 
   it('refuses an unknown type or missing parts', () => {
-    expect(buildDiagramDeeplink('asyncapi', CLOUD, '42')).toBeUndefined();
+    expect(buildDiagramDeeplink('embed', CLOUD, '42')).toBeUndefined();
     expect(buildDiagramDeeplink('graph', '', '42')).toBeUndefined();
     expect(buildDiagramDeeplink('graph', CLOUD, '')).toBeUndefined();
   });
 
+  // The Lite byline's AsyncAPI tile mints this form; without it the created
+  // diagram has no link that places it on the page (ADR-0005 Option A).
+  it('round-trips the asyncapi type the Lite byline mints', () => {
+    const link = buildDiagramDeeplink('asyncapi', CLOUD, '42', 'lite');
+    expect(link).toBe(`https://confluence.zenuml.com/d/asyncapi/${CLOUD}/42`);
+    expect(parseDiagramDeeplink(link)).toEqual({ type: 'asyncapi', cloudId: CLOUD, contentId: '42' });
+  });
+
   it('round-trips, and parses on every migrated host', () => {
-    for (const host of ['confluence', 'conf-lite', 'conf-full']) {
+    for (const host of ['confluence', 'conf-lite', 'conf-full', 'zenapi']) {
       expect(parseDiagramDeeplink(`https://${host}.zenuml.com/d/graph/${CLOUD}/42`))
         .toEqual({ type: 'graph', cloudId: CLOUD, contentId: '42' });
     }
@@ -156,7 +175,7 @@ describe('typed diagram deeplinks', () => {
   });
 
   it('rejects an unknown type segment, http, and foreign hosts', () => {
-    expect(parseDiagramDeeplink(`https://conf-lite.zenuml.com/d/asyncapi/${CLOUD}/42`))
+    expect(parseDiagramDeeplink(`https://conf-lite.zenuml.com/d/embed/${CLOUD}/42`))
       .toBeUndefined();
     expect(parseDiagramDeeplink(`http://conf-lite.zenuml.com/d/graph/${CLOUD}/42`)).toBeUndefined();
     expect(parseDiagramDeeplink(`https://evil.example.com/d/graph/${CLOUD}/42`)).toBeUndefined();

@@ -1,3 +1,11 @@
+> **Status (2026-10-21, #649):** the tables below describe the pre-`1cff9a2a8` sidebar dialog
+> (`.export-sidebar`, `.tool-btn`, `.btn-export`, ...), which no longer exists. The suite in
+> `export-modal.spec.ts` now drives the canvas-first `ExportWorkspace.vue` (toolbar buttons by
+> `aria-label`, `svg.annotation-canvas`, `.rendered-annotations svg`) through the **Fullscreen**
+> sandbox preset (`seq-fullscreen`): the inline viewer's Export PNG goes through the Forge
+> `openModal` bridge, which the standalone sandbox does not have. Describe blocks keep the
+> section names below; test counts and per-test behaviour do not.
+
 # Export Modal — Testing Plan
 
 ## Test Strategy

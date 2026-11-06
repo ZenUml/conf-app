@@ -66,6 +66,41 @@ npm run test:ui
 npm run test:trace
 ```
 
+### Tags and selection
+
+Every top-level `test` / `test.describe` block carries tags from the closed
+taxonomy in `config/tags.ts` — one or more **surfaces** (`@viewer`, `@editor`,
+`@fullscreen`, `@modal`, `@byline`, `@page-banner`, `@dashboard`, `@route`),
+**diagram types** (`@sequence`, `@mermaid`, `@plantuml`, `@graph`, `@openapi`,
+`@asyncapi`, `@embed`) and **concerns** (`@smoke`, `@paywall`, `@deeplink`,
+`@analytics`, `@export`, `@feedback`, `@csat`, `@ai`, `@conversion`). A new
+block needs at least one surface and one type-or-concern tag;
+`tests/unit/e2eTags.spec.ts` fails the unit suite otherwise, and an unknown
+tag is rejected the same way.
+
+```bash
+# Only the paywall specs, on lite staging
+CI=true APP=zenuml-lite@stg pnpm exec playwright test --grep @paywall
+```
+
+CI uses the same mechanism to run less on a pull request: `scripts/e2e-select.mjs`
+keeps `@smoke` and any changed staged-project E2E spec as a deterministic floor, then Jev
+uses the public diff and the closed behavior taxonomy to widen the `--grep`
+expression. The Lite E2E jobs run that union and carry "(selected)" in their
+names. Shared runtime and harness files (`src/forgeIndex.ts`, `src/model/**`,
+`package.json`, fixtures, authentication, page objects, and Playwright
+configuration) or an unmapped file make the run unselective. `main` always
+runs the whole suite. Try it locally:
+
+```bash
+node scripts/e2e-select.mjs src/components/Mermaid.vue         # → @smoke; Jev adds behavior categories in CI
+node scripts/e2e-select.mjs --base origin/main --head HEAD     # your branch's selection
+```
+
+When you add a source area, add its descriptive glob to `impact-map.mjs` so
+Jev receives the relevant context. `tests/unit/e2eSelect.spec.ts` checks that
+every glob still matches a tracked file and every tag exists.
+
 ## Test Structure
 
 ### Directory Layout

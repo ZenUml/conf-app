@@ -44,11 +44,17 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 
 ## Execution Steps
 
-Run these queries using `mcp__claude_ai_Mixpanel__Run-Query` with `project_id: 3373228`. All queries should filter out internal sites using a global filter on `client_domain`.
+Run these queries using `mcp__claude_ai_Mixpanel__Run-Query` with `project_id: 3373228`. All customer-wide queries must filter out internal sites with the global computed-property filter below.
 
 ### Global filter (apply to every query)
 
-The canonical internal-domain exclude list lives in `.claude/skills/mixpanel/SKILL.md` § "Excluding internal / staging sites" — **read it, never inline a copy** (past inline copies here drifted and under-excluded). Build one `client_domain` filter clause per entry: `does not contain` for the prefix-style entries, `does not equal` for the exact names. On MCP Run-Query the single computed filter `is_internal_client_domain = false` is the equivalent one-liner.
+Use exactly this one global filter in every customer-wide MCP report; do **not** build per-domain `client_domain` exclusions:
+
+```json
+{"type":"string", "propertyName":"is_internal_client_domain", "propertyType":"string", "resource":"event", "operator":"equals", "value":"false"}
+```
+
+The string encoding is deliberate: it matches the native boolean result while keeping a shared or saved report's filter stable. Raw JQL is the only exception because it cannot access computed properties; follow the JQL guidance in the **mixpanel** skill for that path.
 
 ### Query 1: Today hourly — activity events
 
@@ -215,7 +221,7 @@ For 1d and 1w comparisons, follow the same current+previous pattern as queries 2
 ## Health Check Plan
 
 Checking ZenUML Confluence app health via Mixpanel (project 3373228).
-Excluding internal sites per the canonical exclude list in the mixpanel skill (`.claude/skills/mixpanel/SKILL.md`).
+Excluding internal sites with the computed `is_internal_client_domain = "false"` filter from the mixpanel skill (`.claude/skills/mixpanel/SKILL.md`).
 Note: querying both legacy and canonical event names (migration deployed 2026-04-27; legacy confirmed zero as of 2026-05-05).
 
 **Queries to run** (10 in parallel):

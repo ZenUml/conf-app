@@ -52,14 +52,14 @@ describe('useCustomerSuccessService', () => {
     expect(svc.spacePaid.value).toBe(false);
   });
 
-  it('shouldBlockActions is true when macroCount >= MACROS_LIMIT and CSS flag is on and isLite', async () => {
+  it('shouldBlockActions stays false when macroCount >= MACROS_LIMIT and CSS flag is on and isLite (paywall block retired)', async () => {
     localStorage.setItem('mockMacroCount', '120');
     (callRemote as any).mockResolvedValue({ isPaid: false });
     (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: false });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
-    expect(svc.shouldBlockActions.value).toBe(true);
+    expect(svc.shouldBlockActions.value).toBe(false);
     expect(JSON.parse(localStorage.getItem('paywallWarning:acme.atlassian.net:ENG') || '{}')).toMatchObject({
       macroCount: 120,
       spacePaid: false,

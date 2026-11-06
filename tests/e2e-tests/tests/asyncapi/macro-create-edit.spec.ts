@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
 import { MacroPage } from '../../pages/MacroPage.js';
@@ -78,7 +78,7 @@ async function publishEditorAndExpectClose(page: import('@playwright/test').Page
   await expect(page.locator(MODAL)).toBeHidden({ timeout: 60_000 });
 }
 
-test.describe('AsyncAPI macro create + edit', () => {
+test.describe('AsyncAPI macro create + edit', { tag: ['@test:asyncapi-macro-create-edit', '@variant:asyncapi', '@editor', '@viewer', '@asyncapi'] }, () => {
   test.describe.configure({ mode: 'serial' });
   test.skip(skip, `Profile ${testConfig.domain} is not the asyncapi variant`);
 

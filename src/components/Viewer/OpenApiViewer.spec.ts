@@ -4,6 +4,8 @@ import OpenApiViewer from '@/components/Viewer/OpenApiViewer.vue';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { reportDiagramReady } from '@/utils/fullscreenReady';
+vi.mock('@/utils/fullscreenReady', () => ({ reportDiagramReady: vi.fn() }));
 import { time as timePhase, _resetForTesting } from '@/utils/analytics/renderPerf';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -67,9 +69,22 @@ describe('OpenApiViewer', () => {
       dom_id: '#swagger-ui',
       presets: ['apis'],
       plugins: ['download-url', 'spec-listener'],
+      onComplete: expect.any(Function),
     });
     expect(window.ui).toBeDefined();
     expect(swaggerMock.updateSpec).toHaveBeenCalled();
+  });
+
+  it('reports Fullscreen readiness only after the current spec is parsed without errors', () => {
+    store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code: 'openapi: 3.0.0' };
+    mount(OpenApiViewer, { global: { plugins: [store] } });
+    const onComplete = (swaggerMock.swaggerFactory.mock.calls[0] as unknown as [{onComplete: () => void}])[0].onComplete;
+    expect(reportDiagramReady).not.toHaveBeenCalled();
+    window.ui.specSelectors = { specJson: () => ({ get: () => '3.0.0' }), specStr: () => store.state.diagram.code };
+    window.ui.errSelectors = { allErrors: () => ({ size: 1 }) };
+    onComplete(); expect(reportDiagramReady).not.toHaveBeenCalled();
+    window.ui.errSelectors = { allErrors: () => ({ size: 0 }) };
+    onComplete(); expect(reportDiagramReady).toHaveBeenCalledOnce();
   });
 
   it('updates SwaggerUI when the loaded diagram is published to the store', async () => {
@@ -189,6 +204,37 @@ describe('OpenApiViewer', () => {
       await wrapper.vm.$nextTick();
 
       expect(macroViewedCalls()).toHaveLength(1);
+    });
+
+    // #113: content_state is a wipe signal, so a load that never delivered a
+    // body must NOT read as `empty`.
+    it.each([
+      ['authored', 'openapi: 3.0.0\ninfo:\n  title: Mine', 'authored'],
+      ['empty (a wiped body)', '  \n', 'empty'],
+    ])('carries content_state for a loaded %s body', (_label, code, expected) => {
+      mount(OpenApiViewer, {
+        props: { doc: { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, code } },
+        global: { plugins: [store] },
+      });
+
+      expect(macroViewedCalls()[0][1].content_state).toBe(expected);
+    });
+
+    it('omits content_state when the load never delivered a document', async () => {
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+
+      expect(macroViewedCalls()[0][1]).not.toHaveProperty('content_state');
+    });
+
+    it('omits content_state when the load failed with a loadError', async () => {
+      const wrapper = mount(OpenApiViewer, { global: { plugins: [store] } });
+      store.state.diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.OpenApi, loadError: { directFetchStatus: 'not_found', errorClass: 'structured' } };
+      store.state.diagramLoadComplete = true;
+      await wrapper.vm.$nextTick();
+
+      expect(macroViewedCalls()[0][1]).not.toHaveProperty('content_state');
     });
 
     it('reports at mount when the content is already in hand (embed host, editor preview)', () => {

@@ -1,23 +1,30 @@
 <template>
-  <ViewResizer v-if="autoResize">
-    <template #default>
-      <div ref="zenuml" class="resize-target"></div>
-    </template>
-  </ViewResizer>
-  <div v-else ref="zenuml"></div>
+  <DiagramTransformViewport
+    ref="viewport"
+    macro-type="sequence"
+    label="Sequence"
+    content-selector=".zenuml > div"
+    :size-to-content="autoResize"
+  >
+    <div ref="zenuml" class="resize-target"></div>
+  </DiagramTransformViewport>
 </template>
 
 <script>
 // Import ZenUml dynamically instead of statically
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 // import ZenUml from "@zenuml/core";
 import EventBus from "@/EventBus";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { trackEvent } from "@/utils/window";
 import globals from "@/model/globals";
-import ViewResizer from "./Viewer/ViewResizer.vue";
+import DiagramTransformViewport from "./Viewer/DiagramTransformViewport.vue";
 import { trackRenderTime } from "@/utils/analytics/trackRenderTime";
+import { viewContentState } from "@/utils/analytics/contentState";
 import { trackViewerRenderCrash } from "@/utils/analytics/trackViewerRenderCrash";
 import * as renderPerf from "@/utils/analytics/renderPerf";
+import { configureDiagramFonts } from "@/utils/fonts/configureDiagramFonts";
+import { detectDiagramFontState, setDiagramFontState } from "@/utils/fonts/diagramFontState";
 
 // Create a promise to load ZenUml only when needed
 const loadZenUml = () => import("@zenuml/core").then(module => module.default);
@@ -33,8 +40,12 @@ const getThemeStorageKey = (id) => {
 };
 export default {
   name: "Sequence",
-  components: { ViewResizer },
+  components: { DiagramTransformViewport },
   props: {
+    // True on the page viewer, where the box has to take the scaled diagram's
+    // height because the Forge macro iframe is sized by its content. False in
+    // fullscreen and the editor, whose pane already has a height. It no longer
+    // decides WHETHER the diagram is scaled -- every surface fits and zooms now.
     autoResize: {
       type: Boolean,
       default: false
@@ -63,13 +74,30 @@ export default {
   },
   async mounted() {
     try {
-      // Load ZenUml dynamically
+      // Load ZenUml dynamically. Core's own `data:` font load is refused by
+      // the Forge CSP, so point it at our hosted font files first. Core awaits
+      // the font inside render() and clears its width cache on arrival, so no
+      // explicit wait is needed here.
       const ZenUml = await loadZenUml();
-      console.log("ZenUML Core version: ", ZenUml.version);
+      // 2026-09-01 replay (v2026.08.310610-lite): the user picked a Mermaid
+      // starter template while this chunk was still loading, unmounting
+      // Sequence before `await loadZenUml()` resolved. `new ZenUml(...)` then
+      // ran against a null $refs.zenuml, React's createRoot threw error #299
+      // ("Target container is not a DOM element"), and viewer_load_failed
+      // fired for a macro the user had already switched away from. Bail out
+      // silently instead of constructing/rendering/tracking anything.
+      if (this._unmountedDuringLoad || !this.$refs["zenuml"]) {
+        return;
+      }
+      configureDiagramFonts(ZenUml);
       zenuml = new ZenUml(this.$refs["zenuml"]);
       // Phase 0b: render_ms for the initial mount render (recorded once).
       await renderPerf.time('render', () => this.render());
-      trackRenderTime('sequence', this.isDisplayMode);
+      setDiagramFontState(detectDiagramFontState());
+      trackRenderTime(
+        'sequence', this.isDisplayMode, 'live_render', 'none',
+        viewContentState(this.$store.state.diagram, DiagramType.Sequence),
+      );
       // The awaits above can span seconds (cold ZenUML chunk + render). If the
       // user switched diagram type meanwhile, emitting the sequence `code`
       // with the NEW store diagramType would upload a mislabeled attachment
@@ -90,6 +118,13 @@ export default {
       trackViewerRenderCrash('sequence', this.isDisplayMode, error);
     }
   },
+  beforeUnmount() {
+    // Flip a flag rather than relying solely on `this.$refs["zenuml"]` being
+    // null after unmount — belt-and-braces for the guard in `mounted()`
+    // above (see the 2026-09-01 replay comment there).
+    this._unmountedDuringLoad = true;
+    this._readyObserver?.disconnect();
+  },
   methods: {
     async render() {
       if (!zenuml) {
@@ -102,7 +137,8 @@ export default {
       const scopeTheme = id
         ? localStorage.getItem(getThemeStorageKey(id))
         : sessionStorage.getItem(getThemeStorageKey());
-      await zenuml.render(this.$store.state.diagram.code, {
+      const renderedCode = this.$store.state.diagram.code;
+      await zenuml.render(renderedCode, {
         // stickyOffset is used only at view mode or edit when the iframe scroll out of the viewport
         // In fullscreen viewer or editor mode, the iFrame element is not scrollable, so we don't need to offset.
         // Note when the iframe is not scrollable, the stickyOffset does not have any effect.
@@ -132,6 +168,25 @@ export default {
           }
         }
       });
+      this._readyObserver?.disconnect();
+      if (!this._unmountedDuringLoad && renderedCode?.trim() && this.code === renderedCode
+        && (await zenuml.parse(renderedCode)).pass) {
+        // Core may debounce a later render. Wait for real diagram DOM, not render()'s promise alone.
+        const report = () => {
+          if (this._unmountedDuringLoad || this.code !== renderedCode) return;
+          const diagram = this.$refs.zenuml?.querySelector('.sequence-diagram');
+          if (!diagram?.querySelector('.participant')) return;
+          this._readyObserver?.disconnect();
+          reportDiagramReady(diagram, 'sequence');
+        };
+        this._readyObserver = new MutationObserver(report);
+        this._readyObserver.observe(this.$refs.zenuml, { childList: true, subtree: true });
+        report();
+      }
+      // ZenUML moves creation participants in its own $nextTick, so the DOM is
+      // not final when render() resolves; measuring immediately reads a stale
+      // width. ViewResizer used a 10ms setTimeout for the same reason.
+      setTimeout(() => this.$refs.viewport?.layout(), 10);
     },
     updateCode(newCode) {
       this.$store.dispatch("updateCode2", newCode);
@@ -159,6 +214,14 @@ export default {
 </script>
 
 <style>
+/* Inherited from ViewResizer, which this component's viewport replaced. Only the
+   positioning context is still load-bearing here: the transform and its origin
+   are applied to `.zenuml > div` by DiagramTransformViewport, not to this
+   wrapper. */
+.resize-target {
+  position: relative;
+}
+
 #headlessui-portal-root {
   position: relative;
   z-index: 11;

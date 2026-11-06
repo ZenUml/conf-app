@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseExtensionKey,
   mapLiteMacroKey,
+  LITE_DISCOVERY_MACRO_KEYS,
   fullContentTypeForLiteType,
   collectLiteExtensions,
   rewriteExtensionNode,
@@ -64,6 +65,25 @@ describe('mapLiteMacroKey', () => {
     ['zenuml-graph-macro-lite', 'zenuml-graph-macro'],
   ])('%s -> %s', (lite: string, full: string) => {
     expect(mapLiteMacroKey(lite)).toBe(full);
+  });
+
+  // Full ships no zenuml-asyncapi-macro (the full/diagramly manifestEdits strip
+  // it). Converting would rewrite the ADF to a module Full cannot render and
+  // republish the page with a broken macro, so the migration deliberately
+  // leaves these on Lite. Delete this expectation when Full ships the macro.
+  it('refuses asyncapi while Full has no AsyncAPI macro module', () => {
+    expect(mapLiteMacroKey('zenuml-asyncapi-macro-lite')).toBeNull();
+  });
+
+  // The space sweep has no cursor: it relies on a page dropping out of the CQL
+  // once its macros are converted. A discovery key that mapLiteMacroKey refuses
+  // never drops out — it is re-read every tick, holds slots in the 25-page
+  // batch, and a batch made entirely of such pages yields macrosConverted === 0,
+  // which shouldRequeue reads as "done" while convertible pages remain.
+  it('every discovery key is one mapLiteMacroKey can actually convert', () => {
+    for (const key of LITE_DISCOVERY_MACRO_KEYS) {
+      expect(mapLiteMacroKey(key)).not.toBeNull();
+    }
   });
 
   it('refuses embed (phase-2) and non-lite keys', () => {

@@ -2,7 +2,7 @@
 // Copy for AI Lite release. If the same people use both, the two funnels are
 // not independent populations and the comparison is contaminated.
 function main() {
-  var INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"];
+  var INTERNAL = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "lite-prod", "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie"];
   return Events({
     from_date: "2026-07-30",
     to_date: "2026-08-11",

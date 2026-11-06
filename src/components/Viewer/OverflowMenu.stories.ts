@@ -1,4 +1,5 @@
 import type { Args, Meta, StoryObj } from '@storybook/vue3-vite'
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 import { ref } from 'vue'
 import OverflowMenu from './OverflowMenu.vue'
 
@@ -12,7 +13,7 @@ const meta: Meta<typeof OverflowMenu> = {
     docs: {
       description: {
         component:
-          'Three-dot overflow menu used in the diagram viewer toolbar. Renders a circular trigger button that opens a popover menu above the trigger. The menu content is provided via a default slot. Closes on Escape, outside click, or when a slot item calls `close()`.',
+          'Three-dot overflow menu at the right end of the viewer\'s bottom pill row (GenericViewer.vue). In production it holds exactly one item, Download debug info; Export, Fullscreen and Copy page link are separate pill buttons, not menu items. The trigger opens a popover above itself, which closes on Escape, on an outside click, or when a slot item calls close().',
       },
     },
   },
@@ -31,7 +32,7 @@ export default meta
 // Collapsed (default idle state)
 // ---------------------------------------------------------------------------
 
-/** Trigger button in its default idle state — menu closed. */
+/** Trigger button in its idle state — menu closed. The slot carries the one item production uses. */
 export const Collapsed: Story = {
   args: {
     triggerLabel: 'More',
@@ -44,17 +45,13 @@ export const Collapsed: Story = {
     template: `
       <div style="display: inline-flex; align-items: center; padding: 4px; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px;">
         <OverflowMenu v-bind="args">
-          <button class="overflow-menu-item" role="menuitem">
+          <button type="button" role="menuitem" class="overflow-menu-item">
             <span class="overflow-menu-item-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25" />
+              </svg>
             </span>
-            Export
-          </button>
-          <button class="overflow-menu-item" role="menuitem">
-            <span class="overflow-menu-item-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75"/></svg>
-            </span>
-            Fullscreen
+            <span>Download debug info</span>
           </button>
         </OverflowMenu>
       </div>
@@ -67,7 +64,7 @@ export const Collapsed: Story = {
 // ---------------------------------------------------------------------------
 
 /**
- * Menu open — popover visible above the trigger.
+ * Menu open — popover visible above the trigger, showing the production item.
  * Uses a Vue ref to force `open` to true on mount so the popover is
  * immediately visible in the canvas without requiring a click.
  */
@@ -90,17 +87,13 @@ export const Expanded: Story = {
     template: `
       <div style="display: inline-flex; align-items: center; padding: 4px; margin-top: 80px; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px;">
         <OverflowMenu ref="menuRef" v-bind="args" @vue:mounted="onMounted">
-          <button class="overflow-menu-item" role="menuitem">
+          <button type="button" role="menuitem" class="overflow-menu-item">
             <span class="overflow-menu-item-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25" />
+              </svg>
             </span>
-            Export
-          </button>
-          <button class="overflow-menu-item" role="menuitem">
-            <span class="overflow-menu-item-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75"/></svg>
-            </span>
-            Fullscreen
+            <span>Download debug info</span>
           </button>
         </OverflowMenu>
       </div>
@@ -112,57 +105,55 @@ export const Expanded: Story = {
 // Export + Fullscreen actions (typical viewer toolbar set)
 // ---------------------------------------------------------------------------
 
-/**
- * The two actions present in the viewer toolbar: Export and Fullscreen.
- * Both items call `close()` from the slot scope after the action runs.
- */
-export const ExportAndFullscreen: Story = {
+/** Clicking the item runs its action and then calls the slot's close(); the status line below records the click. */
+export const ItemClosesMenu: Story = {
+  name: 'Item click closes the menu',
   args: {
     triggerLabel: 'More actions',
   },
   render: (args: Args) => ({
     components: { OverflowMenu },
     setup() {
-      function onExport(close: () => void) {
-        alert('Export triggered')
+      const status = ref('')
+      function onDownload(close: () => void) {
+        status.value = 'Download debug info clicked'
         close()
       }
-      function onFullscreen(close: () => void) {
-        alert('Fullscreen triggered')
-        close()
-      }
-      return { args, onExport, onFullscreen }
+      return { args, status, onDownload }
     },
     template: `
-      <div style="display: inline-flex; align-items: center; padding: 4px; margin-top: 80px; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px;">
+      <div style="display: inline-block; align-items: center; padding: 4px; margin-top: 80px; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px;">
         <OverflowMenu v-bind="args" v-slot="{ close }">
-          <button class="overflow-menu-item" role="menuitem" @click="onExport(close)">
+          <button type="button" role="menuitem" class="overflow-menu-item" @click="onDownload(close)">
             <span class="overflow-menu-item-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 4.5a3 3 0 0 1 6 0M5 8h14M7 8v6a5 5 0 0 0 10 0V8M4 11h3M17 11h3M5 17l-1.5 2M19 17l1.5 2M12 14v6m0 0-2.25-2.25M12 20l2.25-2.25" />
+              </svg>
             </span>
-            Export
-          </button>
-          <button class="overflow-menu-item" role="menuitem" @click="onFullscreen(close)">
-            <span class="overflow-menu-item-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/></svg>
-            </span>
-            Fullscreen
+            <span>Download debug info</span>
           </button>
         </OverflowMenu>
+        <p data-testid="overflow-status" style="font-size: 12px; color: #6B7280; margin: 8px 0 0;">{{ status }}</p>
       </div>
     `,
   }),
+  play: async () => {
+    const canvas = within(document.body)
+    await userEvent.click(canvas.getByRole('button', { name: 'More actions' }))
+    await userEvent.click(await canvas.findByRole('menuitem', { name: 'Download debug info' }))
+    await expect(canvas.getByTestId('overflow-status')).toHaveTextContent('Download debug info clicked')
+    // close() came from the slot scope, so the popover is gone as well.
+    await waitFor(() => expect(canvas.queryByRole('menu')).toBeNull())
+  },
 }
 
 // ---------------------------------------------------------------------------
 // Many actions
 // ---------------------------------------------------------------------------
 
-/**
- * A fuller action set (Export, Fullscreen, Copy link, Print) — shows how
- * the popover stretches to fit more items without overflowing.
- */
-export const ManyActions: Story = {
+/** Not a production configuration — shows how the popover grows with more items without overflowing. */
+export const FourItems: Story = {
+  name: 'Four items (synthetic)',
   args: {
     triggerLabel: 'More',
   },
@@ -227,52 +218,6 @@ export const CustomTriggerLabel: Story = {
           <button class="overflow-menu-item" role="menuitem">Action one</button>
           <button class="overflow-menu-item" role="menuitem">Action two</button>
         </OverflowMenu>
-      </div>
-    `,
-  }),
-}
-
-// ---------------------------------------------------------------------------
-// In a viewer toolbar (contextual placement)
-// ---------------------------------------------------------------------------
-
-/**
- * OverflowMenu placed at the right end of a mock viewer toolbar — mirrors
- * real production placement so reviewers can evaluate sizing and spacing in
- * context.
- */
-export const InViewerToolbar: Story = {
-  args: {
-    triggerLabel: 'More',
-  },
-  render: (args: Args) => ({
-    components: { OverflowMenu },
-    setup() {
-      return { args }
-    },
-    template: `
-      <div style="display: flex; align-items: center; justify-content: space-between; width: 480px; height: 40px; padding: 0 8px; background: #fff; border: 1px solid #E5E7EB; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-top: 80px;">
-        <span style="font-size: 13px; font-weight: 500; color: #374151;">Payment Flow Diagram</span>
-        <div style="display: flex; align-items: center; gap: 4px;">
-          <!-- Placeholder for other toolbar buttons -->
-          <button style="width:30px;height:30px;border:none;background:transparent;border-radius:9999px;cursor:pointer;color:#6B7280;display:inline-flex;align-items:center;justify-content:center;">
-            <svg width="16" height="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/></svg>
-          </button>
-          <OverflowMenu v-bind="args">
-            <button class="overflow-menu-item" role="menuitem">
-              <span class="overflow-menu-item-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-              </span>
-              Export
-            </button>
-            <button class="overflow-menu-item" role="menuitem">
-              <span class="overflow-menu-item-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
-              </span>
-              Copy link
-            </button>
-          </OverflowMenu>
-        </div>
       </div>
     `,
   }),

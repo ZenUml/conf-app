@@ -330,7 +330,7 @@ New `AnalyticsEventName` entries (`src/utils/analytics/catalog.ts`), plus `bylin
 | `byline_insert_requested` / `_succeeded` / `_failed` | Phase 2 page write | `macro_type`, `failure_reason`, `page_version` |
 | `byline_dismissed` | modal closed with no action | `dwell_ms`, `page_has_diagram` |
 
-AI generation inside the modal reuses the existing `ai_generation_requested` / `_succeeded` /
+AI generation inside the modal reuses the existing `ai_title_generation_requested` / `_succeeded` /
 `_failed` names with `surface: 'byline'` rather than minting parallel events.
 
 **North star:** distinct accountIds whose **first-ever** `macro_create_succeeded` /

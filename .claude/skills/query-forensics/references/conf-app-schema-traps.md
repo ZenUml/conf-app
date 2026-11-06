@@ -64,6 +64,8 @@ Declared `INTEGER`, actually holds **Connect small ints** (join `AppInstance` �
 - Peng: `557058:0a2e245b-f5cd-42f7-bf07-a53b8d17e94f`, `5f07a383ce15e8002618291d`.
 - Domain excludes: `zenuml` (contains-match), `whimet`, `full-stg`, `lite-stg`, `lite-dev`,
   `dia-stg`, `asyncapi-stg`, `diagramly`, `danshuitaihejie`.
+  For customer-specific internal exclusions, also load
+  `private/operations/internal-analytics-domain-exclusions.md`; keep those identifiers private.
 - Session measurement: internal contamination of content counts ≈ 5% — real but not decisive.
 
 ## D1 / wrangler practicalities

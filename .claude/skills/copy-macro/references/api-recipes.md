@@ -1,6 +1,6 @@
 # API recipes
 
-All snippets run via `mcp__playwright__browser_evaluate` against the logged-in Confluence session.
+All snippets run via agent-browser `eval` (`agent-browser --session conf-app --restore=stg eval "<js>"`, or `eval -b "$(base64 < file.js)"`) against the logged-in Confluence session.
 They use `fetch()` with `credentials: 'include'` so the session cookie is sent automatically — no
 API token needed.
 
@@ -156,17 +156,19 @@ async () => {
 
 There's no V2 REST endpoint for `make-a-copy` that we trust — the Confluence platform handles the
 child CC duplication only via the UI flow. So the copy step is the one part of the test that must
-be driven through Playwright MCP:
+be driven through agent-browser (`A(){ agent-browser --session conf-app --restore=stg "$@"; }`):
 
-1. `mcp__playwright__browser_navigate` to the source page.
-2. `mcp__playwright__browser_click` on the page header's "More actions" button (the *second* visible
+1. `A open <source-page-url>`, then `A snapshot` to get `@ref`s.
+2. `A click @ref` on the page header's "More actions" button (the *second* visible
    match — the first is the space-sidebar item).
-3. `mcp__playwright__browser_click` on the `[role="menuitem"]` containing "Make a copy".
-4. `mcp__playwright__browser_click` on the dialog's "Make a copy" button.
+3. `A snapshot`, then `A click @ref` on the `[role="menuitem"]` containing "Make a copy".
+4. `A click @ref` on the dialog's "Make a copy" button.
 5. The browser lands at `/wiki/spaces/<key>/pages/edit-v2/<NEW_ID>?draftShareId=…` — `<NEW_ID>` is
    the copy page id. Extract from `location.href`.
-6. `mcp__playwright__browser_click` on "Publish..." in the page header.
-7. `mcp__playwright__browser_click` on the dialog's "Publish" button (not "Schedule publish").
+6. `A click @ref` on "Publish..." in the page header.
+7. `A click @ref` on the dialog's "Publish" button (not "Schedule publish").
+
+Playwright MCP (`mcp__playwright__browser_*`) is the fallback if agent-browser fails.
 
 After step 7 the URL changes from `edit-v2/<NEW_ID>` to `pages/<NEW_ID>/<slug>` — the page is
 published and the macros begin rendering.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mixpanel Agent Browser"
+  short_description: "Edit Mixpanel UI through a persistent agent-browser profile"
+  default_prompt: "Use agent-browser with the persistent Mixpanel profile to inspect or edit the requested Mixpanel report, then verify the saved result."

@@ -37,6 +37,11 @@ if [ -z "$NGROK_AUTHTOKEN" ] || [ -z "$NGROK_DOMAIN" ]; then
     exit 1
 fi
 
+if [[ ! "$NGROK_DOMAIN" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
+    echo "ERROR: NGROK_DOMAIN must be a hostname without a scheme or path." >&2
+    exit 1
+fi
+
 if [ ! -d "$DIAGRAMLY_PATH" ] || [ ! -f "$DIAGRAMLY_PATH/package.json" ]; then
     echo "ERROR: Diagramly path is not a project directory: $DIAGRAMLY_PATH" >&2
     exit 1
@@ -108,6 +113,7 @@ printf -v DIAGRAMLY_PATH_Q '%q' "$DIAGRAMLY_PATH"
 printf -v WORKSPACE_DIR_Q '%q' "$WORKSPACE_DIR"
 printf -v NGROK_AUTHTOKEN_Q '%q' "$NGROK_AUTHTOKEN"
 printf -v NGROK_DOMAIN_Q '%q' "$NGROK_DOMAIN"
+printf -v JOINT_DEBUG_REMOTE_URL_Q '%q' "https://$NGROK_DOMAIN"
 
 if [ -n "$DIAGRAMLY_DATABASE_URL" ]; then
     printf -v DIAGRAMLY_DATABASE_URL_Q '%q' "$DIAGRAMLY_DATABASE_URL"
@@ -128,16 +134,16 @@ echo "Opening terminal windows..."
 open_terminal_window "cd $DIAGRAMLY_PATH_Q && echo 'Terminal 1: Diagramly AI Service' && $DIAGRAMLY_START_COMMAND"
 sleep 0.5
 
-open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 2: Cloudflare Worker' && pnpm exec wrangler pages dev --port 8789"
+open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 2: Cloudflare Worker' && PORT=8789 HOST=127.0.0.1 pnpm wrangler:serve:raw --binding=DIAGRAMLY_BACKEND_API_BASE_URL=http://127.0.0.1:3000"
 sleep 0.5
 
 open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 3: ngrok Tunnel' && npx --yes ngrok http --authtoken $NGROK_AUTHTOKEN_Q --url $NGROK_DOMAIN_Q 8789"
 sleep 0.5
 
-open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 4: conf-app Frontend (Forge + Diagramly)' && FORGE_TUNNEL=1 VERSION=latest PRODUCT_TYPE=diagramly pnpm exec vite dev --port 8080 --host 127.0.0.1"
+open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 4: conf-app Frontend (Forge + Diagramly)' && VITE_JOINT_DEBUG_REMOTE_BASE_URL=$JOINT_DEBUG_REMOTE_URL_Q FORGE_TUNNEL=1 VERSION=latest PRODUCT_TYPE=diagramly pnpm exec vite dev --port 8080 --host 127.0.0.1"
 sleep 0.5
 
-open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 5: Forge Tunnel' && pnpm forge:tunnel"
+open_terminal_window "cd $WORKSPACE_DIR_Q && echo 'Terminal 5: Forge Tunnel' && JOINT_DEBUG_BACKEND_API_BASE_URL=$JOINT_DEBUG_REMOTE_URL_Q pnpm forge:tunnel"
 
 echo
 echo "All Terminal commands were accepted. Verify readiness in every window:"

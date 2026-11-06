@@ -2,6 +2,8 @@
  * Mermaid validation utilities
  */
 import { loadMermaid } from './loadMermaid';
+import { enqueueMermaid } from './mermaidQueue';
+import { normalizeMermaidWhitespace } from './normalizeWhitespace';
 import { SyntaxValidationResult } from '../validate/types';
 import { extractErrorLineText, findMostRelevantLineNumber, replaceLineNumberInErrorMessage, createErrorLocation } from '../validate/common';
 
@@ -10,18 +12,19 @@ import { extractErrorLineText, findMostRelevantLineNumber, replaceLineNumberInEr
  * @param code The Mermaid code to validate
  * @returns Promise<SyntaxValidationResult> with valid flag and error details if invalid
  */
-export async function validateMermaidSyntax(code: string): Promise<SyntaxValidationResult> {
+export async function validateMermaidSyntax(rawCode: string): Promise<SyntaxValidationResult> {
+  // Pasted U+00A0 is not a syntax error the author can see or fix — normalise
+  // before parsing so the editor doesn't report one. See normalizeWhitespace.
+  const code = normalizeMermaidWhitespace(rawCode);
   try {
-    const mermaid = await loadMermaid();
-    // Re-initialize for validation (looser settings than the renderer's defaults)
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: 'loose',
-      logLevel: 0,
+    // No initialize() here: it would replace the renderer's site config
+    // (MERMAID_CONFIG) for every later render in this iframe, and parse() needs
+    // no special settings to report syntax errors. Queued with renders because
+    // parse() shares Mermaid's parser state (#931).
+    await enqueueMermaid(async () => {
+      const mermaid = await loadMermaid();
+      await mermaid.parse(code);
     });
-
-    // Attempt to parse the code
-    await mermaid.parse(code);
     return {
       valid: true,
       error: null,

@@ -12,12 +12,11 @@
     </svg>
     <span v-if="audience === 'space_admin'" class="paywall-banner__text">
       You administer this space, and it is over the ZenUML Lite diagram limit
-      ({{ macroCount }} of {{ macrosLimit }}). Existing diagrams still render, but your team
-      may be blocked from creating or editing them.
+      ({{ macroCount }} of {{ macrosLimit }}). Upgrade to Full before it affects your team.
     </span>
     <span v-else class="paywall-banner__text">
       This space is over the ZenUML Lite diagram limit ({{ macroCount }} of {{ macrosLimit }}).
-      Existing diagrams still render, but creating or editing diagrams may be blocked.
+      Ask a site admin to upgrade to Full before it affects your team.
     </span>
     <!-- Space admins get a purchase path they can execute alone: the Enterprise
          Bundle is per-space and paid by card, so unlike the Marketplace upgrade
@@ -25,39 +24,17 @@
          because for them the next step really is to ask someone. -->
     <div class="paywall-banner__actions">
       <button
-        v-if="audience === 'space_admin'"
         class="paywall-banner__btn paywall-banner__btn--primary"
+        data-testid="paywall-banner-plan-usage"
+        @click="onViewPlanUsage"
+      >View plan and usage</button>
+      <button
+        v-if="audience === 'space_admin'"
+        class="paywall-banner__btn paywall-banner__btn--secondary"
         data-testid="paywall-banner-unlock-space"
         @click="onUnlockSpace"
       >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
-      <button
-        :class="[
-          'paywall-banner__btn',
-          audience === 'space_admin' ? 'paywall-banner__btn--secondary' : 'paywall-banner__btn--primary',
-        ]"
-        data-testid="paywall-banner-request-extension"
-        @click="onRequestExtension"
-      >Request extension</button>
-      <button
-        v-if="audience !== 'space_admin'"
-        class="paywall-banner__btn paywall-banner__btn--secondary"
-        :data-testid="copyState === 'copied' ? 'paywall-banner-copied' : 'paywall-banner-copy-admin'"
-        @click="onCopyAdminMessage"
-      >
-        <template v-if="copyState === 'copied'">✓ Copied</template>
-        <template v-else>Copy admin message</template>
-      </button>
     </div>
-    <button
-      class="paywall-banner__dismiss"
-      aria-label="Dismiss warning"
-      data-testid="paywall-banner-dismiss"
-      @click="onDismiss"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-        <path d="M18 6 6 18M6 6l12 12" />
-      </svg>
-    </button>
   </div>
 </template>
 
@@ -69,26 +46,17 @@ import {
   UpgradeEventName,
   bundleClientReferenceId,
 } from '@/utils/upgradeTracking'
-import {
-  buildAdvocacyMessage,
-  type AdvocacyMessageContext,
-} from './buildAdvocacyMessage'
-import {
-  buildExtensionRequestContext,
-  buildExtensionRequestMessage,
-  buildExtensionRequestUrl,
-} from './buildExtensionRequest'
-import { getView, openUrl } from '@/model/globals/forgeGlobal'
+import { getView, openUrl, navigateToAppPage } from '@/model/globals/forgeGlobal'
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import {
   deriveWarningBannerIdentity,
   readTargetingMarker,
   readMacroActivityMarker,
   recordBannerShown,
-  recordBannerDismissed,
   isWarningBannerVisible,
   bannerAudience,
-  readDismissalMarker,
+  readImpressionMarker,
   type WarningBannerIdentity,
   type BannerAudience,
 } from '@/utils/paywall/warningBanner'
@@ -96,9 +64,8 @@ import { readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
 
 /**
  * `isSpaceAdmin` is supplied by the page-banner host (routes/pageBanner.ts)
- * rather than re-derived here, because the host is where the Phase 5b flag is
- * resolved. Deriving it locally would show admin copy to a flagged-off admin who
- * happens to also qualify as a recent author.
+ * rather than re-derived here, so the route that admitted this banner is its
+ * single source of truth.
  */
 const props = withDefaults(defineProps<{ isSpaceAdmin?: boolean }>(), { isSpaceAdmin: false })
 
@@ -111,8 +78,6 @@ const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
 const customerSuccess = useCustomerSuccessService()
 
 const macrosLimit = MACROS_LIMIT
-const copyState = ref<'default' | 'copied'>('default')
-let copyRevertTimer: ReturnType<typeof setTimeout> | null = null
 
 // Evaluate the visibility gate SYNCHRONOUSLY in setup so the first render is
 // already correct — no false→true flash, and the gate result drives v-if from
@@ -125,17 +90,28 @@ let passesGate = false
 let macroCountValue = 0
 const isSpaceAdmin = props.isSpaceAdmin
 let spaceAdminCount: number | undefined
+// Position of THIS impression, read once BEFORE recordBannerShown bumps
+// the marker: ordinal = prior showCount + 1; gap = whole hours since the
+// previous impression (absent on a first impression).
+let showCount = 1
+let hoursSinceLastShown: number | undefined
 try {
   identity = deriveWarningBannerIdentity()
   const targeting = readTargetingMarker(identity)
   spaceAdminCount = readProbeMarker(identity)?.adminCount
+  const now = Date.now()
+  const impression = readImpressionMarker(identity)
+  showCount = (impression?.showCount ?? 0) + 1
+  if (impression?.lastShownAt) {
+    const lastShownMs = Date.parse(impression.lastShownAt)
+    if (Number.isFinite(lastShownMs)) hoursSinceLastShown = Math.round((now - lastShownMs) / 3_600_000)
+  }
   passesGate =
     !!targeting &&
     isWarningBannerVisible(
       targeting,
-      readDismissalMarker(identity),
       readMacroActivityMarker(identity),
-      Date.now(),
+      now,
       isSpaceAdmin
     )
   if (passesGate && targeting) {
@@ -192,74 +168,29 @@ function bannerContext() {
     is_space_admin: isSpaceAdmin,
     banner_audience: audience,
     ...(spaceAdminCount === undefined ? {} : { space_admin_count: spaceAdminCount }),
+    // Impression history remains available for analytics; it never controls visibility.
+    show_count: showCount,
+    ...(hoursSinceLastShown === undefined ? {} : { hours_since_last_shown: hoursSinceLastShown }),
   }
 }
 
-function messageContext(): AdvocacyMessageContext {
-  return {
-    spaceKey: identity.spaceKey,
-    macroCount: macroCount.value,
-    macrosLimit,
-    upgradeUrl: customerSuccess.upgradeUrl.value,
-    enterpriseBundleUrl: customerSuccess.enterpriseBundleUrl.value,
-    enterpriseBundlePrice: ENTERPRISE_BUNDLE_PRICE,
-    macroKind: 'unknown',
-  }
-}
-
-function onDismiss() {
-  // Snooze, not kill: stamp dismissedAt to start the 7-day window. The banner
-  // returns afterwards because the underlying problem is unchanged.
-  recordBannerDismissed(identity)
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_BANNER_DISMISSED, {
+/**
+ * Primary CTA (Lite paywall redesign phase 2): the banner's entry point into
+ * the site-level "Plan and usage" page, which is where the Request-Full
+ * guidance flow lives. Falls back to the Marketplace upgrade URL in the rare
+ * case navigateToAppPage can't resolve our own app/environment ids from the
+ * running iframe's location (see forgeGlobal.ts buildAppPageUrl).
+ */
+async function onViewPlanUsage() {
+  trackAnalyticsEvent('plan_usage_viewed', {
+    feature_area: 'upgrade',
     surface: 'page_banner',
-    severity,
+    entry_point: 'route',
     ...bannerContext(),
   })
-  visible.value = false
-  void closeBannerView()
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // fall through to execCommand
-  }
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.top = '-9999px'
-    textarea.setAttribute('readonly', '')
-    document.body.appendChild(textarea)
-    textarea.select()
-    const ok = document.execCommand('copy')
-    document.body.removeChild(textarea)
-    return ok
-  } catch {
-    return false
-  }
-}
-
-async function onCopyAdminMessage() {
-  const message = buildAdvocacyMessage(messageContext())
-  const copied = await copyToClipboard(message)
-  if (copied) {
-    trackUpgradeEvent(UpgradeEventName.ADVOCACY_MESSAGE_COPIED, {
-      surface: 'page_banner',
-      severity,
-      ...bannerContext(),
-    })
-    if (copyRevertTimer) clearTimeout(copyRevertTimer)
-    copyState.value = 'copied'
-    copyRevertTimer = setTimeout(() => {
-      copyState.value = 'default'
-      copyRevertTimer = null
-    }, 2000)
+  const navigated = await navigateToAppPage('zenuml-plan-usage')
+  if (!navigated) {
+    await openUrl(customerSuccess.upgradeUrl.value)
   }
 }
 
@@ -281,26 +212,6 @@ async function onUnlockSpace() {
     ...bannerContext(),
   })
   await openUrl(bundleUrl)
-}
-
-async function onRequestExtension() {
-  const requestContext = buildExtensionRequestContext({
-    spaceKey: identity.spaceKey,
-    macroCount: macroCount.value,
-    macrosLimit,
-    macroKind: 'unknown',
-  })
-  const requestUrl = buildExtensionRequestUrl(requestContext)
-  const requestMessage = buildExtensionRequestMessage(requestContext)
-  // Clipboard copy is a safety net: JSM drops the prefill params if the user
-  // navigates within the portal before submitting.
-  await copyToClipboard(requestMessage)
-  trackUpgradeEvent(UpgradeEventName.EXTENSION_REQUEST_CLICKED, {
-    surface: 'page_banner',
-    severity,
-    ...bannerContext(),
-  })
-  await openUrl(requestUrl)
 }
 </script>
 
@@ -370,22 +281,4 @@ async function onRequestExtension() {
   color: #172B4D;
 }
 
-.paywall-banner__dismiss {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: #626F86;
-  cursor: pointer;
-  flex-shrink: 0;
-  padding: 0;
-}
-.paywall-banner__dismiss:hover {
-  background: #F1F2F4;
-  color: #172B4D;
-}
 </style>

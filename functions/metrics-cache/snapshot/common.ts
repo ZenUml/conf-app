@@ -5,6 +5,8 @@ import {
   type VerifiedForgeFit,
 } from '../../utils/authenticate';
 import { getAuthorizationHeader } from '../../utils/requestUtils';
+import { hasForgeUserToken } from '../../utils/forgeUserToken';
+import { json } from '../../OkResponse';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 export const SNAPSHOT_PREFIX = 'macro-count/v1';
@@ -20,9 +22,9 @@ const APP_PRODUCTS: Record<string, ProductType> = {
 };
 
 export type ProductType = 'lite' | 'full' | 'diagramly' | 'asyncapi';
-export type CountField = 'sequence' | 'graph' | 'openapi' | 'mermaid' | 'plantuml' | 'unknown';
+export type CountField = 'sequence' | 'graph' | 'openapi' | 'mermaid' | 'plantuml' | 'asyncapi' | 'unknown';
 export const COUNT_FIELDS: readonly CountField[] = [
-  'sequence', 'graph', 'openapi', 'mermaid', 'plantuml', 'unknown',
+  'sequence', 'graph', 'openapi', 'mermaid', 'plantuml', 'asyncapi', 'unknown',
 ];
 
 export interface MacroCounts {
@@ -32,6 +34,10 @@ export interface MacroCounts {
   openapi: number;
   mermaid: number;
   plantuml: number;
+  // Lite ships the AsyncAPI macro (ADR-0005 Option A) and stores it under the
+  // shared zenuml-content-sequence type, so these rows arrive here like any
+  // other. Clients older than that bucket omit the field — see assertCounts.
+  asyncapi: number;
   unknown: number;
 }
 
@@ -100,23 +106,16 @@ export class HttpError extends Error {
   }
 }
 
-export function jsonResponse(body: unknown, status = 200): Response {
-  return Response.json(body, {
-    status,
-    headers: {
-      'Cache-Control': 'no-store',
-    },
-  });
-}
+export const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' };
 
 export function errorResponse(error: unknown): Response {
   if (error instanceof HttpError) {
-    return jsonResponse({ error: error.message }, error.status);
+    return json({ error: error.message }, { status: error.status, headers: NO_STORE_HEADERS });
   }
   console.error('[macro-count:snapshot] unexpected error', {
     reason: error instanceof Error ? error.name : 'unknown_error',
   });
-  return jsonResponse({ error: 'Internal Server Error' }, 500);
+  return json({ error: 'Internal Server Error' }, { status: 500, headers: NO_STORE_HEADERS });
 }
 
 export function normalizeClientDomain(value: string): string {
@@ -241,7 +240,7 @@ export async function authenticateMetricsRequest(
 
   if (options.backendOnly) {
     const hasSystemToken = Boolean(request.headers.get('x-forge-oauth-system'));
-    const hasUserToken = Boolean(request.headers.get('x-forge-oauth-user'));
+    const hasUserToken = hasForgeUserToken(request);
     // @forge/api.invokeRemote from a scheduled backend function has no user or
     // frontend context. Requiring this shape prevents a Custom UI caller with
     // a valid FIT from invoking the snapshot write protocol directly.
@@ -338,13 +337,64 @@ export async function readLatestPointer(
   );
 }
 
+/**
+ * Read one bucket, treating absent as 0.
+ *
+ * The backend deploys ahead of the Forge app in the same pipeline, and installs
+ * upgrade on their own schedule, so a client predating a newly added bucket
+ * (e.g. `asyncapi`) keeps posting payloads without it. Reading those as 0 keeps
+ * them valid instead of 400-ing the whole snapshot.
+ *
+ * Deliberately NON-mutating: chunk payloads are integrity-checked against a
+ * client-computed sha256 of the exact bytes sent, so writing a default back
+ * into the payload would change the re-serialized object and fail that check.
+ */
+export function countBucket(metrics: MacroCounts, field: CountField): number {
+  return metrics[field] ?? 0;
+}
+
+/**
+ * A full count set with every bucket present, absent ones defaulted to 0.
+ *
+ * Use this at every point that PERSISTS counts. `assertCounts` tolerates an
+ * absent bucket (a client predating it), which is correct — the total-vs-buckets
+ * invariant still holds, the payload just omits a zero. But tolerating it on
+ * read must not mean writing `undefined` into KV: consumers would then have to
+ * guard a field the type says is a number.
+ *
+ * NOT for chunk payloads, which are integrity-checked against a
+ * client-computed sha256 of the exact bytes sent — those must stay untouched.
+ */
+export function normalizeCounts(metrics: MacroCounts): MacroCounts {
+  const out = { total: metrics.total } as MacroCounts;
+  for (const field of COUNT_FIELDS) out[field] = countBucket(metrics, field);
+  return out;
+}
+
+/**
+ * Compare two count sets bucket by bucket.
+ *
+ * NOT `JSON.stringify(a) === JSON.stringify(b)`: that is sensitive to key order
+ * and key presence, so the moment one side carries a bucket the other omits —
+ * a newly added bucket against a client that predates it — otherwise-identical
+ * counts compare unequal and the commit 409s.
+ */
+export function countsEqual(a: MacroCounts, b: MacroCounts): boolean {
+  return a.total === b.total
+    && COUNT_FIELDS.every((field) => countBucket(a, field) === countBucket(b, field));
+}
+
 export function assertCounts(metrics: MacroCounts): void {
-  for (const field of ['total', ...COUNT_FIELDS] as const) {
-    if (!Number.isSafeInteger(metrics[field]) || metrics[field] < 0) {
+  if (!Number.isSafeInteger(metrics.total) || metrics.total < 0) {
+    throw new HttpError(400, 'Invalid non-negative count: total');
+  }
+  for (const field of COUNT_FIELDS) {
+    const value = countBucket(metrics, field);
+    if (!Number.isSafeInteger(value) || value < 0) {
       throw new HttpError(400, `Invalid non-negative count: ${field}`);
     }
   }
-  const bucketTotal = COUNT_FIELDS.reduce((sum, field) => sum + metrics[field], 0);
+  const bucketTotal = COUNT_FIELDS.reduce((sum, field) => sum + countBucket(metrics, field), 0);
   if (metrics.total !== bucketTotal) {
     throw new HttpError(400, 'Macro count invariant failed');
   }

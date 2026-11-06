@@ -152,8 +152,7 @@ empty-title guard (the user explicitly asked) but still respects the concurrency
 
 ## 11. Out of scope (v1)
 
-- ~~OpenAPI and DrawIO/Graph auto-title.~~ **Graph added later** — see §13.
-- OpenAPI auto-title.
+- ~~OpenAPI and DrawIO/Graph auto-title.~~ **Both were added later** — see §13 and §14.
 - Backend confidence scoring / new `/api/diagram-summary` endpoint.
 - Turning the `AI_TITLE` flag on in production KV (separate ops step; needs explicit go-ahead).
 
@@ -195,8 +194,53 @@ than `Workspace.vue`/`Header.vue`/`DiagramTitleInput.vue`. It is now supported:
   `save` handler in `ForgeGraphEditor.vue`.
 - Same `AI_TITLE` (`ai-title-enabled`) flag gates it.
 
+## 14. OpenAPI auto-title (follow-up)
+
+The OpenAPI editor uses a React header around Swagger Editor rather than the
+Vue header used by Sequence/Mermaid/PlantUML. It now has a thin React adapter
+over the same `useAutoTitle` state machine:
+
+- **Content signal:** the live OpenAPI YAML/JSON specification normalized
+  without `info.title`. This prevents title-only writeback/dismiss actions from
+  changing the dedup hash and keeps the model from simply echoing the old title.
+- **Type param:** `OpenAPI specification`, so both backend model strategies ask
+  for an API-specification title rather than treating the document as a
+  sequence diagram.
+- **UI:** the same feature-flagged spark button, 1.5-second empty-title
+  auto-trigger, typewriter animation, dismiss action and manual regeneration.
+- **Two synchronized titles:** generated, manually edited and dismissed values
+  update both the custom-content `diagram.title` and the specification's
+  `info.title`; saved drafts therefore retain the same title in both places.
+- **Analytics:** reuses the existing AI-title lifecycle with
+  `macro_type: 'openapi'`; the OpenAPI publish path calls
+  `notifyAiTitleSaved` before persistence.
+
 ## 12. Cost note (recorded for posterity)
 
 Cloudflare Workers AI: ~18 Neurons/call (fp16 upper bound), free tier 10,000 Neurons/day
 (~16k titles/mo). Our `create_macro_end` volume is in the low hundreds/month, so the feature
 is effectively **$0**; even 200× growth (~100k titles/mo) is ~$16/mo.
+
+## Addendum (2026-11-05): replies that are not titles, and Graphs with too little text
+
+The model can answer with a chat reply and HTTP 200, such as "Please provide the DSL...".
+`src/lib/aiTitleGuard.js` rejects these replies. The backend checks the whole first line
+before its 80-character cut, tries the fallback model, and answers `422 not_title_like`
+when both models refuse. The editor checks again before it commits a title.
+
+Rule for a Graph, by the text that `extractGraphText` finds:
+
+| Text in the diagram | Example | While editing | AI button or Publish with an empty title |
+|---|---|---|---|
+| None | Empty canvas, one blank box | No call, no title | Publish asks the user to type a title; the AI button shows a toast |
+| One label, 80 characters or fewer | `Control` | No call, no title | The label is the title, with no model call |
+| One label, over 80 characters | A note in one box | Model | Model |
+| Two or more labels | `Control`, `Storage` | Model | Model |
+| No labels, describable shapes | `Diagram shapes: ec2.` | Model | Model |
+
+When the model refuses, the title stays empty: no toast while editing and a toast from the
+AI button. For a Graph, Publish then asks the user to type a title (`ensureTitle`).
+
+Measured on the staging endpoint with the Graph prompt, 2026-11-05: one label `Control`
+gave refusal text in 4 of 6 calls and the word `DSL` in 1 more. Two labels, three labels
+and two shape descriptions gave 0 refusals in 24 calls.

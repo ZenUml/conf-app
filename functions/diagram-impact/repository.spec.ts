@@ -129,5 +129,6 @@ describe('diagram audience repository', () => {
         'cloud-a', 'app-a', 'content-a', 'person-a', '2026-08-13T00:00:00.000Z',
       ],
     });
+    expect(calls[1].binds).not.toContain(2);
   });
 });

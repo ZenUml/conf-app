@@ -33,12 +33,13 @@
  * - real Forge flag evaluation, CDN cache headers, cross-iframe warm flip
  *   (forge tunnel items — see docs/features/renderer-prefetch.md)
  */
-import { test, expect } from '@playwright/test'
+import { test, expect } from '../fixtures/mixpanel-test.js'
 import { clearPrefetchState, runPrefetchInPage, probeUrls } from '../helpers/rendererPrefetch'
+import { localDevUrl } from '../helpers/localDevUrl'
 
-const BASE = 'http://127.0.0.1:8080/viewer-preview.html'
+const BASE = localDevUrl('viewer-preview.html')
 
-test.describe('renderer prefetch — browser mechanics', () => {
+test.describe('renderer prefetch — browser mechanics', { tag: ['@viewer', '@mermaid', '@plantuml'] }, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE)
     await clearPrefetchState(page)

@@ -12,7 +12,7 @@
 // The dialog opens in a Forge fullscreen modal iframe; preview assertions
 // require frameLocator traversal into that OOPIF (Playwright only).
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import {
   seedPreparedProperty,
@@ -25,7 +25,7 @@ const LIVE = process.env.BYLINE_ACTIVATION_LIVE === '1';
 // (test pages are never deleted); the property is added/removed around the test.
 const PAGE_ID = process.env.BYLINE_PAGE_ID || '';
 
-test.describe('byline activation nudge', () => {
+test.describe('byline activation nudge', { tag: ['@test:byline-activation', '@variant:lite', '@variant:full', '@variant:diagramly', '@byline', '@page-banner', '@analytics'] }, () => {
   test.skip(!LIVE, 'needs this branch deployed + BYLINE_ACTIVATION_LIVE=1');
   test.skip(!PAGE_ID, 'set BYLINE_PAGE_ID to a published page on the target site');
 

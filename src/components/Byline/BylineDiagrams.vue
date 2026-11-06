@@ -37,10 +37,10 @@
           Close this popup and paste the link into the page.
         </div>
         <div v-else-if="hostInEditor" class="created__sub" data-testid="byline-created-sub-editing">
-          Paste the link where you want it. Confluence turns it into the diagram itself.
+          Paste the link where you want it. Confluence turns it into the {{ noun.one }} itself.
         </div>
         <div v-else class="created__sub">
-          Paste the link into the page editor. Confluence turns it into the diagram itself.
+          Paste the link into the page editor. Confluence turns it into the {{ noun.one }} itself.
         </div>
       </div>
 
@@ -91,7 +91,7 @@
       </div>
       <p v-if="navFailed" class="created__warn" data-testid="byline-nav-failed">
         We couldn't open the page editor from here. Edit the page yourself and
-        paste the link — the diagram is already saved.
+        paste the link — the {{ noun.one }} is already saved.
       </p>
     </div>
 
@@ -102,7 +102,7 @@
       <div class="banner">
         <div class="banner__text">
           <div class="banner__title">Couldn't check what you saved</div>
-          <div class="banner__sub">If you saved a diagram it's on the page — we just can't read the list right now.</div>
+          <div class="banner__sub">If you saved {{ noun.aOne }} it's on the page — we just can't read the list right now.</div>
         </div>
         <button type="button" class="btn-secondary" data-testid="byline-retry-create" @click="onRetryCreate">Try again</button>
       </div>
@@ -128,7 +128,7 @@
     <div v-else-if="failed" class="byline__body byline__body--stack" data-testid="byline-failed">
       <div class="banner">
         <div class="banner__text">
-          <div class="banner__title">Couldn't list this page's diagrams</div>
+          <div class="banner__title">Couldn't list this page's {{ noun.many }}</div>
           <div class="banner__sub">Usually restricted content. Adding one still works.</div>
         </div>
         <button type="button" class="btn-secondary" data-testid="byline-retry" @click="onRetry">Try again</button>
@@ -159,7 +159,18 @@
            Copy source is a power-user affordance on a minority of types, so it
            stays out of the way until the row is hovered or focused — the open,
            which is what the whole row does, is the labelled action. -->
-      <div v-for="d in orderedDiagrams" :key="d.id" class="row" data-testid="byline-item">
+      <!-- A write that could not land says so. It used to say nothing: the
+           button flipped to "Adding…" and back, which reads as a dead click. -->
+      <div v-if="addFailure" class="byline__notice" role="status" data-testid="byline-add-failed">
+        {{ addFailure }}
+      </div>
+      <div
+        v-for="d in orderedDiagrams"
+        :key="d.id"
+        class="row"
+        :class="{ 'row--actionable': isUnplaced(d) && canEdit }"
+        data-testid="byline-item"
+      >
         <button type="button" class="row__open" @click="onOpenDiagram(d)">
           <span class="row__thumb">
             <img v-if="thumbs[d.id]" class="row__img" :src="thumbs[d.id]" alt="" data-testid="byline-thumb" />
@@ -174,16 +185,28 @@
           <span class="row__cta">Open</span>
         </button>
         <!-- Saved but never pasted: it exists as this page's custom content and
-             already counts against the Lite limit, but no macro renders it. The
-             link is the only way to place it, so it is offered outright rather
-             than on hover — this row is the one place the diagram is reachable
-             at all. -->
+             already counts against the Lite limit, but no macro renders it.
+             The fix belongs on the row that names the problem, and it is ONE
+             click — copy, open the editor, paste, publish is the flow the user
+             already abandoned once, which is why this diagram is here at all.
+             Offered outright rather than on hover: this row is the one place
+             the diagram is reachable. -->
         <button
-          v-if="isUnplaced(d)"
+          v-if="isUnplaced(d) && canEdit"
+          type="button"
+          class="row__add"
+          :disabled="addingId === d.id"
+          data-testid="byline-add-to-page"
+          :title="`Add this ${noun.one} to the end of the page`"
+          @click="onAddToPage(d)"
+        >{{ addingId === d.id ? 'Adding…' : 'Add to page' }}</button>
+        <!-- The fallback for a reader who cannot edit the page. -->
+        <button
+          v-else-if="isUnplaced(d)"
           type="button"
           class="row__copy row__copy--url"
           :data-testid="copiedId === d.id ? 'byline-copied' : 'byline-copy-url'"
-          title="Copy a link that places this diagram on the page"
+          :title="`Copy a link that places this ${noun.one} on the page`"
           @click="onCopyUrl(d)"
         >{{ copiedId === d.id ? '✓ Copied' : 'Copy URL' }}</button>
         <!-- Copy URL takes the slot when it applies: on a diagram that is not on
@@ -209,7 +232,7 @@
          valid on every page, so rendering it immediately beats a skeleton that
          promises four diagrams to a page that has none. -->
     <div v-else class="byline__body byline__body--stack" data-testid="byline-empty">
-      <div class="byline__lede">Draw it here, then drop it on the page. Takes about a minute.</div>
+      <div class="byline__lede">{{ noun.make }} it here, then drop it on the page. Takes about a minute.</div>
       <div class="picker">
         <button
           v-for="t in DIAGRAM_TYPES"
@@ -239,8 +262,13 @@
          Shown only alongside the list — the empty and failed states carry the
          full picker, and a page that already has diagrams is exactly where the
          next one gets added, so the types have to stay reachable here too. -->
+    <!-- 5b: real buttons, not ghost chips. The blue "+" replaces the per-type
+         icon — all four carried the same generic glyph, so the icon added noise
+         where the plus says *create*. The heading is a 13px semibold dark
+         "Add a diagram", not a 12px grey caption that read as metadata about
+         the list above. -->
     <div v-if="showAddAnother" class="addrow" data-testid="byline-type-strip">
-      <div class="addrow__label">Add another</div>
+      <div class="addrow__label">Add {{ noun.aOne }}</div>
       <div class="chips">
         <button
           v-for="t in DIAGRAM_TYPES"
@@ -251,7 +279,7 @@
           :data-testid="`byline-type-${t.key}`"
           @click="onAddDiagram(t.macroType, t.diagramType)"
         >
-          <img class="chip__icon" :src="t.icon" alt="" />{{ t.name }}
+          <span class="chip__plus" aria-hidden="true">+</span>{{ t.name }}
         </button>
       </div>
     </div>
@@ -259,7 +287,7 @@
     <!-- Footer. Pinned in every state; only the hint and the right slot vary. -->
     <div class="byline__footer">
       <span class="byline__hint">
-        <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the diagram is already saved.</template>
+        <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the {{ noun.one }} is already saved.</template>
         <template v-else-if="createdLink">Saved either way — paste it any time.</template>
         <template v-else-if="createUnresolved">Nothing was lost — retry when you're ready.</template>
         <!-- Nothing, deliberately: the body already says it is reading, and a
@@ -270,7 +298,7 @@
         <!-- Says what the click actually does. The old hint promised the modal
              would scroll the page to the macro; onOpenDiagram takes the
              documented fallback and opens the fullscreen viewer instead. -->
-        <template v-else-if="diagrams.length">Opens the diagram full screen — it stays where it is on the page.</template>
+        <template v-else-if="diagrams.length">Opens the {{ noun.one }} full screen — it stays where it is on the page.</template>
         <!-- The empty state carries no hint. Its whole job is the first diagram,
              and a note about the slash command points at a different way to do
              the same thing — competing with the four rows above it at the exact
@@ -333,6 +361,9 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
+import { bylineCreationOrigin } from '@/utils/analytics/creationFlow'
+import { bylineTileMacroTypes } from '@/utils/byline/pickerTypes'
+import { bylineNounFor, capitalize } from '@/utils/byline/bylineNoun'
 import {
   parsePageDiagrams,
   summarizeDiagrams,
@@ -345,6 +376,9 @@ import {
   type PageDiagram,
 } from '@/utils/byline/pageDiagrams'
 import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnails'
+import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
+import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
+import { placeDiagram } from '@/utils/byline/placeDiagram'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -356,6 +390,12 @@ import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
 const loading = ref(true)
 const diagrams = ref<PageDiagram[]>([])
 const copiedId = ref<string | null>(null)
+const addingId = ref<string | null>(null)
+/** Why the last Add to page did not land; cleared when the next one starts. */
+const addFailure = ref<string | null>(null)
+/** Flips off the first time a write is refused; the Copy URL fallback takes
+ *  over. Optimistic on purpose — see the banner for the same reasoning. */
+const canEdit = ref(true)
 /** Separates "this page has no diagrams" (empty) from "we could not find out"
  *  (failed). Previously both collapsed into the empty state, which told a user
  *  with restricted content that their diagrams did not exist. */
@@ -458,16 +498,16 @@ const linkChip = computed(() => {
 
 /** The header names whatever is actually below it. */
 const heading = computed(() => {
-  if (createdLink.value) return createdTitle.value || 'Diagram saved'
-  if (createUnresolved.value) return 'Diagrams on this page'
+  if (createdLink.value) return createdTitle.value || `${capitalize(noun.one)} saved`
+  if (createUnresolved.value) return `${capitalize(noun.many)} on this page`
   // While the count is unknown, name the module rather than guess. This is the
   // one place the old pinned title was right: over "Reading this page…" it
   // contradicts nothing, and it is what "Add a diagram to this page" got wrong
   // by answering a question we had not asked yet.
-  if (loading.value) return 'Diagrams on this page'
+  if (loading.value) return `${capitalize(noun.many)} on this page`
   const n = diagrams.value.length
-  if (!failed.value && n) return `${n} diagram${n === 1 ? '' : 's'} on this page`
-  return 'Add a diagram to this page'
+  if (!failed.value && n) return `${n} ${n === 1 ? noun.one : noun.many} on this page`
+  return `Add ${noun.aOne} to this page`
 })
 
 const showAddAnother = computed(
@@ -506,8 +546,16 @@ interface TypeTile {
  *  Flowchart leads and is highlighted from measured Lite usage, not intuition: over
  *  the 90 days to 2026-08-07, `macro_create_succeeded` on `product_type: lite`
  *  counted 15,577 flowchart creates (mermaid 13,698 + plantuml 1,879) against
- *  1,885 sequence, 2,852 graph and 1,481 openapi. */
-const DIAGRAM_TYPES: TypeTile[] = [
+ *  1,885 sequence, 2,852 graph and 1,481 openapi. AsyncAPI sits last because it
+ *  has no usage to rank on — Lite only started shipping the macro with ADR-0005
+ *  Option A — not because it is judged least useful. Re-rank once it has 90
+ *  days of `macro_create_succeeded` like the rest.
+ *
+ *  Filtered per variant by `bylineTileMacroTypes`: Lite, Full and AsyncAPI ship
+ *  this panel (`zenuml-byline-diagrams`) with different macro sets, and a tile
+ *  whose macro the variant strips would not be dead — it would open the wrong
+ *  editor (see src/utils/byline/pickerTypes.ts). */
+const ALL_DIAGRAM_TYPES: TypeTile[] = [
   {
     key: 'flowchart',
     diagramType: DiagramType.Mermaid,
@@ -545,7 +593,23 @@ const DIAGRAM_TYPES: TypeTile[] = [
     example: './image/byline-example-openapi.png',
     macroType: 'openapi',
   },
+  {
+    key: 'asyncapi',
+    diagramType: DiagramType.AsyncApi,
+    name: typeLabel(DiagramType.AsyncApi),
+    desc: 'Event-driven API spec',
+    icon: './image/openapi_macro_icon.png',
+    example: './image/byline-example-asyncapi.png',
+    macroType: 'asyncapi',
+  },
 ]
+
+/** "diagram" everywhere but the AsyncAPI app, whose byline is titled API Docs. */
+const noun = bylineNounFor(import.meta.env.PRODUCT_TYPE)
+
+const DIAGRAM_TYPES: TypeTile[] = ALL_DIAGRAM_TYPES.filter(t =>
+  bylineTileMacroTypes(import.meta.env.PRODUCT_TYPE).includes(t.macroType),
+)
 
 const MACRO_ICONS: Record<string, string> = {
   [DiagramType.Sequence]: './image/diagram_macro_icon.png',
@@ -670,6 +734,9 @@ async function loadDiagrams() {
     }
     void loadThumbnails()
     reportPlacement()
+    // Never awaited: this is a write for the NEXT page load, and the list must
+    // not wait on it to paint.
+    void syncUnplacedState()
   }
 }
 
@@ -769,6 +836,66 @@ function reportPlacement() {
   })
 }
 
+/**
+ * Leave the verdict where the page banner can find it.
+ *
+ * This panel is the only surface that knows a diagram is saved here but not on
+ * the page — and Confluence boots it only on click, so almost nobody is told.
+ * The banner mounts on every page load and cannot afford to work this out for
+ * itself (one custom-content listing per type, plus a full-page ADF read), so
+ * the byline hands over what it already paid for.
+ *
+ * Two stores, in priority order:
+ *
+ *  1. The CONTENT PROPERTY (unplacedProperty.ts) — page state, so the notice
+ *     reaches whoever opens the page, and Confluence gates the banner module on
+ *     its existence server-side. This is the one that matters.
+ *  2. The localStorage MARKER (unplacedMarker.ts) — the fallback for when the
+ *     property write is denied. The write runs as the user, and creating custom
+ *     content on a page does not prove permission to write its properties.
+ *
+ * The marker is written either way, carrying `viaProperty` so the shared
+ * page-banner host knows whether the gated module has already got this — two
+ * banners saying the same thing on one page is the failure mode that flag
+ * exists to prevent.
+ *
+ * Silent unless the scan actually landed: an unreadable page must never be
+ * written down as "everything is unplaced", which is precisely what an
+ * undefined `placedIds` would mean if it were treated as an empty set — the
+ * same trap `isUnplaced` guards against.
+ *
+ * Silent too whenever the host page is IN THE EDITOR, and that one is the
+ * difference between an affordance and a claim. The scan reads the PUBLISHED
+ * ADF, which cannot see the editor's draft, so a diagram the author has just
+ * pasted still reads as unplaced. In the byline that only ever ADDED a Copy URL
+ * button for the author (see `isUnplaced`); recorded here it becomes a banner
+ * shown to EVERYONE on the page, asserting something we cannot verify while a
+ * draft is open. So the author finishes first, and the next scan — from a
+ * published page — is what records anything.
+ */
+async function syncUnplacedState() {
+  const ids = placedIds.value
+  if (!ids) return
+  if (hostInEditor) return
+  const identity = deriveUnplacedIdentity()
+  if (!identity) return
+  // An empty list is not skipped: it is what retires a banner for diagrams the
+  // user has since placed — a property DELETE, taking the page off the gate.
+  const entries = diagrams.value
+    .filter(d => !ids.has(d.id))
+    .map(d => ({ id: d.id, title: d.title, diagramType: d.diagramType }))
+  const result = await persistUnplacedProperty(identity.pageId, entries)
+  trackAnalyticsEvent('unplaced_property_write', {
+    ...baseProps(),
+    result,
+    unplaced_count: entries.length,
+  })
+  // 'unchanged' counts as carried: the property already says this, including
+  // the empty case where it is legitimately absent.
+  const viaProperty = result === 'written' || result === 'deleted' || result === 'unchanged'
+  writeUnplacedMarker(identity, entries, { viaProperty })
+}
+
 function onRetry() {
   failed.value = false
   loading.value = true
@@ -812,6 +939,47 @@ async function onOpenDiagram(d: PageDiagram) {
   } catch (e) {
     console.error('[byline] failed to open diagram', e)
   }
+}
+
+/**
+ * Place the diagram on the page from the row that says it is not on it.
+ *
+ * On success the local placement set is updated immediately, so the row loses
+ * its "· not on this page" label without a reload, and the record the banner
+ * reads is rewritten in the same breath — leaving it would have the page banner
+ * announce a diagram the user just watched appear.
+ */
+async function onAddToPage(d: PageDiagram) {
+  if (addingId.value) return
+  acted = true
+  addingId.value = d.id
+  addFailure.value = null
+
+  const outcome = await placeDiagram(pageId, d, async () => {
+    // Before the reload, so the reloaded page reads the rewritten record: fold
+    // the placement into the scan result we already hold, so the row updates in
+    // place, and rewrite what the banner reads.
+    if (placedOrder.value) placedOrder.value = [...placedOrder.value, d.id]
+    await syncUnplacedState()
+  })
+  addingId.value = null
+
+  trackAnalyticsEvent('diagram_added_to_page', {
+    ...baseProps(),
+    macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+    result: outcome.result,
+    ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
+    // Which step failed, and the code behind it. 'failed' alone is one bucket
+    // over six causes that need different fixes.
+    ...(outcome.reason === undefined ? {} : { failure_reason: outcome.reason }),
+    ...(outcome.status === undefined ? {} : { http_status: outcome.status }),
+  })
+
+  // Only a refusal withdraws the action. 'failed' is a blip, and the fix for a
+  // blip is to try again — clearing this on it took the button off every
+  // remaining row of the panel.
+  if (outcome.refused) canEdit.value = false
+  addFailure.value = outcome.message
 }
 
 async function onCopySource(d: PageDiagram) {
@@ -911,6 +1079,10 @@ async function onAddDiagram(macroType: MacroTypeValue, diagramType: string) {
         // instead of `page_editor_create`, so a byline create dying at the limit
         // is countable against byline_create_clicked.
         origin: BYLINE_MODAL_ORIGIN,
+        // The editor runs in the modal's own iframe, so the host page mode
+        // (view or edit) has to ride along for macro_create_started /
+        // _succeeded / _cancelled to say which byline they came from (#614).
+        creationOrigin: bylineCreationOrigin(hostInEditor),
       },
       onClose: () => {
         void afterEditorClosed(before, macroType)
@@ -976,6 +1148,14 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     createUnresolved.value = false
     pendingCreate = null
     diagrams.value = after
+    // A diagram that was just saved from here is unplaced BY DEFINITION — the
+    // paste has not happened yet — so this is the write that arms the banner for
+    // the exact failure the create→paste handoff has. Runs on the cancelled path
+    // too: the list was re-read either way, and a record that ignored it would
+    // keep naming diagrams the user has since placed. In the editor it no-ops
+    // (see syncUnplacedState): the author is mid-paste and the published ADF
+    // cannot yet show it.
+    void syncUnplacedState()
     if (!newId) {
       trackAnalyticsEvent('byline_create_cancelled', { ...baseProps(), macro_type: macroType })
       return
@@ -1216,7 +1396,20 @@ async function onLearnMore() {
 .byline {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Containment needs an ABSOLUTE cap, not a relative one. Two relative
+     units have already failed here on lite-stg:
+     - `height:100%` — the Forge mount chain (`body > div.mx-auto > #app`)
+       gives no ancestor a height, so 100% resolved to content height
+       (observed: 6-diagram page, whole iframe scrolled, footer pushed off).
+     - `height:100vh` — Forge Custom UI iframes auto-resize to content
+       height, so 100vh tracks content and the cap dissolves the moment the
+       iframe grows (observed: 8-diagram page, same symptom).
+     max-height at the modal height (viewportSize: medium = 618x529) breaks
+     that feedback loop no matter what the iframe does; 100vh below it keeps
+     the panel filling the modal when the list is short. Scoped to the
+     byline; the shared index.html is untouched. */
+  height: 100vh;
+  max-height: 529px;
   box-sizing: border-box;
   overflow: hidden;
   background: #ffffff;
@@ -1279,6 +1472,15 @@ async function onLearnMore() {
   font-size: 13px;
   color: #7a869a;
 }
+.byline__notice {
+  font-size: 13px;
+  color: #ae2e24;
+  background: #ffeceb;
+  border-radius: 3px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
 .byline__lede {
   font-size: 13px;
   color: #5e6c84;
@@ -1437,10 +1639,13 @@ async function onLearnMore() {
    brings it up when the user tabs onto it. */
 /* Fixed width, right-aligned: the slot holds "Copy source", "Copy URL" or a
    hidden placeholder, and "Open" sits immediately before it. Sizing the slot to
-   its content moved Open on whichever rows had the longer label. */
+   its content moved Open on whichever rows had the longer label.
+   96px, not 82px: `.row__add` occupies the same slot and has to fit "Add to
+   page" plus its padding without clipping. The width is shared so that Open
+   still lands in the same place on every row, whichever action the row carries. */
 .row__copy {
   flex: none;
-  width: 82px;
+  width: 96px;
   text-align: right;
   margin-left: 12px;
   background: none;
@@ -1462,6 +1667,51 @@ async function onLearnMore() {
 .row__copy--slot {
   visibility: hidden;
 }
+/* The one-click place. A real button box, mirroring the page banner's primary
+   (UnplacedDiagramsBanner.vue `.unplaced__btn--primary`) so the same action
+   looks the same on both surfaces.
+   It deliberately does NOT reuse `.row__copy`: that class is a right-aligned
+   TEXT slot with no padding and no radius, so a fill on it rendered as a raw
+   rectangle wider than its 96px box — clipped at the panel's edge.
+   Same width as the slot, so Open stays put across rows; centred, because a
+   filled button's label belongs in the middle of its fill. */
+.row__add {
+  flex: none;
+  width: 96px;
+  margin-left: 12px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 3px;
+  background: #0C66E4;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+}
+.row__add:hover {
+  background: #0055cc;
+}
+.row__add:disabled {
+  background: #8590a2;
+  cursor: default;
+}
+.row__add:focus-visible {
+  outline: 2px solid #0052cc;
+  outline-offset: 2px;
+}
+/* One blue per row. Open is the secondary once a filled primary sits beside it —
+   the same hierarchy the banner uses, where Copy link goes quiet next to Add to
+   page. On every other row Open keeps the link colour, because there it IS the
+   action. */
+.row--actionable .row__cta {
+  color: #5e6c84;
+  font-weight: 400;
+}
+
 /* Always visible, unlike Copy source. An unplaced diagram is invisible on the
    page it belongs to, so its one route back must not be behind a hover. Placed
    after the base rule deliberately — same specificity, later wins. */
@@ -1475,36 +1725,54 @@ async function onLearnMore() {
 }
 
 /* Add another ------------------------------------------------------------- */
-/* Sits between the scrolling body and the footer, so it never scrolls away. */
+/* Sits between the scrolling body and the footer, so it never scrolls away.
+   The scroll mechanics (header/addrow/footer flex:none, body flex:1 +
+   min-height:0 + overflow-y:auto) already contain the list — this stronger
+   top divider is the VISIBLE half of that: #dfe1e6 rather than the #ebecf0 of
+   the row separators, so the pinned add-another + footer group reads as one
+   fixed region below the scroll boundary instead of blending into the last
+   scrolled row. Matches the 4a scroll-containment mock. */
 .addrow {
   flex: none;
-  padding: 12px 20px;
-  border-top: 1px solid #ebecf0;
+  padding: 14px 20px 16px;
+  border-top: 1px solid #dfe1e6;
   background: #fff;
 }
+/* A heading, not a caption: 13px semibold dark. At 12px grey it read as
+   metadata about the list above rather than as labelling the actions below. */
 .addrow__label {
-  font-size: 12px;
-  color: #5e6c84;
-  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #172b4d;
+  margin-bottom: 10px;
 }
+/* Equal-width cells (5b): one control group, not four loose chips. Column-flow
+   auto-columns rather than a hardcoded repeat(4, …), so a fifth type keeps the
+   single equal-width row without touching this rule. */
 .chips {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 8px;
-  flex-wrap: wrap;
 }
+/* 5b "real button styling": grey fill instead of ghost, a darker border
+   (#c1c7d0 over #dfe1e6), and a 1px bottom shadow for a raised edge — the
+   three changes that make these read as pressable rather than as tags. */
 .chip {
-  border: 1px solid #dfe1e6;
+  border: 1px solid #c1c7d0;
   border-radius: 4px;
-  padding: 6px 12px 6px 8px;
+  padding: 9px 10px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  background: #fff;
+  background: #f4f5f7;
+  box-shadow: 0 1px 0 rgba(9, 30, 66, 0.08);
   font-family: inherit;
-  color: inherit;
+  color: #172b4d;
 }
 .chip:hover:not(:disabled) {
   border-color: #0052cc;
@@ -1517,10 +1785,13 @@ async function onLearnMore() {
   opacity: 0.5;
   cursor: default;
 }
-.chip__icon {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
+/* The create verb, where a generic per-type glyph only added noise. */
+.chip__plus {
+  flex: none;
+  color: #0052cc;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 /* Post-create panel ------------------------------------------------------- */

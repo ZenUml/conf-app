@@ -1,8 +1,8 @@
 <shapes name="mxgraph.electrical.logic_gates">
 	<shape aspect="variable" h="60" name="AND" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in1" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in2" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in1" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in2" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 		</connections>
 		<background>
@@ -102,10 +102,10 @@
 	</shape>
 	<shape aspect="variable" h="90" name="D Type Flip-Flop With Clear" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="D" perimeter="0" x="0" y="0.335"/>
-			<constraint name="E" perimeter="0" x="0" y="0.78"/>
-			<constraint name="Q" perimeter="0" x="1" y="0.335"/>
-			<constraint name="Qneg" perimeter="0" x="1" y="0.78"/>
+			<constraint name="D" perimeter="0" x="0" y="0.3333"/>
+			<constraint name="E" perimeter="0" x="0" y="0.7778"/>
+			<constraint name="Q" perimeter="0" x="1" y="0.3333"/>
+			<constraint name="Qneg" perimeter="0" x="1" y="0.7778"/>
 			<constraint name="clear" perimeter="0" x="0.5" y="0"/>
 		</connections>
 		<background>
@@ -140,10 +140,10 @@
 	</shape>
 	<shape aspect="variable" h="94" name="D Type Flip-Flop With Clear 2" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="D" perimeter="0" x="0" y="0.36"/>
-			<constraint name="E" perimeter="0" x="0" y="0.79"/>
-			<constraint name="Q" perimeter="0" x="1" y="0.36"/>
-			<constraint name="Qneg" perimeter="0" x="1" y="0.79"/>
+			<constraint name="D" perimeter="0" x="0" y="0.3617"/>
+			<constraint name="E" perimeter="0" x="0" y="0.7872"/>
+			<constraint name="Q" perimeter="0" x="1" y="0.3617"/>
+			<constraint name="Qneg" perimeter="0" x="1" y="0.7872"/>
 			<constraint name="clear" perimeter="0" x="0.5" y="0"/>
 		</connections>
 		<background>
@@ -360,11 +360,11 @@
 	</shape>
 	<shape aspect="variable" h="90" name="JK Flip-Flop With Clear" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="J" perimeter="0" x="0" y="0.335"/>
-			<constraint name="E" perimeter="0" x="0" y="0.555"/>
-			<constraint name="K" perimeter="0" x="0" y="0.78"/>
-			<constraint name="Q" perimeter="0" x="1" y="0.335"/>
-			<constraint name="Qneg" perimeter="0" x="1" y="0.78"/>
+			<constraint name="J" perimeter="0" x="0" y="0.3333"/>
+			<constraint name="E" perimeter="0" x="0" y="0.5556"/>
+			<constraint name="K" perimeter="0" x="0" y="0.7778"/>
+			<constraint name="Q" perimeter="0" x="1" y="0.3333"/>
+			<constraint name="Qneg" perimeter="0" x="1" y="0.7778"/>
 			<constraint name="clear" perimeter="0" x="0.5" y="0"/>
 		</connections>
 		<background>
@@ -403,11 +403,11 @@
 	</shape>
 	<shape aspect="variable" h="94" name="JK Flip-Flop With Clear 2" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="J" perimeter="0" x="0" y="0.36"/>
-			<constraint name="E" perimeter="0" x="0" y="0.575"/>
-			<constraint name="K" perimeter="0" x="0" y="0.79"/>
-			<constraint name="Q" perimeter="0" x="1" y="0.36"/>
-			<constraint name="Qneg" perimeter="0" x="1" y="0.79"/>
+			<constraint name="J" perimeter="0" x="0" y="0.3617"/>
+			<constraint name="E" perimeter="0" x="0" y="0.5745"/>
+			<constraint name="K" perimeter="0" x="0" y="0.7872"/>
+			<constraint name="Q" perimeter="0" x="1" y="0.3617"/>
+			<constraint name="Qneg" perimeter="0" x="1" y="0.7872"/>
 			<constraint name="clear" perimeter="0" x="0.5" y="0"/>
 		</connections>
 		<background>
@@ -534,8 +534,8 @@
 	</shape>
 	<shape aspect="variable" h="60" name="NAND" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in1" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in2" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in1" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in2" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 		</connections>
 		<background>
@@ -564,8 +564,8 @@
 	</shape>
 	<shape aspect="variable" h="60" name="NOR" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in1" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in2" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in1" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in2" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 		</connections>
 		<background>
@@ -596,8 +596,8 @@
 	</shape>
 	<shape aspect="variable" h="60" name="OR" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in1" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in2" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in1" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in2" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 		</connections>
 		<background>
@@ -762,8 +762,8 @@
 	</shape>
 	<shape aspect="variable" h="60" name="XNOR" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in1" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in2" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in1" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in2" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 		</connections>
 		<background>
@@ -796,8 +796,8 @@
 	</shape>
 	<shape aspect="variable" h="60" name="XOR" strokewidth="inherit" w="100">
 		<connections>
-			<constraint name="in1" perimeter="0" x="0" y="0.165"/>
-			<constraint name="in2" perimeter="0" x="0" y="0.835"/>
+			<constraint name="in1" perimeter="0" x="0" y="0.1667"/>
+			<constraint name="in2" perimeter="0" x="0" y="0.8333"/>
 			<constraint name="out" perimeter="0" x="1" y="0.5"/>
 		</connections>
 		<background>

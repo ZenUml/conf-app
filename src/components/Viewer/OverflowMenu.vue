@@ -11,6 +11,7 @@
       :aria-expanded="open"
       @click="toggle"
       @keydown.down.prevent="openMenu"
+      @keydown.up.prevent="openMenu"
     >
       <svg
         class="viewer-icon"
@@ -27,59 +28,40 @@
       </svg>
     </button>
 
-    <div v-if="open" role="menu" :aria-label="triggerLabel" class="overflow-menu-popover">
+    <div
+      v-if="open"
+      ref="menuRef"
+      role="menu"
+      :aria-label="menuLabel || triggerLabel"
+      class="overflow-menu-popover"
+      :class="[`overflow-menu-popover--${placement}`, { 'overflow-menu-popover--start': alignStart }]"
+      @keydown="onMenuKeydown"
+    >
       <slot :close="close" />
-      <div class="overflow-menu-arrow" aria-hidden="true"></div>
     </div>
   </div>
 </template>
 
 <script>
+import { useMenuPopover } from './useMenuPopover'
+
+/**
+ * Icon-trigger menu ("More", ⋯). Lives in the viewer header since the staged
+ * header (2026-10) replaced the bottom pill, so the popover opens downward by
+ * default; `placement="top"` keeps the old upward anchor for a host at the
+ * bottom of a clipped container. Emits `opened` / `closed` so the host can
+ * keep its chrome revealed while the menu is open.
+ */
 export default {
   name: 'OverflowMenu',
   props: {
     triggerLabel: { type: String, default: 'More' },
+    menuLabel: { type: String, default: '' },
+    placement: { type: String, default: 'bottom', validator: v => v === 'top' || v === 'bottom' },
   },
-  data() {
-    return { open: false }
-  },
-  mounted() {
-    document.addEventListener('mousedown', this.onDocMouseDown)
-    document.addEventListener('keydown', this.onKeyDown)
-  },
-  beforeUnmount() {
-    document.removeEventListener('mousedown', this.onDocMouseDown)
-    document.removeEventListener('keydown', this.onKeyDown)
-  },
-  methods: {
-    toggle() {
-      if (this.open) this.close()
-      else this.openMenu()
-    },
-    openMenu() {
-      if (this.open) return
-      this.open = true
-      this.$nextTick(() => {
-        const firstItem = this.$refs.containerRef?.querySelector('[role="menuitem"]')
-        firstItem?.focus()
-      })
-    },
-    close() {
-      if (!this.open) return
-      this.open = false
-      this.$refs.triggerRef?.focus()
-    },
-    onDocMouseDown(e) {
-      if (this.open && this.$refs.containerRef && !this.$refs.containerRef.contains(e.target)) {
-        this.open = false
-      }
-    },
-    onKeyDown(e) {
-      if (e.key === 'Escape' && this.open) {
-        e.stopPropagation()
-        this.close()
-      }
-    },
+  emits: ['opened', 'closed'],
+  setup(_props, { emit }) {
+    return useMenuPopover(emit)
   },
 }
 </script>
@@ -90,28 +72,31 @@ export default {
   display: inline-flex;
 }
 
+/* Header icon button (staged-header prototype): 28px square, 6px radius. */
 .overflow-menu-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   background: transparent;
   color: #6B7280;
   border: none;
-  border-radius: 9999px;
+  border-radius: 6px;
   cursor: pointer;
   transition: background-color 200ms ease, color 200ms ease;
 }
 
-.overflow-menu-trigger:hover {
+.overflow-menu-trigger:hover,
+.overflow-menu-trigger--active {
   background: #F3F4F6;
   color: #374151;
 }
 
-.overflow-menu-trigger--active {
-  background: #F3F4F6;
-  color: #374151;
+.overflow-menu-trigger:focus-visible {
+  outline: 2px solid #0C66E4;
+  outline-offset: 1px;
 }
 
 .overflow-menu-trigger > .viewer-icon {
@@ -123,28 +108,20 @@ export default {
 
 .overflow-menu-popover {
   position: absolute;
-  bottom: calc(100% + 8px);
   right: 0;
-  width: 180px;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 4px;
   background: #fff;
   border: 1px solid #E5E7EB;
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  padding: 0;
-  z-index: 5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+  z-index: 20;
 }
-
-.overflow-menu-arrow {
-  position: absolute;
-  right: 10px;
-  bottom: -5px;
-  width: 10px;
-  height: 10px;
-  background: #fff;
-  border-right: 1px solid #E5E7EB;
-  border-bottom: 1px solid #E5E7EB;
-  transform: rotate(45deg);
-}
+.overflow-menu-popover--bottom { top: calc(100% + 4px); }
+.overflow-menu-popover--top { bottom: calc(100% + 4px); }
+.overflow-menu-popover--start { right: auto; left: 0; }
 </style>
 
 <style>
@@ -153,15 +130,16 @@ export default {
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 28px;
-  padding: 6px 10px;
+  height: 32px;
+  padding: 0 10px;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   font-family: inherit;
   font-size: 13px;
   color: #374151;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -170,8 +148,13 @@ export default {
   color: #111827;
 }
 .overflow-menu-item:focus-visible {
-  outline: 2px solid #2684FF;
+  background: #F3F4F6;
+  outline: 2px solid #0C66E4;
   outline-offset: -2px;
+}
+.overflow-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .overflow-menu-item-icon {
   display: inline-flex;
@@ -179,7 +162,12 @@ export default {
   flex-shrink: 0;
 }
 .overflow-menu-item-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+}
+.overflow-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: #E5E7EB;
 }
 </style>

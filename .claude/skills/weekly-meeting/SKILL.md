@@ -9,14 +9,14 @@ Fetches Atlassian Marketplace transaction data for the past 30 days, processes i
 
 ## Prerequisites
 
-A browser tab must be open and **logged into** `marketplace.atlassian.com` (as the vendor). The skill uses that session's cookies via `mcp__playwright__browser_evaluate` to call the REST API — no separate auth token is needed.
+A browser session must be **logged into** `marketplace.atlassian.com` (as the vendor). The skill uses that session's cookies via agent-browser `eval` to call the REST API — no separate auth token is needed. Use `agent-browser --session weekly --profile "Profile 8"`; identity not yet verified for this skill; confirm with whoami before relying on it. Playwright MCP (`mcp__playwright__browser_evaluate`) is the fallback if agent-browser fails.
 
 If the browser is not already on a Marketplace page, navigate there first:
 - Target page: `https://marketplace.atlassian.com/manage/vendors/1215266/reporting/sales?period=past30Days`
 
 ## Step 1 — Fetch all transactions (past 30d)
 
-Use `mcp__playwright__browser_evaluate` to call the REST API from the browser context (authenticated via cookies). Paginate until all transactions are collected.
+Use agent-browser `eval` (`agent-browser --session weekly --profile "Profile 8" eval -b "$(base64 < snippet.js)"`, with the snippet wrapped as an invoked async function, e.g. `(async () => { ... })()`) to call the REST API from the browser context (authenticated via cookies). Paginate until all transactions are collected. Fallback: `mcp__playwright__browser_evaluate` with the snippet as written.
 
 ```javascript
 async () => {
@@ -146,7 +146,7 @@ Ensure server is running and print:
 
 - **Vendor ID:** `1215266`
 - **REST API base:** `https://marketplace.atlassian.com/rest/2/vendors/1215266/reporting/sales/transactions`
-- **Auth:** browser cookies (no API key needed when fetched from `mcp__playwright__browser_evaluate` while logged in)
+- **Auth:** browser cookies (no API key needed when fetched via agent-browser `eval` — or `mcp__playwright__browser_evaluate` as fallback — while logged in)
 - **Sale types:** `New`, `Renewal`, `Upgrade`, `Downgrade`, `Refund`
 - **"New customers"** = `saleType: "New"` — first-ever paid subscription
 - **"Large customers"** = top 5 by `purchasePrice` in the 30d window

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Create Test Page invocation design</title>
+<style>
+:root{--ink:#18212b;--muted:#5d6975;--line:#dce3e9;--blue:#1469a5;--soft:#eef7fd;--amber:#fff5df}*{box-sizing:border-box}body{margin:0;background:#f7f9fb;color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:920px;margin:auto;padding:48px 24px 70px}.eyebrow{color:var(--blue);font-size:12px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}h1{font-size:clamp(32px,5vw,54px);line-height:1.05;letter-spacing:-.04em;max-width:780px;margin:10px 0 14px}h2{margin:38px 0 10px;font-size:24px}p{max-width:780px}.lede{color:var(--muted);font-size:19px}.decision{margin:26px 0;padding:22px 24px;background:var(--soft);border:1px solid #bcdcf0;border-radius:14px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.card{background:#fff;border:1px solid var(--line);border-radius:11px;padding:17px}.card p{color:var(--muted);font-size:14px}pre{overflow:auto;padding:17px;border-radius:10px;background:#18212b;color:#eef5fa;font-size:14px;line-height:1.55}code{background:#edf1f4;border-radius:4px;padding:2px 5px;font-size:.92em}pre code{background:transparent;padding:0}table{border-collapse:collapse;width:100%;background:#fff;font-size:14px}th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{background:#f0f3f6}.ask{margin-top:32px;padding:20px 23px;border-left:4px solid var(--blue);background:#fff}.muted{color:var(--muted)}footer{margin-top:38px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">Invocation design · 21 August 2026</div>
+<h1>Name the target dimensions; keep the registry behind the CLI</h1>
+<p class="lede">The current <code>--profile app@site</code> interface bundles three independent decisions into one opaque token. That makes the command harder to read, harder to validate, and easy to misapply when multiple apps share a Confluence site.</p>
+<div class="decision"><strong>Recommendation:</strong> make <code>--app</code>, <code>--environment</code>, and <code>--site</code> explicit. Keep the registry internal: it resolves app IDs, Forge environment IDs, namespaces, module keys, and content keys, then validates the tuple before the first POST.</div>
+
+<h2>Proposed invocation</h2>
+<pre><code>node .claude/skills/create-test-page/scripts/create-test-page.mjs \
+  --app diagramly \
+  --environment staging \
+  --site diagramly-staging \
+  --space SD \
+  --macro mermaid:./fixtures/flow.mmd</code></pre>
+<p class="muted">The same shape works for every variant. The site value is the tenant alias; the app and environment select the Forge identity.</p>
+
+<h2>Why this is clearer</h2>
+<div class="grid"><section class="card"><strong>Readable intent</strong><p>A reviewer can see which app is being tested, where it is deployed, and which tenant receives the page.</p></section><section class="card"><strong>Correct shared-site behavior</strong><p>Production sites can host Lite, Full, and Diagramly simultaneously. A site name alone cannot select the macro extension.</p></section><section class="card"><strong>Safe configuration</strong><p>The caller never supplies app IDs or Forge UUIDs. The internal registry owns those values and rejects unsupported app/environment/site combinations.</p></section></div>
+
+<h2>Parameter contract</h2>
+<table><thead><tr><th>Parameter</th><th>Meaning</th><th>Validation</th></tr></thead><tbody>
+<tr><td><code>--app</code></td><td><code>lite</code>, <code>full</code>, <code>diagramly</code>, or <code>asyncapi</code></td><td>Determines app ID, namespace, macro modules, and content keys.</td></tr>
+<tr><td><code>--environment</code></td><td><code>development</code>, <code>staging</code>, or <code>production</code></td><td>Determines the verified Forge environment ID.</td></tr>
+<tr><td><code>--site</code></td><td>Named Confluence tenant / approved alias</td><td>Must be allowed for the selected app and environment.</td></tr>
+<tr><td><code>--space</code></td><td>Confluence space key</td><td>Required; API failure is reported before any page is left behind where possible.</td></tr>
+<tr><td><code>--macro</code></td><td>Repeatable <code>type:file</code> input</td><td>At least one; type and file are checked before the first network write.</td></tr>
+</tbody></table>
+
+<h2>Rejected alternatives</h2>
+<div class="grid"><section class="card"><strong><code>--profile diagramly@stg</code></strong><p>Rejected as the public interface: it hides the site and conflates environment naming with tenant naming.</p></section><section class="card"><strong>Caller-supplied <code>--app-id</code> / <code>--env-id</code></strong><p>Rejected: it moves Forge identity knowledge into every invocation and invites guessed UUIDs.</p></section><section class="card"><strong>Site-only selection</strong><p>Rejected: one site can contain multiple app variants, so site-only targeting can create a valid page for the wrong renderer.</p></section></div>
+
+<h2>Scope and tradeoff</h2><p>The implementation still uses a declarative registry; the change is only where the abstraction boundary sits. The registry remains the source of truth, while the command expresses user intent in three dimensions. This adds two flags but makes failures actionable and prevents silent cross-variant tests.</p>
+<div class="ask"><strong>Approval requested:</strong> replace the current profile-shaped invocation with the explicit <code>--app</code> + <code>--environment</code> + <code>--site</code> contract before shipping. The current branch is paused at the merge quiz until this interface decision is settled.</div>
+<footer>Draft only. No PR was created or merged. This pitch supersedes the earlier bundled-profile proposal.</footer>
+</main></body></html>

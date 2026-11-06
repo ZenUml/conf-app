@@ -3,6 +3,7 @@ import globals from '@/model/globals';
 import { mountRoot } from '@/mount-root';
 import { Diagram, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { tryFullscreenViewerPaywall } from '@/utils/paywall/mountPaywallGate';
+import { isExportEntry } from '@/model/globals/forgeGlobal';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage';
 import {
@@ -19,6 +20,7 @@ import type { DiagramLoadError } from '@/model/store2/types';
 import type { DiagramAttribution } from '@/model/DiagramAttribution';
 import { getContext as initForgeContext } from '@/model/globals/forgeGlobal';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { getBoardDocumentLoadError } from '@/utils/graph/boardDocument';
 
 // Slice 1 of the content-opening unification: `loadDiagram` implementations
 // are migrating from returning a plain `Diagram | undefined` to the wrapped
@@ -78,12 +80,20 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     if (globals.apWrapper.isDisplayMode()) {
       setViewerLoadState('loading', null);
     }
-    const paywalled = await tryFullscreenViewerPaywall({
-      doc: NULL_DIAGRAM,
-      content: options.content,
-      contentProps: options.contentProps,
-      macroKind: options.macroKind,
-    });
+    // Export entry is exempt, exactly as in forgeIndex's sequence-family path:
+    // the user pressed Export PNG, which is ungated on the inline surface, and
+    // this modal exists only to give that dialog room. Without this, routing
+    // export through Fullscreen would newly gate Graph and OpenAPI exports for
+    // a saturated Lite space, and the viewer would never mount to open the
+    // dialog at all.
+    const paywalled = (await isExportEntry())
+      ? false
+      : await tryFullscreenViewerPaywall({
+        doc: NULL_DIAGRAM,
+        content: options.content,
+        contentProps: options.contentProps,
+        macroKind: options.macroKind,
+      });
 
     // ── Content SWR: cache-first render on a viewer revisit ──────────────────
     // Mirrors the sequence-family block in forgeIndex.ts (measured there:
@@ -97,6 +107,16 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     // embed viewer's legacy-uuid recovery path, which has no id to key on),
     // gets exactly today's behavior below.
     let customContentId: string | undefined;
+    // Board and Diagram are independent persisted documents, so a cached
+    // Diagram-era body must not satisfy a Board load — that would hide an
+    // empty/malformed boardGraphXml until the background revalidation
+    // finishes, or forever if it fails. Validate the CACHED doc with the same
+    // rule the loader applies and fall through to the authoritative fetch when
+    // it fails, rather than disabling the cache for Board macros: skipping the
+    // block entirely also skipped the putCachedContent write below, so the
+    // entry went stale for the Diagram mode too.
+    const isBoardGraph = options.macroKind === 'graph'
+      && options.contentProps?.graphEditorMode === 'board';
     if (!paywalled) {
       customContentId = options.resolveContentId
         ? options.resolveContentId(await initForgeContext())
@@ -106,6 +126,9 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
         if (cached) {
           try {
             const cachedDoc = JSON.parse(cached.doc) as Diagram;
+            if (isBoardGraph && getBoardDocumentLoadError(cachedDoc)) {
+              throw new Error('cached Board document is not renderable');
+            }
             // Mount the cached doc instead of the NULL_DIAGRAM shell, then
             // publish it through the SAME normalization path a live fetch
             // uses (normalizeCompressedGraphDoc) — the cache stores the RAW
@@ -200,6 +223,22 @@ async function revalidateViewer(
     // content unreadable now (undefined doc, or a structured loadError with no
     // doc) — keep the last-known-good cached render rather than publish a miss.
     if (!loadResult.doc) return;
+    // A TERMINAL error means the fetched doc is not the representation the
+    // macro asked for (an invalid Board document behind a renderable legacy
+    // graphXml). The cached render currently on screen is showing content the
+    // authoritative load says does not exist, so replace it rather than let
+    // the cache mask it — this is what makes the Board cache safe to keep.
+    // Do not cache a doc we just classified as unrenderable.
+    if (loadResult.loadError?.terminal) {
+      renderPerf.markContentSource('fetch');
+      applyViewerLoadOutcome({
+        doc: loadResult.doc,
+        customContentId,
+        loadError: loadResult.loadError,
+        macroKind: options.macroKind,
+      });
+      return;
+    }
     const serialized = JSON.stringify(loadResult.doc);
     putCachedContent(customContentId, serialized);
     if (hashContent(serialized) !== cachedHash) {

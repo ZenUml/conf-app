@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Repair Continuous Improvement"
+  short_description: "Save production failure DSL, coordinate fixes, and verify final previews"
+  default_prompt: "Use $ai-repair-improvement to create and coordinate multiple task sessions, handle production AI Repair failures, and save regression evidence."
+policy:
+  allow_implicit_invocation: true

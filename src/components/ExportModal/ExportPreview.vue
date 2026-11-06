@@ -6,33 +6,33 @@
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'arrow' }"
+          :class="{ active: isToolActive('arrow') }"
           @click="toggleTool('arrow')"
           title="Arrow (drag to draw)"
           aria-label="Arrow (drag to draw)"
-          :aria-pressed="state.activeTool.value === 'arrow'"
+          :aria-pressed="isToolActive('arrow')"
         >
           <AdsIcon glyph="arrow" />
         </button>
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'callout' }"
+          :class="{ active: isToolActive('callout') }"
           @click="toggleTool('callout')"
           title="Callout (click to place)"
           aria-label="Callout (click to place)"
-          :aria-pressed="state.activeTool.value === 'callout'"
+          :aria-pressed="isToolActive('callout')"
         >
           <AdsIcon glyph="comment" />
         </button>
         <button
           type="button"
           class="tool-btn"
-          :class="{ active: state.activeTool.value === 'note' }"
+          :class="{ active: isToolActive('note') }"
           @click="toggleTool('note')"
           title="Note (click to place)"
           aria-label="Note (click to place)"
-          :aria-pressed="state.activeTool.value === 'note'"
+          :aria-pressed="isToolActive('note')"
         >
           <AdsIcon glyph="text" />
         </button>
@@ -53,11 +53,12 @@
         <span>{{ state.isCapturing.value ? 'Capturing…' : 'Refresh' }}</span>
       </button>
     </div>
-    <div class="preview-stage">
-      <div class="preview-canvas-wrap" :style="state.previewCanvasStyle.value">
+    <div ref="previewStage" class="preview-stage">
+      <div class="preview-viewport" :style="previewViewportStyle">
+      <div class="preview-canvas-wrap" :style="previewCanvasStyle">
         <div class="preview-canvas">
           <div class="preview-diagram-placeholder">
-            <div v-if="state.isCapturing.value" class="preview-loading">
+            <div v-if="waitingForPreview || state.isCapturing.value" class="preview-loading">
               <svg class="spin" width="24" height="24" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="#334155" stroke-width="2"/>
                 <path d="M12 2a10 10 0 0 1 10 10" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
@@ -83,19 +84,35 @@
           />
         </div>
       </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, nextTick, type PropType } from 'vue';
 import { exportStateKey, type ActiveTool } from './useExportState';
 import OverlayLayer from './OverlayLayer.vue';
 import AdsIcon from './AdsIcon.vue';
+import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
+import { calculatePreviewFit } from './previewFit';
+
+const CANVAS_PADDING = 32;
 
 export default defineComponent({
   name: 'ExportPreview',
   components: { OverlayLayer, AdsIcon },
+
+  props: {
+    waitingForPreview: { type: Boolean, default: false },
+    // Analytics context for export_annotation_tool_clicked. Passed down rather
+    // than inferred here: this component has no view of the macro surface, and
+    // an intent event without the surface cannot separate inline annotation
+    // intent from Fullscreen intent — the comparison the event exists for.
+    surface: { type: String as PropType<Surface>, default: 'modal' },
+    macroType: { type: String as PropType<MacroTypeValue>, default: 'none' },
+  },
 
   inject: {
     state: {
@@ -108,7 +125,40 @@ export default defineComponent({
 
   emits: ['refresh'],
 
+  data() {
+    return {
+      previewStageWidth: 0,
+      previewStageHeight: 0,
+      previewResizeObserver: null as ResizeObserver | null,
+    };
+  },
+
   computed: {
+    previewFit() {
+      return calculatePreviewFit(
+        this.previewStageWidth,
+        this.previewStageHeight,
+        this.state.previewNaturalWidth.value + CANVAS_PADDING,
+        this.state.previewNaturalHeight.value + CANVAS_PADDING,
+      );
+    },
+
+    previewViewportStyle(): Record<string, string> {
+      return {
+        width: `${this.previewFit.width}px`,
+        height: `${this.previewFit.height}px`,
+      };
+    },
+
+    previewCanvasStyle(): Record<string, string> {
+      return {
+        ...this.state.previewCanvasStyle.value,
+        width: `${this.state.previewNaturalWidth.value}px`,
+        height: `${this.state.previewNaturalHeight.value}px`,
+        transform: `scale(${this.previewFit.scale})`,
+      };
+    },
+
     noteEditStyle(): Record<string, string> {
       if (!this.state.notePoint.value) return {};
       return {
@@ -135,13 +185,56 @@ export default defineComponent({
     },
   },
 
+  mounted() {
+    const stage = this.$refs.previewStage as HTMLElement | undefined;
+    if (!stage) return;
+    const measure = () => {
+      this.previewStageWidth = stage.clientWidth;
+      this.previewStageHeight = stage.clientHeight;
+    };
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      this.previewResizeObserver = new ResizeObserver(measure);
+      this.previewResizeObserver.observe(stage);
+    }
+  },
+
+  beforeUnmount() {
+    this.previewResizeObserver?.disconnect();
+  },
+
   methods: {
+    // Activation only — turning a tool back off is not a second intent, and
+    // counting it would inflate the very number this event exists to read.
+    trackToolIntent(tool: 'arrow' | 'callout' | 'note' | 'watermark') {
+      trackAnalyticsEvent('export_annotation_tool_clicked', {
+        feature_area: 'macro',
+        surface: this.surface,
+        macro_type: this.macroType,
+        tool,
+      });
+    },
+
+    /**
+     * A tool reads as active while it is armed AND while the annotation it
+     * placed is the current selection. Placing an annotation clears
+     * activeTool, so binding to that alone left all four buttons looking
+     * identical at the exact moment the user is editing one of them.
+     */
+    isToolActive(tool: 'arrow' | 'callout' | 'note') {
+      return this.state.activeTool.value === tool
+        || this.state.selectedAnnotation.value === tool;
+    },
+
     toggleTool(tool: ActiveTool) {
       if (this.state.activeTool.value === tool) {
         this.state.activeTool.value = null;
+      } else if (this.state.selectedAnnotation.value === tool) {
+        this.state.selectedAnnotation.value = null;
       } else {
         this.state.activeTool.value = tool;
         this.state.selectedAnnotation.value = null;
+        if (tool) this.trackToolIntent(tool);
       }
     },
 
@@ -151,6 +244,7 @@ export default defineComponent({
       } else {
         this.state.watermarkVisible.value = true;
         this.state.selectedAnnotation.value = 'watermark';
+        this.trackToolIntent('watermark');
       }
     },
 

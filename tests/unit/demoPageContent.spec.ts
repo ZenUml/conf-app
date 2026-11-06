@@ -67,10 +67,21 @@ describe('demoPageContent', () => {
     expect(MACRO_KEYS).not.toContain('zenuml-embed-macro');
   });
 
-  it('macro keys match the diagramly-build manifest (after CI strip)', () => {
-    expect(new Set(MACRO_KEYS)).toEqual(
-      new Set(['gpt-diagram-macro', 'zenuml-graph-macro', 'zenuml-openapi-macro']),
-    );
+  it('macro keys match the diagramly-build manifest (after CI strip)', async () => {
+    // vite.config.mjs defines import.meta.env.SEQUENCE_MACRO_KEY for every build
+    // and vitest mirrors it into process.env, so the Diagramly fallback only
+    // applies when the variable is cleared before the module is evaluated.
+    vi.resetModules();
+    vi.stubEnv('SEQUENCE_MACRO_KEY', '');
+    try {
+      const fresh = await import('../../src/demoPageContent.js');
+      expect(new Set(fresh.MACRO_KEYS)).toEqual(
+        new Set(['gpt-diagram-macro', 'zenuml-graph-macro', 'zenuml-openapi-macro']),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 });
 

@@ -1,7 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 
-export type DiagramType = 'sequence' | 'graph' | 'openapi' | 'embed' | 'mermaid';
+import type { RenderMacroType } from '../config/apps.js';
+
+/**
+ * Re-exported under the local name for the existing callers. The union itself
+ * now lives in config/apps.ts: this file used to hardcode its own copy of the
+ * five, and when `MacroType` gained 'asyncapi' the two silently diverged —
+ * `fixtures/macro-test.ts` aliases MacroType and passes it to getPageId(), so
+ * the copies had to stay identical and nothing enforced it.
+ */
+export type DiagramType = RenderMacroType;
 
 interface TestPages {
   sequence?: string;

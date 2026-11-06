@@ -1,8 +1,16 @@
 # Mixpanel session-replay sampling (Forge feature flags)
 
-The session-replay sampling rate is controlled **live from the Forge Developer
-Console** — there is no hardcoded percentage in the repo. Two boolean flags
-resolve into `record_sessions_percent` at `mixpanel.init` time.
+Outside the temporary October 2026 budget window, the flag-driven session-replay
+sampling rate is controlled **live from the Forge Developer Console**. Two
+boolean flags resolve into `record_sessions_percent` at `mixpanel.init` time.
+
+From `2026-10-01T00:00:00Z` until `2026-11-01T00:00:00Z`, the app sets
+automatic baseline sampling to 0% without evaluating either flag. Targeted
+inspection cannot start a new sampled replay during this window. The SDK may
+continue or resume an existing, nonexpired recording across a reload; this
+policy does not stop all uploads or act as an ingestion kill switch. Explicit
+feedback recording and 1% sampled authoring remain available; see
+`docs/ops/mixpanel-quota-check.md` for the full temporary policy.
 
 Code: `src/utils/analytics/sessionReplayFlags.ts` (resolves the flags),
 wired in `src/utils/analytics/trackAnalyticsEvent.ts` (`_initMixpanel`).
@@ -12,8 +20,8 @@ wired in `src/utils/analytics/trackAnalyticsEvent.ts` (`_initMixpanel`).
 Session replay is metered (target budget **20K replays/month**). We need two
 controls that work *without a deploy*:
 
-1. **Full inspection of one customer, any time** — capture 100% of a specific
-   tenant's sessions for debugging.
+1. **Full inspection of one customer outside the temporary budget window** —
+   capture 100% of a specific tenant's sessions for debugging.
 2. **Throttle when near the limit** — significantly reduce the general sampling
    rate as the monthly cap approaches.
 

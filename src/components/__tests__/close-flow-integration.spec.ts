@@ -64,7 +64,6 @@ function makeStore(overrides: Record<string, any> = {}) {
         ...overrides,
       } as any,
       error: null,
-      onElementClick: () => {},
     } as any,
   });
 }
@@ -284,7 +283,7 @@ describe('Test 5 — saved event removes the draft from localStorage', () => {
     expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
 
     // Simulate successful publish.
-    EventBus.$emit('saved');
+    EventBus.$emit('saved', 'cc-1');
 
     // clearDraft is async — allow microtasks to flush.
     await new Promise((r) => setTimeout(r, 0));
@@ -300,7 +299,7 @@ describe('Test 5 — saved event removes the draft from localStorage', () => {
 
     store.commit('updateCode2', 'A->B: published change');
     await nextTick();
-    EventBus.$emit('saved');
+    EventBus.$emit('saved', 'cc-1');
     await vi.runAllTimersAsync();
 
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();

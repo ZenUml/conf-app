@@ -1581,7 +1581,7 @@ EventBus.$on('save', async () => {
   })();
 });
 
-EventBus.$on('exit', async (showWarning: boolean) => {
+EventBus.$on('exit', async (showWarning?: boolean) => {
   // Prepare event data
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === DiagramType.Sequence;
   const elapsedTimeMs = Date.now() - editorStartTime;

@@ -2,7 +2,6 @@ import { StoreOptions } from 'vuex';
 import { RootState} from "@/model/store2/types";
 import {DiagramType, NULL_DIAGRAM} from "@/model/Diagram/Diagram";
 import globals from "@/model/globals";
-import EventBus from "@/EventBus";
 import type { DiagramAttribution } from '@/model/DiagramAttribution';
 
 const ExtendedStore: StoreOptions<RootState> = {
@@ -90,9 +89,6 @@ const ExtendedStore: StoreOptions<RootState> = {
     diagramAttribution: null,
     publishBlock: null,
     error: null,
-    onElementClick: (codeRange: any) => {
-      EventBus.$emit('highlight', codeRange)
-    },
   }
 }
 

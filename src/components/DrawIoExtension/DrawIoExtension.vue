@@ -146,7 +146,19 @@ export default defineComponent({
       if (debounceTimer) clearTimeout(debounceTimer);
       const xml = (window as any).graphXml || props.currentXml || "";
       const code = extractGraphText(xml);
-      if (aiTitleEnabled.value && code.trim() && !isGeneratingTitle.value) {
+      if (isGeneratingTitle.value) {
+        // A generation (init or user) is already running. Wait for it to settle
+        // instead of reading the still-empty title as a miss: success commits the
+        // title (and autoNameAnimationDone confirms the gate); failure or a
+        // manual edit clears the flag and falls through to the check below.
+        await new Promise<void>((resolve) => {
+          const stop = watch(isGeneratingTitle, (generating) => {
+            if (generating) return;
+            stop();
+            resolve();
+          });
+        });
+      } else if (aiTitleEnabled.value && code.trim()) {
         await generate("user", {
           code,
           diagramType: DiagramType.Graph,

@@ -3261,72 +3261,32 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
-    // Inline, Connect MCP is the "Edit with AI tools" More-menu entry for
-    // editors (MCP promo surfaces, 2026-11); the header keeps Copy for AI.
-    const clickMcpMenuItem = async (wrapper: ReturnType<typeof mount>) => {
-      await openMoreMenu(wrapper)
-      await wrapper.find('[data-testid="more-menu-connect-mcp"]').trigger('click')
-    }
-
-    it('keeps Copy for AI inline and offers Connect MCP in the More menu when the flag resolves true', async () => {
+    it('swaps Copy for AI for Connect MCP when the flag resolves true, with no relay badge', async () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
-      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
+      const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+      expect(btn.exists()).toBe(true)
+      // Labelled at stage 0 (CSS drops the label from stage 1), and drawn
+      // with the MCP mark, not Copy for AI's sparkles.
+      expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
+      expect(btn.find('svg path').attributes('d')).toMatch(/^M2\.05 11\.25/)
+      expect(btn.attributes('aria-label')).toBe('Connect MCP')
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
-      await openMoreMenu(wrapper)
-      const item = wrapper.find('[data-testid="more-menu-connect-mcp"]')
-      expect(item.exists()).toBe(true)
-      expect(item.text()).toContain('Edit with AI tools')
-      expect(item.text()).toContain('Claude, Cursor, VS Code via MCP')
     })
 
-    it('labels the menu entry NEW until the viewer first opens it', async () => {
-      vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(new Date('2026-11-10T00:00:00Z'))
-      try {
-        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-        const wrapper = mountViewer()
-        await flushPromises()
-        await openMoreMenu(wrapper)
-        expect(wrapper.find('[data-testid="more-menu-connect-mcp-new"]').exists()).toBe(true)
-        await wrapper.find('[data-testid="more-menu-connect-mcp"]').trigger('click')
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-        await flushPromises()
-
-        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-        const second = mountViewer()
-        await flushPromises()
-        await openMoreMenu(second)
-        expect(second.find('[data-testid="more-menu-connect-mcp"]').exists()).toBe(true)
-        expect(second.find('[data-testid="more-menu-connect-mcp-new"]').exists()).toBe(false)
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-
-    it('does not offer the menu entry to a viewer who cannot edit', async () => {
-      vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false)
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const wrapper = mountViewer()
-      await flushPromises()
-      await openMoreMenu(wrapper)
-      expect(wrapper.find('[data-testid="more-menu-connect-mcp"]').exists()).toBe(false)
-    })
-
-    it('waits for neither button inline while the flag is still resolving', async () => {
+    it('shows neither button while the flag is still resolving', async () => {
       let resolveFlag: (on: boolean) => void = () => {}
       vi.mocked(isAgentLinkEnabled).mockReturnValueOnce(new Promise(r => { resolveFlag = r }))
       const wrapper = mountViewer()
       await flushPromises()
-      // Inline, Copy for AI never swaps out any more, so it need not wait.
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
       resolveFlag(true)
       await flushPromises()
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
     })
 
     it('does not show Connect MCP for a non-MVP diagram type (graph) even when the flag is on', async () => {
@@ -3345,7 +3305,7 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       const startConnect = vi.spyOn((wrapper.vm as any).agentLinkSession, 'startConnect')
 
-      await clickMcpMenuItem(wrapper)
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
 
       const dialog = wrapper.find('[data-testid="connect-mcp-dialog"]')
       expect(dialog.exists()).toBe(true)
@@ -3357,10 +3317,7 @@ describe('GenericViewer (chrome-less)', () => {
       expect(emitSpy).not.toHaveBeenCalledWith('fullscreen')
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_mcp_dialog_opened',
-        expect.objectContaining({
-          feature_area: 'agent_link', mcp_mode: 'headless', macro_type: DiagramType.Sequence,
-          action_location: 'header_more_menu', mcp_button_placement: 'more_menu',
-        })
+        expect.objectContaining({ feature_area: 'agent_link', mcp_mode: 'headless', macro_type: DiagramType.Sequence })
       )
     })
 
@@ -3368,7 +3325,7 @@ describe('GenericViewer (chrome-less)', () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
-      await clickMcpMenuItem(wrapper)
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
 
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
       await flushPromises()
@@ -3401,11 +3358,11 @@ describe('GenericViewer (chrome-less)', () => {
       )
     })
 
-    it('reports the inline menu entry as hover-revealed', async () => {
+    it('reveals on hover like the rest of the inline header, also before it is opened', async () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
-      await clickMcpMenuItem(wrapper)
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_mcp_dialog_opened',
         expect.objectContaining({ surface: 'viewer', mcp_button_reveal: 'hover' })
@@ -3414,12 +3371,8 @@ describe('GenericViewer (chrome-less)', () => {
 
     it('reports agent_link_mcp_button_shown once per viewer per day, not per macro', async () => {
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const first = mountViewer()
+      mountViewer()
       await flushPromises()
-      await settleLayout()
-      // Inline, an unopened More menu is not an impression.
-      expect(shownCalls()).toHaveLength(0)
-      await openMoreMenu(first)
       await settleLayout()
       expect(shownCalls()).toEqual([[
         'agent_link_mcp_button_shown',
@@ -3428,7 +3381,7 @@ describe('GenericViewer (chrome-less)', () => {
           surface: 'viewer',
           macro_type: DiagramType.Sequence,
           mcp_mode: 'headless',
-          mcp_button_placement: 'more_menu',
+          mcp_button_placement: 'toolbar',
           mcp_button_reveal: 'hover',
           header_stage: 0,
         }),
@@ -3436,9 +3389,8 @@ describe('GenericViewer (chrome-less)', () => {
 
       // A second macro on the same page (same storage) stays quiet.
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-      const second = mountViewer()
+      mountViewer()
       await flushPromises()
-      await openMoreMenu(second)
       await settleLayout()
       expect(shownCalls()).toHaveLength(1)
     })

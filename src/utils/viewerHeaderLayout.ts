@@ -159,12 +159,6 @@ export function moreMenuItems(options: {
   isCustomContent: boolean
   hasDeeplinkHost: boolean
   fullscreen: boolean
-  /**
-   * Connect MCP as its own permanent inline menu entry ("Edit with AI tools"),
-   * set apart above Download debug info. Used when the inline header no longer
-   * gives MCP the Copy for AI slot (MCP promo surfaces, 2026-11).
-   */
-  mcpMenuItem?: boolean
 }): MoreMenuItemId[] {
   if (options.fullscreen) return options.isCustomContent ? ['versions', 'separator', 'debug'] : ['debug']
   const items: MoreMenuItemId[] = []
@@ -172,7 +166,6 @@ export function moreMenuItems(options: {
   if (options.isCustomContent && options.hasDeeplinkHost) items.push('copy-diagram-link')
   items.push('export-png')
   if (options.isCustomContent) items.push('versions')
-  if (options.mcpMenuItem && !options.connectMcp) items.push('separator', 'connect-mcp')
   items.push('separator', 'debug')
   return items
 }

@@ -219,11 +219,5 @@ describe('viewerHeaderLayout', () => {
       expect(moreMenuItems({ ...base, fullscreen: true, stage: 0, isCustomContent: false })).toEqual(['debug'])
       expect(moreMenuItems({ ...base, fullscreen: true, stage: 3, hasDeeplinkHost: false })).toEqual(['versions', 'separator', 'debug'])
     })
-
-    it('adds Connect MCP as its own group above debug, and keeps Copy for AI at stage 3', () => {
-      const items = moreMenuItems({ ...base, stage: 3, hasDeeplinkHost: false, mcpMenuItem: true })
-      expect(items).toEqual(['source', 'copy-for-ai', 'separator', 'export-png', 'versions', 'separator', 'connect-mcp', 'separator', 'debug'])
-      expect(moreMenuItems({ ...base, fullscreen: true, mcpMenuItem: true })).not.toContain('connect-mcp')
-    })
   })
 })

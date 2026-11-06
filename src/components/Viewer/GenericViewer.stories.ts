@@ -1783,27 +1783,6 @@ function resetMcpPromoStorage() {
   sessionStorage.removeItem('zenuml.mcpPromo.session')
 }
 
-/** Inline: Connect MCP is the editors-only "Edit with AI tools" More-menu entry with a NEW label; the header keeps Copy for AI. */
-export const McpPromoInlineMoreMenu: Story = {
-  name: 'MCP promo — inline More menu entry',
-  decorators: [() => {
-    resetMcpPromoStorage()
-    configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE, agentLinkEnabled: true })
-    return { template: '<div style="padding: 24px 24px 360px;"><story /></div>' }
-  }],
-  render: () => renderZenUmlInlineViewer(),
-  play: async () => {
-    await revealHeader()
-    const canvas = within(document.body)
-    await waitFor(() => expect(canvas.getByTestId('copy-for-ai-btn')).toBeInTheDocument())
-    expect(canvas.queryByTestId('connect-mcp-btn')).toBeNull()
-    await userEvent.click(canvas.getByRole('button', { name: 'More', exact: true }))
-    const item = await canvas.findByTestId('more-menu-connect-mcp')
-    await expect(item).toHaveTextContent('Edit with AI tools')
-    await expect(canvas.getByTestId('more-menu-connect-mcp-new')).toBeVisible()
-  },
-}
-
 /** Fullscreen: header button unchanged, plus the dismissible bottom-left promo card. */
 export const McpPromoFullscreenCard: Story = {
   name: 'MCP promo — fullscreen corner card',

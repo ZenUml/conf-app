@@ -67,6 +67,11 @@ function loadEngine(): Promise<RenderToString> {
   return engine;
 }
 
+/** Start the engine download ahead of a render (MCP view, on tool-input). */
+export async function preloadPlantUmlEngine(): Promise<void> {
+  await loadEngine();
+}
+
 // Optional data the engine reads from globals, each loaded only when the
 // source asks for it: themes.js alone is 320 KB, emoji.js 1.8 MB.
 const OPTIONAL_DATA: ReadonlyArray<[RegExp, () => Promise<unknown>]> = [
@@ -139,7 +144,7 @@ export function renderPlantUmlLocally(code: string): Promise<string> {
     // one source are merged by the server in a way the engine cannot match.
     const selected = selectServerBlock(source);
     if (selected.multipleBlocks) {
-      throw new PlantUmlLocalRenderError('engine_error', 'Several diagrams in one source: the server draws them');
+      throw new PlantUmlLocalRenderError('engine_error', 'This source holds several diagrams, and only one can be drawn at a time');
     }
     const { source: engineSource, rewritten } = rewriteHostedIncludes(joinContinuationLines(selected.source).source);
     const raw = await new Promise<string>((resolve, reject) => {

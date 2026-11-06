@@ -345,8 +345,15 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    the page, and no CSP message appeared. html-to-image (`captureBlob`) also
    captured the inlined local SVG without the old decode failure, which is why
    the DOM-capture fallback for a failed local raster is safe.
-7. **MCP App view.** Bundle the engine into `vite.mcp-app.config.mjs` and remove
-   plantuml.com from `resourceDomains`.
+7. **MCP App view.** **Done in code (2026-11-07, conf-app#1031).** `mcp-app-view.ts`
+   draws with `engine.ts` and shows the engine's SVG as an `<img>` from a data URL,
+   and plantuml.com is gone from `resourceDomains`. **There is no fallback here**,
+   unlike the macro: a diagram the engine cannot draw shows an error, so the render
+   server can say that no third party sees the source. The view has no Forge flag
+   or stored diagrams to protect, and a diagram an agent just wrote can be rewritten.
+   The `<img>` keeps what the old server image gave: nothing in the drawing can run
+   or fetch. `agent_link_app_view_rendered` (posted to `/mcp/view-event`) counts
+   `plantuml_renderer` `local` vs `failed`.
 8. **Remove the egress.** Delete `https://www.plantuml.com` from `manifest.yml`. For
    our Connect-migrated apps that is a minor version (see CLAUDE.md, "major vs
    minor"); the `forge deploy` output confirms it. Then update the P&S questionnaire

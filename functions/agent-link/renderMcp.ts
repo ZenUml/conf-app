@@ -17,8 +17,9 @@
 // No diagram is stored. The only write is a per-address call counter in D1
 // (renderRateLimit.ts), and the only outbound call is fetching our own built
 // view. The diagram is drawn in the host's frame, by the
-// same view the headless tools use; PlantUML goes from that frame to
-// www.plantuml.com, as it does in Confluence.
+// same view the headless tools use, PlantUML included: no diagram source
+// reaches a third party, and a diagram the engine cannot draw shows an error
+// rather than falling back to plantuml.com as the Confluence macro does.
 //
 // What the server adds over a plain echo is the parse check (parseDsl.ts): the
 // agent gets ZenUML and Mermaid errors with line and column, and a structural

@@ -26,6 +26,21 @@ async function rpc(url: string, method: string, env = environment(), params?: un
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); ctx.waitUntil.mockClear(); });
 
 describe('independent render MCP routing and protocol', () => {
+  it.each(['https://zenuml.com', 'https://conf-lite.zenuml.com'])('takes the view report on %s, where /mcp* never reaches Pages', async (host) => {
+    const upstream = vi.fn();
+    vi.stubGlobal('fetch', upstream);
+    const report = () => new Request(`${host}/mcp/view-event`, {
+      method: 'POST', body: JSON.stringify({ macro_type: 'plantuml', render_outcome: 'rendered', plantuml_renderer: 'local' }),
+    });
+    const response = await worker.fetch(report(), environment(), ctx);
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(upstream).not.toHaveBeenCalled();
+    const get = await worker.fetch(new Request(`${host}/mcp/view-event`), environment(), ctx);
+    expect(get.status).toBe(405);
+  });
+
   it.each(['/mcp', '/mcp/', '/mcp/render', '/mcp/render/'])('serves %s with the unchanged public handshake', async (path) => {
     const response = await worker.fetch(post(`${ORIGIN}${path}`, 'initialize', { protocolVersion: '2025-06-18' }), environment(), ctx);
     expect(response.status).toBe(200);
@@ -49,7 +64,7 @@ describe('independent render MCP routing and protocol', () => {
     expect(bodies[2]).toEqual(bodies[0]);
     const resource = bodies[0].result.contents[0];
     expect(resource.text).toContain('src="https://zenuml.com/mcp-app/assets/view-test.js"');
-    expect(resource._meta.ui.csp.resourceDomains).toEqual([ORIGIN, 'https://www.plantuml.com']);
+    expect(resource._meta.ui.csp.resourceDomains).toEqual([ORIGIN]);
     expect(resource._meta.ui.csp.connectDomains).toEqual([ORIGIN]);
     expect(assets.mock.calls.map(([request]) => request.url)).toEqual(Array(3).fill(`${ORIGIN}/mcp-app/view.html`));
   });

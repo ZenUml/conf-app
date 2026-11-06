@@ -5,6 +5,7 @@ import {
   type RenderEnv,
 } from '../../functions/agent-link/renderMcp';
 import { DIAGRAM_VIEW_ASSET_PATH } from '../../functions/agent-link/oauth/mcpApps';
+import { handleViewEvent } from '../../functions/agent-link/viewEvent';
 import { json } from '../../functions/OkResponse';
 
 export interface Env extends RenderEnv {
@@ -20,6 +21,7 @@ interface Context {
 const CANONICAL_ORIGIN = 'https://zenuml.com';
 const PRODUCTION_HOSTS = new Set(['zenuml.com', 'conf-lite.zenuml.com']);
 const ENDPOINTS = new Set(['/mcp', '/mcp/', '/mcp/render', '/mcp/render/']);
+const VIEW_EVENT_PATH = '/mcp/view-event';
 const BUILD_INFO_PATH = '/mcp-app/build-info.json';
 
 function previewHost(host: string): boolean {
@@ -124,6 +126,17 @@ export default {
           jsonrpc: '2.0', id: null, error: { code: -32603, message: 'Internal server error' },
         }, { status: 500, headers: JSON_HEADERS }));
       }
+    }
+
+    // This route binding catches /mcp* on conf-lite too, so its Pages-served
+    // views report here. The handler reads no credentials and only the enums.
+    if (url.pathname === VIEW_EVENT_PATH) {
+      if (request.method === 'OPTIONS') return noStore(new Response(null, { headers: CORS }));
+      if (request.method !== 'POST') {
+        const response = methodNotAllowed();
+        return request.method === 'HEAD' ? new Response(null, response) : response;
+      }
+      return noStore(await handleViewEvent(request, env, { waitUntil: (work) => ctx.waitUntil(work) }));
     }
 
     // conf-lite also serves authenticated Confluence MCP views. Its existing

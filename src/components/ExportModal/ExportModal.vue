@@ -35,11 +35,11 @@
 import { defineComponent, watch, provide, onUnmounted, nextTick, ref, type PropType } from 'vue';
 import ExportWorkspace from './ExportWorkspace.vue';
 import { exportStateKey, useExportState } from './useExportState';
-import { useExportEngine, type ExportContext, type ExportOptions } from './useExportEngine';
+import { useExportEngine, PLANTUML_EXPORT_PIXEL_RATIO, type ExportContext, type ExportOptions } from './useExportEngine';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue, Surface } from '@/utils/analytics/catalog';
 import { readExportSession, writeExportSession } from './exportSession';
-import { isPlantUmlSource, fetchPlantUmlPngBlob } from '@/utils/plantuml/fetchPng';
+import { isPlantUmlSource } from '@/utils/plantuml/fetchPng';
 import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 import { waitForCaptureAssets } from './captureReady';
 import { captureBlob } from '@/model/captureBlob';
@@ -49,10 +49,10 @@ import { deriveFeedbackContext } from '@/features/feedback/feedbackContext';
 import type { FeedbackContext } from '@/features/feedback/feedbackSession';
 import { getContext } from '@/model/globals/forgeGlobal';
 import store from '@/model/store2';
+import { useTransientFlag } from '@/composables/useTransientFlag';
 
 const EXPORT_ERROR_MESSAGE =
   "Export failed — couldn't capture the diagram. Try Refresh, then export again.";
-const COPIED_FEEDBACK_MS = 1500;
 
 export default defineComponent({
   name: 'ExportModal',
@@ -72,14 +72,19 @@ export default defineComponent({
     surface: { type: String as PropType<Surface>, default: 'modal' },
     captureReady: { type: Boolean, default: true },
     // The diagram's text source. Only PlantUML needs it today: its raster is
-    // fetched from the PlantUML server rather than scraped off the DOM (see
-    // useExportEngine's acquireBaseBlob).
+    // drawn from the source (local engine or PlantUML server) rather than
+    // scraped off the DOM (see useExportEngine's acquireBaseBlob).
     diagramSource: { type: String, default: '' },
   },
   emits: ['close', 'export', 'copy'],
 
   setup(props, { emit }) {
     const state = useExportState();
+    // "Copied" feedback: holds, fades, then reverts. The flag owns the timers;
+    // the shared export state mirrors it for the toolbar and stage message.
+    const copied = useTransientFlag();
+    watch(copied.active, (active) => { state.copySucceeded.value = active; }, { flush: 'sync' });
+    watch(copied.fading, (fading) => { state.copyFading.value = fading; }, { flush: 'sync' });
     const restored = readExportSession();
     if (restored) {
       state.annotations.items.value = restored.annotations;
@@ -100,7 +105,6 @@ export default defineComponent({
     const feedbackContext = ref<FeedbackContext | null>(null);
     let captureGen = 0;
     let exportSucceeded = false;
-    let copiedTimeoutId: ReturnType<typeof setTimeout> | null = null;
     let previouslyFocused: HTMLElement | null = null;
 
     const FOCUSABLE_SELECTOR = [
@@ -185,7 +189,7 @@ export default defineComponent({
     }
 
     function buildExportContext(): ExportContext {
-      return { macroType: props.macroType, source: props.diagramSource };
+      return { macroType: props.macroType, source: props.diagramSource, surface: props.surface };
     }
 
     function buildExportOptions(): ExportOptions {
@@ -276,28 +280,32 @@ export default defineComponent({
     }
 
     async function capturePreview() {
-      // PlantUML previews the same server-rendered raster the export will
-      // download: html-to-image cannot rasterize PlantUML's inlined remote SVG,
-      // so the DOM path below previewed a blank image — which then had the user
-      // distrusting a working export. It needs no capture node (like the export
-      // path) and the server raster is already at the diagram's own bounds, so
-      // it skips waitForCaptureAssets/cropDataUrl entirely.
+      // PlantUML previews the same raster the export will download
+      // (utils/plantuml/png.ts: the local engine's SVG on a canvas, or the
+      // server's PNG): html-to-image cannot rasterize PlantUML's inlined remote
+      // server SVG, so the DOM path below previewed a blank image — which then
+      // had the user distrusting a working export. It needs no capture node
+      // (like the export path) and the raster is already at the diagram's own
+      // bounds, so it skips waitForCaptureAssets/cropDataUrl entirely.
       //
       // Resolved SYNCHRONOUSLY, before the first await: capturePreview must
       // still bail out without touching isCapturing/exportError when there is
       // no node, exactly as it did before. `isPlantUmlSource` is a string test;
-      // the pako-backed encoder stays lazy inside fetchPlantUmlPngBlob.
-      const usePlantUmlServer = props.macroType === 'plantuml' && isPlantUmlSource(props.diagramSource);
-      const node = usePlantUmlServer ? null : resolveCaptureNode();
-      if (!usePlantUmlServer && !node) return;
+      // the raster module, engine and encoder all stay lazy.
+      const usePlantUmlRaster = props.macroType === 'plantuml' && isPlantUmlSource(props.diagramSource);
+      const node = usePlantUmlRaster ? null : resolveCaptureNode();
+      if (!usePlantUmlRaster && !node) return;
 
       const gen = ++captureGen;
       state.isCapturing.value = true;
       state.exportError.value = null;
       try {
-        if (usePlantUmlServer) {
-          const blob = await fetchPlantUmlPngBlob(props.diagramSource);
-          if (blob && captureGen === gen) setPreviewUrl(URL.createObjectURL(blob), true);
+        if (usePlantUmlRaster) {
+          const { producePlantUmlPng } = await import('@/utils/plantuml/png');
+          const result = await producePlantUmlPng(props.diagramSource, {
+            purpose: 'export_preview', surface: props.surface, pixelRatio: PLANTUML_EXPORT_PIXEL_RATIO,
+          });
+          if (result.ok && captureGen === gen) setPreviewUrl(URL.createObjectURL(result.blob), true);
           return;
         }
 
@@ -339,7 +347,7 @@ export default defineComponent({
         exportSucceeded = false;
         state.exportError.value = null;
         state.copySucceeded.value = false;
-        if (copiedTimeoutId) { clearTimeout(copiedTimeoutId); copiedTimeoutId = null; }
+        copied.reset();
         trackAnalyticsEvent('export_png_opened', {
           feature_area: 'macro',
           surface: props.surface,
@@ -423,9 +431,7 @@ export default defineComponent({
           // session — mark it so closing afterwards doesn't fire dismissed.
           exportSucceeded = true;
           trackSucceeded('clipboard');
-          state.copySucceeded.value = true;
-          if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
-          copiedTimeoutId = setTimeout(() => { state.copySucceeded.value = false; }, COPIED_FEEDBACK_MS);
+          copied.trigger();
         } else {
           trackFailed(result.reason);
           state.exportError.value = EXPORT_ERROR_MESSAGE;
@@ -440,7 +446,6 @@ export default defineComponent({
     }
 
     onUnmounted(() => {
-      if (copiedTimeoutId) clearTimeout(copiedTimeoutId);
       if (previewObjectUrl) {
         URL.revokeObjectURL(previewObjectUrl);
         previewObjectUrl = null;

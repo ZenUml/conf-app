@@ -20,7 +20,7 @@
 // whole flow.
 
 import { loadAccessToken, type GrantStoreLike, type McpTokenRecord } from './asStore';
-import { resourceFor } from './asMetadata';
+import { MCP_PATH, resourceFor } from './asMetadata';
 import { audienceMatches, buildWwwAuthenticate, metadataUrlFor } from './protectedResource';
 import type { RefreshLedger } from './refreshLedger';
 
@@ -78,7 +78,9 @@ export async function authenticateHeadless(
  * about a token.
  */
 export function challengeFor(requestUrl: string, reason: HeadlessAuthFailure): string {
-  const metadataUrl = metadataUrlFor(new URL(requestUrl).origin);
+  // The path-specific document, not the bare prefix: /mcp/render shares this
+  // origin and needs no sign-in (#1038).
+  const metadataUrl = metadataUrlFor(new URL(requestUrl).origin, MCP_PATH);
   if (reason === 'missing') return buildWwwAuthenticate(metadataUrl);
   return buildWwwAuthenticate(metadataUrl, {
     error: 'invalid_token',

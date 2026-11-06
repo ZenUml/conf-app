@@ -1,0 +1,54 @@
+# Public diagram rendering only. No Forge app, Confluence storage or OAuth issuer.
+name = "zenuml-render-mcp-preview"
+main = "index.ts"
+account_id = "8d5fc7ce04adc5096f52485cce7d7b3d"
+compatibility_date = "2026-01-20"
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "dist/assets"
+binding = "ASSETS"
+run_worker_first = true
+html_handling = "none"
+not_found_handling = "none"
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "zenuml-render-mcp-preview"
+database_id = "4a1ece44-ae53-4406-9161-59ae37e2b77d"
+migrations_dir = "migrations"
+
+[env.preview]
+name = "zenuml-render-mcp-preview"
+workers_dev = true
+preview_urls = false
+routes = []
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "zenuml-render-mcp-preview"
+database_id = "4a1ece44-ae53-4406-9161-59ae37e2b77d"
+migrations_dir = "migrations"
+
+[env.production]
+name = "zenuml-render-mcp"
+workers_dev = false
+preview_urls = false
+routes = [
+  { pattern = "https://zenuml.com/mcp*", zone_name = "zenuml.com" },
+  { pattern = "https://zenuml.com/drawio/*", zone_name = "zenuml.com" },
+  { pattern = "https://conf-lite.zenuml.com/mcp*", zone_name = "zenuml.com" },
+]
+
+[env.production.vars]
+CANONICAL_ORIGIN = "https://zenuml.com"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "zenuml-render-mcp"
+database_id = "9c418fa2-30fc-4574-ac2b-2852bf04d5ad"
+migrations_dir = "migrations"

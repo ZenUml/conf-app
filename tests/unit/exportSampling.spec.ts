@@ -6,22 +6,32 @@ import {
 } from '@/lib/exportSampling.js'
 
 describe('exportSampling', () => {
-  beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z')))
+  // Base-rate assertions below describe the rates before the event budget began.
+  beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-15T00:00:00Z')))
   afterEach(() => vi.mocked(Date.now).mockRestore())
 
-  it('reduces requested/succeeded from 5% to 0.5% only in October UTC', () => {
+  it('reduces requested/succeeded from 5% to 0.5% from October 2026 onward', () => {
     const october = Date.parse('2026-10-12T00:00:00Z')
     const before = Date.parse('2026-09-30T23:59:59.999Z')
     const after = Date.parse('2026-11-01T00:00:00Z')
     for (const name of ['macro_export_requested', 'macro_export_succeeded']) {
       expect(exportSampleRateFor(name, before)).toBe(0.05)
       expect(exportSampleRateFor(name, october)).toBe(0.005)
-      expect(exportSampleRateFor(name, after)).toBe(0.05)
+      expect(exportSampleRateFor(name, after)).toBe(0.005)
       expect(decideExportSample(name, () => 0.004, october)).toEqual({ sample_rate: 0.005 })
       expect(decideExportSample(name, () => 0.005, october)).toBeNull()
     }
     expect(exportSampleRateFor('macro_export_failed', october)).toBe(0.1)
     expect(exportSampleRateFor('unknown_other_product_event', october)).toBe(1)
+  })
+
+  it('samples the PNG lifecycle diagnostics at 10% without a further budget cut', () => {
+    const november = Date.parse('2026-11-15T00:00:00Z')
+    for (const name of ['png_export_state_changed', 'png_export_state_persistence_skipped']) {
+      expect(exportSampleRateFor(name, november)).toBe(0.1)
+      expect(decideExportSample(name, () => 0.09, november)).toEqual({ sample_rate: 0.1 })
+    }
+    expect(exportSampleRateFor('png_export_state_persistence_failed', november)).toBe(1)
   })
   it('samples the three export events and leaves everything else alone', () => {
     expect(exportSampleRateFor('macro_export_requested')).toBe(0.05)

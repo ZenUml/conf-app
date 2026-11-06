@@ -123,6 +123,63 @@ describe('ai-generate-title onRequest', () => {
     }
   })
 
+  describe('model replies that are not titles', () => {
+    const REFUSAL =
+      "Please provide the DSL (Domain Specific Language) describing the flowchart diagram. I'll help you create a concise title."
+
+    it('tries the fallback model when the primary model asks for the DSL', async () => {
+      const ai = {
+        run: vi
+          .fn()
+          .mockResolvedValueOnce({ response: REFUSAL })
+          .mockResolvedValueOnce({ response: 'Control Flow' }),
+      }
+      const response = await onRequest({ request: req('POST', { dsl: 'A\nB', type: 'flowchart' }), env: { AI: ai as any } })
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('Control Flow')
+      expect(ai.run).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['flowchart', 'flow chart', 'plantuml'])(
+      'does not call a %s diagram a ZenUML sequence diagram in the fallback prompt',
+      async (type) => {
+        const ai = {
+          run: vi
+            .fn()
+            .mockResolvedValueOnce({ response: REFUSAL })
+            .mockResolvedValueOnce({ response: 'Control Flow' }),
+        }
+        await onRequest({ request: req('POST', { dsl: 'A\nB', type }), env: { AI: ai as any } })
+        const fallbackPrompt = ai.run.mock.calls[1][1].messages[0].content
+        expect(fallbackPrompt).not.toMatch(/ZenUML|sequence/i)
+        expect(fallbackPrompt).toContain(type)
+      },
+    )
+
+    it('answers 422 not_title_like when both models refuse', async () => {
+      const ai = { run: vi.fn().mockResolvedValue({ response: REFUSAL }) }
+      const response = await onRequest({ request: req('POST', { dsl: 'A\nB', type: 'flowchart' }), env: { AI: ai as any } })
+      expect(response.status).toBe(422)
+      expect(await response.text()).toBe('not_title_like')
+    })
+
+    it('judges the whole first line, before the 80-character cut hides the question mark', async () => {
+      const longQuestion =
+        'To help you with the title of this flowchart, what is the system that the diagram is meant to describe here?'
+      const ai = { run: vi.fn().mockResolvedValue({ response: longQuestion }) }
+      const response = await onRequest({ request: req('POST', { dsl: 'A\nB', type: 'flowchart' }), env: { AI: ai as any } })
+      expect(response.status).toBe(422)
+    })
+
+    it('still returns a real title that is cut to 80 characters', async () => {
+      const longTitle = 'Order Fulfilment Across Warehouses, Carriers and Customer Support Escalation Paths'
+      const ai = { run: vi.fn().mockResolvedValue({ response: `"""${longTitle}"""` }) }
+      const response = await onRequest({ request: req('POST', { dsl: 'A\nB', type: 'flowchart' }), env: { AI: ai as any } })
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe(longTitle.slice(0, 80))
+    })
+  })
+
   it('returns 500 only when the response has no usable text', async () => {
     const ai = {
       run: vi.fn().mockResolvedValue({ response: '   \n  ' }),

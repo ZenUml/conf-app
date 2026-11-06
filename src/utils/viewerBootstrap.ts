@@ -189,10 +189,9 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
     // `doc` is NULL_DIAGRAM, whose empty body never matches the attachment's
     // content hash — so running it uploaded a picture of the error panel over
     // the last good backup. Run it only for a displayed load that succeeded,
-    // or outside display mode, where applyViewerLoadOutcome leaves the state
-    // null and does not classify.
-    const loadState = store.state.viewerLoadState;
-    if (loadState === 'ready' || loadState === null) {
+    // or outside display mode, where applyViewerLoadOutcome does not classify
+    // the load.
+    if (!globals.apWrapper.isDisplayMode() || store.state.viewerLoadState === 'ready') {
       await options.afterLoad?.(doc);
     }
   } catch (error) {

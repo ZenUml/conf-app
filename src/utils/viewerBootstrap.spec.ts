@@ -230,6 +230,22 @@ describe('viewerBootstrap', () => {
     expect(afterLoad).not.toHaveBeenCalled();
   });
 
+  it('still runs afterLoad outside display mode, where the load state is not classified', async () => {
+    vi.mocked(globals.apWrapper.isDisplayMode).mockReturnValue(false);
+    const doc = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<mxGraphModel/>' };
+    const afterLoad = vi.fn();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => doc),
+      afterLoad,
+    });
+
+    expect(store.state.viewerLoadState).toBeNull();
+    expect(afterLoad).toHaveBeenCalledTimes(1);
+  });
+
   it('does not run afterLoad when a terminal error rejects a fetched document', async () => {
     mockForgeGlobal.forgeContext = {
       extension: { config: { customContentId: 'cc-board' } },

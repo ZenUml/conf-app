@@ -4,13 +4,20 @@
 // the inline Connect MCP dialog, so the setup command and the prompts exist
 // once.
 //
-// The MCP server URL follows this macro's backend
-// (forgeGlobal.zenumlRemoteBaseUrl — the same origin mintAgentLinkSession()
-// and the relay channel use): Lite prod is conf-lite, Full conf-full,
-// staging and dev environments conf-stg-lite. Both credentials only resolve
-// there — a relay session token on the backend that minted it, and an OAuth
-// grant on the backend that issued it.
-import forgeGlobal from '@/model/globals/forgeGlobal'
+// The MCP server URL is the Lite backend for every product except AsyncAPI
+// (ADR 0011): Lite and Diagramly already call it, and Full points there too
+// instead of at its own conf-full / conf-stg-full, because Full's sign-in
+// already completes on the Lite backend (its OAuth redirect URI is the
+// conf-lite callback) and both projects share the grant KV and D1. Lite prod
+// is conf-lite, AsyncAPI prod zenapi (a conf-lite custom domain), staging and
+// dev conf-stg-lite. An OAuth grant only resolves on the backend that issued
+// it, so the URL must name that backend.
+//
+// A relay session token resolves only on the backend that minted it
+// (mintAgentLinkSession() uses forgeGlobal.zenumlRemoteBaseUrl). Relay
+// sessions are off (RELAY_SESSIONS_ENABLED below); turning them back on for
+// Full needs the relay to mint on the same backend this URL names.
+import forgeGlobal, { resolveZenumlRemoteBaseUrl } from '@/model/globals/forgeGlobal'
 
 // The name the user's MCP client files the server under, so its tools show up
 // as e.g. mcp__diagramly__read_diagram. Per product, so each app's users see
@@ -33,7 +40,29 @@ function productLabel(product: { isDiagramly?: boolean; isAsyncApi?: boolean } =
 // to the production Lite host rather than render a relative URL.
 const FALLBACK_BACKEND_BASE_URL = 'https://conf-lite.zenuml.com'
 
-export function mcpServerUrl(backendBaseUrl: string | undefined = forgeGlobal.zenumlRemoteBaseUrl): string {
+interface McpBackendSource {
+  isLite?: boolean
+  isDiagramly?: boolean
+  isAsyncApi?: boolean
+  zenumlRemoteBaseUrl?: string
+  forgeContext?: { environmentType?: string }
+}
+
+/**
+ * The backend the MCP server lives on: this app's own backend, except Full,
+ * which uses the Lite backend for the same environment (ADR 0011). Falls back
+ * to the app's own backend when the environment is not known yet.
+ */
+export function mcpBackendBaseUrl(product: McpBackendSource = forgeGlobal): string | undefined {
+  const isFull = !product.isLite && !product.isDiagramly && !product.isAsyncApi
+  const environmentType = product.forgeContext?.environmentType
+  if (isFull && environmentType) {
+    return resolveZenumlRemoteBaseUrl(environmentType, { isLite: true }) ?? product.zenumlRemoteBaseUrl
+  }
+  return product.zenumlRemoteBaseUrl
+}
+
+export function mcpServerUrl(backendBaseUrl: string | undefined = mcpBackendBaseUrl()): string {
   const base = (backendBaseUrl || FALLBACK_BACKEND_BASE_URL).replace(/\/+$/, '')
   return `${base}/agent-link/mcp`
 }

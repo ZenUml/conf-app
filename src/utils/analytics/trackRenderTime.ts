@@ -1,6 +1,7 @@
 import { getDiagramFontState } from '@/utils/fonts/diagramFontState';
+import forgeGlobal from '@/model/globals/forgeGlobal';
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
-import type { CacheState, MacroTypeValue, RenderMode, CacheSource, ContentState } from './catalog';
+import type { CacheState, MacroTypeValue, RenderMode, CacheSource, ContentState, PlantUmlRenderer } from './catalog';
 import { getTimings } from './renderPerf';
 import { getRenderIdentity } from './renderIdentity';
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender';
@@ -58,12 +59,18 @@ export function measureCacheState(): {
 // `contentState` (#113) is the caller's classification of the body it just
 // rendered — see utils/analytics/contentState.ts. Omitted when the caller has
 // no verdict (e.g. the load failed), in which case the property is absent.
+//
+// `plantuml` (ADR-0010) says how a PlantUML diagram was drawn: which engine
+// (`renderer`) and whether a GitHub C4 URL include was rewritten to the hosted
+// C4 library (`includeRewritten`). The PlantUML viewer passes it, every other
+// caller leaves it absent.
 export function trackRenderTime(
   macroType: MacroTypeValue,
   isDisplayMode: boolean,
   renderMode: RenderMode = 'live_render',
   cacheSource: CacheSource = 'none',
   contentState?: ContentState,
+  plantuml?: { renderer: PlantUmlRenderer; includeRewritten?: boolean },
 ): void {
   const t0 = window.__macroLoadStart;
   if (typeof t0 !== 'number') return;
@@ -83,6 +90,9 @@ export function trackRenderTime(
     render_mode: renderMode,
     cache_source: cacheSource,
     ...(contentState !== undefined ? { content_state: contentState } : {}),
+    ...getLicenseTelemetry(),
+    ...(plantuml !== undefined ? { plantuml_renderer: plantuml.renderer } : {}),
+    ...(plantuml?.includeRewritten ? { plantuml_include_rewritten: true } : {}),
     duration_ms,
     cache_state: cacheState,
     ...(transferBytes !== undefined ? { transfer_bytes: transferBytes } : {}),
@@ -96,7 +106,16 @@ export function trackRenderTime(
   scheduleRendererPrefetch(macroType);
 }
 
-const PREFETCHABLE: readonly PrefetchRenderer[] = ['graph', 'mermaid', 'sequence', 'openapi'];
+// Full only: Forge also reports `active: false` for free apps, so on Lite the
+// value would read as a lapsed license. Absent rather than guessed when Forge
+// supplies no boolean.
+function getLicenseTelemetry(): { license_active?: boolean } {
+  if (import.meta.env.PRODUCT_TYPE !== 'full') return {};
+  const active = forgeGlobal.forgeContext?.license?.active;
+  return typeof active === 'boolean' ? { license_active: active } : {};
+}
+
+const PREFETCHABLE: readonly PrefetchRenderer[] =['graph', 'mermaid', 'sequence', 'openapi'];
 
 // Macro-host half of the idle renderer prefetch (EAG-64): this iframe just
 // finished rendering and will stay alive, so at idle it warms the OTHER

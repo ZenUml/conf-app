@@ -41,8 +41,6 @@ export default {
     handleSelect(value) {
       if (value !== this.modelValue) {
         this.$emit('update:modelValue', value)
-        // Save user's tab preference to localStorage
-        localStorage.setItem('zenuml-preferred-diagram-type', value)
       }
     },
     getButtonClass(value) {

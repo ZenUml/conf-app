@@ -6,6 +6,9 @@ export const toast = (options: {
 
   const toast = document.createElement('div');
   toast.textContent = message;
+  // Screen readers announce the message without moving focus (#934).
+  toast.setAttribute('role', 'status');
+  toast.setAttribute('aria-live', 'polite');
   toast.style.position = 'fixed';
   toast.style.top = '20px';
   toast.style.left = '50%';

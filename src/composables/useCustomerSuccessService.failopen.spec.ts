@@ -115,3 +115,25 @@ describe('#302 fail-open: over-limit Lite space, macro-count read fails', () => 
     expect(svc.macroCountSource.value).toBe('mock')
   })
 })
+
+
+describe('Fullscreen paid decision certainty', () => {
+  beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); });
+  it.each([
+    [{ isPaid: false, decisionKnown: true }, true],
+    [{ isPaid: false }, false],
+    [{ isPaid: false, decisionKnown: false }, false],
+    [{ error: 'unavailable' }, false],
+  ])('requires a confirmed server verdict: %j', async (response, known) => {
+    const { callRemote } = await import('@/utils/requestUtil');
+    vi.mocked(callRemote).mockResolvedValue(response);
+    const svc = await freshService(); await svc.initialize();
+    expect(svc.spacePaidStatusKnown.value).toBe(known);
+  });
+  it('keeps a rejected paid lookup unknown', async () => {
+    const { callRemote } = await import('@/utils/requestUtil');
+    vi.mocked(callRemote).mockRejectedValue(new Error('offline'));
+    const svc = await freshService(); await svc.initialize();
+    expect(svc.spacePaidStatusKnown.value).toBe(false);
+  });
+});

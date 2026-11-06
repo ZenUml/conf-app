@@ -3289,12 +3289,29 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
     })
 
-    it('does not show Connect MCP for a non-MVP diagram type (graph) even when the flag is on', async () => {
-      store.commit('updateDiagramType', DiagramType.Graph)
+    it.each([DiagramType.Graph, DiagramType.OpenApi])('shows Connect MCP for %s, a headless-editable type outside the relay MVP', async (type) => {
+      store.commit('updateDiagramType', type)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
+    })
+
+    it.each([DiagramType.Markdown, DiagramType.AsyncApi])('does not show Connect MCP for %s, which the headless server does not edit', async (type) => {
+      store.commit('updateDiagramType', type)
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+    })
+
+    it('keeps Copy for AI on Markdown when the flag is on', async () => {
+      store.commit('updateDiagramType', DiagramType.Markdown)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
     })
 
     it('opens the dialog inline without minting a session or opening Fullscreen', async () => {

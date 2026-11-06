@@ -1,5 +1,6 @@
 import { SyntaxValidationResult } from '../validate/types';
 import { plantumlEncode } from './encode';
+import { plantUmlRenderer } from './renderer';
 
 const PLANTUML_SERVER = 'https://www.plantuml.com/plantuml';
 
@@ -65,10 +66,13 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
   // Validate using PlantUML server (SVG endpoint)
   // The SVG output contains error information in the rendered image
   try {
-    const encoded = plantumlEncode(trimmed);
-    const svgUrl = `${PLANTUML_SERVER}/svg/${encoded}`;
-    
-    const response = await fetch(svgUrl);
+    // ADR-0010: the in-browser engine draws syntax errors with the same
+    // markers as the server, so only the source of the SVG changes. When the
+    // engine cannot draw the diagram (include, crash), validation falls back
+    // to the server exactly as the viewer's render does.
+    const response = (await plantUmlRenderer()) === 'local'
+      ? await renderLocallyOrOnServer(trimmed)
+      : await fetchFromServer(trimmed);
     
     // PlantUML returns 400 for syntax errors, but still includes SVG with error details
     // So we need to read the response body even for 400 status
@@ -126,6 +130,23 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
     const fallbackResult = { valid: true, error: null, location: null };
     validationCache.set(code, { result: fallbackResult, timestamp: Date.now() });
     return fallbackResult;
+  }
+}
+
+type SvgResponse = Pick<Response, 'ok' | 'status' | 'text'>;
+
+function fetchFromServer(code: string): Promise<SvgResponse> {
+  return fetch(`${PLANTUML_SERVER}/svg/${plantumlEncode(code)}`);
+}
+
+/** The local engine's SVG, shaped like the fetch Response the server path reads. */
+async function renderLocallyOrOnServer(code: string): Promise<SvgResponse> {
+  try {
+    const { renderPlantUmlLocally } = await import('./engine');
+    const svg = await renderPlantUmlLocally(code);
+    return { ok: true, status: 200, text: async () => svg };
+  } catch {
+    return fetchFromServer(code); // the viewer reports the engine failure
   }
 }
 

@@ -10,4 +10,9 @@ describe("public/_routes.json (Pages route allowlist)", () => {
   it("includes the new deeplink serving + mint paths", () => {
     expect(routes.include).toEqual(expect.arrayContaining(["/d/*", "/i/*", "/deeplink-ticket"]));
   });
+
+  it("routes the public MCP render endpoint, and its /mcp/render alias, to their functions", () => {
+    expect(routes.include).toContain("/mcp");
+    expect(routes.include).toContain("/mcp/render");
+  });
 });

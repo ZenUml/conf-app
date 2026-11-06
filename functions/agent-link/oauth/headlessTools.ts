@@ -130,18 +130,18 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'list_sites',
     ...readOnly('List Confluence sites'),
     description:
-      'List the Confluence sites your ZenUML authorization can reach, with the cloudId each other tool needs. Start here. Read-only.',
+      'List the Confluence sites your ZenUML authorization can reach, each with the cloudId that identifies it. Read-only.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'list_diagrams',
     ...readOnly('List diagrams'),
     description:
-      'List ZenUML diagrams on a site, most-recently-modified first, each with its diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Open one with read_diagram { cloudId, contentId }. Read-only.',
+      'List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
         pageId: { type: 'string', description: 'Optional. Only diagrams on this page.' },
         limit: { type: 'number', description: 'Optional. Max rows (default 25, capped at 100).' },
       },
@@ -152,12 +152,12 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'read_diagram',
     ...readOnly('Read diagram'),
     description:
-      'Read one diagram’s source (the DSL or spec text) and diagramType by its contentId, as listed by list_diagrams. Edit that source and send all of it back with update_diagram. Read-only.',
+      'Read one diagram by its contentId: its title, diagramType, version, and complete source (the DSL or spec text), and show it to the user. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
-        contentId: { type: 'string', description: 'From list_diagrams.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
+        contentId: { type: 'string', description: 'The diagram\'s contentId.' },
       },
       required: ['cloudId', 'contentId'],
     },
@@ -170,7 +170,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
         pageId: { type: 'string', description: 'The Confluence page id.' },
       },
       required: ['cloudId', 'pageId'],
@@ -180,11 +180,11 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'create_page',
     ...write('Create page', false),
     description:
-      'Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML): paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.',
+      'Create a Confluence page as a child of an existing one. The parent decides the space, so no space key is needed. Body is Confluence storage format (XHTML), documented at https://confluence.atlassian.com/doc/confluence-storage-format-790796544.html: paragraphs are <p>…</p>, headings <h2>…</h2>, lists <ul><li>…</li></ul>.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
         parentPageId: { type: 'string', description: 'The page to create this one under; it also fixes the space.' },
         title: { type: 'string', description: 'Must be unique within the space, as Confluence requires.' },
         body: { type: 'string', description: 'Confluence storage format (XHTML).' },
@@ -197,12 +197,12 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'update_page',
     ...write('Update page', true),
     description:
-      'Replace a page’s body, and optionally its title. Send the COMPLETE new body — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.',
+      'Replace a page’s body, and optionally its title. Send the COMPLETE new body in Confluence storage format (https://confluence.atlassian.com/doc/confluence-storage-format-790796544.html) — this is not a patch. Refuses a body that looks like accidental truncation, and refuses to overwrite a page someone edited after you read it. Publishes one version, so page history can revert it.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
-        pageId: { type: 'string', description: 'From read_page.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
+        pageId: { type: 'string', description: 'The Confluence page id.' },
         body: { type: 'string', description: 'The complete new body, in Confluence storage format.' },
         title: { type: 'string', description: 'Optional. Leave out to keep the current title.' },
         version: {
@@ -226,12 +226,12 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'update_diagram',
     ...write('Update diagram', true),
     description:
-      'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, call update_diagram again with the source you read before the change. To rename only, send the unchanged source with the new `title`.',
+      'Replace a diagram’s source with new DSL, and optionally rename it with `title`. Reads the current source first and refuses a change that fails to parse or looks like accidental truncation. Saves a new version of the diagram, not of the page, so it does not appear in page history. To undo it, update it again with the source it had before the change. To rename only, send the unchanged source with the new `title`. Shows the updated diagram to the user.',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
-        contentId: { type: 'string', description: 'From list_diagrams.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
+        contentId: { type: 'string', description: 'The diagram\'s contentId.' },
         dsl: { type: 'string', description: 'The complete new source. Not a patch.' },
         summary: { type: 'string', description: 'Optional. Note for the version history.' },
         title: {
@@ -246,11 +246,11 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'create_diagram',
     ...write('Create diagram on page', false),
     description:
-      'Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).',
+      'Create a diagram and place it on a page: stores the source, then appends the macro and publishes one page version, and shows the diagram to the user. Returns already_present if the page already carries it, and conflict if someone edited the page first (never overwrites).',
     inputSchema: {
       type: 'object',
       properties: {
-        cloudId: { type: 'string', description: 'From list_sites.' },
+        cloudId: { type: 'string', description: 'The Confluence site\'s cloudId.' },
         pageId: { type: 'string', description: 'The Confluence page to place it on.' },
         type: {
           type: 'string',
@@ -894,6 +894,12 @@ export async function callHeadlessTool(
         diff: verdict.diff,
         unvalidated: verdict.unvalidated,
         titleChanged: !!requestedTitle && requestedTitle !== currentTitle,
+        // What the MCP Apps view draws (extractDiagram in src/mcp-app-view.ts
+        // matches `diagramType` + `dsl`). Without these the view under an
+        // update showed "No diagram in this result." in claude.ai (2026-10-24).
+        title: requestedTitle || currentTitle,
+        diagramType: stored.diagramType,
+        dsl,
       };
     }
 
@@ -1066,6 +1072,10 @@ export async function callHeadlessTool(
         pageVersion: pageVersion + 1,
         macroCount: countExtensions(adf),
         gate: gate.reason,
+        // The view's payload, as update_diagram returns it.
+        title,
+        diagramType: storedType,
+        dsl,
       };
     }
 

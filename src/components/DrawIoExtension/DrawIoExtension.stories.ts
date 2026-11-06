@@ -151,6 +151,48 @@ export const Suggested: Story = {
   },
 }
 
+/** One short label: the AI button uses it as the title and the model is not called. */
+export const SingleLabel: Story = {
+  args: {
+    currentXml:
+      '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="Control" vertex="1" parent="1"/></root></mxGraphModel></diagram></mxfile>',
+  },
+  decorators: [
+    () => {
+      setupStore()
+      mockFetch('Please provide the DSL describing the flowchart diagram.', 0)
+      return overlayShell
+    },
+  ],
+  play: async () => {
+    const body = within(document.body)
+    const input = body.getByPlaceholderText('Name your graph…')
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    await expect(input).toHaveValue('')
+    await userEvent.click(await body.findByTitle('Generate title with AI'))
+    await waitFor(() => expect(input).toHaveValue('Control'))
+  },
+}
+
+/** The model answers with a request for more input: the title stays empty. */
+export const ModelRefusal: Story = {
+  decorators: [
+    () => {
+      setupStore()
+      mockFetch("Please provide the DSL describing the flowchart diagram. I'll help you create a", 0)
+      return overlayShell
+    },
+  ],
+  play: async () => {
+    const body = within(document.body)
+    const input = body.getByPlaceholderText('Name your graph…')
+    await userEvent.click(await body.findByTitle('Generate title with AI'))
+    await waitFor(() => expect(body.getByTitle('Generate title with AI')).toBeEnabled())
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await expect(input).toHaveValue('')
+  },
+}
+
 /** ensureTitle() with an empty title surfaces the publish validation error state. */
 export const TitleError: Story = {
   decorators: [

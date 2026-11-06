@@ -91,7 +91,7 @@ try {
     assert.equal(view.mimeType, 'text/html;profile=mcp-app');
     assert.ok(view._meta?.ui?.csp, 'Resource CSP missing');
     assert.deepEqual(view._meta.ui.csp, {
-      resourceDomains: [origin, 'https://www.plantuml.com'], connectDomains: [origin], frameDomains: [],
+      resourceDomains: [origin], connectDomains: [origin], frameDomains: [],
     }, 'Resource CSP does not match the allowed origins');
     assert.deepEqual(view._meta.ui.csp, listed._meta?.ui?.csp, 'Listed/read resource CSP differs');
     const parity = { html: view.text, csp: view._meta.ui.csp };

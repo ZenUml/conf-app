@@ -16,6 +16,7 @@ import type {
   ContentState,
   CacheSource,
   PlantUmlRenderer,
+  McpViewPlantUmlRenderer,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
   PlantUmlPngPurpose,
@@ -338,7 +339,7 @@ export type AnalyticsProperties = {
   diagrams_pasted?: number;
   paste_truncated?: boolean;
   // ADR-0010 self-hosted PlantUML rendering
-  plantuml_renderer?: PlantUmlRenderer;
+  plantuml_renderer?: PlantUmlRenderer | McpViewPlantUmlRenderer;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4

@@ -8,7 +8,9 @@ import { renderToString } from '@plantuml/core';
 vi.mock('@plantuml/core', () => ({ renderToString: vi.fn() }));
 vi.mock('@plantuml/core/themes.js', () => ({}));
 vi.mock('@plantuml/core/openiconic.js', () => ({}));
-vi.mock('@plantuml/core/emoji.js', () => ({}));
+// Chunks that are gone: the deploy that built this page has been replaced.
+vi.mock('@plantuml/core/emoji.js', () => { throw new Error('404'); });
+vi.mock('./stdlib/c4.json', () => { throw new Error('404'); });
 
 const OK_SVG = '<svg viewBox="0 0 106 148" width="106" height="148"><text>Alice</text></svg>';
 const SYNTAX_SVG = '<svg><text>[From textarea (line 3) ]</text><text>Syntax Error? (Assumed diagram type: sequence)</text></svg>';
@@ -101,6 +103,29 @@ describe('renderPlantUmlLocally (ADR-0010)', () => {
     const svg = '<svg><text>Policy: cannot include PII</text></svg>';
     engineReturns(svg);
     await expect(renderPlantUmlLocally('@startuml\nnote "Policy: cannot include PII"\n@enduml')).resolves.toBe(svg);
+  });
+
+  it('calls a hosted library whose chunk will not load a load failure, not a missing library', async () => {
+    vi.mocked(renderToString).mockImplementation((_lines, onSuccess) => {
+      (globalThis as unknown as { PLANTUML_STDLIB_LOADER: (url: string, ok: () => void, err: (m: string) => void) => void })
+        .PLANTUML_STDLIB_LOADER('https://example.test/c4.min.js', () => {}, () =>
+          onSuccess('<svg><text>[From textarea (line 2) ]</text><text>cannot include &lt;C4/C4_Context&gt;</text></svg>'));
+    });
+    const err = await renderPlantUmlLocally('@startuml\n!include <C4/C4_Context>\n@enduml').catch((e) => e);
+    expect(err).toBeInstanceOf(PlantUmlLocalRenderError);
+    expect(err.reason).toBe('load_failed');
+
+    // The failure belongs to that run: the next unresolved include is a real one.
+    engineReturns(INCLUDE_SVG);
+    const next = await renderPlantUmlLocally('@startuml\n!include <azure/AzureCommon>\n@enduml').catch((e) => e);
+    expect(next.reason).toBe('include');
+  });
+
+  it('calls optional data whose chunk will not load a load failure', async () => {
+    const err = await renderPlantUmlLocally('@startuml\nA -> B : <:smile:>\n@enduml').catch((e) => e);
+    expect(err).toBeInstanceOf(PlantUmlLocalRenderError);
+    expect(err.reason).toBe('load_failed');
+    expect(renderToString).not.toHaveBeenCalled();
   });
 
   it('turns the engine error callback into engine_error', async () => {

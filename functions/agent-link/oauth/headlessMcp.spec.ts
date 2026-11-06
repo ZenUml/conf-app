@@ -249,7 +249,7 @@ describe('headless RPC', () => {
     const token = await tokenFor(env.store);
     const res = await call(env, token, 'resources/list');
     const body = await res.json();
-    expect(body.result.resources[0]._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin, 'https://www.plantuml.com']);
+    expect(body.result.resources[0]._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin]);
   });
 
   it('lists the view as a resource', async () => {

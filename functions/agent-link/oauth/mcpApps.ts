@@ -80,22 +80,13 @@ export const VIEW_TOOLS: readonly string[] = ['read_diagram', 'update_diagram', 
  * Diagram types this view can draw.
  *
  * The text-DSL family that shares one macro and one custom-content type,
- * plus Graph and OpenAPI. PlantUML is drawn by the public PlantUML server, as
- * the Confluence app already does (see PLANTUML_ORIGIN). Graph is drawn by the
+ * plus Graph and OpenAPI. PlantUML is drawn by the in-browser engine bundled
+ * into the view build, so its source stays in the frame. Graph is drawn by the
  * static DrawIO viewer the Pages deploy already serves under `drawio/`, and
  * OpenAPI by swagger-ui, bundled into the view build. AsyncAPI would pull in
  * @asyncapi/react-component, which is its own decision, not a line in a list.
  */
 export const RENDERABLE_TYPES: readonly string[] = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi'];
-
-/**
- * Where a PlantUML diagram's SVG comes from: the view draws it as an <img>.
- *
- * Not a new recipient of diagram source — the Confluence app's PlantUML macro
- * sends the same encoded source to the same server on every render, and
- * manifest.yml already declares it as an egress.
- */
-export const PLANTUML_ORIGIN = 'https://www.plantuml.com';
 
 export function isRenderableType(diagramType: unknown): boolean {
   return typeof diagramType === 'string' && RENDERABLE_TYPES.includes(diagramType.toLowerCase());
@@ -126,12 +117,13 @@ export function uiCapability(): Record<string, unknown> {
  */
 export function uiCsp(origin: string): Record<string, unknown> {
   return {
-    // PLANTUML_ORIGIN is img-src only in practice: the view loads no script
-    // from it, but the spec has one list for every resource type.
-    resourceDomains: [origin, PLANTUML_ORIGIN],
+    // Our own origin only. The engine chunks live here too, so no PlantUML source
+    // reaches a third party (ADR-0010 step 7).
+    resourceDomains: [origin],
     // Our own origin only: the DrawIO viewer fetches its stencil XML (shapes
-    // such as AWS or BPMN) by XHR from `drawio/stencils/`. Nothing else in the
-    // view makes a request, and swagger-ui's validator is switched off.
+    // such as AWS or BPMN) by XHR from `drawio/stencils/`, and the view posts
+    // what it drew to /mcp/view-event (enums only). Nothing else in the view
+    // makes a request, and swagger-ui's validator is switched off.
     connectDomains: [origin],
     frameDomains: [],
   };

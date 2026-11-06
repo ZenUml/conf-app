@@ -371,3 +371,62 @@ describe("trackRenderTime content_state (#113)", () => {
     expect(props).not.toHaveProperty("content_state");
   });
 });
+
+describe("trackRenderTime view_of_day", () => {
+  const originalContext = forgeGlobal.forgeContext;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    window.__macroLoadStart = performance.now();
+    forgeGlobal.forgeContext = { ...originalContext, localId: "macro-local-1" };
+  });
+
+  afterEach(() => {
+    delete (window as { __macroLoadStart?: number }).__macroLoadStart;
+    forgeGlobal.forgeContext = originalContext;
+    vi.restoreAllMocks();
+  });
+
+  it("sends the first render of the day unsampled, marked first", () => {
+    trackRenderTime("mermaid", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[0];
+    expect(props).toEqual(expect.objectContaining({ view_of_day: "first" }));
+    expect(props).not.toHaveProperty("sample_rate");
+  });
+
+  it("sends a sampled-in repeat with sample_rate 0.1", () => {
+    trackRenderTime("mermaid", true);
+    vi.spyOn(Math, "random").mockReturnValue(0.05);
+    trackRenderTime("mermaid", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[1];
+    expect(props).toEqual(expect.objectContaining({ view_of_day: "repeat", sample_rate: 0.1 }));
+  });
+
+  it("drops a sampled-out repeat", () => {
+    trackRenderTime("mermaid", true);
+    vi.spyOn(Math, "random").mockReturnValue(0.1);
+    trackRenderTime("mermaid", true);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts the editor surface separately from the viewer", () => {
+    trackRenderTime("mermaid", true);
+    trackRenderTime("mermaid", false);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[1];
+    expect(props).toEqual(expect.objectContaining({ surface: "editor", view_of_day: "first" }));
+  });
+
+  it("sends at full rate without view_of_day when the macro has no id", () => {
+    forgeGlobal.forgeContext = { ...originalContext, localId: undefined };
+    trackRenderTime("mermaid", true);
+    trackRenderTime("mermaid", true);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls[1][1]).not.toHaveProperty("view_of_day");
+  });
+});

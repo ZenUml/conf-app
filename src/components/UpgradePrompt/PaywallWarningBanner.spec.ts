@@ -90,6 +90,39 @@ describe('PaywallWarningBanner (page banner)', () => {
     expect(call?.[1]).not.toHaveProperty('hours_since_last_shown')
   })
 
+  // The event is daily; the banner and the show counter are not.
+  it('shows the banner and counts the display, but sends no event, on a second display the same UTC day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-06T23:00:00.000Z'))
+    gate.impression = { lastShownAt: '2026-11-06T00:30:00.000Z', showCount: 4 }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    const { recordBannerShown } = await import('@/utils/paywall/warningBanner')
+    try {
+      const wrapper = mount(PaywallWarningBanner)
+      expect(wrapper.find('[data-testid="paywall-warning-banner"]').exists()).toBe(true)
+      expect(recordBannerShown).toHaveBeenCalledOnce()
+      expect(vi.mocked(trackUpgradeEvent).mock.calls.some(([name]) => name === 'paywall_banner_shown')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends the event again on the first display of the next UTC day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-07T00:00:05.000Z'))
+    gate.impression = { lastShownAt: '2026-11-06T23:59:00.000Z', showCount: 9 }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    try {
+      mount(PaywallWarningBanner)
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_banner_shown',
+        expect.objectContaining({ show_count: 10, hours_since_last_shown: 0 })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('renders and records an impression when the gate passes', async () => {
     const { recordBannerShown } = await import('@/utils/paywall/warningBanner')
     const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')

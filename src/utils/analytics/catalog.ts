@@ -139,6 +139,8 @@ export type Surface =
   // deliberately separate from `route`: it measures a support workflow, not
   // customer traffic to a Pages endpoint.
   | "support_automation"
+  // The MCP Apps view, in the host's frame (src/mcp-app-view.ts).
+  | "mcp_app_view"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
@@ -276,6 +278,9 @@ export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
 // diagram, so the server drew it and received the source after all.
 // Rides on macro_viewed for macro_type=plantuml only; absent elsewhere.
 export type PlantUmlRenderer = "server" | "local" | "server_fallback";
+// The MCP Apps view's vocabulary for `plantuml_renderer`: it never asks the
+// server, so a diagram the engine cannot draw is `failed`, not `server_fallback`.
+export type McpViewPlantUmlRenderer = "local" | "failed";
 
 // Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
 // is NOT a failure: the engine draws it like the server did, and the existing
@@ -1576,6 +1581,15 @@ export type AnalyticsEventName =
   // 2026-09-29 burst of eight failures could only be attributed by hand.
   | "agent_link_app_view_requested"
   | "agent_link_app_view_failed"
+  // What the MCP Apps view did with one tool result, reported by the view itself
+  // (POST /mcp/view-event), since only the host's frame knows: the server's
+  // `agent_link_mcp_tool_called` ends when the source is handed over. Carries
+  // `macro_type` and `render_outcome` (rendered | failed), and for PlantUML
+  // `plantuml_renderer` (local | failed; the view has no server fallback, ADR-0010
+  // step 7) and on failure `plantuml_failure_reason`. A syntax error the engine
+  // drew counts as rendered. Never carries the source, a title or any free text,
+  // and no user or site: the endpoint accepts these enums and nothing else.
+  | "agent_link_app_view_rendered"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the
   // only way to tell "the host never offered MCP Apps" apart from "it offered
   // them and did not render" — the view-fetch events cover the second case

@@ -1,5 +1,5 @@
 <template>
-  <div class="markdown-document" :aria-busy="rendering" :data-markdown-source-hash="renderedHash">
+  <div ref="documentRoot" class="markdown-document" :aria-busy="rendering" :data-markdown-source-hash="renderedHash">
     <p v-if="!source" class="markdown-empty">Paste Markdown here, including Mermaid code blocks, to preview your document.</p>
     <p v-else-if="error" role="alert">Could not render this document. Your source is preserved.</p>
     <article v-else v-html="html" />
@@ -7,6 +7,7 @@
 </template>
 
 <script setup lang="ts">
+import { reportDiagramReady } from '@/utils/fullscreenReady';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useStore } from 'vuex';
 import { renderMarkdown } from '@/utils/markdown/renderMarkdown';
@@ -18,6 +19,7 @@ import { hasLayout, awaitLayout } from '@/utils/renderGate/documentLayout';
 import EventBus from '@/EventBus';
 import md5 from 'md5';
 
+const documentRoot = ref<HTMLElement | null>(null);
 const store = useStore();
 const source = computed(() => store.state.diagram.markdownCode ?? '');
 const html = ref('');
@@ -77,6 +79,9 @@ watch(source, (code: string) => {
         viewContentState(store.state.diagram, DiagramType.Markdown),
       );
       EventBus.$emit('diagramLoaded', code, 'markdown');
+      if (code.trim() && result.failedBlocks === 0) {
+        reportDiagramReady(documentRoot.value, 'markdown');
+      }
     } catch {
       if (current !== revision) return;
       error.value = true;

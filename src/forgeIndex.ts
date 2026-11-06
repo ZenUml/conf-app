@@ -1052,6 +1052,15 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       })) return;
     }
 
+    const mountDoc = editable
+      ? doc
+      : applyViewerLoadOutcome({
+          doc,
+          customContentId,
+          loadError: ccLoadError,
+          macroKind,
+        });
+
     // Fullscreen viewer paywall: blocking modal over the read-only diagram.
     // Fires only when the user clicked Fullscreen on a saturated Lite space.
     // Not for an export-entry open: the user pressed Export PNG, which is
@@ -1061,25 +1070,19 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       const DiagramPortal = (await import('@/components/DiagramPortal.vue')).default;
       if (await tryFullscreenViewerPaywall({
         // @ts-ignore - doc may be a partial spread type; matches the happy-path mount below
-        doc,
+        doc: mountDoc,
         content: DiagramPortal,
         contentProps: { autoResize: false },
         macroKind,
-      })) return;
+      })) {
+        publishDiagramAttribution(diagramAttribution);
+        return;
+      }
     }
 
     const component = editable
     ? (await import("@/components/Workspace.vue")).default
     : (await import("@/components/DiagramPortal.vue")).default;
-
-    const mountDoc = editable
-      ? doc
-      : applyViewerLoadOutcome({
-          doc,
-          customContentId,
-          loadError: ccLoadError,
-          macroKind,
-        });
 
     //@ts-ignore
     mountRoot(mountDoc, component, { autoResize: !editable && !fullscreenMode });

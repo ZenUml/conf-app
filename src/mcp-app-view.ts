@@ -40,6 +40,8 @@ function host(): Window | null {
   return typeof window !== 'undefined' ? window.parent : null;
 }
 
+import { detectDiagramType } from '../functions/agent-link/detectDiagramType';
+
 type Json = Record<string, unknown>;
 
 /**
@@ -129,16 +131,18 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
     if (!stored) continue;
     // The stored body keeps one source field per type (the editor's tabs):
     // `code` is ZenUML and OpenAPI, `mermaidCode` Mermaid, `plantUmlCode`
-    // PlantUML, `graphXml` (or `boardGraphXml` for a Board) Graph, and the
-    // inactive ones keep stale drafts. Only the field for `diagramType` is the
-    // diagram the page shows. Mirrors sourceFieldFor in headlessTools.ts.
+    // PlantUML, `markdownCode` Markdown, `graphXml` (or `boardGraphXml` for a
+    // Board) Graph, and the inactive ones keep stale drafts. Only the field for
+    // `diagramType` is the diagram the page shows. Mirrors sourceFieldFor in
+    // headlessTools.ts.
     const type = typeof stored.diagramType === 'string' ? stored.diagramType.toLowerCase() : '';
     const field =
       type === 'mermaid' ? 'mermaidCode'
         : type === 'plantuml' ? 'plantUmlCode'
-          : type === 'graph'
-            ? stored.graphEditorMode === 'board' && stored.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml'
-            : 'code';
+          : type === 'markdown' ? 'markdownCode'
+            : type === 'graph'
+              ? stored.graphEditorMode === 'board' && stored.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml'
+              : 'code';
     candidates.push({
       diagramType: stored.diagramType,
       dsl: stored[field],
@@ -210,7 +214,7 @@ async function renderGraph(el: HTMLElement, source: string): Promise<void> {
   }
   if (!xml.startsWith('<')) throw new Error('the diagram is not DrawIO XML');
 
-  const { ensureDrawioViewerLoaded } = await import('@/utils/drawio/loadDrawioViewer');
+  const { ensureDrawioMathForDocument, ensureDrawioViewerLoaded } = await import('@/utils/drawio/loadDrawioViewer');
   await ensureDrawioViewerLoaded(viewOrigin());
   const w = window as typeof window & {
     mxUtils: { parseXml(xml: string): Document };
@@ -221,7 +225,9 @@ async function renderGraph(el: HTMLElement, source: string): Promise<void> {
   el.appendChild(container);
   // No toolbar and no lightbox: both link out to diagrams.net, which this
   // frame cannot open. Same options as ForgeGraphViewer.vue otherwise.
-  new w.GraphViewer(container, w.mxUtils.parseXml(xml).documentElement, {
+  const xmlNode = w.mxUtils.parseXml(xml).documentElement;
+  ensureDrawioMathForDocument(xmlNode);
+  new w.GraphViewer(container, xmlNode, {
     'auto-fit': true,
     border: 10,
     lightbox: false,
@@ -251,10 +257,68 @@ async function renderOpenApi(el: HTMLElement, spec: string): Promise<void> {
   ui.specActions.updateSpec(spec);
 }
 
+/**
+ * Download a diagram type's renderer, once per frame.
+ *
+ * The renderer chunks are the slow part of a first diagram (hundreds of KB
+ * each; more than 20 s on a slow link, #1038), so the download starts as soon
+ * as `ui/notifications/tool-input` says which type is coming, not when the
+ * tool answers. render() then awaits the same promise. A failed download is
+ * forgotten so a later call can try again.
+ */
+const rendererLoads = new Map<string, Promise<unknown>>();
+
+export function loadRenderer(type: string): Promise<unknown> | null {
+  const cached = rendererLoads.get(type);
+  if (cached) return cached;
+  // Each import names only what render() uses (`then(({ default: d }) => d)`),
+  // so Rollup can still drop the rest: a bare import('@zenuml/core') kept every
+  // export and added 37 KB to the sequence renderer.
+  const load =
+    type === 'mermaid' ? import('mermaid').then(({ default: mermaid }) => mermaid)
+      : type === 'sequence' ? import('@zenuml/core').then(({ default: ZenUml }) => ZenUml)
+        : type === 'openapi' ? Promise.all([import('swagger-ui'), import('swagger-ui/dist/swagger-ui.css')])
+          : type === 'plantuml' ? import('@/utils/plantuml/encode')
+            : type === 'graph'
+              ? import('@/utils/drawio/loadDrawioViewer').then(({ ensureDrawioViewerLoaded }) => ensureDrawioViewerLoaded(viewOrigin()))
+              : null;
+  if (!load) return null;
+  rendererLoads.set(type, load);
+  load.catch(() => rendererLoads.delete(type));
+  return load;
+}
+
+/** The diagram type a tool call's arguments are about to produce, if they say. */
+export function typeFromToolInput(params: unknown): string | null {
+  const args = (params as { arguments?: unknown } | undefined)?.arguments as
+    | { diagramType?: unknown; source?: unknown }
+    | undefined;
+  if (typeof args?.diagramType === 'string' && args.diagramType) return args.diagramType.toLowerCase();
+  // render_diagram may leave diagramType out; the server then detects it the same way.
+  if (typeof args?.source === 'string' && args.source.trim()) return detectDiagramType(args.source);
+  return null;
+}
+
 async function render(payload: DiagramPayload): Promise<void> {
   const el = document.getElementById('app');
   if (!el) return;
   const type = payload.diagramType.toLowerCase();
+
+  const load = loadRenderer(type);
+  if (load) {
+    status('Loading the renderer…');
+    try {
+      await load;
+    } catch (e) {
+      // A dynamic import that failed stays failed for this document, so the
+      // useful retry is a fresh view: asking again opens a new frame.
+      console.error('[zenuml] renderer download failed', e);
+      status(
+        'Could not download the diagram renderer. The connection may be slow or blocked; ask again to retry.',
+      );
+      return;
+    }
+  }
 
   try {
     if (type === 'mermaid') {
@@ -279,7 +343,13 @@ async function render(payload: DiagramPayload): Promise<void> {
       el.appendChild(img);
       await loaded;
     } else if (type === 'sequence') {
-      const { default: ZenUml } = await import('@zenuml/core');
+      const [{ default: ZenUml }, { configureDiagramFonts }] = await Promise.all([
+        import('@zenuml/core'),
+        import('@/utils/fonts/configureDiagramFonts'),
+      ]);
+      // Host CSP can refuse core's embedded data: fonts. Vite resolves these
+      // hosted font assets from the module URL, rather than the host sandbox.
+      configureDiagramFonts(ZenUml);
       el.innerHTML = '';
       const zenuml = new ZenUml(el);
       // Read-only: no onContentChange, so nothing here can write back. The
@@ -334,9 +404,17 @@ export function onHostMessage(event: MessageEvent): void {
   }
 
   if (msg.method === 'ui/notifications/tool-input') {
-    // Arrives before the tool has answered. Only useful as a "something is
-    // coming" signal; the result notification is what carries the diagram.
-    status('Loading the diagram…');
+    // Arrives before the tool has answered, and says which renderer the
+    // result will need: start downloading it now (#1038). The result
+    // notification is still what carries the diagram.
+    const type = typeFromToolInput(msg.params);
+    const load = type ? loadRenderer(type) : null;
+    if (load) {
+      status('Loading the renderer…');
+      load.catch(() => undefined); // render() reports a failure, once
+    } else {
+      status('Loading the diagram…');
+    }
   }
 }
 

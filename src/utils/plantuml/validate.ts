@@ -1,5 +1,6 @@
 import { SyntaxValidationResult } from '../validate/types';
 import { fetchPlantUmlSvg } from './server';
+import { plantUmlRenderer } from './renderer';
 
 // Cache validation results to avoid duplicate API calls
 const validationCache = new Map<string, { result: SyntaxValidationResult; timestamp: number }>();
@@ -63,11 +64,17 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
   // Validate using PlantUML server (SVG endpoint)
   // The SVG output contains error information in the rendered image
   try {
+    // ADR-0010: the in-browser engine draws syntax errors with the same
+    // markers as the server, so only the source of the SVG changes. When the
+    // engine cannot draw the diagram (include, crash), validation falls back
+    // to the server exactly as the viewer's render does.
     // PlantUML returns 400 for syntax errors, but still includes SVG with error details,
-    // so fetchPlantUmlSvg reads the body even for 400 status. The viewer's render
+    // so the server path reads the body even for 400 status. The viewer's render
     // reuses this same response (#929).
-    const response = await fetchPlantUmlSvg(trimmed);
-    const { svgText } = response;
+    const response = (await plantUmlRenderer()) === 'local'
+      ? await renderLocallyOrOnServer(trimmed)
+      : await fetchFromServer(trimmed);
+    const svgText = await response.text();
     
     // Check if SVG contains syntax error indicators
     // PlantUML embeds error messages in the SVG when there are syntax errors
@@ -121,6 +128,25 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
     const fallbackResult = { valid: true, error: null, location: null };
     validationCache.set(code, { result: fallbackResult, timestamp: Date.now() });
     return fallbackResult;
+  }
+}
+
+type SvgResponse = Pick<Response, 'ok' | 'status' | 'text'>;
+
+/** The shared server fetch (#929), shaped like the Response the local path also returns. */
+async function fetchFromServer(code: string): Promise<SvgResponse> {
+  const { ok, status, svgText } = await fetchPlantUmlSvg(code);
+  return { ok, status, text: async () => svgText };
+}
+
+/** The local engine's SVG, shaped like the fetch Response the server path reads. */
+async function renderLocallyOrOnServer(code: string): Promise<SvgResponse> {
+  try {
+    const { renderPlantUmlLocally } = await import('./engine');
+    const svg = await renderPlantUmlLocally(code);
+    return { ok: true, status: 200, text: async () => svg };
+  } catch {
+    return fetchFromServer(code); // the viewer reports the engine failure
   }
 }
 

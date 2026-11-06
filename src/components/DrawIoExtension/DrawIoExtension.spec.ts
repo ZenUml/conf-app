@@ -20,7 +20,10 @@ vi.mock('@/apis/aiTitleFeatureFlag', () => ({ resetFeatureFlagsForTests: vi.fn()
 vi.mock('@/utils/toast', () => ({ toast: vi.fn() }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 vi.mock('@/utils/analytics/publishIntent', () => ({ trackPublishBlocked: vi.fn() }))
-vi.mock('@/utils/graph/extractGraphText', () => ({ extractGraphText: () => 'Start\nCheckout\nPay' }))
+vi.mock('@/utils/graph/extractGraphText', () => ({
+  extractGraphText: () => 'Start\nCheckout\nPay',
+  singleShortLabel: () => '',
+}))
 
 import DrawIoExtension from './DrawIoExtension.vue'
 import store from '@/model/store2'

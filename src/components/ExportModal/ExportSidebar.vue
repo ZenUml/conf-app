@@ -205,9 +205,10 @@
             <circle cx="12" cy="12" r="10" stroke="rgba(148,163,184,0.35)" stroke-width="2"/>
             <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
-          <AdsIcon v-else-if="state.copySucceeded.value" glyph="check" :size="13" />
+          <AdsIcon v-else-if="state.copySucceeded.value" class="copy-feedback" :class="{ 'is-fading': state.copyFading.value }" glyph="check" :size="13" />
           <AdsIcon v-else glyph="copy" :size="13" />
-          {{ state.copySucceeded.value ? 'Copied' : (state.isCopying.value ? 'Copying…' : 'Copy image') }}
+          <span v-if="state.copySucceeded.value" class="copy-feedback" :class="{ 'is-fading': state.copyFading.value }">Copied</span>
+          <template v-else>{{ state.isCopying.value ? 'Copying…' : 'Copy image' }}</template>
         </button>
       </div>
     </div>
@@ -328,6 +329,8 @@ export default defineComponent({
 }
 .btn-copy:hover:not(:disabled) { border-color: #475569; color: var(--sidebar-text); }
 .btn-copy:disabled { opacity: 0.6; cursor: not-allowed; }
+.copy-feedback { opacity: 1; transition: opacity 0.3s ease-out; }
+.copy-feedback.is-fading { opacity: 0; }
 
 .export-error {
   flex-shrink: 0;

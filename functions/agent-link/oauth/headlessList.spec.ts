@@ -12,6 +12,7 @@ const ACCOUNT = '712020:abc';
 const CLOUD = 'cloud-1';
 
 const LITE_SEQ = 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence';
+const LITE_GRAPH = 'ac:com.zenuml.confluence-addon-lite:zenuml-content-graph';
 const DIAGRAMLY = 'ac:gptdock-confluence:gpt-custom-content-key';
 
 function memoryStore(): GrantStore {
@@ -25,6 +26,12 @@ function memoryStore(): GrantStore {
       kv.delete(k);
     },
   };
+}
+
+/** Confluence returns `body` only when asked for it, as `body-format` does. */
+function withBodies(rows: Array<Record<string, unknown>>, url: string) {
+  const asked = new URL(url).searchParams.get('body-format') === 'raw';
+  return rows.map(({ storedBody, ...rest }) => (asked && storedBody !== undefined ? { ...rest, body: { raw: { value: storedBody } } } : rest));
 }
 
 /** `content` maps a custom-content type to its rows; every page holds only a Connect-era macro. */
@@ -42,7 +49,12 @@ function fakeConfluence(content: Record<string, Array<Record<string, unknown>>>,
       if (failStatus) return json(failStatus, {});
       const type = new URL(url).searchParams.get('type') ?? '';
       const rows = content[type];
-      return rows ? json(200, { results: rows }) : json(404, {});
+      return rows ? json(200, { results: withBodies(rows, url) }) : json(404, {});
+    }
+    const pageScoped = url.match(/\/wiki\/api\/v2\/pages\/([^/]+)\/custom-content/);
+    if (pageScoped) {
+      const rows = Object.values(content).flat().filter((r) => r.pageId === pageScoped[1]);
+      return json(200, { results: withBodies(rows, url) });
     }
     if (url.includes('/wiki/api/v2/pages/')) {
       const adf = {
@@ -80,12 +92,13 @@ async function contextFor(content: Record<string, Array<Record<string, unknown>>
   return { ctx, calls };
 }
 
-const row = (id: string, type: string, modified: string) => ({
+const row = (id: string, type: string, modified: string, stored?: Record<string, unknown>) => ({
   id,
   title: `Diagram ${id}`,
   type,
   pageId: `page-${id}`,
   version: { createdAt: modified },
+  storedBody: stored ? JSON.stringify(stored) : undefined,
 });
 
 describe('list_diagrams', () => {
@@ -127,5 +140,56 @@ describe('list_diagrams', () => {
     await expect(callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx)).rejects.toMatchObject({
       message: expect.stringMatching(/Could not reach Confluence.*403/),
     });
+  });
+
+  it('reports each diagram type from its stored record, not the shared storage type', async () => {
+    const { ctx, calls } = await contextFor({
+      [LITE_SEQ]: [
+        row('1', LITE_SEQ, '2026-10-04T00:00:00Z', { diagramType: 'mermaid', mermaidCode: 'flowchart LR\n A --> B' }),
+        row('2', LITE_SEQ, '2026-10-03T00:00:00Z', { diagramType: 'sequence', code: 'A.b()' }),
+        // An older graph stored under the sequence type.
+        row('3', LITE_SEQ, '2026-10-02T00:00:00Z', { diagramType: 'graph', graphXml: '<mxGraphModel/>' }),
+        row('4', LITE_SEQ, '2026-10-01T00:00:00Z', { diagramType: 'openapi', code: 'openapi: 3.0.0' }),
+      ],
+    });
+    const result = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx)) as any;
+    expect(result.diagrams.map((d: any) => [d.contentId, d.diagramType])).toEqual([
+      ['1', 'mermaid'],
+      ['2', 'sequence'],
+      ['3', 'graph'],
+      ['4', 'OpenAPI'],
+    ]);
+    expect(result.diagrams[0]).not.toHaveProperty('type');
+    const seqListing = calls.find((c) => c.includes(encodeURIComponent(LITE_SEQ)) && c.includes('limit=25'))!;
+    expect(seqListing).toContain('body-format=raw');
+  });
+
+  it('lists graph-type rows as graph without fetching their XML', async () => {
+    const { ctx, calls } = await contextFor({
+      [LITE_SEQ]: [row('1', LITE_SEQ, '2026-10-01T00:00:00Z', { diagramType: 'sequence', code: 'A.b()' })],
+      [LITE_GRAPH]: [row('2', LITE_GRAPH, '2026-10-02T00:00:00Z', { diagramType: 'graph', graphXml: '<big/>' })],
+    });
+    const result = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx)) as any;
+    expect(result.diagrams.map((d: any) => [d.contentId, d.diagramType])).toEqual([
+      ['2', 'graph'],
+      ['1', 'sequence'],
+    ]);
+    const graphListing = calls.find((c) => c.includes(encodeURIComponent(LITE_GRAPH)) && c.includes('limit=25'))!;
+    expect(graphListing).not.toContain('body-format');
+  });
+
+  it('reports null for a record that names no diagram type', async () => {
+    const { ctx } = await contextFor({ [LITE_SEQ]: [row('1', LITE_SEQ, '2026-10-01T00:00:00Z', { code: 'A.b()' })] });
+    const result = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx)) as any;
+    expect(result.diagrams[0].diagramType).toBeNull();
+  });
+
+  it('reports diagram types for a page-scoped listing too', async () => {
+    const { ctx, calls } = await contextFor({
+      [LITE_SEQ]: [row('1', LITE_SEQ, '2026-10-01T00:00:00Z', { diagramType: 'plantuml', plantUmlCode: '@startuml\n@enduml' })],
+    });
+    const result = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD, pageId: 'page-1' }, ctx)) as any;
+    expect(result.diagrams.map((d: any) => [d.contentId, d.diagramType])).toEqual([['1', 'plantuml']]);
+    expect(calls.find((c) => c.includes('/pages/page-1/custom-content'))).toContain('body-format=raw');
   });
 });

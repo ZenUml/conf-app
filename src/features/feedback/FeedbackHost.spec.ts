@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FeedbackHost from './FeedbackHost.vue'
 import feedbackHostSource from './FeedbackHost.vue?raw'
@@ -13,6 +13,12 @@ const context: FeedbackContext = {
   userAccountId: 'account-example', clientDomain: 'example-tenant', spaceName: 'Example space',
   macroUuid: 'macro-example', contentId: 'content-example', customContentId: 'custom-content-example',
 }
+const wrappers: ReturnType<typeof mount>[] = []
+function show(options: Parameters<typeof mount>[1]) {
+  const wrapper = mount(FeedbackHost, options)
+  wrappers.push(wrapper)
+  return wrapper
+}
 
 describe('FeedbackHost', () => {
   beforeEach(() => {
@@ -21,9 +27,14 @@ describe('FeedbackHost', () => {
     vi.useRealTimers()
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
   })
+  afterEach(() => {
+    wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
 
   it('keeps an icon trigger visible and expands it on edge hover or keyboard focus', async () => {
-    const wrapper = mount(FeedbackHost, { props: { context, openViewModal: vi.fn() } })
+    const wrapper = show({ props: { context, openViewModal: vi.fn() } })
     const trigger = wrapper.get('[data-testid="feedback-trigger"]')
     expect(trigger.classes()).toContain('edge-trigger')
     expect(trigger.get('svg path').attributes('d')).toContain('M8.625 12')
@@ -48,7 +59,7 @@ describe('FeedbackHost', () => {
 
   it('nudges open only once from 600ms until 2400ms', async () => {
     vi.useFakeTimers()
-    const wrapper = mount(FeedbackHost, { props: { context, openViewModal: vi.fn() } })
+    const wrapper = show({ props: { context, openViewModal: vi.fn() } })
     const edge = wrapper.get('[data-testid="feedback-edge"]')
     expect(edge.classes()).not.toContain('nudging')
 
@@ -58,7 +69,7 @@ describe('FeedbackHost', () => {
     expect(edge.classes()).not.toContain('nudging')
 
     wrapper.unmount()
-    const second = mount(FeedbackHost, { props: { context, openViewModal: vi.fn() } })
+    const second = show({ props: { context, openViewModal: vi.fn() } })
     await vi.advanceTimersByTimeAsync(600)
     expect(second.get('[data-testid="feedback-edge"]').classes()).not.toContain('nudging')
   })
@@ -66,14 +77,14 @@ describe('FeedbackHost', () => {
   it('does not nudge for reduced-motion users', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
-    const wrapper = mount(FeedbackHost, { props: { context, openViewModal: vi.fn() } })
+    const wrapper = show({ props: { context, openViewModal: vi.fn() } })
     await vi.advanceTimersByTimeAsync(2400)
     expect(wrapper.get('[data-testid="feedback-edge"]').classes()).not.toContain('nudging')
   })
 
   it('opens View feedback through the Forge modal boundary', async () => {
     const openViewModal = vi.fn().mockResolvedValue(undefined)
-    const wrapper = mount(FeedbackHost, { props: { context, openViewModal } })
+    const wrapper = show({ props: { context, openViewModal } })
     await wrapper.get('[data-testid="feedback-trigger"]').trigger('click')
     expect(openViewModal).toHaveBeenCalledWith(expect.objectContaining({
       size: 'medium',
@@ -83,7 +94,7 @@ describe('FeedbackHost', () => {
   })
 
   it('starts feedback replay from the surface trigger with its macro context', async () => {
-    const wrapper = mount(FeedbackHost, {
+    const wrapper = show({
       props: { context, openViewModal: vi.fn().mockResolvedValue(undefined) },
     })
 
@@ -100,7 +111,7 @@ describe('FeedbackHost', () => {
   })
 
   it('tracks one feedback opening when an inline dialog mounts after the trigger click', async () => {
-    const wrapper = mount(FeedbackHost, {
+    const wrapper = show({
       props: { context: { ...context, surface: 'editor' } },
     })
 
@@ -112,7 +123,7 @@ describe('FeedbackHost', () => {
   })
 
   it('hides the default surface trigger while PNG Export provides its own trigger', async () => {
-    const wrapper = mount(FeedbackHost, {
+    const wrapper = show({
       props: { context, openViewModal: vi.fn() },
       attachTo: document.body,
     })

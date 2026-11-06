@@ -29,6 +29,10 @@ const ALLOWED_GROUPS = [
   'Modal',
   'Get started',
   'Homepage feed',
+  // The Lite confluence:globalPage "Plan and usage" (zenuml-plan-usage-page): the
+  // third real page behind the union's `route` catch-all, stamped `dashboard` on
+  // its own plan_usage_* events.
+  'Plan and usage',
   // Components whose surface is decided by their caller (UpgradePrompt's comes from
   // surfaceForActionType(): editor | viewer | byline) or that belong to no surface
   // at all (Icons). See CONTEXT.md, "Cross-surface component".

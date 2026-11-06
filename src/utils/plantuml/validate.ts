@@ -1,5 +1,6 @@
 import { SyntaxValidationResult } from '../validate/types';
-import { fetchPlantUmlSvg } from './server';
+import { fetchPlantUmlSvg, PlantUmlSvgResponse } from './server';
+import { plantUmlRenderer } from './renderer';
 
 // Cache validation results to avoid duplicate API calls
 const validationCache = new Map<string, { result: SyntaxValidationResult; timestamp: number }>();
@@ -63,10 +64,16 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
   // Validate using PlantUML server (SVG endpoint)
   // The SVG output contains error information in the rendered image
   try {
+    // ADR-0010: the in-browser engine draws syntax errors with the same
+    // markers as the server, so only the source of the SVG changes. When the
+    // engine cannot draw the diagram (include, crash), validation falls back
+    // to the server exactly as the viewer's render does.
     // PlantUML returns 400 for syntax errors, but still includes SVG with error details,
-    // so fetchPlantUmlSvg reads the body even for 400 status. The viewer's render
-    // reuses this same response (#929).
-    const response = await fetchPlantUmlSvg(trimmed);
+    // so fetchPlantUmlSvg reads the body even for 400 status. On the server path the
+    // viewer's render reuses this same response (#929).
+    const response = (await plantUmlRenderer()) === 'local'
+      ? await renderLocallyOrOnServer(trimmed)
+      : await fetchPlantUmlSvg(trimmed);
     const { svgText } = response;
     
     // Check if SVG contains syntax error indicators
@@ -121,6 +128,17 @@ export async function validatePlantUmlSyntax(code: string): Promise<SyntaxValida
     const fallbackResult = { valid: true, error: null, location: null };
     validationCache.set(code, { result: fallbackResult, timestamp: Date.now() });
     return fallbackResult;
+  }
+}
+
+/** The local engine's SVG, shaped like the server response the validator reads. */
+async function renderLocallyOrOnServer(code: string): Promise<PlantUmlSvgResponse> {
+  try {
+    const { renderPlantUmlLocally } = await import('./engine');
+    const svgText = await renderPlantUmlLocally(code);
+    return { ok: true, status: 200, svgText };
+  } catch {
+    return fetchPlantUmlSvg(code); // the viewer reports the engine failure
   }
 }
 

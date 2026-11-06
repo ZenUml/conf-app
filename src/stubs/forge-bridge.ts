@@ -39,14 +39,29 @@ export const stubResponses: {
   users: Record<string, { displayName: string }>
   /** Response body for any invokeRemote() call, keyed by a substring of its path. */
   remote: Array<{ match: string; status?: number; body: any }>
-} = { users: {}, remote: [] }
+  /**
+   * Response for a requestConfluence() call whose URL contains `match`; the
+   * first matching entry wins, so list the more specific substrings first.
+   * Lets a story drive a component that pages through Confluence REST (the
+   * Plan and usage "Where diagrams are used" list) with realistic data.
+   */
+  confluence: Array<{ match: string; status?: number; body: any }>
+} = { users: {}, remote: [], confluence: [] }
 
 export function resetStubResponses(): void {
   stubResponses.users = {}
   stubResponses.remote = []
+  stubResponses.confluence = []
 }
 
 export const requestConfluence = async (url: string, _opts?: any) => {
+  const stubbed = stubResponses.confluence.find((r) => url.includes(r.match))
+  if (stubbed) {
+    return new Response(JSON.stringify(stubbed.body), {
+      status: stubbed.status ?? 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
   const accountId = /accountId=([^&]+)/.exec(url)?.[1]
   if (accountId) {
     const user = stubResponses.users[decodeURIComponent(accountId)]

@@ -19,6 +19,7 @@ const preview: Preview = {
           'Page banner',
           'Homepage feed',
           'Get started',
+          'Plan and usage',
           'Shared',
         ],
       },

@@ -206,6 +206,22 @@ describe('settled tail', () => {
   })
 })
 
+describe('expiry day', () => {
+  it('keeps a grant that stops today as open work, not as an already-expired settled row', () => {
+    const { rows, settled } = buildQueue({
+      grants: [
+        grant({ id: 'today', expiresAt: '2026-08-30T23:59:59.000Z' }),
+        grant({ id: 'yesterday', expiresAt: '2026-08-29T23:59:59.000Z', status: 'expired' })
+      ],
+      openRequests: null,
+      today: TODAY
+    })
+    expect(rows.find(row => row.id === 'expiry:today')?.detail).toBe('access stops today')
+    expect(settled.filter(row => row.date === '2026-08-30' && row.text.startsWith('expired'))).toEqual([])
+    expect(settled.some(row => row.date === '2026-08-29' && row.text.startsWith('expired'))).toBe(true)
+  })
+})
+
 describe('deferred lifecycles', () => {
   it('marks welcome and expiry as todo, with the reason', () => {
     const { todos } = buildQueue({ grants: [], openRequests: null, today: TODAY })

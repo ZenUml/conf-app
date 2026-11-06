@@ -3,6 +3,8 @@ import { buildEvents, filterCounts, pastEvents, scheduledEvents } from '@/lib/de
 import { INITIAL_EXTENSIONS_LOAD, type ExtensionsLoadState } from './extensionsApi'
 import { placeholderDataset } from './placeholder'
 import { buildTodayDataset, todayGrantMode } from './todayApi'
+import type { LifecycleLoadState } from './lifecycleApi'
+import { iso } from '@/lib/format'
 import type { Dataset, Grant } from './types'
 
 function load(
@@ -190,5 +192,21 @@ describe('Today live grant composition', () => {
         buildEvents(placeholderDataset)
           .filter(event => event.kind === 'registered' || event.kind === 'ingest')
       )
+  })
+
+  it('writes the live ingest day in the vocabulary iso() reads, even for September', () => {
+    const lifecycle = {
+      state: 'live',
+      generatedAt: '2026-09-05T10:00:00.000Z',
+      error: null,
+      data: {
+        generatedAt: '2026-09-05T10:00:00.000Z',
+        source: { marketplaceRows: 10 },
+        summary: { contacts: 4 }
+      }
+    } as unknown as LifecycleLoadState
+    const result = buildTodayDataset(placeholderDataset, placeholderDataset, load('live'), lifecycle)
+    expect(result.ingest.runDay).toBe('05 Sep')
+    expect(() => iso(result.ingest.runDay)).not.toThrow()
   })
 })

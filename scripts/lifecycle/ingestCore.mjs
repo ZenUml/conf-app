@@ -47,7 +47,10 @@ export const ADDON_APP_MAP = {
   'com.zenuml.confluence-addon-lite': 'lite',
   'com.zenuml.confluence-addon': 'full',
   'my-api': 'asyncapi',
+  // Historical export key, kept so an older snapshot still maps.
   'com.pnd.jira.plugins.diagramly': 'diagramly',
+  // Current Diagramly key; local-crm/server/extensionsData.ts and sitesData.ts already use it.
+  'gptdock-confluence': 'diagramly',
 };
 
 // The export row's own activity flag (verified against the live export,

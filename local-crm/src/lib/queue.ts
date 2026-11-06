@@ -214,7 +214,8 @@ function settledTail(grants: Grant[], today: string): SettledRow[] {
       rows.push({ date: created, text: `granted ${grant.domain} / ${space}` })
     }
     const expires = day(grant.expiresAt)
-    if (expires && daysBetween(expires, today) >= 0 && daysBetween(expires, today) <= SETTLED_WINDOW_DAYS) {
+    // Strictly before today: a grant that stops today is still open work in fromGrants().
+    if (expires && daysBetween(expires, today) >= 1 && daysBetween(expires, today) <= SETTLED_WINDOW_DAYS) {
       rows.push({ date: expires, text: `expired ${grant.domain} / ${space}` })
     }
   })

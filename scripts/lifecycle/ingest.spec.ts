@@ -66,6 +66,7 @@ describe('ADDON_APP_MAP', () => {
       'com.zenuml.confluence-addon': 'full',
       'my-api': 'asyncapi',
       'com.pnd.jira.plugins.diagramly': 'diagramly',
+      'gptdock-confluence': 'diagramly',
     });
   });
 });
@@ -96,9 +97,14 @@ describe('mapEvalWindow', () => {
 });
 
 describe('transformRow', () => {
-  it('skips rows whose addonKey is not one of the four mapped apps', () => {
-    const row = makeRow({ addonKey: 'gptdock-confluence' });
+  it('skips rows whose addonKey is not one of the mapped apps', () => {
+    const row = makeRow({ addonKey: 'com.example.unknown-addon' });
     expect(transformRow(row)).toEqual({ skipped: 'unmapped_addon' });
+  });
+
+  it('ingests the current Diagramly key (gptdock-confluence) as the diagramly app', () => {
+    const row = makeRow({ addonKey: 'gptdock-confluence' });
+    expect(transformRow(row)).toMatchObject({ record: { app: 'diagramly' } });
   });
 
   it('skips rows with a missing technical contact email', () => {

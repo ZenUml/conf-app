@@ -4,6 +4,17 @@ import type { Dataset } from './types'
 
 export type TodayGrantMode = 'loading' | 'live' | 'partial' | 'unavailable'
 
+const MONTH_ABBREVIATIONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * '2026-09-05T10:00:00Z' -> '05 Sep'. Not toLocaleDateString('en-GB'): ICU
+ * writes September as 'Sept', which iso() in lib/format.ts refuses to read.
+ */
+function ingestRunDay(generatedAt: string): string {
+  const date = new Date(generatedAt)
+  return `${String(date.getUTCDate()).padStart(2, '0')} ${MONTH_ABBREVIATIONS[date.getUTCMonth()]}`
+}
+
 /**
  * Today shares the Extensions read. Grant KV is the authoritative stream;
  * Marketplace, JSM, and D1 add context but are not required to retain it.
@@ -37,7 +48,7 @@ export function buildTodayDataset(
         rowsTotal: lifecycle.data.source.marketplaceRows,
         contactsWritten: lifecycle.data.summary.contacts,
         runAt: new Date(lifecycle.data.generatedAt).toISOString(),
-        runDay: new Date(lifecycle.data.generatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' }),
+        runDay: ingestRunDay(lifecycle.data.generatedAt),
         localSchema: 'lifecycle.sqlite',
         productionSchema: 'not used by Local CRM'
       }

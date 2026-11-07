@@ -38,6 +38,7 @@
 import { DRAWIO_PREFETCH_ASSETS } from '@/utils/drawio/loadDrawioViewer';
 import { loadMermaid } from '@/utils/mermaid/loadMermaid';
 import { getBuildKey, isPrefetchDone, isPrefetchDue, markPrefetchDone, tryClaimLock, releaseLock, type KvStore } from './throttle';
+import { withDeadline } from '@/lib/withTimeout.js';
 
 export { isPrefetchDue };
 import { prefetchUrls, fetchPrefetchManifest, type PrefetchResult, type PrefetchManifest } from './prefetchAssets';
@@ -120,7 +121,7 @@ async function run(opts: RunOptions): Promise<void> {
     const exclude = new Set(opts.excludeRenderers ?? []);
     const renderers = ALL_RENDERERS.filter((r) => !exclude.has(r));
 
-    await withDeadline(
+    await withPrefetchDeadline(
       executePrefetch(renderers, guards, deadlineMs, opts, now),
       deadlineMs,
     );
@@ -177,10 +178,11 @@ export async function executePrefetch(
     const remaining = Math.max(deadlineMs - (now() - startedAt), 0);
     try {
       const warm = opts.warmMermaid ?? loadMermaid;
-      const warmResult = await Promise.race([
+      const warmResult = await withDeadline(
         warm().then(() => 'warmed' as const),
-        new Promise<'timed_out'>((resolve) => setTimeout(() => resolve('timed_out'), remaining)),
-      ]);
+        remaining,
+        'timed_out' as const,
+      );
       if (warmResult === 'timed_out') {
         failed++;
         timedOut = true;
@@ -195,15 +197,12 @@ export async function executePrefetch(
   return { outcome, requested, failed };
 }
 
-function withDeadline(work: Promise<ExecOutcome>, deadlineMs: number): Promise<ExecOutcome> {
+function withPrefetchDeadline(work: Promise<ExecOutcome>, deadlineMs: number): Promise<ExecOutcome> {
   // 'timed_out': the deadline fired before any per-asset result arrived —
   // distinct from 'partial'/'failed', which carry real counts.
   const fallback: ExecOutcome = { outcome: 'timed_out', requested: 0, failed: 0 };
-  return Promise.race([
-    work,
-    // Grace over the inner per-step timeouts so the inner settle (with real
-    // counts) normally wins; this race is the backstop for a hung manifest
-    // fetch (the only inner await without its own budget).
-    new Promise<ExecOutcome>((resolve) => setTimeout(() => resolve(fallback), deadlineMs + 2_000)),
-  ]);
+  // Grace over the inner per-step timeouts so the inner settle (with real
+  // counts) normally wins; this is the backstop for a hung manifest
+  // fetch (the only inner await without its own budget).
+  return withDeadline(work, deadlineMs + 2_000, fallback);
 }

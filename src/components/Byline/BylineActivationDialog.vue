@@ -51,6 +51,7 @@
 
 <script>
 import DiagramPortal from '@/components/DiagramPortal.vue';
+import { writeClipboard } from '@/utils/clipboard';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import store from '@/model/store2';
 import globals from '@/model/globals';
@@ -265,26 +266,9 @@ export default {
 
     async copyLink() {
       if (!this.deeplinkUrl) return;
-      this.copied = await this.copyText(this.deeplinkUrl);
-    },
-
-    // text/plain only — a text/html clipboard flavour is eaten by Confluence's
-    // paste handling before autoConvert can match (verified during #360).
-    async copyText(text) {
-      if (navigator.clipboard && window.isSecureContext) {
-        try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
-      }
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.top = '-9999px';
-      ta.setAttribute('readonly', '');
-      document.body.appendChild(ta);
-      ta.select();
-      ta.setSelectionRange(0, text.length);
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
+      // text/plain only — a text/html clipboard flavour is eaten by Confluence's
+      // paste handling before autoConvert can match (verified during #360).
+      this.copied = await writeClipboard(this.deeplinkUrl);
     },
 
     cancel() {

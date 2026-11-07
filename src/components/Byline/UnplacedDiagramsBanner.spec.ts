@@ -535,6 +535,23 @@ describe('UnplacedDiagramsBanner', () => {
       });
     });
 
+    it('still reports success through the execCommand fallback when the async clipboard rejects', async () => {
+      // Forge iframes may deny navigator.clipboard; the sibling surfaces fall
+      // back to execCommand('copy') and so must this one.
+      (navigator.clipboard.writeText as any).mockRejectedValue(new Error('denied'));
+      const exec = vi.fn(() => true);
+      Object.defineProperty(document, 'execCommand', { value: exec, configurable: true, writable: true });
+      writeUnplacedMarker(IDENTITY, [STRAY], FALLBACK);
+      const wrapper = await mountBanner();
+
+      await wrapper.find('[data-testid="unplaced-banner-copy"]').trigger('click');
+      await flushPromises();
+
+      expect(exec).toHaveBeenCalledWith('copy');
+      expect(wrapper.find('[data-testid="unplaced-banner-hint"]').exists()).toBe(true);
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({ result: 'copied' });
+    });
+
     it('says what to do with the link once it is copied', async () => {
       // A link on the clipboard is half the job; that pasting a URL into the
       // editor is enough is the genuinely surprising step.

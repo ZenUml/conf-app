@@ -56,6 +56,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, watch } from 'vue'
 import { useTransientFlag } from '../../composables/useTransientFlag'
+import { writeClipboard } from '@/utils/clipboard'
 
 const props = defineProps<{
   message: string
@@ -79,35 +80,8 @@ const feedbackFadeClass = computed(() => [
   copiedFlag.fading.value ? 'opacity-0' : 'opacity-100',
 ])
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // fall through to execCommand fallback
-  }
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.top = '-9999px'
-    textarea.style.left = '-9999px'
-    textarea.setAttribute('readonly', '')
-    document.body.appendChild(textarea)
-    textarea.select()
-    textarea.setSelectionRange(0, text.length)
-    const ok = document.execCommand('copy')
-    document.body.removeChild(textarea)
-    return ok
-  } catch {
-    return false
-  }
-}
-
 async function onCopy() {
-  const ok = await copyText(props.message)
+  const ok = await writeClipboard(props.message)
   if (ok) {
     state.value = 'copied'
     emit('copied')

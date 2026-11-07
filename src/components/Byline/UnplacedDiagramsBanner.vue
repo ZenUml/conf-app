@@ -116,6 +116,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount, onMounted } from 'vue'
+import { writeClipboard } from '@/utils/clipboard'
 import globals from '@/model/globals'
 import forgeGlobal, { getView } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -534,7 +535,8 @@ async function onCopy(entry: UnplacedDiagramEntry) {
     })
     return
   }
-  const copied = await copyText(link)
+  const copied = await writeClipboard(link)
+  if (!copied) console.error('[unplaced-banner] clipboard write failed')
   if (copied) {
     copiedId.value = entry.id
     if (copyFlashTimer) clearTimeout(copyFlashTimer)
@@ -550,16 +552,6 @@ async function onCopy(entry: UnplacedDiagramEntry) {
     copy_trigger: 'manual',
     result: copied ? 'copied' : 'failed',
   })
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch (e) {
-    console.error('[unplaced-banner] clipboard write failed', e)
-    return false
-  }
 }
 
 /**

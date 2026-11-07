@@ -52,7 +52,8 @@ import {
 } from '@/utils/legacyContentPropertyTelemetry';
 import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/ContentProvider/Persistence';
 import * as renderPerf from '@/utils/analytics/renderPerf';
-import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
+import { getCachedContent, putCachedContent } from '@/utils/renderCache/contentCacheStore';
+import { revalidateViewerContent } from '@/utils/renderCache/revalidateViewerContent';
 import { inferLegacyDiagramType, withLegacyDiagramType } from '@/model/Diagram/legacyDiagramType';
 import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
@@ -499,45 +500,47 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
     pageId: string | undefined,
     cachedHash: string,
   ) => {
-    try {
-      const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
-        pageId, ccId, { copyCheckMode },
-      );
-      if (loaded.recoveredFromOrphanId && loaded.customContent?.value) {
-        reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, {
-          recoveryUsed: true,
-          recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
-          directFetch: loaded,
-        });
-      } else if (!loaded.customContent?.value) {
-        reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
-      }
-      const fresh = loaded.customContent?.value;
-      if (!fresh) return; // content unreadable now — keep the last-known-good cached render
-      const freshAttribution = attributionFromCustomContent(loaded.customContent);
-      if (loaded.customContent) {
-        import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
-          maybeBackfillSnapshot({
-            hostPageId: String(pageId),
-            ccId: String(ccId),
-            ccPageId: loaded.customContent!.pageId,
-            diagram: fresh,
-            ccVersion: loaded.customContent!.version?.number,
-            isDisplayMode: globals.apWrapper.isDisplayMode(),
-          })
-        ).catch(e => console.debug('[snapshot] backfill skipped', e));
-      }
-      const serialized = JSON.stringify(fresh);
-      putCachedContent(ccId, serialized, freshAttribution);
-      if (hashContent(serialized) !== cachedHash) {
+    let freshAttribution: ReturnType<typeof attributionFromCustomContent>;
+    await revalidateViewerContent({
+      customContentId: ccId,
+      cachedHash,
+      loadFresh: async () => {
+        const loaded = await globals.apWrapper.loadCustomContentWithOrphanRecovery(
+          pageId, ccId, { copyCheckMode },
+        );
+        if (loaded.recoveredFromOrphanId && loaded.customContent?.value) {
+          reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, {
+            recoveryUsed: true,
+            recoveredId: loaded.customContent?.id != null ? String(loaded.customContent.id) : undefined,
+            directFetch: loaded,
+          });
+        } else if (!loaded.customContent?.value) {
+          reportOrphanObserved(pageId, ccId, 'sequence', loaded.probeResult, { recoveryUsed: false, directFetch: loaded });
+        }
+        const fresh = loaded.customContent?.value;
+        if (!fresh) return; // content unreadable now — keep the last-known-good cached render
+        freshAttribution = attributionFromCustomContent(loaded.customContent);
+        if (loaded.customContent) {
+          import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
+            maybeBackfillSnapshot({
+              hostPageId: String(pageId),
+              ccId: String(ccId),
+              ccPageId: loaded.customContent!.pageId,
+              diagram: fresh,
+              ccVersion: loaded.customContent!.version?.number,
+              isDisplayMode: globals.apWrapper.isDisplayMode(),
+            })
+          ).catch(e => console.debug('[snapshot] backfill skipped', e));
+        }
+        return fresh;
+      },
+      cacheAttribution: () => freshAttribution,
+      onChanged: async (fresh) => {
         renderPerf.markContentSource('fetch');
-        // @ts-ignore - fresh may be a partial spread type; matches the happy-path mount below
         const freshDoc: Diagram = withPlantUmlViewerFallback(fresh);
         await mountSequenceViewer(freshDoc, freshAttribution);
-      }
-    } catch (e) {
-      console.warn('[content-swr] background revalidate failed; cached render stands', e);
-    }
+      },
+    });
   };
 
   if (customContentId && isSequence && !(await isEditorMode()) && !(await isFullscreenMode())) {

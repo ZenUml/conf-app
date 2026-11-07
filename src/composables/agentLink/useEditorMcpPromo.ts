@@ -1,9 +1,9 @@
 /**
  * MCP promo in the macro editor (Workspace.vue). Two placements, one state:
  *
- * - 'editor_new_diagram': a card over the preview while a new diagram still
- *   shows the starter code it opened with. It goes away (not dismissed) as
- *   soon as the author edits the code.
+ * - 'editor_new_diagram': a card over the preview while the selected tab of a
+ *   new diagram still shows its starter code. It goes away (not dismissed) as
+ *   soon as the author edits that code.
  * - 'editor_tip': a tip docked in the code pane once the author has typed a
  *   lot by hand in this editor session — TIP_TYPED_CHARS characters, or
  *   TIP_MIN_EDITS edits spread over TIP_EDIT_MS.
@@ -11,10 +11,15 @@
  * Both open ConnectMcpDialog. Shared frequency rules (session cap, dismissal,
  * engagement) come from mcpPromo.ts, so a dismissal in Fullscreen also hides
  * these, and the reverse.
+ *
+ * A promo counts as shown (impression and session cap) only while it is on
+ * screen: nothing is recorded while `covered` hides it, or while the draft
+ * banner sits on the tip's corner.
  */
-import { computed, onMounted, reactive, ref, watch, type Ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch, type Ref } from 'vue'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
+import EventBus from '@/EventBus'
 import { getContext } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { AgentLinkMcpButtonPlacement, AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
@@ -41,6 +46,8 @@ export function useEditorMcpPromo(options: {
   diagramType: Ref<string | undefined>
   code: Ref<string>
   diagramId: Ref<string | undefined>
+  /** Another panel (starter gallery, AI chat) occupies the promos' place. */
+  covered?: Ref<boolean>
   now?: () => number
 }) {
   const now = options.now ?? Date.now
@@ -51,9 +58,27 @@ export function useEditorMcpPromo(options: {
   const scope = reactive({ cloudId: '', accountId: '', pageId: '' })
   let promoState: McpPromoState | null = null
 
-  // Captured at mount: what "untouched" means for a new diagram.
   const isNewDiagram = !options.diagramId.value
-  const startingCode = options.code.value ?? ''
+  const covered = computed(() => options.covered?.value ?? false)
+
+  // The starter code of each tab of a new diagram, recorded when the tab is
+  // first selected. One value is not enough: Header.mounted() applies the saved
+  // tab after this runs, and each tab has its own source. Sync, so the store's
+  // type change is seen before anything edits the newly selected source.
+  const starterCode = reactive<Record<string, string>>({})
+  const rememberStarterCode = () => {
+    const type = options.diagramType.value ?? ''
+    if (!(type in starterCode)) starterCode[type] = options.code.value ?? ''
+  }
+  rememberStarterCode()
+  watch(options.diagramType, rememberStarterCode, { flush: 'sync' })
+
+  // The draft banner is pinned over the code pane's bottom-left corner, where
+  // the tip docks (restoreDraftBanner.ts).
+  const draftBannerVisible = ref(false)
+  const onDraftBannerVisibility = (visible: boolean) => { draftBannerVisible.value = visible }
+  EventBus.$on('draft-banner-visibility', onDraftBannerVisibility)
+  onUnmounted(() => EventBus.$off('draft-banner-visibility', onDraftBannerVisibility))
 
   // Manual-typing measurement for the tip.
   const editCount = ref(0)
@@ -62,15 +87,17 @@ export function useEditorMcpPromo(options: {
   const tipTriggered = ref(false)
 
   const supported = computed(() => SUPPORTED.includes(options.diagramType.value ?? ''))
-  const untouched = computed(() => (options.code.value ?? '') === startingCode)
+  const untouched = computed(() => (options.code.value ?? '') === starterCode[options.diagramType.value ?? ''])
 
   const showNewDiagramCard = computed(() =>
-    enabled.value && supported.value && !hidden.value && isNewDiagram && untouched.value)
+    enabled.value && supported.value && !hidden.value && !covered.value && isNewDiagram && untouched.value)
   const showTip = computed(() =>
-    enabled.value && supported.value && !hidden.value && tipTriggered.value && !showNewDiagramCard.value)
+    enabled.value && supported.value && !hidden.value && !covered.value && !draftBannerVisible.value
+    && tipTriggered.value && !showNewDiagramCard.value)
 
-  watch(options.code, (next, prev) => {
-    if (prev === undefined || tipTriggered.value) return
+  watch([options.code, options.diagramType], ([next, type], [prev, prevType]) => {
+    // Selecting another tab swaps the source; nobody typed that.
+    if (type !== prevType || prev === undefined || tipTriggered.value) return
     const delta = Math.max(1, Math.abs((next ?? '').length - (prev ?? '').length))
     // A paste or an applied AI change replaces a block at once; it is not
     // the sustained hand typing the tip is about.

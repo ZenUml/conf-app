@@ -1,6 +1,5 @@
 import store from '@/model/store2'
-import globals from '@/model/globals'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import {applyForgeEnv,forgeEnv,type ForgeEnvOptions} from '../../../../.storybook/forgeEnv'
 import {DataSource,DiagramType} from '@/model/Diagram/Diagram'
 import {FeatureFlags} from '@forge/bridge'
 import {resetFeatureFlagsForTests} from '@/apis/aiTitleFeatureFlag'
@@ -22,17 +21,37 @@ export async function primeHighlightMermaid() {
   const bundled = await import('mermaid')
   await loadMermaid({importer:async()=>bundled,retries:0})
 }
-export function configureHighlightStory() {
+/** Forge environment of the highlight stories: a Lite viewer. `inline` drops the fullscreen modal. */
+export function highlightForgeEnvOptions({inline=false}:{inline?:boolean}={}):ForgeEnvOptions{
+  return {
+    forge:{
+      isForge:false,isLite:true,zenumlRemoteBaseUrl:'https://storybook.invalid',
+      forgeContext:{accountId:'storybook-user',cloudId:'storybook-cloud',extension:{content:{id:'storybook-page'},space:{key:'DOCS'},config:{},...(inline?{}:{modal:{macroMode:'fullscreen'}})}},
+    },
+    apWrapper:{
+      isDisplayMode:()=>true,
+      initializeContext:async()=>undefined,
+      canUserEdit:async()=>false,
+      getMacroData:async()=>({customContentId:'storybook-diagram',uuid:'storybook-macro'}),
+      getCurrentPage:async()=>({title:'Synthetic order flow',body:{export_view:{value:'<p>Synthetic order workflow.</p>'}},_links:{base:'https://example.atlassian.net/wiki',webui:'/spaces/DOCS/pages/123'}}),
+    },
+  }
+}
+/** Decorator form: applies the highlight Forge environment and restores it on unmount. */
+export function highlightForgeEnv(o:{inline?:boolean}={}){return forgeEnv(()=>highlightForgeEnvOptions(o))}
+/** Store, flags and stubbed responses for the highlight stories (no Forge singletons). */
+export function configureHighlightStoreAndFlags() {
   resetStubResponses();resetFeatureFlagsForTests()
   FeatureFlags.prototype.checkFlag = (_key,defaultValue=false)=>defaultValue
-  forgeGlobal.isForge=false;forgeGlobal.isLite=true;forgeGlobal.zenumlRemoteBaseUrl='https://storybook.invalid'
-  forgeGlobal.forgeContext={accountId:'storybook-user',cloudId:'storybook-cloud',extension:{content:{id:'storybook-page'},space:{key:'DOCS'},config:{},modal:{macroMode:'fullscreen'}}}
-  globals.apWrapper.isDisplayMode=()=>true
-  globals.apWrapper.initializeContext=async()=>undefined
-  globals.apWrapper.canUserEdit=async()=>false
-  globals.apWrapper.getMacroData=async()=>({customContentId:'storybook-diagram',uuid:'storybook-macro'})
-  globals.apWrapper.getCurrentPage=async()=>({title:'Synthetic order flow',body:{export_view:{value:'<p>Synthetic order workflow.</p>'}},_links:{base:'https://example.atlassian.net/wiki',webui:'/spaces/DOCS/pages/123'}})
   store.commit('updateDiagramType',DiagramType.Mermaid);store.commit('updateMermaidCode',HIGHLIGHT_SOURCE);store.commit('updateTitle','订单处理流程');store.commit('setDiagramAttribution',null)
   Object.assign(store.state.diagram,{source:DataSource.CustomContent,id:'storybook-diagram',isCopy:false,recoveredFromOrphan:false,snapshotFallback:false,magic:undefined})
   store.state.viewerLoadState='ready';store.state.loadError=null
+}
+/**
+ * Legacy one-call setup for MermaidHighlightFeedbackPrototype.stories.ts, which another
+ * PR is editing. It cannot restore on unmount; move that story to highlightForgeEnv().
+ */
+export function configureHighlightStory() {
+  applyForgeEnv(highlightForgeEnvOptions())
+  configureHighlightStoreAndFlags()
 }

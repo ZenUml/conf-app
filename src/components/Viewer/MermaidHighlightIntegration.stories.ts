@@ -2,13 +2,12 @@
 import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import DiagramPortal from '@/components/DiagramPortal.vue'
 import store from '@/model/store2'
-import forgeGlobal from '@/model/globals/forgeGlobal'
-import { configureHighlightStory, primeHighlightMermaid } from './fixtures/mermaidHighlightStory'
+import { configureHighlightStoreAndFlags, highlightForgeEnv, primeHighlightMermaid } from './fixtures/mermaidHighlightStory'
 import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 setup(app => app.use(store))
 function configureIntegration() {
-  configureHighlightStory()
+  configureHighlightStoreAndFlags()
   store.commit('updateTitle', 'Order processing')
   store.commit('updateMermaidCode', 'flowchart LR\n  Cart-->Order\n  Order-->Inventory\n  Order-->Payment\n  Order-->Record\n  Inventory-->Event\n  Inventory-->Warehouse\n  Payment-->Event\n  Payment-->Warehouse\n  Record-->Event\n  Record-->Customer')
 }
@@ -23,16 +22,15 @@ export default meta
 type Story = StoryObj<typeof DiagramPortal>
 export const Inline: Story = {
   args: { autoResize: true },
-  decorators: [() => { configureIntegration(); delete forgeGlobal.forgeContext.extension.modal; return { template: '<story />' } }],
+  decorators: [highlightForgeEnv({ inline: true }), () => { configureIntegration(); return { template: '<story />' } }],
 }
 /** The staged header shows a valid refined layout inline; hovering it highlights relationships. */
 export const InlineRefined: Story = {
   args: { autoResize: true },
-  decorators: [() => {
+  decorators: [highlightForgeEnv({ inline: true }), () => {
     configureIntegration()
     store.commit('updateMermaidCode', PI_MAGIC_SYNTHETIC_SOURCE)
     ;(store.state as any).diagram.magic = PI_MAGIC_SYNTHETIC_ARTIFACT
-    delete forgeGlobal.forgeContext.extension.modal
     return { template: '<story />' }
   }],
   play: async ({ canvasElement }) => {
@@ -46,8 +44,8 @@ export const InlineRefined: Story = {
     await waitFor(() => expect(svg.classList.contains('focus-on')).toBe(true))
   },
 }
-export const Fullscreen: Story = { args: { autoResize: false }, decorators: [() => { configureIntegration(); return { template: '<story />' } }] }
+export const Fullscreen: Story = { args: { autoResize: false }, decorators: [highlightForgeEnv(), () => { configureIntegration(); return { template: '<story />' } }] }
 export const UnsupportedSequence: Story = {
-  decorators: [() => { configureIntegration(); store.commit('updateMermaidCode', 'sequenceDiagram\n  Client->>Server: Request\n  Server-->>Client: Response'); return { template: '<story />' } }],
+  decorators: [highlightForgeEnv(), () => { configureIntegration(); store.commit('updateMermaidCode', 'sequenceDiagram\n  Client->>Server: Request\n  Server-->>Client: Response'); return { template: '<story />' } }],
 }
-export const Preview: Story = { args: { hideHeader: true, readOnly: true }, decorators: [() => { configureIntegration(); return { template: '<story />' } }] }
+export const Preview: Story = { args: { hideHeader: true, readOnly: true }, decorators: [highlightForgeEnv(), () => { configureIntegration(); return { template: '<story />' } }] }

@@ -13,7 +13,7 @@
  *    Forge CSP blocks (`'unsafe-eval'` not allowed). Fallback is again a
  *    `<rect>` with the fillColor (`#945df2` here).
  *
- * Mock fixture: `src/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-graph.json`
+ * Mock fixture: `src/dev/fixtures/custom-content-by-id-v1-diagram-graph.json`
  * contains an ellipse + AWS Lambda (aws3.xml) + AWS S3 (aws3.xml) + AWS
  * ResourceIcon (mxAWS4.js). The ellipse confirms basic rendering still works
  * regardless of stencil loading.

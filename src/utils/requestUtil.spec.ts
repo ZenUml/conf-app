@@ -48,7 +48,7 @@ describe('forgeRequest', () => {
   beforeEach(() => {
     mockRequestConfluence.mockReset();
     // jsdom has window.self === window.top, which forgeRequest reads as the
-    // standalone (MockAp) environment. Pretend to be inside the Forge iframe.
+    // standalone environment. Pretend to be inside the Forge iframe.
     vi.spyOn(window, 'top', 'get').mockReturnValue({} as Window);
   });
   afterEach(() => vi.restoreAllMocks());

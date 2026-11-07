@@ -3,9 +3,9 @@
  * Start with `pnpm start:local`, then append
  * `/test-viewer.html?outputType=display` to the URL from `pnpm dev:url`.
  *
- * Uses MockAp automatically (no Confluence connection needed).
- * MockAp returns a sample ZenUML sequence diagram from:
- *   src/model/Ap/MockedResponse/custom-content-by-id-v1-diagram-sequence.json
+ * Uses the standalone fixture router (src/dev/standaloneConfluence.ts) (no Confluence connection needed).
+ * It returns a sample ZenUML sequence diagram from:
+ *   src/dev/fixtures/custom-content-by-id-v1-diagram-sequence.json
  */
 import globals from '@/model/globals';
 import { getContext } from '@/model/globals/forgeGlobal';

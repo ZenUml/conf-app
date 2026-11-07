@@ -10,7 +10,9 @@
  *   keyword\0 | compression_flag(1B) | compression_method(1B) | lang_tag\0 | translated_kw\0 | UTF-8 text
  */
 
-const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+import { isPng, crc32, pngChunks } from '@/lib/png.js';
+import { blobToArrayBuffer } from '@/utils/blobToArrayBuffer';
+
 const ITXT_TYPE = new Uint8Array([105, 84, 88, 116]); // 'iTXt'
 const KEYWORD = 'zenumlDiagram';
 const KEYWORD_BYTES = new TextEncoder().encode(KEYWORD);
@@ -18,26 +20,6 @@ const KEYWORD_BYTES = new TextEncoder().encode(KEYWORD);
 export interface DiagramPayload {
   diagramType: string;
   source: string;
-}
-
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) {
-      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    }
-    t[n] = c;
-  }
-  return t;
-})();
-
-function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) {
-    crc = CRC_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function buildITxtChunk(diagramType: string, source: string): Uint8Array {
@@ -67,17 +49,6 @@ function buildITxtChunk(diagramType: string, source: string): Uint8Array {
   return chunk;
 }
 
-/** Read a Blob as ArrayBuffer, falling back to FileReader for environments where Blob.arrayBuffer is absent (e.g. older jsdom). */
-async function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
-  if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
-  return new Promise<ArrayBuffer>((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result as ArrayBuffer);
-    fr.onerror = () => reject(fr.error ?? new Error('FileReader error'));
-    fr.readAsArrayBuffer(blob);
-  });
-}
-
 /**
  * Inject a zenumlDiagram iTXt chunk into a PNG blob before the first IDAT chunk.
  * Returns the original blob unchanged if it is not a valid PNG.
@@ -90,23 +61,18 @@ export async function injectDiagramSource(
   const arrayBuffer = await blobToArrayBuffer(pngBlob);
   const bytes = new Uint8Array(arrayBuffer);
 
-  if (bytes.length < 8 || !PNG_SIGNATURE.every((b, i) => b === bytes[i])) {
+  if (!isPng(bytes)) {
     return pngBlob;
   }
 
   // Walk chunks to find the first IDAT (or IEND) — inject iTXt before it
   let insertOffset = 8;
-  while (insertOffset + 12 <= bytes.length) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset + insertOffset);
-    const chunkLen = view.getUint32(0, false);
-    const type = String.fromCharCode(
-      bytes[insertOffset + 4],
-      bytes[insertOffset + 5],
-      bytes[insertOffset + 6],
-      bytes[insertOffset + 7],
-    );
-    if (type === 'IDAT' || type === 'IEND') break;
-    insertOffset += 4 + 4 + chunkLen + 4;
+  for (const c of pngChunks(bytes)) {
+    if (c.type === 'IDAT' || c.type === 'IEND') {
+      insertOffset = c.offset;
+      break;
+    }
+    insertOffset = c.offset + 12 + c.length;
   }
 
   const chunk = buildITxtChunk(diagramType, source);
@@ -127,67 +93,47 @@ export async function extractDiagramSource(
 ): Promise<DiagramPayload | null> {
   const bytes = new Uint8Array(pngData);
 
-  if (bytes.length < 8 || !PNG_SIGNATURE.every((b, i) => b === bytes[i])) {
+  if (!isPng(bytes)) {
     return null;
   }
 
   const decoder = new TextDecoder();
-  let offset = 8;
 
-  while (offset + 12 <= bytes.length) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset + offset);
-    const chunkLen = view.getUint32(0, false);
-    const type = String.fromCharCode(
-      bytes[offset + 4],
-      bytes[offset + 5],
-      bytes[offset + 6],
-      bytes[offset + 7],
-    );
+  for (const chunk of pngChunks(bytes)) {
+    const { type, offset, length: chunkLen } = chunk;
 
     if (type === 'IEND') break;
+    if (type !== 'iTXt' || chunkLen <= KEYWORD_BYTES.length + 5) continue;
 
-    if (type === 'iTXt' && chunkLen > KEYWORD_BYTES.length + 5) {
-      const dataStart = offset + 8;
-      const dataBytes = bytes.subarray(dataStart, dataStart + chunkLen);
+    const dataStart = offset + 8;
+    const dataBytes = bytes.subarray(dataStart, dataStart + chunkLen);
 
-      // Locate keyword null terminator
-      const kwEnd = dataBytes.indexOf(0);
-      if (kwEnd === -1 || kwEnd + 5 >= dataBytes.length) {
-        offset += 4 + 4 + chunkLen + 4;
-        continue;
-      }
+    // Locate keyword null terminator
+    const kwEnd = dataBytes.indexOf(0);
+    if (kwEnd === -1 || kwEnd + 5 >= dataBytes.length) continue;
 
-      const keyword = decoder.decode(dataBytes.subarray(0, kwEnd));
-      if (keyword !== KEYWORD) {
-        offset += 4 + 4 + chunkLen + 4;
-        continue;
-      }
+    const keyword = decoder.decode(dataBytes.subarray(0, kwEnd));
+    if (keyword !== KEYWORD) continue;
 
-      // Skip compression (we only write uncompressed; flag=0, method=0)
-      if (dataBytes[kwEnd + 1] !== 0 || dataBytes[kwEnd + 2] !== 0) {
-        offset += 4 + 4 + chunkLen + 4;
-        continue;
-      }
+    // Skip compression (we only write uncompressed; flag=0, method=0)
+    if (dataBytes[kwEnd + 1] !== 0 || dataBytes[kwEnd + 2] !== 0) continue;
 
-      // Find null after language tag, then null after translated keyword
-      const langEnd = dataBytes.indexOf(0, kwEnd + 3);
-      if (langEnd === -1) { offset += 4 + 4 + chunkLen + 4; continue; }
-      const tkwEnd = dataBytes.indexOf(0, langEnd + 1);
-      if (tkwEnd === -1) { offset += 4 + 4 + chunkLen + 4; continue; }
+    // Find null after language tag, then null after translated keyword
+    const langEnd = dataBytes.indexOf(0, kwEnd + 3);
+    if (langEnd === -1) continue;
+    const tkwEnd = dataBytes.indexOf(0, langEnd + 1);
+    if (tkwEnd === -1) continue;
 
-      const textStart = tkwEnd + 1;
-      if (textStart >= dataBytes.length) { offset += 4 + 4 + chunkLen + 4; continue; }
+    const textStart = tkwEnd + 1;
+    if (textStart >= dataBytes.length) continue;
 
-      try {
-        const parsed = JSON.parse(decoder.decode(dataBytes.subarray(textStart)));
-        if (typeof parsed?.diagramType !== 'string' || typeof parsed?.source !== 'string') return null;
-        return parsed as DiagramPayload;
-      } catch {
-        return null;
-      }
+    try {
+      const parsed = JSON.parse(decoder.decode(dataBytes.subarray(textStart)));
+      if (typeof parsed?.diagramType !== 'string' || typeof parsed?.source !== 'string') return null;
+      return parsed as DiagramPayload;
+    } catch {
+      return null;
     }
-
-    offset += 4 + 4 + chunkLen + 4;
   }
 
   return null;

@@ -62,7 +62,7 @@ import {
   preparedToDiagram,
   preparedAgeDays,
 } from '@/services/ActivationPrepared';
-import { capturePng, blobToBase64 } from '@/model/Attachment';
+import { capturePng, blobToBase64 } from '@/model/attachment/capturePng';
 import { callRemote } from '@/utils/requestUtil';
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink';
 import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from '@/model/saveFailureDiagnosis';

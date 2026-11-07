@@ -109,7 +109,7 @@ There is **no "release all variants" run.** Diagramly and lite for one commit ma
 .claude/skills/release-app/scripts/check-prerequisite.sh "<variant>" "<draft-tag>"
 ```
 
-The script first requires the draft's `targetCommitish` to be a full, resolvable commit SHA. This blocks legacy drafts that still target a moving branch such as `main`, including canary and independent releases. For Lite and Full it then searches published prerequisite releases by variant, resolves each published tag to the commit it actually shipped, and requires an exact SHA match. Full additionally enforces the 86400-second soak from that matching Lite release's `publishedAt`.
+The script first requires the draft's `targetCommitish` to be a full, resolvable commit SHA. This blocks legacy drafts that still target a moving branch such as `main`, including canary and independent releases. For every variant it then blocks a draft that is not truly newer than that variant's live release (same rule as 1.1), so a rollback is stopped even if the draft was chosen by hand. For Lite and Full it then searches published prerequisite releases by variant, resolves each published tag to the commit it actually shipped, and requires an exact SHA match. Full additionally enforces the 86400-second soak from that matching Lite release's `publishedAt`.
 
 **Proceed only when the script exits zero with an explicit `OK:` line.** Treat anything else — a nonzero exit, `BLOCK:` line, command error, or empty output — as a stop: report the unsafe draft or missing/young prerequisite and, for the full soak, how many hours remain until the 24-hour mark. Override only if the user explicitly says so (e.g. a Full-only hotfix).
 
@@ -137,12 +137,18 @@ It prints `SELECT: <tag> <sha>` (plus one `SKIP:` line per newer draft it passed
   (Diagramly for Lite, Lite for Full). Merges after the canary keep producing newer drafts that no
   prerequisite validated; those are the `SKIP:` lines. No 24-hour freshness rule applies: a Full
   draft that has passed the 24-hour soak is necessarily at least a day old.
-- Drafts older than the variant's latest **published** release are never candidates — publishing
-  one would roll production back.
+- A draft is a candidate only when it is truly newer than the variant's live release (the most
+  recently published one): its tag sorts after the live tag **and** its commit is strictly ahead of
+  the live commit. Publishing anything else would roll production back or ship nothing new. If the
+  comparison cannot be made, the script prints `NONE:` and exits 1; report it, do not pick by hand.
+- Never order releases by `created_at`: GitHub rewrites it to the target commit's date on publish.
 
 _(2026-10-02: after Lite `v2026.10.021754` shipped `ab173d6f`, a test-only merge produced
 `v2026.10.021856-*` drafts. "Newest draft" would have picked a Full draft no Lite had validated,
 and a naive "matches a published Diagramly" walk picked a 22 Sep Lite draft — a rollback.)_
+
+_(2026-11-07: `v2026.11.071119-diagramly` was live, yet the older `v2026.11.071048-diagramly` draft
+was selected because publishing had moved the live release's `created_at` before the draft's.)_
 
 Then confirm the draft's source workflow run succeeded:
 

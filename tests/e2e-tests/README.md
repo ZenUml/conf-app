@@ -170,3 +170,13 @@ Key `playwright.config.js` settings:
 - **Storage State**: Saved to `auth-state.json` and reused
 - **Timeouts**: 60s action/navigation, 120s for OTP entry
 - **Retries**: 2 retries on CI, 0 locally
+
+## Staging test-page retention
+
+The Lite, Full, Diagramly and AsyncAPI staging profiles provision UTC year/month buckets under their configured test roots. `e2e-page-retention.yml` serializes provisioning and prepares the current and following month; test workers only look buckets up and fail if one is missing or duplicated. This avoids creating buckets concurrently across CI jobs. Run provisioning only through that workflow's serialized job. An explicit `PARENT_PAGE_ID` override and production PVT paths retain their original behavior. Persistent render fixtures are not enrolled in this policy.
+
+A successfully published test page is marked with `zenuml-e2e-origin-v1` only after its identity and parent are verified. A page becomes eligible after 60 days only when its marker, parent, creation time and page version still match. A changed or moved page, any unmarked page, an entry in `config/render-fixtures.json`, and a page with the `e2e-preserve` label are preserved. Add the label to a page under investigation. Missing or unreadable evidence stops the run or leaves the page untouched; existing pages outside the new buckets are not backfilled or archived.
+
+The daily workflow provisions buckets and archives at most 20 eligible pages per profile. A manually dispatched run defaults to dry run; its execute option performs the same bounded operation. It uses the configured Forge email and API token, requires the account to have archive permission on each staging space, and records per-page outcomes in a 90-day workflow artifact. A 202 archive response is not success until the page's archived status is read back. A rejected or ambiguous request stops that profile's run; the next scheduled run re-enumerates the pages. The process runs separately from the E2E pipeline.
+
+Each report contains counts for each monthly bucket and `bucketPageTotal` across those buckets. These do not include the old parent or unbucketed test pages: their inventory and cleanup remain a separate operation. Watch monthly and total counts in the artifacts; split buckets further if a month approaches the problematic sibling count.

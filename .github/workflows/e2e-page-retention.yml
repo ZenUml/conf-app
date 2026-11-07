@@ -1,0 +1,59 @@
+name: Staging E2E page retention
+
+on:
+  schedule:
+    - cron: '37 2 * * *'
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: 'Archive eligible pages (otherwise dry run)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-page-retention
+  cancel-in-progress: false
+
+jobs:
+  retention:
+    name: Retention ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [zenuml-lite@stg, zenuml-full@stg, diagramly@stg, asyncapi@stg]
+    defaults:
+      run:
+        working-directory: tests/e2e-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+          cache-dependency-path: tests/e2e-tests/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Archive verified temporary pages
+        env:
+          APP: ${{ matrix.app }}
+          FORGE_EMAIL: ${{ vars.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          EXECUTE: ${{ github.event_name == 'schedule' || inputs.execute }}
+          E2E_RETENTION_REPORT: retention-report.json
+        run: |
+          if [ "$EXECUTE" = true ]; then
+            node helpers/retention/cli.mjs --provision --execute
+          else
+            node helpers/retention/cli.mjs --dry-run
+          fi
+      - name: Retain report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retention-${{ matrix.app }}-${{ github.run_id }}
+          path: tests/e2e-tests/retention-report.json
+          if-no-files-found: warn
+          retention-days: 90

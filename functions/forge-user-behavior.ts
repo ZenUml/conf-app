@@ -5,7 +5,7 @@ import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
 import { ForgeUserBehaviorEventBody, mapForgeUserBehaviorEvent } from "./service/forgeUserBehavior";
 import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain, upsertAtlassianInstance } from "./utils/dbUtils";
-import { archiveAnalyticsEvent, insertAnalyticsEventFact, normalizeMappedAnalyticsEvent } from "./utils/analytics";
+import { normalizeMappedAnalyticsEvent, recordAnalyticsEvent } from "./utils/analytics";
 import { D1Database } from "@cloudflare/workers-types";
 
 interface Env {
@@ -70,11 +70,11 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
     }
 
     // Store event in D1 for analysis
-    waitUntil((async () => {
-      const canonicalEvent = normalizeMappedAnalyticsEvent(analyticsEvent as unknown as Record<string, unknown>, 'forge');
-      const r2Key = await archiveAnalyticsEvent(env.EVENT_BUCKET, canonicalEvent, analyticsEvent as unknown as Record<string, unknown>);
-      await insertAnalyticsEventFact(env.DB, canonicalEvent, r2Key);
-    })());
+    recordAnalyticsEvent(
+      { waitUntil }, env,
+      normalizeMappedAnalyticsEvent(analyticsEvent as unknown as Record<string, unknown>, 'forge'),
+      analyticsEvent as unknown as Record<string, unknown>,
+    );
 
     // Comment out the actual Mixpanel tracking for now to avoid sending data which incur costs during testing. We can enable it once we're ready to track real events.
     // waitUntil(mixpanelTrack(analyticsEvent, MIXPANEL_TOKEN_FORGE_USER_BEHAVIOUR));

@@ -48,7 +48,7 @@
             </div>
             <!-- MCP promo, editor tip (useEditorMcpPromo): docked under the
                  code after sustained manual typing. -->
-            <div v-if="mcpShowTip && !showAIChat" class="editor-mcp-tip-dock">
+            <div v-if="mcpShowTip" class="editor-mcp-tip-dock">
               <McpPromoCard
                 variant="tip"
                 title="Skip the typing — let Claude or Cursor write this diagram from your code."
@@ -65,7 +65,7 @@
         <!-- MCP promo, new diagram (useEditorMcpPromo): over the preview
              while the starter code is untouched. -->
         <McpPromoCard
-          v-if="mcpShowNewDiagramCard && !showAIChat && !templateGalleryOpen"
+          v-if="mcpShowNewDiagramCard"
           class="editor-mcp-new-card"
           title="Start from your code"
           body="Let Claude, Cursor or VS Code draft this diagram from your codebase, then paste it here."
@@ -134,7 +134,7 @@
   import type { CodePanelToggleTrigger } from '@/utils/analytics/catalog'
   import { DiagramType } from '@/model/Diagram/Diagram'
   import { getCodeFromDiagram, getStoreUpdateAction } from '@/model/Diagram/DiagramTypeConfig'
-  import { computed } from 'vue'
+  import { computed, ref } from 'vue'
   import { useStore } from 'vuex'
   import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
   import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
@@ -166,12 +166,19 @@
     },
     setup() {
       const store = useStore()
+      // Here rather than in data(): the promo needs them to tell whether it is
+      // on screen. Starter gallery open is emitted by Header.
+      const showAIChat = ref(false)
+      const templateGalleryOpen = ref(false)
       const promo = useEditorMcpPromo({
         diagramType: computed(() => store.state.diagram.diagramType),
         code: computed(() => getCodeFromDiagram(store.state.diagram, store.state.diagram.diagramType) || ''),
         diagramId: computed(() => store.state.diagram.id || undefined),
+        covered: computed(() => showAIChat.value || templateGalleryOpen.value),
       })
       return {
+        showAIChat,
+        templateGalleryOpen,
         mcpShowNewDiagramCard: promo.showNewDiagramCard,
         mcpShowTip: promo.showTip,
         mcpOnCta: promo.onCta,
@@ -185,10 +192,6 @@
     },
     data() {
       return {
-        // Starter template gallery open (Header emits it); the MCP
-        // new-diagram card stays hidden while it is.
-        templateGalleryOpen: false,
-        showAIChat: false,
         showCodeEditor: true,
         syntaxRepairRequestId: 0,
         aiChatOpenedAt: 0,

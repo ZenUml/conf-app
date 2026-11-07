@@ -65,6 +65,14 @@ describe("eventSampling", () => {
       }
     });
 
+    it("keeps the placement picker funnel at full rate", () => {
+      for (const name of ["placement_picker_opened", "placement_picker_dismissed", "diagram_added_to_page"]) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(1);
+      }
+    });
+
     it("keeps the complete AI Chat and AI Repair event families at full rate", () => {
       const names = [
         "ai_chat_button_shown",

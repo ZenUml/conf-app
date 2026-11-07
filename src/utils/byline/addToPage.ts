@@ -2,6 +2,7 @@ import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { referencedCustomContentId } from '@/model/page/referencedCustomContent'
 import { requestConfluenceJson as request } from '@/utils/byline/confluenceRequest'
+import { resolveInsertIndex, type PagePlacement } from '@/utils/byline/pagePlacement'
 
 /**
  * Place a saved diagram on its page in one click.
@@ -26,10 +27,12 @@ import { requestConfluenceJson as request } from '@/utils/byline/confluenceReque
  * directly, and `localId` carries appId and environmentId as fixed-length UUIDs
  * — and we refuse to write at all unless the two agree (see `resolveIdentity`).
  *
- * WHAT IT DOES NOT DO. It appends to the end of the document, because nothing
- * here knows where the author wanted it; it never rewrites or removes an
- * existing node; and it never force-publishes over a concurrent edit. Every
- * write is one ordinary page version, so page history reverts it.
+ * WHERE IT GOES. Wherever the placement picker says (pagePlacement.ts), or the
+ * end of the document without a choice.
+ *
+ * WHAT IT DOES NOT DO. It never rewrites or removes an existing node, and it
+ * never force-publishes over a concurrent edit. Every write is one ordinary page
+ * version, so page history reverts it.
  */
 
 export type AddToPageResult =
@@ -37,6 +40,7 @@ export type AddToPageResult =
   | 'already_present'
   | 'forbidden'
   | 'conflict'
+  | 'page_changed'
   | 'failed'
 
 /**
@@ -219,7 +223,7 @@ function countExtensions(adf: unknown): number {
 }
 
 /**
- * Append the diagram's macro to the page and publish one new version.
+ * Put the diagram's macro on the page and publish one new version.
  *
  * Runs as the USER, so a reader who cannot edit gets 'forbidden' — an expected
  * outcome on a notice that reaches every reader, and the caller falls back to
@@ -228,6 +232,7 @@ function countExtensions(adf: unknown): number {
 export async function addDiagramToPage(
   pageId: string,
   diagram: { id: string; diagramType: string },
+  placement?: PagePlacement,
   attempt = 0,
 ): Promise<AddToPageOutcome> {
   const identity = resolveIdentity(forgeGlobal.forgeContext as any)
@@ -254,7 +259,11 @@ export async function addDiagramToPage(
       return { result: 'already_present', pageMacroCount }
     }
 
-    adf.content.push(buildMacroNode(identity, macroKey, diagram.id))
+    // The spot was chosen against an earlier read. If it is gone, writing it
+    // anywhere would be a guess on a customer's page, so the user chooses again.
+    const index = placement ? resolveInsertIndex(adf.content, version, placement) : adf.content.length
+    if (index === null) return { result: 'page_changed', pageMacroCount }
+    adf.content.splice(index, 0, buildMacroNode(identity, macroKey, diagram.id))
 
     const write = await request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}`, 'PUT', {
       id: String(pageId),
@@ -270,7 +279,7 @@ export async function addDiagramToPage(
     // version we would overwrite is somebody's edit.
     if (write.status === 409) {
       if (attempt > 0) return { result: 'conflict', pageMacroCount }
-      return addDiagramToPage(pageId, diagram, attempt + 1)
+      return addDiagramToPage(pageId, diagram, placement, attempt + 1)
     }
     if (!write.ok) {
       return { result: 'failed', pageMacroCount, reason: 'page_write_failed', status: write.status }

@@ -36,6 +36,25 @@ const placeDiagram = vi.hoisted(() =>
 );
 vi.mock('@/utils/byline/placeDiagram', () => ({ placeDiagram }));
 
+// The modal's own behaviour is covered in PlacementPicker.spec. Here it answers
+// at once with the default spot.
+const CHOICE = vi.hoisted(() => ({
+  placement: { index: 2, version: 7, after: 'a', before: null },
+  position: 'end',
+  blockCount: 2,
+  defaultKept: true,
+}));
+const choosePlacement = vi.hoisted(() => vi.fn());
+vi.mock('@/utils/byline/placementPicker', () => ({
+  choosePlacement,
+  PICKER_OPEN_FAILED_MESSAGE: "Couldn't open the page preview.",
+  placementEventProps: (c: any) => ({
+    placement_position: c.position,
+    placement_block_count: c.blockCount,
+    placement_default_kept: c.defaultKept,
+  }),
+}));
+
 const forgeGlobalMock = vi.hoisted(() => ({ forgeContext: { cloudId: 'cloud-1' } as any }));
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: forgeGlobalMock,
@@ -99,6 +118,7 @@ describe('BylineDiagrams', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    choosePlacement.mockResolvedValue({ status: 'chosen', choice: CHOICE });
     window.localStorage.clear();
     spaceKey.value = 'SPACE';
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1' };
@@ -923,7 +943,7 @@ describe('BylineDiagrams', () => {
       await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
       await flushPromises();
 
-      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: '2' }), expect.any(Function));
+      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: '2' }), expect.any(Function), CHOICE.placement);
       expect(wrapper.text()).not.toContain('not on this page');
       expect(events('diagram_added_to_page')[0][1]).toMatchObject({
         result: 'added',
@@ -938,6 +958,63 @@ describe('BylineDiagrams', () => {
       // The reload and the reveal note live in placeDiagram (see its spec); the
       // row's job is to hand it the record rewrite to run before the reload.
       expect(placeDiagram.mock.calls[0][2]).toEqual(expect.any(Function));
+    });
+
+    it('writes nothing when the user cancels the picker', async () => {
+      choosePlacement.mockResolvedValue({ status: 'cancelled' });
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+
+      expect(placeDiagram).not.toHaveBeenCalled();
+      expect(events('diagram_added_to_page')).toHaveLength(0);
+    });
+
+    it('says so when the picker cannot open, and writes nothing', async () => {
+      choosePlacement.mockResolvedValue({ status: 'open_failed' });
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+
+      expect(placeDiagram).not.toHaveBeenCalled();
+      expect(wrapper.find('[data-testid="byline-add-failed"]').exists()).toBe(true);
+      expect(events('placement_picker_opened')[0][1]).toMatchObject({ result: 'open_failed' });
+    });
+
+    it('reports where the diagram went', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+
+      expect(events('diagram_added_to_page')[0][1]).toMatchObject({
+        placement_position: 'end',
+        placement_block_count: 2,
+        placement_default_kept: true,
+      });
+    });
+
+    it('offers the link instead of the picker while the host page is in the editor', async () => {
+      // The picker reads the published page, which is not the draft in front of
+      // the author. The link goes into the draft directly.
+      forgeGlobalMock.forgeContext = {
+        cloudId: 'cloud-1',
+        extension: { location: 'https://example.atlassian.net/wiki/spaces/SPACE/pages/edit-v2/703430669' },
+      };
+      apWrapper.listPageDiagramContents.mockResolvedValue(TWO);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      expect(wrapper.find('[data-testid="byline-add-to-page"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-copy-url"]').exists()).toBe(true);
     });
 
     it('falls back to the link when the write is refused', async () => {

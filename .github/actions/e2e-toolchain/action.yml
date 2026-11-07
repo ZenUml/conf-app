@@ -1,0 +1,31 @@
+name: 'E2E toolchain'
+description: 'Install the standalone E2E package dependencies and the cached Playwright chromium. Requires checkout, pnpm and Node to be set up first.'
+
+inputs:
+  workspace:
+    description: 'Directory of the standalone E2E package'
+    required: false
+    default: 'tests/e2e-tests'
+  node-options:
+    description: 'NODE_OPTIONS for the dependency install (empty for none)'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Install E2E test dependencies
+      shell: bash
+      run: cd ${{ inputs.workspace }} && pnpm install --ignore-workspace
+      env:
+        NODE_OPTIONS: ${{ inputs.node-options }}
+    - name: Cache Playwright browsers
+      uses: actions/cache@v5
+      id: pw-cache
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-pw-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.workspace)) }}
+    - name: Install Playwright browsers
+      if: steps.pw-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: cd ${{ inputs.workspace }} && pnpm exec playwright install --with-deps chromium

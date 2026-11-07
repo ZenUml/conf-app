@@ -57,44 +57,12 @@ jobs:
         # GITHUB_TOKEN cannot access ("Repository not found"), aborting checkout
         # before the build runs. The asyncapi build needs vendor/asyncapi-studio
         # only — initialise it explicitly below.
-      - name: Init asyncapi-studio submodule
-        run: git submodule update --init --depth 1 vendor/asyncapi-studio
-      # Capture the submodule SHA so the cache key changes only when the
-      # studio pin moves — every PR that doesn't bump vendor/asyncapi-studio
-      # reuses the previous build artifacts.
-      - name: Resolve asyncapi-studio submodule SHA
-        id: studio-sha
-        run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      # Cache Studio build output + its node_modules. On a cache hit:
-      #   - static/asyncapi-studio/.studio-commit already matches the pin,
-      #     so scripts/build-studio.sh fast-paths out (no pnpm install,
-      #     no Next.js build) — saves ~60–90s per CI run.
-      #   - vendor/asyncapi-studio/node_modules being restored means a
-      #     forced rebuild (FORCE_REBUILD=1) is also cheap because pnpm
-      #     install in the submodule short-circuits.
-      # Cache key includes scripts/build-studio.sh hash so changes to the
-      # build logic invalidate the cache. The fallback restore-keys lets
-      # us still pull node_modules even if the submodule SHA moved (saves
-      # most of the pnpm install on pin bumps).
-      - name: Cache asyncapi Studio build
-        uses: actions/cache@v5
-        with:
-          path: |
-            static/asyncapi-studio
-            vendor/asyncapi-studio/node_modules
-            vendor/asyncapi-studio/apps/*/node_modules
-            vendor/asyncapi-studio/packages/*/node_modules
-          key: studio-${{ steps.studio-sha.outputs.sha }}-${{ hashFiles('scripts/build-studio.sh') }}
-          restore-keys: |
-            studio-${{ steps.studio-sha.outputs.sha }}-
-            studio-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - name: Setup Node
-        uses: actions/setup-node@v5
+      - name: AsyncAPI Studio submodule and build cache
+        uses: ./.github/actions/asyncapi-studio-cache
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
         with:
           node-version: "24"
-          cache: pnpm
       - name: Install dependencies (skip post-install scripts)
         run: pnpm install --frozen-lockfile --ignore-scripts
         env:
@@ -135,12 +103,10 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v5
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
         with:
           node-version: "24"
-          cache: pnpm
       # Deliberately NO asyncapi-studio submodule init. vite.config only copies
       # the Studio when `command === 'build'`, and mermaid is served in dev by
       # an in-config middleware straight out of node_modules, so `vite dev`
@@ -149,17 +115,8 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-      - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install --ignore-workspace
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        id: pw-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
-      - name: Install Playwright browsers
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+      - name: E2E toolchain
+        uses: ./.github/actions/e2e-toolchain
       - name: Verify Mixpanel isolation without network egress
         run: cd tests/e2e-tests && pnpm exec playwright test -c playwright.mixpanel-isolation.config.ts
       # The only tests that run the real Mermaid highlight runtime in a browser.

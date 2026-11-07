@@ -1,0 +1,37 @@
+title Pi diagram agent: one /magic run
+@Actor Operator
+Ext as "pi-extension.ts"
+Loop as "Pi agent loop"
+Codex as "Codex model"
+Tools as "read/write/bash"
+Inspect as "diagram_inspect"
+
+// /magic src.mmd [--resume] [--reference] [--feedback]
+Operator -> Ext.magic(source) {
+  // openai-codex vision model, thinking=high; stop if none
+  Ext -> Ext.selectModel()
+  // hash source + rules, run dir, prompt = rules + source + feedback
+  Ext -> Ext.prepareTask()
+  Ext -> Loop.sendUserMessage(prompt) {
+    while("model calls tools") {
+      Loop -> Codex.request(context) {
+        return toolCall
+      }
+      if("author or edit") {
+        // diagram-specific generate.py, candidate.svg
+        Loop -> Tools.run(command) {
+          return output
+        }
+      } else {
+        // returns original, reference, candidate images + audit JSON
+        Loop -> Inspect.inspect(jobId) {
+          Inspect -> Inspect.render2x()
+          Inspect -> Inspect.audit()
+          return "text + PNG blocks"
+        }
+      }
+    }
+    // candidate path, exact SVG hash, remaining defects
+    return finalReport
+  }
+}

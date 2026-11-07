@@ -1,0 +1,19 @@
+{
+  "name": "f3-groups",
+  "direction": "LR",
+  "nodes": [
+    {"id": "A", "text": "Collect request"}, {"id": "B", "text": "Check request"}, {"id": "C", "text": "Assess request"},
+    {"id": "D", "text": "Approve request"}, {"id": "E", "text": "Notify requester"}
+  ],
+  "edges": [
+    {"source": "A", "target": "B", "label": "", "dashed": false},
+    {"source": "B", "target": "C", "label": "", "dashed": false},
+    {"source": "C", "target": "D", "label": "", "dashed": false},
+    {"source": "D", "target": "E", "label": "", "dashed": false}
+  ],
+  "groups": [
+    {"id": "INTAKE", "label": "Intake", "nodes": ["A", "B"]},
+    {"id": "REVIEW", "label": "Review", "nodes": ["C", "D"]}
+  ],
+  "ungrouped": ["E"]
+}

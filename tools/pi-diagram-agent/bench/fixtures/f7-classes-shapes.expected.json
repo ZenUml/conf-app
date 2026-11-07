@@ -1,0 +1,19 @@
+{
+  "name": "f7-classes-shapes",
+  "direction": "LR",
+  "nodes": [
+    {"id": "U", "text": "Client"}, {"id": "API", "text": "Gateway"}, {"id": "S", "text": "Validate"},
+    {"id": "DB", "text": "Records"}, {"id": "X", "text": "Stop"}, {"id": "H", "text": "Archive"}
+  ],
+  "edges": [
+    {"source": "U", "target": "API", "label": "", "dashed": false},
+    {"source": "API", "target": "S", "label": "", "dashed": false},
+    {"source": "S", "target": "DB", "label": "", "dashed": false},
+    {"source": "S", "target": "X", "label": "reject", "dashed": false},
+    {"source": "DB", "target": "H", "label": "", "dashed": false}
+  ],
+  "shapes": {"U": "stadium", "API": "rect", "S": "subroutine", "DB": "cylinder", "X": "circle", "H": "hexagon"},
+  "roles": {"U": "ext", "API": "neutral", "DB": "store", "H": "store"},
+  "groups": [],
+  "ungrouped": ["U", "API", "S", "DB", "X", "H"]
+}

@@ -1,4 +1,5 @@
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
+import { markerKey, readRawMarker, writeJsonMarker } from '@/utils/storage/marker'
 
 /**
  * Shared marker module for the paywall page-banner (Phase 3 redesign).
@@ -71,12 +72,6 @@ export interface ImpressionMarker {
   showCount: number
 }
 
-/** encodeURIComponent + 'unknown' fallback, mirroring continueAttempts.ts so the
- * macro-side write and banner-side read derive byte-identical keys. */
-function normalizeKeyPart(value: string): string {
-  return encodeURIComponent(value || 'unknown')
-}
-
 /**
  * Derive the shared identity from the Forge context. Both the macro iframe
  * (write) and the page-banner iframe (read) call this so any divergence in any
@@ -92,15 +87,15 @@ export function deriveWarningBannerIdentity(): WarningBannerIdentity {
 }
 
 export function targetingMarkerKey(identity: WarningBannerIdentity): string {
-  return ['paywallWarning', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
+  return markerKey('paywallWarning', identity.clientDomain, identity.spaceKey)
 }
 
 export function impressionMarkerKey(identity: WarningBannerIdentity): string {
-  return ['paywallBanner', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
+  return markerKey('paywallBanner', identity.clientDomain, identity.spaceKey)
 }
 
 export function macroActivityMarkerKey(identity: WarningBannerIdentity): string {
-  return ['paywallActivity', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.spaceKey)].join(':')
+  return markerKey('paywallActivity', identity.clientDomain, identity.spaceKey)
 }
 
 export function parseTargetingMarker(raw: string | null): TargetingMarker | null {
@@ -157,19 +152,11 @@ export function parseImpressionMarker(raw: string | null): ImpressionMarker | nu
 }
 
 export function readTargetingMarker(identity: WarningBannerIdentity = deriveWarningBannerIdentity()): TargetingMarker | null {
-  try {
-    return parseTargetingMarker(localStorage.getItem(targetingMarkerKey(identity)))
-  } catch {
-    return null
-  }
+  return parseTargetingMarker(readRawMarker(targetingMarkerKey(identity)))
 }
 
 export function readMacroActivityMarker(identity: WarningBannerIdentity = deriveWarningBannerIdentity()): MacroActivityMarker | null {
-  try {
-    return parseMacroActivityMarker(localStorage.getItem(macroActivityMarkerKey(identity)))
-  } catch {
-    return null
-  }
+  return parseMacroActivityMarker(readRawMarker(macroActivityMarkerKey(identity)))
 }
 
 /** Best-effort write from the macro iframe. Never throws into the render path. */
@@ -177,11 +164,9 @@ export function writeTargetingMarker(
   marker: TargetingMarker,
   identity: WarningBannerIdentity = deriveWarningBannerIdentity()
 ): void {
-  try {
-    localStorage.setItem(targetingMarkerKey(identity), JSON.stringify(marker))
-  } catch (e) {
+  writeJsonMarker(targetingMarkerKey(identity), marker, (e) =>
     console.warn('[paywall-banner] targeting marker write failed', e)
-  }
+  )
 }
 
 export function markRecentMacroActivity(
@@ -189,32 +174,24 @@ export function markRecentMacroActivity(
   identity: WarningBannerIdentity = deriveWarningBannerIdentity(),
   now: Date = new Date()
 ): void {
-  try {
-    const marker: MacroActivityMarker = {
-      lastActivityAt: now.toISOString(),
-      activityType,
-    }
-    localStorage.setItem(macroActivityMarkerKey(identity), JSON.stringify(marker))
-  } catch (e) {
-    console.warn('[paywall-banner] activity marker write failed', e)
+  const marker: MacroActivityMarker = {
+    lastActivityAt: now.toISOString(),
+    activityType,
   }
+  writeJsonMarker(macroActivityMarkerKey(identity), marker, (e) =>
+    console.warn('[paywall-banner] activity marker write failed', e)
+  )
 }
 
 export function readImpressionMarker(identity: WarningBannerIdentity = deriveWarningBannerIdentity()): ImpressionMarker | null {
-  try {
-    return parseImpressionMarker(localStorage.getItem(impressionMarkerKey(identity)))
-  } catch {
-    return null
-  }
+  return parseImpressionMarker(readRawMarker(impressionMarkerKey(identity)))
 }
 
 /** Best-effort write from the banner iframe. Never throws into the banner path. */
 function writeImpressionMarker(marker: ImpressionMarker, identity: WarningBannerIdentity): void {
-  try {
-    localStorage.setItem(impressionMarkerKey(identity), JSON.stringify(marker))
-  } catch (e) {
+  writeJsonMarker(impressionMarkerKey(identity), marker, (e) =>
     console.warn('[paywall-banner] impression marker write failed', e)
-  }
+  )
 }
 
 /** Which gate admitted the banner, and therefore which copy the user sees. */

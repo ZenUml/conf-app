@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, h, nextTick, ref } from 'vue'
+import { computed, defineComponent, h, nextTick, reactive, ref, type Ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
+import EventBus from '@/EventBus'
 import { TIP_EDIT_MS, TIP_MIN_EDITS, TIP_TYPED_CHARS, useEditorMcpPromo } from './useEditorMcpPromo'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
@@ -13,7 +14,7 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
   getContext: vi.fn(() => Promise.resolve({ cloudId: 'cloud-1', accountId: 'acct-1' })),
 }))
 
-function setup(initial: { type?: string; code?: string; id?: string } = {}) {
+function setup(initial: { type?: string; code?: string; id?: string; covered?: Ref<boolean> } = {}) {
   const diagramType = ref<string | undefined>(initial.type ?? DiagramType.Sequence)
   const code = ref(initial.code ?? 'A->B: hi')
   const diagramId = ref<string | undefined>(initial.id)
@@ -21,12 +22,32 @@ function setup(initial: { type?: string; code?: string; id?: string } = {}) {
   let api!: ReturnType<typeof useEditorMcpPromo>
   const Host = defineComponent({
     setup() {
-      api = useEditorMcpPromo({ diagramType, code, diagramId, now: () => clock })
+      api = useEditorMcpPromo({ diagramType, code, diagramId, covered: initial.covered, now: () => clock })
       return () => h('div')
     },
   })
   mount(Host)
   return { api, code, diagramId, advance: (ms: number) => { clock += ms } }
+}
+
+// Like the real store: every tab keeps its own source, and the code the editor
+// shows follows the selected type.
+function setupTabs(initial: { covered?: Ref<boolean> } = {}) {
+  const sources = reactive<Record<string, string>>({
+    [DiagramType.Sequence]: 'A->B: sequence seed',
+    [DiagramType.Mermaid]: 'sequenceDiagram\n  A->>B: mermaid seed',
+  })
+  const diagramType = ref<string>(DiagramType.Sequence)
+  const code = computed(() => sources[diagramType.value] ?? '')
+  let api!: ReturnType<typeof useEditorMcpPromo>
+  const Host = defineComponent({
+    setup() {
+      api = useEditorMcpPromo({ diagramType, code, diagramId: ref(undefined), covered: initial.covered })
+      return () => h('div')
+    },
+  })
+  mount(Host)
+  return { api, sources, diagramType }
 }
 
 const events = (name: string) => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([n]) => n === name)
@@ -160,5 +181,129 @@ describe('useEditorMcpPromo', () => {
     const graph = setup({ type: DiagramType.Graph })
     await flushPromises()
     expect(graph.api.showNewDiagramCard.value).toBe(false)
+  })
+
+  describe('new-diagram card and the selected tab', () => {
+    it('shows the card when the saved tab is applied right after setup', async () => {
+      const { api, diagramType } = setupTabs()
+      // Header.mounted() applies zenuml-preferred-diagram-type here.
+      diagramType.value = DiagramType.Mermaid
+      await flushPromises()
+      expect(api.showNewDiagramCard.value).toBe(true)
+      expect(events('agent_link_mcp_button_shown')).toEqual([[
+        'agent_link_mcp_button_shown',
+        expect.objectContaining({ mcp_button_placement: 'editor_new_diagram', macro_type: DiagramType.Mermaid }),
+      ]])
+    })
+
+    it('keeps the card when switching to another untouched tab', async () => {
+      const { api, diagramType } = setupTabs()
+      await flushPromises()
+      diagramType.value = DiagramType.Mermaid
+      await nextTick()
+      expect(api.showNewDiagramCard.value).toBe(true)
+      diagramType.value = DiagramType.Sequence
+      await nextTick()
+      expect(api.showNewDiagramCard.value).toBe(true)
+    })
+
+    it('hides the card once the selected tab is edited', async () => {
+      const { api, diagramType, sources } = setupTabs()
+      await flushPromises()
+      diagramType.value = DiagramType.Mermaid
+      await nextTick()
+      sources[DiagramType.Mermaid] += ' edited'
+      await nextTick()
+      expect(api.showNewDiagramCard.value).toBe(false)
+    })
+
+    it('does not count switching tabs as typing', async () => {
+      const { api, diagramType, sources } = setupTabs()
+      await flushPromises()
+      sources[DiagramType.Sequence] += 'x'
+      await nextTick()
+      for (let i = 0; i < 30; i++) {
+        diagramType.value = i % 2 ? DiagramType.Sequence : DiagramType.Mermaid
+        await nextTick()
+      }
+      sources[DiagramType.Mermaid] = 'y'.repeat(sources[DiagramType.Mermaid].length + 1)
+      await nextTick()
+      expect(api.showTip.value).toBe(false)
+    })
+  })
+
+  describe('impressions count only what is on screen', () => {
+    it('records nothing while covered, then records when uncovered', async () => {
+      const covered = ref(true)
+      const { api } = setup({ covered })
+      await flushPromises()
+      expect(api.showNewDiagramCard.value).toBe(false)
+      expect(events('agent_link_mcp_button_shown')).toHaveLength(0)
+      expect(localStorage.getItem('zenuml.mcpPromo:cloud-1:acct-1')).toBeNull()
+
+      covered.value = false
+      await nextTick()
+      expect(api.showNewDiagramCard.value).toBe(true)
+      expect(events('agent_link_mcp_button_shown')).toHaveLength(1)
+      expect(JSON.parse(localStorage.getItem('zenuml.mcpPromo:cloud-1:acct-1')!).sessions).toHaveLength(1)
+    })
+
+    it('records nothing when a template is picked while covered', async () => {
+      const covered = ref(true)
+      const { code } = setup({ covered })
+      await flushPromises()
+      code.value = 'A->B: from a template'
+      covered.value = false
+      await nextTick()
+      expect(events('agent_link_mcp_button_shown')).toHaveLength(0)
+      expect(localStorage.getItem('zenuml.mcpPromo:cloud-1:acct-1')).toBeNull()
+    })
+
+    it('holds the tip back while covered', async () => {
+      const covered = ref(true)
+      const { api, code } = setup({ id: '777', covered })
+      await flushPromises()
+      for (let typed = 0; typed < TIP_TYPED_CHARS; typed += 40) {
+        code.value += 'y'.repeat(40)
+        await nextTick()
+      }
+      expect(api.showTip.value).toBe(false)
+      expect(events('agent_link_mcp_button_shown')).toHaveLength(0)
+      covered.value = false
+      await nextTick()
+      expect(api.showTip.value).toBe(true)
+      expect(events('agent_link_mcp_button_shown')).toHaveLength(1)
+    })
+  })
+
+  describe('draft banner', () => {
+    const typeUntilTip = async (code: Ref<string>) => {
+      for (let typed = 0; typed < TIP_TYPED_CHARS; typed += 40) {
+        code.value += 'y'.repeat(40)
+        await nextTick()
+      }
+    }
+
+    it('holds the tip back while the banner covers its corner', async () => {
+      const { api, code } = setup({ id: '777' })
+      await flushPromises()
+      EventBus.$emit('draft-banner-visibility', true)
+      await typeUntilTip(code)
+      expect(api.showTip.value).toBe(false)
+      expect(events('agent_link_mcp_button_shown')).toHaveLength(0)
+      EventBus.$emit('draft-banner-visibility', false)
+      await nextTick()
+      expect(api.showTip.value).toBe(true)
+      expect(events('agent_link_mcp_button_shown')).toHaveLength(1)
+    })
+
+    it('leaves the new-diagram card alone, in the opposite corner', async () => {
+      const { api } = setup()
+      await flushPromises()
+      EventBus.$emit('draft-banner-visibility', true)
+      await nextTick()
+      expect(api.showNewDiagramCard.value).toBe(true)
+      EventBus.$emit('draft-banner-visibility', false)
+    })
   })
 })

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { callRemote, forgeRequest, loadPaginatedDataUntil } from './requestUtil';
 import { ForgeRequestError, templateUrl } from './forgeRequestError';
+import { RemoteCallError } from './remoteCallError';
 
 const mockRequestConfluence = vi.fn();
 const mockInvokeRemote = vi.fn();
@@ -16,6 +17,30 @@ describe('callRemote', () => {
       status: 403,
       message: 'HTTP 403: {"error":"no_user_credential"}',
     });
+  });
+
+  it('throws a typed RemoteCallError carrying the status and the backend error code (#927)', async () => {
+    mockInvokeRemote.mockResolvedValue({ status: 403, body: { error: 'no_user_credential' } });
+    const error = await callRemote('/magic-writeback?x=1', 'POST', {}).catch((e) => e);
+    expect(error).toBeInstanceOf(RemoteCallError);
+    expect(error).toMatchObject({ status: 403, errorCode: 'no_user_credential', endpoint: 'POST /magic-writeback' });
+  });
+
+  it('leaves errorCode unset for a non-JSON body and keeps only a short body prefix', async () => {
+    mockInvokeRemote.mockResolvedValue({ status: 502, body: `<html>${'x'.repeat(500)}</html>` });
+    const error = await callRemote('/activation-prepared?pageId=1').catch((e) => e);
+    expect(error).toBeInstanceOf(RemoteCallError);
+    expect(error.status).toBe(502);
+    expect(error.errorCode).toBeUndefined();
+    expect(error.endpoint).toBe('GET /activation-prepared');
+    expect(error.bodyPrefix.length).toBeLessThanOrEqual(120);
+    expect(error.message.startsWith('HTTP 502: ')).toBe(true);
+  });
+
+  it('does not take a long or free-text `error` value as an error code', async () => {
+    mockInvokeRemote.mockResolvedValue({ status: 500, body: { error: 'Internal server error: D1_ERROR no such table' } });
+    const error = await callRemote('/forge-custom-content', 'POST', {}).catch((e) => e);
+    expect(error.errorCode).toBeUndefined();
   });
 });
 

@@ -1,7 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DiagramAttributionFooter from './DiagramAttributionFooter.vue'
-import { registerDiagramImpactView } from '@/services/DiagramImpact'
+import { getDiagramImpact, registerDiagramImpactView } from '@/services/DiagramImpact'
+import { forgeRequest } from '@/utils/requestUtil'
+import { _resetForTesting as resetConfluenceThrottle, noteConfluenceThrottled } from '@/utils/confluenceThrottle'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 const impact = { audienceCount: 0 }
@@ -313,5 +315,43 @@ describe('DiagramAttributionFooter viewport dwell gate', () => {
       'diagram_audience_registration_succeeded',
       expect.anything(),
     )
+  })
+})
+
+// The footer's name lookups and impact reads are optional chrome, and the
+// impact reads cost the backend a Confluence call as this viewer. While
+// Confluence rate-limits the site (utils/confluenceThrottle.ts) they stand
+// down so the remaining budget goes to saves.
+describe('DiagramAttributionFooter during a Confluence 429 cooldown', () => {
+  const clearCooldown = () => {
+    localStorage.clear()
+    resetConfluenceThrottle()
+  }
+  beforeEach(() => {
+    clearCooldown()
+    vi.mocked(forgeRequest).mockClear()
+    vi.mocked(getDiagramImpact).mockClear()
+  })
+  afterEach(clearCooldown)
+
+  it('sends the name lookup with background priority', async () => {
+    mountFooter()
+    await flushPromises()
+    expect(forgeRequest).toHaveBeenCalledWith(
+      '/wiki/rest/api/user?accountId=account-1', 'GET', undefined, { priority: 'background' },
+    )
+  })
+
+  it('skips the impact summary read while the cooldown runs', async () => {
+    noteConfluenceThrottled('120')
+    mountFooter()
+    await flushPromises()
+    expect(getDiagramImpact).not.toHaveBeenCalled()
+  })
+
+  it('reads the impact summary when there is no cooldown', async () => {
+    mountFooter()
+    await flushPromises()
+    expect(getDiagramImpact).toHaveBeenCalledWith('content-1')
   })
 })

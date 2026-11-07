@@ -13,7 +13,7 @@
 //
 // THE COOKIE IS LOAD-BEARING. The `auth` id appears in the URL — it has to,
 // so the form can name it — and a URL leaks: address bar, history, logs. The
-// HttpOnly SameSite=Strict cookie set by the callback is what makes the id
+// HttpOnly SameSite=Lax cookie set by the callback is what makes the id
 // insufficient on its own, so a stolen id cannot complete an authorization and
 // a cross-site POST cannot either.
 

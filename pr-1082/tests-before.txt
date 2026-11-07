@@ -1,0 +1,31 @@
+ ✓ src/utils/restoreDraftBanner.spec.ts > restoreDraftBanner analytics > mounts as a bounded recovery card away from the editor header
+ ✓ src/utils/restoreDraftBanner.spec.ts > restoreDraftBanner analytics > fires draft_banner_shown when the banner mounts
+ ✓ src/utils/restoreDraftBanner.spec.ts > restoreDraftBanner analytics > derives draft_scope_kind=new from a new:<type> scope
+ ✓ src/utils/restoreDraftBanner.spec.ts > restoreDraftBanner analytics > fires draft_restored on Restore click
+ ✓ src/utils/restoreDraftBanner.spec.ts > restoreDraftBanner analytics > fires draft_discarded on Discard click
+ ✓ src/utils/restoreDraftBanner.spec.ts > restoreDraftBanner analytics > labels the non-destructive dismissal as keeping the draft for later
+ ✓ src/utils/restoreDraftBanner.spec.ts > restoreDraftBanner analytics > replacing a visible banner tracks a second shown but no dismissed
+ × src/utils/restoreDraftBanner.spec.ts > restoreDraftBanner visibility > announces when it appears and when it goes away
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > shows the new-diagram card while the starter code is untouched, then hides it on edit
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > does not show the new-diagram card for a saved diagram
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > shows the tip after 400 hand-typed characters, ignoring pastes
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > shows the tip after 10 small edits spread over 3 minutes
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > opens the dialog with a draft-and-paste prompt for a new diagram
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > fills cloudId and pageId into a target read before the context resolves
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > fills the new-diagram prompt after the context resolves, even when read first
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > uses the default review prompt for a saved diagram
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > remembers a dismissal across editors
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > stops promoting after a successful copy from the dialog
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > stays hidden with the flag off or for an unsupported type
+ × src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > new-diagram card and the selected tab > shows the card when the saved tab is applied right after setup
+ × src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > new-diagram card and the selected tab > keeps the card when switching to another untouched tab
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > new-diagram card and the selected tab > hides the card once the selected tab is edited
+ × src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > new-diagram card and the selected tab > does not count switching tabs as typing
+ × src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > impressions count only what is on screen > records nothing while covered, then records when uncovered
+ × src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > impressions count only what is on screen > records nothing when a template is picked while covered
+ × src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > impressions count only what is on screen > holds the tip back while covered
+ × src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > draft banner > holds the tip back while the banner covers its corner
+ ✓ src/composables/agentLink/useEditorMcpPromo.spec.ts > useEditorMcpPromo > draft banner > leaves the new-diagram card alone, in the opposite corner
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  8 failed | 20 passed (28)

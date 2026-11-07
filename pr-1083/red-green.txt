@@ -1,0 +1,22 @@
+PR #1083 — AI Chat / AI Repair sampling regression
+
+Baseline: 6c1ed1795c6b0d2159be8f7db748bf5481705d99
+Candidate: 3f9c62ac8d06a712f2c85fce4cb905f936ad679c
+Command: pnpm exec vitest --run src/utils/analytics/eventSampling.spec.ts
+
+RED (test added before implementation, baseline configuration):
+FAIL eventSampling > event budget (from October 2026, ongoing)
+> keeps the complete AI Chat and AI Repair event families at full rate
+AssertionError: expected false to be true
+at OCTOBER_RETAINED_EVENTS.has(name)
+
+GREEN (candidate):
+PASS src/utils/analytics/eventSampling.spec.ts
+Test Files 1 passed (1)
+Tests 21 passed (21)
+
+The regression test enumerates all 20 AI Chat and 6 AI Repair event names. For each it asserts:
+- present in OCTOBER_RETAINED_EVENTS
+- absent from OCTOBER_REDUCED_EVENTS
+- sampleRateFor(...) is 1 in October and after October
+- decideSample(...) keeps the event without calling RNG

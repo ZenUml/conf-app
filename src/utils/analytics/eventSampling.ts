@@ -294,6 +294,8 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "whats_new_banner_dismissed",
   "whats_new_link_clicked",
   "diagram_added_to_page",
+  "placement_picker_opened",
+  "placement_picker_dismissed",
   "diagram_revealed",
   "snapshot_fallback_rendered",
   "diagram_attribution_shown",

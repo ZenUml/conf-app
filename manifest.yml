@@ -151,8 +151,9 @@ permissions:
     - read:app-system-token
     - storage:app
   external:
-    # "Modifying content permissions CSP options, external permissions CSP options and URLs, or
-    # fetch permissions options and URLs" does not require admin approval.
+    # Adding a host here is a MAJOR version that needs admin approval, as in #490 and #498.
+    # Classify first with `./scripts/forgex lint -e staging --verbose`. See CLAUDE.md,
+    # "Forge app versions".
     fetch:
       backend:
         - https://zenuml.com

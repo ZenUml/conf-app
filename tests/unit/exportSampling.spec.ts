@@ -3,7 +3,7 @@ import {
   EXPORT_EVENT_SAMPLE_RATES,
   decideExportSample,
   exportSampleRateFor,
-} from '@/lib/exportSampling.js'
+} from '@/forge-functions/exportSampling.js'
 
 describe('exportSampling', () => {
   // Base-rate assertions below describe the rates before the event budget began.

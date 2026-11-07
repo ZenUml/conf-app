@@ -14,7 +14,7 @@ vi.mock('@forge/api', () => ({
     strings.reduce((acc, s, i) => acc + s + String(values[i] ?? ''), ''),
 }));
 
-import { handler } from '../../src/export.js';
+import { handler } from '../../src/forge-functions/export.js';
 
 describe('Forge export resolver — PlantUML attachment fallback', () => {
   beforeEach(() => {

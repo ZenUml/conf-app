@@ -45,7 +45,7 @@ export interface AppProfile {
    * the Lite `zenuml-byline-diagrams` byline: that entry's display condition
    * (manifest.yml) hides itself wherever Full marks its presence
    * (`zenuml-full-active`, written by Full's `full-presence-daily` sweep —
-   * src/full-presence.ts), so the byline is BY DESIGN dark on this site and its
+   * src/forge-functions/full-presence.ts), so the byline is BY DESIGN dark on this site and its
    * create/paywall specs cannot open it. Specs that drive the byline skip when
    * this is set. Absent (stg/dev Lite profiles) means a Lite-only tenant where
    * the byline renders normally.

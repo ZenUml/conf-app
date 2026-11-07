@@ -5,7 +5,7 @@ import {
   MACRO_KEYS,
   MACROS,
   buildDemoPageAdf,
-} from '../../src/demoPageContent';
+} from '../../src/forge-functions/demoPageContent';
 
 const FAKE_IDS = {
   sequence: '1001',

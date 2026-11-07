@@ -11,7 +11,7 @@ vi.mock('@forge/api', () => ({
     strings.reduce((acc, s, i) => acc + s + String(values[i] ?? ''), ''),
 }));
 
-import { handler } from '../../src/asyncapi-export.js';
+import { handler } from '../../src/forge-functions/asyncapi-export.js';
 
 function mixpanelBodiesFromFetch(fetchMock: typeof fetch): unknown[] {
   const rows: unknown[] = [];
@@ -46,12 +46,12 @@ const basePayload = (customContentId: string | null) => ({
   extensionPayload: { config: { customContentId } },
 });
 
-describe('AsyncAPI export resolver (src/asyncapi-export.js)', () => {
+describe('AsyncAPI export resolver (src/forge-functions/asyncapi-export.js)', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '' })));
     process.env.MIXPANEL_TOKEN = 'unit-test-token';
     // These specs assert on the CONTENT of the emitted events, so the quota
-    // sampling in src/lib/exportSampling.js must not decide whether they run.
+    // sampling in src/forge-functions/exportSampling.js must not decide whether they run.
     // A draw of 0 is below every configured rate, so every event is kept; the
     // drop path has its own coverage in tests/unit/exportSampling.spec.ts.
     vi.spyOn(Math, 'random').mockReturnValue(0);

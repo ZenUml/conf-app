@@ -13,7 +13,7 @@ import {
 // Dedicated export handler for the AsyncAPI macros (zenuml-asyncapi-macro and
 // zenuml-asyncapi-embed-macro). AsyncAPI specs are text — the viewer never
 // generates a PNG attachment — so unlike the shared image-export path
-// (src/export.js → exportMacro), this handler skips the attachment lookup
+// (src/forge-functions/export.js → exportMacro), this handler skips the attachment lookup
 // entirely and embeds the raw spec as a YAML code block.
 //
 // Keeping this in its own function (instead of a branch inside the shared
@@ -30,7 +30,7 @@ const MAX_SPEC_CHARS = 40000;
 export const handler = async (payload) => {
   const ctx = extractExportContext(payload);
   const { customContentId } = ctx;
-  // conf-app#435: unlike the shared exportMacro (src/export.js), this handler
+  // conf-app#435: unlike the shared exportMacro (src/forge-functions/export.js), this handler
   // only ever runs for the AsyncAPI macro family (zenuml-asyncapi-macro /
   // zenuml-asyncapi-embed-macro — see manifest.yml), so macro_type is always
   // known statically. No extra custom-content GET needed to resolve it.

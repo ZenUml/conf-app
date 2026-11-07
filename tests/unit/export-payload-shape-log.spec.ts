@@ -7,7 +7,7 @@ vi.mock('@forge/api', () => ({
   routeFromAbsolute: (url: string) => url,
 }));
 
-import { redactPayloadShape } from '../../src/export.js';
+import { redactPayloadShape } from '../../src/forge-functions/export.js';
 
 // #554: the diagnostic exists to name the caller behind `exportType: 'other'`.
 // It runs on customer traffic, so the contract that matters is what it does NOT

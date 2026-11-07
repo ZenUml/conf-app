@@ -318,7 +318,7 @@ modules:
     # `zenuml-asyncapi-macro-lite` on Lite — matching zenuml-openapi-macro,
     # zenuml-graph-macro and zenuml-embed-macro above, and keeping Lite's macro
     # keys distinguishable in the CQL `macro in (...)` searches that key on the
-    # bare macro name (e.g. src/lite-full-conversion.ts). Lite has never
+    # bare macro name (e.g. src/forge-functions/lite-full-conversion.ts). Lite has never
     # shipped this macro, so there is no stored content under the unsuffixed
     # key to migrate — settling it now costs nothing and after release would
     # be breaking.
@@ -332,7 +332,7 @@ modules:
       adfExport:
         # Dedicated AsyncAPI export (embeds the raw spec; no PNG attachment).
         # Keeps the shared exportMacro free of asyncapi logic for the other
-        # variants. See src/asyncapi-export.js.
+        # variants. See src/forge-functions/asyncapi-export.js.
         function: asyncApiExportMacro
       resolver:
         endpoint: remote-connect
@@ -424,7 +424,7 @@ modules:
     # Marks Full's presence on every space (`zenuml-full-active`) so the Lite
     # byline's display condition can hide itself beside Full. Daily: presence
     # changes at install cadence, and the sweep costs a read per space across
-    # every production Full install. See src/full-presence.ts.
+    # every production Full install. See src/forge-functions/full-presence.ts.
     - key: full-presence-daily
       function: fullPresenceFn
       interval: day
@@ -602,7 +602,7 @@ modules:
       resource: main
       title: Diagrams${LITE_TITLE_SUFFIX}
       # Gate: hidden only where `zenuml-full-active` exists on the space. The
-      # FULL app's daily sweep (src/full-presence.ts, Full variant only) marks
+      # FULL app's daily sweep (src/forge-functions/full-presence.ts, Full variant only) marks
       # its presence per space, and the Lite byline hides itself where Full
       # already provides its own surfaces. Space properties are site-global
       # across apps, which is what makes a marker written by Full readable here.
@@ -725,28 +725,28 @@ modules:
       migratedFromConnect: true
   function:
     - key: exportMacro
-      handler: export.handler
-    # AsyncAPI macros use a dedicated export handler (asyncapi-export.js) so the
+      handler: forge-functions/export.handler
+    # AsyncAPI macros use a dedicated export handler (forge-functions/asyncapi-export.js) so the
     # shared exportMacro stays free of asyncapi logic. Only the asyncapi macros
     # reference it — live on the asyncapi variant and lite (ADR-0005); on
     # full/diagramly the asyncapi macros are stripped, so this function is
     # simply unused there (and could be stripped too).
     - key: asyncApiExportMacro
-      handler: asyncapi-export.handler
+      handler: forge-functions/asyncapi-export.handler
     - key: pageCaptureFn
-      handler: page-capture.handler
+      handler: forge-functions/page-capture.handler
     - key: createDemoPage
-      handler: createDemoPage.handler
+      handler: forge-functions/createDemoPage.handler
     - key: createDemoPageScheduled
-      handler: createDemoPage.scheduledHandler
+      handler: forge-functions/createDemoPage.scheduledHandler
     - key: fullPresenceFn
-      handler: full-presence.scheduledHandler
+      handler: forge-functions/full-presence.scheduledHandler
       timeoutSeconds: 900
     - key: macroCountSnapshotFn
-      handler: macro-count-snapshot.scheduledHandler
+      handler: forge-functions/macro-count-snapshot.scheduledHandler
       timeoutSeconds: 900
     - key: liteFullConversionFn
-      handler: lite-full-conversion.scheduledHandler
+      handler: forge-functions/lite-full-conversion.scheduledHandler
       timeoutSeconds: 900
 
 resources:

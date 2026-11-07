@@ -1,5 +1,5 @@
 // Reads a PNG's pixel width/height straight out of its IHDR chunk, without
-// decoding the image. Used by src/export.js to declare the export ADF
+// decoding the image. Used by src/forge-functions/export.js to declare the export ADF
 // media node's intrinsic `width`/`height` — see that file for why.
 //
 // PNG layout (all integers big-endian):

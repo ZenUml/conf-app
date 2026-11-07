@@ -1,0 +1,32 @@
+# tests vs BASELINE scripts (b0565325)
+## select-draft
+ok   full picks the draft matching published Lite, not the newest
+ok   full reports the newer unmatched draft as skipped
+ok   lite never selects a draft older than the published Lite
+ok   diagramly takes the newest draft
+ok   unpinned legacy releases never match
+ok   dia alias works
+FAIL incident: diagramly rejects the draft older than published: exit 0 (want 1)
+FAIL incident: lite rejects it despite a matching Diagramly: exit 0 (want 1)
+FAIL incident: full rejects it despite a matching Lite: exit 0 (want 1)
+FAIL incident: asyncapi rejects it too: exit 0 (want 1)
+FAIL re-run: newer tag on an older commit is skipped: exit 0 (want 1)
+FAIL re-run: and nothing is selected: exit 0 (want 1)
+FAIL diverged commit is skipped: exit 0 (want 1)
+FAIL comparison failure fails closed: exit 0 (want 1)
+FAIL rebuild of the live commit is skipped: exit 0 (want 0)
+FAIL walk continues to the next real candidate: exit 0 (want 0)
+ok   live is the last published, not the highest tag
+FAIL unpinned live release fails closed: exit 0 (want 1)
+ok   first release of a variant needs no comparison
+## check-prerequisite
+FAIL incident: diagramly older than live is blocked: exit 0 (want 1)
+FAIL incident: lite blocked despite matching Diagramly: exit 0 (want 1)
+FAIL incident: full blocked despite matching Lite: exit 0 (want 1)
+FAIL incident: asyncapi blocked: exit 0 (want 1)
+FAIL re-run: newer tag on an older commit is blocked: exit 0 (want 1)
+FAIL rebuild of the live commit is blocked: exit 0 (want 1)
+ok   a newer commit passes
+ok   asyncapi newer commit passes
+ok   lite ahead of live and matching Diagramly passes
+FAIL comparison failure fails closed: exit 0 (want 1)

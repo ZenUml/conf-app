@@ -2,6 +2,7 @@ import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
+import { PLACEMENT_PICKER_MACRO_MODE } from '@/utils/byline/placementPicker';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
@@ -109,6 +110,14 @@ async function initializeCriticalPath() {
   if (context.extension?.modal?.macroMode === CREATE_GUIDE_MACRO_MODE) {
     const { mountCreateGuideModal } = await import('@/features/createGuide/mountCreateGuide');
     mountCreateGuideModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // "Where on the page?", opened by the byline and the unplaced banner. Same
+  // early exit as feedback: nothing else belongs in this modal.
+  if (context.extension?.modal?.macroMode === PLACEMENT_PICKER_MACRO_MODE) {
+    const { mountPlacementPicker } = await import('@/components/Byline/mountPlacementPicker');
+    mountPlacementPicker(context);
     return { macroData: null, feedbackHandled: true };
   }
 

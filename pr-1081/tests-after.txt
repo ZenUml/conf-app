@@ -1,0 +1,34 @@
+# tests vs CANDIDATE scripts (dcd9c8f0b0e0715aae24283f13d85e19769762b6)
+## select-draft
+ok   full picks the draft matching published Lite, not the newest
+ok   full reports the newer unmatched draft as skipped
+ok   lite never selects a draft older than the published Lite
+ok   diagramly takes the newest draft
+ok   unpinned legacy releases never match
+ok   dia alias works
+ok   incident: diagramly rejects the draft older than published
+ok   incident: lite rejects it despite a matching Diagramly
+ok   incident: full rejects it despite a matching Lite
+ok   incident: asyncapi rejects it too
+ok   re-run: newer tag on an older commit is skipped
+ok   re-run: and nothing is selected
+ok   diverged commit is skipped
+ok   comparison failure fails closed
+ok   rebuild of the live commit is skipped
+ok   walk continues to the next real candidate
+ok   live is the last published, not the highest tag
+ok   unpinned live release fails closed
+ok   first release of a variant needs no comparison
+exit=0
+## check-prerequisite
+ok   incident: diagramly older than live is blocked
+ok   incident: lite blocked despite matching Diagramly
+ok   incident: full blocked despite matching Lite
+ok   incident: asyncapi blocked
+ok   re-run: newer tag on an older commit is blocked
+ok   rebuild of the live commit is blocked
+ok   a newer commit passes
+ok   asyncapi newer commit passes
+ok   lite ahead of live and matching Diagramly passes
+ok   comparison failure fails closed
+exit=0

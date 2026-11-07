@@ -195,4 +195,7 @@ export const NO_E2E_IMPACT = [
   'docs/**', '**/*.md', '.claude/**', '.cursor/**', 'private', 'private/**',
   'public/image/**', 'scripts/**', 'eslint.config.mjs', '.storybook/**',
   '.gitignore', '.gitmodules', '.nvmrc', '.npmrc', '.prettierrc*', '.editorconfig', 'LICENSE*',
+  // Standalone workspace packages with their own test runners (the GitHub PR
+  // Agent Panel extension + Hub). Nothing in the Confluence app imports them.
+  'packages/**',
 ];

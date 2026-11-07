@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pr-panel": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/../hub/dist/cli.mjs"]
+    }
+  }
+}

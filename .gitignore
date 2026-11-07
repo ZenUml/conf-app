@@ -51,6 +51,7 @@ test-results/
 .worktree/
 .claude/worktrees/
 .mcp.json
+!packages/pr-agent-panel/agent-plugin/.mcp.json
 
 # Local runtime / agent cruft
 .claude/scheduled_tasks.lock

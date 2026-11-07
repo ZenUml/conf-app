@@ -178,32 +178,6 @@ async function hasActiveSpaceLicense(
   }
 }
 
-async function updateLicenseIndex(kv: KVNamespace, grant: LicenseGrant): Promise<void> {
-  try {
-    const raw = await kv.get('license-index');
-    const parsed = raw ? JSON.parse(raw) : [];
-    const index: Array<{ cloudId: string; spaceKey: string; userAccountId?: string }> = Array.isArray(parsed)
-      ? parsed
-      : [];
-    const exists = index.some((entry) =>
-      entry.cloudId === grant.cloudId
-      && entry.spaceKey === grant.spaceKey
-      && entry.userAccountId === grant.userAccountId);
-    if (!exists) {
-      index.push({
-        cloudId: grant.cloudId,
-        spaceKey: grant.spaceKey,
-        userAccountId: grant.userAccountId,
-      });
-      await kv.put('license-index', JSON.stringify(index));
-    }
-  } catch (error) {
-    console.warn('[extension-action] license-index update failed', {
-      reason: error instanceof Error ? error.name : 'unknown_error',
-    });
-  }
-}
-
 async function applyLicense(kv: KVNamespace, grant: LicenseGrant, now: Date): Promise<void> {
   const key = `license:${grant.cloudId}:${grant.spaceKey}:${grant.userAccountId}`;
   let existing: SpaceLicenseRecord | null = null;
@@ -244,7 +218,6 @@ async function applyLicense(kv: KVNamespace, grant: LicenseGrant, now: Date): Pr
   ) {
     throw new ExtensionActionError(503, 'license_readback_mismatch', 'license_verify', true);
   }
-  await updateLicenseIndex(kv, grant);
 }
 
 export function createExtensionActionRuntime(

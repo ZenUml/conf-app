@@ -33,7 +33,7 @@ export interface ConfluenceResponse {
 
 export type ConfluenceRequest = (
   path: string,
-  init?: { method?: 'GET' | 'POST' | 'PUT'; body?: unknown },
+  init?: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown },
 ) => Promise<ConfluenceResponse>;
 
 /** 401/503 for "no credential" / "could not refresh", matching confluenceReader.ts. */

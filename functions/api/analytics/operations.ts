@@ -30,7 +30,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
     return response(401, 'Unauthorized');
   }
 
-  const body = await request.json<OperationBody>().catch(() => ({}));
+  const body = await request.json<OperationBody>().catch((): OperationBody => ({}));
   const action = body.action || 'refresh';
 
   if (action === 'refresh') {

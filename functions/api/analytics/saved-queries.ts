@@ -29,7 +29,9 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
       ? await env.DB.prepare(`${baseSql} WHERE slug = ?1`).bind(slug).first<Record<string, unknown>>()
       : await env.DB.prepare(`${baseSql} ORDER BY updatedAt DESC`).all<Record<string, unknown>>();
 
-    const rows = slug ? (query ? [query] : []) : ((query as D1Result<Record<string, unknown>>).results || []);
+    const rows: Record<string, unknown>[] = slug
+      ? (query ? [query as Record<string, unknown>] : [])
+      : ((query as D1Result<Record<string, unknown>>).results || []);
     return Response.json({
       rows: rows.map((row) => ({
         ...row,

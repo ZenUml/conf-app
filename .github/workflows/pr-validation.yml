@@ -103,6 +103,19 @@ jobs:
       # Install its locked module dependencies only; --list needs no browsers.
       - name: Install E2E discovery dependencies
         run: cd tests/e2e-tests && pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
+      # functions/ is not covered by the root tsconfig or ESLint (issue #960).
+      # Ratchet: fail only if the PR adds errors over its base. Base is the tip
+      # of the target branch; checkout gave us the PR merge commit, so this is
+      # exactly "what does merging this PR add". ~5 s; runs on functions-only
+      # PRs too (paths-ignore above excludes only docs/markdown).
+      - name: Type-check functions/ (no-regression ratchet)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          node scripts/typecheck-functions-ratchet.mjs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TYPECHECK_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       - run: pnpm test:unit
       - run: node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs
       # Verify the asyncapi variant builds even on feature-branch PRs. The

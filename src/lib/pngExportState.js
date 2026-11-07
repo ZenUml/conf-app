@@ -99,6 +99,12 @@ export async function readPngState(request, pageId, customContentId, onFailure =
  * the same macro) changed the property first: re-read and re-decide until the
  * deadline, never a blind overwrite of a newer result. A conflict that ends
  * with the other writer's record winning by these rules is not a failure.
+ *
+ * `onFailure` is called as `onFailure(operation, error)` (see `readPngState`).
+ * @param {any} request
+ * @param {any} input
+ * @param {(operation: string, error: unknown) => void} [onFailure]
+ * @param {number} [now]
  */
 export async function writePngState(request, input, onFailure = () => {}, now = Date.now()) {
   const { pageId, customContentId, state, attemptId, startedAt, contentHash, attachmentId, expectedVersion } = input;

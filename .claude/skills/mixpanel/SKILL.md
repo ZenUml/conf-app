@@ -190,9 +190,20 @@ time.** A sampled event is stamped with **`sample_rate`**, and the true volume i
 | `click`, `convert_to_png`, `upload_attachment`, `attachment_upload_*`, `sync_custom_content`, `update_custom_content`, `report_macro_metrics`, `duplication_detect`, `close_guard_rejected`, `space_admin_active` | 0.1 | 10 |
 | `app_first_seen`, `renderer_prefetch_started`, `renderer_prefetch_completed` | **0** | never emitted — a zero count is not a zero event |
 
-Everything else is unsampled (rate 1). **`macro_viewed` and every
-`diagram_audience_registration_*` event are unsampled**, which is exactly why mixing them with a
-sampled event in one ratio breaks.
+Everything else is unsampled (rate 1). **Every `diagram_audience_registration_*` event is
+unsampled**, which is exactly why mixing them with a sampled event in one ratio breaks.
+
+**`macro_viewed` is sampled per occurrence, not per name (from the 2026-11 release carrying
+`src/utils/analytics/macroViewOfDay.ts`).** The first render of a macro on a surface per browser per
+UTC day is sent with `view_of_day: "first"` and no `sample_rate`; later renders that day are sent at
+10% with `view_of_day: "repeat"` and `sample_rate: 0.1`. Before that release (and from any browser
+without storage) the event has no `view_of_day` and is unsampled. So:
+- **Total renders**: `sum(1 / (sample_rate || 1))`, never a raw count, across the release date.
+- **Distinct viewers, macros, tenants**: count as before. Every first view is present.
+- **Daily readership with no extrapolation**: filter `view_of_day = "first"`. One per user x macro x
+  surface x day.
+- **Ratios against `macro_viewed`** (attribution, related-diagram and other per-view denominators):
+  extrapolate `macro_viewed` first, or ratio against `view_of_day = "first"` and say so.
 
 **Extrapolate inside the query, never after it**, because a window that spans 2026-08-26 mixes
 unsampled and sampled events of the same name:
@@ -275,7 +286,7 @@ There is **no reliable runtime boolean** (`isForge` is dead). To split:
 | Join Mixpanel `client_domain` ↔ D1 `clientDomain` directly | Subdomain vs full hostname. Convert first. |
 | `macro_type='unknown'` = failure for graph/openapi/embed | Only valid for sequence/mermaid/plantuml. |
 | `space_key` as the space dimension on frontend events | Undefined on `macro_viewed` (0 of 81,878 fleet-wide, 7d). It belongs to backend macro-count snapshot events. Use **`confluence_space`**. Check with `mp_schema.py verify <event> <prop>`. |
-| Comparing a raw count across 2026-08-26, or ratioing a sampled event against an unsampled one | `diagram_attribution_shown` is 5%, `macro_export_*` 5–10%, `click` and friends 10%; `macro_viewed` and the audience registration events are 1. Extrapolate `count / sample_rate` inside the query. See "Event sampling" above. |
+| Comparing a raw count across 2026-08-26, or ratioing a sampled event against an unsampled one | `diagram_attribution_shown` is 5%, `macro_export_*` 5–10%, `click` and friends 10%; the audience registration events are 1; `macro_viewed` repeats are 0.1 from the 2026-11 `view_of_day` release. Extrapolate `count / sample_rate` inside the query. See "Event sampling" above. |
 | Validating a property against ONE tenant | A distinct count returns 1 both for an absent property (the value `undefined`) and for a real property at a one-space tenant. Always verify fleet-wide. |
 | `BooleanPropertyFilter` in MCP `Run-Query` when the output is a link or saved report | The executed query is correct, but the encoded state is malformed: the shared `report_url` re-runs with the filter flipped to `= true`, and a saved report (bookmark updated via query_id) renders the chip as `True` AND reverts every viewer edit — clicking 30D snaps back to the saved range because the UI cannot re-serialize the filter (hit 2026-07-23 and 2026-08-19, Coles board reports 91672617/91672628). Fix: string-encode boolean filters. For `tab_hidden`, use `{type:"string", propertyType:"string", operator:"equals", value:"false"}`; for customer-wide reports, use the `is_internal_client_domain` filter shown above. It returned the same 76,052-event seven-day population as the native boolean form on 2026-08-22. Results returned inline in the tool response are trustworthy either way. |
 | `viewer_load_failed` counts for `svg element not in render tree` across `v2026.09.220157` | Not comparable: that release carried PR #695, after which a hidden Mermaid macro waits instead of failing and emits nothing until `viewer_render_deferred` / `viewer_render_abandoned` / `macro_viewed.layout_wait_ms` (#706) ship. |

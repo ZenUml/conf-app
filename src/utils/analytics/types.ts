@@ -844,6 +844,11 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
+  // macro_viewed only: whether this browser already reported this macro on this
+  // surface today (UTC). `first` is always emitted; `repeat` is emitted at
+  // MACRO_VIEWED_REPEAT_SAMPLE_RATE and carries `sample_rate`. Absent when the
+  // browser cannot remember (no storage, no macro id): that event is emitted.
+  view_of_day?: "first" | "repeat";
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
   // Full only: Forge `license.active` at render time. Absent on other variants

@@ -95,6 +95,11 @@ let spaceAdminCount: number | undefined
 // previous impression (absent on a first impression).
 let showCount = 1
 let hoursSinceLastShown: number | undefined
+// paywall_banner_shown is sent once per browser, site and space per UTC day:
+// it fired 10.1x per user x space x day (10.5% of billable Mixpanel volume,
+// 2026-11-04..05) because the banner shows on every eligible load. The banner
+// itself still shows every time, and show_count still counts every display.
+let firstShowToday = true
 try {
   identity = deriveWarningBannerIdentity()
   const targeting = readTargetingMarker(identity)
@@ -104,7 +109,10 @@ try {
   showCount = (impression?.showCount ?? 0) + 1
   if (impression?.lastShownAt) {
     const lastShownMs = Date.parse(impression.lastShownAt)
-    if (Number.isFinite(lastShownMs)) hoursSinceLastShown = Math.round((now - lastShownMs) / 3_600_000)
+    if (Number.isFinite(lastShownMs)) {
+      hoursSinceLastShown = Math.round((now - lastShownMs) / 3_600_000)
+      firstShowToday = new Date(lastShownMs).toISOString().slice(0, 10) !== new Date(now).toISOString().slice(0, 10)
+    }
   }
   passesGate =
     !!targeting &&
@@ -141,13 +149,16 @@ onMounted(() => {
       void closeBannerView()
       return
     }
-    // Impression: bump the show counter and emit the denominator event.
+    // Impression: bump the show counter, and emit the denominator event on
+    // the first display of the UTC day.
     recordBannerShown(identity)
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_BANNER_SHOWN, {
-      surface: 'page_banner',
-      severity,
-      ...bannerContext(),
-    })
+    if (firstShowToday) {
+      trackUpgradeEvent(UpgradeEventName.PAYWALL_BANNER_SHOWN, {
+        surface: 'page_banner',
+        severity,
+        ...bannerContext(),
+      })
+    }
   } catch (e) {
     console.warn('[paywall-banner] mount failed; closing', e)
     void closeBannerView()

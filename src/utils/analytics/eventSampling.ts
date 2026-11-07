@@ -81,6 +81,12 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   png_export_state_persistence_skipped: 0.1,
 };
 
+// macro_viewed stays at rate 1 in the tables above and below: its sampling is
+// per occurrence, not per name. trackRenderTime sends the first render of a
+// macro per browser per UTC day and this fraction of the repeats
+// (utils/analytics/macroViewOfDay.ts).
+export const MACRO_VIEWED_REPEAT_SAMPLE_RATE = 0.1;
+
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
 // at forgeIndex.ts, so an exact key cannot cover every variant.

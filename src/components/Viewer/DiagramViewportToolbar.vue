@@ -122,6 +122,18 @@ export default {
   background: #f1f2f4;
 }
 
+/* Inline card in Confluence dark mode (GenericViewer's darkSurface). */
+.viewer-frame--dark .diagram-viewport-toolbar {
+  border-color: var(--ds-border, #3D3F43);
+  background: var(--ds-surface-overlay, #282828);
+  box-shadow: var(--ds-shadow-overlay, 0 2px 8px rgba(0, 0, 0, 0.5));
+}
+.viewer-frame--dark .diagram-viewport-button { color: var(--ds-icon-subtle, #A9ABAF); }
+.viewer-frame--dark .diagram-viewport-button:hover {
+  color: var(--ds-text, #CECFD2);
+  background: var(--ds-background-neutral-subtle-hovered, #37383C);
+}
+
 .diagram-viewport-button:focus-visible {
   outline: 2px solid #0c66e4;
   outline-offset: 1px;

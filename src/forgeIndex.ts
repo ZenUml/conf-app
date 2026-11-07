@@ -2,6 +2,7 @@ import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
+import { enableHostTheming, readHostColorMode, rendersDark } from '@/utils/theme/hostColorMode';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
@@ -409,6 +410,14 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
     context.extension.modal?.macroMode === 'editor' ||
     !!context.extension?.macro?.isConfiguring;
   const copyCheckMode = isSequence && !isEditorish ? ('cross-page-only' as const) : ('full' as const);
+
+  // Inline viewers follow Confluence's light/dark theme; before this the card
+  // stayed white on a dark page. The editor and the
+  // fullscreen modal, where Export PNG photographs the DOM, keep the light
+  // design. Not awaited: Mermaid re-renders if the mode arrives after it drew.
+  if (!isEditorish && !(await isFullscreenMode())) {
+    void enableHostTheming(forgeGlobal.view);
+  }
 
   // ── Viewport render gate (#382) ──────────────────────────────────────────
   // Plain sequence-family VIEWER only (same scope as the content-SWR block
@@ -1229,7 +1238,12 @@ async function createAttachment(code: string, diagramType: DiagramType) {
     // — it emits the `missing_custom_content_id` skip telemetry and
     // returns early. Per-callsite fast paths previously here suppressed
     // that central event, hiding the highest-volume class of skips.
-    if (globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
+    if (rendersDark(diagramType, readHostColorMode())) {
+      // The backup PNG is captured from this DOM onto white; a dark-mode render
+      // would come out as light text on white. The editor's save path and the
+      // next light-mode view still produce it.
+      console.debug('Attachment skipped: viewer is rendering in dark mode.');
+    } else if (globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
       const createAttachmentIfContentChanged = await createAttachmentIfContentChangedPromise;
       await createAttachmentIfContentChanged(code, diagramType);
     } else {

@@ -581,6 +581,8 @@ Backend-declared event. Not currently emitted by client code.
 
 The page drawn from its ADF, with a selectable gap between each top-level block. `surface` is the surface that opened the picker (`byline` or `page_banner`). `diagram_added_to_page` carries the outcome, now with `placement_position`, `placement_block_count`, `placement_default_kept`, and a `page_changed` result when the chosen spot no longer exists.
 
+**Sampling:** all three events are unsampled. Volume is low, and sampling would leave too few events to read the picker's uptake.
+
 ### `placement_picker_opened`
 
 | Property | Values |

@@ -115,6 +115,11 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "attachment_upload_async_failed",
   "attachment_upload_failed",
   "cohorts_refresh_failed",
+  // Rare, and the only read on whether the placement picker earns its extra
+  // step: at 10% a typical week would leave only a handful of events.
+  "diagram_added_to_page",
+  "placement_picker_opened",
+  "placement_picker_dismissed",
   "diagram_audience_registration_failed",
   "export_png_failed",
   "feedback_link_clicked",
@@ -299,9 +304,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "whats_new_banner_expanded",
   "whats_new_banner_dismissed",
   "whats_new_link_clicked",
-  "diagram_added_to_page",
-  "placement_picker_opened",
-  "placement_picker_dismissed",
   "diagram_revealed",
   "snapshot_fallback_rendered",
   "diagram_attribution_shown",

@@ -335,6 +335,8 @@ onBeforeUnmount(() => {
 .adf :deep(h3) { font-size: 17px; }
 .adf :deep(h4), .adf :deep(h5), .adf :deep(h6) { font-size: 14px; }
 .adf :deep(ul), .adf :deep(ol) { margin: 0; padding-left: 24px; }
+.adf :deep(ul) { list-style: disc; }
+.adf :deep(ol) { list-style: decimal; }
 .adf :deep(.adf-tasks) { list-style: square; }
 .adf :deep(blockquote) { margin: 0; padding-left: 14px; border-left: 2px solid #dfe1e6; color: #44546f; }
 .adf :deep(hr) { margin: 8px 0; border: none; border-top: 2px solid #dfe1e6; }

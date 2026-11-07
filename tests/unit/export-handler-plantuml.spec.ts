@@ -69,7 +69,7 @@ describe('Forge export resolver — PlantUML attachment fallback', () => {
       extensionPayload: { config: { customContentId: 'content-1' } },
     });
 
-    expect(JSON.stringify(result)).toContain('not yet generated');
+    expect(JSON.stringify(result)).toContain('edit access');
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('plantuml.com'))).toBe(false);
   });
 });

@@ -202,6 +202,74 @@ describe('viewerBootstrap', () => {
     expect(store.state.loadError).toEqual({ httpStatus: 404, directFetchStatus: 'not_found' });
   });
 
+  // Every viewer's afterLoad (graph, openapi, embed) captures the rendered
+  // iframe as the page's backup PNG — the image Confluence PDF/Word export and
+  // page previews use. After a failed load the iframe shows the error panel and
+  // the published diagram is NULL_DIAGRAM, whose empty body hashes differently
+  // from the existing attachment's metaKey, so the capture uploads a new
+  // version. Seen in production on 2026-11-01: a graph macro logged
+  // `upload_attachment` and a `toPng` success in the same view as
+  // `load_failed_shown`.
+  it('does not run afterLoad (backup PNG capture) when the load failed and the error panel is shown', async () => {
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: 'cc-missing' } },
+    };
+    const afterLoad = vi.fn();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({
+        doc: undefined,
+        loadError: { httpStatus: 404, directFetchStatus: 'not_found' as const },
+      })),
+      afterLoad,
+    });
+
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    expect(afterLoad).not.toHaveBeenCalled();
+  });
+
+  it('still runs afterLoad outside display mode, where the load state is not classified', async () => {
+    vi.mocked(globals.apWrapper.isDisplayMode).mockReturnValue(false);
+    const doc = { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<mxGraphModel/>' };
+    const afterLoad = vi.fn();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => doc),
+      afterLoad,
+    });
+
+    expect(store.state.viewerLoadState).toBeNull();
+    expect(afterLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not run afterLoad when a terminal error rejects a fetched document', async () => {
+    mockForgeGlobal.forgeContext = {
+      extension: { config: { customContentId: 'cc-board' } },
+    };
+    const afterLoad = vi.fn();
+
+    await bootstrapForgeViewer({
+      macroKind: 'graph',
+      content: Component,
+      loadDiagram: vi.fn(async () => ({
+        doc: { ...NULL_DIAGRAM, diagramType: DiagramType.Graph, graphXml: '<mxGraphModel/>' },
+        loadError: {
+          errorClass: 'malformed' as const,
+          errorCode: 'board_document_empty',
+          terminal: true,
+        },
+      })),
+      afterLoad,
+    });
+
+    expect(store.state.viewerLoadState).toBe('failed_with_source');
+    expect(afterLoad).not.toHaveBeenCalled();
+  });
+
   it('does not mount directly when fullscreen paywall mounts the shell', async () => {
     vi.mocked(tryFullscreenViewerPaywall).mockResolvedValueOnce(true);
 

@@ -46,7 +46,8 @@
 // Maps the connection FSM to the toolbar chip. Ticks its own TTL clock (like
 // SessionTtl) so the host doesn't have to. Tokens: success #36B37E live /
 // warning #E2B203 amber under 120 s / gray disconnected.
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed } from 'vue'
+import { secondsLeft, useTickingNow } from '@/composables/agentLink/useTickingNow'
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
 
 const props = withDefaults(
@@ -78,37 +79,15 @@ const variant = computed<'live' | 'suspended' | 'dead' | 'expired' | null>(() =>
   }
 })
 
-const nowMs = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | null = null
-
-function startTicking() {
-  stopTicking()
-  nowMs.value = Date.now()
-  timer = setInterval(() => {
-    nowMs.value = Date.now()
-  }, 1000)
-}
-function stopTicking() {
-  if (timer !== null) {
-    clearInterval(timer)
-    timer = null
-  }
-}
-
-watch(
-  () => [props.expiresAt, variant.value] as const,
-  ([exp, v]) => {
-    if (exp === null || exp === undefined || v !== 'live') stopTicking()
-    else startTicking()
-  },
-  { immediate: true }
+const nowMs = useTickingNow(
+  () => props.expiresAt !== null && props.expiresAt !== undefined && variant.value === 'live',
+  1000,
+  () => props.expiresAt
 )
-
-onBeforeUnmount(stopTicking)
 
 const remainingSeconds = computed<number | null>(() => {
   if (props.expiresAt === null || props.expiresAt === undefined) return null
-  return Math.max(0, Math.ceil((props.expiresAt - nowMs.value) / 1000))
+  return secondsLeft(nowMs.value, props.expiresAt)
 })
 
 const isWarnTtl = computed(

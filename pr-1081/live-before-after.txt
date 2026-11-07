@@ -1,0 +1,120 @@
+## A. select-draft.sh on the release list captured when the bug was live (2177 releases)
+### diagramly
+--- BEFORE
+SELECT: v2026.11.071048-diagramly 13135a40a2456e0f29d4ab50e80da258e18d4c67
+exit=0
+--- AFTER
+NONE: no diagramly draft newer than published v2026.11.071119-diagramly
+exit=1
+### lite
+--- BEFORE
+SKIP: v2026.11.071048-lite 13135a40a2456e0f29d4ab50e80da258e18d4c67 — no published diagramly release at this commit
+NONE: no lite draft newer than published v2026.11.071119-lite matches a published diagramly release
+exit=1
+--- AFTER
+NONE: no lite draft newer than published v2026.11.071119-lite
+exit=1
+### full
+--- BEFORE
+SELECT: v2026.11.071119-full 6c4eef4a764a4d2dc15501366b4a1aa0bbd7a7c9 matches v2026.11.071119-lite
+exit=0
+--- AFTER
+SELECT: v2026.11.071119-full 6c4eef4a764a4d2dc15501366b4a1aa0bbd7a7c9 matches v2026.11.071119-lite
+exit=0
+### asyncapi
+--- BEFORE
+SELECT: v2026.11.071119-asyncapi 6c4eef4a764a4d2dc15501366b4a1aa0bbd7a7c9
+exit=0
+--- AFTER
+SELECT: v2026.11.071119-asyncapi 6c4eef4a764a4d2dc15501366b4a1aa0bbd7a7c9
+exit=0
+
+## B. select-draft.sh on the current release list
+### diagramly
+--- BEFORE
+SELECT: v2026.11.071230-diagramly b0565325a30c2122a861e9a88479cdc2285fcb7f
+exit=0
+--- AFTER
+SELECT: v2026.11.071230-diagramly b0565325a30c2122a861e9a88479cdc2285fcb7f
+exit=0
+### lite
+--- BEFORE
+SKIP: v2026.11.071230-lite b0565325a30c2122a861e9a88479cdc2285fcb7f — no published diagramly release at this commit
+SKIP: v2026.11.071203-lite cb3f297169a916c98ce2914780fa021ea53a52b0 — no published diagramly release at this commit
+SKIP: v2026.11.071048-lite 13135a40a2456e0f29d4ab50e80da258e18d4c67 — no published diagramly release at this commit
+NONE: no lite draft newer than published v2026.11.071119-lite matches a published diagramly release
+exit=1
+--- AFTER
+SKIP: v2026.11.071230-lite b0565325a30c2122a861e9a88479cdc2285fcb7f — no published diagramly release at this commit
+SKIP: v2026.11.071203-lite cb3f297169a916c98ce2914780fa021ea53a52b0 — no published diagramly release at this commit
+NONE: no lite draft newer than published v2026.11.071119-lite matches a published diagramly release
+exit=1
+### full
+--- BEFORE
+SKIP: v2026.11.071230-full b0565325a30c2122a861e9a88479cdc2285fcb7f — no published lite release at this commit
+SKIP: v2026.11.071203-full cb3f297169a916c98ce2914780fa021ea53a52b0 — no published lite release at this commit
+SELECT: v2026.11.071119-full 6c4eef4a764a4d2dc15501366b4a1aa0bbd7a7c9 matches v2026.11.071119-lite
+exit=0
+--- AFTER
+SKIP: v2026.11.071230-full b0565325a30c2122a861e9a88479cdc2285fcb7f — no published lite release at this commit
+SKIP: v2026.11.071203-full cb3f297169a916c98ce2914780fa021ea53a52b0 — no published lite release at this commit
+SELECT: v2026.11.071119-full 6c4eef4a764a4d2dc15501366b4a1aa0bbd7a7c9 matches v2026.11.071119-lite
+exit=0
+### asyncapi
+--- BEFORE
+SELECT: v2026.11.071230-asyncapi b0565325a30c2122a861e9a88479cdc2285fcb7f
+exit=0
+--- AFTER
+SELECT: v2026.11.071230-asyncapi b0565325a30c2122a861e9a88479cdc2285fcb7f
+exit=0
+
+## C. check-prerequisite.sh against live GitHub
+### diagramly v2026.11.071048-diagramly
+--- BEFORE
+OK: v2026.11.071048-diagramly targets pinned commit 13135a40a2456e0f29d4ab50e80da258e18d4c67 and has no prerequisite
+exit=0
+--- AFTER
+BLOCK: v2026.11.071048-diagramly is not newer than live v2026.11.071119-diagramly: tag does not sort after live v2026.11.071119-diagramly
+exit=1
+### lite v2026.11.071048-lite
+--- BEFORE
+BLOCK: no published diagramly release targets commit 13135a40a2456e0f29d4ab50e80da258e18d4c67
+exit=1
+--- AFTER
+BLOCK: v2026.11.071048-lite is not newer than live v2026.11.071119-lite: tag does not sort after live v2026.11.071119-lite
+exit=1
+### full v2026.11.071048-full
+--- BEFORE
+BLOCK: no published lite release targets commit 13135a40a2456e0f29d4ab50e80da258e18d4c67
+exit=1
+--- AFTER
+BLOCK: no published lite release targets commit 13135a40a2456e0f29d4ab50e80da258e18d4c67
+exit=1
+### diagramly v2026.11.071230-diagramly
+--- BEFORE
+OK: v2026.11.071230-diagramly targets pinned commit b0565325a30c2122a861e9a88479cdc2285fcb7f and has no prerequisite
+exit=0
+--- AFTER
+OK: v2026.11.071230-diagramly targets pinned commit b0565325a30c2122a861e9a88479cdc2285fcb7f and has no prerequisite
+exit=0
+### full v2026.11.071119-full
+--- BEFORE
+BLOCK: v2026.11.071119-lite targets 6c4eef4a764a4d2dc15501366b4a1aa0bbd7a7c9 but has soaked for < 24 hours; 22.8 hours remain
+exit=1
+--- AFTER
+BLOCK: v2026.11.071119-lite targets 6c4eef4a764a4d2dc15501366b4a1aa0bbd7a7c9 but has soaked for < 24 hours; 22.8 hours remain
+exit=1
+### asyncapi v2026.11.071230-asyncapi
+--- BEFORE
+OK: v2026.11.071230-asyncapi targets pinned commit b0565325a30c2122a861e9a88479cdc2285fcb7f and has no prerequisite
+exit=0
+--- AFTER
+OK: v2026.11.071230-asyncapi targets pinned commit b0565325a30c2122a861e9a88479cdc2285fcb7f and has no prerequisite
+exit=0
+### asyncapi v2026.11.071048-asyncapi
+--- BEFORE
+OK: v2026.11.071048-asyncapi targets pinned commit 13135a40a2456e0f29d4ab50e80da258e18d4c67 and has no prerequisite
+exit=0
+--- AFTER
+OK: v2026.11.071048-asyncapi targets pinned commit 13135a40a2456e0f29d4ab50e80da258e18d4c67 and has no prerequisite
+exit=0

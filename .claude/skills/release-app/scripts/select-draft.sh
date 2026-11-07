@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Pick the draft release a production release of <variant> should publish.
 #
-# Only drafts created after the variant's latest published release are candidates.
+# Only drafts truly newer than the variant's live release are candidates: tagged after
+# it and with a commit strictly ahead of it (release-order.sh). An older draft would roll
+# production back even when its commit matches an old published prerequisite.
 #
 #   diagramly / asyncapi  newest draft (no prerequisite; caller still applies 24 h freshness)
 #   lite                  newest draft whose commit matches a PUBLISHED diagramly release
@@ -15,7 +17,7 @@
 #
 # Output: `SELECT: <tag> <sha> [matches <prerequisite-tag>]` (exit 0), one
 # `SKIP: <tag> <sha> — <reason>` line per newer draft passed over, or
-# `NONE: <reason>` (exit 1).
+# `NONE: <reason>` (exit 1), including when a comparison fails: this fails closed.
 # Test: bash select-draft.test.sh (set RELEASES_JSON_FILE to read a fixture offline).
 
 set -euo pipefail
@@ -44,22 +46,28 @@ fi
 # than resolved one API call at a time.
 pinned='select(.target_commitish | test("^[0-9a-fA-F]{40}$"))'
 
-# The API lists all drafts before all published releases, so order by created_at.
-releases="$(jq 'sort_by(.created_at) | reverse' <<<"$releases")"
+# shellcheck source=release-order.sh
+source "$(dirname "${BASH_SOURCE[0]}")/release-order.sh"
 
-# Candidate drafts: newest first, and only those created AFTER this
-# variant's latest published release. An older draft would roll production back
-# even when its commit matches an old published prerequisite.
-latest_published="$(jq -r --arg v "-$variant" \
-  'first(.[] | select((.draft | not) and (.tag_name | endswith($v))) | .tag_name) // empty' \
+# Newest build first: the tag holds the build time. See release-order.sh for why
+# created_at cannot be used, and why the commit is compared as well.
+releases="$(jq 'sort_by(.tag_name) | reverse' <<<"$releases")"
+
+# What is live is the variant's most recently published release.
+IFS=$'\t' read -r live_tag live_target <<<"$(jq -r --arg v "-$variant" \
+  '[.[] | select((.draft | not) and (.tag_name | endswith($v)))] | sort_by(.published_at) | last
+   | if . == null then empty else [.tag_name, .target_commitish] | @tsv end' \
   <<<"$releases")"
-drafts="$(jq -r --arg v "-$variant" \
-  "[.[] | select(.tag_name | endswith(\$v))] | (map(.draft | not) | index(true)) as \$cut
-   | (if \$cut == null then . else .[:\$cut] end) | .[] | $pinned | [.tag_name, (.target_commitish | ascii_downcase)] | @tsv" \
+
+# Candidates: pinned drafts tagged after the live release. draft_order below then
+# requires the commit to be ahead of it too.
+drafts="$(jq -r --arg v "-$variant" --arg live "$live_tag" \
+  ".[] | select(.draft and (.tag_name | endswith(\$v)) and (\$live == \"\" or .tag_name > \$live)) | $pinned
+   | [.tag_name, (.target_commitish | ascii_downcase)] | @tsv" \
   <<<"$releases")"
 if [[ -z "$drafts" ]]; then
-  if [[ -n "$latest_published" ]]; then
-    printf 'NONE: no %s draft newer than published %s\n' "$variant" "$latest_published"
+  if [[ -n "$live_tag" ]]; then
+    printf 'NONE: no %s draft newer than published %s\n' "$variant" "$live_tag"
   else
     printf 'NONE: no %s draft exists\n' "$variant"
   fi
@@ -67,28 +75,48 @@ if [[ -z "$drafts" ]]; then
 fi
 
 case "$variant" in
-  diagramly|asyncapi)
-    IFS=$'\t' read -r tag sha <<<"$(head -n1 <<<"$drafts")"
-    printf 'SELECT: %s %s\n' "$tag" "$sha"
-    exit 0
-    ;;
+  diagramly|asyncapi) prerequisite="" ;;
   lite) prerequisite="diagramly" ;;
   full) prerequisite="lite" ;;
 esac
 
 # "<sha>\t<tag>" for published prerequisite releases, newest first.
-published="$(jq -r --arg v "-$prerequisite" \
-  ".[] | select((.draft | not) and (.tag_name | endswith(\$v))) | $pinned | [(.target_commitish | ascii_downcase), .tag_name] | @tsv" \
-  <<<"$releases")"
+published=""
+if [[ -n "$prerequisite" ]]; then
+  published="$(jq -r --arg v "-$prerequisite" \
+    ".[] | select((.draft | not) and (.tag_name | endswith(\$v))) | $pinned | [(.target_commitish | ascii_downcase), .tag_name] | @tsv" \
+    <<<"$releases")"
+fi
 
 while IFS=$'\t' read -r tag sha; do
-  match="$(awk -F'\t' -v sha="$sha" '$1 == sha { print $2; exit }' <<<"$published")"
-  if [[ -n "$match" ]]; then
-    printf 'SELECT: %s %s matches %s\n' "$tag" "$sha" "$match"
-    exit 0
+  match=""
+  if [[ -n "$prerequisite" ]]; then
+    match="$(awk -F'\t' -v sha="$sha" '$1 == sha { print $2; exit }' <<<"$published")"
+    if [[ -z "$match" ]]; then
+      printf 'SKIP: %s %s — no published %s release at this commit\n' "$tag" "$sha" "$prerequisite"
+      continue
+    fi
   fi
-  printf 'SKIP: %s %s — no published %s release at this commit\n' "$tag" "$sha" "$prerequisite"
+
+  if [[ -n "$live_tag" ]]; then
+    order=0
+    reason="$(draft_order "$repo" "$tag" "$sha" "$live_tag" "$live_target")" || order=$?
+    if (( order == 2 )); then
+      printf 'NONE: %s\n' "$reason"
+      exit 1
+    elif (( order == 1 )); then
+      printf 'SKIP: %s %s — %s\n' "$tag" "$sha" "$reason"
+      continue
+    fi
+  fi
+
+  printf 'SELECT: %s %s%s\n' "$tag" "$sha" "${match:+ matches $match}"
+  exit 0
 done <<<"$drafts"
 
-printf 'NONE: no %s draft newer than published %s matches a published %s release\n' "$variant" "${latest_published:-<none>}" "$prerequisite"
+if [[ -n "$prerequisite" ]]; then
+  printf 'NONE: no %s draft newer than published %s matches a published %s release\n' "$variant" "${live_tag:-<none>}" "$prerequisite"
+else
+  printf 'NONE: no %s draft newer than published %s\n' "$variant" "${live_tag:-<none>}"
+fi
 exit 1

@@ -124,16 +124,16 @@ export function trackRenderTime(
   scheduleRendererPrefetch(macroType);
 }
 
-// Full only: Forge also reports `active: false` for free apps, so on Lite the
-// value would read as a lapsed license. Absent rather than guessed when Forge
-// supplies no boolean.
+// Full only: Forge documents `license` as undefined for free apps, and Lite
+// removes `app.licensing` at deploy, so Lite has no license state to report.
+// Absent rather than guessed when Forge supplies no boolean.
 function getLicenseTelemetry(): { license_active?: boolean } {
   if (import.meta.env.PRODUCT_TYPE !== 'full') return {};
   const active = forgeGlobal.forgeContext?.license?.active;
   return typeof active === 'boolean' ? { license_active: active } : {};
 }
 
-const PREFETCHABLE: readonly PrefetchRenderer[] =['graph', 'mermaid', 'sequence', 'openapi'];
+const PREFETCHABLE: readonly PrefetchRenderer[] = ['graph', 'mermaid', 'sequence', 'openapi'];
 
 // Macro-host half of the idle renderer prefetch (EAG-64): this iframe just
 // finished rendering and will stay alive, so at idle it warms the OTHER

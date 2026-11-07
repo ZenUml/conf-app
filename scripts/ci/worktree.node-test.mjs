@@ -152,6 +152,25 @@ test('clean: a symlinked directory is unlinked, its target survives', () => {
   assert.equal(existsSync(join(target, 'keep.txt')), true);
 });
 
+test('clean: never deletes a nested worktree or repo inside an ignored directory', () => {
+  const { main, wt } = fixture();
+  // Another session's worktree nested under an ignored folder, with uncommitted work.
+  const nested = join(wt, '.claude/worktrees/other');
+  git(main, 'worktree', 'add', '-q', '-b', 'other', nested);
+  write(nested, 'unsaved.txt', 'work in progress');
+  // A plain nested repo (a .git directory) under an ignored folder.
+  const repo = join(wt, 'dist/vendor-repo');
+  mkdirSync(repo, { recursive: true });
+  git(repo, 'init', '-q');
+  write(repo, 'keep.txt');
+  const { code, out } = run(clean, [], { cwd: wt });
+  assert.equal(code, 0);
+  assert.equal(existsSync(join(nested, 'unsaved.txt')), true);
+  assert.equal(existsSync(join(repo, 'keep.txt')), true);
+  assert.match(out, /skipped \(contains git repo\): \.claude/);
+  assert.match(out, /skipped \(contains git repo\): dist/);
+});
+
 test('worktree:clean: exit 0 when clean, 1 with untracked files, 2 outside a repo', () => {
   const { base, wt } = fixture();
   assert.equal(run(worktreeClean, { cwd: wt }).code, 0);

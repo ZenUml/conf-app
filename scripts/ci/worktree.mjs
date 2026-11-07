@@ -137,17 +137,26 @@ export function worktreeClean({ cwd = process.cwd(), log = console.log } = {}) {
   return 0;
 }
 
-// Never follows symlinks, so a link to a directory is not searched.
-function holdsEnv(path) {
+// Why a path must be kept: it is or holds an .env file, or it holds a git
+// repo or worktree (a `.git` file or folder), such as another session's
+// worktree under `.claude/worktrees/`. Never follows symlinks, so a link to a
+// directory is not searched. Returns null when the path is safe to remove.
+function keepReason(path) {
   let stat;
   try {
     stat = lstatSync(path);
   } catch {
-    return false;
+    return null;
   }
-  if (isEnvName(basename(path))) return true;
-  if (!stat.isDirectory()) return false;
-  return readdirSync(path).some((name) => holdsEnv(join(path, name)));
+  const name = basename(path);
+  if (name === ".git") return "git repo";
+  if (isEnvName(name)) return ".env";
+  if (!stat.isDirectory()) return null;
+  for (const child of readdirSync(path)) {
+    const reason = keepReason(join(path, child));
+    if (reason) return reason;
+  }
+  return null;
 }
 
 /**
@@ -189,11 +198,12 @@ export function clean(
   for (const path of candidates) {
     if (path.split("/").includes(".git")) continue;
     const full = join(root, path);
-    if (holdsEnv(full)) {
+    const reason = keepReason(full);
+    if (reason) {
       log(
-        isEnvName(basename(path))
+        reason === ".env" && isEnvName(basename(path))
           ? `skipped (.env): ${path}`
-          : `skipped (contains .env): ${path}`,
+          : `skipped (contains ${reason}): ${path}`,
       );
       continue;
     }

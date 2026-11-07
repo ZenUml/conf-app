@@ -5,6 +5,7 @@
         <Header
           :ai-chat-open="showAIChat"
           @toggle-ai-chat="toggleAIChat"
+          @template-gallery-visibility="templateGalleryOpen = $event"
         />
       </div>
       <div class="workspace flex-grow split" style="overflow: hidden; position: relative;">
@@ -64,7 +65,7 @@
         <!-- MCP promo, new diagram (useEditorMcpPromo): over the preview
              while the starter code is untouched. -->
         <McpPromoCard
-          v-if="mcpShowNewDiagramCard && !showAIChat"
+          v-if="mcpShowNewDiagramCard && !showAIChat && !templateGalleryOpen"
           class="editor-mcp-new-card"
           title="Start from your code"
           body="Let Claude, Cursor or VS Code draft this diagram from your codebase, then paste it here."
@@ -72,6 +73,9 @@
           @cta="mcpOnCta('editor_new_diagram')"
           @dismiss="mcpOnDismiss('editor_new_diagram')"
         />
+        <!-- Own stacking layer: the code pane stacks above a plain z-index 6
+             overlay, which left it undimmed and clickable behind the dialog. -->
+        <div v-if="mcpDialogVisible" class="editor-mcp-dialog-layer">
         <ConnectMcpDialog
           :visible="mcpDialogVisible"
           :diagram-title="diagramTitle"
@@ -82,6 +86,7 @@
           @close="mcpCloseDialog"
           @copy="mcpOnCopied"
         />
+        </div>
         <!-- The code panel's own toggle: one button, anchored to the corner
              the panel occupies, that both hides and shows it. It does not
              move or swap between states — only the chevron turns around and
@@ -180,6 +185,9 @@
     },
     data() {
       return {
+        // Starter template gallery open (Header emits it); the MCP
+        // new-diagram card stays hidden while it is.
+        templateGalleryOpen: false,
         showAIChat: false,
         showCodeEditor: true,
         syntaxRepairRequestId: 0,
@@ -379,6 +387,11 @@
      bottom-left corner. Background matches CodeMirror's dracula theme. */
   padding: 8px 12px 44px;
   background: #282A36;
+}
+.editor-mcp-dialog-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
 }
 .editor-mcp-new-card {
   position: absolute;

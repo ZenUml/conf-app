@@ -12,7 +12,7 @@
  * engagement) come from mcpPromo.ts, so a dismissal in Fullscreen also hides
  * these, and the reverse.
  */
-import { computed, onMounted, ref, watch, type Ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch, type Ref } from 'vue'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import { getContext } from '@/model/globals/forgeGlobal'
@@ -46,7 +46,9 @@ export function useEditorMcpPromo(options: {
   const now = options.now ?? Date.now
   const enabled = ref(false)
   const hidden = ref(false)
-  const scope = { cloudId: '' as string, accountId: '' as string, pageId: '' as string }
+  // Reactive: it is filled after mount, while the dialog's props (target and
+  // prompt) are computed from it at first render.
+  const scope = reactive({ cloudId: '', accountId: '', pageId: '' })
   let promoState: McpPromoState | null = null
 
   // Captured at mount: what "untouched" means for a new diagram.

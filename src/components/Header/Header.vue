@@ -111,7 +111,7 @@ export default {
       default: false,
     },
   },
-  emits: ["toggle-ai-chat"],
+  emits: ["toggle-ai-chat", "template-gallery-visibility"],
   components: {
     PublishButton,
     TabSwitcher,
@@ -336,6 +336,11 @@ export default {
     },
   },
   watch: {
+    // Lets Workspace keep other overlays (the MCP new-diagram promo) out of
+    // the way while the starter gallery is open.
+    isTemplateGalleryOpen(open) {
+      this.$emit("template-gallery-visibility", open);
+    },
     aiChatAvailable: {
       immediate: true,
       handler(visible, wasVisible) {

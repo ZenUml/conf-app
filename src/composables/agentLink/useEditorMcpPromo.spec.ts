@@ -102,6 +102,22 @@ describe('useEditorMcpPromo', () => {
     ]])
   })
 
+  it('fills cloudId and pageId into a target read before the context resolves', async () => {
+    const { api } = setup({ id: '777' })
+    // Read at first render, like the dialog's props, then let mount finish.
+    expect(api.dialogTarget.value.cloudId).toBe('')
+    await flushPromises()
+    expect(api.dialogTarget.value).toEqual({ cloudId: 'cloud-1', pageId: '42', contentId: '777' })
+  })
+
+  it('fills the new-diagram prompt after the context resolves, even when read first', async () => {
+    const { api } = setup()
+    expect(api.dialogPrompt.value).not.toContain('cloudId:')
+    await flushPromises()
+    expect(api.dialogPrompt.value).toContain('cloudId: cloud-1')
+    expect(api.dialogPrompt.value).toContain('pageId: 42')
+  })
+
   it('uses the default review prompt for a saved diagram', async () => {
     const { api } = setup({ id: '777' })
     await flushPromises()

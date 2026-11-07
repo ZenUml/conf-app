@@ -17,8 +17,9 @@
 // No diagram is stored. The only write is a per-address call counter in D1
 // (renderRateLimit.ts), and the only outbound call is fetching our own built
 // view. The diagram is drawn in the host's frame, by the
-// same view the headless tools use; PlantUML goes from that frame to
-// www.plantuml.com, as it does in Confluence.
+// same view the headless tools use, PlantUML included: no diagram source
+// reaches a third party, and a diagram the engine cannot draw shows an error
+// rather than falling back to plantuml.com as the Confluence macro does.
 //
 // What the server adds over a plain echo is the parse check (parseDsl.ts): the
 // agent gets ZenUML and Mermaid errors with line and column, and a structural
@@ -207,6 +208,9 @@ async function track(env: RenderEnv, props: Record<string, unknown>): Promise<vo
   }
 }
 
+/** Sent by scripts/ci/check-render-mcp.mjs. Spoofing it only hides the sender's own calls. */
+const INTERNAL_PROBE_HEADER = 'x-zenuml-internal-probe';
+
 function clip(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 64) : undefined;
 }
@@ -218,6 +222,9 @@ export async function handleRenderRpc(
   body: { id?: JsonRpcId; method?: string; params?: unknown },
   deps: RenderMcpDeps = {},
 ): Promise<Response> {
+  // Our own smoke checks say so: this path has no user or site that could.
+  const internalProbe = request.headers.get(INTERNAL_PROBE_HEADER) ? { internal_probe: true } : {};
+  const trackEvent = (props: Record<string, unknown>) => track(env, { ...internalProbe, ...props });
   const id = body.id ?? null;
   const origin = new URL(request.url).origin;
   const fetchImpl = deps.fetchImpl ?? ((url: string, init?: RequestInit) => fetch(url, init));
@@ -239,7 +246,7 @@ export async function handleRenderRpc(
       );
       const info = (body.params as { clientInfo?: { name?: unknown; version?: unknown } } | undefined)?.clientInfo;
       await defer(
-        track(env, {
+        trackEvent({
           event: 'agent_link_mcp_initialized',
           client_declares_ui: clientDeclaresUi(body.params),
           protocol_version: negotiated,
@@ -269,7 +276,7 @@ export async function handleRenderRpc(
       if (uri === DIAGRAM_VIEW_URI) {
         const read = await readUiResource(uri, origin, (u) => fetchImpl(u));
         await defer(
-          track(env, {
+          trackEvent({
             event: read.ok ? 'agent_link_app_view_requested' : 'agent_link_app_view_failed',
             ...(read.ok ? {} : { reason: read.reason, ...(read.detail ? { detail: read.detail.slice(0, 120) } : {}) }),
           }),
@@ -290,7 +297,7 @@ export async function handleRenderRpc(
       const startedMs = now();
       const trackCall = (outcome: ToolOutcome, extra: Record<string, unknown> = {}) =>
         defer(
-          track(env, {
+          trackEvent({
             event: 'agent_link_mcp_tool_called',
             mcp_tool: outcome === 'unknown_tool' ? 'unknown' : params.name,
             mcp_tool_outcome: outcome,

@@ -35,12 +35,27 @@ export function extractTitle(raw: string): string {
   return title.slice(0, 80);
 }
 
+// Gemma returns chat completions; Llama returns a legacy `response` string.
+// Only final text can be a title: never coerce objects or read reasoning fields.
+function extractModelTitle(result: unknown): string {
+  const output = result as {
+    response?: unknown;
+    choices?: { message?: { content?: unknown } }[];
+  } | null;
+  const raw = Array.isArray(output?.choices) ? output.choices[0]?.message?.content : output?.response;
+  if (typeof raw !== 'string') throw new Error('Failed to extract title');
+  // Reject unparsed thought blocks even if they contain a quoted draft title.
+  if (/<think\b|<\|channel>thought/i.test(raw)) throw new Error(NOT_TITLE_LIKE);
+  return extractTitle(raw);
+}
+
 // Two strategies deliberately run on *different* models so a single model
 // deprecation/outage degrades the fallback chain instead of breaking it. This
 // endpoint has been taken down twice by Cloudflare deprecating the one shared
 // model (llama-2-7b-chat-int8, then llama-3.1-8b-instruct); diverging the models
 // closes that failure mode. Verify replacements against `wrangler ai models`.
-const PRIMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+// Replaces llama-3.1-8b-instruct-fp8, retiring on 2026-11-20.
+const PRIMARY_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const FALLBACK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const strategies: Strategy[] = [
@@ -56,8 +71,11 @@ const strategies: Strategy[] = [
         },
         { role: 'user', content: dsl },
       ],
+      // Non-thinking usage: https://developers.cloudflare.com/workers-ai/get-started/workers-wrangler/
+      chat_template_kwargs: { enable_thinking: false },
+      max_completion_tokens: 128,
     });
-    return extractTitle((result as any).response);
+    return extractModelTitle(result);
   },
   async (ai, dsl, type) => {
     const systemPrompt = isOpenApiTitleRequest(type)
@@ -74,7 +92,7 @@ const strategies: Strategy[] = [
         { role: 'user', content: dsl },
       ],
     });
-    return extractTitle((result as any).response);
+    return extractModelTitle(result);
   },
 ];
 

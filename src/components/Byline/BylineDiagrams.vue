@@ -177,7 +177,7 @@
             <img v-else class="row__icon" :src="macroIcon(d.diagramType)" alt="" />
           </span>
           <span class="row__text">
-            <span class="row__title" :title="d.title">{{ d.title }}</span>
+            <span class="row__title" :title="visibleDiagramTitle(d.title) || 'Untitled diagram'">{{ visibleDiagramTitle(d.title) || 'Untitled diagram' }}</span>
             <span class="row__type">
               {{ label(d.diagramType) }}<template v-if="isUnplaced(d)"> · not on this page</template>
             </span>
@@ -358,6 +358,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import globals from '@/model/globals'
 import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { visibleDiagramTitle } from '@/lib/aiTitleGuard.js'
 import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'

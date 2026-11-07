@@ -848,6 +848,19 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')
     })
 
+    it('shows the default title instead of a saved model refusal, and records it once', async () => {
+      store.state.diagram.title = 'Please provide the DSL that describes your flowchart and I will suggest a tit'
+      await flushPromises()
+      // Viewers left mounted by earlier tests share the store; count only this mount.
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')
+      const hidden = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'saved_refusal_title_hidden')
+      expect(hidden).toEqual([['saved_refusal_title_hidden', expect.objectContaining({ feature_area: 'ai', surface: 'viewer' })]])
+      wrapper.unmount()
+    })
+
     it('reveals top + bottom edges on mouseenter and hides on mouseleave', async () => {
       const wrapper = mountViewer()
       const surface = wrapper.find('.viewer-surface')
@@ -3400,6 +3413,60 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       await settleLayout()
       expect(shownCalls()).toHaveLength(0)
+    })
+
+    describe('Fullscreen MCP promo card', () => {
+      const fullscreen = () => {
+        ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' }, modal: { macroMode: 'fullscreen' } } } }
+      }
+
+      it('shows the card in fullscreen and opens the dialog from it', async () => {
+        fullscreen()
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        const wrapper = mountViewer()
+        await flushPromises()
+        const card = wrapper.find('[data-testid="mcp-promo-card"]')
+        expect(card.exists()).toBe(true)
+        expect(shownCalls()).toContainEqual([
+          'agent_link_mcp_button_shown',
+          expect.objectContaining({ surface: 'fullscreen', mcp_button_placement: 'fullscreen_card', mcp_button_reveal: 'always' }),
+        ])
+
+        await wrapper.find('[data-testid="mcp-promo-card-cta"]').trigger('click')
+        expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(true)
+        expect(wrapper.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+          'agent_link_mcp_dialog_opened',
+          expect.objectContaining({ surface: 'fullscreen', mcp_button_placement: 'fullscreen_card' })
+        )
+      })
+
+      it('never shows again after a dismissal', async () => {
+        fullscreen()
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        const wrapper = mountViewer()
+        await flushPromises()
+        await wrapper.find('[data-testid="mcp-promo-card-dismiss"]').trigger('click')
+        expect(wrapper.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+          'agent_link_mcp_promo_dismissed',
+          expect.objectContaining({ surface: 'fullscreen', mcp_button_placement: 'fullscreen_card' })
+        )
+
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        const again = mountViewer()
+        await flushPromises()
+        expect(again.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+      })
+
+      it('is not shown inline or with the flag off', async () => {
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        expect(mountViewer().find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+        fullscreen()
+        const off = mountViewer()
+        await flushPromises()
+        expect(off.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+      })
     })
 
     it('does not try to reattach a relay session on mount', async () => {

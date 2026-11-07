@@ -691,7 +691,11 @@ describe('write analytics', () => {
       }),
     });
     const res = await handleHeadlessRpc(request, env, await request.clone().json(), { fetchImpl });
-    return { res, events: events.filter((e) => String(e.event).startsWith('agent_link_diagram_')) };
+    return {
+      res,
+      events: events.filter((e) => String(e.event).startsWith('agent_link_diagram_')),
+      toolCalls: events.filter((e) => e.event === 'agent_link_mcp_tool_called'),
+    };
   }
 
   it('records which gate branch allowed the create', async () => {
@@ -704,6 +708,60 @@ describe('write analytics', () => {
     expect(events[0].properties.result).toBe('added');
     expect(events[0].properties.paywall_gate).toBe('under_limit');
     expect(events[0].properties.cloud_id).toBe(CLOUD);
+  });
+
+  it('types and locates a create on both the write event and the tool call', async () => {
+    const { events, toolCalls } = await rpcCreate(emptyPage(), {
+      confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: 3 } } }) },
+    });
+    for (const e of [events[0], toolCalls[0]]) {
+      expect(e.properties).toMatchObject({ macro_type: 'sequence', client_domain: 'one' });
+    }
+  });
+
+  it('types an update, whose result is the only place the stored type appears', async () => {
+    const { events, toolCalls } = await rpcCreate(emptyPage(), {}, {
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: 'cc-1', dsl: CURRENT_DSL },
+    });
+    expect(events[0].properties.macro_type).toBe('sequence');
+    expect(toolCalls[0].properties.macro_type).toBe('sequence');
+  }, GUARD_TIMEOUT_MS);
+
+  it('says a refusal was suspected data loss, on both events', async () => {
+    const { events, toolCalls } = await rpcCreate(emptyPage(), {}, {
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: 'cc-1', dsl: 'A.one()' },
+    });
+    for (const e of [events[0], toolCalls[0]]) {
+      expect(e.properties).toMatchObject({
+        reason: 'guardrail_rejected',
+        guardrail_reason: 'data_loss',
+        macro_type: 'sequence',
+        client_domain: 'one',
+      });
+    }
+    expect(toolCalls[0].properties.mcp_tool_outcome).toBe('tool_error');
+  }, GUARD_TIMEOUT_MS);
+
+  it('says a refusal was a parse error, and never sends the source', async () => {
+    const dsl = `${CURRENT_DSL}\nsecret-text {{{{`;
+    const { events, toolCalls } = await rpcCreate(emptyPage(), {}, {
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: 'cc-1', dsl },
+    });
+    expect(toolCalls[0].properties.guardrail_reason).toBe('parse_error');
+    expect(events[0].properties.guardrail_reason).toBe('parse_error');
+    expect(JSON.stringify([events, toolCalls])).not.toContain('secret-text');
+  }, GUARD_TIMEOUT_MS);
+
+  it('sends no guardrail_reason on a refusal the guard did not make', async () => {
+    const { toolCalls } = await rpcCreate(emptyPage(), {}, {
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: '', dsl: 'A.one()' },
+    });
+    expect(toolCalls[0].properties.reason).toBe('bad_params');
+    expect(toolCalls[0].properties.guardrail_reason).toBeUndefined();
   });
 
   it('records on update_diagram whether the call renamed the diagram (#789)', async () => {

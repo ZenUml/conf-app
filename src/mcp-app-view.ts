@@ -42,14 +42,6 @@ import { detectDiagramType } from '../functions/agent-link/detectDiagramType';
 
 type Json = Record<string, unknown>;
 
-/**
- * The public PlantUML server the Confluence app already draws with
- * (PlantUml.vue). PlantUML has no browser renderer, so the diagram is an <img>
- * of the server's SVG; `www.plantuml.com` is in the resource csp for exactly
- * this (mcpApps.ts uiCsp).
- */
-export const PLANTUML_SVG_BASE = 'https://www.plantuml.com/plantuml/svg/';
-
 /** Diagram payload, once we have found it in whatever shape the host delivered. */
 interface DiagramPayload {
   diagramType: string;
@@ -276,7 +268,7 @@ export function loadRenderer(type: string): Promise<unknown> | null {
     type === 'mermaid' ? import('mermaid').then(({ default: mermaid }) => mermaid)
       : type === 'sequence' ? import('@zenuml/core').then(({ default: ZenUml }) => ZenUml)
         : type === 'openapi' ? Promise.all([import('swagger-ui'), import('swagger-ui/dist/swagger-ui.css')])
-          : type === 'plantuml' ? import('@/utils/plantuml/encode')
+          : type === 'plantuml' ? import('@/utils/plantuml/engine').then(({ preloadPlantUmlEngine }) => preloadPlantUmlEngine())
             : type === 'graph'
               ? import('@/utils/drawio/loadDrawioViewer').then(({ ensureDrawioViewerLoaded }) => ensureDrawioViewerLoaded(viewOrigin()))
               : null;
@@ -297,6 +289,56 @@ export function typeFromToolInput(params: unknown): string | null {
   return null;
 }
 
+/**
+ * Draw the engine's SVG as an <img> from a data URL, not inline. An image cannot
+ * run script or fetch anything, whatever the agent put in the source, and the
+ * host's CSP allows `data:` images by default.
+ */
+async function renderPlantUml(el: HTMLElement, payload: DiagramPayload): Promise<void> {
+  const { renderPlantUmlLocally } = await import('@/utils/plantuml/engine');
+  const svg = await renderPlantUmlLocally(payload.dsl);
+  const img = document.createElement('img');
+  img.alt = payload.title ?? 'PlantUML diagram';
+  img.style.maxWidth = '100%';
+  // The frame's height is only right once the image has a size.
+  const loaded = new Promise<void>((resolveLoad, rejectLoad) => {
+    img.onload = () => resolveLoad();
+    img.onerror = () => rejectLoad(new Error('the drawing could not be shown'));
+  });
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  el.innerHTML = '';
+  el.appendChild(img);
+  await loaded;
+}
+
+/**
+ * Tell our own origin what became of this diagram (viewEvent.ts): only this
+ * frame knows. A string body is a CORS-simple request, so a sandboxed frame needs
+ * no preflight. Enums only, never the source or the title.
+ */
+function reportRender(type: string, failure?: unknown): void {
+  const failed = failure !== undefined;
+  const reason = (failure as { reason?: unknown } | undefined)?.reason;
+  try {
+    navigator.sendBeacon?.(
+      new URL('mcp/view-event', viewOrigin()).href,
+      JSON.stringify({
+        macro_type: type,
+        render_outcome: failed ? 'failed' : 'rendered',
+        ...(type === 'plantuml'
+          ? { plantuml_renderer: failed ? 'failed' : 'local', ...(typeof reason === 'string' ? { plantuml_failure_reason: reason } : {}) }
+          : {}),
+      }),
+    );
+  } catch {
+    // analytics never fails a render
+  }
+}
+
+// A dynamic import that failed stays failed for this document, so the useful
+// retry is a fresh view: asking again opens a new frame.
+const DOWNLOAD_FAILED = 'Could not download the diagram renderer. The connection may be slow or blocked; ask again to retry.';
+
 async function render(payload: DiagramPayload): Promise<void> {
   const el = document.getElementById('app');
   if (!el) return;
@@ -308,12 +350,9 @@ async function render(payload: DiagramPayload): Promise<void> {
     try {
       await load;
     } catch (e) {
-      // A dynamic import that failed stays failed for this document, so the
-      // useful retry is a fresh view: asking again opens a new frame.
       console.error('[zenuml] renderer download failed', e);
-      status(
-        'Could not download the diagram renderer. The connection may be slow or blocked; ask again to retry.',
-      );
+      reportRender(type, e);
+      status(DOWNLOAD_FAILED);
       return;
     }
   }
@@ -325,21 +364,7 @@ async function render(payload: DiagramPayload): Promise<void> {
       const { svg } = await mermaid.render(`zen-mcp-${Date.now()}`, payload.dsl);
       el.innerHTML = svg;
     } else if (type === 'plantuml') {
-      const { plantumlEncode } = await import('@/utils/plantuml/encode');
-      const img = document.createElement('img');
-      img.alt = payload.title ?? 'PlantUML diagram';
-      img.style.maxWidth = '100%';
-      // The frame's height is only right once the image has a size, and a
-      // syntax error still answers with an SVG (PlantUML draws the error), so
-      // `error` here means the server itself was unreachable.
-      const loaded = new Promise<void>((resolveLoad, rejectLoad) => {
-        img.onload = () => resolveLoad();
-        img.onerror = () => rejectLoad(new Error('the PlantUML server did not answer'));
-      });
-      img.src = PLANTUML_SVG_BASE + plantumlEncode(payload.dsl);
-      el.innerHTML = '';
-      el.appendChild(img);
-      await loaded;
+      await renderPlantUml(el, payload);
     } else if (type === 'sequence') {
       const [{ default: ZenUml }, { configureDiagramFonts }] = await Promise.all([
         import('@zenuml/core'),
@@ -366,10 +391,14 @@ async function render(payload: DiagramPayload): Promise<void> {
       return;
     }
   } catch (e) {
-    status(`Could not draw the diagram: ${e instanceof Error ? e.message : String(e)}`);
+    // A chunk that only this diagram needs (C4, themes) failed after the engine loaded.
+    const downloadFailed = (e as { reason?: unknown } | undefined)?.reason === 'load_failed';
+    status(downloadFailed ? DOWNLOAD_FAILED : `Could not draw the diagram: ${e instanceof Error ? e.message : String(e)}`);
+    reportRender(type, e);
     return;
   }
 
+  reportRender(type);
   reportSize();
 }
 

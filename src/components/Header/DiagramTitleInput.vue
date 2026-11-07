@@ -75,7 +75,7 @@ const WIDTH_PADDING_PX = 4
 const {
   aiTitleEnabled, isGeneratingTitle, isAnimating, displayedTitle,
   showSpark, sparkFadingOut, showDismiss, autoNameAnimationDone,
-  generate, dismiss, markManualEdit, onTitleCleared, reset,
+  generate, dismiss, markManualEdit, onTitleCleared, clearSavedRefusalTitle, reset,
 } = useAutoTitle()
 
 const titleError = ref(false)
@@ -181,6 +181,7 @@ watch(currentCode, () => scheduleAutoGenerate())
 
 onMounted(async () => {
   reset() // clear any per-document state left over from a previous editor session
+  clearSavedRefusalTitle(String(diagramType.value || 'none').toLowerCase())
   draftTitle.value = inputValue.value
   await nextTick()
   updateWidth()

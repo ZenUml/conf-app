@@ -259,6 +259,16 @@ describe('POST /mcp/render', () => {
       expect(e?.properties).toEqual(expect.objectContaining({ mcp_tool_outcome: 'tool_error', reason: 'bad_params' }));
     });
 
+    it('marks our own smoke checks, and only them, as internal', async () => {
+      const events = captureEvents();
+      const body = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'render_diagram', arguments: { diagramType: 'sequence', source: 'A->B: hi' } } };
+      await handleRenderRequest(post(body, { 'x-zenuml-internal-probe': 'render-mcp-ci-smoke' }), { MIXPANEL_TOKEN: 't' }, {});
+      await handleRenderRequest(post(body), { MIXPANEL_TOKEN: 't' }, {});
+      const calls = events.filter((x) => x.event === 'agent_link_mcp_tool_called');
+      expect(calls[0].properties.internal_probe).toBe(true);
+      expect(calls[1].properties.internal_probe).toBeUndefined();
+    });
+
     it('records the handshake with the client name', async () => {
       const events = captureEvents();
       await rpc('initialize', { clientInfo: { name: 'claude-ai' } }, { MIXPANEL_TOKEN: 't' });

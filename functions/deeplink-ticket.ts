@@ -1,6 +1,7 @@
 import { OkResponse, response } from "./OkResponse";
 import { captureError } from "./utils/sentry";
 import type { ForgeRequestData } from "./utils/authenticate";
+import { toClientDomain } from "../src/lib/clientDomain.js";
 import { signTicket, imgKeyFor, IMG_TTL_SECONDS } from "./utils/deeplink";
 import type { Env as DeeplinkEnv } from "./utils/deeplink";
 
@@ -142,7 +143,8 @@ export const onRequest = async ({
   //   m = mint-time in Unix SECONDS (not an ISO string)
   //   no imgId field — the image KV key is DERIVED from the payload hash
   //   no w/h — Slack renders the big image via twitter:card=summary_large_image
-  const subdomain = domain.toLowerCase().replace(/\.atlassian\.net$/, "");
+  // Already gated by ATLASSIAN_HOST_RE above, so toClientDomain's strip is byte-identical.
+  const subdomain = toClientDomain(domain) as string;
   const payload = {
     v: 1,
     d: subdomain,

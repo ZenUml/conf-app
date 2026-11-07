@@ -726,6 +726,52 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.client_domain).toBe('example-tenant');
   });
 
+  it('sends client_domain null (not the cloudId) when the payload has no siteUrl, and keeps cloud_id (#955)', async () => {
+    asAppRequest.mockRejectedValue(new Error('forced failure'));
+
+    await handler({
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-nosite',
+        spaceKey: 'SP',
+        accountId: 'acc-nosite',
+        extension: { content: { id: '999' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-nosite' } },
+    });
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { client_domain?: string | null; cloud_id?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.client_domain ?? null).toBeNull();
+    expect(failed?.properties?.cloud_id).toBe('cloud-nosite');
+  });
+
+  it('uses the full host as client_domain for a custom-domain siteUrl (#955)', async () => {
+    asAppRequest.mockRejectedValue(new Error('forced failure'));
+
+    await handler({
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-custom',
+        siteUrl: 'https://wiki.example.com',
+        spaceKey: 'SP',
+        accountId: 'acc-custom',
+        extension: { content: { id: '999' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-custom' } },
+    });
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { client_domain?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.client_domain).toBe('wiki.example.com');
+  });
+
   it('reads NO custom content on the success path, so macro_type is "none" there', async () => {
     // Measured on Lite production 2026-08-16: exportMacro runs 12,407 times/day
     // = 40.3% of every Forge invocation for the app. An eager custom-content GET

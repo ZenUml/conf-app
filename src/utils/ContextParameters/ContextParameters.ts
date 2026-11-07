@@ -1,4 +1,5 @@
 // https://developer.atlassian.com/cloud/confluence/context-parameters/
+import { toAtlassianClientDomain } from '@/lib/clientDomain.js';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
 export function getClientDomain() {
@@ -47,10 +48,12 @@ export function getSpaceKey() {
   return urlSpaceKey || initialContextSpaceKey || forgeSpaceKey || NO_SPACE_CONTEXT;
 }
 
+// The result is a KEY (paywall / space-license / CSS lookups), so the contract
+// stays: bare subdomain for a single-label `*.atlassian.net` host, '' for
+// everything else (custom domains included). Parsing is anchored via #955.
 export function getSubdomain(baseUrl: string) {
-  const regexp = new RegExp('https://([a-z0-9-_]+).atlassian.net');
-  const subdomainMatches = regexp.exec(baseUrl.toLowerCase());
-  return subdomainMatches && subdomainMatches[1] || '';
+  const subdomain = toAtlassianClientDomain(baseUrl);
+  return subdomain && /^[a-z0-9_-]+$/.test(subdomain) ? subdomain : '';
 }
 
 export function getUrlParam (param: string): string {

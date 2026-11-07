@@ -48,6 +48,8 @@ of failure, and puts the two direct-to-`main` exceptions above in the directory 
    generated output (`dist`, `storybook-static`, `coverage`, `test-results`, `playwright-report`)
    and the links it made, and never follows a link into the primary checkout.
 
+**Worktree commands** (`scripts/ci/worktree.mjs`): after creating a worktree, run `pnpm link:environment <main worktree path> --dry-run`, then the same command without `--dry-run` (symlinks the git-ignored `.env*` files from main; it never overwrites a real file), then `pnpm worktree:clean` (exit 0 = clean). Before removing a worktree, run `pnpm clean --dry-run`, then `pnpm clean` (deletes git-ignored build output; refuses in the main worktree, and never deletes `.env*` files or anything holding a git repo or worktree), then `git worktree remove <path>`.
+
 Worktrees accumulate under this scheme — 37 existed on 2026-08-31, including one untouched for 8
 days. Run the `worktree-cleanup` skill periodically; it removes the ones whose PR is merged.
 

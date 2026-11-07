@@ -5,6 +5,10 @@
   "private": true,
   "scripts": {
     "test:unit": "vitest --run",
+    "test:worktree-tooling": "node --test scripts/ci/worktree.node-test.mjs",
+    "link:environment": "node scripts/ci/worktree.mjs link-environment",
+    "worktree:clean": "node scripts/ci/worktree.mjs clean-check",
+    "clean": "node scripts/ci/worktree.mjs clean",
     "test:ui-details": "playwright test -c tests/ui-details/playwright.config.ts",
     "test:mermaid-highlights": "node scripts/ci/mermaid-highlights.mjs",
     "test:export-modal": "playwright test -c tests/export-modal/playwright.config.ts",

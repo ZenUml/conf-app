@@ -373,6 +373,28 @@ describe('sessionHandoff', () => {
       unsubscribe()
     })
 
+    // Reconnect exhaustion: the owner already persisted `suspended`, then
+    // persists the same record with ONLY `noticeReason` added. The fingerprint
+    // must include it, else the Fullscreen rail keeps showing "reconnecting…"
+    // instead of "Connection lost".
+    it('delivers a noticeReason-only change on an already-suspended record', () => {
+      const onSession = vi.fn()
+      const unsubscribe = subscribeToHandoff('page-1', onSession)
+
+      persistSession(makeSession({ state: 'suspended' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(1)
+
+      persistSession(makeSession({ state: 'suspended', noticeReason: 'connection_lost' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'agentLinkSession:page-1' }))
+      expect(onSession).toHaveBeenCalledTimes(2)
+      expect(onSession).toHaveBeenLastCalledWith(
+        makeSession({ state: 'suspended', noticeReason: 'connection_lost' })
+      )
+
+      unsubscribe()
+    })
+
     it('after unsubscribe, no further onSession fires even for a later dsl-only update', () => {
       const onSession = vi.fn()
       const unsubscribe = subscribeToHandoff('page-1', onSession)

@@ -564,6 +564,20 @@ describe('useAgentLinkSession', () => {
       )
     })
 
+    it('records reconnect exhaustion without changing the suspended session state', async () => {
+      const { session, boundContext, emit } = await connectedSession()
+      emit()({ type: 'close' })
+      emit()({ type: 'reconnect_failed' })
+
+      expect(session.state.value).toBe('suspended')
+      expect(session.noticeReason.value).toBe('connection_lost')
+      expect(readSession(boundContext.pageId)).toMatchObject({ noticeReason: 'connection_lost' })
+
+      emit()({ type: 'open' })
+      expect(session.state.value).toBe('connected')
+      expect(session.noticeReason.value).toBeNull()
+    })
+
     it('a reconnect (open) while suspended resumes, feeds "Reconnected", and fires agent_link_session_resumed with latency', async () => {
       const { session, boundContext, emit } = await connectedSession()
       emit()({ type: 'close' })

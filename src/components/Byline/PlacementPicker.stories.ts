@@ -13,7 +13,7 @@ const pageWith = (content: unknown[]) => async () => ({
 })
 
 const meta: Meta<typeof PlacementPicker> = {
-  title: 'Byline/PlacementPicker',
+  title: 'Modal/PlacementPicker',
   component: PlacementPicker,
   parameters: { layout: 'fullscreen' },
   args: {

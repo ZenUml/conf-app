@@ -502,6 +502,39 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.failure_reason).toBe('missing_file_id');
   });
 
+  it('reports missing_links_base when the attachment response omits links', async () => {
+    asAppRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({
+        results: [{ fileId: 'media-file', downloadLink: '/wiki/download/attachments/778/image.png' }],
+      }),
+    });
+
+    const payload = {
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-nofile',
+        siteUrl: 'https://example.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-nofile',
+        extension: { content: { id: '778' } },
+      },
+      extensionPayload: { config: { customContentId: 'cc-nofile' } },
+    };
+
+    const result = await handler(payload);
+    expect(JSON.stringify(result)).toContain('Failed to resolve the diagram download link');
+
+    const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { failure_reason?: string };
+    }>;
+    const failed = rows.find((r) => r.event === 'macro_export_failed');
+    expect(failed?.properties?.failure_reason).toBe('missing_links_base');
+  });
+
   it('falls back to asUser() when asApp() returns 404 and succeeds, with fallback telemetry', async () => {
     asAppRequest.mockResolvedValue({
       ok: false,

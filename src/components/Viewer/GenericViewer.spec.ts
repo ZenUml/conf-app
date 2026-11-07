@@ -500,6 +500,10 @@ describe('GenericViewer (chrome-less)', () => {
       });
 
       it('shows the layout survey strip inline, thanks the voter, then retires it', async () => {
+        // Survey persistence needs a complete identity, independently of any
+        // Forge context cached by a preceding test.
+        const previousContext = forgeRuntime.forgeContext;
+        forgeRuntime.forgeContext = { ...window.forgeGlobal!.forgeContext, accountId: 'survey-user', cloudId: 'survey-site' };
         vi.useFakeTimers({ shouldAdvanceTime: true });
         try {
           store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
@@ -518,6 +522,7 @@ describe('GenericViewer (chrome-less)', () => {
           expect(wrapper.find('[data-testid="magic-layout-feedback"]').exists()).toBe(false);
         } finally {
           vi.useRealTimers();
+          forgeRuntime.forgeContext = previousContext;
         }
       });
     });

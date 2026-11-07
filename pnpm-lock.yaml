@@ -28,6 +28,11 @@ overrides:
   local-crm>react-dom: 19.2.8
   react-dom@19.2.8>react: 19.2.8
 
+patchedDependencies:
+  vitest@2.1.9:
+    hash: 6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca
+    path: patches/vitest@2.1.9.patch
+
 importers:
 
   .:
@@ -281,7 +286,7 @@ importers:
         version: 8.52.0(eslint@9.4.0)(typescript@5.9.3)
       '@vitest/coverage-v8':
         specifier: ^2.1.9
-        version: 2.1.9(vitest@2.1.9(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2))
+        version: 2.1.9(vitest@2.1.9(patch_hash=6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca)(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2))
       '@vue/test-utils':
         specifier: 2.2.10
         version: 2.2.10(vue@3.5.26(typescript@5.9.3))
@@ -317,7 +322,7 @@ importers:
         version: 0.27.0(rollup@4.55.1)(vite@7.3.0(@types/node@25.0.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.8.4))
       vitest:
         specifier: ^2.1.9
-        version: 2.1.9(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2)
+        version: 2.1.9(patch_hash=6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca)(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2)
       vue-tsc:
         specifier: ^1.8.27
         version: 1.8.27(typescript@5.9.3)
@@ -372,7 +377,7 @@ importers:
         version: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.8.4)
       vitest:
         specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.19.7)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2)
+        version: 2.1.9(patch_hash=6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca)(@types/node@22.19.7)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2)
       vue:
         specifier: ^3.5.34
         version: 3.5.34(typescript@5.9.3)
@@ -418,7 +423,7 @@ importers:
         version: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.8.4)
       vitest:
         specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.19.7)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2)
+        version: 2.1.9(patch_hash=6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca)(@types/node@22.19.7)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2)
 
   workers/agent-link:
     devDependencies:
@@ -15759,7 +15764,7 @@ snapshots:
       vite: 8.0.12(@types/node@22.19.7)(esbuild@0.27.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.8.4)
       vue: 3.5.34(typescript@5.9.3)
 
-  '@vitest/coverage-v8@2.1.9(vitest@2.1.9(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2))':
+  '@vitest/coverage-v8@2.1.9(vitest@2.1.9(patch_hash=6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca)(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2))':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@bcoe/v8-coverage': 0.2.3
@@ -15773,7 +15778,7 @@ snapshots:
       std-env: 3.10.0
       test-exclude: 7.0.1
       tinyrainbow: 1.2.0
-      vitest: 2.1.9(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2)
+      vitest: 2.1.9(patch_hash=6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca)(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -22881,7 +22886,7 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.8.4
 
-  vitest@2.1.9(@types/node@22.19.7)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2):
+  vitest@2.1.9(patch_hash=6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca)(@types/node@22.19.7)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.19.7)(lightningcss@1.32.0)(terser@5.51.2))
@@ -22917,7 +22922,7 @@ snapshots:
       - supports-color
       - terser
 
-  vitest@2.1.9(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2):
+  vitest@2.1.9(patch_hash=6643591597dc3c9a96aea5dfb0dbc546fb0750649ffb89c446d4abec992aa9ca)(@types/node@25.0.3)(jsdom@23.2.0)(lightningcss@1.32.0)(terser@5.51.2):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@25.0.3)(lightningcss@1.32.0)(terser@5.51.2))

@@ -1,0 +1,18 @@
+PR #1083 validation summary
+Candidate: 3f9c62ac8d06a712f2c85fce4cb905f936ad679c
+
+PASS
+- pnpm exec vitest --run src/utils/analytics/eventSampling.spec.ts src/utils/analytics/trackAnalyticsEvent.spec.ts src/utils/window.spec.ts
+- pnpm exec eslint src/utils/analytics/eventSampling.ts src/utils/analytics/eventSampling.spec.ts
+- git diff --check
+- pnpm test:unit
+  Test Files 459 passed | 1 skipped (460)
+  Tests 6350 passed | 3 skipped (6353)
+
+NOT CLEAN (pre-existing repository baseline)
+- pnpm exec tsc --noEmit
+  597 repository-wide errors; neither changed file appears in the output.
+
+N/A
+- Storybook, Forge Tunnel, and manual UI validation: sampling configuration has no visible UI.
+- Production Mixpanel arrivals: require deployment after merge.

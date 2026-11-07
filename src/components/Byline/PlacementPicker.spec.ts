@@ -124,6 +124,18 @@ describe('PlacementPicker', () => {
     expect(wrapper.get('pre').element.textContent).toContain('\n')
   })
 
+  it('treats Escape as Cancel', async () => {
+    const { onChoose, onDismiss } = await mountPicker()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    expect(onDismiss).not.toHaveBeenCalled()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    expect(onChoose).not.toHaveBeenCalled()
+    expect(events('placement_picker_dismissed')).toHaveLength(1)
+  })
+
   it('calls our own macros diagrams, since their ADF carries no title', async () => {
     const stored = {
       type: 'extension',

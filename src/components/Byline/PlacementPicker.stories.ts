@@ -30,6 +30,16 @@ export default meta
 
 export const DefaultEndOfPage: Story = {}
 
+export const EscapeCancels: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await canvas.findAllByTestId('placement-gap')
+    await userEvent.keyboard('{Escape}')
+    await expect(args.onDismiss).toHaveBeenCalledTimes(1)
+    await expect(args.onChoose).not.toHaveBeenCalled()
+  },
+}
+
 export const ChooseASpot: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)

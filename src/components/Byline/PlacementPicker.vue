@@ -158,14 +158,21 @@ function onConfirm() {
   })
 }
 
+/** With focus inside this iframe, Escape never reaches the host's modal. */
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') onCancel()
+}
+
 onMounted(() => {
   // The modal's own X destroys this iframe without unmounting Vue.
   window.addEventListener('pagehide', trackDismissed)
+  window.addEventListener('keydown', onKeydown)
   void load()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('pagehide', trackDismissed)
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 

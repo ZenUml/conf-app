@@ -41,7 +41,16 @@ export function adfText(node: unknown): string {
   return parts.join(n.type === 'paragraph' || n.type === 'heading' ? '' : ' ').replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * Our own macros carry no title in the ADF (only a customContentId and the
+ * extension key), so without this every diagram on the page reads as "Macro".
+ */
+function isZenumlMacro(node: AdfNode | undefined): boolean {
+  return String(node?.attrs?.extensionKey ?? '').includes('zenuml-')
+}
+
 function macroLabel(node: AdfNode): string {
+  if (isZenumlMacro(node)) return 'Diagram'
   const title = node.attrs?.parameters?.extensionTitle ?? node.attrs?.extensionTitle
   return title ? `Macro: ${title}` : 'Macro'
 }
@@ -63,7 +72,7 @@ export function blockLabel(node: unknown): string {
       return 'the image'
     case 'extension':
     case 'bodiedExtension':
-      return 'the macro'
+      return isZenumlMacro(n) ? 'the diagram' : 'the macro'
     case 'rule':
       return 'the divider'
     case 'paragraph':

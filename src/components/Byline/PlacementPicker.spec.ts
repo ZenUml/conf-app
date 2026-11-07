@@ -124,6 +124,21 @@ describe('PlacementPicker', () => {
     expect(wrapper.get('pre').element.textContent).toContain('\n')
   })
 
+  it('calls our own macros diagrams, since their ADF carries no title', async () => {
+    const stored = {
+      type: 'extension',
+      attrs: {
+        extensionKey: 'app-id/env-id/static/zenuml-sequence-macro-lite',
+        parameters: { guestParams: { customContentId: '1' } },
+      },
+    }
+    const { wrapper } = await mountPicker({ loadPage: ok([stored, para('Next')]) })
+
+    expect(wrapper.get('.adf-card').text()).toBe('Diagram')
+    await wrapper.findAll('[data-testid="placement-gap"]')[1].trigger('click')
+    expect(wrapper.get('[data-testid="placement-where"]').text()).toBe('After the diagram')
+  })
+
   it('draws page content as text, never as markup', async () => {
     const { wrapper } = await mountPicker({ loadPage: ok([para('<img src=x onerror=alert(1)>')]) })
     expect(wrapper.find('img[src="x"]').exists()).toBe(false)

@@ -31,7 +31,6 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     }
 
     const data = await request.json() as ForgeAppRequestBody;
-    console.log('forge-installed body:', data);
     await upsertForgeInstallation((env as any).DB, data);
     const analyticsEvent = normalizeForgeInstallAnalyticsEvent(data);
     const r2Key = await archiveAnalyticsEvent((env as any).EVENT_BUCKET, analyticsEvent, data as unknown as Record<string, unknown>);

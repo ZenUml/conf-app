@@ -1673,7 +1673,9 @@ export type AnalyticsEventName =
   // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
   // for list_sites / get_status, which take none), how the call ended in
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
-  // and server-side latency in `duration_ms`. The write events stay
+  // why the guard refused in `guardrail_reason`, the host in `oauth_client_id` /
+  // `oauth_client_name`, the site in `client_domain`, and server-side latency in
+  // `duration_ms`. The write events stay
   // separate: they carry write-specific properties (paywall_gate, result) this
   // one does not, and the same `cloud_id`. `_initialized` fires on each `initialize` handshake and carries
   // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
@@ -1690,7 +1692,9 @@ export type AnalyticsEventName =
   // `diagramType` is optional and inferred from the source when omitted. No user or site exists on this path. A call refused
   // by the per-address limit is `mcp_tool_outcome: 'rate_limited'`; when the
   // limiter could not decide (D1 missing or failing) and let the call through,
-  // `reason: 'rate_limit_unavailable'` rides the successful call.
+  // `reason: 'rate_limit_unavailable'` rides the successful call. Our own smoke
+  // checks identify themselves with the `x-zenuml-internal-probe` header and
+  // carry `internal_probe: true`.
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only

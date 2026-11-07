@@ -20,7 +20,7 @@
 //     (§9.1, headlessGate.ts) for analytics. It never refuses, matching the
 //     UI, whose paywall block was retired in 2026-09.
 
-import { listAccessibleSites, type AtlassianAppConfig, type FetchLike } from './atlassianClient';
+import { listAccessibleSites, type AtlassianAppConfig, type FetchLike, type AccessibleSite } from './atlassianClient';
 import { confluenceReaderFor } from './confluenceReader';
 import { confluenceRequestFor, type ConfluenceRequest } from './confluenceWriter';
 import { checkCreateAllowed, type GateEnv } from './headlessGate';
@@ -83,6 +83,8 @@ export interface HeadlessContext {
   gateEnv?: GateEnv;
   /** Told when the user's Atlassian grant fails to refresh or is dropped (analytics). */
   onGrantEvent?: GrantEventSink;
+  /** Told which sites the grant reaches, so analytics can name the site without a second lookup. */
+  onSitesListed?: (sites: readonly AccessibleSite[]) => void;
 }
 
 /**
@@ -300,6 +302,7 @@ async function sitesFor(ctx: HeadlessContext) {
   }
   const sites = await listAccessibleSites(ctx.fetchImpl, token.accessToken);
   if (!sites.ok) throw new HeadlessToolError('Could not list your Atlassian sites.', 'upstream', sites.detail);
+  ctx.onSitesListed?.(sites.sites);
   return sites.sites;
 }
 
@@ -847,6 +850,7 @@ export async function callHeadlessTool(
           errors: verdict.errors,
           input_len: verdict.input_len,
           output_len: verdict.output_len,
+          diagramType: stored.diagramType,
         });
       }
 

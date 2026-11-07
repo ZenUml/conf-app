@@ -15,6 +15,7 @@ import { resolveAsyncApiEditorEntry } from "@/model/asyncapi/resolveEditorEntry"
 import './assets/tailwind.css'
 import { saveToPlatform } from "./model/ContentProvider/Persistence";
 import macroMetrics from "@/services/MacroMetrics";
+import { shouldWarmMacroCountCache } from "@/utils/paywall/shouldWarmMacroCountCache";
 import store from './model/store2'
 
 import Example from "./utils/sequence/Example";
@@ -272,7 +273,9 @@ async function initializeCriticalPath() {
   const macroData = await globals.apWrapper.getMacroData();
 
   // Refresh metrics cache on miss; full collect only on save (Persistence.ts)
-  macroMetrics.getMacroMetrics().catch(e => console.error('Error refreshing metrics cache:', e));
+  if (shouldWarmMacroCountCache(context)) {
+    macroMetrics.getMacroMetrics().catch(e => console.error('Error refreshing metrics cache:', e));
+  }
 
   // Return the macro data for use in the second phase
   return { macroData };

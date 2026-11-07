@@ -1655,6 +1655,16 @@ export type AnalyticsEventName =
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
+  // MCP promo surfaces (2026-11). Besides the toolbar/More-menu entry, the
+  // dialog is promoted by a dismissible card in Fullscreen
+  // (`mcp_button_placement: 'fullscreen_card'`), a card for a new, untouched
+  // diagram in the macro editor ('editor_new_diagram'), and a tip docked in
+  // the editor's code pane after sustained manual typing ('editor_tip').
+  // Each placement fires agent_link_mcp_button_shown (deduped per placement
+  // per viewer per UTC day) and its opens carry the same placement.
+  // dismissed = the promo's × was clicked; it carries `mcp_button_placement`
+  // and the promo is not shown again on any surface for that viewer.
+  | "agent_link_mcp_promo_dismissed"
   // AA — headless MCP tool usage. Backend-emitted (oauth/headlessMcp.ts),
   // like the W/X/Y blocks above. `_tool_called` fires once per authenticated
   // `tools/call`, for EVERY tool — reads included, which nothing else counts
@@ -1952,7 +1962,17 @@ export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
 // page card (confluence:homepageFeed), which has no diagram to name. Home-page
 // rows carry it on agent_link_mcp_dialog_opened/_copied/_closed; the card's
 // denominator is homepage_feed_viewed, not agent_link_mcp_button_shown.
-export type AgentLinkMcpButtonPlacement = "toolbar" | "more_menu" | "homepage_feed";
+// The MCP promo surfaces add 'fullscreen_card' (dismissible card in the
+// Fullscreen viewer), 'editor_new_diagram' (card over a new, untouched
+// diagram in the macro editor) and 'editor_tip' (tip in the editor's code
+// pane after sustained manual typing).
+export type AgentLinkMcpButtonPlacement =
+  | "toolbar"
+  | "more_menu"
+  | "homepage_feed"
+  | "fullscreen_card"
+  | "editor_new_diagram"
+  | "editor_tip";
 
 // How the button showed: 'hover' = only on hover or focus, like the other
 // inline header actions; 'always' = visible at rest (Fullscreen headers).

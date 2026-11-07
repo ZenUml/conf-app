@@ -1793,3 +1793,35 @@ export const HeaderSequenceEditorPreview: Story = {
     expect(canvas.queryByRole('button', { name: 'Fit width' })).toBeNull()
   },
 }
+
+// ---------------------------------------------------------------------------
+// MCP promo surfaces (2026-11, Figma "ZenUML – MCP promo mockups")
+// ---------------------------------------------------------------------------
+
+/** Forget any promo dismissal / NEW-seen state left by an earlier story. */
+function resetMcpPromoStorage() {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith('zenuml.mcpPromo') || key.startsWith('zenuml.mcpMenuNewSeen') || key.startsWith('zenuml.connectMcpShown')) {
+      localStorage.removeItem(key)
+    }
+  }
+  sessionStorage.removeItem('zenuml.mcpPromo.session')
+}
+
+/** Fullscreen: header button unchanged, plus the dismissible bottom-left promo card. */
+export const McpPromoFullscreenCard: Story = {
+  name: 'MCP promo — fullscreen corner card',
+  parameters: { layout: 'fullscreen' },
+  decorators: [() => {
+    resetMcpPromoStorage()
+    configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE, fullscreenMode: true, agentLinkEnabled: true })
+    return { template: '<story />' }
+  }],
+  render: () => renderZenUmlFullscreenViewer(),
+  play: async () => {
+    const canvas = within(document.body)
+    const card = await canvas.findByTestId('mcp-promo-card')
+    await expect(card).toHaveTextContent('Draw diagrams from your AI tools')
+    await expect(canvas.getByTestId('connect-mcp-btn')).toBeInTheDocument()
+  },
+}

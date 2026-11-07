@@ -114,6 +114,24 @@ export function buildHeadlessPrompt(target: HeadlessDiagramTarget): string {
   return lines.join('\n')
 }
 
+// The macro editor's prompt for a new, not yet saved diagram (MCP promo,
+// 'editor_new_diagram'). There is nothing stored to read or update yet, and
+// writing to the page while it is open in the Confluence editor would race
+// the author's own publish, so the agent drafts source for the author to
+// paste, and only touches Confluence after the diagram is saved.
+export function buildEditorDraftPrompt(target: { cloudId?: string; pageId?: string; dialect: string }): string {
+  const lines = [`Use the ${mcpServerName()} MCP to help me draw a ${target.dialect} diagram for my Confluence page.`]
+  if (target.cloudId) lines.push(`cloudId: ${target.cloudId}`)
+  if (target.pageId) lines.push(`pageId: ${target.pageId}`)
+  lines.push(
+    '',
+    '1. Read the relevant code in this repository and ask me what the diagram should cover if it is unclear.',
+    `2. Write the ${target.dialect} source and show it to me so I can paste it into the ${productLabel()} editor.`,
+    '3. Do not change Confluence yet. Once I have saved the diagram, find it with list_diagrams for this page and change it with update_diagram only after my go-ahead.',
+  )
+  return lines.join('\n')
+}
+
 // The Confluence Home page card's prompt. That surface has no diagram, so
 // instead of naming one the agent lists the viewer's recent diagrams on this
 // site (list_diagrams without a pageId covers the whole site) and asks which

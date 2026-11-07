@@ -571,6 +571,16 @@
           @close="closeConnectMcpDialog"
           @copy="onConnectMcpCopied"
         />
+        <!-- MCP promo, Fullscreen: a dismissible corner card (Figma "ZenUML –
+             MCP promo mockups" #1). Display rules in mcpPromo.ts. -->
+        <McpPromoCard
+          v-if="showFullscreenMcpCard"
+          class="viewer-mcp-promo-card"
+          title="Draw diagrams from your AI tools"
+          body="Create and update diagrams from Claude, Cursor or VS Code — using your code as the source."
+          @cta="onMcpPromoCta('fullscreen_card')"
+          @dismiss="onMcpPromoDismiss('fullscreen_card')"
+        />
       </div>
     </template>
 
@@ -610,6 +620,8 @@ import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
+import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
+import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
 import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
 import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
@@ -742,6 +754,13 @@ export default {
     copyForAiImpressionTracked: false,
     // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
     showConnectMcpDialog: false,
+    // MCP promo (mcpPromo.ts): the shared state, whether it allowed a promo
+    // when the flag resolved, and whether this mount has since hidden it
+    // (dismissed, CTA clicked, or the viewer copied from the dialog).
+    mcpPromoState: null,
+    mcpPromoAllowed: false,
+    mcpPromoHidden: false,
+    mcpPromoShownTracked: false,
     // Per-viewer daily dedupe for agent_link_mcp_button_shown
     // (connectMcpShown.ts); null until the flag resolves on.
     connectMcpShownRecord: null,
@@ -824,6 +843,7 @@ export default {
     DiagramViewport,
     ViewSourcePanel,
     ConnectMcpDialog,
+    McpPromoCard,
     ConnectPanel,
     LinkStatusChip,
     LiveBadge,
@@ -1120,6 +1140,19 @@ export default {
     copyForAiSlotSettled() {
       return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
     },
+    // MCP promo corner card, Fullscreen only (the header button stays for
+    // every viewer). Editors only: it pitches drawing diagrams. Never over a
+    // failed load.
+    showFullscreenMcpCard() {
+      return this.showAgentLinkConnect
+        && this.isFullscreenMode
+        && !!this.canUserEdit
+        && this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed
+        && this.mcpPromoAllowed
+        && !this.mcpPromoHidden;
+    },
     // Connect MCP takes Copy for AI's slot but not its sparkles: with the same
     // icon, icon-only and hover-revealed, a customer could not find it
     // (2026-10). It draws the official MCP mark instead.
@@ -1302,6 +1335,21 @@ export default {
         }));
       })));
     },
+    showFullscreenMcpCard(visible) {
+      if (!visible || this.mcpPromoShownTracked) return;
+      this.mcpPromoShownTracked = true;
+      this.mcpPromoState?.recordShown();
+      const record = createConnectMcpShownRecord({
+        cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
+        accountId: this.currentAccountId,
+        placement: 'fullscreen_card',
+      });
+      if (!record.recordShown()) return;
+      trackAnalyticsEvent('agent_link_mcp_button_shown', this.connectMcpAnalytics({
+        mcp_button_placement: 'fullscreen_card',
+        mcp_button_reveal: 'always',
+      }));
+    },
     copyForAiImpressionEligible: {
       immediate: true,
       handler(eligible) {
@@ -1445,10 +1493,13 @@ export default {
       this.agentLinkFeatureEnabled = false;
     } finally {
       if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
-        this.connectMcpShownRecord = createConnectMcpShownRecord({
+        const promoScope = {
           cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
           accountId: this.currentAccountId,
-        });
+        };
+        this.connectMcpShownRecord = createConnectMcpShownRecord(promoScope);
+        this.mcpPromoState = createMcpPromoState(promoScope);
+        this.mcpPromoAllowed = this.mcpPromoState.canShow();
       }
       this.agentLinkFlagResolved = true;
     }
@@ -2331,7 +2382,19 @@ export default {
       this.connectMcpOpenedAt = Date.now();
       trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics({
         mcp_button_reveal: this.connectMcpEffectiveReveal,
-        ...(where === 'header_more_menu' ? { action_location: where } : {}),
+        ...(where === 'header_more_menu' ? { action_location: where, mcp_button_placement: 'more_menu' } : {}),
+        ...(where === 'fullscreen_card' ? { mcp_button_placement: where } : {}),
+      }));
+    },
+    onMcpPromoCta(placement) {
+      this.mcpPromoHidden = true;
+      this.openConnectMcpDialog(placement);
+    },
+    onMcpPromoDismiss(placement) {
+      this.mcpPromoHidden = true;
+      this.mcpPromoState?.dismiss();
+      trackAnalyticsEvent('agent_link_mcp_promo_dismissed', this.connectMcpAnalytics({
+        mcp_button_placement: placement,
       }));
     },
     closeConnectMcpDialog() {
@@ -2342,6 +2405,10 @@ export default {
       }));
     },
     onConnectMcpCopied(target, ok) {
+      if (ok) {
+        this.mcpPromoState?.markEngaged();
+        this.mcpPromoHidden = true;
+      }
       trackAnalyticsEvent('agent_link_mcp_dialog_copied', this.connectMcpAnalytics({
         mcp_copy_target: target,
         outcome: ok ? 'copied' : 'clipboard_failed',
@@ -2820,6 +2887,14 @@ export default {
    the viewport; the flex chain lets .viewer-canvas absorb the extra space and
    center its (possibly short) diagram in it, without touching isWide's own
    width math above. */
+/* MCP promo corner card (Fullscreen): bottom-left over the canvas, below
+   dialogs (ConnectMcpDialog overlay is z-index 6). */
+.viewer-mcp-promo-card {
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 5;
+}
 .viewer-frame--fullscreen {
   min-height: 100vh;
   display: flex;

@@ -22,7 +22,7 @@ directory sat on a feature branch while a worktree created 2026-08-23 (235 commi
 '…/conf-app-agent-link-auth-discussion'`. Pinning `main` to the primary checkout removes that class
 of failure, and puts the two direct-to-`main` exceptions above in the directory you are already in.
 
-**Setup cost per new worktree** (measured 2026-08-31, disk figures corrected 2026-09-01 — nothing here is automated yet):
+**Setup cost per new worktree** (measured 2026-08-31, disk figures corrected 2026-09-01; step 3 is automated by `pnpm link:environment`, steps 1 and 2 are not):
 
 1. `pnpm install` — cheap on disk, and the cost is not what `du` reports. pnpm 10 imports packages
    from the store with APFS `clonefile` (copy-on-write): every file gets its own inode with a link
@@ -32,9 +32,21 @@ of failure, and puts the two direct-to-`main` exceptions above in the directory 
    free-space counter by 1,304 KB while `du` grew 82,460 KB. Read real usage from `df` before and
    after, never from `du`.
 2. `git submodule update --init` for the `private` handbook submodule.
-3. Copy the git-ignored config, which git does not carry into a worktree:
-   `.env`, `.env.forge`, `.env.forge.local`, `.env.mixpanel`, `.env.sentry-build-plugin`,
-   `tests/e2e-tests/.env`, `wrangler.toml`, `.claude/settings.local.json`.
+3. Link, do not copy, the git-ignored config that git does not carry into a worktree, so a secret
+   exists in one place (`.env`, `.env.forge`, `.env.forge.local`, `.env.mixpanel`,
+   `.env.sentry-build-plugin`, `.mcp.json`, `tests/e2e-tests/.env`, `wrangler.toml`,
+   `.claude/settings.local.json`). From the worktree root:
+
+   ```bash
+   pnpm link:environment "<absolute path to the primary checkout>" --dry-run   # preview
+   pnpm link:environment "<absolute path to the primary checkout>"
+   pnpm worktree:clean    # exit 0: no uncommitted changes and no config left as a copy
+   ```
+
+   A file that already exists in the worktree and is not a link is reported as a conflict and left
+   alone. Before `git worktree remove`, run `pnpm clean --dry-run` then `pnpm clean`: it deletes
+   generated output (`dist`, `storybook-static`, `coverage`, `test-results`, `playwright-report`)
+   and the links it made, and never follows a link into the primary checkout.
 
 Worktrees accumulate under this scheme — 37 existed on 2026-08-31, including one untouched for 8
 days. Run the `worktree-cleanup` skill periodically; it removes the ones whose PR is merged.

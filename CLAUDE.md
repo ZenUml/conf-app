@@ -336,3 +336,27 @@ Reach for Playwright MCP only when a skill needs something agent-browser lacks, 
 - **Domain docs** — single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
 - **Vendored skill set** — the 25 skills from [mattpocock/skills](https://github.com/mattpocock/skills) (`grill-me`, `grill-with-docs`, `tdd`, `code-review`, `implement`, `triage`, `to-spec`, `to-tickets`, `wayfinder`, …) are copied into `.claude/skills/` as editable files we own, not installed as the `mattpocock-skills` plugin — a plugin install is per-machine and would not reach the team or the remote agent containers. Vendored from upstream `6654f6b` (plugin v1.2.3); to refresh, re-copy from that repo rather than editing in place, or keep local edits deliberate. Do **not** also run `claude plugins install mattpocock-skills`: that would give every skill twice.
 - **`code-review` shadows the built-in** — `.claude/skills/code-review/` (Matt Pocock's two-axis Standards + Spec review) takes precedence over Claude Code's built-in `/code-review` in this repo. Rename the directory if you want the built-in back.
+
+
+## Cursor Cloud specific instructions
+
+Node 22 and `pnpm@10.34.5` are preinstalled in the Cursor Cloud image described by this section. The startup update script runs `pnpm install --frozen-lockfile` and `ln -sf wrangler-dev.toml wrangler.toml` (this repo's `wrangler.toml` is a gitignored symlink to the committed `wrangler-dev.toml`; `pnpm wrangler:link` does the same). Do not re-run installs by hand unless dependencies changed. Standard commands live in `package.json` scripts — don't duplicate them here.
+
+### Local services (two-server split)
+
+- **Frontend (Vite via Portless)** — `pnpm start:local`. Vite's dev root serves `sandbox.html` at the URL from `pnpm dev:url` (a card index of per-diagram-type editor/viewer scenarios). For standalone dev the config aliases `@forge/bridge` to `src/stubs/forge-bridge.ts`, so the frontend and all diagram rendering (ZenUML, Mermaid, DrawIO, OpenAPI) work **with no backend and no credentials**. This is the fastest way to exercise/verify UI and renderer changes.
+- **Backend (Cloudflare Pages Functions via Portless)** — `pnpm wrangler:serve`. It serves the **built `dist/`**, so run `pnpm build:lite` (or another `build:*`) first, otherwise `functions/` routing has no static assets to sit behind. Vite proxies `/api/*`, `/track`, `/authenticate`, `/diagram-likes`, etc. from the frontend to the backend URL returned by `pnpm dev:api:url`. Only paths in `public/_routes.json` execute as functions; anything else (e.g. `/api/features`, `/authenticate`) intentionally returns the SPA HTML fallback.
+- **Combined** — `pnpm start:sit` applies local D1 migrations (`db:migrate:local`) then runs backend + frontend concurrently. D1/KV/R2 all bind to **local** wrangler storage; no cloud account is needed for those.
+
+### Gotcha: the Workers `AI` binding blocks the backend without Cloudflare creds
+
+`wrangler-dev.toml` declares an `[ai]` (Workers AI) binding, which wrangler always runs in **remote** mode. In a non-interactive VM this makes `pnpm wrangler:serve` / `pnpm start:sit` exit with `it's necessary to set a CLOUDFLARE_API_TOKEN`. Provide `CLOUDFLARE_API_TOKEN` (+ `CLOUDFLARE_ACCOUNT_ID`) as secrets to run the full backend as documented. D1/KV/R2 use local storage; the AI binding requires remote Cloudflare access. Frontend-only work never needs it.
+
+### Tests
+
+- **Unit (Vitest):** `pnpm test:unit` — the authoritative local automated suite; no services or creds required. `pnpm lint` is warning-heavy but should stay at 0 errors.
+- **E2E (Playwright):** lives in the **standalone** `tests/e2e-tests/` package (`pnpm install --ignore-workspace` there, then `pnpm exec playwright install --with-deps chromium`). These run against **remote staging/prod Confluence sites**, not the local servers, and need robot-account secrets (`ZENUML_STAGE_USERNAME`, `ZENUML_STAGE_PASSWORD`, `ATLASSIAN_OTP`; see `tests/e2e-tests/.env.example`). Not part of the local dev loop.
+
+### AsyncAPI variant
+
+`pnpm build:asyncapi` needs the `vendor/asyncapi-studio` git submodule (`git submodule update --init --depth 1 vendor/asyncapi-studio`). The `private/` submodule uses an SSH URL. It is not needed for lite/full/diagramly dev, builds, or unit tests.

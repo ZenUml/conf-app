@@ -7,6 +7,18 @@ import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
 import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
 import { focusEditorBody } from '../helpers/editorFocus.js';
 
+// Fixed sleeps kept because no observable state exists for them (#944).
+/** After focusing the Confluence editor body or title, before the next key press: no ready signal inside the editor. */
+const EDITOR_FOCUS_SETTLE_MS = 300;
+/** Pacing between "/", Escape and Backspace key presses that drive the slash menu; the menu animates and exposes no per-key state. */
+const SLASH_MENU_KEY_PACING_MS = 200;
+/** Pacing between ArrowDown presses while escaping a macro iframe; no per-key state exists. */
+const ARROW_DOWN_PACING_MS = 100;
+/** After filling the macro title input in the Forge/Connect iframe, before the next action; the app's title state commit has no DOM signal. */
+const TITLE_FILL_SETTLE_MS = 500;
+/** After clicking a DrawIO sidebar shape, before Publish; DrawIO's canvas is a nested iframe with no stable ready signal. */
+const DRAWIO_SHAPE_SETTLE_MS = 1000;
+
 export class ConfluenceEditorPage {
   constructor(private page: Page) {}
 
@@ -151,7 +163,9 @@ export class ConfluenceEditorPage {
           }
         }
       });
-      await this.page.waitForTimeout(500);
+      // Wait for the panel to go away, but never fail on it: the click above is
+      // best-effort and the panel may legitimately stay.
+      await panel.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
     }
   }
 
@@ -202,7 +216,7 @@ export class ConfluenceEditorPage {
     const editorEl = this.editorBody();
     await editorEl.waitFor({ state: 'visible', timeout: 10000 });
     await focusEditorBody(this.page, editorEl);
-    await this.page.waitForTimeout(300);
+    await this.page.waitForTimeout(EDITOR_FOCUS_SETTLE_MS);
 
     // ── Strategy 1: Toolbar "+" insert button (most reliable, opens full browser) ──
     // The toolbar "+" button is labeled "Insert elements" or similar. It opens the
@@ -210,10 +224,10 @@ export class ConfluenceEditorPage {
     const toolbarInsert = this.page.locator('button[aria-label="Insert elements"]').last();
     if (await toolbarInsert.isVisible({ timeout: 2000 }).catch(() => false)) {
       await toolbarInsert.click();
-      await this.page.waitForTimeout(500);
       console.log(`  [debug] clickInsertElements: clicked toolbar "+" button`);
 
-      const combobox = await this.waitForBrowseCombobox(3000);
+      // 3500 = the old 500 ms sleep + the old 3000 ms wait; waitForBrowseCombobox is the state wait.
+      const combobox = await this.waitForBrowseCombobox(3500);
       if (combobox) {
         console.log(`  [debug] clickInsertElements: combobox ready via toolbar [${Date.now() - t0}ms]`);
         return;
@@ -227,11 +241,19 @@ export class ConfluenceEditorPage {
 
       // Ensure editor body has focus
       await focusEditorBody(this.page, editorEl);
-      await this.page.waitForTimeout(200);
+      await this.page.waitForTimeout(SLASH_MENU_KEY_PACING_MS);
 
       console.log(`  [debug] clickInsertElements[${attempt}]: typing "/" to open slash menu`);
       await editorEl.pressSequentially('/');
-      await this.page.waitForTimeout(1000);
+      // Wait for one of the two states the code below branches on (the macro
+      // browser opened directly, or the slash menu shows "View more"). Replaces a
+      // fixed 1 s sleep. If neither appears the wait gives up after 3 s and the
+      // "no View more" branch runs as before — it never fails here.
+      await this.insertBrowserCombobox()
+        .or(this.page.getByRole('button', { name: /View more|View all/i }).last())
+        .first()
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .catch(() => {});
 
       // Check if the macro browser opened directly
       const directCombobox = await this.waitForBrowseCombobox(500);
@@ -247,10 +269,10 @@ export class ConfluenceEditorPage {
         await this.logPageState(`before-viewmore[${attempt}]`);
         await viewMore.click();
         console.log(`  [debug] clickInsertElements[${attempt}]: clicked View more`);
-        await this.page.waitForTimeout(500);
         await this.logPageState(`after-viewmore[${attempt}]`);
 
-        const combobox = await this.waitForBrowseCombobox(3000);
+        // 3500 = the old 500 ms sleep + the old 3000 ms wait.
+        const combobox = await this.waitForBrowseCombobox(3500);
         if (combobox) {
           console.log(`  [debug] clickInsertElements[${attempt}]: combobox ready [${Date.now() - at0}ms]`);
           return;
@@ -263,11 +285,11 @@ export class ConfluenceEditorPage {
 
       // Clean up before retry: dismiss menu, delete the typed "/" character
       await this.page.keyboard.press('Escape');
-      await this.page.waitForTimeout(200);
+      await this.page.waitForTimeout(SLASH_MENU_KEY_PACING_MS);
       await this.page.keyboard.press('Escape');
-      await this.page.waitForTimeout(200);
+      await this.page.waitForTimeout(SLASH_MENU_KEY_PACING_MS);
       await this.page.keyboard.press('Backspace');
-      await this.page.waitForTimeout(200);
+      await this.page.waitForTimeout(SLASH_MENU_KEY_PACING_MS);
       console.log(`  [debug] clickInsertElements[${attempt}]: cleaned up, ${attempt < 2 ? 'retrying...' : 'moving to fallback'}`);
     }
 
@@ -275,10 +297,10 @@ export class ConfluenceEditorPage {
     const moreElements = this.page.getByRole('button', { name: 'More elements' }).last();
     if (await moreElements.isVisible({ timeout: 2000 }).catch(() => false)) {
       await moreElements.click();
-      await this.page.waitForTimeout(500);
       console.log(`  [debug] clickInsertElements: clicked "More elements" button`);
 
-      const combobox = await this.waitForBrowseCombobox(5000);
+      // 5500 = the old 500 ms sleep + the old 5000 ms wait.
+      const combobox = await this.waitForBrowseCombobox(5500);
       if (combobox) {
         console.log(`  [debug] clickInsertElements: combobox ready via More elements [${Date.now() - t0}ms]`);
         return;
@@ -418,17 +440,17 @@ export class ConfluenceEditorPage {
   async positionCursorBelowMacros(): Promise<void> {
     // Click the page title to escape any macro iframe
     await this.titleInput.click();
-    await this.page.waitForTimeout(300);
+    await this.page.waitForTimeout(EDITOR_FOCUS_SETTLE_MS);
 
     // Use Ctrl+End (or Cmd+End on Mac) to jump to end of document
     await this.page.keyboard.press('End');
     for (let i = 0; i < 15; i++) {
       await this.page.keyboard.press('ArrowDown');
-      await this.page.waitForTimeout(100);
+      await this.page.waitForTimeout(ARROW_DOWN_PACING_MS);
     }
     // Create a new paragraph
     await this.page.keyboard.press('Enter');
-    await this.page.waitForTimeout(300);
+    await this.page.waitForTimeout(EDITOR_FOCUS_SETTLE_MS);
   }
 
   // ── Diagram Macro (Sequence / PlantUML / Mermaid) ──
@@ -531,7 +553,7 @@ export class ConfluenceEditorPage {
     // Step 1: Fill inline title input
     const titleInput = frame.locator('input[type="text"]').first();
     await titleInput.fill(title);
-    await this.page.waitForTimeout(500);
+    await this.page.waitForTimeout(TITLE_FILL_SETTLE_MS);
 
     // On Lite over-limit spaces the paywall gate mounts over the editor; clear
     // it before touching the canvas, otherwise its backdrop blocks the sidebar
@@ -551,7 +573,7 @@ export class ConfluenceEditorPage {
     // Step 1: Fill inline title input
     const titleInput = frame.locator('input[type="text"]').first();
     await titleInput.fill(title);
-    await this.page.waitForTimeout(500);
+    await this.page.waitForTimeout(TITLE_FILL_SETTLE_MS);
 
     // Step 2: Add a shape to the DrawIO canvas
     await this.addDrawioShape();
@@ -588,7 +610,7 @@ export class ConfluenceEditorPage {
     const sidebarShape = innerFrame.locator('.geSidebarContainer a').nth(2);
     try {
       await sidebarShape.click({ timeout: 30000 });
-      await this.page.waitForTimeout(1000);
+      await this.page.waitForTimeout(DRAWIO_SHAPE_SETTLE_MS);
     } catch {
       console.warn('DrawIO sidebar shape not clickable after 30s - proceeding with empty canvas');
     }
@@ -605,7 +627,7 @@ export class ConfluenceEditorPage {
     const sidebarShape = innerFrame.locator('.geSidebarContainer a').nth(2);
     try {
       await sidebarShape.click({ timeout: 30000 });
-      await this.page.waitForTimeout(1000);
+      await this.page.waitForTimeout(DRAWIO_SHAPE_SETTLE_MS);
     } catch {
       console.warn('DrawIO sidebar shape not clickable after 30s - proceeding with empty canvas');
     }
@@ -662,7 +684,7 @@ export class ConfluenceEditorPage {
       const titleInput = frame.locator('input[type="text"]').first();
       await titleInput.clear();
       await titleInput.fill(title);
-      await this.page.waitForTimeout(500);
+      await this.page.waitForTimeout(TITLE_FILL_SETTLE_MS);
       await frame.locator('button:has-text("Publish")').click();
       // Wait for the editor modal to actually close — the real signal that
       // Publish was accepted and the macro finished inserting.
@@ -673,7 +695,7 @@ export class ConfluenceEditorPage {
       const titleInput = frame.locator('input[type="text"]').first();
       await titleInput.clear();
       await titleInput.fill(title);
-      await this.page.waitForTimeout(500);
+      await this.page.waitForTimeout(TITLE_FILL_SETTLE_MS);
       await frame.locator('button:has-text("Publish")').click();
       await expect(dialog).toBeHidden({ timeout: TIMEOUTS.FRAME_LOAD });
     }
@@ -735,7 +757,8 @@ export class ConfluenceEditorPage {
     const frame = this.getMacroEditorFrame();
     const tab = frame.getByRole('tab', { name: tabName });
     await tab.click();
-    await this.page.waitForTimeout(1000);
+    // TabSwitcher.vue sets aria-selected on the active role="tab" button.
+    await expect(tab).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
     console.log(`✓ Switched to ${tabName} tab`);
   }
 }

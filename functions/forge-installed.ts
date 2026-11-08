@@ -4,13 +4,9 @@ import { upsertForgeInstallation } from "./utils/dbUtils";
 import { ForgeAppRequestBody } from "./RequestBody";
 import { getAuthorizationHeader } from "./utils/requestUtils";
 import { validateContextToken } from "./utils/authenticate";
-import {
-  archiveAnalyticsEvent,
-  insertAnalyticsEventFact,
-  normalizeForgeInstallAnalyticsEvent,
-} from "./utils/analytics";
+import { normalizeForgeInstallAnalyticsEvent, recordAnalyticsEvent } from "./utils/analytics";
 
-export const onRequest: PagesFunction = async ({ request, env }) => {
+export const onRequest: PagesFunction = async ({ request, env, waitUntil }) => {
   try {
     const authHeader = getAuthorizationHeader(request);
     if (!authHeader) {
@@ -32,10 +28,17 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
 
     const data = await request.json() as ForgeAppRequestBody;
     console.log('forge-installed body:', data);
-    await upsertForgeInstallation((env as any).DB, data);
-    const analyticsEvent = normalizeForgeInstallAnalyticsEvent(data);
-    const r2Key = await archiveAnalyticsEvent((env as any).EVENT_BUCKET, analyticsEvent, data as unknown as Record<string, unknown>);
-    await insertAnalyticsEventFact((env as any).DB, analyticsEvent, r2Key);
+    try {
+      await upsertForgeInstallation((env as any).DB, data);
+    } catch (e) {
+      // The install happened whether or not our row was written; still record it (#939).
+      console.log(`forge-installed upsert failed: ${e}`);
+      captureError(e);
+    }
+    recordAnalyticsEvent(
+      { waitUntil }, env as any,
+      normalizeForgeInstallAnalyticsEvent(data), data as unknown as Record<string, unknown>,
+    );
 
   } catch (e) {
     console.log(`Error: ${e}`);

@@ -1,5 +1,6 @@
 import { D1Database } from '@cloudflare/workers-types';
 import { ForgeAppRequestBody } from '../RequestBody';
+import { captureError } from './sentry';
 
 export interface AnalyticsEvent {
   eventId: string;
@@ -154,6 +155,35 @@ export async function archiveAnalyticsEvent(
     },
   );
   return key;
+}
+
+/**
+ * The one way an ingest endpoint records its canonical event (#939): archive
+ * the raw body to R2, then insert the D1 fact, off the response path. Neither
+ * step waits on the endpoint's other side effects, an archive failure still
+ * inserts the fact (without an R2 key), and nothing here throws.
+ */
+export function recordAnalyticsEvent(
+  ctx: { waitUntil(promise: Promise<unknown>): void },
+  env: { EVENT_BUCKET?: R2Bucket; DB: D1Database },
+  analyticsEvent: AnalyticsEvent,
+  rawPayload: AnalyticsPayload,
+): void {
+  ctx.waitUntil((async () => {
+    let r2Key: string | null = null;
+    try {
+      r2Key = await archiveAnalyticsEvent(env.EVENT_BUCKET, analyticsEvent, rawPayload);
+    } catch (e) {
+      console.log(`analytics archive failed for ${analyticsEvent.event}:`, e);
+      captureError(e);
+    }
+    try {
+      await insertAnalyticsEventFact(env.DB, analyticsEvent, r2Key);
+    } catch (e) {
+      console.log(`analytics fact insert failed for ${analyticsEvent.event}:`, e);
+      captureError(e);
+    }
+  })());
 }
 
 export async function insertAnalyticsEventFact(

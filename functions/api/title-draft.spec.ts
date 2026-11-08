@@ -20,6 +20,14 @@ beforeEach(() => {
   vi.stubGlobal('crypto', webcrypto);
 });
 
+import { AUTHENTICATED_PATHS } from '../_middleware';
+
+describe('title-draft route', () => {
+  it('is behind Forge authentication, or the handler has no verified identity', () => {
+    expect(AUTHENTICATED_PATHS).toContain('/api/title-draft');
+  });
+});
+
 describe('POST /api/title-draft', () => {
   it('rejects non-POST with 405', async () => {
     expect((await invoke(new Request('https://backend.example/api/title-draft'))).status).toBe(405);

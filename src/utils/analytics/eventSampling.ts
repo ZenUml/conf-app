@@ -110,6 +110,16 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  "title_draft_requested",
+  "title_draft_flag_shown",
+  "title_draft_not_now",
+  "title_draft_preview_opened",
+  "title_draft_preview_closed",
+  "title_draft_added",
+  "title_draft_add_failed",
+  "title_draft_undone",
+  "title_draft_undo_failed",
+  "title_draft_edit_clicked",
   "agent_link_edit_failed",
   "ai_title_generation_failed",
   "attachment_upload_async_failed",

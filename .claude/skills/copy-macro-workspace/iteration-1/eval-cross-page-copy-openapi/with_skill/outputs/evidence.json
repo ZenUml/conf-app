@@ -1,0 +1,136 @@
+{
+  "site": "lite-stg.atlassian.net",
+  "space": "SD",
+  "macroType": "openapi",
+  "before": {
+    "source": {
+      "pageId": "164004",
+      "title": "Automated Test Page 2026-02-28",
+      "children": [
+        {
+          "ccId": "491523",
+          "title": "Test PlantUML",
+          "pageId": "164004",
+          "diagramType": "plantuml",
+          "hasBodyId": false,
+          "bodyId": null
+        },
+        {
+          "ccId": "589832",
+          "title": "Untitled 2026-02-28T01:57:31.539Z",
+          "pageId": "164004",
+          "diagramType": "OpenAPI",
+          "hasBodyId": false,
+          "bodyId": null
+        }
+      ],
+      "distinctMacroRefs": ["557058", "491523", "622593", "589832"],
+      "macroBlocks": [
+        { "extensionKey": "...zenuml-sequence-macro-lite", "customContentId": "557058" },
+        { "extensionKey": "...zenuml-sequence-macro-lite", "customContentId": "491523" },
+        { "extensionKey": "...zenuml-graph-macro-lite",    "customContentId": "622593" },
+        { "extensionKey": "...zenuml-openapi-macro-lite",  "customContentId": "589832" }
+      ],
+      "openapiSourceCcId": "589832",
+      "notes": "557058 and 622593 are referenced from storage but are not children of this page (likely from a prior copy or moved CC). OpenAPI source CC 589832 is owned by page 164004 and has no body.id (never edited)."
+    },
+    "copyPreEdit": {
+      "pageId": "80543782",
+      "title": "Copy of Automated Test Page 2026-02-28 (3)",
+      "children": [
+        {
+          "ccId": "80543811",
+          "title": "Test PlantUML",
+          "pageId": "80543782",
+          "diagramType": "plantuml",
+          "hasBodyId": false,
+          "bodyId": null
+        },
+        {
+          "ccId": "80543813",
+          "title": "Untitled 2026-02-28T01:57:31.539Z",
+          "pageId": "80543782",
+          "diagramType": "OpenAPI",
+          "hasBodyId": false,
+          "bodyId": null
+        }
+      ],
+      "distinctMacroRefs": ["557058", "491523", "622593", "589832"],
+      "macroBlocks": [
+        { "extensionKey": "...zenuml-sequence-macro-lite", "customContentId": "557058" },
+        { "extensionKey": "...zenuml-sequence-macro-lite", "customContentId": "491523" },
+        { "extensionKey": "...zenuml-graph-macro-lite",    "customContentId": "622593" },
+        { "extensionKey": "...zenuml-openapi-macro-lite",  "customContentId": "589832" }
+      ],
+      "openapiDuplicatedCcId": "80543813",
+      "notes": "Confluence duplicated only the 2 child CCs owned by 164004 (491523, 589832) into new CCs owned by 80543782 (80543811, 80543813). The macro storage refs still point at the source CC ids — confirms cross-page-copy drift state."
+    }
+  },
+  "after": {
+    "copyPostEdit": {
+      "pageId": "80543782",
+      "title": "Copy of Automated Test Page 2026-02-28 (3)",
+      "children": [
+        {
+          "ccId": "80543811",
+          "title": "Test PlantUML",
+          "pageId": "80543782",
+          "diagramType": "plantuml",
+          "hasBodyId": false,
+          "bodyId": null
+        },
+        {
+          "ccId": "80543813",
+          "title": "Untitled 2026-02-28T01:57:31.539Z",
+          "pageId": "80543782",
+          "diagramType": "OpenAPI",
+          "hasBodyId": false,
+          "bodyId": null
+        },
+        {
+          "ccId": "80642076",
+          "title": "Sample API",
+          "pageId": "80543782",
+          "diagramType": "OpenAPI",
+          "hasBodyId": true,
+          "bodyId": "589832",
+          "isCopy": true,
+          "copyReason": "cross-page"
+        }
+      ],
+      "distinctMacroRefs": ["557058", "491523", "622593", "80642076"],
+      "macroBlocks": [
+        { "extensionKey": "...zenuml-sequence-macro-lite", "customContentId": "557058" },
+        { "extensionKey": "...zenuml-sequence-macro-lite", "customContentId": "491523" },
+        { "extensionKey": "...zenuml-graph-macro-lite",    "customContentId": "622593" },
+        { "extensionKey": "...zenuml-openapi-macro-lite",  "customContentId": "80642076" }
+      ],
+      "openapiNewCcId": "80642076",
+      "openapiPriorRefOnCopy": "589832",
+      "openapiBodyOnNewCc": {
+        "code": "openapi: 3.0.0\\ninfo:\\n  title: Sample API\\n  ... (full Sample API spec, byte-identical to source)",
+        "diagramType": "OpenAPI",
+        "source": "custom-content",
+        "isCopy": true,
+        "copyReason": "cross-page",
+        "id": "589832",
+        "title": "Sample API"
+      },
+      "renderCheck": {
+        "openapiIframeHeightPx": 529,
+        "openapiIframeWidthPx": 760,
+        "renders": true
+      }
+    },
+    "cleanup": {
+      "copyPageDeleteStatus": 204,
+      "copyPagePurgeStatus": 204,
+      "copyPageGetAfterDelete": 404,
+      "sourcePageGetAfterCleanup": 200,
+      "sourceChildrenAfterCleanup": [
+        { "ccId": "491523", "title": "Test PlantUML", "pageId": "164004" },
+        { "ccId": "589832", "title": "Untitled 2026-02-28T01:57:31.539Z", "pageId": "164004" }
+      ]
+    }
+  }
+}

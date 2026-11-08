@@ -653,6 +653,15 @@ export type AnalyticsProperties = {
   whats_new_expanded?: boolean;
   // whats_new_link_clicked: the item's stable id within its release.
   whats_new_item_id?: string;
+  // diagram_added_to_page, from the placement picker. Where the diagram went
+  // among the page's top-level blocks.
+  placement_position?: "start" | "middle" | "end";
+  // diagram_added_to_page and placement_picker_opened: top-level blocks on the
+  // page. A short page has few places to choose from, so read position with it.
+  placement_block_count?: number;
+  // diagram_added_to_page: the user left the preselected end-of-page gap alone.
+  // A high share means the picker is an extra click on the old append.
+  placement_default_kept?: boolean;
   // diagram_added_to_page. How many macros the page already carried when the
   // one-click place ran. Read with `result`: a page at the Lite limit is the
   // case where placing a diagram and hitting the paywall collide, and this is

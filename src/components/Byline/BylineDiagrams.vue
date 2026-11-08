@@ -168,7 +168,7 @@
         v-for="d in orderedDiagrams"
         :key="d.id"
         class="row"
-        :class="{ 'row--actionable': isUnplaced(d) && canEdit }"
+        :class="{ 'row--actionable': canPlace(d) }"
         data-testid="byline-item"
       >
         <button type="button" class="row__open" @click="onOpenDiagram(d)">
@@ -186,21 +186,22 @@
         </button>
         <!-- Saved but never pasted: it exists as this page's custom content and
              already counts against the Lite limit, but no macro renders it.
-             The fix belongs on the row that names the problem, and it is ONE
-             click — copy, open the editor, paste, publish is the flow the user
-             already abandoned once, which is why this diagram is here at all.
+             The fix belongs on the row that names the problem, and it is a click
+             and a choice — copy, open the editor, paste, publish is the flow the
+             user already abandoned once, which is why this diagram is here at all.
              Offered outright rather than on hover: this row is the one place
              the diagram is reachable. -->
         <button
-          v-if="isUnplaced(d) && canEdit"
+          v-if="canPlace(d)"
           type="button"
           class="row__add"
           :disabled="addingId === d.id"
           data-testid="byline-add-to-page"
-          :title="`Add this ${noun.one} to the end of the page`"
+          :title="`Choose where on the page to add this ${noun.one}`"
           @click="onAddToPage(d)"
         >{{ addingId === d.id ? 'Adding…' : 'Add to page' }}</button>
-        <!-- The fallback for a reader who cannot edit the page. -->
+        <!-- The fallback for a reader who cannot edit the page, and for an author
+             in the editor: their draft is not what the picker could show them. -->
         <button
           v-else-if="isUnplaced(d)"
           type="button"
@@ -380,6 +381,7 @@ import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnail
 import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
 import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
 import { placeDiagram } from '@/utils/byline/placeDiagram'
+import { choosePlacement, PICKER_OPEN_FAILED_MESSAGE, placementEventProps } from '@/utils/byline/placementPicker'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
@@ -437,6 +439,15 @@ const orderedDiagrams = computed(() => sortPageDiagrams(diagrams.value, placedOr
  */
 function isUnplaced(d: PageDiagram): boolean {
   return !!placedIds.value && !placedIds.value.has(d.id)
+}
+
+/**
+ * Can this row offer the picker? Not while the host page is in the editor: the
+ * picker reads the PUBLISHED page, so it would show a page other than the draft
+ * in front of the author. The paste link goes into the draft directly.
+ */
+function canPlace(d: PageDiagram): boolean {
+  return isUnplaced(d) && canEdit.value && !hostInEditor
 }
 
 /** Pathological pages exist (demo pages, architecture indexes). Each thumbnail
@@ -942,8 +953,12 @@ async function onOpenDiagram(d: PageDiagram) {
   }
 }
 
+/** Blocks a second picker while one is open. */
+let choosing = false
+
 /**
- * Place the diagram on the page from the row that says it is not on it.
+ * Place the diagram on the page from the row that says it is not on it, at the
+ * spot the user chooses.
  *
  * On success the local placement set is updated immediately, so the row loses
  * its "· not on this page" label without a reload, and the record the banner
@@ -951,10 +966,25 @@ async function onOpenDiagram(d: PageDiagram) {
  * announce a diagram the user just watched appear.
  */
 async function onAddToPage(d: PageDiagram) {
-  if (addingId.value) return
+  if (addingId.value || choosing) return
   acted = true
-  addingId.value = d.id
   addFailure.value = null
+
+  choosing = true
+  const answer = await choosePlacement(pageId, d, 'byline')
+  choosing = false
+  if (answer.status === 'open_failed') {
+    trackAnalyticsEvent('placement_picker_opened', {
+      ...baseProps(),
+      macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+      result: 'open_failed',
+    })
+    addFailure.value = PICKER_OPEN_FAILED_MESSAGE
+    return
+  }
+  if (answer.status !== 'chosen') return
+
+  addingId.value = d.id
 
   const outcome = await placeDiagram(pageId, d, async () => {
     // Before the reload, so the reloaded page reads the rewritten record: fold
@@ -962,13 +992,14 @@ async function onAddToPage(d: PageDiagram) {
     // place, and rewrite what the banner reads.
     if (placedOrder.value) placedOrder.value = [...placedOrder.value, d.id]
     await syncUnplacedState()
-  })
+  }, answer.choice.placement)
   addingId.value = null
 
   trackAnalyticsEvent('diagram_added_to_page', {
     ...baseProps(),
     macro_type: toMacroType(d.diagramType) as MacroTypeValue,
     result: outcome.result,
+    ...placementEventProps(answer.choice),
     ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
     // Which step failed, and the code behind it. 'failed' alone is one bucket
     // over six causes that need different fixes.

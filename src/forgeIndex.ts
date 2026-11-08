@@ -1165,12 +1165,15 @@ async function maybeRevealPlacedMacro(
   diagramType: string | undefined,
 ) {
   try {
-    const { claimReveal, revealThisMacro } = await import('@/utils/byline/revealDiagram');
+    const { claimReveal, revealThisMacro, followThisMacro } = await import('@/utils/byline/revealDiagram');
     const ageMs = claimReveal(pageId, customContentId);
     if (ageMs === null) return;
 
     await settled();
     revealThisMacro();
+    // Settled is only THIS document. Other macros above it can still grow and
+    // push it out of view, so keep it in view for a few more seconds.
+    followThisMacro({ onRefocus: count => console.debug('[reveal] pushed out of view; re-revealed', count) });
 
     const [{ trackAnalyticsEvent }, { toMacroType }] = await Promise.all([
       import('@/utils/analytics/trackAnalyticsEvent'),

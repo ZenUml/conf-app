@@ -2,10 +2,30 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import {
   cancelReveal,
   claimReveal,
+  followThisMacro,
   requestReveal,
   revealThisMacro,
   REVEAL_TTL_MS,
 } from './revealDiagram'
+
+/** Drives the observer by hand: `see(top, bottom)` is the visible slice of a 0–500px macro. */
+function fakeObserver() {
+  let callback: IntersectionObserverCallback | null = null
+  const disconnect = vi.fn()
+  class FakeIO {
+    constructor(cb: IntersectionObserverCallback) { callback = cb }
+    observe() {}
+    disconnect = disconnect
+  }
+  vi.stubGlobal('IntersectionObserver', FakeIO)
+  const box = { top: 0, bottom: 500, height: 500 }
+  const see = (top: number | null, bottom = 500) => {
+    const visible = top !== null
+    const seen = visible ? { top, bottom, height: bottom - top } : { top: 0, bottom: 0, height: 0 }
+    callback!([{ isIntersecting: visible, boundingClientRect: box, intersectionRect: seen } as any], {} as any)
+  }
+  return { see, disconnect }
+}
 
 const PAGE = 'page-1'
 const CC = 'cc-2'
@@ -143,6 +163,92 @@ describe('revealDiagram — the hand-off across the reload', () => {
       const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
       expect(() => revealThisMacro()).not.toThrow()
       debug.mockRestore()
+    })
+  })
+
+  describe('keeping it in view while the rest of the page loads', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    })
+
+    it('re-reveals when content above pushes it out through the bottom', () => {
+      // whimet4, 2026-11-08: a macro above grew 416px after this one settled.
+      const { see } = fakeObserver()
+      const reveal = vi.fn()
+      followThisMacro({ reveal })
+
+      see(0, 500)
+      see(0, 80)
+      expect(reveal).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-reveals when it is pushed right off the screen', () => {
+      const { see } = fakeObserver()
+      const reveal = vi.fn()
+      followThisMacro({ reveal })
+
+      see(0, 500)
+      see(null)
+      expect(reveal).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves small movements alone', () => {
+      const { see } = fakeObserver()
+      const reveal = vi.fn()
+      followThisMacro({ reveal })
+
+      see(0, 500)
+      see(0, 480)
+      expect(reveal).not.toHaveBeenCalled()
+    })
+
+    it('stops once the user scrolls down past it', () => {
+      // Content above can only push the macro down. Its top leaving the screen
+      // means the user scrolled, and pulling them back would fight them.
+      const { see, disconnect } = fakeObserver()
+      const reveal = vi.fn()
+      followThisMacro({ reveal })
+
+      see(0, 500)
+      see(300, 500)
+      see(null)
+      expect(reveal).not.toHaveBeenCalled()
+      expect(disconnect).toHaveBeenCalled()
+    })
+
+    it('stops at the first interaction with the diagram', () => {
+      const { see } = fakeObserver()
+      const reveal = vi.fn()
+      followThisMacro({ reveal })
+
+      see(0, 500)
+      window.dispatchEvent(new Event('pointerdown'))
+      see(0, 80)
+      expect(reveal).not.toHaveBeenCalled()
+    })
+
+    it('gives up after a few re-reveals and after the follow window', () => {
+      vi.useFakeTimers()
+      const { see } = fakeObserver()
+      const reveal = vi.fn()
+      followThisMacro({ reveal, maxRefocus: 2 })
+
+      for (let i = 0; i < 4; i++) { see(0, 500); see(0, 80) }
+      expect(reveal).toHaveBeenCalledTimes(2)
+
+      const second = fakeObserver()
+      const late = vi.fn()
+      followThisMacro({ reveal: late, followMs: 1000 })
+      vi.advanceTimersByTime(1001)
+      second.see(0, 500)
+      second.see(0, 80)
+      expect(late).not.toHaveBeenCalled()
+    })
+
+    it('does nothing where IntersectionObserver is missing', () => {
+      vi.stubGlobal('IntersectionObserver', undefined)
+      expect(() => followThisMacro()()).not.toThrow()
     })
   })
 })

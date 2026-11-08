@@ -41,6 +41,21 @@ export const REVEAL_TTL_MS = 60_000
 /** How long the highlight runs once the page has stopped moving. */
 export const REVEAL_HIGHLIGHT_MS = 2800
 
+/**
+ * How long the macro keeps itself in view after the first reveal. The macro
+ * only knows when ITS document has stopped growing; the rest of the page keeps
+ * loading. Measured on whimet4 2026-11-08: a macro above the placed one grew
+ * from 176px to 592px about 1.5 s after the others had settled, pushing the
+ * placed diagram 416px down, out of the spot the reveal had scrolled it to.
+ */
+export const REVEAL_FOLLOW_MS = 10_000
+
+/** At most this many re-reveals: a page that keeps moving for longer is fighting us. */
+export const REVEAL_MAX_REFOCUS = 3
+
+/** Ignore jitter smaller than this when deciding the macro was pushed. */
+const PUSHED_PX = 40
+
 interface RevealNote {
   pageId: string
   customContentId: string
@@ -210,4 +225,83 @@ export function revealThisMacro(highlightMs: number = REVEAL_HIGHLIGHT_MS): void
     // The diagram is on the page either way. Never let the flourish break the render.
     console.debug('[reveal] could not reveal this macro', e)
   }
+}
+
+/**
+ * After the first reveal, put the macro back in view whenever content above it
+ * finishes loading and pushes it down.
+ *
+ * An IntersectionObserver is the only signal that crosses the iframe boundary:
+ * with the implicit root it reports how much of this document is visible in
+ * the top-level viewport, as rectangles in this document's own coordinates. So
+ * the clip says which way the macro left:
+ *
+ * - bottom clipped (or gone, having last been at the bottom): it moved DOWN —
+ *   content above grew, or the user scrolled up. Re-reveal.
+ * - top clipped: it moved UP, which a layout shift above cannot do — the user
+ *   scrolled down past it. They have taken over; stop following.
+ *
+ * Also stops at the first interaction inside the macro, after
+ * REVEAL_MAX_REFOCUS re-reveals, and after `followMs`. Returns a stop function.
+ */
+export function followThisMacro(
+  opts: { followMs?: number; maxRefocus?: number; reveal?: () => void; onRefocus?: (count: number) => void } = {},
+): () => void {
+  const { followMs = REVEAL_FOLLOW_MS, maxRefocus = REVEAL_MAX_REFOCUS, reveal = revealThisMacro, onRefocus } = opts
+  let stopped = false
+  let observer: IntersectionObserver | null = null
+  let timer: number | undefined
+  const doc = window.document
+  const userEvents = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+
+  const stop = () => {
+    if (stopped) return
+    stopped = true
+    observer?.disconnect()
+    window.clearTimeout(timer)
+    userEvents.forEach(type => window.removeEventListener(type, stop, true))
+  }
+
+  try {
+    if (typeof IntersectionObserver !== 'function') return stop
+    let bestVisible = 0
+    let refocused = 0
+
+    observer = new IntersectionObserver(
+      entries => {
+        const entry = entries[entries.length - 1]
+        if (!entry || stopped) return
+        const box = entry.boundingClientRect
+        const seen = entry.intersectionRect
+        const visible = entry.isIntersecting ? seen.height : 0
+        const topClipped = entry.isIntersecting && seen.top > box.top + 1
+        const bottomClipped = entry.isIntersecting && seen.bottom < box.bottom - 1
+
+        if (topClipped) {
+          stop()
+          return
+        }
+        // Gone entirely without passing through "top clipped" means it left
+        // through the bottom edge.
+        const pushedDown = bestVisible - visible > PUSHED_PX && (bottomClipped || !entry.isIntersecting)
+        if (pushedDown) {
+          refocused += 1
+          bestVisible = 0
+          reveal()
+          onRefocus?.(refocused)
+          if (refocused >= maxRefocus) stop()
+          return
+        }
+        bestVisible = Math.max(bestVisible, visible)
+      },
+      { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] },
+    )
+    observer.observe(doc.documentElement)
+    userEvents.forEach(type => window.addEventListener(type, stop, { capture: true, passive: true }))
+    timer = window.setTimeout(stop, followMs)
+  } catch (e) {
+    console.debug('[reveal] could not follow this macro', e)
+    stop()
+  }
+  return stop
 }

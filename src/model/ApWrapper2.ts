@@ -18,6 +18,7 @@ import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData, loadPaginatedDataUntil } from '@/utils/requestUtil';
 import { keepLiveParentPageContent } from '@/utils/orphanFilter';
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { resolveForgeSpace } from '@/utils/ContextParameters/ContextParameters';
 import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
@@ -1545,7 +1546,7 @@ export default class ApWrapper2 {
   }
 
   async getCurrentSpace(): Promise<ISpace> {
-    return this.currentSpace || (this.currentSpace = forgeGlobal.forgeContext?.extension?.space || {key: await this._page.getSpaceKey()});
+    return this.currentSpace || (this.currentSpace = resolveForgeSpace() || {key: await this._page.getSpaceKey()});
   }
 
   async getCurrentSpaceAdmins(): Promise<SpaceAdmin[]> {

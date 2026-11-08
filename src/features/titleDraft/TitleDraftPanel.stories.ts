@@ -10,7 +10,7 @@ const mermaid = `flowchart TD
   D --> F[Confirm delivery]`
 
 const meta: Meta<typeof TitleDraftPanel> = {
-  title: 'TitleDraft/TitleDraftPanel',
+  title: 'Modal/TitleDraftPanel',
   component: TitleDraftPanel,
   args: { mermaid, onClose: () => {} },
   decorators: [() => ({ template: '<div style="width:968px;height:611px;border:1px solid #dcdfe4"><story /></div>' })],

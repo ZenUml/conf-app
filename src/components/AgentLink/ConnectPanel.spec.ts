@@ -22,6 +22,7 @@ function mountPanel(props: {
   activityFeed?: AgentLinkActivityEntry[]
   lastActivityAt?: number | null
   thinking?: 'idle' | 'thinking' | 'error'
+  noticeReason?: 'connection_lost' | null
 }) {
   return mount(ConnectPanel, {
     props: {
@@ -237,6 +238,14 @@ describe('ConnectPanel', () => {
     await wrapper.find('[data-testid="agent-link-revoke-btn"]').trigger('click')
 
     expect(wrapper.emitted('disconnect')).toHaveLength(1)
+    expect(wrapper.emitted('revoke')).toHaveLength(1)
+  })
+
+  it('suspended: stops claiming a retry is running after reconnect exhaustion', async () => {
+    const wrapper = mountPanel({ state: 'suspended', token: 'tok-123', noticeReason: 'connection_lost' })
+    expect(wrapper.text()).toContain('Connection lost')
+    expect(wrapper.text()).not.toContain('Connection paused — reconnecting…')
+    await wrapper.find('[data-testid="agent-link-suspended-reconnect-btn"]').trigger('click')
     expect(wrapper.emitted('revoke')).toHaveLength(1)
   })
 

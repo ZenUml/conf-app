@@ -485,6 +485,11 @@ export type AnalyticsProperties = {
   // Phase 5b, on every page-banner event so the funnel can be split by audience.
   // See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // True when the page-banner iframe received the previous page's space after
+  // a Confluence SPA navigation and the space was corrected from the page URL.
+  // Set on paywall page-banner events; a forward navigation that now shows no
+  // banner sends no event, so this counts corrected banners, not all stale loads.
+  space_context_stale?: boolean;
   // Phase 5b: WHICH gate admitted the paywall page banner, and therefore which
   // copy/CTA set the user saw.
   //   'editor'      — legacy gate: this user created/edited a macro in the last

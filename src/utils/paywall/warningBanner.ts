@@ -82,7 +82,8 @@ function normalizeKeyPart(value: string): string {
  * (write) and the page-banner iframe (read) call this so any divergence in any
  * part — which would silently break the never-show — is impossible by
  * construction. `getSpaceKey()` is the single source for the space part on both
- * sides.
+ * sides, and it corrects the page-banner iframe's stale space after an SPA
+ * navigation (see resolveForgeSpace).
  */
 export function deriveWarningBannerIdentity(): WarningBannerIdentity {
   return {

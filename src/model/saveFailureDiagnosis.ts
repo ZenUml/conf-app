@@ -137,6 +137,9 @@ export async function diagnoseSaveFailure(
   prober: CreateNotFoundProber,
   opts: { timeoutMs?: number } = {},
 ): Promise<string> {
+  if (error?.code === 'MISSING_CONTENT_PARENT') {
+    return 'Failed to save: no Confluence page or space is available. Keep a copy of your diagram, publish the page, then reopen the editor and try again.';
+  }
   const shape: CreateNotFoundShape | undefined = error?.errorShape ?? classifyCreateNotFound(error);
   if (!shape) return GENERIC_SAVE_FAILED_MESSAGE;
 

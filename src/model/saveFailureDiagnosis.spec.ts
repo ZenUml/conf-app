@@ -186,6 +186,17 @@ describe('diagnoseSaveFailure', () => {
 
   beforeEach(() => vi.clearAllMocks());
 
+  it('explains how to recover a missing page/space context without probing page zero', async () => {
+    const probe = vi.fn();
+    const error = Object.assign(new Error('No page or space context available'), { code: 'MISSING_CONTENT_PARENT' });
+
+    const message = await diagnoseSaveFailure(error, ctx, { diagnoseCreateNotFound: probe });
+
+    expect(message).toMatch(/publish.*page/i);
+    expect(message).toMatch(/reopen.*editor/i);
+    expect(probe).not.toHaveBeenCalled();
+  });
+
   it('probes, records the verdict on save_failed_diagnosed, and returns the permission message', async () => {
     const probe = vi.fn().mockResolvedValue(permissionGap);
 

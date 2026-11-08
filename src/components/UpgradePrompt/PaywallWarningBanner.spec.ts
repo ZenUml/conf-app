@@ -82,6 +82,31 @@ describe('PaywallWarningBanner (page banner)', () => {
     }
   })
 
+  it.each([
+    ['SD', '/wiki/spaces/~abc/pages/200/Title', true],
+    ['~abc', '/wiki/spaces/~abc/pages/200/Title', false],
+  ])('reports space_context_stale with context %s and location %s', async (key, path, stale) => {
+    const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default as any
+    forgeGlobal.forgeContext = {
+      extension: {
+        type: 'confluence:pageBanner',
+        space: { key, id: '1' },
+        content: { id: '200' },
+        location: `https://example-tenant.atlassian.net${path}`,
+      },
+    }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    try {
+      mount(PaywallWarningBanner)
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_banner_shown',
+        expect.objectContaining({ space_context_stale: stale })
+      )
+    } finally {
+      forgeGlobal.forgeContext = null
+    }
+  })
+
   it('reports show_count 1 and omits the gap on a first impression', async () => {
     const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
     mount(PaywallWarningBanner)

@@ -9,6 +9,7 @@ type Story = StoryObj<typeof PaywallWarningBanner>
 
 const DOMAIN = 'example-tenant'
 const SPACE = 'ENG'
+const CLEAN_SPACE = '~clean'
 const MACRO_COUNT = 120
 
 /**
@@ -96,6 +97,20 @@ function installForgeMocks() {
   }
 }
 
+/** The context a page-banner iframe received after an SPA navigation. */
+function installStaleSpaceContext(contextSpace: string, pageSpace: string) {
+  forgeGlobal.forgeContext = {
+    accountId: 'storybook-user',
+    siteUrl: `https://${DOMAIN}.atlassian.net`,
+    extension: {
+      type: 'confluence:pageBanner',
+      content: { id: '200' },
+      space: { key: contextSpace, id: '1' },
+      location: `https://${DOMAIN}.atlassian.net/wiki/spaces/${pageSpace}/pages/200/Title`,
+    },
+  }
+}
+
 function installClipboardMock() {
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -157,6 +172,45 @@ export const Shown: Story = {
     await expect(banner).toHaveTextContent(`${MACRO_COUNT} of 100`)
     await expect(await canvas.findByTestId('paywall-banner-plan-usage')).toBeVisible()
     await expect(canvas.queryByTestId('paywall-banner-dismiss')).toBeNull()
+  },
+}
+
+/**
+ * Quick find from an over-limit space: the banner iframe's Forge context still
+ * names that space while the page URL names a clean one. The over-limit marker
+ * belongs to the previous space, so nothing shows.
+ */
+export const QuickFindToCleanSpace: Story = {
+  name: 'Quick find to a clean space — stale context, no banner',
+  decorators: [
+    () => {
+      installStaleSpaceContext(SPACE, CLEAN_SPACE)
+      return { template: '<story />' }
+    },
+  ],
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(canvas.queryByTestId('paywall-warning-banner')).toBeNull()
+  },
+}
+
+/**
+ * Quick find from a clean space: the context names the clean space while the
+ * page URL names the over-limit one, whose warning must show.
+ */
+export const QuickFindToOverLimitSpace: Story = {
+  name: 'Quick find to an over-limit space — stale context, banner shows',
+  decorators: [
+    () => {
+      installStaleSpaceContext(CLEAN_SPACE, SPACE)
+      return { template: '<story />' }
+    },
+  ],
+  play: async () => {
+    const canvas = within(document.body)
+    const banner = await canvas.findByTestId('paywall-warning-banner')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveTextContent(`${MACRO_COUNT} of 100`)
   },
 }
 

@@ -61,6 +61,7 @@ import {
   type BannerAudience,
 } from '@/utils/paywall/warningBanner'
 import { readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
+import { isForgeSpaceContextStale } from '@/utils/ContextParameters/ContextParameters'
 
 /**
  * `isSpaceAdmin` is supplied by the page-banner host (routes/pageBanner.ts)
@@ -132,6 +133,7 @@ try {
 }
 
 const audience: BannerAudience = bannerAudience(isSpaceAdmin)
+const spaceContextStale = isForgeSpaceContextStale()
 
 const visible = ref(passesGate)
 const macroCount = ref(macroCountValue)
@@ -172,6 +174,7 @@ function bannerContext() {
     macro_count: macroCount.value,
     macro_limit: macrosLimit,
     space_key: identity.spaceKey,
+    space_context_stale: spaceContextStale,
     macro_usage_pct: Math.round((macroCount.value / macrosLimit) * 100),
     // Phase 5b: every banner event carries the audience so the funnel splits by
     // who was actually addressed. Without this the two populations are pooled

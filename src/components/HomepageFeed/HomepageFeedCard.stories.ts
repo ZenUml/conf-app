@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 import HomepageFeedCard from './HomepageFeedCard.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 
 type Story = StoryObj<typeof HomepageFeedCard>
 
@@ -113,11 +113,11 @@ export const ExampleOpensInPlace: Story = {
  */
 export const ConnectMcpOpen: Story = {
   name: 'Connect MCP row, opened',
+  // The card never resolves a Forge context in Storybook, so forgeGlobal
+  // keeps its isForge: true default and the flag lookup would fail closed.
+  decorators: [forgeEnv({ forge: { isForge: false } })],
   loaders: [
     () => {
-      // The card never resolves a Forge context in Storybook, so forgeGlobal
-      // keeps its isForge: true default and the flag lookup would fail closed.
-      forgeGlobal.isForge = false
       try {
         localStorage.setItem('mockAgentLinkEnabled', 'true')
       } catch {

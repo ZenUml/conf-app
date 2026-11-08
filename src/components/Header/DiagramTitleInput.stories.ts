@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 import DiagramTitleInput from './DiagramTitleInput.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { useAutoTitle } from '@/composables/useAutoTitle'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
@@ -38,11 +38,6 @@ function mockFetch(title: string, delayMs = 0, ok = true) {
   }
 }
 
-function setupForge() {
-  forgeGlobal.isForge = false
-  forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.example.com'
-}
-
 function setupStore({
   code = '',
   title = '',
@@ -66,9 +61,9 @@ const meta: Meta<typeof DiagramTitleInput> = {
     },
   },
   decorators: [
+    forgeEnv({ forge: { isForge: false, zenumlRemoteBaseUrl: 'https://storybook.example.com' } }),
     () => {
       clearFetchMock()
-      setupForge()
       ;(useAutoTitle as any).__resetForTests?.()
       return {
         template: '<div class="p-4 bg-white w-full max-w-lg"><story /></div>',

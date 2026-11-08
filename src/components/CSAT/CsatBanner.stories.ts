@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 import CsatBanner from './CsatBanner.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { CSAT_PENDING_KEY } from '@/utils/csat'
 import { getLocalStorageKey } from '@/utils/window'
 
@@ -16,16 +16,6 @@ type Story = StoryObj<typeof CsatBanner>
  */
 function installMocks() {
   localStorage.setItem('mockClientDomain', 'example-tenant')
-  forgeGlobal.isForge = false
-  forgeGlobal.isLite = true
-  forgeGlobal.forgeContext = {
-    accountId: 'storybook-user',
-    siteUrl: 'https://example-tenant.atlassian.net',
-    extension: {
-      content: { id: 'storybook-page' },
-      space: { key: 'STORY' },
-    },
-  }
   // Arm the fresh-pending flag so the banner doesn't immediately close
   localStorage.setItem(getLocalStorageKey(CSAT_PENDING_KEY), String(Date.now()))
   // Clear any existing suppression so checkStateOfCSAT() returns false
@@ -50,6 +40,20 @@ const meta: Meta<typeof CsatBanner> = {
     },
   },
   decorators: [
+    forgeEnv({
+      forge: {
+        isForge: false,
+        isLite: true,
+        forgeContext: {
+          accountId: 'storybook-user',
+          siteUrl: 'https://example-tenant.atlassian.net',
+          extension: {
+            content: { id: 'storybook-page' },
+            space: { key: 'STORY' },
+          },
+        },
+      },
+    }),
     () => {
       installMocks()
       return { template: '<story />' }

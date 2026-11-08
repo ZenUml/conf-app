@@ -2,7 +2,7 @@ import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 import type { App } from 'vue'
 import DrawIoExtension from './DrawIoExtension.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { useAutoTitle } from '@/composables/useAutoTitle'
 import store from '@/model/store2'
 import { DiagramType } from '@/model/Diagram/Diagram'
@@ -42,11 +42,6 @@ function mockFetch(title: string, delayMs = 0, ok = true) {
   }
 }
 
-function setupForge() {
-  forgeGlobal.isForge = false
-  forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.example.com'
-}
-
 function setupStore({ title = '' }: { title?: string } = {}) {
   store.commit('updateDiagramType', DiagramType.Graph)
   store.commit('updateTitle', title)
@@ -79,9 +74,9 @@ const meta: Meta<typeof DrawIoExtension> = {
     currentXml: LABELLED_XML,
   },
   decorators: [
+    forgeEnv({ forge: { isForge: false, zenumlRemoteBaseUrl: 'https://storybook.example.com' } }),
     () => {
       clearFetchMock()
-      setupForge()
       ;(useAutoTitle as any).__resetForTests?.()
       return overlayShell
     },

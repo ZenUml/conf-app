@@ -1,23 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, within } from 'storybook/test'
 import UpgradePrompt from './UpgradePrompt.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 
 type Story = StoryObj<typeof UpgradePrompt>
-
-function installForgeMocks() {
-  forgeGlobal.isForge = false
-  forgeGlobal.isLite = true
-  forgeGlobal.forgeContext = {
-    accountId: 'storybook-user',
-    siteUrl: 'https://example-tenant.atlassian.net',
-    extension: {
-      content: { id: 'storybook-page' },
-      space: { key: 'STORY' },
-    },
-  }
-}
 
 function installPaywallState() {
   localStorage.setItem('mockClientDomain', 'example-tenant')
@@ -75,8 +62,21 @@ const meta: Meta<typeof UpgradePrompt> = {
     actionType: 'page_editor',
   },
   decorators: [
+    forgeEnv({
+      forge: {
+        isForge: false,
+        isLite: true,
+        forgeContext: {
+          accountId: 'storybook-user',
+          siteUrl: 'https://example-tenant.atlassian.net',
+          extension: {
+            content: { id: 'storybook-page' },
+            space: { key: 'STORY' },
+          },
+        },
+      },
+    }),
     (_story, context) => {
-      installForgeMocks()
       installPaywallState()
       installClipboardMock(context.parameters.extensionRequestCopy !== false)
       installNavigationMock()

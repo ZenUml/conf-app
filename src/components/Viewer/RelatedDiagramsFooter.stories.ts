@@ -6,7 +6,7 @@ import type { Args, Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 import mixpanel from 'mixpanel-browser'
 import RelatedDiagramsFooter from './RelatedDiagramsFooter.vue'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../../.storybook/forgeEnv'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 
 /**
@@ -172,14 +172,6 @@ function configureStory(withLookup: boolean) {
       { match: '/api/architecture-tokens/related', body: RELATED_RESPONSE },
     ]
   }
-  forgeGlobal.isForge = false
-  forgeGlobal.isLite = true
-  forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.invalid'
-  forgeGlobal.forgeContext = {
-    siteUrl: 'https://example.atlassian.net',
-    extension: { content: { id: 'storybook-page' }, space: { key: 'OP' } },
-  }
-
   // Storybook has no analytics token. Keep the console clean while exercising
   // the real component event calls.
   const noop = () => {}
@@ -272,6 +264,17 @@ const meta: Meta<typeof RelatedDiagramsFooter> = {
   component: RelatedDiagramsFooter,
   parameters: { layout: 'fullscreen' },
   decorators: [
+    forgeEnv({
+      forge: {
+        isForge: false,
+        isLite: true,
+        zenumlRemoteBaseUrl: 'https://storybook.invalid',
+        forgeContext: {
+          siteUrl: 'https://example.atlassian.net',
+          extension: { content: { id: 'storybook-page' }, space: { key: 'OP' } },
+        },
+      },
+    }),
     () => ({
       template: '<div style="padding: 24px; background: #FAFBFC;"><story/></div>',
     }),

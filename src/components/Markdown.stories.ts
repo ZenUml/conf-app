@@ -5,8 +5,7 @@ import Mermaid from './Mermaid.vue'
 import Header from './Header/Header.vue'
 import Editor from './Editor/Editor.vue'
 import store from '@/model/store2'
-import globals from '@/model/globals'
-import forgeGlobal from '@/model/globals/forgeGlobal'
+import { forgeEnv } from '../../.storybook/forgeEnv'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 setup(app => { app.use(store) })
@@ -44,10 +43,6 @@ const ready = true;
 `
 
 function configure(source: string | undefined, type = DiagramType.Markdown) {
-  forgeGlobal.isForge = false
-  forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.invalid'
-  globals.apWrapper.canUserEdit = async () => true
-  globals.apWrapper.isDisplayMode = () => false
   store.state.diagram.markdownCode = source
   store.commit('updateDiagramType', type)
   store.commit('updateMermaidCode', 'flowchart LR\n  Client --> API')
@@ -61,6 +56,12 @@ const meta: Meta<typeof Markdown> = {
   title: 'Editor/Diagram/Markdown',
   component: Markdown,
   parameters: { layout: 'fullscreen' },
+  decorators: [
+    forgeEnv({
+      forge: { isForge: false, zenumlRemoteBaseUrl: 'https://storybook.invalid' },
+      apWrapper: { canUserEdit: async () => true, isDisplayMode: () => false },
+    }),
+  ],
 }
 export default meta
 type Story = StoryObj<typeof Markdown>

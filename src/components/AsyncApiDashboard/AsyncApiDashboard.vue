@@ -188,42 +188,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import yaml from 'js-yaml'
 import globals from '@/model/globals'
 import { openModal, openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { derivePageUrl } from '@/model/asyncapi/derivePageUrl'
 import { docMatchesSearch } from './docMatchesSearch'
+import { toSpecDocument, type AsyncApiDoc } from './specDocuments'
 import type { ICustomContent } from '@/model/ICustomContent'
-
-interface AsyncApiDoc {
-  id: string
-  contentId?: string
-  // Which spec family this doc is, derived from the stored value.diagramType.
-  // Drives the format badge, the schema label ("AsyncAPI x" vs "OpenAPI x"), the
-  // count pills (channels/servers vs paths/operations), and which editor/viewer
-  // the View/Edit actions open (diagramType passed to openModal).
-  format?: 'asyncapi' | 'openapi'
-  title?: string
-  displayTitle: string
-  description?: string
-  code?: string
-  apiVersion?: string
-  schemaVersion?: string
-  channelsCount?: number
-  serversCount?: number
-  pathsCount?: number
-  operationsCount?: number
-  rev?: number
-  status?: string
-  createdAt?: string
-  updatedAt?: string
-  createdLabel?: string
-  updatedLabel?: string
-  pageId?: string
-  pageLabel?: string
-  pageUrl?: string
-}
 
 const documents = ref<AsyncApiDoc[]>([])
 const loading = ref(true)
@@ -272,78 +243,6 @@ function toggleCreateMenu() {
 }
 
 // HTTP verbs that count as OpenAPI operations under a path item.
-const OPENAPI_METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'options', 'head', 'trace'])
-
-// Parse either an AsyncAPI or an OpenAPI/Swagger spec into the fields the card
-// needs. Format is auto-detected from the schema key: OpenAPI 3.x uses `openapi`,
-// Swagger 2.0 uses `swagger`, AsyncAPI uses `asyncapi`. `info.title/version/
-// description` are common to both. The count fields diverge: AsyncAPI surfaces
-// channels/servers, OpenAPI surfaces path count + total operation count.
-function parseSpec(raw?: string): {
-  format?: 'asyncapi' | 'openapi'
-  apiVersion?: string
-  schemaVersion?: string
-  description?: string
-  title?: string
-  channelsCount?: number
-  serversCount?: number
-  pathsCount?: number
-  operationsCount?: number
-} {
-  if (!raw) return {}
-  try {
-    const doc = yaml.load(raw) as Record<string, any> | null
-    if (!doc || typeof doc !== 'object') return {}
-    const info = (doc.info as Record<string, any>) || {}
-    const common = {
-      apiVersion: typeof info.version === 'string' ? info.version : undefined,
-      description: typeof info.description === 'string' ? truncate(info.description, 180) : undefined,
-      title: typeof info.title === 'string' ? info.title : undefined,
-    }
-
-    const openapiVersion =
-      typeof doc.openapi === 'string' ? doc.openapi
-      : typeof doc.swagger === 'string' ? doc.swagger
-      : undefined
-    if (openapiVersion) {
-      const paths = (doc.paths as Record<string, any>) || undefined
-      const pathKeys = paths && typeof paths === 'object' ? Object.keys(paths) : []
-      let operations = 0
-      for (const key of pathKeys) {
-        const item = paths?.[key]
-        if (item && typeof item === 'object') {
-          for (const method of Object.keys(item)) {
-            if (OPENAPI_METHODS.has(method.toLowerCase())) operations++
-          }
-        }
-      }
-      return {
-        ...common,
-        format: 'openapi',
-        schemaVersion: openapiVersion,
-        pathsCount: pathKeys.length,
-        operationsCount: operations,
-      }
-    }
-
-    const channels = (doc.channels as Record<string, any>) || undefined
-    const servers = (doc.servers as Record<string, any>) || undefined
-    return {
-      ...common,
-      format: 'asyncapi',
-      schemaVersion: typeof doc.asyncapi === 'string' ? doc.asyncapi : undefined,
-      channelsCount: channels && typeof channels === 'object' ? Object.keys(channels).length : undefined,
-      serversCount: servers && typeof servers === 'object' ? Object.keys(servers).length : undefined,
-    }
-  } catch {
-    return {}
-  }
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max).trimEnd() + '…' : s
-}
-
 interface PageMeta {
   title?: string
   url?: string
@@ -380,17 +279,6 @@ async function fetchPageMeta(pageId: string): Promise<PageMeta> {
   }
 }
 
-function formatTime(iso?: string, prefix?: string): string | undefined {
-  if (!iso) return undefined
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return undefined
-  const formatted = d.toLocaleString([], {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-  return prefix ? `${prefix} ${formatted}` : formatted
-}
-
 async function loadDocuments(isRefresh = false): Promise<void> {
   if (isRefresh) refreshing.value = true
   else loading.value = true
@@ -399,70 +287,7 @@ async function loadDocuments(isRefresh = false): Promise<void> {
   try {
     const results: ICustomContent[] = await globals.apWrapper.searchCustomContent()
     documents.value = results
-      .map((entry: any) => {
-        const v = entry.value as (AsyncApiDoc & { diagramType?: string }) | undefined
-        if (!v) return null
-        // Dual-format dashboard: keep AsyncAPI ('async*' — the enum is
-        // 'AsyncAPI'; older builds used 'AsyncApi'; a future one might use
-        // 'asyncapi') AND OpenAPI/Swagger ('openapi'/'swagger'). Both are stored
-        // under the same async-api-doc custom-content type, so
-        // searchCustomContent returns them together — anything else
-        // (sequence/graph/embed) is dropped.
-        const dt = typeof v.diagramType === 'string' ? v.diagramType.toLowerCase() : ''
-        const isOpenApi = dt === 'openapi' || dt === 'swagger'
-        if (!dt.startsWith('async') && !isOpenApi) return null
-        const format: 'asyncapi' | 'openapi' = isOpenApi ? 'openapi' : 'asyncapi'
-
-        const parsed = parseSpec(v.code)
-        const id = String(entry.id ?? v.id ?? Math.random())
-        // Prefer the spec's `info.title` over the custom-content title.
-        // The spec body is what the user actually edits in the Studio, so
-        // info.title always reflects the latest user-entered name. The
-        // custom-content title only updates if the editor's save flow
-        // successfully writes it — and we've observed it lagging behind
-        // when a doc is edited from the dashboard (the body code updates
-        // but the top-level title doesn't). Reading from parsed.title
-        // first means the dashboard card surfaces the user-chosen name
-        // immediately, regardless of whether the title write race-loses.
-        const title = parsed.title || entry.title || v.title
-          || (format === 'openapi' ? 'Untitled OpenAPI' : 'Untitled AsyncAPI')
-        // Status precedence: the body's `status` field is the source of
-        // truth for archived/trashed (Archive sets it via PUT — see
-        // confirmDelete). Fall back to the v2 record's top-level
-        // `status` only when the body doesn't carry one.
-        const status = (v as any).status as string | undefined
-          || (entry as any).status as string | undefined
-        const createdAt = (entry as any).createdAt as string | undefined
-        const updatedAt = (entry.version && (entry.version.createdAt as string)) || undefined
-        const pageId = (entry as any).pageId ? String((entry as any).pageId) : undefined
-        const containerTitle = entry.container?.title as string | undefined
-        const containerLink = entry.container?.link as string | undefined
-
-        return {
-          id,
-          contentId: String(entry.id ?? ''),
-          format,
-          title,
-          displayTitle: title,
-          description: parsed.description || (v as any).description,
-          code: v.code,
-          apiVersion: parsed.apiVersion,
-          schemaVersion: parsed.schemaVersion,
-          channelsCount: parsed.channelsCount,
-          serversCount: parsed.serversCount,
-          pathsCount: parsed.pathsCount,
-          operationsCount: parsed.operationsCount,
-          rev: (entry.version && (entry.version.number as number)) || undefined,
-          status,
-          createdAt,
-          updatedAt,
-          createdLabel: formatTime(createdAt, 'Created'),
-          updatedLabel: formatTime(updatedAt, 'Updated'),
-          pageId,
-          pageLabel: containerTitle || (pageId ? `Page ${pageId}` : undefined),
-          pageUrl: containerLink,
-        } as AsyncApiDoc
-      })
+      .map(toSpecDocument)
       .filter((d): d is AsyncApiDoc => d !== null)
 
     // The v2 custom-content list response doesn't include parent-page

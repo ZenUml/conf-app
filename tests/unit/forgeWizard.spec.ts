@@ -107,10 +107,14 @@ describe('forge-wizard manifest preview helpers', () => {
       "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
     )
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
-    expect(desc).toContain('Remove Diagramly demo-page modules (Lite keeps only macro snapshot schedule)')
+    expect(desc).toContain('Remove Diagramly admin panel + demo-page pipeline (Lite keeps createDemoPage for Get Started)')
 
     const yq = getManifestEditYqArgs('lite').map((x) => x.expr)
     expect(yq).toContain('del(.app.licensing)')
+    // createDemoPage (the function) must survive for Lite — Get Started's
+    // "Create examples page" action invokes it via the resolver binding on
+    // zenuml-get-started-settings (manifest.yml).
+    expect(yq.join(' ')).not.toContain('"createDemoPage" or');
     // Lite ships TWO byline entries — the activation nudge and the diagram
     // index — and drops only the Diagramly-branded one. A whole-module delete
     // here would take both of them with it.
@@ -386,7 +390,7 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(desc).toContain(
       'Remove zenuml-byline-aiaide from confluence:contentBylineItem (keep zenuml-byline-newuser + zenuml-byline-diagrams)',
     )
-    expect(desc).toContain('Remove Lite snapshot and Diagramly demo schedules from Full')
+    expect(desc).toContain('Remove Lite snapshot and Diagramly admin/pipeline schedules from Full (Full keeps createDemoPage for Get Started)')
     // Full drops only the Diagramly-branded aiaide entry. The module itself
     // must survive, or newuser and the diagram index go too.
     const fullYq = getManifestEditYqArgs('full').map((x: { expr: string }) => x.expr)
@@ -399,6 +403,9 @@ describe('forge-wizard manifest preview helpers', () => {
     )
     expect(getManifestEditYqArgs('full').map((x) => x.expr).join(' '))
       .toContain('macroCountSnapshotFn')
+    // createDemoPage (the function) must survive for Full too — same reason
+    // as Lite above.
+    expect(fullYq.join(' ')).not.toContain('"createDemoPage" or')
   })
 
   it('diagramly strips global UI modules and asyncapi bits, but KEEPS the embed macro', () => {
@@ -410,7 +417,7 @@ describe('forge-wizard manifest preview helpers', () => {
     // with this wizard — see the comment on diagramly's manifestEdits array
     // in scripts/forge-wizard.mjs.
     const desc = getManifestEditDescriptions('diagramly')
-    expect(desc).toContain('Remove globalSettings + globalPage + spacePage')
+    expect(desc).toContain('Remove zenuml-get-started-settings + globalPage + spacePage (Diagramly keeps its own admin panel)')
     expect(desc).not.toContain('Remove embed macro (zenuml-embed-macro)')
     expect(desc).toContain(
       'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
@@ -419,13 +426,17 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(desc).toContain('Remove Connect lifecycle module (connectModules)')
     expect(desc).toContain('Remove the Lite diagrams byline entry (Diagramly keeps Aide)')
     expect(desc).toContain('Remove Lite macro snapshot schedule from Diagramly')
-    // Diagramly's globalSettings+globalPage+spacePage strip removes both
-    // the ZenUML dashboard and the asyncapi spacePage in a single edit.
+    // Diagramly's globalSettings strip is key-scoped (zenuml-get-started-
+    // settings only), NOT a whole-node delete — Diagramly keeps its own
+    // admin panel (diagramly-admin-create-demo-page) under
+    // confluence:globalSettings. Matches the CI copies of this edit
+    // (release.yml + staging-deploy.yml).
 
     const yq = getManifestEditYqArgs('diagramly').map((x) => x.expr)
     expect(yq).toContain(
-      'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
+      'del(.modules["confluence:globalSettings"][] | select(.key == "zenuml-get-started-settings")) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
     )
+    expect(yq.join(' ')).not.toContain('del(.modules["confluence:globalSettings"])')
     expect(yq).not.toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))',
     )

@@ -76,6 +76,7 @@ import type {
   HighlightFeedbackVariant,
   HighlightDismissStage,
   HighlightDismissCause,
+  GetStartedAction,
 } from "./catalog";
 
 export type AnalyticsProperties = {
@@ -1154,6 +1155,9 @@ export type AnalyticsProperties = {
   capture_node_width?: number;
   capture_node_height?: number;
   document_visibility?: string;
+  // Get Started page (get_started_action_clicked — task 7). Names which
+  // control was clicked; see GetStartedAction's doc comment in catalog.ts.
+  action?: GetStartedAction;
   // Error
   error_code?: string;
   error_name?: string;

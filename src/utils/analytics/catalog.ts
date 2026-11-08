@@ -1843,7 +1843,18 @@ export type AnalyticsEventName =
   | "plan_usage_locations_loaded"
   | "plan_usage_locations_load_failed"
   | "plan_usage_locations_filtered"
-  | "plan_usage_locations_page_clicked";
+  | "plan_usage_locations_page_clicked"
+  // Get Started page (confluence:globalSettings, useAsGetStarted: true —
+  // src/components/GetStarted/GetStarted.vue), the only post-install surface
+  // an admin sees before they've touched a Confluence page. `get_started_viewed`
+  // fires once on mount, the denominator for how many admins ever open it.
+  // `get_started_action_clicked` fires on every control click on the page —
+  // the primary "create examples page" action AND the resource links
+  // (documentation/videos/community/report-issue) — with `action` (see
+  // GetStartedAction below) naming which one, so the primary action's pull
+  // is measurable against the passive resource links.
+  | "get_started_viewed"
+  | "get_started_action_clicked";
 
 /**
  * How one Diagram-locations batch resolved. `ok` listed at least one row;
@@ -1856,6 +1867,17 @@ export type DiagramLocationsLoadOutcome = "ok" | "empty" | "forbidden" | "failed
 
 /** Which control changed the Diagram-locations result set. */
 export type DiagramLocationsFilter = "search" | "space" | "type" | "clear" | "page" | "page_size";
+
+// Which Get Started page control was clicked (get_started_action_clicked's
+// `action` property). 'create_examples_page' is the primary control (task 7:
+// creates a real examples page via the shared createDemoPage pipeline); the
+// rest are the page's resource links.
+export type GetStartedAction =
+  | "create_examples_page"
+  | "view_documentation"
+  | "watch_videos"
+  | "join_community"
+  | "report_issue";
 
 // How an activation run completed. 'copy_link' = the primary path (mint a deeplink
 // and paste it into any page, #360's missing producer); 'draft_page' = the

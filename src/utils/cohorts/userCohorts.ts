@@ -1,5 +1,6 @@
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
 import { callRemote } from '@/utils/requestUtil'
+import { markerKey, readRawMarker, writeJsonMarker, writeRawMarker } from '@/utils/storage/marker'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 /**
@@ -33,12 +34,8 @@ export interface UserCohortsMarker {
   fetchedAt: string
 }
 
-function normalizeKeyPart(value: string): string {
-  return encodeURIComponent(value || 'unknown')
-}
-
 export function userCohortsMarkerKey(clientDomain: string = getClientDomain() || 'unknown'): string {
-  return ['userCohorts', normalizeKeyPart(clientDomain)].join(':')
+  return markerKey('userCohorts', clientDomain)
 }
 
 export function parseUserCohortsMarker(raw: string | null): UserCohortsMarker | null {
@@ -62,49 +59,35 @@ export function isMarkerStale(marker: UserCohortsMarker | null, now: number = Da
 }
 
 export function readUserCohortsMarker(clientDomain?: string): UserCohortsMarker | null {
-  try {
-    return parseUserCohortsMarker(localStorage.getItem(userCohortsMarkerKey(clientDomain)))
-  } catch {
-    return null
-  }
+  return parseUserCohortsMarker(readRawMarker(userCohortsMarkerKey(clientDomain)))
 }
 
 function writeUserCohortsMarker(marker: UserCohortsMarker, clientDomain?: string): boolean {
-  try {
-    localStorage.setItem(userCohortsMarkerKey(clientDomain), JSON.stringify(marker))
-    return true
-  } catch (e) {
+  return writeJsonMarker(userCohortsMarkerKey(clientDomain), marker, (e) =>
     console.warn('[cohorts] marker write failed', e)
-    return false
-  }
+  )
 }
 
 function userCohortsAttemptKey(clientDomain: string = getClientDomain() || 'unknown'): string {
-  return ['userCohortsAttempt', normalizeKeyPart(clientDomain)].join(':')
+  return markerKey('userCohortsAttempt', clientDomain)
 }
 
 /** Best-effort, same discipline as writeUserCohortsMarker — a failed write here
  * only means backoff won't apply, never a thrown error. */
 function writeAttemptStamp(now: number, clientDomain?: string): void {
-  try {
-    localStorage.setItem(userCohortsAttemptKey(clientDomain), new Date(now).toISOString())
-  } catch (e) {
+  writeRawMarker(userCohortsAttemptKey(clientDomain), new Date(now).toISOString(), (e) =>
     console.warn('[cohorts] attempt stamp write failed', e)
-  }
+  )
 }
 
 /** Absence or an unparseable stamp means "no prior attempt on record" — never
  * back off in that case, only when we can positively confirm a recent try. */
 function isWithinRetryBackoff(now: number, clientDomain?: string): boolean {
-  try {
-    const raw = localStorage.getItem(userCohortsAttemptKey(clientDomain))
-    if (!raw) return false
-    const attemptMs = Date.parse(raw)
-    if (!Number.isFinite(attemptMs)) return false
-    return now - attemptMs < COHORT_RETRY_BACKOFF_MS
-  } catch {
-    return false
-  }
+  const raw = readRawMarker(userCohortsAttemptKey(clientDomain))
+  if (!raw) return false
+  const attemptMs = Date.parse(raw)
+  if (!Number.isFinite(attemptMs)) return false
+  return now - attemptMs < COHORT_RETRY_BACKOFF_MS
 }
 
 /** Synchronous membership check for hot paths (page banner, upgrade modal).

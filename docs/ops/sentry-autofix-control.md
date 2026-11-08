@@ -257,3 +257,31 @@ Do not activate that PR or reuse its OAuth token.
   still an adapter responsibility; the database alone cannot make deployment safe.
 - JavaScript tests: 57 passed; Python ledger tests: 19 passed. No active scheduler,
   automatic intake, fix executor, production publisher or rollback exists yet.
+
+### Verified live read and final local checks (2026-11-08 02:13 UTC)
+
+Sentry GET returned HTTP 200 and verified issue `7377989567` / project `6610196`
+at `2026-11-08T02:13:51Z`. Private run:
+`https://github.com/ZenUml/conf-app-private/actions/runs/42437625423`, exact SHA
+`b95539f751d6dcc18a2d8cc98c12e04aef03bf64`, conclusion success. Draft PR #16 in
+that private repository remains unmerged. Its read-only workflow ran on its exact
+isolated branch, with `contents:read`, no third-party actions and no raw response
+logs or artifacts. Actionlint and 14 local synthetic workflow tests passed.
+This proves Sentry read connectivity, not agent execution or repair/deployment.
+
+Project #12 now includes that PR as adjacent setup work and explicitly separates
+its connection-test pass from the D1 incident's missing fix/test/deploy chain.
+The historical Claude PR is labeled not selected; Codex is the selected executor.
+
+The final local controller suite has 57 JavaScript and 22 SQLite tests passing.
+Independent review findings were fixed: malformed Sentry errors cannot include
+response text, GitHub hostname is pinned, project visibility is rechecked before
+writes, audit INSERT OR REPLACE is rejected, and observing an expired lease
+commits unknown state before raising so clock rollback cannot revive it.
+These remain isolated local commits, not an activated control plane.
+
+A follow-up attempt to inspect Chrome's Downloads page was rejected by the browser
+URL policy (`chrome://` disallowed). No alternate browser surface, raw protocol,
+security setting change or download bypass was attempted. App key recovery and
+Codex unattended authentication remain blocked/unconfigured. No production
+release, synthetic production incident, automatic merge or rollback was executed.

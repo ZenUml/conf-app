@@ -81,25 +81,14 @@ jobs:
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v5
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
         with:
           node-version: ${{ inputs.node-version }}
-          cache: pnpm
-      - name: Install E2E test dependencies
-        run: cd tests/e2e-tests && pnpm install --ignore-workspace
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        id: pw-cache
+      - name: E2E toolchain
+        uses: ./.github/actions/e2e-toolchain
         with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
-      - name: Install Playwright browsers
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
+          node-options: "--max-old-space-size=8192"
       - name: Compute daily cache key
         id: cacheday
         run: echo "key=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"

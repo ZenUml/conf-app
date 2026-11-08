@@ -21,7 +21,7 @@
 // RED on buggy code: the modal stays open + "view.submit/close failed" logs.
 // GREEN after 1a: the modal closes cleanly, no submit failure.
 
-import { test, expect, Page } from '../../fixtures/mixpanel-test.js';
+import { test, expect } from '../../fixtures/mixpanel-test.js';
 import { testConfig } from '../../config/test-config.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
@@ -33,20 +33,9 @@ import {
   expectModalClosed,
 } from '../../helpers/FullscreenModalHelper.js';
 import { dismissStarterGalleryIfPresent } from '../../helpers/starterGallery.js';
+import { dismissPaywallGate } from '../../helpers/paywallGate.js';
 
 const SEQUENCE_MACRO_BASE = 'Diagram (Mermaid, PlantUML & ZenUML)';
-
-// Lite editor-mount paywall overlay intercepts clicks; clear it before touching
-// the editor. No-op on spaces under the macro limit.
-async function dismissPaywall(page: Page, waitMs = 4000): Promise<void> {
-  const btn = modalContentFrame(page, 'edit').locator('[data-testid="continue-editing-btn"]');
-  const shown = await btn.first().waitFor({ state: 'visible', timeout: waitMs }).then(() => true).catch(() => false);
-  if (shown) {
-    await btn.first().click();
-    await btn.first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(400);
-  }
-}
 
 test.describe('REGRESSION #169 — draft-only binding updates in place (no fork)', { tag: ['@test:draft-only-binding-fork', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@editor', '@sequence'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
@@ -74,7 +63,7 @@ test.describe('REGRESSION #169 — draft-only binding updates in place (no fork)
     await editorPage.searchAndSelectMacro('diagram', editorPage.getMacroName(SEQUENCE_MACRO_BASE));
     await expectModalVisible(page, 'edit');
     await page.waitForTimeout(1500);
-    await dismissPaywall(page);
+    await dismissPaywallGate(page, modalContentFrame(page, 'edit'));
     await dismissStarterGalleryIfPresent(page, modalContentFrame(page, 'edit'));
     await fillEditorTitle(page, `Repro169 ${Date.now()}`);
     await clickEditorPublish(page);
@@ -88,7 +77,7 @@ test.describe('REGRESSION #169 — draft-only binding updates in place (no fork)
     await macroPage.editMacro(macroFrame);
     await expectModalVisible(page, 'edit');
     await page.waitForTimeout(1500);
-    await dismissPaywall(page);
+    await dismissPaywallGate(page, modalContentFrame(page, 'edit'));
 
     // Dirty the diagram and Publish — the save that forks on buggy code.
     const cm = modalContentFrame(page, 'edit').locator('.cm-content, .CodeMirror').first();

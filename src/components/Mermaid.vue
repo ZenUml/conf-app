@@ -36,6 +36,7 @@ import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 import { attachMermaidHighlights } from '../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
+import { rendersDark, useHostColorMode } from '@/utils/theme/hostColorMode';
 
 // A wait for a measurable layout that outlasts this reports one
 // viewer_render_deferred, so a hidden macro is told apart from a broken one (#706).
@@ -49,6 +50,9 @@ export default {
     readOnly: { type: Boolean, default: false },
   },
   emits: ['highlight-ready', 'highlight-used'],
+  setup() {
+    return { hostColorMode: useHostColorMode() };
+  },
   data() {
     return {
       svg: null,
@@ -70,6 +74,11 @@ export default {
     },
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
+    },
+    // Inline viewer on a dark Confluence page. The editor preview stays light:
+    // it sits on the editor's own light surface.
+    mermaidTheme() {
+      return this.isDisplayMode && rendersDark(DiagramType.Mermaid, this.hostColorMode) ? 'dark' : undefined;
     },
     highlightSurfaceAllowed() {
       // Export-entry renders are photographed at native size, never interactive.
@@ -116,6 +125,9 @@ export default {
         if (this.currentFlowchartModel) this.installHighlights();
         else if (this.mermaidCode) this.renderAndApply(this.mermaidCode);
       }
+    },
+    mermaidTheme() {
+      if (this.mermaidCode) this.renderAndApply(this.mermaidCode);
     },
     isDisplayMode() {
       this.clearHighlights();
@@ -234,9 +246,10 @@ export default {
       // what makes those diagrams render again without a data migration.
       const source = normalizeMermaidWhitespace(code);
       const captureFlowchartModel = this.relationshipHighlights && this.highlightSurfaceAllowed;
+      const theme = this.mermaidTheme;
       const { svg, flowchartModel } = captureFlowchartModel
-        ? await renderMermaid(renderId, source, { captureFlowchartModel: true })
-        : await renderMermaid(renderId, source);
+        ? await renderMermaid(renderId, source, { captureFlowchartModel: true, theme })
+        : await renderMermaid(renderId, source, theme ? { theme } : {});
       // A `useMaxWidth: false` diagram carries a fixed height that our flex
       // wrapper cannot shrink, which letterboxes the drawing. See
       // normalizeSvgSizing for the measurement.

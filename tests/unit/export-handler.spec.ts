@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // `requestConfluence` throws "You must create your route using the 'route'
 // export from '@forge/api'" for anything that isn't this branded type — that
 // is verbatim the production error this file's fix addresses (fetchPngDimensions
-// in src/export.js was building `${linksBase}${downloadLink}` as a bare
+// in src/forge-functions/export.js was building `${linksBase}${downloadLink}` as a bare
 // template-string URL instead of routing it).
 //
 // Before this fix, this mock's `route` returned a plain string too, and there
@@ -49,7 +49,7 @@ vi.mock('@forge/api', () => ({
   },
 }));
 
-import { handler, trackExportEvent } from '../../src/export.js';
+import { handler, trackExportEvent } from '../../src/forge-functions/export.js';
 
 function mixpanelBodiesFromFetch(fetchMock: typeof fetch): unknown[] {
   const calls = vi.mocked(fetchMock).mock.calls;
@@ -67,7 +67,7 @@ function mixpanelBodiesFromFetch(fetchMock: typeof fetch): unknown[] {
   return rows;
 }
 
-describe('Forge export resolver (src/export.js)', () => {
+describe('Forge export resolver (src/forge-functions/export.js)', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
@@ -79,7 +79,7 @@ describe('Forge export resolver (src/export.js)', () => {
     );
     process.env.MIXPANEL_TOKEN = 'unit-test-token';
     // These specs assert on the CONTENT of the emitted events, so the quota
-    // sampling in src/lib/exportSampling.js must not decide whether they run.
+    // sampling in src/forge-functions/exportSampling.js must not decide whether they run.
     // A draw of 0 is below every configured rate, so every event is kept; the
     // drop path has its own coverage in tests/unit/exportSampling.spec.ts.
     vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -305,7 +305,7 @@ describe('Forge export resolver (src/export.js)', () => {
   // with a mediaSingle width hint vs 6.68in for the old external-url node).
   // Declaring the image's own intrinsic width/height directly on the media
   // node is the candidate fix — read via a byte-Range request for the PNG's
-  // IHDR chunk (src/lib/pngDimensions.ts), not a full download.
+  // IHDR chunk (src/forge-functions/pngDimensions.ts), not a full download.
   it('declares the media node\'s own intrinsic width/height from the PNG header', async () => {
     const pngHeader = Buffer.alloc(32);
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(pngHeader, 0);
@@ -542,7 +542,7 @@ describe('Forge export resolver (src/export.js)', () => {
     // asUserRequest is called TWICE: the attachments lookup, then the
     // PNG-dimensions Range request — which reuses asUser() rather than
     // asApp(), since asUser() is the identity that could actually read this
-    // page (see fetchPngDimensions' `usedAsUser` param in src/export.js).
+    // page (see fetchPngDimensions' `usedAsUser` param in src/forge-functions/export.js).
     expect(asAppRequest).toHaveBeenCalledTimes(1);
     expect(asUserRequest).toHaveBeenCalledTimes(2);
 
@@ -986,7 +986,7 @@ describe('macro_export_* $insert_id (Mixpanel dedup key)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '' })));
     process.env.MIXPANEL_TOKEN = 'unit-test-token';
     // These specs assert on the CONTENT of the emitted events, so the quota
-    // sampling in src/lib/exportSampling.js must not decide whether they run.
+    // sampling in src/forge-functions/exportSampling.js must not decide whether they run.
     // A draw of 0 is below every configured rate, so every event is kept; the
     // drop path has its own coverage in tests/unit/exportSampling.spec.ts.
     vi.spyOn(Math, 'random').mockReturnValue(0);

@@ -2,7 +2,7 @@
  * Lite->Full macro conversion queue — backend side (phase 1).
  *
  * Three FIT-authed endpoints consumed by the Full app's scheduled function
- * (src/lite-full-conversion.ts):
+ * (src/forge-functions/lite-full-conversion.ts):
  *
  *   POST /conversion/claim   -> oldest queued ConversionJob for the FIT's cloudId
  *   POST /conversion/bodies  -> Lite diagram bodies for a set of customContentIds (D1 mirror)

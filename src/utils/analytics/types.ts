@@ -79,6 +79,10 @@ import type {
 } from "./catalog";
 
 export type AnalyticsProperties = {
+  // Emitted after a durable controller transition; no tenant, issue body or stack.
+  autofix_stage?: import("./catalog").AutofixStage;
+  autofix_outcome?: "allowed" | "blocked" | "succeeded" | "failed" | "inconclusive";
+  autofix_policy_version?: string;
   /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
   feature?: 'fullscreen';
   policy_version?: 'fullscreen-contact-v1';

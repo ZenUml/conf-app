@@ -431,7 +431,11 @@ export type CreateGuideVariant = "zenuml" | "graph" | "api";
  */
 export type CreateGuideCloseMethod = "button" | "escape" | "host";
 
+// Operational controller events: bounded outcomes only, never Sentry payloads.
+export type AutofixStage = "received" | "fixing" | "testing" | "blocked" | "deploying" | "monitoring" | "verified" | "rollback_required" | "rolled_back";
+
 export type AnalyticsEventName =
+  | "autofix_stage_changed"
   // Markdown: debounced document render starts/completes in editor or viewer.
   // Properties: feature_area=content, macro_type=markdown, source_length,
   // markdown_mermaid_blocks, markdown_failed_blocks. Never include source.

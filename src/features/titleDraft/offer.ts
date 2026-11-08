@@ -3,7 +3,6 @@ import globals from '@/model/globals'
 import { isTitleDraftEnabled } from '@/apis/aiTitleFeatureFlag'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { resolveIdentity, reloadHostPage } from '@/utils/byline/addToPage'
-import { bylineNounFor } from '@/utils/byline/bylineNoun'
 import { requestConfluenceJson } from '@/utils/byline/confluenceRequest'
 import { viewerAccountKind } from '@/utils/magic/viewerAccount'
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
@@ -174,7 +173,7 @@ async function showNotNowFlag(pageId: string): Promise<void> {
   showFlag({
     id: `title-draft-not-now-${pageId}`,
     title: 'No more diagram suggestions on this page',
-    description: `To add one later, open ${bylineNounFor(import.meta.env.PRODUCT_TYPE).title} under the page title.`,
+    description: 'To add one later, open Diagrams Lite under the page title.',
     type: 'success',
     isAutoDismiss: true,
   })

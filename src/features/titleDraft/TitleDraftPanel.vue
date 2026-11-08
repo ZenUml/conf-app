@@ -88,7 +88,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* Forge sizes this iframe to the whole dialog and draws it below the title bar,
+     so its last 11px fall past the bottom of the viewport. */
+  height: calc(100vh - 11px);
   padding: 2px 24px 24px;
   font-family: "Atlassian Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Ubuntu, "Helvetica Neue", sans-serif;
   color: var(--ds-text, #292a2e);

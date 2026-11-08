@@ -25,6 +25,7 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute, maybeHandleTargetedSurvey } from './routes/pageBanner';
+import { isPageBannerHost } from './routes/pageBannerHost';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
@@ -226,7 +227,7 @@ async function initializeCriticalPath() {
     return { macroData: null };
   }
 
-  if ((context as any).moduleKey === 'zenuml-page-banner') {
+  if (isPageBannerHost(context as any)) {
     // Phase 5a measurement: detect whether the current user is a space admin
     // and, when so, fire `space_admin_active`. Runs on EVERY page-banner load
     // (including loads where no banner shows) so we observe admin activity
@@ -317,7 +318,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
   if (
     (!isOpenedModal &&
       ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage', 'confluence:homepageFeed'].includes(context.extension?.type)) ||
-    (context as any).moduleKey === 'zenuml-page-banner' ||
+    isPageBannerHost(context as any) ||
     (context as any).moduleKey === 'zenuml-unplaced-banner'
   ) {
     console.log('Skipping heavy components load for global context');

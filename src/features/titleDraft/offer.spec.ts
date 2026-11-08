@@ -142,7 +142,11 @@ describe('maybeOfferTitleDraft actions', () => {
     await maybeOfferTitleDraft('lite')
     actionOf(flags()[0], 'Not now').onClick()
     await vi.waitFor(() => expect(m.showFlag).toHaveBeenCalledTimes(2))
-    expect(flags()[1]).toMatchObject({ title: 'No more diagram suggestions on this page', isAutoDismiss: true })
+    expect(flags()[1]).toMatchObject({
+      title: 'No more diagram suggestions on this page',
+      description: 'To add one later, open Diagrams Lite under the page title.',
+      isAutoDismiss: true,
+    })
 
     // Same page stays quiet.
     m.callRemote.mockClear()
@@ -186,6 +190,26 @@ describe('maybeOfferTitleDraft actions', () => {
     expect(added).toMatchObject({ title: 'Added to the top of the page', isAutoDismiss: false })
     expect(added.actions.map((a: any) => a.text)).toEqual(['Edit diagram', 'Undo'])
     expect(m.callRemote).toHaveBeenCalledTimes(1)
+  })
+
+  it('Edit diagram opens the editor on the added diagram and reloads the page when it closes', async () => {
+    await openAndClose({ outcome: 'added', contentId: 'cc-1' })
+    await vi.waitFor(() => expect(m.reloadHostPage).toHaveBeenCalled())
+    m.reloadHostPage.mockClear()
+    m.openModal.mockClear()
+    m.showFlag.mockClear()
+
+    await maybeOfferTitleDraft('lite')
+    actionOf(flags()[0], 'Edit diagram').onClick()
+    await vi.waitFor(() => expect(m.openModal).toHaveBeenCalledTimes(1))
+    const modal = m.openModal.mock.calls[0][0]
+    expect(modal).toMatchObject({
+      size: 'fullscreen',
+      context: { macroMode: 'editor', customContentId: 'cc-1' },
+    })
+
+    modal.onClose()
+    expect(m.reloadHostPage).toHaveBeenCalledTimes(1)
   })
 
   it('closing with already_added shows the already-added flag', async () => {

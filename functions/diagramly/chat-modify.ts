@@ -1,7 +1,6 @@
-import { OkResponse, response } from "../OkResponse";
+import { response } from "../OkResponse";
 import { modifyDiagramWithCommand } from "../service/diagramlyService";
-import type { ForgeRequestData } from "../utils/authenticate";
-import { resolveDiagramlyIdentity } from "./context";
+import { diagramlyRoute } from "./route";
 
 const SUPPORTED_DIAGRAM_TYPES = new Set([
   "sequence",
@@ -11,31 +10,16 @@ const SUPPORTED_DIAGRAM_TYPES = new Set([
   "plantuml",
 ]);
 
-export const onRequest = async ({
-  request,
-  env,
-  data,
-}: {
-  request: Request;
-  env: any;
-  data: ForgeRequestData;
-}) => {
-  try {
-    const identity = resolveDiagramlyIdentity(data);
-    if (identity instanceof Response) {
-      return identity;
-    }
-
-    const body: {
-      diagramId?: string;
-      diagramCode?: string;
-      command?: string;
-      errorMessage?: string;
-      diagramType?: string;
-      model?: string;
-      disableReasoning?: boolean;
-    } = await request.json();
-
+export const onRequest = diagramlyRoute("chat-modify", {
+  parse: (body: {
+    diagramId?: string;
+    diagramCode?: string;
+    command?: string;
+    errorMessage?: string;
+    diagramType?: string;
+    model?: string;
+    disableReasoning?: boolean;
+  }) => {
     if (typeof body.diagramId !== "string" || !body.diagramId.trim()) {
       return response(400, "Missing diagramId");
     }
@@ -66,28 +50,19 @@ export const onRequest = async ({
     ) {
       return response(400, "disableReasoning must be a boolean");
     }
-
-    const result = await modifyDiagramWithCommand(
-      { ...identity, env },
-      {
-        diagramId: body.diagramId,
-        diagramCode: body.diagramCode,
-        command: body.command,
-        diagramType: body.diagramType,
-        ...(body.errorMessage !== undefined
-          ? { errorMessage: body.errorMessage }
-          : {}),
-        ...(body.model !== undefined ? { model: body.model } : {}),
-        ...(body.disableReasoning !== undefined
-          ? { disableReasoning: body.disableReasoning }
-          : {}),
-      },
-    );
-
-    return OkResponse(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[chat-modify] Error:", message);
-    return response(500, message || "Internal server error");
-  }
-};
+    return {
+      diagramId: body.diagramId,
+      diagramCode: body.diagramCode,
+      command: body.command,
+      diagramType: body.diagramType,
+      ...(body.errorMessage !== undefined
+        ? { errorMessage: body.errorMessage }
+        : {}),
+      ...(body.model !== undefined ? { model: body.model } : {}),
+      ...(body.disableReasoning !== undefined
+        ? { disableReasoning: body.disableReasoning }
+        : {}),
+    };
+  },
+  run: (ctx, request) => modifyDiagramWithCommand(ctx, request),
+});

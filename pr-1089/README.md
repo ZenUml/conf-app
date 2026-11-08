@@ -1,6 +1,6 @@
 # PR 1089 evidence: title-first diagram offer
 
-- BEFORE: `c2ac76e2` (merge-base with `main`). The offer does not exist there.
+- BEFORE: `bed9f1f6` (merge-base with `main`). The offer does not exist there.
 - AFTER: `efd07db1`, deployed as PR merge commit `11726866` by CI run 42474145678.
 - Site: Lite staging, robot test account, viewport 1280x577. Fixture pages have invented titles.
 

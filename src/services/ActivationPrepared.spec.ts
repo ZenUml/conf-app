@@ -8,6 +8,7 @@ import { DiagramType } from '@/model/Diagram/Diagram';
 
 vi.mock('@/utils/requestUtil', () => ({ callRemote: vi.fn() }));
 import { callRemote } from '@/utils/requestUtil';
+import { RemoteCallError } from '@/utils/remoteCallError';
 
 describe('ActivationPrepared', () => {
   describe('fetchPreparedDiagram', () => {
@@ -21,12 +22,17 @@ describe('ActivationPrepared', () => {
     });
 
     it('maps a 404 (thrown by callRemote) to undefined → cache miss', async () => {
-      (callRemote as any).mockRejectedValueOnce(new Error('HTTP 404: not found'));
+      (callRemote as any).mockRejectedValueOnce(new RemoteCallError({ status: 404, method: 'GET', endpoint: '/activation-prepared?pageId=123', body: 'not found' }));
       expect(await fetchPreparedDiagram('123')).toBeUndefined();
     });
 
+    it('rethrows an untyped error even when its text mentions HTTP 404 (#927)', async () => {
+      (callRemote as any).mockRejectedValueOnce(new Error('bridge failed after HTTP 404 from a proxy'));
+      await expect(fetchPreparedDiagram('123')).rejects.toThrow('bridge failed');
+    });
+
     it('rethrows a non-404 error (real failure, not a miss)', async () => {
-      (callRemote as any).mockRejectedValueOnce(new Error('HTTP 500: boom'));
+      (callRemote as any).mockRejectedValueOnce(new RemoteCallError({ status: 500, method: 'GET', endpoint: '/activation-prepared?pageId=123', body: 'boom' }));
       await expect(fetchPreparedDiagram('123')).rejects.toThrow('HTTP 500');
     });
 

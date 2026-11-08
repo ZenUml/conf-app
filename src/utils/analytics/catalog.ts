@@ -1300,7 +1300,26 @@ export type AnalyticsEventName =
   //
   // A material 'forbidden' share means the banner is reaching the wrong
   // audience and the button should be gated rather than offered-then-refused.
+  //
+  // Since the placement picker it also says WHERE: `placement_position`,
+  // `placement_block_count` and `placement_default_kept`. A result of
+  // 'page_changed' means the page moved while the user was choosing and the
+  // spot they chose no longer exists, so nothing was written.
   | "diagram_added_to_page"
+  // The placement picker: the page drawn from its ADF, with a selectable gap
+  // between each top-level block. `result`:
+  //   'loaded'      — the page drew and the user can choose.
+  //   'load_failed' — the picker opened but could not read the page.
+  //   'open_failed' — the modal never opened. Fired by the surface that asked,
+  //                   because there is no picker iframe to report it.
+  // `surface` is the surface that opened the picker, not the modal itself.
+  | "placement_picker_opened"
+  // Left without choosing: Cancel or the modal's own close. Read against
+  // `placement_picker_opened` 'loaded' — together with `placement_default_kept`
+  // on `diagram_added_to_page`, this says whether the picker earns its extra
+  // click over the append it replaced. `dwell_ms` splits a mis-click from a
+  // real look at the page.
+  | "placement_picker_dismissed"
   // The macro that was just placed pulled the reloaded page to itself and
   // flashed a ring around the diagram. Fired by the MACRO, not by the surface
   // that placed it: the two are different iframes and only the macro knows it

@@ -577,6 +577,27 @@ Backend-declared event. Not currently emitted by client code.
 
 ---
 
+## Placement picker (Add to page)
+
+The page drawn from its ADF, with a selectable gap between each top-level block. `surface` is the surface that opened the picker (`byline` or `page_banner`). `diagram_added_to_page` carries the outcome, now with `placement_position`, `placement_block_count`, `placement_default_kept`, and a `page_changed` result when the chosen spot no longer exists.
+
+**Sampling:** all three events are unsampled. Volume is low, and sampling would leave too few events to read the picker's uptake.
+
+### `placement_picker_opened`
+
+| Property | Values |
+|---|---|
+| `result` | `"loaded"`, `"load_failed"` (the page could not be read) or `"open_failed"` (the modal never opened, fired by the opening surface) |
+| `placement_block_count` | Top-level blocks on the page, when `loaded` |
+
+### `placement_picker_dismissed`
+
+| Property | Values |
+|---|---|
+| `dwell_ms` | Time the picker was open before the user left without choosing |
+
+---
+
 ## What's new (page banner)
 
 The release-notes strip in the shared `confluence:pageBanner` host (`src/components/WhatsNew/WhatsNewBanner.vue`). Lowest priority in the host; shown only to browsers that rendered one of our macros on the site in the last 90 days, at most 3 times per release, inside the release's 30-day window (`src/utils/whatsNew/`). Every event carries `feature_area: "whats_new"`, `surface: "page_banner"` and `whats_new_release_id`.

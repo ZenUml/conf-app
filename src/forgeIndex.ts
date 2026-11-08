@@ -3,6 +3,7 @@ import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
 import { TITLE_DRAFT_MACRO_MODE } from '@/features/titleDraft/constants';
+import { PLACEMENT_PICKER_MACRO_MODE } from '@/utils/byline/placementPicker';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
@@ -118,6 +119,14 @@ async function initializeCriticalPath() {
   if (context.extension?.modal?.macroMode === TITLE_DRAFT_MACRO_MODE) {
     const { mountTitleDraftModal } = await import('@/features/titleDraft/mountTitleDraft');
     mountTitleDraftModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // "Where on the page?", opened by the byline and the unplaced banner. Same
+  // early exit as feedback: nothing else belongs in this modal.
+  if (context.extension?.modal?.macroMode === PLACEMENT_PICKER_MACRO_MODE) {
+    const { mountPlacementPicker } = await import('@/components/Byline/mountPlacementPicker');
+    mountPlacementPicker(context);
     return { macroData: null, feedbackHandled: true };
   }
 
@@ -1169,12 +1178,15 @@ async function maybeRevealPlacedMacro(
   diagramType: string | undefined,
 ) {
   try {
-    const { claimReveal, revealThisMacro } = await import('@/utils/byline/revealDiagram');
+    const { claimReveal, revealThisMacro, followThisMacro } = await import('@/utils/byline/revealDiagram');
     const ageMs = claimReveal(pageId, customContentId);
     if (ageMs === null) return;
 
     await settled();
     revealThisMacro();
+    // Settled is only THIS document. Other macros above it can still grow and
+    // push it out of view, so keep it in view for a few more seconds.
+    followThisMacro({ onRefocus: count => console.debug('[reveal] pushed out of view; re-revealed', count) });
 
     const [{ trackAnalyticsEvent }, { toMacroType }] = await Promise.all([
       import('@/utils/analytics/trackAnalyticsEvent'),

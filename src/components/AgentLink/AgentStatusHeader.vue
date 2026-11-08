@@ -18,10 +18,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed } from 'vue'
 import LiveBadge from './LiveBadge.vue'
 import type { AgentLinkClientState } from '@/composables/agentLink/agentLinkState'
-import { ACTIVITY_LINGER_MS } from '@/composables/agentLink/useAgentLinkSession'
+import { isRecentlyActive, secondsLeft, useTickingNow } from '@/composables/agentLink/useTickingNow'
 
 const props = withDefaults(
   defineProps<{
@@ -38,37 +38,14 @@ const props = withDefaults(
 
 const displayName = computed(() => props.clientName?.trim() || 'Connected agent')
 
-const nowMs = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | null = null
-
-function startTicking() {
-  stopTicking()
-  nowMs.value = Date.now()
-  timer = setInterval(() => {
-    nowMs.value = Date.now()
-  }, 1000)
-}
-function stopTicking() {
-  if (timer !== null) {
-    clearInterval(timer)
-    timer = null
-  }
-}
-
-watch(
-  () => props.lastActivityAt,
-  (v) => {
-    if (v === null || v === undefined) stopTicking()
-    else startTicking()
-  },
-  { immediate: true }
+const nowMs = useTickingNow(
+  () => props.lastActivityAt !== null && props.lastActivityAt !== undefined,
+  1000,
+  () => props.lastActivityAt
 )
 
-onBeforeUnmount(stopTicking)
-
 const agentActive = computed(() => {
-  if (props.lastActivityAt === null || props.lastActivityAt === undefined) return false
-  return nowMs.value - props.lastActivityAt < ACTIVITY_LINGER_MS
+  return isRecentlyActive(nowMs.value, props.lastActivityAt)
 })
 
 const subline = computed(() => {

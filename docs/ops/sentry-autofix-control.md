@@ -1,8 +1,10 @@
 # Sentry autofix control plane: implementation contract
 
-Status: **local, offline policy core only**. Nothing is installed, pushed, scheduled,
-merged or deployed. No Sentry webhook, agent invocation, release publisher,
-persistent ledger, live dashboard or rollback adapter exists in this change.
+Status: **partial implementation, not an active end-to-end service**. Policy core
+and service adapter code remain local. The private GitHub Project is live, and
+its API read/write adapter has been verified against an existing risk field.
+No automatic Sentry intake, agent invocation, release publisher, scheduler or
+rollback executor is active. Nothing in this branch is pushed, merged or deployed.
 The included functions are not an authorization boundary: callers must be trusted.
 Do not wire an untrusted JSON request directly to `releaseDecision` or `transition`.
 
@@ -130,7 +132,8 @@ rollback ran; only adapter-confirmed recovery may record `rolled_back`.
 
 ## Unified dashboard
 
-Use a private ledger-backed lightweight dashboard as source of truth. One row per
+The user selected GitHub Projects as the dashboard. Use a private ledger as the
+controller source of truth and mirror coarse status to the existing Project. One row per
 Sentry incident, expandable by attempt and variant; columns: source Sentry link,
 GitHub issue, executor run/status, PR/head SHA, tests/evidence, risk/reason codes,
 Diagramly/Lite/Full deployment links, earliest Full time, observation results,
@@ -167,7 +170,8 @@ makes no Mixpanel call; event dispatch is pending with the durable adapter.
 - [ ] Approve initial exact-file allowlist and measured monitoring thresholds.
 - [ ] Implement receiver, durable outbox/CAS, fix runner and trusted adapters.
 - [ ] Reconcile existing executor PR #857 and exact CI/job names, staging evidence.
-- [ ] Implement authenticated dashboard UI against ledger view model.
+- [x] Create the private GitHub Project and verify field read/write APIs.
+- [ ] Connect its fields to durable controller state rather than manual snapshots.
 - [ ] Fault-injection staging test: duplicate webhook, forged signature, prompt
       injection, stale SHA, missing/cancelled CI, malicious path, co-shipped risky
       commit, poisoned artifact, expired lease, crash after publication, no traffic,
@@ -188,3 +192,68 @@ verified by those tests. Repository synchronization over SSH was blocked by the
 execution network policy; work is based on locally available `origin/main`
 444182c57f5be582327e5b7c0dbd22d8888ba586 in an isolated worktree. No permission
 boundary was bypassed and no primary-checkout changes were displaced.
+
+
+## Resumed implementation and verified integration (2026-11-08 UTC)
+
+- Dashboard: `https://github.com/orgs/ZenUml/projects/12/views/2`; detailed table:
+  `https://github.com/orgs/ZenUml/projects/12/views/1`. Four records: one Sentry
+  incident draft and three explicitly adjacent references, not inferred fixes.
+  The project is private; the existing organization default write access remains
+  unchanged at the user's direction. Do not narrow or broaden that access.
+- `adapters.mjs`: Sentry read adapter bounds responses, pins the service origin,
+  refuses redirects, checks the project allowlist, and returns only minimal
+  issue metadata. It does not forward raw requests, stack traces or tenant data.
+  A count is explicitly lifetime issue events, not users or release-health proof.
+  API reference: https://docs.sentry.io/api/events/retrieve-an-issue/ (`event:read`).
+  No Sentry credential has been provisioned and this adapter's Sentry network
+  branch is mock-tested only.
+- The GitHub adapter uses the existing authorized CLI session, validates private
+  project and item membership, resolves field options and issues idempotent SETs.
+  Live verification read all fields and updated the D1 incident risk to
+  `需人工处理`, then independently read it back. Partial/uncertain mutations must
+  be reconciled; a green dashboard field never authorizes production.
+- Current Sentry review found no suitable low-risk conf-app candidate: nine of ten
+  recent unresolved issues involved database, authentication or shared backend;
+  the remaining frontend issue belonged to the older AsyncAPI repository, outside
+  this scope. No synthetic issue may be passed off as a real conf-app incident.
+- A future private control-plane host can use the existing `ZenUml/conf-app-private`
+  repository (verified private, current user ADMIN). It currently has no workflows
+  or repository secrets. Configuring new ongoing Sentry or GitHub credentials
+  requires explicit action-time approval. This is a proposed host, not installed.
+- Local full validation stopped at `pnpm lint`: `eslint: command not found`, because
+  this isolated worktree has no `node_modules`. Unit/build/staging were not run;
+  passing the dependency-free control tests is not full app validation.
+
+### Connection setup checkpoint (2026-11-08 02:10 UTC)
+
+The user approved a dedicated read-only Sentry internal integration and a GitHub
+App for the two repositories, including organization-wide Projects read/write
+(the platform cannot scope that grant to Project #12). Controller code must still
+pin #12. The user selected **Codex**, not the existing Claude executor PR #857.
+Do not activate that PR or reuse its OAuth token.
+
+- GitHub App `zenuml-sentry-control`, App ID `5663016`, installation `179739393`.
+  Installed only on `conf-app` and `conf-app-private`. Actual permissions verified
+  through UI and API: Actions, Contents, Issues, Pull requests, organization
+  Projects write; Checks, Commit statuses, Deployments, Metadata read. No Secrets,
+  Administration, member or billing permissions. Webhooks disabled.
+- Sentry internal integration `conf-app-sentry-reader-90c996`, only `event:read`.
+  No other scopes or webhooks. Its token was transferred directly via UI into the
+  private repository's Actions Secret `SENTRY_READ_TOKEN`, with success confirmed.
+  No raw credential was emitted to logs, chat, files or source. This supersedes
+  the earlier unconfigured-credential checkpoint above; API connectivity still
+  needs live verification.
+- GitHub App private key creation completed server-side (one key pair), but its
+  download was blocked with Chrome `ERR_BLOCKED_BY_CLIENT`; no corresponding file
+  was found in Downloads. Do not blindly generate/retry. The private key is not
+  available to the controller and no installation token has been issued. Recovery
+  requires an authorized working download, storing the replacement key securely,
+  then revoking the unavailable orphan. No browser restriction was bypassed.
+- `ledger.py` is now an offline durable SQLite foundation, with 19 tests covering
+  transactional ingestion/outbox, digest dedupe, CAS, leases/fencing, immutable
+  audit, recurrence, 0600 files, crash/restart recovery and explicit reconciliation.
+  It stores validated IDs/hashes/statuses, not telemetry. Remote-side fencing is
+  still an adapter responsibility; the database alone cannot make deployment safe.
+- JavaScript tests: 57 passed; Python ledger tests: 19 passed. No active scheduler,
+  automatic intake, fix executor, production publisher or rollback exists yet.

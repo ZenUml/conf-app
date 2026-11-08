@@ -1,6 +1,7 @@
-import { deriveWarningBannerIdentity, shouldShowPaywallBanner } from '@/utils/paywall/warningBanner'
+import { deriveWarningBannerIdentity, readTargetingMarker, shouldShowPaywallBanner } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
+import { isInTemplateOfferBand, isTemplateOfferSuppressed } from '@/utils/template/templateOfferMarker'
 
 /**
  * Which banner outranks the unplaced-diagram notice on this page load.
@@ -35,7 +36,7 @@ import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
  * asked here now (isCsatSuppressed), off the same record and the same
  * synchronous read as everything else in this cascade.
  */
-export type HigherPriorityBanner = 'paywall' | 'paywall-admin' | 'csat'
+export type HigherPriorityBanner = 'paywall' | 'paywall-admin' | 'template-offer' | 'csat'
 
 export function higherPriorityBannerPending(now: number = Date.now()): HigherPriorityBanner | null {
   const identity = deriveWarningBannerIdentity()
@@ -43,8 +44,15 @@ export function higherPriorityBannerPending(now: number = Date.now()): HigherPri
   // the editor audience and copy.
   if (shouldShowPaywallBanner(now, identity, false)) return 'paywall'
   // The admin verdict is a third localStorage read, still synchronous.
-  if (isCurrentUserSpaceAdmin(identity) && shouldShowPaywallBanner(now, identity, true)) {
+  const isSpaceAdmin = isCurrentUserSpaceAdmin(identity)
+  if (isSpaceAdmin && shouldShowPaywallBanner(now, identity, true)) {
     return 'paywall-admin'
+  }
+  if (import.meta.env.PRODUCT_TYPE === 'lite' && isSpaceAdmin) {
+    const macroCount = readTargetingMarker(identity)?.macroCount
+    if (isInTemplateOfferBand(macroCount) && !isTemplateOfferSuppressed(identity, now)) {
+      return 'template-offer'
+    }
   }
   // Armed AND eligible. The trigger alone is not a reason to yield: a user who
   // dismissed the survey inside the last week has it suppressed, CsatBanner

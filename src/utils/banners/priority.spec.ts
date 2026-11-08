@@ -1,21 +1,31 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { higherPriorityBannerPending } from './priority'
-import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner'
+import { shouldShowPaywallBanner, deriveWarningBannerIdentity, readTargetingMarker } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
+import { isInTemplateOfferBand, isTemplateOfferSuppressed } from '@/utils/template/templateOfferMarker'
 
 vi.mock('@/utils/paywall/warningBanner', () => ({
   shouldShowPaywallBanner: vi.fn(),
   deriveWarningBannerIdentity: vi.fn(),
+  readTargetingMarker: vi.fn(),
 }))
 vi.mock('@/utils/paywall/spaceAdminProbe', () => ({ isCurrentUserSpaceAdmin: vi.fn() }))
 vi.mock('@/utils/csat', () => ({ isCsatPendingFresh: vi.fn(), isCsatSuppressed: vi.fn() }))
+vi.mock('@/utils/template/templateOfferMarker', () => ({
+  isInTemplateOfferBand: vi.fn(), isTemplateOfferSuppressed: vi.fn(),
+}))
 
 const IDENTITY = { clientDomain: 'example-tenant', spaceKey: 'ENG' }
 const paywall = vi.mocked(shouldShowPaywallBanner)
 const csat = vi.mocked(isCsatPendingFresh)
 const csatSuppressed = vi.mocked(isCsatSuppressed)
 const isAdmin = vi.mocked(isCurrentUserSpaceAdmin)
+const readTargeting = vi.mocked(readTargetingMarker)
+const inTemplateBand = vi.mocked(isInTemplateOfferBand)
+const templateSuppressed = vi.mocked(isTemplateOfferSuppressed)
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe('higherPriorityBannerPending — the order both banner iframes obey', () => {
   beforeEach(() => {
@@ -25,6 +35,9 @@ describe('higherPriorityBannerPending — the order both banner iframes obey', (
     csat.mockReturnValue(false)
     csatSuppressed.mockReturnValue(false)
     isAdmin.mockReturnValue(false)
+    readTargeting.mockReturnValue(null)
+    inTemplateBand.mockReturnValue(false)
+    templateSuppressed.mockReturnValue(false)
   })
 
   it('is null when the page is free — the unplaced notice may take it', () => {
@@ -46,6 +59,16 @@ describe('higherPriorityBannerPending — the order both banner iframes obey', (
   it('names CSAT', () => {
     csat.mockReturnValue(true)
     expect(higherPriorityBannerPending()).toBe('csat')
+  })
+
+  it('lets the Lite template offer outrank CSAT for an eligible admin', () => {
+    vi.stubEnv('PRODUCT_TYPE', 'lite')
+    isAdmin.mockReturnValue(true)
+    readTargeting.mockReturnValue({ macroCount: 60 } as any)
+    inTemplateBand.mockReturnValue(true)
+    csat.mockReturnValue(true)
+    expect(higherPriorityBannerPending(1234)).toBe('template-offer')
+    expect(templateSuppressed).toHaveBeenCalledWith(IDENTITY, 1234)
   })
 
   it('puts the paywall above CSAT', () => {

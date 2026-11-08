@@ -3,6 +3,18 @@ import { TIMEOUTS } from '../config/test-config.js';
 import { ConfluenceEditorPage } from '../pages/EditorPage.js';
 import { dismissStarterGalleryIfPresent } from './starterGallery.js';
 
+// Fixed sleeps kept because no observable state exists for them (#944).
+/** The app validates code after a debounce, and valid and invalid code settle differently, so no single state marks "done". */
+const VALIDATION_SETTLE_MS = 2000;
+/** CodeMirror/ACE expose no "editor focused and ready for keys" signal after a click or Ctrl+A + Backspace. */
+const EDITOR_CLEAR_SETTLE_MS = 500;
+/** Same as above, shorter pause used by the PlantUML flow after click. */
+const EDITOR_CLICK_SETTLE_MS = 200;
+/** Same as above, pause after select-all + delete in the PlantUML flow. */
+const EDITOR_DELETE_SETTLE_MS = 300;
+/** Pacing between single key presses (Control+Home, ArrowDown) inside the editor iframe; no keystroke-applied signal. */
+const EDITOR_KEY_PACING_MS = 100;
+
 /**
  * Helper class for diagram-related tests (AI Repair and Syntax Validation)
  * 
@@ -34,12 +46,19 @@ export class DiagramTestHelper {
     await this.editorPage.clickInsertElements();
     await this.editorPage.searchAndSelectMacro('diagram', macroName);
     console.log(`✓ Macro （${macroName}） inserted, waiting for dialog to load...`);
-    await this.page.waitForTimeout(8000);
+    // Wait for the macro editor's CodeMirror to mount (replaces a fixed 8 s sleep).
+    // Every diagram macro type (sequence/mermaid/plantuml) renders CodeMirror, and
+    // callers click into it straight after this method returns.
+    await this.editorPage.getMacroEditorFrame()
+      .locator('.cm-content[contenteditable="true"]').first()
+      .waitFor({ state: 'visible', timeout: TIMEOUTS.FRAME_LOAD });
     // A brand-new sequence/mermaid/plantuml macro auto-opens the starter
     // gallery on mount (Header.vue, "auto_first_open") — callers immediately
     // click into CodeMirror (enterCodeInEditor), which the gallery's backdrop
     // would otherwise intercept.
-    await dismissStarterGalleryIfPresent(this.page, this.editorPage.getMacroEditorFrame());
+    // appearTimeout is raised from the 4 s default because the 8 s sleep that used to
+    // precede this call also gave the gallery time to mount after the editor did.
+    await dismissStarterGalleryIfPresent(this.page, this.editorPage.getMacroEditorFrame(), { appearTimeout: 8000 });
   }
 
   /**
@@ -56,7 +75,11 @@ export class DiagramTestHelper {
     await this.editorPage.clickInsertElements();
     await this.editorPage.searchAndSelectMacro('openapi', macroName);
     console.log(`✓ Macro （${macroName}） inserted, waiting for dialog to load...`);
-    await this.page.waitForTimeout(8000);
+    // Wait for the macro editor iframe to mount (replaces a fixed 8 s sleep). Only
+    // the frame body is awaited — the same signal interactWithOpenApiMacro uses —
+    // because enterCodeInAceEditor waits for the ACE editor itself.
+    await expect(this.editorPage.getMacroEditorFrame().locator('body'))
+      .toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
   }
 
   // ── Feature Flag Management ──
@@ -74,11 +97,11 @@ export class DiagramTestHelper {
     if (clearFirst) {
       await this.page.keyboard.press('Control+A');
       await this.page.keyboard.press('Backspace');
-      await this.page.waitForTimeout(500);
+      await this.page.waitForTimeout(EDITOR_CLEAR_SETTLE_MS);
     }
     
     await editor.pressSequentially(code);
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(VALIDATION_SETTLE_MS);
     console.log('✓ Code entered in CodeMirror editor');
   }
 
@@ -106,13 +129,13 @@ export class DiagramTestHelper {
     
     // Click on the editor to focus
     await editor.click();
-    await this.page.waitForTimeout(200);
+    await this.page.waitForTimeout(EDITOR_CLICK_SETTLE_MS);
     
     // Select all and delete
     // The readonly filter will preserve @startuml and @enduml automatically
     await this.page.keyboard.press('Control+A');
     await this.page.keyboard.press('Backspace');
-    await this.page.waitForTimeout(300);
+    await this.page.waitForTimeout(EDITOR_DELETE_SETTLE_MS);
     
     // After deletion, editor should have:
     // @startuml
@@ -121,11 +144,11 @@ export class DiagramTestHelper {
     
     // Move to the beginning and then to the second line
     await this.page.keyboard.press('Control+Home');
-    await this.page.waitForTimeout(100);
+    await this.page.waitForTimeout(EDITOR_KEY_PACING_MS);
     
     // Move down to the second line (after @startuml)
     await this.page.keyboard.press('ArrowDown');
-    await this.page.waitForTimeout(100);
+    await this.page.waitForTimeout(EDITOR_KEY_PACING_MS);
     
     // Now cursor is at the beginning of the second line (between @startuml and @enduml)
     // Type the content
@@ -133,7 +156,7 @@ export class DiagramTestHelper {
       await editor.pressSequentially(content);
     }
     
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(VALIDATION_SETTLE_MS);
     console.log('✓ PlantUML code entered in CodeMirror editor');
   }
 
@@ -147,14 +170,14 @@ export class DiagramTestHelper {
     const aceContent = frame.locator('.ace_content');
     await aceContent.waitFor({ state: 'visible', timeout: TIMEOUTS.FRAME_LOAD });
     await aceContent.click();
-    await this.page.waitForTimeout(500);
+    await this.page.waitForTimeout(EDITOR_CLEAR_SETTLE_MS);
     
     const textarea = frame.locator('textarea');
     if (clearFirst) {
       await textarea.press('ControlOrMeta+a');
     }
     await textarea.fill(code);
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(VALIDATION_SETTLE_MS);
     console.log('✓ Code entered in ACE editor');
   }
 

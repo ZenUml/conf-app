@@ -138,7 +138,8 @@ class LedgerTest(unittest.TestCase):
     self.now += 10
     with self.assertRaises(LeaseConflict):
       self.finish(effect)
-    self.assertEqual(self.db.recover_expired_claims(), 1)
+    # finish_effect already committed the observed expiration.
+    self.assertEqual(self.db.recover_expired_claims(), 0)
     self.assertEqual(self.db.get_effect(effect['id'])['status'], 'unknown')
 
   def test_restart_does_not_steal_live_claim_or_blindly_retry_expired_claim(self):
@@ -217,6 +218,62 @@ class LedgerTest(unittest.TestCase):
     with self.assertRaises(LeaseConflict):
       self.db.renew_lease(renewed['id'], owner=renewed['owner'], fence=renewed['fence'],
                          expected_revision=renewed['revision'], lease_seconds=20)
+
+  def test_expiry_observation_survives_backward_clock_and_restart(self):
+    for operation in ('renew', 'finish'):
+      with self.subTest(operation=operation):
+        first = self.ingest(delivery_id=f'clock-{operation}',
+                            incident_key=hashlib.sha256(operation.encode()).hexdigest())
+        claimed = self.claim(first['effect_id'])
+        self.now = claimed['lease_until'] + 1
+        with self.assertRaises(LeaseConflict):
+          if operation == 'renew':
+            self.db.renew_lease(claimed['id'], owner=claimed['owner'], fence=claimed['fence'],
+                               expected_revision=claimed['revision'], lease_seconds=10)
+          else:
+            self.finish(claimed)
+        unknown = self.db.get_effect(claimed['id'])
+        self.assertEqual(unknown['status'], 'unknown')
+        self.assertGreater(unknown['fence'], claimed['fence'])
+        self.assertEqual(self.db.audit_events(first['attempt_id'])[-1]['kind'], 'effect_unknown')
+        self.now = claimed['lease_until'] - 5
+        for reopen in (False, True):
+          if reopen:
+            self.db.close()
+            self.db = Ledger(self.path, clock=lambda: self.now)
+          with self.assertRaises((LeaseConflict, RevisionConflict)):
+            self.db.renew_lease(claimed['id'], owner=claimed['owner'], fence=claimed['fence'],
+                               expected_revision=claimed['revision'], lease_seconds=10)
+          with self.assertRaises((LeaseConflict, RevisionConflict)):
+            self.finish(claimed)
+          self.assertEqual(self.db.get_effect(claimed['id']), unknown)
+
+  def test_insert_or_replace_cannot_overwrite_audit_with_recursive_triggers_off(self):
+    first = self.ingest()
+    before = self.db.audit_events(first['attempt_id'])
+    event = dict(before[0], reason_code='tampered')
+    columns = ', '.join(event)
+    placeholders = ', '.join('?' for _ in event)
+    with sqlite3.connect(self.path) as db:
+      db.execute('PRAGMA recursive_triggers = OFF')
+      with self.assertRaises(sqlite3.IntegrityError):
+        db.execute(f'INSERT OR REPLACE INTO audit_events ({columns}) VALUES ({placeholders})',
+                   tuple(event.values()))
+    self.assertEqual(self.db.audit_events(first['attempt_id']), before)
+
+  def test_version_one_database_gains_replace_guard_on_reopen(self):
+    first = self.ingest()
+    before = self.db.audit_events(first['attempt_id'])
+    self.db.close()
+    with sqlite3.connect(self.path) as db:
+      db.execute('DROP TRIGGER audit_no_replace')
+      db.execute('PRAGMA user_version = 1')
+    self.db = Ledger(self.path, clock=lambda: self.now)
+    with sqlite3.connect(self.path) as db:
+      self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 2)
+      with self.assertRaises(sqlite3.IntegrityError):
+        db.execute('INSERT OR REPLACE INTO audit_events SELECT * FROM audit_events')
+    self.assertEqual(self.db.audit_events(first['attempt_id']), before)
 
   def test_audit_is_append_only_in_sql_and_has_no_payload_field(self):
     first = self.ingest()

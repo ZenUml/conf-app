@@ -11,6 +11,8 @@ become UNKNOWN, never pending. Reconciliation must query authoritative remote
 state. ``not_applied`` additionally requires proof the previous executor and
 any in-flight request can no longer apply the action; absence alone is unsafe.
 No API here can establish that proof or authorize release/rollback by itself.
+An expired claim observed during renewal/completion is durably fenced before
+raising, so moving the wall clock backward cannot resurrect that claim.
 
 Use one connection per worker, on a local filesystem in a trusted directory.
 DELETE journal + FULL synchronous provide crash durability without long-lived
@@ -78,6 +80,12 @@ TOKEN = re.compile(r'[A-Za-z0-9_-]{1,128}\Z')
 DIGEST = re.compile(r'[a-f0-9]{64}\Z')
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 APPLICATION_ID = 0x41554658
+
+AUDIT_INSERT_GUARD = """
+CREATE TRIGGER audit_no_replace BEFORE INSERT ON audit_events
+  WHEN EXISTS (SELECT 1 FROM audit_events WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'audit events are immutable'); END;
+"""
 
 SCHEMA = """
 CREATE TABLE incidents (
@@ -235,8 +243,14 @@ class Ledger:
             self._db.execute(statement)
             statement = ''
         self._db.execute(f'PRAGMA application_id = {APPLICATION_ID}')
-        self._db.execute('PRAGMA user_version = 1')
-      elif version != 1 or application != APPLICATION_ID:
+        self._db.execute(AUDIT_INSERT_GUARD)
+        self._db.execute('PRAGMA user_version = 2')
+      elif version == 1 and application == APPLICATION_ID:
+        # Version 1's delete trigger did not block REPLACE when recursive
+        # triggers were disabled on a separate connection (SQLite's default).
+        self._db.execute(AUDIT_INSERT_GUARD)
+        self._db.execute('PRAGMA user_version = 2')
+      elif version != 2 or application != APPLICATION_ID:
         raise LedgerError('unsupported ledger schema')
 
   @contextmanager
@@ -443,11 +457,14 @@ class Ledger:
     _duration(lease_seconds)
     with self._transaction():
       now = self._now()
-      effect = self._owned(effect_id, owner, fence, expected_revision, now)
-      self._db.execute('''UPDATE effects SET lease_until = ?, revision = revision + 1,
-        updated_at = ?, reason_code = 'lease_renewed' WHERE id = ?''',
-        (max(effect['lease_until'], now + lease_seconds), now, effect_id))
-      return self._effect_event(effect_id, 'lease_renewed', now)
+      if not self._expire_claim(effect_id, now):
+        effect = self._owned(effect_id, owner, fence, expected_revision, now)
+        self._db.execute('''UPDATE effects SET lease_until = ?, revision = revision + 1,
+          updated_at = ?, reason_code = 'lease_renewed' WHERE id = ?''',
+          (max(effect['lease_until'], now + lease_seconds), now, effect_id))
+        return self._effect_event(effect_id, 'lease_renewed', now)
+    # Raise outside the transaction so observed expiry is not rolled back.
+    raise LeaseConflict('expired claim was durably fenced; reconciliation required')
 
   def finish_effect(self, effect_id, *, owner, fence, expected_revision, status,
                     evidence_digest, reason_code):
@@ -462,11 +479,24 @@ class Ledger:
     _token(reason_code, 'reason_code')
     with self._transaction():
       now = self._now()
-      self._owned(effect_id, owner, fence, expected_revision, now)
-      self._db.execute('''UPDATE effects SET status = ?, owner = NULL, lease_until = NULL,
-        revision = revision + 1, fence = fence + 1, updated_at = ?, reason_code = ?,
-        evidence_digest = ? WHERE id = ?''', (status, now, reason_code, evidence_digest, effect_id))
-      return self._effect_event(effect_id, 'effect_finished', now)
+      if not self._expire_claim(effect_id, now):
+        self._owned(effect_id, owner, fence, expected_revision, now)
+        self._db.execute('''UPDATE effects SET status = ?, owner = NULL, lease_until = NULL,
+          revision = revision + 1, fence = fence + 1, updated_at = ?, reason_code = ?,
+          evidence_digest = ? WHERE id = ?''', (status, now, reason_code, evidence_digest, effect_id))
+        return self._effect_event(effect_id, 'effect_finished', now)
+    raise LeaseConflict('expired claim was durably fenced; reconciliation required')
+
+  def _expire_claim(self, effect_id, now):
+    """Caller must commit this invalidation even when rejecting the operation."""
+    effect = self.get_effect(effect_id)
+    if effect['status'] != 'claimed' or effect['lease_until'] > now:
+      return False
+    self._db.execute('''UPDATE effects SET status = 'unknown', owner = NULL, lease_until = NULL,
+      revision = revision + 1, fence = fence + 1, updated_at = ?, reason_code = 'lease_expired'
+      WHERE id = ?''', (now, effect_id))
+    self._effect_event(effect_id, 'effect_unknown', now)
+    return True
 
   def recover_expired_claims(self):
     """Safe on startup and periodically. Never requeue an uncertain operation."""
@@ -474,10 +504,7 @@ class Ledger:
       now = self._now()
       expired = self._db.execute("SELECT id FROM effects WHERE status = 'claimed' AND lease_until <= ?", (now,)).fetchall()
       for row in expired:
-        self._db.execute('''UPDATE effects SET status = 'unknown', owner = NULL, lease_until = NULL,
-          revision = revision + 1, fence = fence + 1, updated_at = ?, reason_code = 'lease_expired'
-          WHERE id = ?''', (now, row['id']))
-        self._effect_event(row['id'], 'effect_unknown', now)
+        self._expire_claim(row['id'], now)
       return len(expired)
 
   def reconcile_effect(self, effect_id, *, expected_revision, fence, outcome,

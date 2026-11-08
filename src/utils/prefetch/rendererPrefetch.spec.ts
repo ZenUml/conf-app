@@ -107,6 +107,17 @@ describe('executePrefetch — outcome classification', () => {
       vi.useRealTimers()
     }
   })
+
+  it('leaves no pending timer once a mermaid warm settles before the deadline (#952)', async () => {
+    vi.useFakeTimers()
+    try {
+      const opts = makeOpts()
+      await executePrefetch(['mermaid'], DEFAULT_GUARDS, 30_000, opts, () => 1000)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('runRendererPrefetchIfDue — orchestration', () => {

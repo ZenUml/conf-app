@@ -1,15 +1,14 @@
 // Shared transport helpers. Public rendering must not import the authenticated
 // Confluence server just to negotiate a protocol version or bound telemetry.
 import { UI_EXTENSION_ID } from './oauth/mcpApps';
+import { withDeadline } from '../../src/lib/withTimeout.js';
 
 const ANALYTICS_TIMEOUT_MS = 2_000;
 
 /** Bound a fire-and-forget analytics call so it cannot outlive the request it describes. */
 export function withTimeout(work: Promise<unknown>): Promise<void> {
-  return Promise.race([
-    work.then(() => undefined),
-    new Promise<void>((resolve) => setTimeout(resolve, ANALYTICS_TIMEOUT_MS)),
-  ]).catch(() => undefined);
+  return withDeadline<void, void>(work.then(() => undefined), ANALYTICS_TIMEOUT_MS, undefined)
+    .catch(() => undefined);
 }
 
 /**

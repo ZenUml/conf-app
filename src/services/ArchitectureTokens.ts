@@ -1,4 +1,5 @@
 import { callRemote } from '@/utils/requestUtil'
+import { withTimeout } from '@/lib/withTimeout.js'
 
 export interface RelatedPage {
   contentId: string
@@ -41,22 +42,14 @@ export async function getRelatedDiagrams(
   customContentId: string,
   { pageId, timeoutMs = 8000 }: { pageId?: string; timeoutMs?: number } = {},
 ): Promise<RelatedResponse> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new RelatedLookupError('timeout')), timeoutMs)
-  })
-
-  try {
-    return await Promise.race([
-      callRemote(
-        `/api/architecture-tokens/related?customContentId=${encodeURIComponent(customContentId)}`
-          // the reader's page, so the nearest position survives the backend's slice
-          + (pageId ? `&pageId=${encodeURIComponent(pageId)}` : ''),
-        'GET',
-      ),
-      timeout,
-    ])
-  } finally {
-    clearTimeout(timer)
-  }
+  return withTimeout(
+    callRemote(
+      `/api/architecture-tokens/related?customContentId=${encodeURIComponent(customContentId)}`
+        // the reader's page, so the nearest position survives the backend's slice
+        + (pageId ? `&pageId=${encodeURIComponent(pageId)}` : ''),
+      'GET',
+    ),
+    timeoutMs,
+    () => new RelatedLookupError('timeout'),
+  )
 }

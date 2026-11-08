@@ -3,6 +3,7 @@ import { callRemote } from '@/utils/requestUtil';
 import { deriveUnplacedIdentity } from '@/utils/byline/unplacedMarker';
 import { readUnplacedProperty } from '@/utils/byline/unplacedProperty';
 import { isSurveyTerminal, surveyTerminalKey } from './ownership';
+import { withDeadline } from '@/lib/withTimeout.js';
 
 export interface PublicSurvey {
   uuid: string;
@@ -24,12 +25,8 @@ export type SurveyClaimResult = { claimToken: string; leaseMs: number; startedAt
 const OPTION_IDS = new Set(['performance', 'editing', 'display', 'export', 'missing_feature', 'other']);
 const LOOKUP_TIMEOUT_MS = 2500;
 
-async function withinDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    work,
-    new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); }),
-  ]).finally(() => { if (timer) clearTimeout(timer); });
+function withinDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  return withDeadline<T, null>(work, ms, null);
 }
 
 function validSurvey(value: unknown): value is PublicSurvey {

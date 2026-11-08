@@ -16,6 +16,9 @@ import { Page, expect } from '@playwright/test';
 // Test-only helper: runs in the Playwright Node runtime (never on Forge /
 // Cloudflare Workers), so node:crypto is available and the right choice.
 import { randomUUID } from 'node:crypto';
+import { testConfig } from '../config/test-config.js';
+import { resolveConfluenceBuckets } from './retention/confluence-buckets.mjs';
+import { markTemporaryPage } from './retention/mark-page.mjs';
 
 interface Loaded {
   adf: any;
@@ -90,6 +93,12 @@ export async function copyMacroToNewPage(
   const { spaceId, extensionNode } = await loadPage(page, domain, sourcePageId);
   const { clone } = cloneNodeWithFreshLocalId(extensionNode);
   const adf = { type: 'doc', content: [clone], version: 1 };
+  const rootId = parentPageId;
+  const temporary = !process.env.PARENT_PAGE_ID && domain === testConfig.domain && parentPageId === testConfig.parentPageId &&
+    ['zenuml-lite@stg', 'zenuml-full@stg', 'diagramly@stg', 'asyncapi@stg'].includes(process.env.APP ?? '');
+  if (temporary) {
+    parentPageId = (await resolveConfluenceBuckets({ request: page.request, domain, rootId })).monthId;
+  }
   const res = await page.request.post(`https://${domain}/wiki/api/v2/pages`, {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     data: {
@@ -102,5 +111,10 @@ export async function copyMacroToNewPage(
   });
   if (!res.ok()) throw new Error(`copyMacroToNewPage POST failed: ${res.status()} ${(await res.text()).slice(0, 300)}`);
   const json = await res.json();
-  return String(json.id);
+  const pageId = String(json.id);
+  if (temporary) {
+    await markTemporaryPage({ request: page.request, domain, pageId, rootId, bucketId: parentPageId })
+      .catch(error => console.warn(`E2E retention: page ${pageId} left unmarked: ${error.message}`));
+  }
+  return pageId;
 }

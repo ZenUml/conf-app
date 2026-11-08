@@ -24,9 +24,7 @@ import { MacroPage } from '../../pages/MacroPage.js';
  *     round-tripped. The viewer iframe then reloads (onClose) and must still
  *     render the spec.
  *
- * Why not reuse insert-helpers/createMacroTest: the asyncapi profile has no
- * parentPageId (navigateToParentPage throws) and `macros: []` (createMacroTest
- * auto-skips), and the element-browser results contain BOTH "AsyncAPI Spec"
+ * The element-browser results contain BOTH "AsyncAPI Spec"
  * and "Embed AsyncAPI Spec" — substring filtering in the shared
  * searchAndSelectMacro could pick the embed macro, so the selection step here
  * adds a hasNotText('Embed') filter. Everything else (editor page object,
@@ -51,19 +49,6 @@ const DEFAULT_SPEC_TITLE = 'Example AsyncAPI';
 // Shared across the serial pair: the page published by the create test.
 let publishedPageUrl: string | undefined;
 
-async function discoverSpaceKey(request: import('@playwright/test').APIRequestContext): Promise<string> {
-  try {
-    const resp = await request.get(`https://${testConfig.domain}/wiki/api/v2/spaces?limit=1`);
-    if (resp.ok()) {
-      const first = (await resp.json())?.results?.[0]?.key;
-      if (typeof first === 'string' && first.length > 0) return first;
-    }
-  } catch {
-    // fall through to the profile default
-  }
-  return testConfig.spaceKey;
-}
-
 /** Wait for the editor modal's Publish, settle the nested Studio, click, expect close. */
 async function publishEditorAndExpectClose(page: import('@playwright/test').Page) {
   await expect(page.locator(MODAL)).toBeVisible({ timeout: 60_000 });
@@ -82,18 +67,14 @@ test.describe('AsyncAPI macro create + edit', { tag: ['@test:asyncapi-macro-crea
   test.describe.configure({ mode: 'serial' });
   test.skip(skip, `Profile ${testConfig.domain} is not the asyncapi variant`);
 
-  test('create: insert AsyncAPI Spec macro, publish page, macro renders', async ({ page, request }) => {
+  test('create: insert AsyncAPI Spec macro, publish page, macro renders', async ({ page }) => {
     test.slow(); // page create + studio load + two publishes exceed the project's 120s default
 
-    const spaceKey = await discoverSpaceKey(request);
     const editorPage = new ConfluenceEditorPage(page);
 
     await test.step('Create a new page in the discovered space', async () => {
-      // The asyncapi profile has no parentPageId, so skip
-      // navigateToParentPage/createChildPage and open the v2 create route
-      // for the space directly (same URL EditorPage uses as its fallback).
-      await page.goto(`https://${testConfig.domain}/wiki/create-content/page?spaceKey=${spaceKey}`);
-      await expect(page.locator('[data-test-id="editor-title"]')).toBeVisible({ timeout: 60_000 });
+      await editorPage.navigateToParentPage();
+      await editorPage.createChildPage();
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       await editorPage.typePageTitle(`AsyncAPI Macro Smoke ${ts}`);
     });

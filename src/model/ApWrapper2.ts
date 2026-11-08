@@ -308,6 +308,7 @@ export default class ApWrapper2 {
     // CustomContentStorageProvider.save when source !== 'custom-content',
     // which is the Defect 1 legacy-migration path).
     const sanitizedContent = this.sanitizeCustomContentBody(content);
+    if (content.titleDraftPristine) sanitizedContent.titleDraftPristine = true;
     const data: any = {
       "type": type,
       "title": content.title || `Untitled ${new Date().toISOString()}`,
@@ -467,6 +468,9 @@ export default class ApWrapper2 {
     // it into the stored body would put a permanent flag on customer content to
     // record a decision made once, seconds earlier.
     delete body.typeRequested;
+    // Set once at creation, by createCustomContentV2. Any later save clears it,
+    // which is what ends the viewer's always-visible Edit button.
+    delete body.titleDraftPristine;
 
     // Pasted rich text carries U+00A0 into mermaidCode, which mermaid's newer
     // grammars reject on every later render. Normalise at the persistence

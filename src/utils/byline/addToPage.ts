@@ -102,7 +102,7 @@ const MACRO_KEY_BY_DIAGRAM_TYPE: Record<string, string> = {
 }
 
 /** Fold case, like pageDiagrams.lookup: stored types spell OpenAPI/openapi. */
-function macroKeyFor(diagramType: string): string | null {
+export function macroKeyFor(diagramType: string): string | null {
   const exact = MACRO_KEY_BY_DIAGRAM_TYPE[diagramType]
   if (exact) return withVariantSuffix(exact)
   const folded = String(diagramType ?? '').toLowerCase()

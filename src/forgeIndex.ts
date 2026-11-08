@@ -2,6 +2,7 @@ import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
+import { TITLE_DRAFT_MACRO_MODE } from '@/features/titleDraft/constants';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
@@ -109,6 +110,13 @@ async function initializeCriticalPath() {
   if (context.extension?.modal?.macroMode === CREATE_GUIDE_MACRO_MODE) {
     const { mountCreateGuideModal } = await import('@/features/createGuide/mountCreateGuide');
     mountCreateGuideModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // The preview modal of the title-first offer, opened from the page banner.
+  if (context.extension?.modal?.macroMode === TITLE_DRAFT_MACRO_MODE) {
+    const { mountTitleDraftModal } = await import('@/features/titleDraft/mountTitleDraft');
+    mountTitleDraftModal(context);
     return { macroData: null, feedbackHandled: true };
   }
 
@@ -245,6 +253,10 @@ async function initializeCriticalPath() {
       // lookup has a strict deadline and fails closed. It runs only after the
       // existing banners decline their slot, so it never delays their display.
       if (await maybeHandleTargetedSurvey(import.meta.env.PRODUCT_TYPE)) return { macroData: null };
+      // Last, because it is the only one that may keep the iframe open with
+      // nothing visible: the flag it shows needs this iframe for its buttons.
+      const { maybeOfferTitleDraft } = await import('@/features/titleDraft/offer');
+      if (await maybeOfferTitleDraft(import.meta.env.PRODUCT_TYPE)) return { macroData: null };
       // Idle renderer prefetch (EAG-64): the banner mounts on every page —
       // including pages with no macros — making it the only surface that can
       // warm the renderer-bundle cache for macro-free browsing. Gated by a

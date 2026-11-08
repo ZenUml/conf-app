@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 import TitleDraftPanel from './TitleDraftPanel.vue'
 
 const mermaid = `flowchart TD
@@ -25,6 +26,11 @@ export const Ready: Story = {
 export const AddRefused: Story = {
   args: { add: async () => ({ result: 'forbidden' as const }) },
   play: async ({ canvasElement }) => {
-    canvasElement.querySelector<HTMLButtonElement>('[data-testid="title-draft-add"]')?.click()
+    const canvas = within(canvasElement)
+    // The button stays disabled until the Mermaid preview has rendered.
+    const button = canvas.getByTestId('title-draft-add')
+    await waitFor(() => expect(button).toBeEnabled(), { timeout: 10000 })
+    await userEvent.click(button)
+    await expect(await canvas.findByRole('alert')).toHaveTextContent('You need permission to edit this page')
   },
 }

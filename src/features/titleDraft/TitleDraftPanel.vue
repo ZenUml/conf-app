@@ -11,7 +11,7 @@
         class="title-draft__add"
         data-testid="title-draft-add"
         :disabled="busy || !svg"
-        @click="add"
+        @click="addToPage"
       >
         Add to page
       </button>
@@ -47,7 +47,7 @@ const MESSAGES: Partial<Record<AddDraftResult['result'], string>> = {
   failed: NOT_ADDED,
 }
 
-async function add() {
+async function addToPage() {
   if (busy.value) return
   busy.value = true
   error.value = ''

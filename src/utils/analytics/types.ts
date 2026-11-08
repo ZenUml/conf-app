@@ -3,6 +3,8 @@
 import type { ProductType } from "./productType";
 import type {
   FeatureArea,
+  TitleDraftLookupStatus,
+  TitleDraftAddFailure,
   MacroTypeValue,
   CaptureFailureStage,
   Surface,
@@ -125,6 +127,13 @@ export type AnalyticsProperties = {
   macro_type?: MacroTypeValue;
   /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
   magic_failure_reason?: MagicFailureReason;
+  /** Title-first offer. Never carries the title or the draft source. */
+  title_draft_status?: TitleDraftLookupStatus;
+  title_draft_failure?: TitleDraftAddFailure;
+  /** Mermaid family of the draft: flowchart, sequence, state or er. */
+  title_draft_kind?: string;
+  /** Model confidence recorded by the batch, 0 to 1. */
+  title_draft_confidence?: number;
   /** Automatic writeback terminal outcome. Backend is temporary transport only. */
   magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
   /**

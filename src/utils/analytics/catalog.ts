@@ -26,7 +26,21 @@ export type FeatureArea =
   // The "What's new" release-notes strip in the shared page-banner host. Its
   // own area because, like "byline", it renders on any page — including pages
   // with no diagram — and measures announcement reach, not a macro lifecycle.
-  | "whats_new";
+  | "whats_new"
+  // The title-first diagram offer: a flag on a page with no diagram, a preview
+  // modal, then one macro at the top of the page. Its own area because it runs
+  // on pages that carry no diagram yet and measures first contact.
+  | "title_draft";
+
+/** What the draft lookup found for this page. */
+export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
+/** Why a title-draft Add did not place a new diagram. */
+export type TitleDraftAddFailure =
+  | "already_added"
+  | "forbidden"
+  | "conflict"
+  | "save_failed"
+  | "failed";
 
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
@@ -1722,6 +1736,17 @@ export type AnalyticsEventName =
   | "activation_diagram_edited"
   | "activation_completed"
   | "activation_nudge_dismissed"
+  // Title-first offer. `requested` is the draft lookup; the rest follow the flag.
+  | "title_draft_requested"
+  | "title_draft_flag_shown"
+  | "title_draft_not_now"
+  | "title_draft_preview_opened"
+  | "title_draft_preview_closed"
+  | "title_draft_added"
+  | "title_draft_add_failed"
+  | "title_draft_undone"
+  | "title_draft_undo_failed"
+  | "title_draft_edit_clicked"
   // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
   // for diagram creation is at the macro editor, before the user has typed
   // anything — the gallery replaces the old external "Examples" link

@@ -34,6 +34,7 @@ export const AUTHENTICATED_PATHS = [
   '/deeplink-ticket',
   '/activation-prepared',
   '/magic-writeback',
+  '/api/title-draft',
   // FIT only. Guest and anonymous viewers send no user token, so the handler
   // must never ask for one.
   '/graph-icon-proxy',

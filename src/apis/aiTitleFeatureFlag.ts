@@ -8,6 +8,7 @@ const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 const CREATE_GUIDE_FLAG_ID = 'create-guide-enabled'
 const PLANTUML_LOCAL_RENDERER_FLAG_ID = 'plantuml-local-renderer-enabled'
+const TITLE_DRAFT_FLAG_ID = 'title-draft-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -173,6 +174,22 @@ export async function isPlantUmlLocalRendererEnabled(): Promise<boolean> {
     return await client.checkFlag(PLANTUML_LOCAL_RENDERER_FLAG_ID, false)
   } catch (error) {
     console.error('Failed to load PlantUML local renderer feature flag:', error)
+    return false
+  }
+}
+
+/**
+ * The title-first diagram offer on the page banner. Fail-closed: a missing flag
+ * or a lookup error means no offer, and no draft lookup, on this page load.
+ */
+export async function isTitleDraftEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return false
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(TITLE_DRAFT_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load title draft feature flag:', error)
     return false
   }
 }

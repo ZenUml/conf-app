@@ -46,6 +46,7 @@
     "/deeplink-ticket",
     "/activation-prepared",
     "/magic-writeback",
+    "/api/title-draft",
     "/graph-icon-proxy",
     "/conversion/*",
     "/api/fullscreen-recovery",

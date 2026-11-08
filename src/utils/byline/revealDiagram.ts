@@ -137,9 +137,25 @@ const REVEAL_STYLE_ID = 'zenuml-reveal-style'
 const REVEAL_OVERLAY_CLASS = 'zenuml-reveal-flash'
 
 /**
+ * How tall the focus target is. Chrome scrolls a focused element into view only
+ * when it is not already fully visible, and then centres it. A 1px target at
+ * the macro's top edge is "visible" as soon as that edge peeks in at the bottom
+ * of the screen — measured on whimet4 2026-11-08: a re-reveal of a macro whose
+ * top sat 201px above the viewport's bottom did not scroll at all. So the target
+ * covers the part of the diagram the user should see: the whole macro, capped
+ * at half the screen so that centring a tall one never hides its top. The top
+ * viewport's height is not readable from a cross-origin iframe; the screen's is.
+ */
+function anchorHeight(doc: Document): number {
+  const macro = doc.documentElement.scrollHeight || 1
+  const screenHalf = Math.round((window.screen?.availHeight || 800) / 2)
+  return Math.max(1, Math.min(macro, screenHalf))
+}
+
+/**
  * Pull the page here, then say which one moved.
  *
- * The focus target is a 1px element rather than the diagram itself because
+ * The focus target is a bare element rather than the diagram itself because
  * focusing a real control would also ARM it — a stray Enter would then open or
  * edit the diagram the user has not looked at yet.
  *
@@ -162,7 +178,7 @@ export function revealThisMacro(highlightMs: number = REVEAL_HIGHLIGHT_MS): void
     const anchor = doc.createElement('div')
     anchor.tabIndex = -1
     anchor.setAttribute('aria-hidden', 'true')
-    anchor.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:1px;outline:none;pointer-events:none'
+    anchor.style.cssText = `position:absolute;top:0;left:0;width:1px;height:${anchorHeight(doc)}px;outline:none;pointer-events:none`
     doc.body.prepend(anchor)
     anchor.focus()
     // Focus was only ever a means to scroll; leaving it parked on an invisible

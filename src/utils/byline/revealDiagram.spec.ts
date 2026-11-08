@@ -123,6 +123,32 @@ describe('revealDiagram — the hand-off across the reload', () => {
       vi.mocked(document.createElement).mockRestore()
     })
 
+    it('focuses a target as tall as the diagram, capped at half the screen', () => {
+      // A 1px target counts as visible once the macro's top edge peeks in, so
+      // focusing it would not scroll a diagram pushed to the bottom of the screen.
+      const heights: string[] = []
+      const real = document.createElement.bind(document)
+      const create = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+        const el = real(tag) as HTMLElement
+        if (tag === 'div') el.focus = () => heights.push(el.style.height)
+        return el as any
+      })
+      // Own properties shadow the prototype getters; deleting them restores jsdom's.
+      let macroHeight = 600
+      Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, get: () => macroHeight })
+      Object.defineProperty(window.screen, 'availHeight', { configurable: true, get: () => 1000 })
+      try {
+        revealThisMacro()
+        macroHeight = 300
+        revealThisMacro()
+        expect(heights).toEqual(['500px', '300px'])
+      } finally {
+        create.mockRestore()
+        delete (document.documentElement as any).scrollHeight
+        delete (window.screen as any).availHeight
+      }
+    })
+
     it('washes the whole macro box, not just its edge, and cleans up after', () => {
       // A hairline ring on a large diagram is easy to miss after a long scroll.
       vi.useFakeTimers()

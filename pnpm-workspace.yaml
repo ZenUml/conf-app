@@ -4,6 +4,7 @@ packages:
   - "local-crm"
   - "workers/cron-aggregate"
   - "workers/agent-link"
+  - "packages/pr-agent-panel/*"
 # pnpm ≥10 ignores package.json's pnpm.onlyBuiltDependencies; approvals live
 # here now. Same five packages that list allowed, everything else stays off.
 allowBuilds:

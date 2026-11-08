@@ -1,0 +1,10 @@
+flowchart TB
+  subgraph PLANT["Plant"]
+    direction LR
+    A[Intake]
+    subgraph LINE["Line one"]
+      B[Cut] --> C[Weld]
+    end
+    A --> B
+  end
+  C --> D[Inspect] --> E[Ship]

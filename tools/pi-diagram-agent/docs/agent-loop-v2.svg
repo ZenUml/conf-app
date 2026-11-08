@@ -1,0 +1,230 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="671" height="933" viewBox="0 0 671 933">
+<defs>
+  <style>
+  .frame-border-outer { fill: #666; }
+  .frame-border-inner { fill: #ffffff; }
+  .frame-header-bg { fill: #ffffff; }
+  .frame-header-line { stroke: #666; stroke-width: 1; shape-rendering: crispEdges; }
+  .frame-title { font-family: Helvetica, Verdana, serif; font-size: 16px; font-weight: 600; fill: #222; }
+  .participant-box { fill: #ffffff; stroke: #666; stroke-width: 2; }
+  .participant-label { font-family: Helvetica, Verdana, serif; font-size: 16px; fill: #222; }
+  .participant-icon { color: #222; }
+  .participant-icon [fill="currentColor"]:not([stroke]) { stroke: #666; stroke-width: 1; }
+  .lifeline { stroke: #666; stroke-width: 1; }
+  .message-line { stroke: #000; stroke-width: 2; shape-rendering: crispEdges; }
+  .message-label { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #222; }
+  .arrow-head { fill: #000; stroke: #000; stroke-width: 2; }
+  .arrow-open { fill: none; }
+  .occurrence { fill: #dedede; stroke: #666; stroke-width: 2; shape-rendering: crispEdges; }
+  .fragment-border { fill: none; stroke: #666; stroke-width: 1; shape-rendering: crispEdges; }
+  .fragment-header { fill: #dedede; fill-opacity: 0.498; stroke: none; shape-rendering: crispEdges; }
+  .fragment-label { font-family: Helvetica, Verdana, serif; font-size: 14px; font-weight: 600; fill: #000; }
+  .fragment-condition { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #000; }
+  .fragment-separator { stroke: #e5e7eb; stroke-width: 1; shape-rendering: crispEdges; }
+  .fragment-section-label { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #000; }
+  .return-line { stroke: #000; stroke-width: 2; stroke-dasharray: 6,4; shape-rendering: crispEdges; }
+  .return-arrow { stroke: #000; stroke-width: 2; fill: none; }
+  .return-label { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #222; }
+  .return-icon { fill: #222; }
+  .divider-line { stroke: #aaaa33; stroke-width: 1; }
+  .divider-bg { fill: #fff5ad; stroke: #aaaa33; stroke-width: 1; }
+  .divider-label { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #333; }
+  .comment-text { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #333; opacity: 0.5; }
+  .seq-number { font-family: Helvetica, Verdana, serif; font-size: 12px; font-weight: 100; fill: #6b7280; }
+  .group-outline { fill: none; stroke: #666; }
+  .group-title-bg { fill: #ffffff; stroke: none; }
+  .group-title-text { font-family: Helvetica, Verdana, serif; font-size: 13px; font-weight: 400; fill: #222; }
+</style>
+</defs>
+<rect class="frame-border-outer" x="0" y="0" width="671" height="933" rx="4" fill="#666"/>
+<rect class="frame-border-inner" x="1" y="1" width="669" height="931" rx="3" fill="#fff"/>
+<line class="frame-header-line" x1="1" y1="33.5" x2="670" y2="33.5"/>
+<text x="5" y="16.75" dominant-baseline="central" class="frame-title">Pi diagram agent v2: author, reviewer, gate</text>
+<g transform="translate(31, 34)">
+<line x1="50.5" y1="68" x2="50.5" y2="898" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="176.5" y1="68" x2="176.5" y2="898" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="301.5" y1="68" x2="301.5" y2="898" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="414.5" y1="68" x2="414.5" y2="898" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="537" y1="68" x2="537" y2="898" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<g class="participant" data-participant="User">
+  <rect x="11" y="29" width="78" height="38" rx="3" class="participant-box"/>
+  <g class="participant-icon" transform="translate(15.110000610351562, 36) scale(1)" fill="none">
+    <g>
+    <path d="M15.5489 4.19771C15.5489 5.18773 15.1485 6.13721 14.4358 6.83726C13.7231 7.53731 12.7565 7.93058 11.7486 7.93058C10.7407 7.93058 9.77403 7.53731 9.06133 6.83726C8.34863 6.13721 7.94824 5.18773 7.94824 4.19771C7.94824 3.20768 8.34863 2.25822 9.06133 1.55818C9.77403 0.858126 10.7407 0.464844 11.7486 0.464844C12.7565 0.464844 13.7231 0.858126 14.4358 1.55818C15.1485 2.25822 15.5489 3.20768 15.5489 4.19771Z" stroke="currentColor"/>
+    <path d="M6.54883 11.2152L17.2025 11.2073M11.7471 8.06641V19.5806V8.06641ZM11.7471 19.4385L6.79789 23.5738L11.7471 19.4385ZM11.7551 19.4385L17.1864 23.3055L11.7551 19.4385Z" stroke="currentColor"/>
+  </g>
+  </g>
+  
+  
+  <text x="47.11000061035156" y="47.75" text-anchor="start" dominant-baseline="central" class="participant-label">User</text>
+</g>
+<g class="participant" data-participant="Orch">
+  <rect x="124.54499816894531" y="29" width="102.91000366210938" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="176" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">Orchestrator</text>
+</g>
+<g class="participant" data-participant="Author">
+  <rect x="241.0800018310547" y="29" width="119.83999633789062" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="301" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">Author session</text>
+</g>
+<g class="participant" data-participant="Audit">
+  <rect x="375" y="29" width="78" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="414" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">Auditor</text>
+</g>
+<g class="participant" data-participant="Reviewer">
+  <rect x="466.810001373291" y="29" width="139.37999725341797" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="536.5" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">Reviewer session</text>
+</g>
+<rect x="170" y="107" width="13" height="734" rx="1" class="occurrence" data-participant="Orch"/>
+<rect x="177" y="173" width="13" height="22" rx="1" class="occurrence" data-participant="Orch"/>
+<rect x="295" y="309" width="13" height="34" rx="1" class="occurrence" data-participant="Author"/>
+<rect x="177" y="409" width="13" height="22" rx="1" class="occurrence" data-participant="Orch"/>
+<rect x="408" y="463" width="13" height="34" rx="1" class="occurrence" data-participant="Audit"/>
+<rect x="530.5" y="611" width="13" height="34" rx="1" class="occurrence" data-participant="Reviewer"/>
+<rect x="177" y="738" width="13" height="22" rx="1" class="occurrence" data-participant="Orch"/>
+<g class="message">
+  <line x1="51" y1="107" x2="169" y2="107" class="message-line"/>
+  <svg x="162" y="102" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="106.5" y="104" text-anchor="middle" class="message-label">magic(source)</text>
+  <text x="47" y="104" text-anchor="end" class="seq-number">1</text>
+</g>
+<g class="message">
+  <line x1="184" y1="309" x2="294" y2="309" class="message-line"/>
+  <svg x="287" y="304" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="235.5" y="306" text-anchor="middle" class="message-label">draw(findings)</text>
+  <text x="180" y="306" text-anchor="end" class="seq-number">1.2.1</text>
+</g>
+<g class="message">
+  <line x1="184" y1="463" x2="407" y2="463" class="message-line"/>
+  <svg x="400" y="458" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="292" y="460" text-anchor="middle" class="message-label">check(svg)</text>
+  <text x="180" y="460" text-anchor="end" class="seq-number">1.2.3</text>
+</g>
+<g class="message">
+  <line x1="184" y1="611" x2="529.5" y2="611" class="message-line"/>
+  <svg x="522.5" y="606" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="353.25" y="608" text-anchor="middle" class="message-label">review(images)</text>
+  <text x="180" y="608" text-anchor="end" class="seq-number">1.2.4.1</text>
+</g>
+<g class="message self-call">
+  <svg x="184" y="158" width="30" height="24">
+    <path d="M0,2 L26,2 Q28,2 28,4 L28,13 Q28,15 26,15 L14,15" fill="none" stroke="#000" stroke-width="2"/>
+    <g transform="translate(7, 10)">
+      <svg height="10" width="7" viewBox="0 0 7 9">
+        <g transform="scale(-1, 1) translate(-7, 0)">
+          <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" fill="#000" stroke-width="2"/>
+        </g>
+      </svg>
+    </g>
+  </svg>
+  <text x="189" y="156" text-anchor="start" class="message-label">prepare()</text>
+  <text x="180" y="156" text-anchor="end" class="seq-number">1.1</text>
+</g>
+<g class="message self-call">
+  <svg x="184" y="394" width="30" height="24">
+    <path d="M0,2 L26,2 Q28,2 28,4 L28,13 Q28,15 26,15 L14,15" fill="none" stroke="#000" stroke-width="2"/>
+    <g transform="translate(7, 10)">
+      <svg height="10" width="7" viewBox="0 0 7 9">
+        <g transform="scale(-1, 1) translate(-7, 0)">
+          <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" fill="#000" stroke-width="2"/>
+        </g>
+      </svg>
+    </g>
+  </svg>
+  <text x="189" y="392" text-anchor="start" class="message-label">render2x()</text>
+  <text x="180" y="392" text-anchor="end" class="seq-number">1.2.2</text>
+</g>
+<g class="message self-call">
+  <svg x="184" y="723" width="30" height="24">
+    <path d="M0,2 L26,2 Q28,2 28,4 L28,13 Q28,15 26,15 L14,15" fill="none" stroke="#000" stroke-width="2"/>
+    <g transform="translate(7, 10)">
+      <svg height="10" width="7" viewBox="0 0 7 9">
+        <g transform="scale(-1, 1) translate(-7, 0)">
+          <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" fill="#000" stroke-width="2"/>
+        </g>
+      </svg>
+    </g>
+  </svg>
+  <text x="189" y="721" text-anchor="start" class="message-label">gate()</text>
+  <text x="180" y="721" text-anchor="end" class="seq-number">1.2.5</text>
+</g>
+<g class="return">
+  <line x1="294" y1="342" x2="184" y2="342" class="return-line"/>
+  <polyline points="189.15,338.75 184,342 189.15,345.25" fill="none" stroke-linecap="round" class="return-arrow"/>
+  <text x="242.5" y="339" text-anchor="middle" class="return-label">candidate</text>
+  <text x="180" y="339" text-anchor="end" class="seq-number">1.2.1.1</text>
+</g>
+<g class="return">
+  <line x1="407" y1="496" x2="184" y2="496" class="return-line"/>
+  <polyline points="189.15,492.75 184,496 189.15,499.25" fill="none" stroke-linecap="round" class="return-arrow"/>
+  <text x="299" y="493" text-anchor="middle" class="return-label">findings</text>
+  <text x="180" y="493" text-anchor="end" class="seq-number">1.2.3.1</text>
+</g>
+<g class="return">
+  <line x1="529.5" y1="644" x2="184" y2="644" class="return-line"/>
+  <polyline points="189.15,640.75 184,644 189.15,647.25" fill="none" stroke-linecap="round" class="return-arrow"/>
+  <text x="360.25" y="641" text-anchor="middle" class="return-label">findings</text>
+  <text x="180" y="641" text-anchor="end" class="seq-number">1.2.4.1.1</text>
+</g>
+<g class="return">
+  <line x1="169" y1="819" x2="51" y2="819" class="return-line"/>
+  <polyline points="56.15,815.75 51,819 56.15,822.25" fill="none" stroke-linecap="round" class="return-arrow"/>
+  <text x="113.5" y="816" text-anchor="middle" class="return-label">manifest</text>
+  <text x="47" y="816" text-anchor="end" class="seq-number">1.3</text>
+</g>
+<g class="fragment fragment-loop">
+  <rect x="102" y="212.5" width="526.5" height="575" rx="4" class="fragment-border"/>
+  <rect x="102.5" y="213" width="525.5" height="25" class="fragment-header"/>
+  <svg x="106.5" y="213" width="20" height="24" viewBox="0 0 1024 1024" fill="#000" stroke="none">
+      <path d="M960 101.84l-896.002.002c-35.344 0-64 28.656-64 64v576c0 35.36 28.656 64 64 64h160c20.496 0 32-26.32 32-31.984v-.016c0-5.824-10.88-32.416-32-32.416h-120.96c-21.376 0-38.72-17.344-38.72-38.72V206.002c0-21.391 17.328-38.72 38.72-38.72l818.272-1.007c21.376 0 38.72 17.328 38.72 38.72V702.69c0 21.376-17.344 38.72-38.72 38.72H518.142l75.984-68.912c9.344-8.944 12.369-23.408 3.025-32.336l-5.472-8.064c-9.376-8.945-24.496-8.945-33.84 0L428.111 750.53c-.192.16-.368.224-.528.368l-8.48 8.096c-4.672 4.431-7.008 10.335-6.976 16.223-.032 5.904 2.288 11.777 6.977 16.288l8.48 8.096c.16.16.368.192.528.336L555.84 915.44c9.344 8.944 24.464 8.944 33.84 0l5.472-8.065c9.344-8.944 6.32-23.44-3.025-32.368l-77.135-69.168H960c35.343 0 64-28.64 64-64v-576c0-35.344-28.657-64-64-64z"/>
+    </svg>
+  <text x="128.5" y="225" dominant-baseline="central" class="fragment-label">Loop</text>
+  <text x="98.5" y="221" text-anchor="end" dominant-baseline="central" class="seq-number">1.2</text>
+  <g><text x="102.5" y="253" class="fragment-condition">[</text><text x="110.39" y="253" class="fragment-condition" opacity="0.65">round &lt; budget</text><text x="208.97000183105467" y="253" class="fragment-condition">]</text></g>
+</g>
+<g class="fragment fragment-alt">
+  <rect x="112" y="514.5" width="506.5" height="158" rx="4" class="fragment-border"/>
+  <rect x="112.5" y="515" width="505.5" height="25" class="fragment-header"/>
+  <svg x="116.5" y="515" width="20" height="24" viewBox="0 0 24 24" fill="none">
+      <path d="M12 8L20 12L12 16L4 12L12 8Z" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  <text x="138.5" y="527" dominant-baseline="central" class="fragment-label">Alt</text>
+  <text x="108.5" y="523" text-anchor="end" dominant-baseline="central" class="seq-number">1.2.4</text>
+  <g><text x="112.5" y="555" class="fragment-condition">[</text><text x="120.39" y="555" class="fragment-condition" opacity="0.65">no audit FAIL</text><text x="206.90000213623046" y="555" class="fragment-condition">]</text></g>
+</g>
+<text class="comment-text"><tspan x="51" y="87">/magic src.mmd [--adjudication f] [--authors K]</tspan></text>
+<text class="comment-text"><tspan x="184" y="139">hash source + rules, render original, freeze adjudications</tspan></text>
+<text class="comment-text"><tspan x="184" y="289">author owns every position, port, route</tspan></text>
+<text class="comment-text"><tspan x="184" y="375">orchestrator renders the final bytes itself</tspan></text>
+<text class="comment-text"><tspan x="184" y="591">fresh context: images + audit JSON, read-only</tspan></text>
+<text class="comment-text"><tspan x="184" y="704">hash match, no FAIL, no blocking finding</tspan></text>
+<text class="comment-text"><tspan x="184" y="819">VALIDATED, REVIEWED or CANDIDATE + residuals</tspan></text>
+</g>
+</svg>

@@ -1,0 +1,265 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="938" height="1076" viewBox="0 0 938 1076">
+<defs>
+  <style>
+  .frame-border-outer { fill: #666; }
+  .frame-border-inner { fill: #ffffff; }
+  .frame-header-bg { fill: #ffffff; }
+  .frame-header-line { stroke: #666; stroke-width: 1; shape-rendering: crispEdges; }
+  .frame-title { font-family: Helvetica, Verdana, serif; font-size: 16px; font-weight: 600; fill: #222; }
+  .participant-box { fill: #ffffff; stroke: #666; stroke-width: 2; }
+  .participant-label { font-family: Helvetica, Verdana, serif; font-size: 16px; fill: #222; }
+  .participant-icon { color: #222; }
+  .participant-icon [fill="currentColor"]:not([stroke]) { stroke: #666; stroke-width: 1; }
+  .lifeline { stroke: #666; stroke-width: 1; }
+  .message-line { stroke: #000; stroke-width: 2; shape-rendering: crispEdges; }
+  .message-label { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #222; }
+  .arrow-head { fill: #000; stroke: #000; stroke-width: 2; }
+  .arrow-open { fill: none; }
+  .occurrence { fill: #dedede; stroke: #666; stroke-width: 2; shape-rendering: crispEdges; }
+  .fragment-border { fill: none; stroke: #666; stroke-width: 1; shape-rendering: crispEdges; }
+  .fragment-header { fill: #dedede; fill-opacity: 0.498; stroke: none; shape-rendering: crispEdges; }
+  .fragment-label { font-family: Helvetica, Verdana, serif; font-size: 14px; font-weight: 600; fill: #000; }
+  .fragment-condition { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #000; }
+  .fragment-separator { stroke: #e5e7eb; stroke-width: 1; shape-rendering: crispEdges; }
+  .fragment-section-label { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #000; }
+  .return-line { stroke: #000; stroke-width: 2; stroke-dasharray: 6,4; shape-rendering: crispEdges; }
+  .return-arrow { stroke: #000; stroke-width: 2; fill: none; }
+  .return-label { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #222; }
+  .return-icon { fill: #222; }
+  .divider-line { stroke: #aaaa33; stroke-width: 1; }
+  .divider-bg { fill: #fff5ad; stroke: #aaaa33; stroke-width: 1; }
+  .divider-label { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #333; }
+  .comment-text { font-family: Helvetica, Verdana, serif; font-size: 14px; fill: #333; opacity: 0.5; }
+  .seq-number { font-family: Helvetica, Verdana, serif; font-size: 12px; font-weight: 100; fill: #6b7280; }
+  .group-outline { fill: none; stroke: #666; }
+  .group-title-bg { fill: #ffffff; stroke: none; }
+  .group-title-text { font-family: Helvetica, Verdana, serif; font-size: 13px; font-weight: 400; fill: #222; }
+</style>
+</defs>
+<rect class="frame-border-outer" x="0" y="0" width="938" height="1076" rx="4" fill="#666"/>
+<rect class="frame-border-inner" x="1" y="1" width="936" height="1074" rx="3" fill="#fff"/>
+<line class="frame-header-line" x1="1" y1="33.5" x2="937" y2="33.5"/>
+<text x="5" y="16.75" dominant-baseline="central" class="frame-title">Pi diagram agent: one /magic run</text>
+<g transform="translate(31, 34)">
+<line x1="62" y1="68" x2="62" y2="1041" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="188" y1="68" x2="188" y2="1041" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="407" y1="68" x2="407" y2="1041" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="548" y1="68" x2="548" y2="1041" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="669.5" y1="68" x2="669.5" y2="1041" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<line x1="802.5" y1="68" x2="802.5" y2="1041" class="lifeline" stroke-dasharray="5,5" stroke-dashoffset="5" shape-rendering="crispEdges"/>
+<g class="participant" data-participant="Operator">
+  <rect x="8.930000305175781" y="29" width="105.13999938964844" height="38" rx="3" class="participant-box"/>
+  <g class="participant-icon" transform="translate(11.930000305175781, 36) scale(1)" fill="none">
+    <g>
+    <path d="M15.5489 4.19771C15.5489 5.18773 15.1485 6.13721 14.4358 6.83726C13.7231 7.53731 12.7565 7.93058 11.7486 7.93058C10.7407 7.93058 9.77403 7.53731 9.06133 6.83726C8.34863 6.13721 7.94824 5.18773 7.94824 4.19771C7.94824 3.20768 8.34863 2.25822 9.06133 1.55818C9.77403 0.858126 10.7407 0.464844 11.7486 0.464844C12.7565 0.464844 13.7231 0.858126 14.4358 1.55818C15.1485 2.25822 15.5489 3.20768 15.5489 4.19771Z" stroke="currentColor"/>
+    <path d="M6.54883 11.2152L17.2025 11.2073M11.7471 8.06641V19.5806V8.06641ZM11.7471 19.4385L6.79789 23.5738L11.7471 19.4385ZM11.7551 19.4385L17.1864 23.3055L11.7551 19.4385Z" stroke="currentColor"/>
+  </g>
+  </g>
+  
+  
+  <text x="43.93000030517578" y="47.75" text-anchor="start" dominant-baseline="central" class="participant-label">Operator</text>
+</g>
+<g class="participant" data-participant="Ext">
+  <rect x="128.9199981689453" y="29" width="117.16000366210938" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="187.5" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">pi-extension.ts</text>
+</g>
+<g class="participant" data-participant="Loop">
+  <rect x="352.7949981689453" y="29" width="107.41000366210938" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="406.5" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">Pi agent loop</text>
+</g>
+<g class="participant" data-participant="Codex">
+  <rect x="493.3650016784668" y="29" width="108.2699966430664" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="547.5" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">Codex model</text>
+</g>
+<g class="participant" data-participant="Tools">
+  <rect x="607.3050003051758" y="29" width="123.38999938964844" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="669" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">read/write/bash</text>
+</g>
+<g class="participant" data-participant="Inspect">
+  <rect x="736.2999992370605" y="29" width="131.4000015258789" height="38" rx="3" class="participant-box"/>
+  
+  
+  
+  <text x="802" y="47.75" text-anchor="middle" dominant-baseline="central" class="participant-label">diagram_inspect</text>
+</g>
+<rect x="181.5" y="107" width="13" height="877" rx="1" class="occurrence" data-participant="Ext"/>
+<rect x="188.5" y="173" width="13" height="22" rx="1" class="occurrence" data-participant="Ext"/>
+<rect x="188.5" y="261" width="13" height="22" rx="1" class="occurrence" data-participant="Ext"/>
+<rect x="400.5" y="315" width="13" height="651" rx="1" class="occurrence" data-participant="Loop"/>
+<rect x="541.5" y="409" width="13" height="34" rx="1" class="occurrence" data-participant="Codex"/>
+<rect x="663" y="557" width="13" height="34" rx="1" class="occurrence" data-participant="Tools"/>
+<rect x="796" y="688" width="13" height="170" rx="1" class="occurrence" data-participant="Inspect"/>
+<rect x="803" y="734" width="13" height="22" rx="1" class="occurrence" data-participant="Inspect"/>
+<rect x="803" y="802" width="13" height="22" rx="1" class="occurrence" data-participant="Inspect"/>
+<g class="message">
+  <line x1="62.5" y1="107" x2="180.5" y2="107" class="message-line"/>
+  <svg x="173.5" y="102" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="118" y="104" text-anchor="middle" class="message-label">magic(source)</text>
+  <text x="58.5" y="104" text-anchor="end" class="seq-number">1</text>
+</g>
+<g class="message">
+  <line x1="195.5" y1="315" x2="399.5" y2="315" class="message-line"/>
+  <svg x="392.5" y="310" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="294" y="312" text-anchor="middle" class="message-label">sendUserMessage(prompt)</text>
+  <text x="191.5" y="312" text-anchor="end" class="seq-number">1.3</text>
+</g>
+<g class="message">
+  <line x1="414.5" y1="409" x2="540.5" y2="409" class="message-line"/>
+  <svg x="533.5" y="404" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="474" y="406" text-anchor="middle" class="message-label">request(context)</text>
+  <text x="410.5" y="406" text-anchor="end" class="seq-number">1.3.1.1</text>
+</g>
+<g class="message">
+  <line x1="414.5" y1="557" x2="662" y2="557" class="message-line"/>
+  <svg x="655" y="552" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="534.75" y="554" text-anchor="middle" class="message-label">run(command)</text>
+  <text x="410.5" y="554" text-anchor="end" class="seq-number">1.3.1.2.1</text>
+</g>
+<g class="message">
+  <line x1="414.5" y1="688" x2="795" y2="688" class="message-line"/>
+  <svg x="788" y="683" width="7" height="10" viewBox="0 0 7 9" overflow="visible" class="arrow-head">
+    <g>
+      <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" stroke-width="2" fill="#000"/>
+    </g>
+  </svg>
+  <text x="601.25" y="685" text-anchor="middle" class="message-label">inspect(jobId)</text>
+  <text x="410.5" y="685" text-anchor="end" class="seq-number">1.3.1.2.2</text>
+</g>
+<g class="message self-call">
+  <svg x="195.5" y="158" width="30" height="24">
+    <path d="M0,2 L26,2 Q28,2 28,4 L28,13 Q28,15 26,15 L14,15" fill="none" stroke="#000" stroke-width="2"/>
+    <g transform="translate(7, 10)">
+      <svg height="10" width="7" viewBox="0 0 7 9">
+        <g transform="scale(-1, 1) translate(-7, 0)">
+          <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" fill="#000" stroke-width="2"/>
+        </g>
+      </svg>
+    </g>
+  </svg>
+  <text x="200.5" y="156" text-anchor="start" class="message-label">selectModel()</text>
+  <text x="191.5" y="156" text-anchor="end" class="seq-number">1.1</text>
+</g>
+<g class="message self-call">
+  <svg x="195.5" y="246" width="30" height="24">
+    <path d="M0,2 L26,2 Q28,2 28,4 L28,13 Q28,15 26,15 L14,15" fill="none" stroke="#000" stroke-width="2"/>
+    <g transform="translate(7, 10)">
+      <svg height="10" width="7" viewBox="0 0 7 9">
+        <g transform="scale(-1, 1) translate(-7, 0)">
+          <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" fill="#000" stroke-width="2"/>
+        </g>
+      </svg>
+    </g>
+  </svg>
+  <text x="200.5" y="244" text-anchor="start" class="message-label">prepareTask()</text>
+  <text x="191.5" y="244" text-anchor="end" class="seq-number">1.2</text>
+</g>
+<g class="message self-call">
+  <svg x="810" y="719" width="30" height="24">
+    <path d="M0,2 L26,2 Q28,2 28,4 L28,13 Q28,15 26,15 L14,15" fill="none" stroke="#000" stroke-width="2"/>
+    <g transform="translate(7, 10)">
+      <svg height="10" width="7" viewBox="0 0 7 9">
+        <g transform="scale(-1, 1) translate(-7, 0)">
+          <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" fill="#000" stroke-width="2"/>
+        </g>
+      </svg>
+    </g>
+  </svg>
+  <text x="815" y="717" text-anchor="start" class="message-label">render2x()</text>
+  <text x="806" y="717" text-anchor="end" class="seq-number">1.3.1.2.2.1</text>
+</g>
+<g class="message self-call">
+  <svg x="810" y="787" width="30" height="24">
+    <path d="M0,2 L26,2 Q28,2 28,4 L28,13 Q28,15 26,15 L14,15" fill="none" stroke="#000" stroke-width="2"/>
+    <g transform="translate(7, 10)">
+      <svg height="10" width="7" viewBox="0 0 7 9">
+        <g transform="scale(-1, 1) translate(-7, 0)">
+          <path d="M1 1.25 L6.15 4.5 L1 7.75 Z" stroke="#000" stroke-linecap="round" fill="#000" stroke-width="2"/>
+        </g>
+      </svg>
+    </g>
+  </svg>
+  <text x="815" y="785" text-anchor="start" class="message-label">audit()</text>
+  <text x="806" y="785" text-anchor="end" class="seq-number">1.3.1.2.2.2</text>
+</g>
+<g class="return">
+  <line x1="540.5" y1="442" x2="414.5" y2="442" class="return-line"/>
+  <polyline points="419.65,438.75 414.5,442 419.65,445.25" fill="none" stroke-linecap="round" class="return-arrow"/>
+  <text x="481" y="439" text-anchor="middle" class="return-label">toolCall</text>
+  <text x="410.5" y="439" text-anchor="end" class="seq-number">1.3.1.1.1</text>
+</g>
+<g class="return">
+  <line x1="662" y1="590" x2="414.5" y2="590" class="return-line"/>
+  <polyline points="419.65,586.75 414.5,590 419.65,593.25" fill="none" stroke-linecap="round" class="return-arrow"/>
+  <text x="541.75" y="587" text-anchor="middle" class="return-label">output</text>
+  <text x="410.5" y="587" text-anchor="end" class="seq-number">1.3.1.2.1.1</text>
+</g>
+<g class="return">
+  <line x1="795" y1="857" x2="414.5" y2="857" class="return-line"/>
+  <polyline points="419.65,853.75 414.5,857 419.65,860.25" fill="none" stroke-linecap="round" class="return-arrow"/>
+  <text x="608.25" y="854" text-anchor="middle" class="return-label">text + PNG blocks</text>
+  <text x="410.5" y="854" text-anchor="end" class="seq-number">1.3.1.2.2.3</text>
+</g>
+<g class="return">
+  <line x1="399.5" y1="944" x2="195.5" y2="944" class="return-line"/>
+  <polyline points="200.65,940.75 195.5,944 200.65,947.25" fill="none" stroke-linecap="round" class="return-arrow"/>
+  <text x="301" y="941" text-anchor="middle" class="return-label">finalReport</text>
+  <text x="191.5" y="941" text-anchor="end" class="seq-number">1.3.2</text>
+</g>
+<g class="fragment fragment-loop">
+  <rect x="330.5" y="332.5" width="565" height="580" rx="4" class="fragment-border"/>
+  <rect x="331" y="333" width="564" height="25" class="fragment-header"/>
+  <svg x="335" y="333" width="20" height="24" viewBox="0 0 1024 1024" fill="#000" stroke="none">
+      <path d="M960 101.84l-896.002.002c-35.344 0-64 28.656-64 64v576c0 35.36 28.656 64 64 64h160c20.496 0 32-26.32 32-31.984v-.016c0-5.824-10.88-32.416-32-32.416h-120.96c-21.376 0-38.72-17.344-38.72-38.72V206.002c0-21.391 17.328-38.72 38.72-38.72l818.272-1.007c21.376 0 38.72 17.328 38.72 38.72V702.69c0 21.376-17.344 38.72-38.72 38.72H518.142l75.984-68.912c9.344-8.944 12.369-23.408 3.025-32.336l-5.472-8.064c-9.376-8.945-24.496-8.945-33.84 0L428.111 750.53c-.192.16-.368.224-.528.368l-8.48 8.096c-4.672 4.431-7.008 10.335-6.976 16.223-.032 5.904 2.288 11.777 6.977 16.288l8.48 8.096c.16.16.368.192.528.336L555.84 915.44c9.344 8.944 24.464 8.944 33.84 0l5.472-8.065c9.344-8.944 6.32-23.44-3.025-32.368l-77.135-69.168H960c35.343 0 64-28.64 64-64v-576c0-35.344-28.657-64-64-64z"/>
+    </svg>
+  <text x="357" y="345" dominant-baseline="central" class="fragment-label">Loop</text>
+  <text x="327" y="341" text-anchor="end" dominant-baseline="central" class="seq-number">1.3.1</text>
+  <g><text x="331" y="373" class="fragment-condition">[</text><text x="338.89" y="373" class="fragment-condition" opacity="0.65">model calls tools</text><text x="446.3799978637695" y="373" class="fragment-condition">]</text></g>
+</g>
+<g class="fragment fragment-alt">
+  <rect x="340.5" y="460.5" width="545" height="425" rx="4" class="fragment-border"/>
+  <rect x="341" y="461" width="544" height="25" class="fragment-header"/>
+  <svg x="345" y="461" width="20" height="24" viewBox="0 0 24 24" fill="none">
+      <path d="M12 8L20 12L12 16L4 12L12 8Z" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  <text x="367" y="473" dominant-baseline="central" class="fragment-label">Alt</text>
+  <text x="337" y="469" text-anchor="end" dominant-baseline="central" class="seq-number">1.3.1.2</text>
+  <g><text x="341" y="501" class="fragment-condition">[</text><text x="348.89" y="501" class="fragment-condition" opacity="0.65">author or edit</text><text x="435.39" y="501" class="fragment-condition">]</text></g>
+  <line x1="341" y1="616.5" x2="885" y2="616.5" class="fragment-separator"/>
+  <text x="345" y="632" class="fragment-section-label">[else]</text>
+</g>
+<text class="comment-text"><tspan x="62.5" y="87">/magic src.mmd [--resume] [--reference] [--feedback]</tspan></text>
+<text class="comment-text"><tspan x="195.5" y="139">openai-codex vision model, thinking=high; stop if none</tspan></text>
+<text class="comment-text"><tspan x="195.5" y="227">hash source + rules, run dir, prompt = rules + source + feedback</tspan></text>
+<text class="comment-text"><tspan x="414.5" y="537">diagram-specific generate.py, candidate.svg</tspan></text>
+<text class="comment-text"><tspan x="414.5" y="668">returns original, reference, candidate images + audit JSON</tspan></text>
+<text class="comment-text"><tspan x="414.5" y="944">candidate path, exact SVG hash, remaining defects</tspan></text>
+</g>
+</svg>

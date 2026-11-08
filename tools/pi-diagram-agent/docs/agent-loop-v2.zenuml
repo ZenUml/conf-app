@@ -1,0 +1,33 @@
+title Pi diagram agent v2: author, reviewer, gate
+@Actor User
+Orch as "Orchestrator"
+Author as "Author session"
+Audit as "Auditor"
+Reviewer as "Reviewer session"
+
+// /magic src.mmd [--adjudication f] [--authors K]
+User -> Orch.magic(source) {
+  // hash source + rules, render original, freeze adjudications
+  Orch -> Orch.prepare()
+  while("round < budget") {
+    // author owns every position, port, route
+    Orch -> Author.draw(findings) {
+      return candidate
+    }
+    // orchestrator renders the final bytes itself
+    Orch -> Orch.render2x()
+    Orch -> Audit.check(svg) {
+      return findings
+    }
+    if("no audit FAIL") {
+      // fresh context: images + audit JSON, read-only
+      Orch -> Reviewer.review(images) {
+        return findings
+      }
+    }
+    // hash match, no FAIL, no blocking finding
+    Orch -> Orch.gate()
+  }
+  // VALIDATED, REVIEWED or CANDIDATE + residuals
+  return manifest
+}

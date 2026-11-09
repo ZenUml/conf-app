@@ -506,15 +506,15 @@
                 :diagram-host="getCaptureNode"
               />
             </div>
-            <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
-                 defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
-                 vite.config.mjs). See SecondDiagramPrompt.vue for the full
-                 display-condition contract. -->
             <LicenseNoticeStrip
               v-if="showLicenseNotice"
               :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
               :macro-type="diagramType ?? 'none'"
             />
+            <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
+                 defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
+                 vite.config.mjs). See SecondDiagramPrompt.vue for the full
+                 display-condition contract. -->
             <SecondDiagramPrompt
               v-if="!isLoadFailed"
               :attribution="diagramAttribution"

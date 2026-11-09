@@ -19,9 +19,9 @@ setup((app: App) => {
  * diagram plus the upgrade strip below it. The real GenericViewer decides from
  * the build's PRODUCT_TYPE, the flag (standalone: localStorage
  * `mockNoLicenseNoticeEnabled === 'true'`) and `forgeContext.license.active`.
- * Storybook defaults PRODUCT_TYPE to `lite` (.storybook/main.ts), so run
- * `PRODUCT_TYPE=full pnpm storybook` to see NoticeOn; under any other build both
- * stories correctly render no notice.
+ * The `storybook` script pins PRODUCT_TYPE to `lite`, so run
+ * `PRODUCT_TYPE=full pnpm exec storybook dev -p 6006` to see NoticeOn; under any
+ * other build both stories correctly render no notice.
  */
 const SAMPLE_MERMAID =
   'sequenceDiagram\n  participant Client\n  participant Server\n  Client->>Server: POST /login\n  Server-->>Client: 200 OK'

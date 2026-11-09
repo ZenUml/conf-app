@@ -16,15 +16,12 @@ function mountStrip() {
 describe('LicenseNoticeStrip support fallbacks', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('shows the support address as readable text with a mailto link', () => {
-    const email = mountStrip().get('[data-testid="license-notice-email"]')
+  it('shows the support address as plain text, because the Forge sandbox cannot open mailto links', () => {
+    const wrapper = mountStrip()
+    const email = wrapper.get('[data-testid="license-notice-email"]')
     expect(email.text()).toBe('support@zenuml.com')
-    expect(email.attributes('href')).toBe('mailto:support@zenuml.com')
-  })
-
-  it('tracks the email click', async () => {
-    await mountStrip().get('[data-testid="license-notice-email"]').trigger('click')
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_email_clicked', expectedProps)
+    expect(email.element.tagName).toBe('SPAN')
+    expect(wrapper.find('a[href^="mailto:"]').exists()).toBe(false)
   })
 
   it('opens the support portal and tracks the ticket click', async () => {

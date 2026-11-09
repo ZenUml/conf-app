@@ -1797,12 +1797,11 @@ export type AnalyticsEventName =
   // Full variant, license explicitly inactive, flag on: the viewer's
   // watermark + upgrade strip. `shown` fires once per viewer mount when the
   // notice becomes visible (the denominator); `upgrade_clicked` is the
-  // Marketplace button; `email_clicked` and `ticket_clicked` are the support
-  // fallbacks for a site that cannot upgrade. Properties: feature_area
-  // 'license_notice', surface ('viewer' | 'fullscreen'), macro_type.
+  // Marketplace button; `ticket_clicked` is the support fallback for a site
+  // that cannot upgrade. Properties: feature_area 'license_notice', surface
+  // ('viewer' | 'fullscreen'), macro_type.
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"
-  | "license_notice_email_clicked"
   | "license_notice_ticket_clicked"
   // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
   // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for

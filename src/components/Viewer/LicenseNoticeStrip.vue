@@ -14,13 +14,8 @@
     <div class="license-notice-strip-row">
       <span class="license-notice-strip-text">
         Can't upgrade? Email
-        <!-- The address stays readable: a sandboxed iframe may not hand mailto to a mail app. -->
-        <a
-          class="license-notice-strip-link"
-          data-testid="license-notice-email"
-          :href="`mailto:${SUPPORT_EMAIL}`"
-          @click="onEmail"
-        >{{ SUPPORT_EMAIL }}</a>
+        <!-- Plain text on purpose: clicking a mailto link in the Forge sandbox does nothing. -->
+        <span class="license-notice-strip-email" data-testid="license-notice-email">{{ SUPPORT_EMAIL }}</span>
         or
         <button
           type="button"
@@ -66,10 +61,6 @@ async function onUpgrade() {
   }
 }
 
-function onEmail() {
-  trackAnalyticsEvent('license_notice_email_clicked', baseProps())
-}
-
 async function onTicket() {
   trackAnalyticsEvent('license_notice_ticket_clicked', baseProps())
   try {
@@ -94,6 +85,10 @@ async function onTicket() {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+.license-notice-strip-email {
+  color: #172b4d;
+  user-select: text;
 }
 .license-notice-strip-link {
   border: 0;

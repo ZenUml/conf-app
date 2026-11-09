@@ -30,7 +30,11 @@ export type FeatureArea =
   // The title-first diagram offer: a flag on a page with no diagram, a preview
   // modal, then one macro at the top of the page. Its own area because it runs
   // on pages that carry no diagram yet and measures first contact.
-  | "title_draft";
+  | "title_draft"
+  // Full variant: the "no active license" watermark and upgrade strip in the
+  // viewer. Its own area because it measures a licensing notice, not a macro
+  // lifecycle step.
+  | "license_notice";
 
 /** What the draft lookup found for this page. */
 export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
@@ -1790,6 +1794,18 @@ export type AnalyticsEventName =
   // denominator; `clicked` is the accept action.
   | "macro_second_diagram_prompt_shown"
   | "macro_second_diagram_prompt_clicked"
+  // Full variant, license explicitly inactive, flag on: the viewer's
+  // watermark + upgrade strip. `shown` fires once per viewer mount when the
+  // notice becomes visible (the denominator); `upgrade_clicked` is the
+  // Marketplace button; `ticket_clicked` is the support fallback for a site
+  // that cannot upgrade; `email_copied` is the click on the support address,
+  // which copies it (mailto does nothing in the Forge sandbox). Properties:
+  // feature_area 'license_notice', surface ('viewer' | 'fullscreen'),
+  // macro_type.
+  | "license_notice_shown"
+  | "license_notice_upgrade_clicked"
+  | "license_notice_ticket_clicked"
+  | "license_notice_email_copied"
   // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
   // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
   // the detection rule). `shown` is the denominator, fired once per becoming-

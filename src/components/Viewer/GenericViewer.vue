@@ -415,7 +415,7 @@
 
 
           <!-- Canvas -->
-          <div class="viewer-canvas">
+          <div class="viewer-canvas" :class="{'viewer-canvas--license-notice': showLicenseNotice}">
             <div v-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
               <div class="viewer-lf-icon-wrap">
                 <svg v-if="hasRetryableFailure" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
@@ -471,6 +471,9 @@
                 label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
             </div>
+            <!-- Full variant, license explicitly inactive, flag on. Sibling of
+                 the capture node on purpose: exports never contain it. -->
+            <LicenseWatermark v-if="showLicenseNotice" />
             <!-- Canvas overlay anchor: a zero-height block between the diagram
                  and the footer row. Slot content (the Mermaid highlight feedback
                  pill) positions itself against this box, so it floats over the
@@ -503,6 +506,11 @@
                 :diagram-host="getCaptureNode"
               />
             </div>
+            <LicenseNoticeStrip
+              v-if="showLicenseNotice"
+              :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+              :macro-type="diagramType ?? 'none'"
+            />
             <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
                  defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
                  vite.config.mjs). See SecondDiagramPrompt.vue for the full
@@ -632,7 +640,10 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
+import { shouldShowLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
+import LicenseWatermark from '@/components/Viewer/LicenseWatermark.vue'
+import LicenseNoticeStrip from '@/components/Viewer/LicenseNoticeStrip.vue'
 import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
@@ -778,6 +789,8 @@ export default {
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
     architectureTokensEnabled: false,
+    // Full variant 'no active license' notice; resolved off the render path.
+    licenseNoticeActive: false,
     createGuideFeatureEnabled: false,
     createGuideImpressionTracked: false,
     agentLinkSession: null,
@@ -851,6 +864,8 @@ export default {
     DiagramAttributionFooter,
     SecondDiagramPrompt,
     RelatedDiagramsFooter,
+    LicenseWatermark,
+    LicenseNoticeStrip,
   },
   computed: {
     ...mapState({
@@ -913,6 +928,9 @@ export default {
       if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
       actions.push({ id: 'export-png', label: 'Export PNG', icon: ICON_PATHS.download });
       return actions;
+    },
+    showLicenseNotice() {
+      return this.licenseNoticeActive && !this.isLoadFailed;
     },
     isLoadFailed() {
       return this.isDisplayMode
@@ -1443,6 +1461,7 @@ export default {
     // the state at keypress.
     document.addEventListener('keydown', this.onEscapeKeydown, true);
     this.startHeaderLayout();
+    this.resolveLicenseNotice();
     // Export entry (see openExport): the modal was opened BY the Export PNG
     // button, so the dialog opens here on arrival. On 'diagramLoaded', not on
     // mount — the dialog captures its preview off the `visible` watcher, and
@@ -2295,6 +2314,25 @@ export default {
         failure_reason: result.reason,
         save_duration_ms: result.durationMs,
       });
+    },
+    // Fire-and-forget: the diagram never waits on this, and any error means
+    // no notice. Full variant only, so other variants skip the flag lookup.
+    resolveLicenseNotice() {
+      if (import.meta.env.PRODUCT_TYPE !== 'full') return;
+      try {
+        isNoLicenseNoticeEnabled().then((flagEnabled) => {
+          const ctx = forgeGlobal.forgeContext;
+          this.licenseNoticeActive = shouldShowLicenseNotice({
+            productType: import.meta.env.PRODUCT_TYPE,
+            licenseActive: ctx?.license?.active,
+            environmentType: ctx?.environmentType,
+            mockInactive: readMockLicenseInactive(),
+            flagEnabled: flagEnabled === true,
+          });
+        }).catch(() => { this.licenseNoticeActive = false; });
+      } catch {
+        this.licenseNoticeActive = false;
+      }
     },
     trackRename(eventName, extra = {}) {
       const id = String(this.diagram?.id ?? '');
@@ -3691,6 +3729,14 @@ export default {
 }
 .viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
 .viewer-canvas .screen-capture-content.w-full { width: 100%; }
+/* License notice layering. The capture node is its own stacking context
+   (z-index 0), which would pin the zoom card (z-index 2, inside it) UNDER any
+   sibling overlay. Only while the notice is on: drop that context so the
+   watermark (z-index 1) sits above the diagram but below the zoom card and the
+   floating pills (z-index 5), and isolate the canvas so those still cannot
+   climb above the header (z-index 2, outside the canvas). */
+.viewer-canvas--license-notice { isolation: isolate; }
+.viewer-canvas--license-notice .screen-capture-content { z-index: auto; }
 /* Zero height: adds nothing to the canvas layout. Its width comes from the
    canvas (never from its children), which is what makes inline-size
    containment safe here — the inline frame is width:fit-content, so the

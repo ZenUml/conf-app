@@ -9,10 +9,10 @@ import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import globals from '@/model/globals'
-import forgeRuntime from '@/model/globals/forgeGlobal'
+import forgeRuntime, { openUrl } from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
@@ -60,6 +60,7 @@ vi.mock('@/apis/aiTitleFeatureFlag', () => ({
   isAgentLinkEnabled: vi.fn(() => Promise.resolve(false)),
   isArchitectureTokensEnabled: vi.fn(() => Promise.resolve(false)),
   isCreateGuideEnabled: vi.fn(() => Promise.resolve(false)),
+  isNoLicenseNoticeEnabled: vi.fn(() => Promise.resolve(false)),
 }))
 
 // The first release offers the headless MCP only (RELAY_SESSIONS_ENABLED is
@@ -4045,6 +4046,100 @@ describe('GenericViewer embed module context', () => {
 
     expect(wrapper.vm.isEmbedded).toBe(embedded)
     expect(wrapper.find('.viewer-embed-chip').exists()).toBe(embedded)
+    wrapper.unmount()
+  })
+})
+
+describe('GenericViewer license notice (Full, license inactive)', () => {
+  const UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
+  let previousContext: typeof forgeRuntime.forgeContext
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    previousContext = forgeRuntime.forgeContext
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION', license: { active: false } } as any
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.source = DataSource.CustomContent
+    store.state.viewerLoadState = 'ready'
+    store.state.loadError = null
+    window.forgeGlobal = { forgeContext: { extension: {} } } as any
+    vi.stubEnv('PRODUCT_TYPE', 'full')
+    vi.mocked(isNoLicenseNoticeEnabled).mockResolvedValue(true)
+  })
+  afterEach(() => {
+    forgeRuntime.forgeContext = previousContext
+    vi.unstubAllEnvs()
+    vi.mocked(isNoLicenseNoticeEnabled).mockResolvedValue(false)
+  })
+
+  it('shows the watermark and the upgrade strip, with the watermark outside the capture node', async () => {
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="license-notice-upgrade"]').text()).toBe('Upgrade on Marketplace')
+    expect(wrapper.find('[data-testid="license-notice-strip"]').text()).toContain('No active license')
+    const watermark = wrapper.find('[data-testid="license-watermark"]').element
+    const capture = wrapper.find('.screen-capture-content').element
+    expect(capture.contains(watermark)).toBe(false)
+    expect(watermark.getAttribute('aria-hidden')).toBe('true')
+    expect(watermark.textContent).toContain('NO ACTIVE LICENSE')
+    wrapper.unmount()
+  })
+
+  it('renders neither part when the flag is off', async () => {
+    vi.mocked(isNoLicenseNoticeEnabled).mockResolvedValue(false)
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders neither part when the flag lookup rejects', async () => {
+    vi.mocked(isNoLicenseNoticeEnabled).mockRejectedValue(new Error('boom'))
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders neither part when the license is active', async () => {
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION', license: { active: true } } as any
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders neither part on a non-Full variant', async () => {
+    vi.stubEnv('PRODUCT_TYPE', 'lite')
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders neither part in the load-failed state', async () => {
+    store.state.viewerLoadState = 'failed_with_source'
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="load-failed-generic"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('fires license_notice_shown once, and the click opens the Marketplace page and tracks', async () => {
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-notice-upgrade"]').exists()).toBe(true))
+    await flushPromises()
+    const shown = () => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([n]) => n === 'license_notice_shown')
+    expect(shown()).toHaveLength(1)
+    expect(shown()[0][1]).toEqual(expect.objectContaining({ feature_area: 'license_notice', surface: 'viewer', macro_type: 'sequence' }))
+
+    await wrapper.find('[data-testid="license-notice-upgrade"]').trigger('click')
+    expect(openUrl).toHaveBeenCalledWith(UPGRADE_URL)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_upgrade_clicked', expect.objectContaining({ feature_area: 'license_notice', surface: 'viewer' }))
+    expect(shown()).toHaveLength(1)
     wrapper.unmount()
   })
 })

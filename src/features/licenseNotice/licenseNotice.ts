@@ -1,4 +1,6 @@
 export const MARKETPLACE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
+export const SUPPORT_EMAIL = 'support@zenuml.com'
+export const SUPPORT_TICKET_URL = 'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/1'
 
 export interface LicenseNoticeInput {
   productType: string | undefined

@@ -64,7 +64,13 @@ function configureStory() {
   store.commit('setDiagramAttribution', null)
 }
 
-function renderViewer(args: Args) {
+// The viewer frame sizes itself to the diagram, so the diagram width decides
+// which notice layout shows: under 520px the button drops below the text.
+function viewerRenderer(diagramWidth: number) {
+  return (args: Args) => renderViewer(args, diagramWidth)
+}
+
+function renderViewer(args: Args, diagramWidth = 420) {
   return {
     components: { GenericViewer },
     setup() {
@@ -73,7 +79,7 @@ function renderViewer(args: Args) {
     template: `
       <div style="padding: 24px; background: #FAFBFC;">
         <GenericViewer v-bind="args">
-          <svg viewBox="0 0 420 150" style="width: 100%; max-width: 420px; display: block; margin: 0 auto;">
+          <svg viewBox="0 0 420 150" style="width: ${diagramWidth}px; max-width: 100%; display: block; margin: 0 auto;">
             <rect x="10" y="10" width="110" height="28" rx="4" fill="#DEEBFF" stroke="#4C9AFF"/>
             <text x="65" y="29" text-anchor="middle" font-size="12" fill="#172B4D">Client</text>
             <rect x="300" y="10" width="110" height="28" rx="4" fill="#DEEBFF" stroke="#4C9AFF"/>
@@ -109,13 +115,18 @@ export const NoticeOff: Story = {
   render: renderViewer,
 }
 
+const noticeOnDecorator = () => {
+  configureStory()
+  try { localStorage.setItem('mockNoLicenseNoticeEnabled', 'true') } catch { /* storage blocked */ }
+  return { template: '<story/>' }
+}
+
 export const NoticeOn: Story = {
-  decorators: [
-    () => {
-      configureStory()
-      try { localStorage.setItem('mockNoLicenseNoticeEnabled', 'true') } catch { /* storage blocked */ }
-      return { template: '<story/>' }
-    },
-  ],
-  render: renderViewer,
+  decorators: [noticeOnDecorator],
+  render: viewerRenderer(720),
+}
+
+export const NoticeOnNarrowDiagram: Story = {
+  decorators: [noticeOnDecorator],
+  render: viewerRenderer(420),
 }

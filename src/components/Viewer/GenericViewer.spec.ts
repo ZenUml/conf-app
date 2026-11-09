@@ -4076,7 +4076,7 @@ describe('GenericViewer license notice (Full, license inactive)', () => {
     const wrapper = mountViewer()
     await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
     expect(wrapper.find('[data-testid="license-notice-upgrade"]').text()).toBe('Upgrade on Marketplace')
-    expect(wrapper.find('[data-testid="license-notice-strip"]').text()).toContain('This app has no active license. Ask your Confluence admin to subscribe.')
+    expect(wrapper.find('[data-testid="license-notice-strip"]').text()).toContain('No active license')
     const watermark = wrapper.find('[data-testid="license-watermark"]').element
     const capture = wrapper.find('.screen-capture-content').element
     expect(capture.contains(watermark)).toBe(false)

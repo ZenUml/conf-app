@@ -1798,11 +1798,14 @@ export type AnalyticsEventName =
   // watermark + upgrade strip. `shown` fires once per viewer mount when the
   // notice becomes visible (the denominator); `upgrade_clicked` is the
   // Marketplace button; `ticket_clicked` is the support fallback for a site
-  // that cannot upgrade. Properties: feature_area 'license_notice', surface
-  // ('viewer' | 'fullscreen'), macro_type.
+  // that cannot upgrade; `email_copied` is the click on the support address,
+  // which copies it (mailto does nothing in the Forge sandbox). Properties:
+  // feature_area 'license_notice', surface ('viewer' | 'fullscreen'),
+  // macro_type.
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"
   | "license_notice_ticket_clicked"
+  | "license_notice_email_copied"
   // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
   // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
   // the detection rule). `shown` is the denominator, fired once per becoming-

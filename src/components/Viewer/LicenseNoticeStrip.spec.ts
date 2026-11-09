@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import LicenseNoticeStrip from './LicenseNoticeStrip.vue'
 import { openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -13,15 +13,47 @@ function mountStrip() {
   return mount(LicenseNoticeStrip, { props: { surface: 'viewer', macroType: 'mermaid' } })
 }
 
-describe('LicenseNoticeStrip support fallbacks', () => {
-  beforeEach(() => vi.clearAllMocks())
+describe('LicenseNoticeStrip', () => {
+  const writeText = vi.fn().mockResolvedValue(undefined)
 
-  it('shows the support address as plain text, because the Forge sandbox cannot open mailto links', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('is a status region titled "No active license" that says the diagram stays viewable', () => {
+    const wrapper = mountStrip()
+    const root = wrapper.get('[data-testid="license-notice-strip"]')
+    expect(root.attributes('role')).toBe('status')
+    expect(wrapper.get('.license-notice-title').text()).toBe('No active license')
+    expect(wrapper.get('.license-notice-body').text()).toContain('This diagram stays viewable')
+  })
+
+  it('opens Marketplace from the upgrade button and tracks the click', async () => {
+    await mountStrip().get('[data-testid="license-notice-upgrade"]').trigger('click')
+    expect(openUrl).toHaveBeenCalledWith(expect.stringContaining('marketplace.atlassian.com'))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_upgrade_clicked', expectedProps)
+  })
+
+  it('never renders a mailto link, because the Forge sandbox cannot open one', () => {
+    const wrapper = mountStrip()
+    expect(wrapper.get('[data-testid="license-notice-email"]').text()).toBe('support@zenuml.com')
+    expect(wrapper.find('a[href^="mailto:"]').exists()).toBe(false)
+  })
+
+  it('copies the support address on click, shows "Copied" briefly, and tracks it', async () => {
+    vi.useFakeTimers()
     const wrapper = mountStrip()
     const email = wrapper.get('[data-testid="license-notice-email"]')
-    expect(email.text()).toBe('support@zenuml.com')
-    expect(email.element.tagName).toBe('SPAN')
-    expect(wrapper.find('a[href^="mailto:"]').exists()).toBe(false)
+    await email.trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith('support@zenuml.com')
+    expect(email.attributes('data-copied')).toBeDefined()
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_email_copied', expectedProps)
+    vi.advanceTimersByTime(1500)
+    await wrapper.vm.$nextTick()
+    expect(email.attributes('data-copied')).toBeUndefined()
   })
 
   it('opens the support portal and tracks the ticket click', async () => {

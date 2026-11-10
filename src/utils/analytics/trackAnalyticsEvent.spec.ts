@@ -1166,6 +1166,81 @@ describe("trackAnalyticsEvent", () => {
     expect(properties).not.toHaveProperty("session_replay_percent", 100);
   });
 
+  it("starts replay before tracking a shown license notice even when baseline replay is off", async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: "macro-license-notice",
+      moduleKey: "zenuml-sequence-macro",
+      environmentType: "production",
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("license_notice_shown", {
+      feature_area: "license_notice",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(mixpanel.start_session_recording).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(mixpanel.track).mock.invocationCallOrder[0]);
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "license_notice",
+    });
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "license_notice_shown",
+      expect.objectContaining({
+        session_replay_source: "license_notice",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      })
+    );
+  });
+
+  it("still tracks a shown license notice when replay startup throws", async () => {
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+    vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => {
+      throw new Error("recorder unavailable");
+    });
+
+    await _awaitableTrackAnalyticsEvent("license_notice_shown", {
+      feature_area: "license_notice",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "license_notice_shown",
+      expect.objectContaining({
+        session_replay_start_call_outcome: "threw",
+      })
+    );
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "license_notice");
+  });
+
+  it("does not start replay for license notice clicks", async () => {
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({
+      percent: 0,
+      source: "off",
+    });
+
+    await _awaitableTrackAnalyticsEvent("license_notice_upgrade_clicked", {
+      feature_area: "license_notice",
+      surface: "viewer",
+      macro_type: "sequence",
+    });
+
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+  });
+
   it("forces replay when macro creation starts", async () => {
     // Authoring replay is sampled; pin the draw inside the rate so this test
     // asserts the recording path rather than the coin flip.

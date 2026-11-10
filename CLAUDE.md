@@ -23,6 +23,10 @@ Six of the seven (`Sequence`, `Mermaid`, `PlantUml`, `Graph`, `OpenApi`, `Embed`
 
 Stack, build system, and deployment targets are stated in `package.json`, `wrangler.toml`, and `manifest.yml`. The one platform fact those files do not make obvious is under **Pure Forge — no Connect code** below.
 
+### Figma design destination
+
+All Conf App Figma design work uses the existing [Conf App Figma file](https://www.figma.com/design/xyLOTL0IvXNszqFCKCdAp0/Conf-App); organize features within that file. Use a separate Figma file only when explicitly requested.
+
 ### Product variants
 
 The add-on comes in four variants:
@@ -99,6 +103,8 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
 
 **The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — the overlap scan, per-worktree setup cost, start-of-issue steps, cleanup.
+
+**Keep the primary checkout in sync with `origin/main` — proactively, without asking.** At the start of any session in the primary checkout, and before committing there, run `git fetch origin main` and `git merge --ff-only origin/main`. A fast-forward changes no commit and discards nothing, so it needs no confirmation. If it refuses, do **not** stash, reset, rebase or discard to force it — that would displace another session's work (see the rule below). Instead report which case applies: local-only commits on `main` (list them with `git log origin/main..HEAD`), or uncommitted changes that overlap files the fast-forward would touch. When `main` is behind and a `.md`-only commit must go out now, build the commit on `origin/main` with a temporary index and push that, leaving the working tree untouched.
 
 ### Scan for overlapping work before starting a branch
 
@@ -252,6 +258,14 @@ Use the existing `KV_FEATURE_FLAGS` binding for persistent per-tenant operationa
 
 Use two controls only when they serve two independent needs: rollout control and persistent customer operations. Do not duplicate one control in the other.
 
+### Feature rollout and customer operations
+
+Use Forge feature flags for feature testing, staged release, and emergency disable. Retire obsolete rollout flags when behavior is stable.
+
+Use the existing `KV_FEATURE_FLAGS` binding for persistent per-tenant operational state such as enrollment, exemption, notice, and effective-date policies. Reuse feature-specific key prefixes in that namespace; do not create a new namespace unless isolation is a separate requirement. Keep requests, grants, extensions, and audit records in D1. Every backend decision must use a trusted server identity and backend authorization. `SPACE_LICENSE_KV` remains the source for existing license data; this policy does not migrate it.
+
+Use two controls only when they serve two independent needs: rollout control and persistent customer operations. Do not duplicate one control in the other.
+
 ### Analytics & observability
 
 Key gotcha: `page_viewed` in D1 signals tenant activity on Confluence — **not** a macro view. Use Mixpanel `macro_viewed` (project ID `3373228`) for macro engagement.
@@ -339,6 +353,6 @@ Reach for Playwright MCP only when a skill needs something agent-browser lacks, 
 - **spot-check** — ad hoc verification of a specific behavior (not a checked-in E2E test). Triggers: "spot check on staging", "verify this fix". Forge iframe rules in [Browser automation and Forge iframes](#browser-automation-and-forge-iframes).
 - **Issue tracker** — issues live as GitHub issues on `ZenUml/conf-app`; use the `gh` CLI for all operations.
 - **Triage labels** — five canonical roles, names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
-- **Domain docs** — single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
+- **Domain docs** — single-context layout: `GLOSSARY.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
 - **Vendored skill set** — the 25 skills from [mattpocock/skills](https://github.com/mattpocock/skills) (`grill-me`, `grill-with-docs`, `tdd`, `code-review`, `implement`, `triage`, `to-spec`, `to-tickets`, `wayfinder`, …) are copied into `.claude/skills/` as editable files we own, not installed as the `mattpocock-skills` plugin — a plugin install is per-machine and would not reach the team or the remote agent containers. Vendored from upstream `6654f6b` (plugin v1.2.3); to refresh, re-copy from that repo rather than editing in place, or keep local edits deliberate. Do **not** also run `claude plugins install mattpocock-skills`: that would give every skill twice.
 - **`code-review` shadows the built-in** — `.claude/skills/code-review/` (Matt Pocock's two-axis Standards + Spec review) takes precedence over Claude Code's built-in `/code-review` in this repo. Rename the directory if you want the built-in back.

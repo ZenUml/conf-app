@@ -81,6 +81,12 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   png_export_state_persistence_skipped: 0.1,
 };
 
+// macro_viewed stays at rate 1 in the tables above and below: its sampling is
+// per occurrence, not per name. trackRenderTime sends the first render of a
+// macro per browser per UTC day and this fraction of the repeats
+// (utils/analytics/macroViewOfDay.ts).
+export const MACRO_VIEWED_REPEAT_SAMPLE_RATE = 0.1;
+
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
 // at forgeIndex.ts, so an exact key cannot cover every variant.
@@ -104,12 +110,26 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  "title_draft_requested",
+  "title_draft_flag_shown",
+  "title_draft_not_now",
+  "title_draft_preview_opened",
+  "title_draft_preview_closed",
+  "title_draft_added",
+  "title_draft_add_failed",
+  "title_draft_undone",
+  "title_draft_undo_failed",
+  "title_draft_edit_clicked",
   "agent_link_edit_failed",
-  "ai_repair_failed",
   "ai_title_generation_failed",
   "attachment_upload_async_failed",
   "attachment_upload_failed",
   "cohorts_refresh_failed",
+  // Rare, and the only read on whether the placement picker earns its extra
+  // step: at 10% a typical week would leave only a handful of events.
+  "diagram_added_to_page",
+  "placement_picker_opened",
+  "placement_picker_dismissed",
   "diagram_audience_registration_failed",
   "export_png_failed",
   "feedback_link_clicked",
@@ -160,6 +180,35 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "update_custom_content_error",
   "view_submit_failed",
   "viewer_load_failed",
+  // Preserve the low-volume AI Chat and AI Repair event families end to end. Sampling
+  // requests, successes, applications, or outcomes makes usage and conversion
+  // rates unknowable; keeping only failures would also bias health reporting.
+  "ai_chat_button_shown",
+  "ai_chat_opened",
+  "ai_chat_closed",
+  "ai_chat_suggestion_selected",
+  "ai_chat_prompt_submitted",
+  "ai_chat_no_change",
+  "ai_chat_change_applied",
+  "ai_chat_prompt_failed",
+  "ai_chat_prompt_cancelled",
+  "ai_chat_code_visibility_toggled",
+  "ai_chat_syntax_issue_shown",
+  "ai_chat_syntax_repair_requested",
+  "ai_chat_diff_toggled",
+  "ai_chat_history_opened",
+  "ai_chat_history_load_succeeded",
+  "ai_chat_history_load_failed",
+  "ai_chat_version_restore_requested",
+  "ai_chat_version_restored",
+  "ai_chat_change_undone",
+  "ai_chat_version_restore_failed",
+  "ai_repair_button_shown",
+  "ai_repair_requested",
+  "ai_repair_succeeded",
+  "ai_repair_failed",
+  "ai_repair_applied",
+  "ai_repair_dismissed",
   // Low-volume action signal with an existing E2E wire assertion.
   "copy_for_ai_clicked",
   // Connect MCP discovery denominator. Deduplicated to one per viewer per
@@ -209,28 +258,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "ai_title_dismissed",
   "ai_title_accepted",
   "ai_title_modified",
-  "ai_chat_button_shown",
-  "ai_chat_opened",
-  "ai_chat_closed",
-  "ai_chat_suggestion_selected",
-  "ai_chat_prompt_submitted",
-  "ai_chat_no_change",
-  "ai_chat_change_applied",
-  "ai_chat_prompt_cancelled",
-  "ai_chat_code_visibility_toggled",
-  "ai_chat_syntax_issue_shown",
-  "ai_chat_syntax_repair_requested",
-  "ai_chat_diff_toggled",
-  "ai_chat_history_opened",
-  "ai_chat_history_load_succeeded",
-  "ai_chat_version_restore_requested",
-  "ai_chat_version_restored",
-  "ai_chat_change_undone",
-  "ai_repair_button_shown",
-  "ai_repair_requested",
-  "ai_repair_succeeded",
-  "ai_repair_applied",
-  "ai_repair_dismissed",
   "magic_writeback_requested",
   "magic_writeback_skipped",
   "magic_availability_checked",
@@ -287,7 +314,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "whats_new_banner_expanded",
   "whats_new_banner_dismissed",
   "whats_new_link_clicked",
-  "diagram_added_to_page",
   "diagram_revealed",
   "snapshot_fallback_rendered",
   "diagram_attribution_shown",
@@ -333,6 +359,7 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "agent_link_mcp_dialog_opened",
   "agent_link_mcp_dialog_copied",
   "agent_link_mcp_dialog_closed",
+  "agent_link_mcp_promo_dismissed",
   "agent_link_mcp_initialized",
   "activation_nudge_clicked",
   "activation_served",

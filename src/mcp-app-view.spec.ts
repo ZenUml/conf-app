@@ -1,10 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION, PLANTUML_SVG_BASE } from './mcp-app-view';
-import { plantumlEncode } from '@/utils/plantuml/encode';
+import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION } from './mcp-app-view';
 import { compress } from '@/utils/compress';
 
-const drawio = vi.hoisted(() => ({ ensureDrawioViewerLoaded: vi.fn(async (_base?: string) => {}) }));
+const drawio = vi.hoisted(() => ({
+  ensureDrawioViewerLoaded: vi.fn(async (_base?: string) => {}),
+  ensureDrawioMathForDocument: vi.fn(),
+}));
 vi.mock('@/utils/drawio/loadDrawioViewer', () => drawio);
+
+// The real engine needs a canvas, which jsdom lacks (engine.ts).
+const { renderPlantUmlLocally, preloadPlantUmlEngine } = vi.hoisted(() => ({
+  renderPlantUmlLocally: vi.fn<(code: string) => Promise<string>>(),
+  preloadPlantUmlEngine: vi.fn<() => Promise<void>>(),
+}));
+vi.mock('@/utils/plantuml/engine', () => ({ renderPlantUmlLocally, preloadPlantUmlEngine }));
 
 const swagger = vi.hoisted(() => {
   const updateSpec = vi.fn();
@@ -228,43 +237,81 @@ describe('the host handshake', () => {
 });
 
 describe('drawing a PlantUML result', () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>hi</text></svg>';
+  const beacon = vi.fn((_url: string, _body: string) => true);
+  const reports = () => beacon.mock.calls.map(([url, body]) => ({ path: new URL(url).pathname, body: JSON.parse(body) }));
+  const result = (structuredContent: Record<string, unknown>) =>
+    onHostMessage({
+      data: { jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } },
+    } as MessageEvent);
+
   beforeEach(() => {
     document.body.innerHTML = '<div id="app"></div>';
+    beacon.mockClear();
+    vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon });
+    renderPlantUmlLocally.mockReset();
+    renderPlantUmlLocally.mockResolvedValue(svg);
+    preloadPlantUmlEngine.mockReset();
+    preloadPlantUmlEngine.mockResolvedValue(undefined);
   });
 
-  it('draws the PlantUML server SVG for the encoded source', async () => {
-    const dsl = '@startuml\nAlice -> Bob: hi\n@enduml';
-    onHostMessage({
-      data: {
-        jsonrpc: '2.0',
-        method: 'ui/notifications/tool-result',
-        params: { structuredContent: { diagramType: 'PlantUml', dsl, title: 'Greeting' } },
-      },
-    } as MessageEvent);
+  afterEach(() => vi.unstubAllGlobals());
 
-    // The renderer is a dynamic import, so the <img> lands a tick later.
+  it('draws with the local engine, as an image, and asks no server', async () => {
+    const dsl = '@startuml\nAlice -> Bob: hi\n@enduml';
+    result({ diagramType: 'PlantUml', dsl, title: 'Greeting' });
+
     await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
     const img = document.querySelector('#app img') as HTMLImageElement;
-    // Same server and encoding as the Confluence macro (PlantUml.vue), so the
-    // host shows what the page shows.
-    expect(img.getAttribute('src')).toBe(PLANTUML_SVG_BASE + plantumlEncode(dsl));
+    expect(renderPlantUmlLocally).toHaveBeenCalledWith(dsl);
+    // A data URL, so nothing in the drawing can run or reach the network.
+    expect(img.getAttribute('src')).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
     expect(img.alt).toBe('Greeting');
+
+    img.onload?.(new Event('load'));
+    await vi.waitFor(() => expect(beacon).toHaveBeenCalledOnce());
+    expect(reports()).toEqual([{
+      path: '/mcp/view-event',
+      body: { macro_type: 'plantuml', render_outcome: 'rendered', plantuml_renderer: 'local' },
+    }]);
   });
 
-  it('says so when the PlantUML server cannot be reached', async () => {
-    onHostMessage({
-      data: {
-        jsonrpc: '2.0',
-        method: 'ui/notifications/tool-result',
-        params: { structuredContent: { diagramType: 'plantuml', dsl: '@startuml\n@enduml' } },
-      },
-    } as MessageEvent);
+  it('shows the error and reports why when the engine cannot draw it, with no fallback', async () => {
+    const dsl = '@startuml\n!include <azure/Foo>\n@enduml';
+    const failure = Object.assign(new Error('This diagram uses an !include library that is not available yet'), { reason: 'include' });
+    renderPlantUmlLocally.mockRejectedValue(failure);
+    result({ diagramType: 'plantuml', dsl });
 
-    await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
-    (document.querySelector('#app img') as HTMLImageElement).onerror?.(new Event('error'));
     await vi.waitFor(() =>
-      expect(document.querySelector('#app')?.textContent).toMatch(/PlantUML server did not answer/),
+      expect(document.querySelector('#app')?.textContent).toMatch(/!include library that is not available/),
     );
+    expect(document.querySelector('#app img')).toBeNull();
+    expect(reports()[0].body).toEqual({
+      macro_type: 'plantuml', render_outcome: 'failed', plantuml_renderer: 'failed', plantuml_failure_reason: 'include',
+    });
+    expect(JSON.stringify(reports())).not.toContain('azure');
+  });
+
+  it('says the download failed, not that the library is missing, when a chunk will not load', async () => {
+    renderPlantUmlLocally.mockRejectedValue(Object.assign(new Error('chunk 404'), { reason: 'load_failed' }));
+    result({ diagramType: 'plantuml', dsl: '@startuml\n!include <C4/C4_Context>\n@enduml' });
+
+    await vi.waitFor(() =>
+      expect(document.querySelector('#app')?.textContent).toMatch(/Could not download the diagram renderer/),
+    );
+    expect(document.querySelector('#app')?.textContent).not.toMatch(/chunk 404/);
+    expect(reports()[0].body).toEqual({
+      macro_type: 'plantuml', render_outcome: 'failed', plantuml_renderer: 'failed', plantuml_failure_reason: 'load_failed',
+    });
+  });
+
+  it('never lets a failed report break the drawing', async () => {
+    beacon.mockImplementation(() => { throw new Error('blocked'); });
+    result({ diagramType: 'plantuml', dsl: '@startuml\n@enduml' });
+    await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
+    (document.querySelector('#app img') as HTMLImageElement).onload?.(new Event('load'));
+    await vi.waitFor(() => expect(beacon).toHaveBeenCalled());
+    expect(document.querySelector('#app img')).not.toBeNull();
   });
 });
 
@@ -305,6 +352,7 @@ describe('drawing a Graph result', () => {
     document.body.innerHTML = '<div id="app"></div>';
     GraphViewer.mockClear();
     drawio.ensureDrawioViewerLoaded.mockClear();
+    drawio.ensureDrawioMathForDocument.mockClear();
     vi.stubGlobal('GraphViewer', GraphViewer);
     vi.stubGlobal('mxUtils', { parseXml });
   });
@@ -320,6 +368,9 @@ describe('drawing a Graph result', () => {
     expect(document.querySelector('#app')?.contains(container)).toBe(true);
     expect((node as Element).nodeName).toBe('mxGraphModel');
     expect(config).toMatchObject({ 'auto-fit': true, lightbox: false });
+    // Before the GraphViewer: only Editors created after initMath typeset math.
+    expect(drawio.ensureDrawioMathForDocument.mock.calls[0][0]).toBe(node);
+    expect(drawio.ensureDrawioMathForDocument.mock.invocationCallOrder[0]).toBeLessThan(GraphViewer.mock.invocationCallOrder[0]);
   });
 
   it('decompresses a legacy compressed record before drawing it', async () => {

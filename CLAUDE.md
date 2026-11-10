@@ -36,6 +36,10 @@ The add-on comes in four variants:
 
 The **Handbook** is our internal, team-only knowledge site — *not* customer-facing. It collects what the team needs day to day: developer reference, operations runbooks, pricing/growth strategy, and customer intelligence (profiles, investigations). Because it can contain client-sensitive data, it lives in the **`private/` submodule** (`ZenUml/conf-app-private`), never the public repo. (This replaces the older, narrower "dev site" framing.)
 
+### Figma file layout
+
+Before finding or placing a design in the [Conf App Figma file](https://www.figma.com/design/xyLOTL0IvXNszqFCKCdAp0/Conf-App), read the index frame on page `00 · Start here`; it defines which page holds what and the naming rule. New brainstorm work goes on the Explore page. The index is the source of truth: when the structure changes, update it there, not here.
+
 ## Hard rules
 
 ### Confluence UI changes require ordered visual validation

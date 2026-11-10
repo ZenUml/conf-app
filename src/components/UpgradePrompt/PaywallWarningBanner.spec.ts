@@ -82,12 +82,70 @@ describe('PaywallWarningBanner (page banner)', () => {
     }
   })
 
+  it.each([
+    ['SD', '/wiki/spaces/~abc/pages/200/Title', true],
+    ['~abc', '/wiki/spaces/~abc/pages/200/Title', false],
+  ])('reports space_context_stale with context %s and location %s', async (key, path, stale) => {
+    const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default as any
+    forgeGlobal.forgeContext = {
+      extension: {
+        type: 'confluence:pageBanner',
+        space: { key, id: '1' },
+        content: { id: '200' },
+        location: `https://example-tenant.atlassian.net${path}`,
+      },
+    }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    try {
+      mount(PaywallWarningBanner)
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_banner_shown',
+        expect.objectContaining({ space_context_stale: stale })
+      )
+    } finally {
+      forgeGlobal.forgeContext = null
+    }
+  })
+
   it('reports show_count 1 and omits the gap on a first impression', async () => {
     const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
     mount(PaywallWarningBanner)
     const call = vi.mocked(trackUpgradeEvent).mock.calls.find(([name]) => name === 'paywall_banner_shown')
     expect(call?.[1]).toEqual(expect.objectContaining({ show_count: 1 }))
     expect(call?.[1]).not.toHaveProperty('hours_since_last_shown')
+  })
+
+  // The event is daily; the banner and the show counter are not.
+  it('shows the banner and counts the display, but sends no event, on a second display the same UTC day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-06T23:00:00.000Z'))
+    gate.impression = { lastShownAt: '2026-11-06T00:30:00.000Z', showCount: 4 }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    const { recordBannerShown } = await import('@/utils/paywall/warningBanner')
+    try {
+      const wrapper = mount(PaywallWarningBanner)
+      expect(wrapper.find('[data-testid="paywall-warning-banner"]').exists()).toBe(true)
+      expect(recordBannerShown).toHaveBeenCalledOnce()
+      expect(vi.mocked(trackUpgradeEvent).mock.calls.some(([name]) => name === 'paywall_banner_shown')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends the event again on the first display of the next UTC day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-07T00:00:05.000Z'))
+    gate.impression = { lastShownAt: '2026-11-06T23:59:00.000Z', showCount: 9 }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    try {
+      mount(PaywallWarningBanner)
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_banner_shown',
+        expect.objectContaining({ show_count: 10, hours_since_last_shown: 0 })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders and records an impression when the gate passes', async () => {

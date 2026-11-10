@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi, macroTypeOf } from './headlessMcp';
+import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi, macroTypeOf, clientDomainOf } from './headlessMcp';
 import { authenticateHeadless, challengeFor } from './headlessAuth';
-import { issueAccessToken, type GrantStoreLike } from './asStore';
+import { issueAccessToken, saveClient, type GrantStoreLike } from './asStore';
 import { saveGrant } from './tokenStore';
 import { resourceFor } from './asMetadata';
 import type { FetchLike } from './atlassianClient';
@@ -249,7 +249,7 @@ describe('headless RPC', () => {
     const token = await tokenFor(env.store);
     const res = await call(env, token, 'resources/list');
     const body = await res.json();
-    expect(body.result.resources[0]._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin, 'https://www.plantuml.com']);
+    expect(body.result.resources[0]._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin]);
   });
 
   it('lists the view as a resource', async () => {
@@ -456,6 +456,45 @@ describe('tool usage analytics', () => {
     expect(typeof events[0].properties.duration_ms).toBe('number');
   });
 
+  it('names the host from the OAuth registration, since tools/call carries no clientInfo', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    await saveClient(env.store, {
+      clientId: 'client-A',
+      redirectUris: ['https://claude.ai/api/mcp/auth_callback'],
+      clientName: 'Claude',
+      createdAtMs: Date.now(),
+    });
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(events[0].properties).toMatchObject({ oauth_client_id: 'client-A', oauth_client_name: 'Claude' });
+  });
+
+  it('still records the call when the client registration cannot be read', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(events[0].properties).toMatchObject({ oauth_client_id: 'client-A', oauth_client_name: 'unknown' });
+  });
+
+  it('sends the site as a bare subdomain, the form is_internal_client_domain matches', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(events[0].properties.client_domain).toBe('one');
+  });
+
+  it('sends no site for a call that named one the grant cannot reach', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'read_diagram', arguments: { cloudId: 'not-mine', contentId: 'cc-1' } });
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties.client_domain).toBeUndefined();
+  });
+
   it('records a tool refusal with its closed-vocabulary code', async () => {
     const events = captureEvents();
     const env = await trackedEnv();
@@ -596,21 +635,47 @@ describe('clientDeclaresUi', () => {
 
 describe('macroTypeOf', () => {
   it('takes read_diagram\'s type from the result, folded into the macro_type vocabulary', () => {
-    expect(macroTypeOf('read_diagram', {}, { diagramType: 'OpenAPI' })).toBe('openapi');
-    expect(macroTypeOf('read_diagram', {}, { diagramType: 'graph' })).toBe('graph');
+    expect(macroTypeOf('read_diagram', { diagramType: 'OpenAPI' })).toBe('openapi');
+    expect(macroTypeOf('read_diagram', { diagramType: 'graph' })).toBe('graph');
   });
 
-  it('takes create_diagram\'s type from the arguments', () => {
-    expect(macroTypeOf('create_diagram', { diagramType: 'mermaid' }, {})).toBe('mermaid');
+  it('takes create_diagram\'s and update_diagram\'s type from the result, which is what was stored', () => {
+    expect(macroTypeOf('create_diagram', { diagramType: 'Mermaid' })).toBe('mermaid');
+    expect(macroTypeOf('update_diagram', { diagramType: 'sequence' })).toBe('sequence');
   });
 
-  it('leaves update_diagram and other tools untyped rather than guessing', () => {
-    expect(macroTypeOf('update_diagram', { diagramType: 'mermaid' }, { diagramType: 'mermaid' })).toBeUndefined();
-    expect(macroTypeOf('list_sites', {}, {})).toBeUndefined();
+  it('leaves other tools untyped', () => {
+    expect(macroTypeOf('list_sites', { diagramType: 'mermaid' })).toBeUndefined();
   });
 
   it('drops a stored type outside the closed vocabulary', () => {
-    expect(macroTypeOf('read_diagram', {}, { diagramType: 'something-else' })).toBeUndefined();
-    expect(macroTypeOf('read_diagram', {}, null)).toBeUndefined();
+    expect(macroTypeOf('read_diagram', { diagramType: 'something-else' })).toBeUndefined();
+    expect(macroTypeOf('read_diagram', null)).toBeUndefined();
+  });
+});
+
+describe('clientDomainOf', () => {
+  const one = { cloudId: 'cloud-1', url: 'https://one.atlassian.net' };
+  const two = { cloudId: 'cloud-2', url: 'https://two.atlassian.net' };
+
+  it('uses the site the call named', () => {
+    expect(clientDomainOf([one, two], { cloudId: 'cloud-2' })).toBe('two');
+  });
+
+  it('names no site when the call named one the grant cannot reach, even with one site', () => {
+    expect(clientDomainOf([one], { cloudId: 'not-mine' })).toBeUndefined();
+  });
+
+  it('falls back to the only site for a call that names none', () => {
+    expect(clientDomainOf([one], {})).toBe('one');
+  });
+
+  it('names no site for a call that names none when the grant reaches several', () => {
+    expect(clientDomainOf([one, two], {})).toBeUndefined();
+  });
+
+  it('survives an unparseable site URL and a site list that never loaded', () => {
+    expect(clientDomainOf([{ cloudId: 'x', url: 'not a url' }], { cloudId: 'x' })).toBeUndefined();
+    expect(clientDomainOf([], undefined)).toBeUndefined();
   });
 });

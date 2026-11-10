@@ -45,8 +45,11 @@ The entire low-volume paid conversion path stays at its current rates:
 including `request_full_reason_copied`. This keeps the banner → usage page →
 purchase/Request Full funnel internally comparable during October.
 
-`macro_viewed` keeps its existing trigger, name, properties, and 100% event
-rate through September, October, and November. For historical comparison,
+`macro_viewed` kept its existing trigger, name, properties, and 100% event
+rate through September, October, and the start of November. From the 2026-11
+release carrying `src/utils/analytics/macroViewOfDay.ts`, repeat renders of a
+macro in one browser on one UTC day are sampled at 10% (`view_of_day`,
+`sample_rate`); the first render per day stays at 100%. For historical comparison,
 filter `environment_type=PRODUCTION` and a fixed `product_type`, use
 `mp_lib=web`, exclude known staging domains, and hold the site/user population
 constant. The core event's properties are the comparison fields; Replay

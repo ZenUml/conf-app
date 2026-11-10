@@ -354,7 +354,7 @@
                 </template>
               </OverflowMenu>
               <!-- Also disabled while a title rename PUT is in flight: the modal would boot on the pre-rename body and its later save would reinstate the old title. -->
-              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason || isSavingRename" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit">
+              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason || isSavingRename" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit" :class="{ 'viewer-act-edit--pinned': diagram?.titleDraftPristine }">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                 </svg>
@@ -433,7 +433,7 @@
 
 
           <!-- Canvas -->
-          <div class="viewer-canvas">
+          <div class="viewer-canvas" :class="{'viewer-canvas--license-notice': showLicenseNotice}">
             <div v-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
               <div class="viewer-lf-icon-wrap">
                 <svg v-if="hasRetryableFailure" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
@@ -489,6 +489,9 @@
                 label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
             </div>
+            <!-- Full variant, license explicitly inactive, flag on. Sibling of
+                 the capture node on purpose: exports never contain it. -->
+            <LicenseWatermark v-if="showLicenseNotice" />
             <!-- Canvas overlay anchor: a zero-height block between the diagram
                  and the footer row. Slot content (the Mermaid highlight feedback
                  pill) positions itself against this box, so it floats over the
@@ -521,6 +524,11 @@
                 :diagram-host="getCaptureNode"
               />
             </div>
+            <LicenseNoticeStrip
+              v-if="showLicenseNotice"
+              :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+              :macro-type="diagramType ?? 'none'"
+            />
             <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
                  defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
                  vite.config.mjs). See SecondDiagramPrompt.vue for the full
@@ -607,6 +615,16 @@
           @close="closeConnectMcpDialog"
           @copy="onConnectMcpCopied"
         />
+        <!-- MCP promo, Fullscreen: a dismissible corner card (Figma "ZenUML –
+             MCP promo mockups" #1). Display rules in mcpPromo.ts. -->
+        <McpPromoCard
+          v-if="showFullscreenMcpCard"
+          class="viewer-mcp-promo-card"
+          title="Draw diagrams from your AI tools"
+          body="Create and update diagrams from Claude, Cursor or VS Code — using your code as the source."
+          @cta="onMcpPromoCta('fullscreen_card')"
+          @dismiss="onMcpPromoDismiss('fullscreen_card')"
+        />
       </div>
     </template>
 
@@ -646,6 +664,8 @@ import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
+import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
+import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
 import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
 import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
@@ -656,7 +676,10 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isDiagramCommentsEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isDiagramCommentsEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
+import { shouldShowLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
+import LicenseWatermark from '@/components/Viewer/LicenseWatermark.vue'
+import LicenseNoticeStrip from '@/components/Viewer/LicenseNoticeStrip.vue'
 import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
@@ -670,6 +693,7 @@ import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttributi
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
 import { renameDiagramTitle } from '@/utils/renameDiagramTitle'
+import { isSavedRefusalTitle, visibleDiagramTitle } from '@/lib/aiTitleGuard.js'
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue'
 import { validateMagicArtifact } from '@/utils/magic/artifact'
 import { callRemote } from '@/utils/requestUtil'
@@ -788,6 +812,13 @@ export default {
     copyForAiImpressionTracked: false,
     // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
     showConnectMcpDialog: false,
+    // MCP promo (mcpPromo.ts): the shared state, whether it allowed a promo
+    // when the flag resolved, and whether this mount has since hidden it
+    // (dismissed, CTA clicked, or the viewer copied from the dialog).
+    mcpPromoState: null,
+    mcpPromoAllowed: false,
+    mcpPromoHidden: false,
+    mcpPromoShownTracked: false,
     // Per-viewer daily dedupe for agent_link_mcp_button_shown
     // (connectMcpShown.ts); null until the flag resolves on.
     connectMcpShownRecord: null,
@@ -805,6 +836,8 @@ export default {
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
     architectureTokensEnabled: false,
+    // Full variant 'no active license' notice; resolved off the render path.
+    licenseNoticeActive: false,
     createGuideFeatureEnabled: false,
     createGuideImpressionTracked: false,
     agentLinkSession: null,
@@ -870,6 +903,7 @@ export default {
     DiagramViewport,
     ViewSourcePanel,
     ConnectMcpDialog,
+    McpPromoCard,
     ConnectPanel,
     LinkStatusChip,
     LiveBadge,
@@ -878,6 +912,8 @@ export default {
     SecondDiagramPrompt,
     RelatedDiagramsFooter,
     DiagramCommentsPanel,
+    LicenseWatermark,
+    LicenseNoticeStrip,
   },
   computed: {
     ...mapState({
@@ -941,6 +977,9 @@ export default {
       if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
       actions.push({ id: 'export-png', label: 'Export PNG', icon: ICON_PATHS.download });
       return actions;
+    },
+    showLicenseNotice() {
+      return this.licenseNoticeActive && !this.isLoadFailed;
     },
     isLoadFailed() {
       return this.isDisplayMode
@@ -1055,7 +1094,8 @@ export default {
       return deeplinkHostForProductType(import.meta.env.PRODUCT_TYPE);
     },
     title() {
-      const t = this.diagram?.title?.trim?.()
+      // A title saved before PR #1053 can be model refusal text: show the default.
+      const t = visibleDiagramTitle(this.diagram?.title).trim()
       return t || DEFAULT_TITLE
     },
     showEdit() {
@@ -1218,6 +1258,19 @@ export default {
     copyForAiSlotSettled() {
       return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
     },
+    // MCP promo corner card, Fullscreen only (the header button stays for
+    // every viewer). Editors only: it pitches drawing diagrams. Never over a
+    // failed load.
+    showFullscreenMcpCard() {
+      return this.showAgentLinkConnect
+        && this.isFullscreenMode
+        && !!this.canUserEdit
+        && this.isDisplayMode
+        && !this.hideHeader
+        && !this.isLoadFailed
+        && this.mcpPromoAllowed
+        && !this.mcpPromoHidden;
+    },
     // Connect MCP takes Copy for AI's slot but not its sparkles: with the same
     // icon, icon-only and hover-revealed, a customer could not find it
     // (2026-10). It draws the official MCP mark instead.
@@ -1372,6 +1425,17 @@ export default {
     'diagram.mermaidCode'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     diagramType() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
     'diagram.magic'() { this.resetMagic(); this.$nextTick(this.initializeMagic); },
+    'diagram.title': {
+      immediate: true,
+      handler(title) {
+        if (!isSavedRefusalTitle(title)) return;
+        trackAnalyticsEvent('saved_refusal_title_hidden', {
+          feature_area: 'ai',
+          surface: 'viewer',
+          macro_type: this.diagramType ?? 'none',
+        });
+      },
+    },
     // Fires once per viewer per UTC day (the shown record dedupes across
     // every macro), after the header layout has settled so `header_stage` and
     // the placement are the ones the viewer actually sees.
@@ -1388,6 +1452,21 @@ export default {
           ...(this.isFullscreenMode ? {} : { header_stage: this.headerStage }),
         }));
       })));
+    },
+    showFullscreenMcpCard(visible) {
+      if (!visible || this.mcpPromoShownTracked) return;
+      this.mcpPromoShownTracked = true;
+      this.mcpPromoState?.recordShown();
+      const record = createConnectMcpShownRecord({
+        cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
+        accountId: this.currentAccountId,
+        placement: 'fullscreen_card',
+      });
+      if (!record.recordShown()) return;
+      trackAnalyticsEvent('agent_link_mcp_button_shown', this.connectMcpAnalytics({
+        mcp_button_placement: 'fullscreen_card',
+        mcp_button_reveal: 'always',
+      }));
     },
     copyForAiImpressionEligible: {
       immediate: true,
@@ -1482,6 +1561,7 @@ export default {
     // the state at keypress.
     document.addEventListener('keydown', this.onEscapeKeydown, true);
     this.startHeaderLayout();
+    this.resolveLicenseNotice();
     // Export entry (see openExport): the modal was opened BY the Export PNG
     // button, so the dialog opens here on arrival. On 'diagramLoaded', not on
     // mount — the dialog captures its preview off the `visible` watcher, and
@@ -1532,10 +1612,13 @@ export default {
       this.agentLinkFeatureEnabled = false;
     } finally {
       if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
-        this.connectMcpShownRecord = createConnectMcpShownRecord({
+        const promoScope = {
           cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
           accountId: this.currentAccountId,
-        });
+        };
+        this.connectMcpShownRecord = createConnectMcpShownRecord(promoScope);
+        this.mcpPromoState = createMcpPromoState(promoScope);
+        this.mcpPromoAllowed = this.mcpPromoState.canShow();
       }
       this.agentLinkFlagResolved = true;
     }
@@ -2235,7 +2318,7 @@ export default {
     // landed write; every other exit leaves it exactly as it was.
     startRename() {
       if (!this.canRename || this.isRenaming) return;
-      this.renameDraft = this.diagram?.title?.trim?.() || '';
+      this.renameDraft = visibleDiagramTitle(this.diagram?.title).trim();
       this.renameError = false;
       // The input opens at exactly the title's rendered width (never
       // narrower), so the header — and the fit-content frame around it —
@@ -2333,6 +2416,25 @@ export default {
         save_duration_ms: result.durationMs,
       });
     },
+    // Fire-and-forget: the diagram never waits on this, and any error means
+    // no notice. Full variant only, so other variants skip the flag lookup.
+    resolveLicenseNotice() {
+      if (import.meta.env.PRODUCT_TYPE !== 'full') return;
+      try {
+        isNoLicenseNoticeEnabled().then((flagEnabled) => {
+          const ctx = forgeGlobal.forgeContext;
+          this.licenseNoticeActive = shouldShowLicenseNotice({
+            productType: import.meta.env.PRODUCT_TYPE,
+            licenseActive: ctx?.license?.active,
+            environmentType: ctx?.environmentType,
+            mockInactive: readMockLicenseInactive(),
+            flagEnabled: flagEnabled === true,
+          });
+        }).catch(() => { this.licenseNoticeActive = false; });
+      } catch {
+        this.licenseNoticeActive = false;
+      }
+    },
     trackRename(eventName, extra = {}) {
       const id = String(this.diagram?.id ?? '');
       trackAnalyticsEvent(eventName, {
@@ -2419,7 +2521,19 @@ export default {
       this.connectMcpOpenedAt = Date.now();
       trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics({
         mcp_button_reveal: this.connectMcpEffectiveReveal,
-        ...(where === 'header_more_menu' ? { action_location: where } : {}),
+        ...(where === 'header_more_menu' ? { action_location: where, mcp_button_placement: 'more_menu' } : {}),
+        ...(where === 'fullscreen_card' ? { mcp_button_placement: where } : {}),
+      }));
+    },
+    onMcpPromoCta(placement) {
+      this.mcpPromoHidden = true;
+      this.openConnectMcpDialog(placement);
+    },
+    onMcpPromoDismiss(placement) {
+      this.mcpPromoHidden = true;
+      this.mcpPromoState?.dismiss();
+      trackAnalyticsEvent('agent_link_mcp_promo_dismissed', this.connectMcpAnalytics({
+        mcp_button_placement: placement,
       }));
     },
     closeConnectMcpDialog() {
@@ -2430,6 +2544,10 @@ export default {
       }));
     },
     onConnectMcpCopied(target, ok) {
+      if (ok) {
+        this.mcpPromoState?.markEngaged();
+        this.mcpPromoHidden = true;
+      }
       trackAnalyticsEvent('agent_link_mcp_dialog_copied', this.connectMcpAnalytics({
         mcp_copy_target: target,
         outcome: ok ? 'copied' : 'clipboard_failed',
@@ -2963,6 +3081,14 @@ export default {
    the viewport; the flex chain lets .viewer-canvas absorb the extra space and
    center its (possibly short) diagram in it, without touching isWide's own
    width math above. */
+/* MCP promo corner card (Fullscreen): bottom-left over the canvas, below
+   dialogs (ConnectMcpDialog overlay is z-index 6). */
+.viewer-mcp-promo-card {
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 5;
+}
 .viewer-frame--fullscreen {
   min-height: 100vh;
   display: flex;
@@ -3379,7 +3505,7 @@ export default {
    affordance), the page navigation and a pressed Refined toggle stay visible
    at rest. Opacity only — a hidden control still takes focus, which reveals. */
 .viewer-top-actions > * { transition: opacity 200ms ease; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed) {
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed):not(.viewer-act-edit--pinned) {
   opacity: 0;
 }
 /* Inline order (prototype), in DOM order so Tab follows what is seen:
@@ -3770,6 +3896,14 @@ export default {
 }
 .viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
 .viewer-canvas .screen-capture-content.w-full { width: 100%; }
+/* License notice layering. The capture node is its own stacking context
+   (z-index 0), which would pin the zoom card (z-index 2, inside it) UNDER any
+   sibling overlay. Only while the notice is on: drop that context so the
+   watermark (z-index 1) sits above the diagram but below the zoom card and the
+   floating pills (z-index 5), and isolate the canvas so those still cannot
+   climb above the header (z-index 2, outside the canvas). */
+.viewer-canvas--license-notice { isolation: isolate; }
+.viewer-canvas--license-notice .screen-capture-content { z-index: auto; }
 /* Zero height: adds nothing to the canvas layout. Its width comes from the
    canvas (never from its children), which is what makes inline-size
    containment safe here — the inline frame is width:fit-content, so the

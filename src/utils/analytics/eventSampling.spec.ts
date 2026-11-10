@@ -65,6 +65,54 @@ describe("eventSampling", () => {
       }
     });
 
+    it("keeps the placement picker funnel at full rate", () => {
+      for (const name of ["placement_picker_opened", "placement_picker_dismissed", "diagram_added_to_page"]) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(1);
+      }
+    });
+
+    it("keeps the complete AI Chat and AI Repair event families at full rate", () => {
+      const names = [
+        "ai_chat_button_shown",
+        "ai_chat_opened",
+        "ai_chat_closed",
+        "ai_chat_suggestion_selected",
+        "ai_chat_prompt_submitted",
+        "ai_chat_no_change",
+        "ai_chat_change_applied",
+        "ai_chat_prompt_failed",
+        "ai_chat_prompt_cancelled",
+        "ai_chat_code_visibility_toggled",
+        "ai_chat_syntax_issue_shown",
+        "ai_chat_syntax_repair_requested",
+        "ai_chat_diff_toggled",
+        "ai_chat_history_opened",
+        "ai_chat_history_load_succeeded",
+        "ai_chat_history_load_failed",
+        "ai_chat_version_restore_requested",
+        "ai_chat_version_restored",
+        "ai_chat_change_undone",
+        "ai_chat_version_restore_failed",
+        "ai_repair_button_shown",
+        "ai_repair_requested",
+        "ai_repair_succeeded",
+        "ai_repair_failed",
+        "ai_repair_applied",
+        "ai_repair_dismissed",
+      ];
+
+      for (const name of names) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(1);
+        expect(sampleRateFor(name, after)).toBe(1);
+        expect(decideSample(name, () => { throw new Error("RNG must not run"); }, after))
+          .toEqual({ keep: true, rate: 1 });
+      }
+    });
+
     it("reduces only listed success/info events to one tenth of their existing arrival rate", () => {
       expect(sampleRateFor("copy_for_ai_clicked", october)).toBe(1);
       expect(sampleRateFor("copy_for_ai_menu_opened", october)).toBe(0.1);

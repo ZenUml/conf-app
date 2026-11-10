@@ -27,6 +27,14 @@ export type FeatureArea =
   // own area because, like "byline", it renders on any page — including pages
   // with no diagram — and measures announcement reach, not a macro lifecycle.
   | "whats_new"
+  // The title-first diagram offer: a flag on a page with no diagram, a preview
+  // modal, then one macro at the top of the page. Its own area because it runs
+  // on pages that carry no diagram yet and measures first contact.
+  | "title_draft"
+  // Full variant: the "no active license" watermark and upgrade strip in the
+  // viewer. Its own area because it measures a licensing notice, not a macro
+  // lifecycle step.
+  | "license_notice"
   // Reader-to-author discussion about one diagram, stored as Confluence page
   // footer comments (#1047). Comment text, authors and account ids are never
   // sent; only counts and closed vocabularies.
@@ -44,6 +52,16 @@ export type DiagramCommentFailureReason =
 /** Whether a posted comment starts a thread or answers one. */
 export type DiagramCommentThreadAction = "root" | "reply";
 
+/** What the draft lookup found for this page. */
+export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
+/** Why a title-draft Add did not place a new diagram. */
+export type TitleDraftAddFailure =
+  | "already_added"
+  | "forbidden"
+  | "conflict"
+  | "save_failed"
+  | "failed";
+
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 
@@ -55,6 +73,37 @@ export type MagicFailureReason =
   | "unsafe_svg"
   | "render_failed"
   | "source_changed";
+
+/**
+ * Where a failed DOM-to-PNG capture stopped (#1061). Carried as
+ * `capture_failure_stage` on the legacy `convert_to_png` events with
+ * `event_label` `toPng_failed` and `toPng_timeout`. Both keep their name and
+ * label, so existing dashboards still count them.
+ *
+ *   external_icons  the Graph icon proxy did not finish or failed
+ *   dom_to_svg      html-to-image could not serialise the node
+ *   inline_images   an `<image>` in the capture SVG could not be embedded
+ *   svg_load        the capture SVG would not load as an image
+ *   canvas          2d canvas unavailable
+ *   unknown         the failure carried no stage (any other rejection)
+ *
+ * Properties added to those two events (all bounded, none carry diagram text):
+ *   capture_failure_stage  one of the values above
+ *   capture_error          short text, URLs removed, at most 120 characters
+ *   macro_type             MacroTypeValue of the diagram; `none` when unknown
+ *   capture_node_width     capture node width in CSS px, when a node exists
+ *   capture_node_height    capture node height in CSS px, when a node exists
+ *   document_visibility    `document.visibilityState` at failure time
+ * A timeout never settled, so it has no stage: `capture_failure_stage` is
+ * `unknown` and the other fields are still sent.
+ */
+export type CaptureFailureStage =
+  | "external_icons"
+  | "dom_to_svg"
+  | "inline_images"
+  | "svg_load"
+  | "canvas"
+  | "unknown";
 
 export type MacroTypeValue =
   | "sequence"
@@ -124,6 +173,8 @@ export type Surface =
   // deliberately separate from `route`: it measures a support workflow, not
   // customer traffic to a Pages endpoint.
   | "support_automation"
+  // The MCP Apps view, in the host's frame (src/mcp-app-view.ts).
+  | "mcp_app_view"
   // The Fullscreen Connect rail (AgentLink/ConnectPanel.vue) — distinct from
   // the small-macro `viewer` surface that hosts the initial Connect button.
   | "fullscreen"
@@ -261,6 +312,9 @@ export type CacheSource = "none" | "cc_body" | "attachment" | "localstorage";
 // diagram, so the server drew it and received the source after all.
 // Rides on macro_viewed for macro_type=plantuml only; absent elsewhere.
 export type PlantUmlRenderer = "server" | "local" | "server_fallback";
+// The MCP Apps view's vocabulary for `plantuml_renderer`: it never asks the
+// server, so a diagram the engine cannot draw is `failed`, not `server_fallback`.
+export type McpViewPlantUmlRenderer = "local" | "failed";
 
 // Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
 // is NOT a failure: the engine draws it like the server did, and the existing
@@ -352,6 +406,8 @@ export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
 // `feedback` records the explicit start requested by the Feedback trigger.
+// `license_notice` records the explicit start requested when the Full
+// "No active license" notice is shown (license_notice_shown).
 // `timeout` means the Forge flag download did not settle within
 // SESSION_REPLAY_CONFIG_TIMEOUT_MS (#707) so replay was forced off; `off` is
 // reserved for "the flag/policy said off".
@@ -362,6 +418,7 @@ export type SessionReplayEventSource =
   | "plan_usage_page"
   | "fullscreen"
   | "feedback"
+  | "license_notice"
   | "timeout"
   | "off";
 
@@ -626,6 +683,14 @@ export type AnalyticsEventName =
   | "ai_title_dismissed"
   | "ai_title_accepted"
   | "ai_title_modified"
+  // A Graph with one short label takes that label as its title on request. The
+  // model is not called, so no ai_title_generation_* event fires.
+  | "ai_title_label_used"
+  // A stored title is model refusal text saved before PR #1053 (isSavedRefusalTitle
+  // in lib/aiTitleGuard.js). surface=viewer: the header shows "Untitled diagram"
+  // instead, once per title the viewer renders. surface=editor: the editor
+  // cleared it on open, so the next Publish saves a real title. macro_type set.
+  | "saved_refusal_title_hidden"
   // AI entry-point impressions. Fire on each hidden -> visible transition of
   // the editor button (not on component re-renders), with macro_type so the
   // denominator can be compared directly with the existing click/request
@@ -844,6 +909,21 @@ export type AnalyticsEventName =
   // A Board macro whose independent document is missing, empty or malformed.
   // GenericViewer's load_failed_shown cannot separate this from a 404.
   | "graph_board_document_invalid"
+  // Graph macro whose diagram uses icons from icons.diagrams.net. Forge's CSP
+  // refuses that host, so the viewer asks our backend for the icons as data
+  // URLs. Fires only for diagrams that have such icons. requested: the backend
+  // call starts (`external_icon_count`). succeeded: every icon was applied
+  // (`icon_resolved_count`, `duration_ms`). failed: at least one icon is missing
+  // (`error_code`: timeout, http_<status>, request_failed, bad_response,
+  // none_resolved, apply_failed, partial; partial also carries
+  // `icon_resolved_count`; none_resolved and partial carry the backend's
+  // `upstream_error_code`). A failed diagram still renders, without the
+  // missing icons, and PNG capture of it is refused. `surface` is `viewer` or
+  // `editor`; in the editor the load waits a bounded time for the call, then
+  // opens without the missing icons, and nothing gates capture.
+  | "graph_icon_proxy_requested"
+  | "graph_icon_proxy_succeeded"
+  | "graph_icon_proxy_failed"
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
@@ -1243,7 +1323,26 @@ export type AnalyticsEventName =
   //
   // A material 'forbidden' share means the banner is reaching the wrong
   // audience and the button should be gated rather than offered-then-refused.
+  //
+  // Since the placement picker it also says WHERE: `placement_position`,
+  // `placement_block_count` and `placement_default_kept`. A result of
+  // 'page_changed' means the page moved while the user was choosing and the
+  // spot they chose no longer exists, so nothing was written.
   | "diagram_added_to_page"
+  // The placement picker: the page drawn from its ADF, with a selectable gap
+  // between each top-level block. `result`:
+  //   'loaded'      — the page drew and the user can choose.
+  //   'load_failed' — the picker opened but could not read the page.
+  //   'open_failed' — the modal never opened. Fired by the surface that asked,
+  //                   because there is no picker iframe to report it.
+  // `surface` is the surface that opened the picker, not the modal itself.
+  | "placement_picker_opened"
+  // Left without choosing: Cancel or the modal's own close. Read against
+  // `placement_picker_opened` 'loaded' — together with `placement_default_kept`
+  // on `diagram_added_to_page`, this says whether the picker earns its extra
+  // click over the append it replaced. `dwell_ms` splits a mis-click from a
+  // real look at the page.
+  | "placement_picker_dismissed"
   // The macro that was just placed pulled the reloaded page to itself and
   // flashed a ring around the diagram. Fired by the MACRO, not by the surface
   // that placed it: the two are different iframes and only the macro knows it
@@ -1556,6 +1655,15 @@ export type AnalyticsEventName =
   // 2026-09-29 burst of eight failures could only be attributed by hand.
   | "agent_link_app_view_requested"
   | "agent_link_app_view_failed"
+  // What the MCP Apps view did with one tool result, reported by the view itself
+  // (POST /mcp/view-event), since only the host's frame knows: the server's
+  // `agent_link_mcp_tool_called` ends when the source is handed over. Carries
+  // `macro_type` and `render_outcome` (rendered | failed), and for PlantUML
+  // `plantuml_renderer` (local | failed; the view has no server fallback, ADR-0010
+  // step 7) and on failure `plantuml_failure_reason`. A syntax error the engine
+  // drew counts as rendered. Never carries the source, a title or any free text,
+  // and no user or site: the endpoint accepts these enums and nothing else.
+  | "agent_link_app_view_rendered"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the
   // only way to tell "the host never offered MCP Apps" apart from "it offered
   // them and did not render" — the view-fetch events cover the second case
@@ -1621,6 +1729,16 @@ export type AnalyticsEventName =
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
+  // MCP promo surfaces (2026-11). Besides the toolbar/More-menu entry, the
+  // dialog is promoted by a dismissible card in Fullscreen
+  // (`mcp_button_placement: 'fullscreen_card'`), a card for a new, untouched
+  // diagram in the macro editor ('editor_new_diagram'), and a tip docked in
+  // the editor's code pane after sustained manual typing ('editor_tip').
+  // Each placement fires agent_link_mcp_button_shown (deduped per placement
+  // per viewer per UTC day) and its opens carry the same placement.
+  // dismissed = the promo's × was clicked; it carries `mcp_button_placement`
+  // and the promo is not shown again on any surface for that viewer.
+  | "agent_link_mcp_promo_dismissed"
   // AA — headless MCP tool usage. Backend-emitted (oauth/headlessMcp.ts),
   // like the W/X/Y blocks above. `_tool_called` fires once per authenticated
   // `tools/call`, for EVERY tool — reads included, which nothing else counts
@@ -1629,7 +1747,9 @@ export type AnalyticsEventName =
   // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
   // for list_sites / get_status, which take none), how the call ended in
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
-  // and server-side latency in `duration_ms`. The write events stay
+  // why the guard refused in `guardrail_reason`, the host in `oauth_client_id` /
+  // `oauth_client_name`, the site in `client_domain`, and server-side latency in
+  // `duration_ms`. The write events stay
   // separate: they carry write-specific properties (paywall_gate, result) this
   // one does not, and the same `cloud_id`. `_initialized` fires on each `initialize` handshake and carries
   // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
@@ -1646,7 +1766,9 @@ export type AnalyticsEventName =
   // `diagramType` is optional and inferred from the source when omitted. No user or site exists on this path. A call refused
   // by the per-address limit is `mcp_tool_outcome: 'rate_limited'`; when the
   // limiter could not decide (D1 missing or failing) and let the call through,
-  // `reason: 'rate_limit_unavailable'` rides the successful call.
+  // `reason: 'rate_limit_unavailable'` rides the successful call. Our own smoke
+  // checks identify themselves with the `x-zenuml-internal-probe` header and
+  // carry `internal_probe: true`.
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -1655,6 +1777,17 @@ export type AnalyticsEventName =
   | "activation_diagram_edited"
   | "activation_completed"
   | "activation_nudge_dismissed"
+  // Title-first offer. `requested` is the draft lookup; the rest follow the flag.
+  | "title_draft_requested"
+  | "title_draft_flag_shown"
+  | "title_draft_not_now"
+  | "title_draft_preview_opened"
+  | "title_draft_preview_closed"
+  | "title_draft_added"
+  | "title_draft_add_failed"
+  | "title_draft_undone"
+  | "title_draft_undo_failed"
+  | "title_draft_edit_clicked"
   // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
   // for diagram creation is at the macro editor, before the user has typed
   // anything — the gallery replaces the old external "Examples" link
@@ -1698,6 +1831,18 @@ export type AnalyticsEventName =
   // denominator; `clicked` is the accept action.
   | "macro_second_diagram_prompt_shown"
   | "macro_second_diagram_prompt_clicked"
+  // Full variant, license explicitly inactive, flag on: the viewer's
+  // watermark + upgrade strip. `shown` fires once per viewer mount when the
+  // notice becomes visible (the denominator); `upgrade_clicked` is the
+  // Marketplace button; `ticket_clicked` is the support fallback for a site
+  // that cannot upgrade; `email_copied` is the click on the support address,
+  // which copies it (mailto does nothing in the Forge sandbox). Properties:
+  // feature_area 'license_notice', surface ('viewer' | 'fullscreen'),
+  // macro_type.
+  | "license_notice_shown"
+  | "license_notice_upgrade_clicked"
+  | "license_notice_ticket_clicked"
+  | "license_notice_email_copied"
   // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
   // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
   // the detection rule). `shown` is the denominator, fired once per becoming-
@@ -1918,7 +2063,17 @@ export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
 // page card (confluence:homepageFeed), which has no diagram to name. Home-page
 // rows carry it on agent_link_mcp_dialog_opened/_copied/_closed; the card's
 // denominator is homepage_feed_viewed, not agent_link_mcp_button_shown.
-export type AgentLinkMcpButtonPlacement = "toolbar" | "more_menu" | "homepage_feed";
+// The MCP promo surfaces add 'fullscreen_card' (dismissible card in the
+// Fullscreen viewer), 'editor_new_diagram' (card over a new, untouched
+// diagram in the macro editor) and 'editor_tip' (tip in the editor's code
+// pane after sustained manual typing).
+export type AgentLinkMcpButtonPlacement =
+  | "toolbar"
+  | "more_menu"
+  | "homepage_feed"
+  | "fullscreen_card"
+  | "editor_new_diagram"
+  | "editor_tip";
 
 // How the button showed: 'hover' = only on hover or focus, like the other
 // inline header actions; 'always' = visible at rest (Fullscreen headers).

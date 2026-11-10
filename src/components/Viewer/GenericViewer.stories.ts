@@ -607,6 +607,31 @@ export const Default: Story = {
   },
 }
 
+/**
+ * A title saved before PR #1053 can be model refusal text. The header shows
+ * "Untitled diagram" instead; the stored title is not changed.
+ */
+export const SavedRefusalTitle: Story = {
+  name: 'Saved refusal title — shows Untitled diagram',
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Please provide the DSL that describes your flowchart and I will suggest a tit',
+        mermaidCode: SAMPLE_MERMAID,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+  play: async () => {
+    // The title is visible without hover, so no revealHeader().
+    const canvas = within(document.body)
+    await waitFor(() => expect(document.querySelector('.viewer-title')?.textContent?.trim()).toBe('Untitled diagram'))
+    await expect(canvas.queryByText(/Please provide the DSL/)).toBeNull()
+  },
+}
+
 // ---------------------------------------------------------------------------
 // 1b. TitleRename — click-to-rename title (no editor modal)
 // ---------------------------------------------------------------------------
@@ -1766,5 +1791,37 @@ export const HeaderSequenceEditorPreview: Story = {
     await expect(await canvas.findByRole('toolbar', { name: 'Sequence zoom controls' })).toBeVisible()
     expect(canvas.getAllByRole('button', { name: /Zoom in|Zoom out/ })).toHaveLength(2)
     expect(canvas.queryByRole('button', { name: 'Fit width' })).toBeNull()
+  },
+}
+
+// ---------------------------------------------------------------------------
+// MCP promo surfaces (2026-11, Figma "ZenUML – MCP promo mockups")
+// ---------------------------------------------------------------------------
+
+/** Forget any promo dismissal / NEW-seen state left by an earlier story. */
+function resetMcpPromoStorage() {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith('zenuml.mcpPromo') || key.startsWith('zenuml.mcpMenuNewSeen') || key.startsWith('zenuml.connectMcpShown')) {
+      localStorage.removeItem(key)
+    }
+  }
+  sessionStorage.removeItem('zenuml.mcpPromo.session')
+}
+
+/** Fullscreen: header button unchanged, plus the dismissible bottom-left promo card. */
+export const McpPromoFullscreenCard: Story = {
+  name: 'MCP promo — fullscreen corner card',
+  parameters: { layout: 'fullscreen' },
+  decorators: [() => {
+    resetMcpPromoStorage()
+    configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE, fullscreenMode: true, agentLinkEnabled: true })
+    return { template: '<story />' }
+  }],
+  render: () => renderZenUmlFullscreenViewer(),
+  play: async () => {
+    const canvas = within(document.body)
+    const card = await canvas.findByTestId('mcp-promo-card')
+    await expect(card).toHaveTextContent('Draw diagrams from your AI tools')
+    await expect(canvas.getByTestId('connect-mcp-btn')).toBeInTheDocument()
   },
 }

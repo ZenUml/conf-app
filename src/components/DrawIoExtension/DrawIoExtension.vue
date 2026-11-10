@@ -56,7 +56,7 @@ export default defineComponent({
     const {
       aiTitleEnabled, isGeneratingTitle, isAnimating, displayedTitle,
       showSpark, sparkFadingOut, showDismiss, autoNameAnimationDone,
-      generate, dismiss, markManualEdit, onTitleCleared, reset,
+      generate, dismiss, markManualEdit, onTitleCleared, clearSavedRefusalTitle, reset,
     } = useAutoTitle();
 
     // Single source of truth for the graph title is the Vuex store. Because the
@@ -166,6 +166,7 @@ export default defineComponent({
 
     onMounted(() => {
       reset(); // clear any per-document state left over from a previous editor session
+      clearSavedRefusalTitle("graph");
       window.ensureTitle = ensureTitle;
       // Existing untitled graphs already have labelled content at mount, so the
       // graphCode watcher won't fire on its own — kick off an initial attempt.

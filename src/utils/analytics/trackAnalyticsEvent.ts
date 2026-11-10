@@ -6,7 +6,7 @@ import {
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
-import type { AnalyticsEventName } from "./catalog";
+import type { AnalyticsEventName, SessionReplayEventSource } from "./catalog";
 import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
@@ -119,14 +119,30 @@ function _shouldRecordAuthoring(): boolean {
     : AUTHORING_REPLAY_RATE);
 }
 
+// Events that always start a recording, whatever the baseline cohort decided.
+//
+// `license_notice_shown`: the Full "No active license" notice is new and goes
+// only to sites without a license (a handful, gated by the
+// `no-license-notice-enabled` Forge flag), so every such session is worth
+// watching while we learn how users react to it. Hardcoded rather than a new
+// Forge flag: the notice flag already scopes who sees it, and a second flag
+// would have to be kept in step with it by hand.
+const FORCED_REPLAY_SOURCES: Partial<
+  Record<AnalyticsEventName, SessionReplayEventSource>
+> = {
+  feedback_report_opened: "feedback",
+  license_notice_shown: "license_notice",
+};
+
 function _startExplicitReplay(
   eventName: AnalyticsEventName
 ): Partial<ExplicitReplayProperties> {
-  if (eventName === "feedback_report_opened") {
+  const forcedSource = FORCED_REPLAY_SOURCES[eventName];
+  if (forcedSource) {
     try {
       mixpanel.start_session_recording();
       const replayProperties: ExplicitReplayProperties = {
-        session_replay_source: "feedback",
+        session_replay_source: forcedSource,
         session_replay_percent: 100,
         session_replay_start_call_outcome: "returned",
       };
@@ -137,7 +153,7 @@ function _startExplicitReplay(
       return replayProperties;
     } catch (error) {
       console.error(
-        "[session-replay] feedback start call threw",
+        `[session-replay] ${forcedSource} start call threw`,
         error instanceof Error ? error.name : "unknown"
       );
       return { session_replay_start_call_outcome: "threw" };

@@ -5,6 +5,7 @@ import {
   markNotNow,
   isNotNow,
   recordLookup,
+  PENDING_RECHECK_MS,
   isLookupFresh,
   canShowEntryFlag,
   markEntryFlagShown,
@@ -50,6 +51,23 @@ describe('title draft local state', () => {
     expect(isLookupFresh(A, 'p1', NOW + 24 * HOUR - 1)).toBe(true)
     expect(isLookupFresh(A, 'p1', NOW + 24 * HOUR)).toBe(false)
     expect(isLookupFresh(A, 'p2', NOW)).toBe(false)
+  })
+
+  it('a pending lookup is fresh for 1 hour only', () => {
+    recordLookup(A, 'p1', NOW, PENDING_RECHECK_MS)
+    expect(isLookupFresh(A, 'p1', NOW + HOUR - 1)).toBe(true)
+    expect(isLookupFresh(A, 'p1', NOW + HOUR)).toBe(false)
+  })
+
+  it('a plain timestamp (stored by older code) still means 24 hours', () => {
+    localStorage.setItem('titleDraft:lookup:example-tenant:acc-1:p1', String(NOW))
+    expect(isLookupFresh(A, 'p1', NOW + 24 * HOUR - 1)).toBe(true)
+    expect(isLookupFresh(A, 'p1', NOW + 24 * HOUR)).toBe(false)
+  })
+
+  it('a malformed stored lookup is not fresh', () => {
+    localStorage.setItem('titleDraft:lookup:example-tenant:acc-1:p1', 'abc+def')
+    expect(isLookupFresh(A, 'p1', NOW)).toBe(false)
   })
 
   it('shows at most one entry flag per person per site per 24 hours', () => {

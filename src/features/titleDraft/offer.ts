@@ -18,6 +18,7 @@ import {
   isNotNow,
   markEntryFlagShown,
   markNotNow,
+  PENDING_RECHECK_MS,
   recordLookup,
   takeJustAdded,
   writeJustAdded,
@@ -106,7 +107,8 @@ async function findDraft(identity: TitleDraftIdentity, pageId: string): Promise<
     trackAnalyticsEvent('title_draft_requested', { ...titleDraftProps(), title_draft_status: status })
   }
   if (status !== 'ready' || typeof result?.mermaid !== 'string' || !result.mermaid) {
-    recordLookup(identity, pageId)
+    if (status === 'pending') recordLookup(identity, pageId, Date.now(), PENDING_RECHECK_MS)
+    else recordLookup(identity, pageId)
     return null
   }
   return { pageId, pageTitle, mermaid: result.mermaid, kind: result.kind, confidence: result.confidence }

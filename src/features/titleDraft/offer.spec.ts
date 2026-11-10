@@ -110,6 +110,29 @@ describe('maybeOfferTitleDraft gates', () => {
     expect(m.requestConfluenceJson).not.toHaveBeenCalled()
   })
 
+  it('status pending: the backend is asked again after 1 hour', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.parse('2026-11-08T00:00:00Z'))
+    m.callRemote.mockResolvedValue({ status: 'pending' })
+    await maybeOfferTitleDraft('lite')
+    vi.setSystemTime(Date.parse('2026-11-08T00:59:00Z'))
+    await maybeOfferTitleDraft('lite')
+    expect(m.callRemote).toHaveBeenCalledTimes(1)
+    vi.setSystemTime(Date.parse('2026-11-08T01:00:00Z'))
+    await maybeOfferTitleDraft('lite')
+    expect(m.callRemote).toHaveBeenCalledTimes(2)
+  })
+
+  it('status no_diagram: still skipped 1 hour later', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.parse('2026-11-08T00:00:00Z'))
+    m.callRemote.mockResolvedValue({ status: 'no_diagram' })
+    await maybeOfferTitleDraft('lite')
+    vi.setSystemTime(Date.parse('2026-11-08T01:00:00Z'))
+    await maybeOfferTitleDraft('lite')
+    expect(m.callRemote).toHaveBeenCalledTimes(1)
+  })
+
   it.each(['pending', 'no_diagram'])('status %s: no flag, and a second call the same day skips the backend', async (status) => {
     m.callRemote.mockResolvedValue({ status })
     expect(await maybeOfferTitleDraft('lite')).toBe(false)

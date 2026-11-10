@@ -1741,6 +1741,8 @@ export type AnalyticsEventName =
   | "activation_completed"
   | "activation_nudge_dismissed"
   // Title-first offer. `requested` is the draft lookup; the rest follow the flag.
+  // `requested` is sent at 100% for `ready` and at 10% with `sample_rate` for
+  // `pending` / `no_diagram` (TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE).
   | "title_draft_requested"
   | "title_draft_flag_shown"
   | "title_draft_not_now"

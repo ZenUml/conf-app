@@ -177,5 +177,52 @@ class RadarGracePeriod(unittest.TestCase):
         self.assertEqual(r["in_grace"]["count"], 0)
 
 
+class KvAuth(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.orig = mp_report.subprocess.run
+
+    def tearDown(self):
+        mp_report.subprocess.run = self.orig
+
+    def script(self, results):
+        pending = list(results)
+
+        def run(cmd, **kwargs):
+            self.calls.append(cmd)
+            return pending.pop(0)
+
+        mp_report.subprocess.run = run
+
+    def test_401_then_success_retries_once(self):
+        self.script([
+            subprocess_result(1, "", "Authentication error [code: 10000]"),
+            subprocess_result(0, "[]\n", ""),
+        ])
+        self.assertEqual(mp_report._kv_run("key", "list", "--prefix", "license:x:"), "[]\n")
+        self.assertEqual(len(self.calls), 2)
+
+    def test_second_401_raises_the_login_fix(self):
+        self.script([
+            subprocess_result(1, "", "✘ [ERROR] Authentication error [code: 10000]"),
+            subprocess_result(1, "", "Unauthorized 401"),
+        ])
+        with self.assertRaises(mp_report.KvAuthError) as caught:
+            mp_report._kv_run("key", "list", "--prefix", "license:x:")
+        self.assertEqual(str(caught.exception), "npx wrangler login")
+        self.assertEqual(len(self.calls), 2)
+
+    def test_non_auth_failure_does_not_retry(self):
+        self.script([subprocess_result(1, "", "network down")])
+        with self.assertRaises(RuntimeError) as caught:
+            mp_report._kv_run("key", "list")
+        self.assertNotIsInstance(caught.exception, mp_report.KvAuthError)
+        self.assertEqual(len(self.calls), 1)
+
+
+def subprocess_result(code, stdout, stderr):
+    return type("R", (), {"returncode": code, "stdout": stdout, "stderr": stderr})()
+
+
 if __name__ == "__main__":
     unittest.main()

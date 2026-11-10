@@ -37,10 +37,11 @@ with its date; do not substitute a usage metric.
 ## What the card encodes (the traps baked in)
 
 - **Purchase and settlement are independent.** Inspect raw transactions alongside the license. The current `whois` helper can label positive transaction amounts `PAID` without checking `paymentStatus`; its `PAID`, `paying` and lifetime totals are not independent payment confirmation. Verify raw Paid/Fully paid/Open status, source IDs and service periods in the Marketplace export/snapshot. A valid commercial order with Open status establishes purchase, while settlement stays unconfirmed. Do not describe that customer as unpaid or without an order.
-- **Lite → Layer B auto-checked.** Lite is free on the Marketplace (`$0` by design); real Lite paid
-  status lives in the **Stripe/KV space-license** layer. `whois` shells `wrangler kv … --remote`
+- **Lite space licenses are checked automatically.** Lite is free on the Marketplace (`$0` by design);
+  paid Lite status is the Stripe/KV space license. `whois` shells `wrangler kv … --remote`
   (the `--remote` is baked in — without it wrangler v4 reads LOCAL state and returns a false empty)
-  and prints `[Layer B: none / N space-licenses]`. `--no-kv` skips it (~2s).
+  and prints `[space licenses: none / N]`. `--no-kv` skips it (~2s). On 401 the card prints
+  `FIX: npx wrangler login`. That is an unread check, not an unpaid tenant.
 - **cloudId is the join key.** Transactions carry `cloudId` + company but NO hostname, so a text
   search by hostname finds the license yet misses every transaction → a false `$0`. `whois` joins on
   cloudId; do not hand-roll a text search.

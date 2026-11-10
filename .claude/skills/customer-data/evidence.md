@@ -4,7 +4,7 @@ Used by all three customer skills. This directory is shared data/reference, not 
 
 ## Product and identity scope
 
-Read `products.json`. Customer screening spans all five entries. The new-customers `all` and the standard local Marketplace sync cover the four conf-app entries; Marketplace live `all` is vendor-wide and may cover more. Query Mini Sites explicitly using its registered Marketplace key and its own telemetry; do not silently omit it or substitute conf-app usage. `forge-installs all` reports the four registered Forge IDs plus Mini Sites as unsupported until its ID is verified. Never equate different tools' `all` switches.
+Read `products.json`. The registry includes seven products. `new-customers --live --app all` reads licenses only for all seven entries marked `recent_customer_scan`; its legacy snapshot mode and the standard local Marketplace sync still cover only the four conf-app entries. Marketplace live `all` is vendor-wide and may cover more. Use each product's registered key and its own telemetry; do not substitute conf-app usage for Mini Sites, AWS Widgets or Whiteboard. `forge-installs all` reports registered Forge IDs and explicitly marks products without verified Forge identities as unsupported. Never equate different tools' `all` switches.
 
 Join site facts with verified cloudId/domain mapping and product identity. Deduplicate transactions by their source identifiers and aggregate by site + product, not site alone. A company can own multiple sites; a site can have Full and Lite installed simultaneously. Split version use first; combined unique-account totals require cross-version deduplication.
 

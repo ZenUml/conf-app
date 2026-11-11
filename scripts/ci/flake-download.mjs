@@ -12,25 +12,32 @@ const execFileAsync = promisify(execFile);
 export async function downloadReports(runIds, { list, save, warn = console.warn, concurrency = 4, root = 'blobs' }) {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new Error('Invalid concurrency');
   if (!Array.isArray(runIds) || runIds.some(id => !Number.isSafeInteger(id) || id <= 0) || new Set(runIds).size !== runIds.length) throw new Error('Invalid or duplicate run ID');
-  let next = 0, downloaded = 0, failed = 0;
+  let next = 0, downloaded = 0, failed = 0, aborted = false;
   const worker = async () => {
-    while (next < runIds.length) {
-      const run = runIds[next++];
-      const artifacts = await list(run);
-      if (!Array.isArray(artifacts)) throw new Error(`Invalid artifact inventory for run ${run}`);
-      const names = new Set();
-      for (const item of artifacts) {
-        if (typeof item?.name !== 'string') throw new Error(`Invalid artifact inventory for run ${run}`);
-        if (!item.name.startsWith('blob-report-') || item.expired) continue;
-        if (!Number.isSafeInteger(item.id) || item.id <= 0 || /[\\/\0]/.test(item.name) || item.name.includes('..') || names.has(item.name)) throw new Error(`Invalid or duplicate artifact name for run ${run}`);
-        names.add(item.name);
-        const suite = item.name.slice('blob-report-'.length).replace(/-shard-.*$/, '');
-        if (!suite) throw new Error(`Invalid artifact name for run ${run}`);
-        const path = join(root, String(run), suite, `${item.name}.zip`);
-        try { await save(item.id, path); downloaded++; }
-        catch (error) { failed++; warn(`could not download artifact ${item.id} (${item.name}) of run ${run}: ${error.message}`); }
+    try {
+      while (!aborted && next < runIds.length) {
+        const run = runIds[next++];
+        const artifacts = await list(run);
+        if (!Array.isArray(artifacts)) throw new Error(`Invalid artifact inventory for run ${run}`);
+        const names = new Set();
+        for (const item of artifacts) {
+          if (aborted) break;
+          if (typeof item?.name !== 'string') throw new Error(`Invalid artifact inventory for run ${run}`);
+          if (!item.name.startsWith('blob-report-') || item.expired) continue;
+          if (!Number.isSafeInteger(item.id) || item.id <= 0 || /[\\/\0]/.test(item.name) || item.name.includes('..') || names.has(item.name)) throw new Error(`Invalid or duplicate artifact name for run ${run}`);
+          names.add(item.name);
+          const suite = item.name.slice('blob-report-'.length).replace(/-shard-.*$/, '');
+          if (!suite) throw new Error(`Invalid artifact name for run ${run}`);
+          const path = join(root, String(run), suite, `${item.name}.zip`);
+          try { await save(item.id, path); downloaded++; }
+          catch (error) {
+            // Stop rather than hammer GitHub after an authorization or rate-limit response.
+            if (/rate limit|HTTP (?:403|429)/i.test(String(error.message))) throw error;
+            failed++; warn(`could not download artifact ${item.id} (${item.name}) of run ${run}: ${error.message}`);
+          }
+        }
       }
-    }
+    } catch (error) { aborted = true; throw error; }
   };
   const results = await Promise.allSettled(Array.from({ length: Math.min(concurrency, runIds.length) }, worker));
   const error = results.find(result => result.status === 'rejected');

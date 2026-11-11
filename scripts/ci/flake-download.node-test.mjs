@@ -57,3 +57,32 @@ test('CLI lists paginated artifacts and writes the downloaded bytes', async () =
     assert.throws(() => readFileSync(join(dir, 'blobs/123/lite/blob-report-lite-shard-2.zip')), /ENOENT/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('stops scheduling downloads when GitHub reports rate limiting', async () => {
+  const attempted = [];
+  await assert.rejects(downloadReports([1, 2], {
+    concurrency: 1,
+    list: async run => [artifact(run * 10, 'blob-report-a-shard-1'), artifact(run * 10 + 1, 'blob-report-a-shard-2')],
+    save: async id => { attempted.push(id); throw new Error('API rate limit exceeded (HTTP 403)'); },
+  }), /rate limit/i);
+  assert.deepEqual(attempted, [10]);
+});
+
+test('other workers finish in-flight downloads but do not start more after a limit', async () => {
+  const listed = [], attempted = [];
+  let release;
+  const bothStarted = new Promise(resolve => { release = resolve; });
+  await assert.rejects(downloadReports([1, 2, 3], {
+    concurrency: 2,
+    list: async run => { listed.push(run); return [artifact(run * 10, 'blob-report-a-shard-1')]; },
+    save: async id => {
+      attempted.push(id);
+      if (attempted.length === 2) release();
+      await bothStarted;
+      if (id === 10) throw new Error('HTTP 429');
+      await new Promise(resolve => setTimeout(resolve, 5));
+    },
+  }), /429/);
+  assert.deepEqual(listed, [1, 2]);
+  assert.deepEqual(attempted.sort((a, b) => a - b), [10, 20]);
+});

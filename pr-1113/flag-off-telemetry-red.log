@@ -1,0 +1,156 @@
+▲ [WARNING] Duplicate key "link:environment" in object literal [duplicate-object-key]
+
+    package.json:45:4:
+      45 │     "link:environment": "node scripts/worktree.mjs link-environment",
+         ╵     ~~~~~~~~~~~~~~~~~~
+
+  The original key "link:environment" is here:
+
+    package.json:9:4:
+      9 │     "link:environment": "node scripts/ci/worktree.mjs link-environm...
+        ╵     ~~~~~~~~~~~~~~~~~~
+
+▲ [WARNING] Duplicate key "worktree:clean" in object literal [duplicate-object-key]
+
+    package.json:46:4:
+      46 │     "worktree:clean": "node scripts/worktree.mjs check",
+         ╵     ~~~~~~~~~~~~~~~~
+
+  The original key "worktree:clean" is here:
+
+    package.json:10:4:
+      10 │     "worktree:clean": "node scripts/ci/worktree.mjs clean-check",
+         ╵     ~~~~~~~~~~~~~~~~
+
+▲ [WARNING] Duplicate key "clean" in object literal [duplicate-object-key]
+
+    package.json:47:4:
+      47 │     "clean": "node scripts/worktree.mjs clean",
+         ╵     ~~~~~~~
+
+  The original key "clean" is here:
+
+    package.json:11:4:
+      11 │     "clean": "node scripts/ci/worktree.mjs clean",
+         ╵     ~~~~~~~
+
+test
+Building v2026.11.101914-full (e3227901) on codex/license-notice-legacy-free
+
+ RUN  v2.1.9 <checkout>
+
+[@vue/compiler-sfc] `defineProps` is a compiler macro and no longer needs to be imported.
+
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+stderr | src/components/Viewer/GenericViewer.spec.ts > GenericViewer license notice (Full, license inactive) > renders neither part when the flag is off
+[csat] failed to read csatPending Error: [vitest] No "getLocalStorageKey" export is defined on the "@/utils/window" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file://<checkout>/node_modules/.pnpm/vitest@2.1.9_@types+node@25.0.3_jsdom@23.2.0_lightningcss@1.32.0_terser@5.51.2/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file://<checkout>/node_modules/.pnpm/vitest@2.1.9_@types+node@25.0.3_jsdom@23.2.0_lightningcss@1.32.0_terser@5.51.2/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at pendingKey (<checkout>/src/utils/csat.ts:22:10)
+    at Module.isCsatPendingFresh (<checkout>/src/utils/csat.ts:45:38)
+    at <checkout>/src/components/Debug/DebugBar.vue:113:21
+    at processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  codeFrame: 'vi.mock(import("@/utils/window"), async (importOriginal) => {\n' +
+    '  const actual = await importOriginal()\n' +
+    '  return {\n' +
+    '    ...actual,\n' +
+    '    // your mocked methods\n' +
+    '  }\n' +
+    '})'
+}
+
+ ❯ src/components/Viewer/GenericViewer.spec.ts (263 tests | 1 failed | 262 skipped) 132ms
+   × GenericViewer license notice (Full, license inactive) > renders neither part when the flag is off 130ms
+     → expected "spy" to not be called with arguments: [ Array(2) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "license_notice_evaluated",
+-   Anything,
++   Object {
++     "feature_area": "license_notice",
++     "license_notice_outcome": "disabled",
++     "macro_type": "sequence",
++     "surface": "viewer",
++   },
+  ]
+
+  2nd spy call:
+
+  Array [
+-   "license_notice_evaluated",
+-   Anything,
++   "copy_for_ai_impression",
++   Object {
++     "feature_area": "macro",
++     "has_edit_permission": true,
++     "instance_nonce": "cb168c26-0612-478c-af64-bcaecda85117",
++     "macro_type": "sequence",
++     "surface": "viewer",
++   },
+  ]
+
+
+Number of calls: 2
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/Viewer/GenericViewer.spec.ts > GenericViewer license notice (Full, license inactive) > renders neither part when the flag is off
+AssertionError: expected "spy" to not be called with arguments: [ Array(2) ]
+
+Received: 
+
+  1st spy call:
+
+  Array [
+    "license_notice_evaluated",
+-   Anything,
++   Object {
++     "feature_area": "license_notice",
++     "license_notice_outcome": "disabled",
++     "macro_type": "sequence",
++     "surface": "viewer",
++   },
+  ]
+
+  2nd spy call:
+
+  Array [
+-   "license_notice_evaluated",
+-   Anything,
++   "copy_for_ai_impression",
++   Object {
++     "feature_area": "macro",
++     "has_edit_permission": true,
++     "instance_nonce": "cb168c26-0612-478c-af64-bcaecda85117",
++     "macro_type": "sequence",
++     "surface": "viewer",
++   },
+  ]
+
+
+Number of calls: 2
+
+ ❯ src/components/Viewer/GenericViewer.spec.ts:4099:37
+    4097|     expect(wrapper.find('[data-testid="license-watermark"]').exists())…
+    4098|     expect(wrapper.find('[data-testid="license-notice-strip"]').exists…
+    4099|     expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('license_noti…
+       |                                     ^
+    4100|     wrapper.unmount()
+    4101|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 262 skipped (263)
+   Start at  21:09:22
+   Duration  5.76s (transform 3.37s, setup 21ms, collect 4.33s, tests 132ms, environment 758ms, prepare 159ms)
+

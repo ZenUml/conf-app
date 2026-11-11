@@ -1,0 +1,49 @@
+▲ [WARNING] Duplicate key "link:environment" in object literal [duplicate-object-key]
+
+    package.json:45:4:
+      45 │     "link:environment": "node scripts/worktree.mjs link-environment",
+         ╵     ~~~~~~~~~~~~~~~~~~
+
+  The original key "link:environment" is here:
+
+    package.json:9:4:
+      9 │     "link:environment": "node scripts/ci/worktree.mjs link-environm...
+        ╵     ~~~~~~~~~~~~~~~~~~
+
+▲ [WARNING] Duplicate key "worktree:clean" in object literal [duplicate-object-key]
+
+    package.json:46:4:
+      46 │     "worktree:clean": "node scripts/worktree.mjs check",
+         ╵     ~~~~~~~~~~~~~~~~
+
+  The original key "worktree:clean" is here:
+
+    package.json:10:4:
+      10 │     "worktree:clean": "node scripts/ci/worktree.mjs clean-check",
+         ╵     ~~~~~~~~~~~~~~~~
+
+▲ [WARNING] Duplicate key "clean" in object literal [duplicate-object-key]
+
+    package.json:47:4:
+      47 │     "clean": "node scripts/worktree.mjs clean",
+         ╵     ~~~~~~~
+
+  The original key "clean" is here:
+
+    package.json:11:4:
+      11 │     "clean": "node scripts/ci/worktree.mjs clean",
+         ╵     ~~~~~~~
+
+test
+Building v2026.11.101914-full (2a83570d) on codex/license-notice-legacy-free
+
+ RUN  v2.1.9 <checkout>
+
+ ✓ functions/agent-link/renderMcp.spec.ts (29 tests) 889ms
+   ✓ POST /mcp/render > normalises the type name, so "Mermaid" is drawn as mermaid 668ms
+
+ Test Files  1 passed (1)
+      Tests  29 passed (29)
+   Start at  21:08:35
+   Duration  2.12s (transform 110ms, setup 34ms, collect 105ms, tests 889ms, environment 531ms, prepare 48ms)
+

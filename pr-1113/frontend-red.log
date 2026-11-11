@@ -1,0 +1,150 @@
+▲ [WARNING] Duplicate key "link:environment" in object literal [duplicate-object-key]
+
+    package.json:45:4:
+      45 │     "link:environment": "node scripts/worktree.mjs link-environment",
+         ╵     ~~~~~~~~~~~~~~~~~~
+
+  The original key "link:environment" is here:
+
+    package.json:9:4:
+      9 │     "link:environment": "node scripts/ci/worktree.mjs link-environm...
+        ╵     ~~~~~~~~~~~~~~~~~~
+
+▲ [WARNING] Duplicate key "worktree:clean" in object literal [duplicate-object-key]
+
+    package.json:46:4:
+      46 │     "worktree:clean": "node scripts/worktree.mjs check",
+         ╵     ~~~~~~~~~~~~~~~~
+
+  The original key "worktree:clean" is here:
+
+    package.json:10:4:
+      10 │     "worktree:clean": "node scripts/ci/worktree.mjs clean-check",
+         ╵     ~~~~~~~~~~~~~~~~
+
+▲ [WARNING] Duplicate key "clean" in object literal [duplicate-object-key]
+
+    package.json:47:4:
+      47 │     "clean": "node scripts/worktree.mjs clean",
+         ╵     ~~~~~~~
+
+  The original key "clean" is here:
+
+    package.json:11:4:
+      11 │     "clean": "node scripts/ci/worktree.mjs clean",
+         ╵     ~~~~~~~
+
+test
+Building v2026.11.101914-full (ba6a3d84) on codex/license-notice-legacy-free
+
+ RUN  v2.1.9 <checkout>
+
+ ❯ src/features/licenseNotice/licenseNoticeEvidence.spec.ts (7 tests | 7 failed) 5ms
+   × license notice evidence > recognizes an explicit Forge Legacy Free type without assuming missing licenses are invalid 3ms
+     → expected false to be true // Object.is equality
+   × license notice evidence > an active license wins over every Legacy Free signal in production 0ms
+     → licenseNoticeBasis is not a function
+   × license notice evidence > accepts only fresh positive backend evidence for an otherwise unknown license 0ms
+     → licenseNoticeBasis is not a function
+   × license notice evidence > does not query a backend when active, explicitly inactive, disabled or non-Full 0ms
+     → resolveLicenseNotice is not a function
+   × license notice evidence > uses authenticated evidence only for the missing-license path 0ms
+     → resolveLicenseNotice is not a function
+   × license notice evidence > a lookup failure stays unavailable and hides the notice 0ms
+     → resolveLicenseNotice is not a function
+   × license notice evidence > does not turn malformed license-active values into no license 0ms
+     → resolveLicenseNotice is not a function
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/licenseNotice/licenseNoticeEvidence.spec.ts > license notice evidence > recognizes an explicit Forge Legacy Free type without assuming missing licenses are invalid
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/features/licenseNotice/licenseNoticeEvidence.spec.ts:10:85
+      8| describe('license notice evidence', () => {
+      9|   it('recognizes an explicit Forge Legacy Free type without assuming m…
+     10|     expect(shouldShowLicenseNotice({ ...base, licenseType: 'LEGACY_FRE…
+       |                                                                                     ^
+     11|     expect(licenseNoticeBasis({ ...base, licenseType: 'LEGACY_FREE' })…
+     12|     expect(licenseNoticeBasis(base)).toBeNull()
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  src/features/licenseNotice/licenseNoticeEvidence.spec.ts > license notice evidence > an active license wins over every Legacy Free signal in production
+TypeError: licenseNoticeBasis is not a function
+ ❯ src/features/licenseNotice/licenseNoticeEvidence.spec.ts:16:12
+     14|   })
+     15|   it('an active license wins over every Legacy Free signal in producti…
+     16|     expect(licenseNoticeBasis({ ...base, licenseActive: true, licenseT…
+       |            ^
+     17|   })
+     18|   it('accepts only fresh positive backend evidence for an otherwise un…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  src/features/licenseNotice/licenseNoticeEvidence.spec.ts > license notice evidence > accepts only fresh positive backend evidence for an otherwise unknown license
+TypeError: licenseNoticeBasis is not a function
+ ❯ src/features/licenseNotice/licenseNoticeEvidence.spec.ts:19:12
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  src/features/licenseNotice/licenseNoticeEvidence.spec.ts > license notice evidence > does not query a backend when active, explicitly inactive, disabled or non-Full
+TypeError: resolveLicenseNotice is not a function
+ ❯ src/features/licenseNotice/licenseNoticeEvidence.spec.ts:27:13
+     25|     for (const input of [{ ...base, licenseActive: true }, { ...base, …
+     26|       const lookup = vi.fn()
+     27|       await resolveLicenseNotice(input, lookup, now)
+       |             ^
+     28|       expect(lookup).not.toHaveBeenCalled()
+     29|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  src/features/licenseNotice/licenseNoticeEvidence.spec.ts > license notice evidence > uses authenticated evidence only for the missing-license path
+TypeError: resolveLicenseNotice is not a function
+ ❯ src/features/licenseNotice/licenseNoticeEvidence.spec.ts:33:18
+     31|   it('uses authenticated evidence only for the missing-license path', …
+     32|     const lookup = vi.fn().mockResolvedValue(evidence)
+     33|     expect(await resolveLicenseNotice(base, lookup, now)).toEqual({ ba…
+       |                  ^
+     34|     expect(lookup).toHaveBeenCalledOnce()
+     35|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  src/features/licenseNotice/licenseNoticeEvidence.spec.ts > license notice evidence > a lookup failure stays unavailable and hides the notice
+TypeError: resolveLicenseNotice is not a function
+ ❯ src/features/licenseNotice/licenseNoticeEvidence.spec.ts:37:18
+     35|   })
+     36|   it('a lookup failure stays unavailable and hides the notice', async …
+     37|     expect(await resolveLicenseNotice(base, () => Promise.reject(new E…
+       |                  ^
+     38|     expect(await resolveLicenseNotice(base, () => Promise.resolve({ st…
+     39|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  src/features/licenseNotice/licenseNoticeEvidence.spec.ts > license notice evidence > does not turn malformed license-active values into no license
+TypeError: resolveLicenseNotice is not a function
+ ❯ src/features/licenseNotice/licenseNoticeEvidence.spec.ts:42:18
+     40|   it('does not turn malformed license-active values into no license', …
+     41|     const lookup = vi.fn()
+     42|     expect(await resolveLicenseNotice({ ...base, licenseActive: 'false…
+       |                  ^
+     43|     expect(lookup).not.toHaveBeenCalled()
+     44|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+ Test Files  1 failed (1)
+      Tests  7 failed (7)
+   Start at  20:54:54
+   Duration  737ms (transform 27ms, setup 17ms, collect 11ms, tests 5ms, environment 326ms, prepare 71ms)
+

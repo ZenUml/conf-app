@@ -1,0 +1,42 @@
+{
+  "candidate": "386327eddba0c2860a671e29ffedfc1ff9de2378",
+  "stage": "Forge Tunnel",
+  "result": "PASS",
+  "identity": "Browser and Forge CLI account IDs matched",
+  "source": {
+    "vite": [
+      "/@vite/client",
+      "/src/forgeIndex.ts"
+    ],
+    "build": "codex/license-notice-legacy-free:386327ed",
+    "port8080Connections": 2
+  },
+  "assertions": [
+    {
+      "name": "Fresh synthetic development Marketplace evidence through real FIT endpoint",
+      "result": "PASS",
+      "notice": true,
+      "watermark": true,
+      "diagramVisible": true
+    },
+    {
+      "name": "Absent evidence returned unknown",
+      "result": "PASS",
+      "notice": false,
+      "watermark": false,
+      "diagramVisible": true
+    },
+    {
+      "name": "Evidence expired while page remained open",
+      "result": "PASS",
+      "notice": false,
+      "watermark": false,
+      "diagramVisible": true
+    }
+  ],
+  "limitations": [
+    "Explicit Forge LEGACY_FREE type and active-license precedence covered by real GenericViewer Storybook and unit tests; signed nonproduction Forge context cannot be manufactured in UI.",
+    "Other local backend endpoints lack normal deployment bindings; their background failures do not affect the isolated new endpoint or Confluence diagram rendering."
+  ],
+  "fixtureRemoved": true
+}

@@ -1,0 +1,86 @@
+[
+  {
+    "story": "legacy-free-forge-type",
+    "url": "http://localhost:6006/iframe.html?id=viewer-licensenotice--legacy-free-forge-type&viewMode=story",
+    "expectedNotice": true,
+    "observed": {
+      "debug": " F         codex/license-n\u2026@386327\u2026  N/A:N/A CSATOFF",
+      "diagram": true,
+      "notice": true,
+      "visibleError": false,
+      "watermark": true
+    },
+    "candidate": "386327ed",
+    "result": "PASS"
+  },
+  {
+    "story": "legacy-free-verified-marketplace",
+    "url": "http://localhost:6006/iframe.html?id=viewer-licensenotice--legacy-free-verified-marketplace&viewMode=story",
+    "expectedNotice": true,
+    "observed": {
+      "debug": " F         codex/license-n\u2026@386327\u2026  N/A:N/A CSATOFF",
+      "diagram": true,
+      "notice": true,
+      "visibleError": false,
+      "watermark": true
+    },
+    "candidate": "386327ed",
+    "result": "PASS"
+  },
+  {
+    "story": "missing-license-unknown",
+    "url": "http://localhost:6006/iframe.html?id=viewer-licensenotice--missing-license-unknown&viewMode=story",
+    "expectedNotice": false,
+    "observed": {
+      "debug": " F         codex/license-n\u2026@386327\u2026  N/A:N/A CSATOFF",
+      "diagram": true,
+      "notice": false,
+      "visibleError": false,
+      "watermark": false
+    },
+    "candidate": "386327ed",
+    "result": "PASS"
+  },
+  {
+    "story": "legacy-free-evidence-expired",
+    "url": "http://localhost:6006/iframe.html?id=viewer-licensenotice--legacy-free-evidence-expired&viewMode=story",
+    "expectedNotice": false,
+    "observed": {
+      "debug": " F         codex/license-n\u2026@386327\u2026  N/A:N/A CSATOFF",
+      "diagram": true,
+      "notice": false,
+      "visibleError": false,
+      "watermark": false
+    },
+    "candidate": "386327ed",
+    "result": "PASS"
+  },
+  {
+    "story": "active-license-overrides-legacy-free",
+    "url": "http://localhost:6006/iframe.html?id=viewer-licensenotice--active-license-overrides-legacy-free&viewMode=story",
+    "expectedNotice": false,
+    "observed": {
+      "debug": " F         codex/license-n\u2026@386327\u2026  N/A:N/A CSATOFF",
+      "diagram": true,
+      "notice": false,
+      "visibleError": false,
+      "watermark": false
+    },
+    "candidate": "386327ed",
+    "result": "PASS"
+  },
+  {
+    "story": "notice-off",
+    "url": "http://localhost:6006/iframe.html?id=viewer-licensenotice--notice-off&viewMode=story",
+    "expectedNotice": false,
+    "observed": {
+      "debug": " F         codex/license-n\u2026@386327\u2026  N/A:N/A CSATOFF",
+      "diagram": true,
+      "notice": false,
+      "visibleError": false,
+      "watermark": false
+    },
+    "candidate": "386327ed",
+    "result": "PASS"
+  }
+]

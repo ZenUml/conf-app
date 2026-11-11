@@ -1,0 +1,33 @@
+[
+  {
+    "startedAt": "2026-11-11T21:38:52+11:00",
+    "method": "GET",
+    "path": "/api/license-notice",
+    "status": "200 OK",
+    "body": {
+      "state": "legacy_free",
+      "checkedAt": "2026-11-11T10:38:42.691Z",
+      "expiresAt": "2026-11-11T10:39:28.691Z"
+    }
+  },
+  {
+    "startedAt": "2026-11-11T21:38:03+11:00",
+    "method": "GET",
+    "path": "/api/license-notice",
+    "status": "200 OK",
+    "body": {
+      "state": "unknown"
+    }
+  },
+  {
+    "startedAt": "2026-11-11T21:37:21+11:00",
+    "method": "GET",
+    "path": "/api/license-notice",
+    "status": "200 OK",
+    "body": {
+      "state": "legacy_free",
+      "checkedAt": "2026-11-11T10:31:22.222Z",
+      "expiresAt": "2026-11-11T11:31:23.222Z"
+    }
+  }
+]

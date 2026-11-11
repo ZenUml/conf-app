@@ -61,8 +61,16 @@ async function main() {
     let stderr = '';
     child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
     const exit = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', code => code === 0 ? resolve() : reject(new Error(`gh exited ${code}: ${stderr.trim()}`))); });
-    try { await Promise.all([pipeline(child.stdout, createWriteStream(path)), exit]); }
-    catch (error) { child.kill(); rmSync(path, { force: true }); throw error; }
+    const copy = pipeline(child.stdout, createWriteStream(path));
+    try { await Promise.all([copy, exit]); }
+    catch (error) {
+      child.kill();
+      // The output stream can open after gh exits. Wait for both operations
+      // before removing the partial file, including on fast failures.
+      await Promise.allSettled([copy, exit]);
+      rmSync(path, { force: true });
+      throw error;
+    }
   };
   const concurrency = Number(process.env.FLAKE_DOWNLOAD_CONCURRENCY || 4);
   const result = await downloadReports(ids, { list, save, concurrency, warn: message => console.warn(`::warning::${message}`) });

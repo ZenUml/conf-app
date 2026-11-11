@@ -36,6 +36,11 @@ vi.mock('@/utils/requestUtil', async (importOriginal) => ({
 
 // Default: every viewer is licensed, so the existing writeback tests keep
 // reaching callRemote. The guest/anonymous tests override it per test.
+import { loadLicenseNoticeEvidence } from '@/features/licenseNotice/loadEvidence'
+vi.mock('@/features/licenseNotice/loadEvidence', () => ({
+  loadLicenseNoticeEvidence: vi.fn(() => Promise.resolve({ state: 'unknown' })),
+}))
+
 vi.mock('@/utils/magic/viewerAccount', () => ({
   viewerAccountKind: vi.fn(() => Promise.resolve('licensed')),
 }))
@@ -4124,6 +4129,41 @@ describe('GenericViewer license notice (Full, license inactive)', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="load-failed-generic"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows Legacy Free with a missing Forge license only after fresh backend evidence', async () => {
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION' } as any
+    delete forgeRuntime.forgeContext.license
+    vi.mocked(loadLicenseNoticeEvidence).mockResolvedValueOnce({ state: 'legacy_free', checkedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() })
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_shown', expect.objectContaining({ license_notice_basis: 'marketplace_legacy_free' }))
+    wrapper.unmount()
+  })
+
+  it('keeps an unknown license hidden without positive evidence', async () => {
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION' } as any
+    delete forgeRuntime.forgeContext.license
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_evaluated', expect.objectContaining({ license_notice_outcome: 'unknown' }))
+    wrapper.unmount()
+  })
+
+  it('does not apply a late Legacy Free response after the license becomes active', async () => {
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION' } as any
+    delete forgeRuntime.forgeContext.license
+    let resolveEvidence!: (value: unknown) => void
+    vi.mocked(loadLicenseNoticeEvidence).mockImplementationOnce(() => new Promise(resolve => { resolveEvidence = resolve }))
+    const wrapper = mountViewer()
+    await flushPromises()
+    forgeRuntime.forgeContext.license = { active: true } as any
+    resolveEvidence({ state: 'legacy_free', checkedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() })
+    await flushPromises()
     expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
     wrapper.unmount()
   })

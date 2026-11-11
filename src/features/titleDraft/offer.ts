@@ -27,6 +27,7 @@ import {
 import { titleDraftProps } from './offerProps'
 import { readTitleDraftRecord } from './pageState'
 import { undoTitleDraft } from './undo'
+import { createTitleDraftCopyExposure, TITLE_DRAFT_OFFER_COPY, type TitleDraftCopyExposure } from './copyExperiment'
 
 interface Draft {
   pageId: string
@@ -60,7 +61,7 @@ export async function maybeOfferTitleDraft(productType: string | undefined): Pro
     const justAdded = takeJustAdded(identity, pageId)
     if (justAdded) {
       collapseFrame()
-      await showAddedFlag(identity, pageId, justAdded.contentId)
+      await showAddedFlag(identity, pageId, justAdded.contentId, justAdded.copyExperiment)
       return true
     }
 
@@ -140,23 +141,25 @@ async function bridgeFlag() {
 
 async function showEntryFlag(identity: TitleDraftIdentity, draft: Draft): Promise<void> {
   const showFlag = await bridgeFlag()
-  const props = titleDraftProps(draft.kind, draft.confidence)
+  const exposure = createTitleDraftCopyExposure(identity.accountId)
+  const copy = TITLE_DRAFT_OFFER_COPY[exposure?.variant ?? 'A']
+  const props = titleDraftProps(draft.kind, draft.confidence, exposure)
   const flag = showFlag({
     id: `title-draft-offer-${draft.pageId}`,
-    title: 'A diagram for this page is ready',
-    description: 'ZenUML sketched it from the page title. Nothing changes until you add it.',
+    title: copy.title,
+    description: copy.description,
     type: 'info',
     isAutoDismiss: false,
     actions: [
       {
-        text: 'See diagram',
+        text: copy.primary,
         onClick: () => {
           void flag.close()
-          void openPreview(identity, draft)
+          void openPreview(identity, draft, exposure)
         },
       },
       {
-        text: 'Not now',
+        text: copy.secondary,
         onClick: () => {
           void flag.close()
           markNotNow(identity, draft.pageId)
@@ -181,8 +184,8 @@ async function showNotNowFlag(pageId: string): Promise<void> {
   })
 }
 
-async function openPreview(identity: TitleDraftIdentity, draft: Draft): Promise<void> {
-  const props = titleDraftProps(draft.kind, draft.confidence)
+async function openPreview(identity: TitleDraftIdentity, draft: Draft, exposure?: TitleDraftCopyExposure): Promise<void> {
+  const props = titleDraftProps(draft.kind, draft.confidence, exposure)
   let closed = false
   trackAnalyticsEvent('title_draft_preview_opened', props)
   await openModal({
@@ -198,12 +201,13 @@ async function openPreview(identity: TitleDraftIdentity, draft: Draft): Promise<
       mermaid: draft.mermaid,
       kind: draft.kind,
       confidence: draft.confidence,
+      ...(exposure ? { copyExperiment: exposure } : {}),
     },
     onClose: (payload?: TitleDraftClosePayload) => {
       if (closed) return
       closed = true
       if (payload?.outcome === 'added') {
-        writeJustAdded(identity, { pageId: draft.pageId, contentId: payload.contentId, at: Date.now() })
+        writeJustAdded(identity, { pageId: draft.pageId, contentId: payload.contentId, at: Date.now(), ...(exposure ? { copyExperiment: exposure } : {}) })
         void reloadHostPage()
         return
       }
@@ -234,9 +238,9 @@ async function showAlreadyAddedFlag(pageId: string): Promise<void> {
   })
 }
 
-async function showAddedFlag(identity: TitleDraftIdentity, pageId: string, contentId: string): Promise<void> {
+async function showAddedFlag(identity: TitleDraftIdentity, pageId: string, contentId: string, exposure?: TitleDraftCopyExposure): Promise<void> {
   const showFlag = await bridgeFlag()
-  const props = titleDraftProps()
+  const props = titleDraftProps(undefined, undefined, exposure)
   const flag = showFlag({
     id: `title-draft-added-${pageId}`,
     title: 'Added to the top of the page',
@@ -261,15 +265,15 @@ async function showAddedFlag(identity: TitleDraftIdentity, pageId: string, conte
         text: 'Undo',
         onClick: () => {
           void flag.close()
-          void undo(identity, pageId, contentId)
+          void undo(identity, pageId, contentId, exposure)
         },
       },
     ],
   })
 }
 
-async function undo(identity: TitleDraftIdentity, pageId: string, contentId: string): Promise<void> {
-  const props = titleDraftProps()
+async function undo(identity: TitleDraftIdentity, pageId: string, contentId: string, exposure?: TitleDraftCopyExposure): Promise<void> {
+  const props = titleDraftProps(undefined, undefined, exposure)
   const { result } = await undoTitleDraft(pageId, contentId)
   if (result === 'undone' || result === 'not_found') {
     markNotNow(identity, pageId)

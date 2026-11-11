@@ -1759,7 +1759,7 @@ export type AnalyticsEventName =
   | "activation_completed"
   | "activation_nudge_dismissed"
   // Title-first offer. `requested` is the draft lookup, before any copy exposure.
-  // When the independent offer-copy flag is on, flag_shown records one native
+  // When the independent offer-copy build switch is on, flag_shown records one native
   // flag exposure with title_draft_experiment_id/version, title_draft_variant
   // and a fresh title_draft_exposure_id. not_now and preview_opened describe
   // clicks on that same exposure. Preserve these explicit properties through

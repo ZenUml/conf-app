@@ -43,3 +43,8 @@
 export function isSecondDiagramPromptEnabled(): boolean {
   return import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED === true;
 }
+
+/** Title-draft offer copy A/B rollout; the existing Forge title-draft flag still gates eligibility. */
+export function isTitleDraftCopyExperimentEnabled(): boolean {
+  return import.meta.env.VITE_TITLE_DRAFT_COPY_EXPERIMENT_ENABLED === true;
+}

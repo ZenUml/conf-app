@@ -38,6 +38,20 @@ Five saved reports cover enrollment,24h preview conversion, full Add funnel, dai
 
 ## Release status
 
-NOT STARTED. PR1110 merged at9ed2baf7cf727c88b9fd104b9a7d99c98e0b3546. Production publication awaits the normal pinned-main build/draft and Diagramly → Lite release gates.
+RUNNING. PR1110 merged at9ed2baf7cf727c88b9fd104b9a7d99c98e0b3546 and both authorized production variants have passed their release validation.
 
 Staging replay verification: Mixpanel returned recorded replay a135f746-5719-4605-8101-d5f080955e78, joining B add_clicked and added to the same exposure, followed by macro_viewed. This is an internal positive control, not customer adoption. All five reports and the board now use Since Nov11,2026 with a dynamic end date.
+
+## Completed main and production validation
+
+- Main root43003119027 SUCCESS, with successful source9ed2baf7 build43009705604, staging43009710361, and draft43011040317. Lite/Diagramly deploy, validation and draft jobs all passed. The workflow-dispatch API head belongs to the workflow controller; explicit source/producer provenance pins the application to9ed2baf7.
+- Merged-source Staging UI PASS: visible debug identity and CDN identity matched9ed2baf7; exact native B, rendered preview and host close were observed. Five received lifecycle events retained one B exposure. Actual preview replay was retrieved. No Add/save in this repeat. Screenshots and main-staging-result.json are alongside this report.
+- Diagramly v2026.11.112109-diagramly: prerequisite OK; published first; production deployment succeeded11:31:45 UTC. Release43012310176 SUCCESS and all5 actual production smoke shards PASS. Visible Diagramly debug identity matched9ed2baf7; existing sequence diagram rendered from the real CDN. New title-draft behavior is not testable through Diagramly normal UI because of the Lite-only offer guard.
+- Lite v2026.11.112109-lite: select-draft and prerequisite matched the published Diagramly commit exactly. Production deployment succeeded2026-11-11T11:38:39Z (22:38:39 Melbourne). Release43013279865 SUCCESS and all5 actual smoke shards PASS, last finishing11:40:45 UTC.
+- Lite focused checks PASS: visible debug identity9ed2baf7 and real CDN iframe; exact approved B flag; native Preview action; actual rendered preview with enabled Add button; native host close. Five received events retained one exposure and version1/variantB, with host_dismissed close reason and app_version v2026.11.112109-lite. A replay was retrieved and joined to preview_rendered at100% preview recording.
+- Production method/limit: internal controlled probe invoked the existing exported offer helper while another page banner was present. No cooldown existed to clear. The native action/modal and account/page eligibility checks were real; this is separate from naturally arriving customer events. No production Add/save was attempted. Actual successful title-draft Add/Undo attribution was tested on Staging; normal create/edit remains covered by regression and production smoke.
+- Board11643360 is RUNNING. All5 saved reports execute, fixed since2026-11-11, and both customer cohorts now appear in the live reports. Core funnel uses per-step qualifying filters, unique accounts,24h, constant exposure ID and optimized reentry off. Internal test traffic is excluded.
+
+Customer snapshot received at2026-11-11T11:49:54.389433+00:00: A7, B2 unique exposed accounts across8 sites; cross-group accounts0. No24h outcomes have matured. These are early SDK flag-event counts, not proof every user saw/read a flag and not an A/B comparison result. No real customer names, site IDs or account IDs are included in this evidence.
+
+The existing one-time24h follow-up retains its original schedule and destination; its prompt now records this A/B deployment and the SDK-event visibility limit. The prior native Undo record-cleanup401 finding remains separate and is not claimed to have passed; its owned test record was administratively trashed.

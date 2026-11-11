@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "release": "v2026.11.112109-diagramly",
+  "source": "9ed2baf7cf727c88b9fd104b9a7d99c98e0b3546",
+  "visible_debug_identity": "9ed2baf7cf727c88b9fd104b9a7d99c98e0b3546:9ed2baf",
+  "iframe_source": "Atlassian CDN",
+  "existing_sequence_rendered": true,
+  "title_draft_flow": "Not testable in Diagramly normal UI: Lite-only offer guard",
+  "production_smoke": "PASS:5/5",
+  "release_run": "https://github.com/ZenUml/conf-app/actions/runs/43012310176"
+}

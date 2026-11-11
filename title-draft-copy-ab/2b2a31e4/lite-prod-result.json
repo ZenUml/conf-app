@@ -1,0 +1,35 @@
+{
+  "status": "PASS",
+  "release": "v2026.11.112109-lite",
+  "source": "9ed2baf7cf727c88b9fd104b9a7d99c98e0b3546",
+  "deployment_completed_utc": "2026-11-11T11:38:39Z",
+  "smoke": "PASS:5/5",
+  "internal_probe_events": [
+    "title_draft_flag_shown",
+    "title_draft_preview_opened",
+    "title_draft_preview_mounted",
+    "title_draft_preview_rendered",
+    "title_draft_preview_closed"
+  ],
+  "internal_variant": "B",
+  "internal_exposure": "81db4b9a-0e0a-4385-86b1-b8add8b6a3ec",
+  "replay_id": "4e48dee2-53e3-45e4-8888-19dbfd4a80a9",
+  "replay_retrieved": true,
+  "probe_method": "actual exported offer helper in internal page banner; parent paywall banner was present; no cooldown existed; native preview action and host close; no Add/save",
+  "query_at_utc": "2026-11-11T11:49:54.389433+00:00",
+  "customer_exposed_accounts_by_variant": {
+    "A": 7,
+    "B": 2
+  },
+  "customer_flag_events_by_variant": {
+    "A": 7,
+    "B": 2
+  },
+  "customer_cross_group_accounts": 0,
+  "customer_event_counts": {
+    "title_draft_flag_shown": 9
+  },
+  "customer_sites": 8,
+  "customer_invalid_exposure_fields": 0,
+  "matured_customer_exposed_accounts": 0
+}

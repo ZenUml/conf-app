@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "source": "9ed2baf7cf727c88b9fd104b9a7d99c98e0b3546",
+  "received_events": [
+    "title_draft_flag_shown",
+    "title_draft_preview_opened",
+    "title_draft_preview_mounted",
+    "title_draft_preview_rendered",
+    "title_draft_preview_closed"
+  ],
+  "variant": "B",
+  "exposure": "01ea8118-f452-46fb-94bc-f2bc7a04067e",
+  "replay_id": "4a3ee03e-883c-4c96-829c-53e65e35d2dc",
+  "replay_retrieved": true,
+  "preview_only": true,
+  "owned_cooldown_present_and_cleared": false
+}

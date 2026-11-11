@@ -31,7 +31,7 @@ The first branch commit registers the properties and event semantics in `src/uti
 
 | Event | Trigger | Required experiment properties when assigned |
 | --- | --- | --- |
-| `title_draft_flag_shown` | Native entry flag successfully shown | experiment ID/version, variant, exposure ID; existing feature and page context |
+| `title_draft_flag_shown` | Native entry flag requested through `showFlag` | experiment ID/version, variant, exposure ID; existing feature and page context |
 | `title_draft_not_now` | User clicks Not now | same exposure attribution |
 | `title_draft_preview_opened` | User clicks the entry flag's preview action | same exposure attribution |
 | `title_draft_preview_mounted` | Actual preview iframe mounts | same exposure attribution, surface modal, explicit page ID |
@@ -41,7 +41,7 @@ The first branch commit registers the properties and event semantics in `src/uti
 | `title_draft_added` / `title_draft_add_failed` | Add operation completes with success/failure | same exposure attribution; existing failure reason |
 | `title_draft_preview_closed` | Preview closes without added/already-added outcome | same exposure attribution and existing close reason |
 
-Keep existing event meanings, sampling and preview replay behavior. A flag-shown event proves the host accepted the flag, not that the user read it. A preview-opened event proves the action callback ran, not that the preview rendered. Successful rendering and uploaded/retrievable replay are separate signals.
+Keep existing event meanings, sampling and preview replay behavior. A flag-shown event proves the native `showFlag` call returned; the SDK can return before its bridge request completes, so it does not prove the host displayed the flag or the user read it. Validate visible delivery separately during rollout. A preview-opened event proves the action callback ran, not that the preview rendered. Successful rendering and uploaded/retrievable replay are separate signals.
 
 ## Analysis contract
 

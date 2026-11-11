@@ -52,17 +52,9 @@ jobs:
           # and the SAME name recurs in every run, so a flat directory keeps only
           # the last run's copy of each (the first ranking, run 34666457162,
           # merged 565 blobs from 350 runs into a single flaky test that way).
-          while read -r RUN; do
-            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/artifacts?per_page=100" \
-              --jq '.artifacts[] | select(.name | startswith("blob-report-")) | select(.expired | not) | "\(.id) \(.name)"' \
-            | while read -r ID NAME; do
-                # blob-report-<suite suffix>-shard-<n>: one directory per run and
-                # suite, since merge-reports merges the shards of ONE invocation.
-                SUITE=${NAME#blob-report-}; SUITE=${SUITE%-shard-*}
-                mkdir -p "blobs/$RUN/$SUITE"
-                gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ID/zip" > "blobs/$RUN/$SUITE/$NAME.zip" || echo "::warning::could not download artifact $ID ($NAME) of run $RUN"
-              done
-          done < run-ids.txt
+          # Four run workers list and download reports concurrently. Each run
+          # keeps its own directory; individual download failures still warn.
+          node scripts/ci/flake-download.mjs run-ids.txt
           echo "$(find blobs -name '*.zip' | wc -l) blob reports from $(ls blobs | wc -l) runs"
           # Each artifact zip holds one report-*.zip; merge-reports wants a
           # suite's shards side by side, and nothing else.

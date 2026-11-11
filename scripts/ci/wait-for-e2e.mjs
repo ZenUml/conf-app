@@ -134,6 +134,8 @@ export function verifyDailyGate(gate, producer, rootId, attempt, source, produce
 // Only GitHub's explicit missing-ref rejection proves this dispatch created none.
 export function dispatchWithRecord(api, workflow, body, marker) {
   rmSync(`${marker}.rejected`, { force: true });
+  // Persist before invoking gh: an interrupted request may still create a child.
+  writeFileSync(`${marker}.attempted`, 'attempted');
   try {
     api(`actions/workflows/${workflow}/dispatches`, ['--method', 'POST', '--input', '-'], JSON.stringify(body));
   } catch (error) {
@@ -146,7 +148,7 @@ export function dispatchWithRecord(api, workflow, body, marker) {
 }
 
 export async function cleanupWithRecord(api, title, workflow, pause, marker) {
-  if (existsSync(`${marker}.rejected`)) return;
+  if (!existsSync(`${marker}.attempted`) || existsSync(`${marker}.rejected`)) return;
   await closeChild(api, title, workflow, pause, undefined, existsSync(marker));
 }
 

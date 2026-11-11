@@ -1564,7 +1564,7 @@ describe("trackAnalyticsEvent", () => {
   // load_failed_retry_clicked on 2026-08-23, because the reload aborted the
   // in-flight request. sendBeacon is the transport that survives unload.
   describe("trackAnalyticsEventBeforeUnload", () => {
-    it("sends with the sendBeacon transport", async () => {
+    it("bypasses batching and sends immediately with the sendBeacon transport", async () => {
       await trackAnalyticsEventBeforeUnload("load_failed_retry_clicked", {
         feature_area: "macro",
         surface: "viewer",
@@ -1574,7 +1574,7 @@ describe("trackAnalyticsEvent", () => {
       expect(mixpanel.track).toHaveBeenCalledWith(
         "load_failed_retry_clicked",
         expect.objectContaining({ retry_attempt: 1 }),
-        { transport: "sendBeacon" }
+        { transport: "sendBeacon", send_immediately: true }
       );
     });
 
@@ -1607,7 +1607,8 @@ describe("trackAnalyticsEvent", () => {
     });
   });
 
-  it("keeps the default transport for ordinary events", async () => {
+  it("keeps the default transport and batching for ordinary events", async () => {
+    vi.mocked(mixpanel.track).mockReset();
     await _awaitableTrackAnalyticsEvent("upgrade_modal_shown", {
       feature_area: "upgrade",
       surface: "modal",
@@ -1617,6 +1618,7 @@ describe("trackAnalyticsEvent", () => {
       "upgrade_modal_shown",
       expect.any(Object)
     );
+    expect(vi.mocked(mixpanel.track).mock.calls[0]).toHaveLength(2);
   });
 
   it("does not throw when mixpanel.track throws", async () => {

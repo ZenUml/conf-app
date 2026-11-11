@@ -477,11 +477,11 @@ async function _getDemoPageTelemetry(
 }
 
 /**
- * Extra options handed straight to mixpanel.track. Only the transport override
- * is used today — see trackAnalyticsEventBeforeUnload.
+ * Extra options handed straight to mixpanel.track for unload-safe delivery.
  */
 interface TrackTransportOptions {
   transport: "sendBeacon";
+  send_immediately: true;
 }
 
 export async function _awaitableTrackAnalyticsEvent(
@@ -554,7 +554,8 @@ export function trackAnalyticsEvent(
  * transport is aborted by that navigation, so the event never arrives:
  * production recorded 1 `load_failed_retry_resolved` and 0
  * `load_failed_retry_clicked` on 2026-08-23. sendBeacon is queued by the
- * browser and survives unload.
+ * browser and survives unload. Mixpanel still batches beacon events unless
+ * send_immediately bypasses its queue, so both options are required here.
  *
  * Await it: the enrichment itself is async (Mixpanel init, macro uuid, space
  * telemetry), so firing and navigating would lose the event before it ever
@@ -566,6 +567,7 @@ export async function trackAnalyticsEventBeforeUnload(
 ): Promise<void> {
   await _awaitableTrackAnalyticsEvent(eventName, properties, {
     transport: "sendBeacon",
+    send_immediately: true,
   });
 }
 

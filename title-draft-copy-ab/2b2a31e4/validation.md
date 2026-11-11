@@ -38,4 +38,6 @@ Five saved reports cover enrollment,24h preview conversion, full Add funnel, dai
 
 ## Release status
 
-NOT STARTED. Production publication is pending remediation of a separately confirmed existing CI credential-logging issue and completion of the normal merge/release gates. No credential value is included in this report.
+NOT STARTED. PR1110 merged at9ed2baf7cf727c88b9fd104b9a7d99c98e0b3546. Production publication awaits the normal pinned-main build/draft and Diagramly → Lite release gates.
+
+Staging replay verification: Mixpanel returned recorded replay a135f746-5719-4605-8101-d5f080955e78, joining B add_clicked and added to the same exposure, followed by macro_viewed. This is an internal positive control, not customer adoption. All five reports and the board now use Since Nov11,2026 with a dynamic end date.

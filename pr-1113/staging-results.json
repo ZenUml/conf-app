@@ -1,0 +1,69 @@
+{
+  "candidate": "386327eddba0c2860a671e29ffedfc1ff9de2378",
+  "status": "PASS",
+  "source": "CI-deployed Full Staging, real Forge bridge and signed backend calls, CDN frontend",
+  "ci_run": 43005616007,
+  "forge_version": "4.393.0",
+  "pages_source": "386327e",
+  "entry_asset": "index-P_e024E7.js",
+  "fixture": "isolated internal staging installation; synthetic Legacy Free record; 3-minute validity",
+  "cases": [
+    {
+      "name": "Unknown Forge license state and no eligibility evidence",
+      "result": "PASS",
+      "observed": {
+        "notice": false,
+        "watermark": false,
+        "diagram": true,
+        "mockInactive": null
+      },
+      "timing": "Observed before fixture write; first real endpoint GET returned 200."
+    },
+    {
+      "name": "Fresh verified backend evidence",
+      "result": "PASS",
+      "observed": {
+        "buildTitles": [
+          "386327eddba0c2860a671e29ffedfc1ff9de2378:386327e"
+        ],
+        "diagram": true,
+        "mockInactive": null,
+        "notice": true,
+        "scripts": [
+          "global-bridge.js",
+          "iframeResizer.contentWindow.min.js",
+          "index-P_e024E7.js"
+        ],
+        "sourceIsCDN": true,
+        "time": "2026-11-11T11:40:58.608Z",
+        "watermark": true
+      }
+    },
+    {
+      "name": "Evidence expired while page stayed open",
+      "result": "PASS",
+      "observed": {
+        "buildTitles": [
+          "386327eddba0c2860a671e29ffedfc1ff9de2378:386327e"
+        ],
+        "diagram": true,
+        "mockInactive": null,
+        "notice": false,
+        "sourceIsCDN": true,
+        "time": "2026-11-11T11:43:03.100Z",
+        "watermark": false
+      },
+      "no_refresh": true,
+      "endpoint_calls_between_positive_and_expired": 0
+    }
+  ],
+  "cleanup": {
+    "prior_record_absent": true,
+    "record_deleted": true,
+    "remaining_matching_keys": [],
+    "debug_preference_restored": true,
+    "owned_browser_closed": true,
+    "tail_stopped": true
+  },
+  "limits": "Synthetic staging facts prove the runtime path; production customer exposure is not established. Explicit Forge type, active precedence and flag off covered by Storybook and unit/component tests."
+}

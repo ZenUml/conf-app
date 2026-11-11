@@ -14,7 +14,13 @@ Reproduce baseline capture: copy the two baseline modules from `git show <baseli
 
 1. Storybook PASS: real GenericViewer, stubbed Forge transport/rollout only. Explicit Legacy Free and fresh backend evidence show the notice; missing/unknown, expired evidence, active license and flag off hide it. See `storybook-results.json`.
 2. Forge Tunnel PASS for candidate: real Chrome account matched Forge CLI. Live Full development macro debug bar reported the candidate; script elements were `/@vite/client` and `/src/forgeIndex.ts`; port 8080 had established connections. A real signed Forge request to the local FIT-verifying endpoint returned `legacy_free` and the warning and watermark were observed. Removing the isolated development record returned `unknown` and both disappeared. A separate 45-second record expired while the page stayed open and the UI removed both without a refresh. Synthetic record removed afterwards. See `tunnel-results.json` and the response-only `tunnel-endpoint-responses.json` (no request credentials).
-3. CI Full Staging: pending workflow `43005616007`; candidate SHA must match before UI assertions.
+3. CI Full Staging PASS: workflow `43005616007`, deploy job `130495929455`, application/tooling SHA both match the candidate; Forge `4.393.0`, Pages source `386327e`. Real CDN viewer asset `index-P_e024E7.js` and visible debug title identify the candidate. With no record: no notice or watermark, diagram visible. A fresh three-minute synthetic record: both visible. After its deadline, both disappeared without refreshing; the diagram stayed visible and no new endpoint request fired. Matching KV keys were empty after cleanup. See `staging-results.json`, observation JSON, and the response-status-only `staging-license-tail.jsonl`.
+
+| Staging: evidence valid | Staging: evidence expired, no refresh |
+|---|---|
+| ![Warning visible](staging-positive.png) | ![Warning removed](staging-expired.png) |
+
+Macro-only captures omit the tenant URL and surrounding site navigation. The debug preference was temporarily enabled to display the build, then restored. License mocks were absent. No Forge context or backend response was substituted. All available PR checks passed; the draft PR's Lite E2E path was intentionally skipped, while Viewer preview and Export PNG checks passed independently. See `ci-results.json` for exact runs.
 
 The Tunnel uses real Forge authentication, not a mocked backend. Explicit Forge license type and active precedence are tested in Storybook and unit/component tests; nonproduction signed Forge license claims were not fabricated. Other local backend background requests lacked normal deployment bindings; the isolated license endpoint and Confluence diagram rendering succeeded.
 

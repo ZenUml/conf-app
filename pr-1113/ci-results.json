@@ -1,0 +1,36 @@
+{
+  "candidate": "386327eddba0c2860a671e29ffedfc1ff9de2378",
+  "full_staging": {
+    "run": 43005616007,
+    "conclusion": "success",
+    "deploy_job": 130495929455,
+    "forge_version": "4.393.0",
+    "pages_deployment": "a740f53a-1db4-4ffe-84f5-4f2f9e7bb0bc",
+    "pages_source": "386327e",
+    "app_sha": "386327eddba0c2860a671e29ffedfc1ff9de2378",
+    "tooling_sha": "386327eddba0c2860a671e29ffedfc1ff9de2378"
+  },
+  "pr_validation": {
+    "run": 43006176530,
+    "conclusion": "success",
+    "lite_deploy_job": 130497797156,
+    "e2e": "skipped as expected for draft"
+  },
+  "independent_checks": [
+    {
+      "run": 43006176419,
+      "conclusion": "success",
+      "checks": "4 unit shards, build/scripts, Viewer preview"
+    },
+    {
+      "run": 43006176377,
+      "conclusion": "success",
+      "checks": "Export PNG"
+    },
+    {
+      "run": 43006176535,
+      "conclusion": "success",
+      "checks": "Render MCP Worker"
+    }
+  ]
+}

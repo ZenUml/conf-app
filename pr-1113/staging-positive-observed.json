@@ -1,0 +1,16 @@
+{
+  "buildTitles": [
+    "386327eddba0c2860a671e29ffedfc1ff9de2378:386327e"
+  ],
+  "diagram": true,
+  "mockInactive": null,
+  "notice": true,
+  "scripts": [
+    "global-bridge.js",
+    "iframeResizer.contentWindow.min.js",
+    "index-P_e024E7.js"
+  ],
+  "sourceIsCDN": true,
+  "time": "2026-11-11T11:40:58.608Z",
+  "watermark": true
+}

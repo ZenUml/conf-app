@@ -246,3 +246,17 @@ test('CLI records the actual gh missing-ref response across workflow steps', asy
     assert.equal(readFileSync(calls, 'utf8'), 'call\n');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('cleanup skips discovery when dispatch was never attempted', async () => {
+  const { cleanupWithRecord } = await import('./wait-for-e2e.mjs');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'dispatch-not-attempted-'));
+  let lookups = 0;
+  try {
+    await cleanupWithRecord(() => { lookups++; return { workflow_runs: [] }; }, 'title', 'child.yml',
+      async () => { throw new Error('unexpected discovery wait'); }, join(dir, 'dispatch'));
+    assert.equal(lookups, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

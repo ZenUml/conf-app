@@ -183,6 +183,7 @@ async function showNotNowFlag(pageId: string): Promise<void> {
 
 async function openPreview(identity: TitleDraftIdentity, draft: Draft): Promise<void> {
   const props = titleDraftProps(draft.kind, draft.confidence)
+  let closed = false
   trackAnalyticsEvent('title_draft_preview_opened', props)
   await openModal({
     resource: 'main',
@@ -199,6 +200,8 @@ async function openPreview(identity: TitleDraftIdentity, draft: Draft): Promise<
       confidence: draft.confidence,
     },
     onClose: (payload?: TitleDraftClosePayload) => {
+      if (closed) return
+      closed = true
       if (payload?.outcome === 'added') {
         writeJustAdded(identity, { pageId: draft.pageId, contentId: payload.contentId, at: Date.now() })
         void reloadHostPage()
@@ -209,7 +212,12 @@ async function openPreview(identity: TitleDraftIdentity, draft: Draft): Promise<
         void showAlreadyAddedFlag(draft.pageId)
         return
       }
-      trackAnalyticsEvent('title_draft_preview_closed', props)
+      trackAnalyticsEvent('title_draft_preview_closed', {
+        ...props,
+        surface: 'modal',
+        page_id: draft.pageId,
+        title_draft_close_reason: payload?.outcome === 'dismissed' ? payload.reason ?? 'unknown' : 'host_dismissed',
+      })
     },
   })
 }

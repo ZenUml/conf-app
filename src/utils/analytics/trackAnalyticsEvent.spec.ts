@@ -202,6 +202,42 @@ describe("trackAnalyticsEvent", () => {
     vi.mocked(Date.now).mockRestore();
   });
 
+  it('records the mounted title-draft iframe at 100% without a Forge flag wait', async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: 'modal-abc', moduleKey: 'zenuml-page-banner',
+      extension: { modal: { macroMode: 'title-draft', pageId: '100' } },
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockImplementation(() => new Promise(() => {}));
+    await _awaitableTrackAnalyticsEvent('title_draft_preview_mounted', { surface: 'modal', page_id: '100' });
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      record_sessions_percent: 100, autocapture: false, record_network: true,
+    }));
+    expect(mixpanel.start_session_recording).toHaveBeenCalledTimes(1);
+    expect(mixpanel.track).toHaveBeenCalledWith('title_draft_preview_mounted', expect.objectContaining({
+      surface: 'modal', page_id: '100', session_replay_source: 'title_draft_preview',
+      session_replay_percent: 100, session_replay_start_call_outcome: 'returned',
+    }));
+  });
+
+  it('keeps banner preview intent at zero replay without starting the recorder', async () => {
+    vi.mocked(forgeGlobal).forgeContext = { localId: 'banner-abc', moduleKey: 'zenuml-page-banner' } as any;
+    await _awaitableTrackAnalyticsEvent('title_draft_preview_opened', { surface: 'page_banner' });
+    expect(mixpanel.init).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ record_sessions_percent: 0 }));
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+  });
+
+  it('still sends the title-draft mount when the recorder start throws', async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: 'modal-abc', extension: { modal: { macroMode: 'title-draft' } },
+    } as any;
+    vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => { throw new Error('recorder unavailable'); });
+    await _awaitableTrackAnalyticsEvent('title_draft_preview_mounted', { surface: 'modal', page_id: '100' });
+    expect(mixpanel.track).toHaveBeenCalledWith('title_draft_preview_mounted', expect.objectContaining({
+      surface: 'modal', page_id: '100', session_replay_start_call_outcome: 'threw',
+    }));
+  });
+
   describe("October 2026 Replay budget", () => {
     beforeEach(() => {
       vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-12T00:00:00Z"));

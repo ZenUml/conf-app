@@ -5,7 +5,7 @@ export const TITLE_DRAFT_MACRO_MODE = 'title-draft'
 export type TitleDraftClosePayload =
   | { outcome: 'added'; contentId: string }
   | { outcome: 'already_added' }
-  | { outcome: 'dismissed' }
+  | { outcome: 'dismissed'; reason?: 'escape' | 'render_failed' }
 
 export interface TitleDraftModalContext {
   macroMode: typeof TITLE_DRAFT_MACRO_MODE

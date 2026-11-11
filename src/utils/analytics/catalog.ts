@@ -1760,7 +1760,7 @@ export type AnalyticsEventName =
   | "title_draft_preview_opened"
   // Preview iframe mounted: initialize analytics and request replay at 100%.
   | "title_draft_preview_mounted"
-  // SVG committed to the preview DOM; duration_ms measures rendering.
+  // SVG committed to the preview DOM.
   | "title_draft_preview_rendered"
   // Preview rendering rejected; never carries diagram source or error text.
   | "title_draft_preview_render_failed"

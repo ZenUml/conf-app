@@ -132,6 +132,7 @@ const FORCED_REPLAY_SOURCES: Partial<
 > = {
   feedback_report_opened: "feedback",
   license_notice_shown: "license_notice",
+  title_draft_preview_mounted: "title_draft_preview",
 };
 
 function _startExplicitReplay(
@@ -239,11 +240,17 @@ function _initMixpanel(): Promise<void> {
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
+      const isTitleDraftPreview =
+        forgeContext?.extension?.modal?.macroMode === "title-draft";
       let replayConfigTimedOut = false;
       // NOTE (#707): this short-circuit runs before _resolveSessionReplayConfig,
       // so the bounded flag wait below is inactive while the October budget
       // branch is taken and becomes live on 2026-11-01 UTC.
-      const { percent, source } = isOctoberReplayBudgetActive()
+      // A title draft is a deliberate preview in its own iframe. Initialize
+      // there immediately at 100%, without delaying for the baseline flag.
+      const { percent, source } = isTitleDraftPreview
+        ? { percent: 100, source: "title_draft_preview" as const }
+        : isOctoberReplayBudgetActive()
         ? { percent: 0, source: "off" as const }
         : isPageBanner
         ? { percent: 0, source: "off" as const }

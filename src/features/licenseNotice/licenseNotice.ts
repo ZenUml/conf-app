@@ -50,6 +50,7 @@ export function shouldShowLicenseNotice(input: LicenseNoticeInput): boolean {
 export interface LicenseNoticeDecision {
   basis: LicenseNoticeBasis | null
   outcome: 'shown' | 'active' | 'unknown' | 'disabled' | 'unavailable'
+  expiresAt?: string
 }
 
 export async function resolveLicenseNotice(
@@ -67,7 +68,9 @@ export async function resolveLicenseNotice(
     const marketplaceEvidence = await loadEvidence()
     // Do not let a slow request use a stale clock when validating its evidence.
     const resolvedBasis = licenseNoticeBasis({ ...input, marketplaceEvidence }, now + Math.max(0, Date.now() - startedAt))
-    return { basis: resolvedBasis, outcome: resolvedBasis ? 'shown' : 'unknown' }
+    return { basis: resolvedBasis, outcome: resolvedBasis ? 'shown' : 'unknown',
+      ...(resolvedBasis === 'marketplace_legacy_free' ? { expiresAt: (marketplaceEvidence as { expiresAt: string }).expiresAt } : {}),
+    }
   } catch {
     return { basis: null, outcome: 'unavailable' }
   }

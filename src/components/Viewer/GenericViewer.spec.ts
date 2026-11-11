@@ -4168,6 +4168,24 @@ describe('GenericViewer license notice (Full, license inactive)', () => {
     wrapper.unmount()
   })
 
+  it('removes a displayed Marketplace notice when its evidence expires on an open page', async () => {
+    vi.useFakeTimers()
+    try {
+      forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION' } as any
+      delete forgeRuntime.forgeContext.license
+      vi.mocked(loadLicenseNoticeEvidence).mockResolvedValueOnce({ state: 'legacy_free', checkedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 10000).toISOString() })
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('fires license_notice_shown once, and the click opens the Marketplace page and tracks', async () => {
     const wrapper = mountViewer()
     await vi.waitFor(() => expect(wrapper.find('[data-testid="license-notice-upgrade"]').exists()).toBe(true))

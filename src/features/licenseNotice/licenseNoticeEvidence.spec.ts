@@ -30,7 +30,7 @@ describe('license notice evidence', () => {
   })
   it('uses authenticated evidence only for the missing-license path', async () => {
     const lookup = vi.fn().mockResolvedValue(evidence)
-    expect(await resolveLicenseNotice(base, lookup, now)).toEqual({ basis: 'marketplace_legacy_free', outcome: 'shown' })
+    expect(await resolveLicenseNotice(base, lookup, now)).toEqual({ basis: 'marketplace_legacy_free', outcome: 'shown', expiresAt: evidence.expiresAt })
     expect(lookup).toHaveBeenCalledOnce()
   })
   it('a lookup failure stays unavailable and hides the notice', async () => {

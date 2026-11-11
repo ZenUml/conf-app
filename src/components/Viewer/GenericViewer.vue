@@ -795,6 +795,7 @@ export default {
     licenseNoticeActive: false,
     licenseNoticeBasis: null,
     licenseNoticeRequestId: 0,
+    licenseNoticeExpiryTimer: null,
     createGuideFeatureEnabled: false,
     createGuideImpressionTracked: false,
     agentLinkSession: null,
@@ -1632,6 +1633,7 @@ export default {
   },
   beforeUnmount() {
     this.licenseNoticeRequestId++;
+    clearTimeout(this.licenseNoticeExpiryTimer);
     this.connectMcpUnmounted = true;
     this.headerResizeObserver?.disconnect();
     this.headerResizeObserver = null;
@@ -2325,6 +2327,7 @@ export default {
     async resolveLicenseNotice() {
       if (import.meta.env.PRODUCT_TYPE !== 'full') return;
       const requestId = ++this.licenseNoticeRequestId;
+      clearTimeout(this.licenseNoticeExpiryTimer);
       try {
         const flagEnabled = await isNoLicenseNoticeEnabled();
         const ctx = forgeGlobal.forgeContext;
@@ -2342,6 +2345,19 @@ export default {
           && decision.basis !== 'development_mock';
         this.licenseNoticeBasis = activeNow ? null : decision.basis;
         this.licenseNoticeActive = this.licenseNoticeBasis !== null;
+        if (this.licenseNoticeBasis === 'marketplace_legacy_free' && decision.expiresAt) {
+          this.licenseNoticeExpiryTimer = setTimeout(() => {
+            if (requestId !== this.licenseNoticeRequestId) return;
+            this.licenseNoticeActive = false;
+            this.licenseNoticeBasis = null;
+            trackAnalyticsEvent('license_notice_evaluated', {
+              feature_area: 'license_notice',
+              surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+              macro_type: this.diagramType ?? 'none',
+              license_notice_outcome: 'unknown',
+            });
+          }, Math.max(0, Date.parse(decision.expiresAt) - Date.now()));
+        }
         trackAnalyticsEvent('license_notice_evaluated', {
           feature_area: 'license_notice',
           surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',

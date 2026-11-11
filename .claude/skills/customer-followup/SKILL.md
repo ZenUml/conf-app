@@ -1,6 +1,6 @@
 ---
 name: customer-followup
-description: Screen and follow up Confluence app customers using lifecycle, feedback, license, usage and conversation evidence. Use for customer prioritisation, conversion, retention, win-back, paused accounts, drafting follow-ups, or updating the customer tracker after an authorised action. Reuses existing query skills; respects the user's actual authorisation scope.
+description: Prioritise Confluence customers for conversion, retention, win-back or pause using lifecycle, feedback, license, usage and conversation evidence. Draft follow-ups and update the tracker within the user's authorised scope; reuse existing query skills.
 ---
 
 # Customer follow-up
@@ -17,7 +17,7 @@ Read [shared evidence rules](../customer-data/evidence.md), [contact and action 
    - **Recent changes:** `customer-lifecycle`.
    - **User opinions, problems, requests:** `customer-feedback`.
    - **Site/product/license/payment/contact:** `tenant` and `marketplace`.
-   - **Engagement:** `mixpanel` / `duckdb-mixpanel`; `client-health` is a Lite-only relative shortlist, not a conversion probability.
+   - **Engagement:** use `conf-app` for **both Mixpanel and D1**; complete the shared evidence coverage gate before declaring inactivity or skipping follow-up. `client-health` is a Lite-only relative shortlist, not conversion probability.
    - **Space inventory:** `macro-count`, with its coverage limitations in the shared rules.
    - **Communication:** Gmail, support tickets and `search-conversation-history`.
 4. Resolve contact role separately from site identity. A Marketplace technical contact can be an employee, a partner, an ex-employee or an unknown role. Never label them site admin without evidence.

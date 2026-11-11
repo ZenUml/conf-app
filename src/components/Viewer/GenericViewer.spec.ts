@@ -3303,12 +3303,38 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
     })
 
-    it('does not show Connect MCP for a non-MVP diagram type (graph) even when the flag is on', async () => {
-      store.commit('updateDiagramType', DiagramType.Graph)
+    it.each([
+      DiagramType.Sequence,
+      DiagramType.Mermaid,
+      DiagramType.PlantUml,
+      DiagramType.Markdown,
+      DiagramType.Graph,
+      DiagramType.OpenApi,
+      DiagramType.AsyncApi,
+    ])('shows Connect MCP for a %s diagram when the flag is on', async (type) => {
+      store.commit('updateDiagramType', type)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
+    })
+
+    it('does not show Connect MCP for a diagram of unknown type', async () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+    })
+
+    it('reports agent_link_mcp_button_shown with the macro type for a graph diagram', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls().length).toBe(1)
+      expect(shownCalls()[0][1]).toMatchObject({ macro_type: DiagramType.Graph })
     })
 
     it('opens the dialog inline without minting a session or opening Fullscreen', async () => {

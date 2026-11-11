@@ -156,10 +156,28 @@ describe('POST /mcp/render', () => {
   });
 
   it('rejects an unsupported type as a tool error the model can read', async () => {
-    const { status, body } = await call({ diagramType: 'asyncapi', source: 'asyncapi: 2.6.0' });
+    const { status, body } = await call({ diagramType: 'visio', source: 'whatever' });
     expect(status).toBe(200);
     expect(body.result.isError).toBe(true);
-    expect(body.result.content[0].text).toMatch(/sequence, mermaid, plantuml, graph, openapi/);
+    expect(body.result.content[0].text).toMatch(/sequence, mermaid, plantuml, markdown, graph, openapi, asyncapi/);
+  });
+
+  it('accepts and structurally checks an AsyncAPI spec', async () => {
+    const ok = await call({ diagramType: 'asyncapi', source: 'asyncapi: 3.0.0\ninfo:\n  title: Orders\n  version: 1.0.0\n' });
+    expect(ok.body.result.isError).toBeFalsy();
+    expect(ok.body.result.structuredContent).toEqual(expect.objectContaining({ diagramType: 'asyncapi', valid: true }));
+    const bad = await call({ diagramType: 'asyncapi', source: 'info:\n  title: Orders\n' });
+    expect(bad.body.result.structuredContent).toEqual(expect.objectContaining({ valid: false }));
+  });
+
+  it('detects an AsyncAPI spec when diagramType is left out', async () => {
+    const { body } = await call({ source: 'asyncapi: 2.6.0\ninfo:\n  title: Orders\n  version: 1.0.0\n' });
+    expect(body.result.structuredContent).toEqual(expect.objectContaining({ diagramType: 'asyncapi', detected: true }));
+  });
+
+  it('accepts Markdown as an unvalidated type', async () => {
+    const { body } = await call({ diagramType: 'markdown', source: '# Notes\n\nSome text.' });
+    expect(body.result.structuredContent).toEqual(expect.objectContaining({ diagramType: 'markdown', valid: true, unvalidated: true }));
   });
 
   it('rejects empty and oversized source', async () => {
@@ -180,7 +198,7 @@ describe('POST /mcp/render', () => {
   });
 
   it('declares the input schema the description promises', () => {
-    expect(RENDER_TOOL.inputSchema.properties.diagramType.enum).toEqual(['sequence', 'mermaid', 'plantuml', 'graph', 'openapi']);
+    expect(RENDER_TOOL.inputSchema.properties.diagramType.enum).toEqual(['sequence', 'mermaid', 'plantuml', 'markdown', 'graph', 'openapi', 'asyncapi']);
   });
 
   describe('rate limit', () => {

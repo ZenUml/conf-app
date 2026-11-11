@@ -3,12 +3,12 @@
 //
 // Every supported language but ZenUML announces itself near the top: PlantUML
 // with `@start…`, draw.io with its XML root, OpenAPI with a top-level
-// `openapi:` / `swagger:` key, Mermaid with a diagram-type keyword on its
-// first line. ZenUML has no header, so it is what is left. A guess that is
+// `openapi:` / `swagger:` key, AsyncAPI with a top-level `asyncapi:` key,
+// Mermaid with a diagram-type keyword on its first line. ZenUML has no header, so it is what is left. A guess that is
 // wrong is not silent: the source then fails the chosen language's parse
 // check, and render_diagram reports the errors to the agent.
 
-export type DetectedType = 'sequence' | 'mermaid' | 'plantuml' | 'graph' | 'openapi';
+export type DetectedType = 'sequence' | 'mermaid' | 'plantuml' | 'graph' | 'openapi' | 'asyncapi';
 
 /**
  * Mermaid's diagram-type keywords, as the first token of the first real line.
@@ -70,6 +70,9 @@ export function detectDiagramType(source: string): DetectedType {
   if (/^@start[a-z]*/i.test(text)) return 'plantuml';
   if (/^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<(mxfile|mxGraphModel)\b/.test(text)) return 'graph';
   // JSON: a top-level "openapi"/"swagger" key. YAML: one at column 0.
+  // AsyncAPI first: its version key is decisive, while a JSON spec can quote an
+  // "openapi" key somewhere inside a schema.
+  if (text.startsWith('{') ? /"asyncapi"\s*:/.test(text) : /^asyncapi\s*:/m.test(text)) return 'asyncapi';
   if (text.startsWith('{') ? /"(openapi|swagger)"\s*:/.test(text) : /^(openapi|swagger)\s*:/m.test(text)) return 'openapi';
 
   const first = firstMeaningfulLine(text);

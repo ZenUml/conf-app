@@ -139,7 +139,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'list_diagrams',
     ...readOnly('List diagrams'),
     description:
-      'List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Read-only.',
+      'List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, markdown, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -154,7 +154,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'read_diagram',
     ...readOnly('Read diagram'),
     description:
-      'Read one diagram by its contentId: its title, diagramType, version, and complete source (the DSL or spec text), and show it to the user. Read-only.',
+      'Read one diagram of any type by its contentId: its title, diagramType, version, and complete source (ZenUML, Mermaid or PlantUML DSL, Markdown, draw.io XML, or an OpenAPI or AsyncAPI spec), and show it to the user. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -257,7 +257,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
         type: {
           type: 'string',
           description:
-            'What the DSL is written in: sequence, mermaid, plantuml, graph or openapi. Case-insensitive; anything else is refused.',
+            'What the source is written in: sequence (ZenUML), mermaid, plantuml, markdown, graph (draw.io XML), openapi or asyncapi. Case-insensitive; anything else is refused, as is a type the site\'s ZenUML app has no macro for.',
         },
         dsl: { type: 'string', description: 'The diagram source.' },
         title: { type: 'string', description: 'Optional. Defaults to "Untitled diagram".' },
@@ -921,7 +921,7 @@ export async function callHeadlessTool(
       const storedType = canonicalDiagramType(diagramType);
       if (!storedType) {
         throw new HeadlessToolError(
-          `Unknown diagram type "${diagramType}". Use one of: sequence, mermaid, plantuml, graph, openapi.`,
+          `Unknown diagram type "${diagramType}". Use one of: sequence, mermaid, plantuml, markdown, graph, openapi, asyncapi.`,
           'bad_params',
         );
       }

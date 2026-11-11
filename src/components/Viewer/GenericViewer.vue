@@ -277,7 +277,7 @@
                   <span class="viewer-btn-label">{{ action.label }}</span>
                 </button>
               </template>
-              <!-- Connect MCP (agent-link flag on, agent-editable types) takes
+              <!-- Connect MCP (agent-link flag on, every diagram type) takes
                    the Copy for AI slot, inline and in fullscreen, and opens
                    ConnectMcpDialog with the headless MCP setup and a prompt
                    naming this diagram. Inline it is labelled "MCP" at stage 0,
@@ -1068,9 +1068,18 @@ export default {
       return !this.editDisabledReason;
     },
     // Live Agent Link MVP scope (design §11/§12): agent-native DSL types only.
-    // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.
+    // Gates the relay session (live badge, Fullscreen rail), whose macro-side
+    // bridge only applies text-DSL edits. Not the Connect MCP button.
     agentLinkMvpSupported() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+    },
+    // Connect MCP (headless): every stored diagram type. The headless tools
+    // read and update any type through Confluence (headlessTools.ts), so the
+    // button shows on every macro — Graph, OpenAPI, AsyncAPI and Markdown
+    // included, and on embed macros, whose diagramType is the embedded
+    // diagram's. Only a diagram with no known type is left out.
+    connectMcpSupported() {
+      return !!this.diagramType && this.diagramType !== DiagramType.Unknown;
     },
     // View Source (#333): text-DSL types only. NOT gated on canUserEdit — the
     // audience includes readers without edit permission.
@@ -1148,15 +1157,14 @@ export default {
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
     showAgentLinkConnect() {
       // With relay sessions on, fullscreen connects through its rail instead.
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported
+      return this.agentLinkFeatureEnabled && this.connectMcpSupported
         && !(this.isFullscreenMode && RELAY_SESSIONS_ENABLED);
     },
     // The Copy for AI slot renders only once it is known not to be Connect
-    // MCP's: on an agent-editable macro, inline or fullscreen, that waits for
-    // the async flag, so Copy for AI never flashes and then swaps out. The
-    // other text types never show Connect MCP, so they need not wait.
+    // MCP's: on any typed macro, inline or fullscreen, that waits for the
+    // async flag, so Copy for AI never flashes and then swaps out.
     copyForAiSlotSettled() {
-      return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
+      return this.agentLinkFlagResolved || !this.connectMcpSupported;
     },
     // MCP promo corner card, Fullscreen only (the header button stays for
     // every viewer). Editors only: it pitches drawing diagrams. Never over a
@@ -1511,7 +1519,9 @@ export default {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
     } finally {
-      if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
+      // Not gated on the diagram type: the store can still be loading it, and
+      // both records are read only behind showAgentLinkConnect anyway.
+      if (this.agentLinkFeatureEnabled) {
         const promoScope = {
           cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
           accountId: this.currentAccountId,

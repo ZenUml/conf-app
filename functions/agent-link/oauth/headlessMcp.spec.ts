@@ -506,6 +506,82 @@ describe('tool usage analytics', () => {
     expect(called?.properties.cloud_id).toBeUndefined();
   });
 
+  it('names the failed step and its HTTP status on an upstream refusal', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const { fetchImpl } = atlassianFetch({ content: () => new Response('down', { status: 503 }) });
+    await call(env, token, 'tools/call', { name: 'read_diagram', arguments: { cloudId: 'cloud-1', contentId: 'cc-1' } }, fetchImpl);
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({
+      mcp_tool_outcome: 'tool_error',
+      reason: 'upstream',
+      failure_step: 'diagram_read',
+      upstream_status: 503,
+    });
+    expect(called?.properties.identity_failure).toBeUndefined();
+  });
+
+  it('records why a create could not resolve the macro identity, on the call and as identity_unresolved', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const base = atlassianFetch().fetchImpl;
+    // No ZenUML custom content of any type: the resolver refuses with no_macro_on_site.
+    const fetchImpl: FetchLike = async (url, init) =>
+      url.includes('/custom-content?type=')
+        ? new Response(JSON.stringify({ results: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+        : base(url, init);
+    const res = await call(
+      env,
+      token,
+      'tools/call',
+      { name: 'create_diagram', arguments: { cloudId: 'cloud-1', pageId: 'page-1', type: 'mermaid', dsl: 'graph TD; A-->B' } },
+      fetchImpl,
+    );
+    expect(res.status).toBe(200);
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({
+      mcp_tool: 'create_diagram',
+      reason: 'upstream',
+      failure_step: 'identity',
+      identity_failure: 'no_macro_on_site',
+    });
+    expect(called?.properties.upstream_status).toBeUndefined();
+    const unresolved = events.find((e) => e.event === 'agent_link_identity_unresolved');
+    expect(unresolved?.properties).toMatchObject({
+      user_account_id: ACCOUNT,
+      mcp_mode: 'headless',
+      mcp_tool: 'create_diagram',
+      reason: 'no_macro_on_site',
+      client_domain: 'one',
+    });
+  });
+
+  it('reports a site listing Atlassian answered 401 as a dead grant, with the OAuth challenge', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const { fetchImpl } = atlassianFetch({ sites: () => new Response('nope', { status: 401 }) });
+    const res = await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} }, fetchImpl);
+    expect(res.status).toBe(401);
+    expect(res.headers.get('WWW-Authenticate')).toContain('Bearer');
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({ mcp_tool_outcome: 'tool_error', reason: 'no_grant' });
+    expect(called?.properties.failure_step).toBeUndefined();
+  });
+
+  it('keeps any other site-listing failure upstream, naming the step and status', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const { fetchImpl } = atlassianFetch({ sites: () => new Response('busy', { status: 503 }) });
+    const res = await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} }, fetchImpl);
+    expect(res.status).toBe(200);
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({ reason: 'upstream', failure_step: 'list_sites', upstream_status: 503 });
+  });
+
   it('records the site a call targeted', async () => {
     const events = captureEvents();
     const env = await trackedEnv();

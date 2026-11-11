@@ -41,6 +41,7 @@ import type {
   AgentLinkListScope,
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
+  AgentLinkFailureStep,
   AgentLinkOAuthRevokeReason,
   AgentLinkOAuthRoute,
   AgentLinkOAuthAtlassianReason,
@@ -1135,6 +1136,12 @@ export type AnalyticsProperties = {
   // `is_internal_client_domain` expects).
   mcp_tool?: string;
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;
+  // On a `reason: 'upstream'` tool_error: which step failed, the HTTP status
+  // it got (when there was one), and for step 'identity' the resolver's
+  // refusal. See AgentLinkFailureStep.
+  failure_step?: AgentLinkFailureStep;
+  upstream_status?: number;
+  identity_failure?: AgentLinkIdentityFailure;
   mcp_client_name?: string;
   mcp_client_version?: string;
   // Set by our own smoke checks on the public render endpoint, which has no

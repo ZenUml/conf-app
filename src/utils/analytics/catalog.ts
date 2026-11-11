@@ -38,6 +38,15 @@ export type FeatureArea =
 
 /** What the draft lookup found for this page. */
 export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
+
+/** Why a title-draft preview closed without adding a diagram. */
+export type TitleDraftPreviewCloseReason =
+  | "escape"
+  | "render_failed"
+  // Confluence does not distinguish its X, overlay, or host-handled Escape.
+  | "host_dismissed"
+  // A dismissed payload from a previously loaded iframe carried no reason.
+  | "unknown";
 /** Why a title-draft Add did not place a new diagram. */
 export type TitleDraftAddFailure =
   | "already_added"
@@ -403,6 +412,7 @@ export type SessionReplayEventSource =
   | "fullscreen"
   | "feedback"
   | "license_notice"
+  | "title_draft_preview"
   | "timeout"
   | "off";
 
@@ -1748,6 +1758,16 @@ export type AnalyticsEventName =
   | "title_draft_flag_shown"
   | "title_draft_not_now"
   | "title_draft_preview_opened"
+  // Preview iframe mounted: initialize analytics and request replay at 100%.
+  | "title_draft_preview_mounted"
+  // SVG committed to the preview DOM; duration_ms measures rendering.
+  | "title_draft_preview_rendered"
+  // Preview rendering rejected; never carries diagram source or error text.
+  | "title_draft_preview_render_failed"
+  // An enabled Add to page action was accepted, before context/save work.
+  | "title_draft_add_clicked"
+  // Keeps the existing meaning: closed without added/already_added outcome.
+  // title_draft_close_reason distinguishes known and host-level dismissals.
   | "title_draft_preview_closed"
   | "title_draft_added"
   | "title_draft_add_failed"

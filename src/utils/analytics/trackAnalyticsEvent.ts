@@ -132,6 +132,7 @@ const FORCED_REPLAY_SOURCES: Partial<
 > = {
   feedback_report_opened: "feedback",
   license_notice_shown: "license_notice",
+  title_draft_preview_mounted: "title_draft_preview",
 };
 
 function _startExplicitReplay(
@@ -239,11 +240,17 @@ function _initMixpanel(): Promise<void> {
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
+      const isTitleDraftPreview =
+        forgeContext?.extension?.modal?.macroMode === "title-draft";
       let replayConfigTimedOut = false;
       // NOTE (#707): this short-circuit runs before _resolveSessionReplayConfig,
       // so the bounded flag wait below is inactive while the October budget
       // branch is taken and becomes live on 2026-11-01 UTC.
-      const { percent, source } = isOctoberReplayBudgetActive()
+      // A title draft is a deliberate preview in its own iframe. Initialize
+      // there immediately at 100%, without delaying for the baseline flag.
+      const { percent, source } = isTitleDraftPreview
+        ? { percent: 100, source: "title_draft_preview" as const }
+        : isOctoberReplayBudgetActive()
         ? { percent: 0, source: "off" as const }
         : isPageBanner
         ? { percent: 0, source: "off" as const }
@@ -470,11 +477,11 @@ async function _getDemoPageTelemetry(
 }
 
 /**
- * Extra options handed straight to mixpanel.track. Only the transport override
- * is used today — see trackAnalyticsEventBeforeUnload.
+ * Extra options handed straight to mixpanel.track for unload-safe delivery.
  */
 interface TrackTransportOptions {
   transport: "sendBeacon";
+  send_immediately: true;
 }
 
 export async function _awaitableTrackAnalyticsEvent(
@@ -547,7 +554,8 @@ export function trackAnalyticsEvent(
  * transport is aborted by that navigation, so the event never arrives:
  * production recorded 1 `load_failed_retry_resolved` and 0
  * `load_failed_retry_clicked` on 2026-08-23. sendBeacon is queued by the
- * browser and survives unload.
+ * browser and survives unload. Mixpanel still batches beacon events unless
+ * send_immediately bypasses its queue, so both options are required here.
  *
  * Await it: the enrichment itself is async (Mixpanel init, macro uuid, space
  * telemetry), so firing and navigating would lose the event before it ever
@@ -559,6 +567,7 @@ export async function trackAnalyticsEventBeforeUnload(
 ): Promise<void> {
   await _awaitableTrackAnalyticsEvent(eventName, properties, {
     transport: "sendBeacon",
+    send_immediately: true,
   });
 }
 

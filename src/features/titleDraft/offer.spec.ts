@@ -195,6 +195,7 @@ describe('maybeOfferTitleDraft actions', () => {
       title: `Diagram for ${TITLE}`,
       context: { pageId: '100', pageTitle: TITLE, mermaid: MERMAID },
     })
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_opened', expect.objectContaining({ surface: 'page_banner' }))
   })
 
   async function openAndClose(payload: unknown) {
@@ -204,9 +205,25 @@ describe('maybeOfferTitleDraft actions', () => {
     m.openModal.mock.calls[0][0].onClose(payload)
   }
 
+  it.each([
+    { payload: undefined, reason: 'host_dismissed' },
+    { payload: { outcome: 'dismissed' }, reason: 'unknown' },
+    { payload: { outcome: 'dismissed', reason: 'escape' }, reason: 'escape' },
+    { payload: { outcome: 'dismissed', reason: 'render_failed' }, reason: 'render_failed' },
+  ])('reports the close reason $reason once through the parent lifecycle', async ({ payload, reason }) => {
+    await openAndClose(payload)
+    m.openModal.mock.calls[0][0].onClose(payload)
+    const closed = m.trackAnalyticsEvent.mock.calls.filter(c => c[0] === 'title_draft_preview_closed')
+    expect(closed).toEqual([['title_draft_preview_closed', expect.objectContaining({
+      surface: 'modal', page_id: '100', title_draft_kind: 'sequence', title_draft_confidence: 0.9,
+      title_draft_close_reason: reason,
+    })]])
+  })
+
   it('closing with added reloads the host, and the next view shows the added flag', async () => {
     await openAndClose({ outcome: 'added', contentId: 'c1' })
     expect(m.reloadHostPage).toHaveBeenCalledTimes(1)
+    expect(m.trackAnalyticsEvent.mock.calls.filter(c => c[0] === 'title_draft_preview_closed')).toHaveLength(0)
 
     expect(await maybeOfferTitleDraft('lite')).toBe(true)
     const added = flags().at(-1)
@@ -239,5 +256,6 @@ describe('maybeOfferTitleDraft actions', () => {
     await openAndClose({ outcome: 'already_added' })
     await vi.waitFor(() => expect(flags().at(-1)?.title).toBe('A diagram was already added to this page'))
     expect(m.reloadHostPage).not.toHaveBeenCalled()
+    expect(m.trackAnalyticsEvent.mock.calls.filter(c => c[0] === 'title_draft_preview_closed')).toHaveLength(0)
   })
 })

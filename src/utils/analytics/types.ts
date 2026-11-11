@@ -5,6 +5,7 @@ import type {
   FeatureArea,
   TitleDraftLookupStatus,
   TitleDraftAddFailure,
+  TitleDraftPreviewCloseReason,
   MacroTypeValue,
   CaptureFailureStage,
   Surface,
@@ -130,6 +131,8 @@ export type AnalyticsProperties = {
   /** Title-first offer. Never carries the title or the draft source. */
   title_draft_status?: TitleDraftLookupStatus;
   title_draft_failure?: TitleDraftAddFailure;
+  /** Present on preview_closed; native host dismissal cannot identify its control. */
+  title_draft_close_reason?: TitleDraftPreviewCloseReason;
   /** Mermaid family of the draft: flowchart, sequence, state or er. */
   title_draft_kind?: string;
   /** Model confidence recorded by the batch, 0 to 1. */

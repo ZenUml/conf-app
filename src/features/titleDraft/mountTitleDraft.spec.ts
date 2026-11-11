@@ -45,6 +45,57 @@ afterEach(() => {
 })
 
 describe('title draft modal instrumentation', () => {
+  const exposure = { experimentId: 'title-draft-offer-copy', experimentVersion: 1,
+    variant: 'B', exposureId: '11111111-1111-4111-8111-111111111111' }
+  const experimentProps = { title_draft_experiment_id: 'title-draft-offer-copy', title_draft_experiment_version: 1,
+    title_draft_variant: 'B', title_draft_exposure_id: exposure.exposureId }
+
+  it.each(['A', 'B'])('retains explicit variant %s through iframe render, accepted click and successful add', async (variant) => {
+    const contextExposure = { ...exposure, variant }
+    mountTitleDraftModal({ extension: { modal: { ...modal, copyExperiment: contextExposure } } })
+    // Modal context is an external object; downstream callbacks use a validated snapshot.
+    contextExposure.variant = 'invalid'
+    await flushPromises()
+    document.querySelector('button')!.click()
+    await flushPromises()
+    const expected = { ...props, ...experimentProps, title_draft_variant: variant }
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_mounted', expected)
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_rendered', expected)
+    expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_add_clicked', expected)
+    expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_added', expected)
+  })
+
+  it('retains the explicit exposure on add failure', async () => {
+    m.addDraft.mockResolvedValue({ result: 'forbidden' })
+    mountTitleDraftModal({ extension: { modal: { ...modal, copyExperiment: exposure } } })
+    await flushPromises()
+    document.querySelector('button')!.click()
+    await flushPromises()
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_add_failed', {
+      ...props, ...experimentProps, title_draft_failure: 'forbidden',
+    })
+  })
+
+  it('retains the explicit exposure on automatic render failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    m.renderMermaid.mockRejectedValue(new Error('bad syntax'))
+    mountTitleDraftModal({ extension: { modal: { ...modal, copyExperiment: exposure } } })
+    await flushPromises()
+    expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_preview_render_failed', { ...props, ...experimentProps })
+    expect(m.close).toHaveBeenCalledWith({ outcome: 'dismissed', reason: 'render_failed' })
+  })
+
+  it.each([undefined, {}, { ...exposure, variant: 'C' }, { ...exposure, experimentVersion: 2 }, { ...exposure, exposureId: 'private text' }])(
+    'keeps legacy or malformed modal attribution unassigned (%j)', async (copyExperiment) => {
+      mountTitleDraftModal({ extension: { modal: { ...modal, copyExperiment } } })
+      await flushPromises()
+      document.querySelector('button')!.click()
+      await flushPromises()
+      expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_mounted', props)
+      expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_added', props)
+    },
+  )
+
   it('starts analytics at the real mount and reports success after SVG is committed', async () => {
     let finish!: (v: { svg: string }) => void
     m.renderMermaid.mockImplementation(() => new Promise(resolve => { finish = resolve }))

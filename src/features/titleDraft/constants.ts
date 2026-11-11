@@ -1,3 +1,5 @@
+import type { TitleDraftCopyExposure } from './copyExperiment'
+
 /** `macroMode` of the Forge modal that previews a title draft. */
 export const TITLE_DRAFT_MACRO_MODE = 'title-draft'
 
@@ -14,4 +16,5 @@ export interface TitleDraftModalContext {
   mermaid: string
   kind?: string
   confidence?: number
+  copyExperiment?: TitleDraftCopyExposure
 }

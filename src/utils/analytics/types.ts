@@ -4,6 +4,9 @@ import type { ProductType } from "./productType";
 import type {
   FeatureArea,
   TitleDraftLookupStatus,
+  TitleDraftCopyExperimentId,
+  TitleDraftCopyExperimentVersion,
+  TitleDraftCopyVariant,
   TitleDraftAddFailure,
   TitleDraftPreviewCloseReason,
   MacroTypeValue,
@@ -137,6 +140,12 @@ export type AnalyticsProperties = {
   title_draft_kind?: string;
   /** Model confidence recorded by the batch, 0 to 1. */
   title_draft_confidence?: number;
+  /** Present together only for a valid, explicitly assigned offer-copy exposure. */
+  title_draft_experiment_id?: TitleDraftCopyExperimentId;
+  title_draft_experiment_version?: TitleDraftCopyExperimentVersion;
+  title_draft_variant?: TitleDraftCopyVariant;
+  /** Opaque per-show ID, carried unchanged through this exposure's funnel. */
+  title_draft_exposure_id?: string;
   /** Automatic writeback terminal outcome. Backend is temporary transport only. */
   magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
   /**

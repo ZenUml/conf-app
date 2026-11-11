@@ -39,6 +39,11 @@ export type FeatureArea =
 /** What the draft lookup found for this page. */
 export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
 
+/** Versioned title-draft offer-copy test; assignments are account-sticky. */
+export type TitleDraftCopyExperimentId = "title-draft-offer-copy";
+export type TitleDraftCopyExperimentVersion = 1;
+export type TitleDraftCopyVariant = "A" | "B";
+
 /** Why a title-draft preview closed without adding a diagram. */
 export type TitleDraftPreviewCloseReason =
   | "escape"
@@ -1753,10 +1758,19 @@ export type AnalyticsEventName =
   | "activation_diagram_edited"
   | "activation_completed"
   | "activation_nudge_dismissed"
-  // Title-first offer. `requested` is the draft lookup; the rest follow the flag.
+  // Title-first offer. `requested` is the draft lookup, before any copy exposure.
+  // When the independent offer-copy flag is on, flag_shown records one native
+  // flag exposure with title_draft_experiment_id/version, title_draft_variant
+  // and a fresh title_draft_exposure_id. not_now and preview_opened describe
+  // clicks on that same exposure. Preserve these explicit properties through
+  // preview mount/render/failure, add click/result, close and post-reload actions.
+  // Flag-off and legacy flows omit all experiment fields; never send copy text.
   | "title_draft_requested"
+  // Native showFlag returned: exposure denominator, with experiment props above.
   | "title_draft_flag_shown"
+  // Secondary offer action clicked, with the exposure that rendered the button.
   | "title_draft_not_now"
+  // Primary offer action clicked, before opening the preview modal.
   | "title_draft_preview_opened"
   // Preview iframe mounted: initialize analytics and request replay at 100%.
   | "title_draft_preview_mounted"

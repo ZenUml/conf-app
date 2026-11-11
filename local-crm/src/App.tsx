@@ -1,9 +1,9 @@
 import CaseDrawer from '@/components/drawer/CaseDrawer'
+import QueueRequestDrawer from '@/components/drawer/QueueRequestDrawer'
 import NavRail from '@/components/NavRail'
 import TopBar from '@/components/TopBar'
 import AutomationScreen from '@/screens/AutomationScreen'
 import ExtensionsScreen from '@/screens/ExtensionsScreen'
-import PendingScreen from '@/screens/PendingScreen'
 import SitesScreen from '@/screens/SitesScreen'
 import TodayScreen from '@/screens/TodayScreen'
 import { useCrmStore } from '@/stores/crm'
@@ -15,8 +15,6 @@ function CurrentScreen() {
       return <SitesScreen />
     case 'extensions':
       return <ExtensionsScreen />
-    case 'pending':
-      return <PendingScreen />
     case 'automation':
       return <AutomationScreen />
     default:
@@ -35,6 +33,7 @@ export default function App() {
         </div>
       </main>
       <CaseDrawer />
+      <QueueRequestDrawer />
     </div>
   )
 }

@@ -2358,13 +2358,15 @@ export default {
             });
           }, Math.max(0, Date.parse(decision.expiresAt) - Date.now()));
         }
-        trackAnalyticsEvent('license_notice_evaluated', {
-          feature_area: 'license_notice',
-          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
-          macro_type: this.diagramType ?? 'none',
-          license_notice_outcome: activeNow ? 'active' : decision.outcome,
-          ...(this.licenseNoticeBasis ? { license_notice_basis: this.licenseNoticeBasis } : {}),
-        });
+        if (decision.outcome !== 'disabled') {
+          trackAnalyticsEvent('license_notice_evaluated', {
+            feature_area: 'license_notice',
+            surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+            macro_type: this.diagramType ?? 'none',
+            license_notice_outcome: activeNow ? 'active' : decision.outcome,
+            ...(this.licenseNoticeBasis ? { license_notice_basis: this.licenseNoticeBasis } : {}),
+          });
+        }
       } catch {
         if (requestId !== this.licenseNoticeRequestId) return;
         this.licenseNoticeActive = false;

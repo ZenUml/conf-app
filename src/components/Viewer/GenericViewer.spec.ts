@@ -4096,6 +4096,7 @@ describe('GenericViewer license notice (Full, license inactive)', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('license_notice_evaluated', expect.anything())
     wrapper.unmount()
   })
 

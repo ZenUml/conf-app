@@ -37,6 +37,6 @@ Real sites, cloudIds and output artifacts belong in `private/`. Do not commit th
 
 ## Analytics and validation
 
-`license_notice_evaluated` records the completed eligibility decision (including active, unknown, disabled and unavailable). `license_notice_shown` remains the actual component-mount exposure event and starts session replay. Both carry `license_notice_basis` when known: `forge_inactive`, `forge_legacy_free`, `marketplace_legacy_free`, or a non-production `development_mock`. An eligible evaluation is not proof that a notice rendered: load-failure UI can suppress it.
+`license_notice_evaluated` records the completed eligibility decision for flag-enabled viewers (including active, unknown and unavailable). Flag-off views emit no evaluation event. `license_notice_shown` remains the actual component-mount exposure event and starts session replay. Both carry `license_notice_basis` when known: `forge_inactive`, `forge_legacy_free`, `marketplace_legacy_free`, or a non-production `development_mock`. An eligible evaluation is not proof that a notice rendered: load-failure UI can suppress it.
 
 Use the `Viewer/LicenseNotice` Storybook cases for explicit Legacy Free, verified Marketplace evidence, missing unknown licenses, expired evidence and active-license precedence. Validate the same candidate through Storybook, Forge Tunnel and CI-deployed staging in that order. Production rollout and an actual production exposure remain separate from staging validation.

@@ -8,7 +8,10 @@ A PR push starts two workflows. Only `PR validation` takes the repo-wide `conf-a
 flowchart LR
   Push[PR push] --> C[PR checks: no lock, newer push cancels older]
   Push --> Q[PR validation: waits for the staging lock]
-  C --> U[Build and Unit Test]
+  C --> U1[Unit tests, 4 shards]
+  C --> A[AsyncAPI build and CI script tests]
+  U1 --> U[Build and Unit Test]
+  A --> U
   C --> P[E2E: Viewer preview]
   Q --> G{Still the PR head?}
   G -- no --> S[Skip every staging job]

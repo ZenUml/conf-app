@@ -87,6 +87,15 @@ describe('title draft local state', () => {
   })
 
   describe('just added', () => {
+    it('retains a valid exposure but strips malformed stored attribution', () => {
+      const copyExperiment = { experimentId: 'title-draft-offer-copy' as const, experimentVersion: 1 as const,
+        variant: 'B' as const, exposureId: '11111111-1111-4111-8111-111111111111' }
+      writeJustAdded(A, { pageId: 'p1', contentId: 'c1', at: NOW, copyExperiment })
+      expect(takeJustAdded(A, 'p1', NOW)?.copyExperiment).toEqual(copyExperiment)
+      writeJustAdded(A, { pageId: 'p1', contentId: 'c1', at: NOW,
+        copyExperiment: { ...copyExperiment, variant: 'invalid' } as any })
+      expect(takeJustAdded(A, 'p1', NOW)).toEqual({ pageId: 'p1', contentId: 'c1', at: NOW })
+    })
     it('returns and clears a matching record under 2 minutes old', () => {
       writeJustAdded(A, { pageId: 'p1', contentId: 'c1', at: NOW })
       expect(takeJustAdded(A, 'p1', NOW + 119_000)).toEqual({ pageId: 'p1', contentId: 'c1', at: NOW })

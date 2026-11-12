@@ -8,6 +8,7 @@ import { addDraft, type AddDraftResult } from './addDraft'
 import { TITLE_DRAFT_MACRO_MODE, type TitleDraftClosePayload, type TitleDraftModalContext } from './constants'
 import TitleDraftPanel from './TitleDraftPanel.vue'
 import { titleDraftProps } from './offerProps'
+import { readTitleDraftCopyExposure } from './copyExperiment'
 
 // Telemetry cannot leave a failed preview or completed save stuck open.
 export const TITLE_DRAFT_TELEMETRY_TIMEOUT_MS = 750
@@ -19,7 +20,8 @@ export function mountTitleDraftModal(forgeContext: Record<string, any>): boolean
   const container = document.getElementById('app')
   if (!container) throw new Error('Title draft modal root not found')
 
-  const props = { ...titleDraftProps(modal.kind, modal.confidence), surface: 'modal' as const, page_id: modal.pageId }
+  const exposure = readTitleDraftCopyExposure(modal.copyExperiment)
+  const props = { ...titleDraftProps(modal.kind, modal.confidence, exposure), surface: 'modal' as const, page_id: modal.pageId }
   // Observability must never turn a successful render/save into a UI failure.
   const track = (event: AnalyticsEventName, extra: AnalyticsProperties = {}) => {
     try { trackAnalyticsEvent(event, { ...props, ...extra }) } catch { /* analytics is best effort */ }

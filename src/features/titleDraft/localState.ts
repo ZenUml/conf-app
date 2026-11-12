@@ -1,5 +1,6 @@
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
+import { readTitleDraftCopyExposure, type TitleDraftCopyExposure } from './copyExperiment'
 
 /**
  * Per-browser state for the title-draft offer. Every reader fails CLOSED when
@@ -16,6 +17,7 @@ export interface JustAdded {
   pageId: string
   contentId: string
   at: number
+  copyExperiment?: TitleDraftCopyExposure
 }
 
 const HOUR = 3600_000
@@ -144,7 +146,8 @@ export function takeJustAdded(id: TitleDraftIdentity, pageId: string, now: numbe
       || v.pageId !== pageId || now - v.at >= JUST_ADDED_TTL_MS || now < v.at
     ) return null
     remove(k)
-    return { pageId: v.pageId, contentId: v.contentId, at: v.at }
+    const exposure = readTitleDraftCopyExposure(v.copyExperiment)
+    return { pageId: v.pageId, contentId: v.contentId, at: v.at, ...(exposure ? { copyExperiment: exposure } : {}) }
   } catch {
     return null
   }

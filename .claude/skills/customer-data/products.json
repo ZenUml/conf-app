@@ -1,10 +1,70 @@
 {
   "schema_version": 1,
   "products": [
-    {"key":"lite","name":"ZenUML Lite","marketplace_key":"com.zenuml.confluence-addon-lite","forge_app_id":"8ad26115-211f-4216-971b-0540f606303d","conf_app":true,"mixpanel_product_type":"lite"},
-    {"key":"full","name":"ZenUML Full","marketplace_key":"com.zenuml.confluence-addon","forge_app_id":"d9e4002b-120b-426b-834b-402a4a5adce7","conf_app":true,"mixpanel_product_type":"full"},
-    {"key":"diagramly","name":"Diagramly","marketplace_key":"gptdock-confluence","forge_app_id":"01ede8b1-4e88-451a-b9ef-89eeef93afaf","conf_app":true,"mixpanel_product_type":"diagramly"},
-    {"key":"asyncapi","name":"AsyncAPI & OpenAPI for Confluence","marketplace_key":"my-api","forge_app_id":"49017727-af19-4ab6-8d5a-7d28108936b6","conf_app":true,"mixpanel_product_type":"asyncapi"},
-    {"key":"mini-sites","name":"Mini Sites for Confluence","marketplace_key":"com.zenuml.confluence.minisite","forge_app_id":null,"conf_app":false,"mixpanel_product_type":null}
+    {
+      "key": "lite",
+      "name": "ZenUML Lite",
+      "marketplace_key": "com.zenuml.confluence-addon-lite",
+      "forge_app_id": "8ad26115-211f-4216-971b-0540f606303d",
+      "conf_app": true,
+      "mixpanel_product_type": "lite",
+      "recent_customer_scan": true
+    },
+    {
+      "key": "full",
+      "name": "ZenUML Full",
+      "marketplace_key": "com.zenuml.confluence-addon",
+      "forge_app_id": "d9e4002b-120b-426b-834b-402a4a5adce7",
+      "conf_app": true,
+      "mixpanel_product_type": "full",
+      "recent_customer_scan": true
+    },
+    {
+      "key": "diagramly",
+      "name": "Diagramly",
+      "marketplace_key": "gptdock-confluence",
+      "forge_app_id": "01ede8b1-4e88-451a-b9ef-89eeef93afaf",
+      "conf_app": true,
+      "mixpanel_product_type": "diagramly",
+      "recent_customer_scan": true
+    },
+    {
+      "key": "asyncapi",
+      "name": "AsyncAPI & OpenAPI for Confluence",
+      "marketplace_key": "my-api",
+      "forge_app_id": "49017727-af19-4ab6-8d5a-7d28108936b6",
+      "conf_app": true,
+      "mixpanel_product_type": "asyncapi",
+      "recent_customer_scan": true
+    },
+    {
+      "key": "mini-sites",
+      "name": "Mini Sites for Confluence",
+      "marketplace_key": "com.zenuml.confluence.minisite",
+      "forge_app_id": null,
+      "conf_app": false,
+      "mixpanel_product_type": null,
+      "recent_customer_scan": true
+    },
+    {
+      "key": "aws-widgets",
+      "name": "AWS Widgets",
+      "marketplace_key": "com.aws.widget.confluence-addon",
+      "forge_app_id": null,
+      "conf_app": false,
+      "mixpanel_product_type": null,
+      "recent_customer_scan": true,
+      "marketplace_key_source": "https://marketplace.atlassian.com/manage/vendors/1215266/reporting/licenses?addon=com.aws.widget.confluence-addon"
+    },
+    {
+      "key": "whiteboard",
+      "name": "Whiteboard on Confluence",
+      "marketplace_key": "com.pnd.confluence.plugins.whiteboard",
+      "forge_app_id": null,
+      "conf_app": false,
+      "mixpanel_product_type": null,
+      "recent_customer_scan": true,
+      "marketplace_key_source": "https://marketplace.atlassian.com/manage/vendors/1215266/reporting/licenses?addon=com.pnd.confluence.plugins.whiteboard"
+    }
   ]
 }

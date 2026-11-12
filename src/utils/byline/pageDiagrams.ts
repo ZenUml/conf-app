@@ -1,4 +1,5 @@
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { toMacroType } from '@/lib/diagramTypeVocabulary.js'
 import { inferLegacyDiagramType, inferLegacySpecType } from '@/model/Diagram/legacyDiagramType'
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig'
 
@@ -98,25 +99,10 @@ export function typeLabel(diagramType: string): string {
 /**
  * Stored `diagramType` values are not the analytics vocabulary: the body says
  * `OpenAPI` / `AsyncAPI` while `MacroTypeValue` in the catalog is all lowercase.
- * Casting one to the other would quietly put `OpenAPI` in Mixpanel next to
- * `openapi` from every other surface and split the same macro type across two
- * buckets. Anything unrecognised becomes `none`, which the catalog already
- * defines, rather than a novel value.
+ * The mapping (case-folded, unrecognised -> `none`) lives in the dependency-free
+ * vocabulary module shared with export.js and the headless MCP (#942).
  */
-const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
-  [DiagramType.Sequence]: 'sequence',
-  [DiagramType.Mermaid]: 'mermaid',
-  [DiagramType.PlantUml]: 'plantuml',
-  [DiagramType.Markdown]: 'markdown',
-  [DiagramType.Graph]: 'graph',
-  [DiagramType.OpenApi]: 'openapi',
-  [DiagramType.AsyncApi]: 'asyncapi',
-  [DiagramType.Embed]: 'embed',
-}
-
-export function toMacroType(diagramType: string): string {
-  return lookup(MACRO_TYPE_BY_DIAGRAM_TYPE, diagramType) || 'none'
-}
+export { toMacroType }
 
 /**
  * The `diagramType` to hand `openModal` so forgeIndex routes the modal to the

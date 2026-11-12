@@ -22,6 +22,7 @@ import {
   type HeadlessContext,
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
+import { toMacroType } from '../../../src/lib/diagramTypeVocabulary.js';
 import { readUiResource, uiCapability, uiResourceList, withUiMeta } from './mcpApps';
 import type { GateEnv } from './headlessGate';
 import type { GrantEvent } from './tokenStore';
@@ -322,11 +323,18 @@ function guardrailReasonOf(failure: HeadlessToolError): 'parse_error' | 'data_lo
   return reason === 'parse_error' || reason === 'data_loss' ? reason : 'other';
 }
 
+/** The analytics macro_type for a stored diagramType, or undefined when it is not recognised. */
+function knownMacroType(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const macroType = toMacroType(raw);
+  return macroType === 'none' ? undefined : macroType;
+}
+
 /** The type of the diagram a guard refusal protected, so false alarms can be split by type. */
 function refusedMacroType(failure: HeadlessToolError): string | undefined {
   if (failure.code !== 'guardrail_rejected') return undefined;
   const from = (failure.detail as { diagramType?: unknown } | undefined)?.diagramType;
-  return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
+  return knownMacroType(from);
 }
 
 /**
@@ -420,17 +428,6 @@ async function trackToolCall(
 
 const DIAGRAM_RESULT_TOOLS = new Set(['read_diagram', 'create_diagram', 'update_diagram']);
 
-/** The analytics macro_type vocabulary, keyed by the stored diagramType folded to lower case. */
-const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
-  sequence: 'sequence',
-  mermaid: 'mermaid',
-  plantuml: 'plantuml',
-  graph: 'graph',
-  openapi: 'openapi',
-  asyncapi: 'asyncapi',
-  markdown: 'markdown',
-};
-
 /**
  * Which diagram type a successful diagram tool call touched. All three tools
  * return it, because the MCP Apps view needs it: read from the result, it is the
@@ -439,8 +436,7 @@ const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
  */
 export function macroTypeOf(tool: string, value: unknown): string | undefined {
   if (!DIAGRAM_RESULT_TOOLS.has(tool)) return undefined;
-  const from = (value as { diagramType?: unknown } | null)?.diagramType;
-  return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
+  return knownMacroType((value as { diagramType?: unknown } | null)?.diagramType);
 }
 
 export interface HeadlessMcpDeps {

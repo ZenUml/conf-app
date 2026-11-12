@@ -209,6 +209,16 @@ describe('PaywallWarningBanner (page banner)', () => {
       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(false)
     })
 
+    it('space admin banner shows no purchase/checkout control', () => {
+      const wrapper = mount(PaywallWarningBanner, asAdmin)
+      expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(false)
+      const buttonTexts = wrapper.findAll('button').map((b) => b.text())
+      expect(buttonTexts).toEqual(['View plan and usage'])
+      for (const text of buttonTexts) {
+        expect(text).not.toMatch(/unlock|\$|buy|purchase/i)
+      }
+    })
+
     it('swaps the advocacy relay for a direct purchase CTA', () => {
       const wrapper = mount(PaywallWarningBanner, asAdmin)
       expect(wrapper.text()).toContain('You administer this space')

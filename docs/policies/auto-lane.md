@@ -4,8 +4,11 @@ The auto lane is the set of changes an agent may open, and for some classes merg
 in the loop. It exists for work that never reaches the team's priority bar: stale dependency
 patches, small documentation fixes, long-standing low-volume errors.
 
-**Status (2026-11-13): policy and classifier only.** No workflow opens or merges anything yet.
-Production releases are always started by a person; the auto lane never releases.
+**Status (2026-11-13): policy, classifier and one automation, switched off.** The only automation is
+`.github/workflows/auto-lane-merge.yml`: once a day it merges at most one open Dependabot PR that the
+classifier calls `auto-merge` and whose checks are all green. It does nothing until the repository variable
+`AUTO_LANE_ENABLED` is `true`. No workflow opens PRs yet. Production releases are always started by a
+person; the auto lane never releases.
 
 ## The rule
 
@@ -94,16 +97,44 @@ One of six qualifies. The two grouped PRs cannot, because `.github/dependabot.ym
 production and development packages together. Splitting the group by `dependency-type` is the
 change that would let the development half flow.
 
-## Not built yet
+## Controls
 
-| Control | Decision | Why |
+| Control | State | How it works |
 |---|---|---|
-| Kill switch | Repository variable `AUTO_LANE_ENABLED`; anything but `true` makes every job a no-op | One place to stop it |
-| Volume cap | One open auto-lane PR at a time, two a day | `PR validation` holds the shared staging lock: median 18 min, longest 60 min over 38 runs |
-| Ledger | Label `auto-lane` on every issue and PR the lane opens | Dedupe and audit without a database |
-| Release age | Dependabot `cooldown` of 7 days for version updates | A freshly published version is the supply-chain risk; cooldown does not apply to security updates |
-| Promotion | A lane moves from auto-pr to auto-merge after 10 merges with no revert | Autonomy is earned per lane |
-| Error signatures | Standing signatures become `report-only` issues, without tenant names | This repository is public |
+| Kill switch | Built, OFF | Repository variable `AUTO_LANE_ENABLED`. Anything but the exact string `true` makes the job print `auto lane disabled` and stop before any network call. |
+| Volume cap | Built | Two merges per UTC day (counted from merged PRs that carry the `auto-lane` label) and one merge per run. Reason: `PR validation` holds the shared staging lock, median 18 min, longest 60 min over 38 runs. |
+| Ledger | Built for merges | The job adds the label `auto-lane` to a PR just before it merges it. The daily cap reads that label. |
+| Hold | Built | A person adds the label `auto-lane:hold` to a PR; the job skips it. |
+| Release age | Built | `cooldown: default-days: 7` on all three npm entries in `.github/dependabot.yml`. A freshly published version is the supply-chain risk. Cooldown does not delay security updates. |
+| Group split | Built | Each npm entry has two groups, `npm-dev-minor-and-patch` and `npm-prod-minor-and-patch`, so a development-only PR can reach `deps-dev-minor`. |
+| Promotion | Not built | A lane moves from auto-pr to auto-merge after 10 merges with no revert. Today the levels are fixed in the classifier. |
+| Error signatures | Not built | Standing signatures become `report-only` issues, without tenant names (this repository is public). |
+| Other authors | Not built | The job merges only PRs by `app/dependabot`, the login `gh` prints for Dependabot. Agent and human PRs are never merged by it. |
+
+### What the merge job checks
+
+It skips a PR, with the reason printed, unless all of these hold, tested in this order:
+the switch is `true`; fewer than 2 merged today; not a draft; author is `app/dependabot` and a bot; head
+repository is this repository; base is `main`; no `auto-lane:hold` label; GitHub reports `MERGEABLE`; the
+classifier, run from `main` on `merge-base..head`, says `auto-merge`; there is at least one check run on the
+head SHA; none is unfinished; none failed (a cancelled run is ignored when a later run of the same name
+succeeded); and `Build and Unit Test`, `E2E validation` and `Pipeline outcome` all succeeded.
+The merge uses `--match-head-commit`, so a push after the check cannot slip in, and makes a merge commit,
+not a squash. A merge made with `GITHUB_TOKEN` starts no `push` workflow, so the job then dispatches
+`build-test-deploy.yml` on `main`; a dispatch with default inputs runs the same pipeline a push does.
+
+## Turning it on / off
+
+```bash
+gh variable set AUTO_LANE_ENABLED --body true     # on: the daily run may merge
+gh variable set AUTO_LANE_ENABLED --body false    # off: every run is a no-op
+
+gh workflow run auto-lane-merge.yml               # dry run: prints decisions, writes nothing
+gh workflow run auto-lane-merge.yml -f dry-run=false   # real run; still a dry run unless the variable is true
+node scripts/ci/auto-lane-merge.mjs --dry-run     # the same dry run from a checkout of main, with gh logged in
+```
+
+A scheduled run is never a dry run. To stop one PR, add the label `auto-lane:hold`.
 
 ## Known gaps in the classifier
 

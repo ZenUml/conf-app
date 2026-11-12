@@ -58,6 +58,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import type { LicenseNoticeBasis } from '@/features/licenseNotice/licenseNotice'
 import { MARKETPLACE_UPGRADE_URL, SUPPORT_EMAIL, SUPPORT_TICKET_URL } from '@/features/licenseNotice/licenseNotice'
 
 const COPIED_MS = 1400
@@ -65,6 +66,7 @@ const COPIED_MS = 1400
 const props = defineProps<{
   surface: 'viewer' | 'fullscreen'
   macroType: string
+  basis?: LicenseNoticeBasis | null
 }>()
 
 const copied = ref(false)
@@ -75,6 +77,7 @@ function baseProps() {
     feature_area: 'license_notice' as const,
     surface: props.surface,
     macro_type: props.macroType as any,
+    ...(props.basis ? { license_notice_basis: props.basis } : {}),
   }
 }
 

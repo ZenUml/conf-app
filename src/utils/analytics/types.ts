@@ -4,7 +4,11 @@ import type { ProductType } from "./productType";
 import type {
   FeatureArea,
   TitleDraftLookupStatus,
+  TitleDraftCopyExperimentId,
+  TitleDraftCopyExperimentVersion,
+  TitleDraftCopyVariant,
   TitleDraftAddFailure,
+  TitleDraftPreviewCloseReason,
   MacroTypeValue,
   CaptureFailureStage,
   Surface,
@@ -132,10 +136,18 @@ export type AnalyticsProperties = {
   /** Title-first offer. Never carries the title or the draft source. */
   title_draft_status?: TitleDraftLookupStatus;
   title_draft_failure?: TitleDraftAddFailure;
+  /** Present on preview_closed; native host dismissal cannot identify its control. */
+  title_draft_close_reason?: TitleDraftPreviewCloseReason;
   /** Mermaid family of the draft: flowchart, sequence, state or er. */
   title_draft_kind?: string;
   /** Model confidence recorded by the batch, 0 to 1. */
   title_draft_confidence?: number;
+  /** Present together only for a valid, explicitly assigned offer-copy exposure. */
+  title_draft_experiment_id?: TitleDraftCopyExperimentId;
+  title_draft_experiment_version?: TitleDraftCopyExperimentVersion;
+  title_draft_variant?: TitleDraftCopyVariant;
+  /** Opaque per-show ID, carried unchanged through this exposure's funnel. */
+  title_draft_exposure_id?: string;
   /** Automatic writeback terminal outcome. Backend is temporary transport only. */
   magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
   /**
@@ -892,6 +904,10 @@ export type AnalyticsProperties = {
   // Full only: Forge `license.active` at render time. Absent on other variants
   // and whenever Forge supplies no boolean; Forge also reports false for free apps.
   license_active?: boolean;
+  // Why the Full license notice was shown; missing license fields alone are never evidence.
+  license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock";
+  // Full viewer evaluation completed, including hidden and unavailable decisions.
+  license_notice_outcome?: "shown" | "active" | "unknown" | "disabled" | "unavailable";
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.

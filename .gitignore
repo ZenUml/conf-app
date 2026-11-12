@@ -56,6 +56,7 @@ test-results/
 .claude/scheduled_tasks.lock
 .claude/skills/**/__pycache__/
 .claude/projects/
+.claude/cursor-bridge-session.json
 .codex/
 .superpowers/
 

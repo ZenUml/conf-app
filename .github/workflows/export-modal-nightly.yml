@@ -53,7 +53,7 @@ jobs:
           node-version: "24"
           cache: pnpm
       # No asyncapi-studio submodule: `vite dev` does not copy the Studio (that only
-      # happens on `vite build`), same as the preview-e2e job in pr-validation.yml.
+      # happens on `vite build`), same as the preview-e2e job in pr-checks.yml.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
         env:
@@ -82,7 +82,7 @@ jobs:
         # and resolves the base URL through `pnpm dev:url`. Without LOCAL_DEV_URL
         # the config falls back to `pnpm dev:url`, which prints a URL even when
         # nothing is listening, so a dead server would surface as 85 connection
-        # failures. pr-validation.yml's preview-e2e job already uses this pattern:
+        # failures. pr-checks.yml's preview-e2e job already uses this pattern:
         # PORT set makes Vite's `strictPort` true, so a busy port fails loudly.
         #
         # The readiness loop is the only fail-fast: 45 x 2 s = 90 s, then the Vite

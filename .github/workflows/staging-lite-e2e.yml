@@ -18,6 +18,7 @@ jobs:
   parent:
     name: Verify staging ownership
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -49,7 +50,7 @@ jobs:
       source-attempt: ${{ inputs.parent-attempt }}
       ref: ${{ inputs.source-sha }}
       shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
-      timeout-minutes: 35
+      timeout-minutes: 30
       artifact-suffix: lite-stg-regression
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

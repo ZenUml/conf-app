@@ -13,6 +13,7 @@ jobs:
   dispatch:
     if: github.event.label.name == 'test:all' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Dispatch full tests on current PR branch
         env:

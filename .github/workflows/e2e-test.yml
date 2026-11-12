@@ -539,6 +539,7 @@ jobs:
     needs: [plan, test]
     if: ${{ !cancelled() && inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
@@ -596,6 +597,7 @@ jobs:
     # blip in report merging could redden an E2E run whose tests all passed, and
     # block a staging deploy behind it. Per-shard HTML uploads never had that
     # power. `continue-on-error` keeps the failure visible on the job while
+    timeout-minutes: 10
     # leaving the workflow's verdict to the tests.
     continue-on-error: true
     steps:

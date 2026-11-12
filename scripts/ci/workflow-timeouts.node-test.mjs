@@ -26,22 +26,13 @@ const EXPRESSION_ALLOWED = {
 
 // Jobs that had NO cap on origin/main when this guard landed (found by running it). Each should get a
 // cap; remove its entry in the same PR. A stale entry (the job now has a cap) fails the test, so the list only shrinks.
-const UNCAPPED_TODAY = {
-  "e2e-test.yml: evidence": "no cap yet; needs a measured value",
-  "e2e-test.yml: merge-reports": "no cap yet; needs a measured value",
-  "lite-deploy-benchmark.yml: target": "no cap yet; needs a measured value",
-  "lite-deploy-benchmark.yml: report": "no cap yet; needs a measured value",
-  "pr-e2e-validation.yml: parent": "no cap yet; needs a measured value",
-  "render-mcp-deploy.yml: select": "no cap yet; needs a measured value",
-  "staging-transaction.yml: profile": "no cap yet; needs a measured value",
-  "test-all-override.yml: dispatch": "no cap yet; needs a measured value",
-};
+const UNCAPPED_TODAY = {};
 
 const isPositiveInt = (value) =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
 // Returns violation messages for one parsed workflow. `file` is the workflow file name.
-export function checkWorkflow(file, doc) {
+export function checkWorkflow(file, doc, uncapped = UNCAPPED_TODAY) {
   const problems = [];
   for (const [job, def] of Object.entries(doc?.jobs ?? {})) {
     const id = `${file}: ${job}`;
@@ -66,13 +57,13 @@ export function checkWorkflow(file, doc) {
     }
     if (def["runs-on"] === undefined) continue;
     if (cap === undefined) {
-      if (!(id in UNCAPPED_TODAY))
+      if (!(id in uncapped))
         problems.push(
           `${id}: missing timeout-minutes (GitHub default is 360); add one or an OVERRIDES entry`,
         );
       continue;
     }
-    if (id in UNCAPPED_TODAY)
+    if (id in uncapped)
       problems.push(
         `${id}: now has timeout-minutes ${JSON.stringify(cap)}; remove it from UNCAPPED_TODAY`,
       );
@@ -90,8 +81,8 @@ export function checkWorkflow(file, doc) {
   return problems;
 }
 
-const check = (yamlText, file = "x.yml") =>
-  checkWorkflow(file, yaml.load(yamlText));
+const check = (yamlText, file = "x.yml", uncapped) =>
+  checkWorkflow(file, yaml.load(yamlText), uncapped);
 
 test("every workflow job has a bounded literal timeout-minutes", () => {
   const files = readdirSync(WORKFLOWS_DIR).filter((name) =>
@@ -179,5 +170,27 @@ test("self-check: with.timeout-minutes on a uses: job must be an integer literal
   assert.match(
     call("${{ inputs.t }}")[0],
     /ci\.yml: call: .*got "\$\{\{ inputs\.t \}\}"/,
+  );
+});
+
+test("UNCAPPED_TODAY is empty: every runner job is capped", () => {
+  assert.deepEqual(UNCAPPED_TODAY, {});
+});
+
+test("self-check: the UNCAPPED_TODAY ratchet allows a listed uncapped job and rejects a stale entry", () => {
+  const listed = { "ci.yml: build": "no cap yet" };
+  assert.deepEqual(
+    check("jobs:\n  build:\n    runs-on: ubuntu-latest\n", "ci.yml", listed),
+    [],
+  );
+  assert.deepEqual(
+    check(
+      "jobs:\n  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n",
+      "ci.yml",
+      listed,
+    ),
+    [
+      "ci.yml: build: now has timeout-minutes 10; remove it from UNCAPPED_TODAY",
+    ],
   );
 });

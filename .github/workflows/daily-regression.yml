@@ -24,6 +24,7 @@ concurrency:
 jobs:
   target:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       sha: ${{ steps.target.outputs.sha }}
     steps:
@@ -130,6 +131,7 @@ jobs:
     needs: [target, migrations, lite, full, diagramly, asyncapi]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:

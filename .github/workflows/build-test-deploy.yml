@@ -77,7 +77,7 @@ jobs:
     needs: version
     if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 30
     permissions:
       actions: write
       contents: read
@@ -149,7 +149,7 @@ jobs:
     needs: [version, build-preparation, staging-validation]
     if: ${{ !cancelled() && needs.version.result == 'success' && needs.build-preparation.outputs.run-id != '' && (needs.build-preparation.result == 'success' || needs.build-preparation.result == 'failure') && needs.staging-validation.outputs.run-id != '' && (needs.staging-validation.result == 'success' || needs.staging-validation.result == 'failure') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 30
     permissions:
       actions: write
       contents: read
@@ -187,6 +187,7 @@ jobs:
     needs: [version, build-preparation, staging-validation, draft-preparation]
     if: ${{ always() && needs.version.result != 'skipped' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read

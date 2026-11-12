@@ -1,0 +1,38 @@
+test
+Building v2026.11.101914-full (48eeb5f9) on fix/page-banner-no-checkout
+
+ RUN  v2.1.9 /Users/pengxiao/workspaces/zenuml/conf-app/.claude/worktrees/agent-abeef3f7cf4041246
+
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ❯ src/components/UpgradePrompt/PaywallWarningBanner.spec.ts (16 tests | 1 failed) 82ms
+   × PaywallWarningBanner (page banner) > space-admin audience > space admin banner shows no purchase/checkout control 3ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/UpgradePrompt/PaywallWarningBanner.spec.ts > PaywallWarningBanner (page banner) > space-admin audience > space admin banner shows no purchase/checkout control
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/components/UpgradePrompt/PaywallWarningBanner.spec.ts:214:84
+    212|     it('space admin banner shows no purchase/checkout control', () => {
+    213|       const wrapper = mount(PaywallWarningBanner, asAdmin)
+    214|       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]…
+       |                                                                                    ^
+    215|       const buttonTexts = wrapper.findAll('button').map((b) => b.text(…
+    216|       expect(buttonTexts).toEqual(['View plan and usage'])
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 passed (16)
+   Start at  09:28:55
+   Duration  1.25s (transform 446ms, setup 14ms, collect 494ms, tests 82ms, environment 393ms, prepare 72ms)
+

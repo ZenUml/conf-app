@@ -113,7 +113,7 @@ jobs:
     needs: version
     if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 315
+    timeout-minutes: 60
     permissions:
       actions: write
       contents: read
@@ -133,7 +133,7 @@ jobs:
           CHILD_TITLE: Staging validation
           SOURCE_SHA: ${{ needs.version.outputs.source-sha }}
           VERSION: ${{ needs.version.outputs.version }}
-          WAIT_MINUTES: '300'
+          WAIT_MINUTES: '55'
         run: node scripts/ci/wait-for-e2e.mjs
       - name: Close any active phase
         if: ${{ always() }}

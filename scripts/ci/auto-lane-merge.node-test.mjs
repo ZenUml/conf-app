@@ -16,7 +16,8 @@ const pr = (over = {}) => ({
   labels: [],
   ...over,
 });
-const ok = (name) => ({ name, status: "completed", conclusion: "success" });
+const NOW = "2026-11-13T12:00:00Z";
+const ok = (name) => ({ name, status: "completed", conclusion: "success", completed_at: "2026-11-13T01:00:00Z" });
 const goodChecks = () => [...REQUIRED_CHECKS.map(ok), ok("Unit tests (1/4)")];
 const input = (over = {}) => ({
   enabled: "true",
@@ -24,6 +25,7 @@ const input = (over = {}) => ({
   classification: { level: "auto-merge", lane: "deps-dev-minor" },
   checks: goodChecks(),
   mergedToday: 0,
+  now: NOW,
   ...over,
 });
 
@@ -80,6 +82,16 @@ const rows = [
 for (const [name, over, reason] of rows) {
   test(`skip: ${name}`, () => assert.deepEqual(decide(input(over)), { action: "skip", reason }));
 }
+
+test("stale checks: a required check older than 7 days does not count", () => {
+  const old = goodChecks().map((c) => (c.name === "E2E validation" ? { ...c, completed_at: "2026-10-28T15:44:16Z" } : c));
+  assert.deepEqual(decide(input({ checks: old })), { action: "skip", reason: "checks-stale:E2E validation" });
+  const edge = goodChecks().map((c) => ({ ...c, completed_at: "2026-11-06T12:00:00Z" }));
+  assert.equal(decide(input({ checks: edge })).action, "merge");
+  const noDate = goodChecks().map(({ completed_at, ...c }) => c);
+  assert.equal(decide(input({ checks: noDate })).reason, "checks-stale:Build and Unit Test");
+  assert.equal(decide(input({ now: undefined })).reason, "checks-stale:Build and Unit Test");
+});
 
 test("optional checks may be skipped or neutral", () => {
   const checks = [...goodChecks(), { name: "A", status: "completed", conclusion: "skipped" }, { name: "B", status: "completed", conclusion: "neutral" }];

@@ -19,6 +19,8 @@ export const BOT_LOGIN = "app/dependabot";
 export const REQUIRED_CHECKS = ["Build and Unit Test", "E2E validation", "Pipeline outcome"];
 export const MAX_MERGES_PER_DAY = 2;
 export const MAX_PRS_PER_RUN = 20;
+// A green run on an old head says nothing about today's `main`: the PR must have been checked within this window.
+export const MAX_CHECK_AGE_DAYS = 7;
 const HOLD_LABEL = "auto-lane:hold";
 const LEDGER_LABEL = "auto-lane";
 const PIPELINE_WORKFLOW = "build-test-deploy.yml";
@@ -41,7 +43,7 @@ const compareKeys = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1] 
 // Pure decision. Skip rules run in the documented order; the first that applies wins.
 export function decide(input) {
   try {
-    const { enabled, pr, classification, checks, mergedToday } = input;
+    const { enabled, pr, classification, checks, mergedToday, now } = input;
     if (enabled !== "true") return skip("disabled");
     if (!Number.isFinite(mergedToday) || mergedToday >= MAX_MERGES_PER_DAY) return skip("daily-cap");
     if (pr.isDraft !== false) return skip("draft");
@@ -58,6 +60,11 @@ export function decide(input) {
     if (bad) return skip(`checks-failed:${bad.name}`);
     for (const name of REQUIRED_CHECKS) {
       if (!latest.some((c) => c.name === name && c.conclusion === "success")) return skip(`required-check:${name}`);
+    }
+    const oldest = Date.parse(now) - MAX_CHECK_AGE_DAYS * 86_400_000;
+    for (const name of REQUIRED_CHECKS) {
+      const at = Date.parse(latest.find((c) => c.name === name).completed_at);
+      if (!(at >= oldest)) return skip(`checks-stale:${name}`); // NaN on either side skips
     }
     return { action: "merge", reason: "all-conditions-met" };
   } catch {
@@ -143,7 +150,7 @@ export function main(argv = process.argv.slice(2), env = process.env, out = proc
           mergeable: row.mergeable,
           labels: (row.labels ?? []).map((l) => l.name),
         };
-        const decision = decide({ enabled, pr, classification, checks, mergedToday });
+        const decision = decide({ enabled, pr, classification, checks, mergedToday, now: new Date().toISOString() });
         if (decision.action === "merge" && wouldMerge) {
           line("skip", "one-merge-per-run (would qualify)", classification?.lane);
           continue;

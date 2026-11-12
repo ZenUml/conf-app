@@ -93,9 +93,10 @@ The six Dependabot PRs open on that day:
 | #315 | 39 packages plus a `resolutions` edit, checks red | report-only `deps-manifest-other` |
 | #328 | prod and dev mixed in one group, checks red | auto-pr `deps-prod-minor` |
 
-One of six qualifies. The two grouped PRs cannot, because `.github/dependabot.yml` groups
-production and development packages together. Splitting the group by `dependency-type` is the
-change that would let the development half flow.
+By policy one of six qualifies (#100). The merge job still skips it: its green checks date from
+2026-10-28, older than the 7-day limit. The two grouped PRs could not qualify because
+`.github/dependabot.yml` grouped production and development packages together; the groups are now
+split by `dependency-type`, so a development-only PR can.
 
 ## Controls
 
@@ -118,7 +119,8 @@ the switch is `true`; fewer than 2 merged today; not a draft; author is `app/dep
 repository is this repository; base is `main`; no `auto-lane:hold` label; GitHub reports `MERGEABLE`; the
 classifier, run from `main` on `merge-base..head`, says `auto-merge`; there is at least one check run on the
 head SHA; none is unfinished; none failed (a cancelled run is ignored when a later run of the same name
-succeeded); and `Build and Unit Test`, `E2E validation` and `Pipeline outcome` all succeeded.
+succeeded); `Build and Unit Test`, `E2E validation` and `Pipeline outcome` all succeeded; and each of those three finished
+within the last 7 days (an older green run was not tested against today's `main`; a rebase of the PR renews it).
 The merge uses `--match-head-commit`, so a push after the check cannot slip in, and makes a merge commit,
 not a squash. A merge made with `GITHUB_TOKEN` starts no `push` workflow, so the job then dispatches
 `build-test-deploy.yml` on `main`; a dispatch with default inputs runs the same pipeline a push does.

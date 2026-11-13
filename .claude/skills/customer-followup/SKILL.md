@@ -1,6 +1,6 @@
 ---
 name: customer-followup
-description: Screen and follow up Confluence app customers using lifecycle, feedback, license, usage and conversation evidence. Use for customer prioritisation, conversion, retention, win-back, paused accounts, drafting follow-ups, or updating the customer tracker after an authorised action. Reuses existing query skills; respects the user's actual authorisation scope.
+description: Prioritise Confluence customers for conversion, retention, win-back or pause using lifecycle, feedback, license, usage and conversation evidence. Draft follow-ups and update the tracker within the user's authorised scope; reuse existing query skills.
 ---
 
 # Customer follow-up
@@ -17,10 +17,23 @@ Read [shared evidence rules](../customer-data/evidence.md), [contact and action 
    - **Recent changes:** `customer-lifecycle`.
    - **User opinions, problems, requests:** `customer-feedback`.
    - **Site/product/license/payment/contact:** `tenant` and `marketplace`.
-   - **Engagement:** `mixpanel` / `duckdb-mixpanel`; `client-health` is a Lite-only relative shortlist, not a conversion probability.
+   - **Engagement:** use `conf-app` for **both Mixpanel and D1**; complete the shared evidence coverage gate before declaring inactivity or skipping follow-up. `client-health` is a Lite-only relative shortlist, not conversion probability.
    - **Space inventory:** `macro-count`, with its coverage limitations in the shared rules.
    - **Communication:** Gmail, support tickets and `search-conversation-history`.
 4. Resolve contact role separately from site identity. A Marketplace technical contact can be an employee, a partner, an ex-employee or an unknown role. Never label them site admin without evidence.
+
+## General scan with no explicit signal
+
+When no customer is named and `customer-lifecycle` and `customer-feedback` return nothing that needs a reply, do not report "nothing to follow up". Rank by behaviour instead:
+
+```bash
+T=$(mktemp -d)
+python3 .claude/skills/client-health/scripts/health_score.py --json --top 60 > "$T/health.json"
+python3 .claude/skills/customer-followup/scripts/behaviour_targets.py --health "$T/health.json" --exclude "$T/exclude.json" --top 10
+python3 .claude/skills/marketplace/scripts/mp_report.py whois <domain> --json   # per candidate, live: --local skips the Lite space-licence (KV) layer
+```
+
+Build `exclude.json` (`{"<bare subdomain>": "<reason>"}`) from the tracker's paused and recently contacted opportunities in `$T` or `private/`; never commit it. If the tracker cannot be read, omit `--exclude` and label the result "tracker not checked". For each candidate read the tracker stage and the last activity's date, channel and outcome, then return it as one of: **never contacted**, **contacted, no reply** (date, channel), **paused** (resume condition) or **in conversation**. When the tracker shows earlier outreach, state the reply rate per channel and choose the next channel by what got replies. A `COMPED` space licence is a support grant: find its ticket and count it as contact. `skip` rows already pay for another app; `unknown` rows have no Lite licence in the snapshot. Apply the [contact policy](references/contact-policy.md) unchanged: partner rows (`partner_name`) and unverified technical contacts follow its responsibility rules, and no ranking or telemetry goes into a customer message.
 
 ## Decide, with evidence
 

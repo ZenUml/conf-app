@@ -59,7 +59,7 @@ type JsonRpcId = string | number | null;
  * The types the view can draw (mcpApps.ts RENDERABLE_TYPES), under the names
  * the agent sends. Lower case, because that is what the view compares against.
  */
-export const RENDER_TYPES = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi'] as const;
+export const RENDER_TYPES = ['sequence', 'mermaid', 'plantuml', 'markdown', 'graph', 'openapi', 'asyncapi'] as const;
 export type RenderType = (typeof RENDER_TYPES)[number];
 
 /**
@@ -74,9 +74,10 @@ export const RENDER_TOOL = {
   title: 'Render diagram',
   description:
     'Draw a diagram from its source and show it to the user. Nothing is saved anywhere. The source may be ' +
-    'a ZenUML sequence diagram, Mermaid, PlantUML (@startuml … @enduml), draw.io / diagrams.net XML, or an OpenAPI or ' +
-    'Swagger spec (YAML or JSON). diagramType is optional: leave it out and the language is detected from the source ' +
-    '(a source with no recognised header is read as ZenUML), or pass it to be explicit. The result says which type was ' +
+    'a ZenUML sequence diagram, Mermaid, PlantUML (@startuml … @enduml), Markdown (with ```mermaid code blocks drawn ' +
+    'as diagrams), draw.io / diagrams.net XML, an OpenAPI or Swagger spec, or an AsyncAPI spec (YAML or JSON). ' +
+    'diagramType is optional: leave it out and the language is detected from the source (a source with no recognised ' +
+    'header is read as ZenUML, so pass markdown explicitly), or pass it to be explicit. The result says which type was ' +
     'used and whether the source parsed; when it did not, ' +
     'it lists the errors with line and column, so fix them and call again.',
   annotations: {
@@ -103,7 +104,7 @@ export const RENDER_TOOL = {
 
 const INSTRUCTIONS =
   'Use render_diagram to draw a diagram for the user from its source: a ZenUML sequence diagram, Mermaid, PlantUML, ' +
-  'draw.io XML, or an OpenAPI spec. No Atlassian site or sign-in is involved and nothing is saved. Prefer `sequence` ' +
+  'Markdown, draw.io XML, or an OpenAPI or AsyncAPI spec. No Atlassian site or sign-in is involved and nothing is saved. Prefer `sequence` ' +
   '(ZenUML) for sequence diagrams. If the result reports parse errors, fix the source and call render_diagram again. ' +
   'The zenuml://, mermaid://, plantuml:// and openapi:// dsl-guide resources give the rules of each language.';
 

@@ -27,29 +27,35 @@ Verify ALL of these:
 1. **PR is the right one** — confirm PR number with the user if ambiguous
 2. **No pending reviews** — no requested changes outstanding
 3. **Branch is up to date** — no merge conflicts with main
-4. **CI is green AFTER the Draft gate is lifted** — see Step 1 below
+4. **Current test decision is executable and its CI is green** — see Steps 1–2 below
 
 If a precondition fails (other than Draft), report which one and stop.
 
 ## Steps
 
-### 1. Lift the Draft gate if needed
+### 1. Verify the test decision, then mark Ready if needed
 
-If `isDraft === true`, this PR has not been E2E-verified (the Draft gate skips `E2E: Lite`). `/land-pr` means "I want this merged" — so flip it Ready, wait for the resulting CI run with E2E to go green, then merge. Don't refuse and don't merge without verification.
+Reconcile the current decision before any Ready or merge action:
+
+```bash
+node scripts/test-selection/pr-decision.mjs sync --pr <PR_NUMBER> --repo ZenUml/conf-app
+```
+
+If it is missing or stale, use `pr-labeling` for the current commit. If the result is `test:triage`, keep the PR Draft and report **MERGE BLOCKED — manual test triage required**. A landing request does not automatically invoke `pr-triage` or approve full coverage.
+
+With an executable decision, `/land-pr` authorizes marking Draft → Ready:
 
 ```bash
 gh pr ready <PR_NUMBER> --repo ZenUml/conf-app
 ```
 
-Tell the user: "PR is Draft → marking Ready and waiting for CI (~14 min) to verify E2E before merge."
+Skip this mutation if already Ready. E2E can already have run while Draft; readiness does not grant test permission.
 
-Then delegate to `/babysit-pr <PR>` (or watch inline). If the new CI run fails, stop and report — do not merge.
+### 2. Verify current-commit CI green
 
-If `isDraft === false` already, skip this step.
+Use `babysit-pr` to verify the current decision's PR validation and E2E results. Require the matching candidate's `Pipeline outcome` and authorized E2E execution to succeed. A skipped E2E path or passing build/unit tests alone does not satisfy the E2E gate. Recheck the decision after any push; full approval requires fresh manual triage for the new commit.
 
-### 2. Verify CI green
-
-Confirm CI is green and `E2E: Lite` is among the passed checks (not skipped). Re-run the precondition checks. If anything is not green, stop and report.
+Re-run the preconditions. If the decision or required checks are unresolved, stop and report before merging.
 
 ### 3. Merge
 

@@ -25,6 +25,12 @@ const swagger = vi.hoisted(() => {
 vi.mock('swagger-ui', () => ({ default: swagger.SwaggerUI }));
 vi.mock('swagger-ui/dist/swagger-ui.css', () => ({}));
 
+const mermaidMock = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(async (_id: string, _source: string) => ({ svg: '<svg data-test="mermaid-block"></svg>' })),
+}));
+vi.mock('mermaid', () => ({ default: mermaidMock }));
+
 const sequence = vi.hoisted(() => ({ setDiagramFontUrl: vi.fn(), render: vi.fn(async () => {}) }));
 vi.mock('@zenuml/core', () => ({
   default: Object.assign(vi.fn(function () { return { render: sequence.render }; }), {
@@ -403,6 +409,63 @@ describe('drawing an OpenAPI result', () => {
     const config = swagger.SwaggerUI.mock.calls[0][0];
     expect(config).toMatchObject({ supportedSubmitMethods: [], validatorUrl: null, presets: ['apis-preset'] });
     expect(document.querySelector('#app')?.contains(config.domNode as Node)).toBe(true);
+  });
+});
+
+describe('drawing an AsyncAPI result', () => {
+  beforeEach(() => { document.body.innerHTML = '<div id="app"></div>'; });
+
+  it('draws an outline of the spec read_diagram returns', async () => {
+    const spec = [
+      'asyncapi: 3.0.0',
+      'info:',
+      '  title: Orders',
+      '  version: 1.2.0',
+      'channels:',
+      '  orderPlaced:',
+      '    address: orders/placed',
+      'operations:',
+      '  publishOrder:',
+      '    action: send',
+      '    channel:',
+      '      $ref: "#/channels/orderPlaced"',
+      '',
+    ].join('\n');
+    deliver({ diagramType: 'AsyncAPI', source: spec });
+
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-asyncapi h1')?.textContent).toBe('Orders'));
+    const text = document.querySelector('#app')?.textContent ?? '';
+    expect(text).toContain('Version 1.2.0');
+    expect(text).toContain('orders/placed');
+    expect(text).toMatch(/send\s*orderPlaced/);
+  });
+
+  it('says why when the source is not AsyncAPI', async () => {
+    deliver({ diagramType: 'asyncapi', source: 'info:\n  title: x\n' });
+    await vi.waitFor(() => expect(document.querySelector('#app')?.textContent).toMatch(/Could not draw the diagram: .*asyncapi/));
+  });
+});
+
+describe('drawing a Markdown result', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="app"></div>';
+    mermaidMock.render.mockClear();
+  });
+
+  it('renders the document and draws its mermaid blocks with the view\'s own Mermaid', async () => {
+    const dsl = '# Notes\n\nSome **bold** text.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n';
+    deliver({ diagramType: 'markdown', dsl });
+
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown h1')?.textContent).toBe('Notes'));
+    expect(document.querySelector('#app strong')?.textContent).toBe('bold');
+    expect(mermaidMock.render).toHaveBeenCalledWith(expect.stringMatching(/^zen-mcp-/), 'flowchart TD\n  A --> B\n');
+    expect(document.querySelector('#app [data-test="mermaid-block"]')).not.toBeNull();
+  });
+
+  it('keeps raw HTML in the document escaped', async () => {
+    deliver({ diagramType: 'markdown', dsl: 'Hi <img src=x onerror="alert(1)">' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown')).not.toBeNull());
+    expect(document.querySelector('#app img')).toBeNull();
   });
 });
 

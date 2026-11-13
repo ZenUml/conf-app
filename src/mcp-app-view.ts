@@ -248,6 +248,25 @@ async function renderOpenApi(el: HTMLElement, spec: string): Promise<void> {
 }
 
 /**
+ * Markdown, with the app's own renderer (react-markdown + GFM, raw HTML
+ * escaped). Its ```mermaid blocks are drawn with this view's Mermaid, under
+ * the same strict security level as a Mermaid diagram here.
+ */
+async function renderMarkdownView(el: HTMLElement, source: string): Promise<void> {
+  const { renderMarkdownDocument } = await import('@/utils/markdown/renderMarkdownDocument');
+  const { html } = await renderMarkdownDocument(source, async (id, block) => {
+    const mermaid = (await import('mermaid')).default;
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+    return mermaid.render(`zen-mcp-${id}`, block);
+  });
+  el.innerHTML = '';
+  const article = document.createElement('article');
+  article.className = 'zen-mcp-markdown';
+  article.innerHTML = html;
+  el.appendChild(article);
+}
+
+/**
  * Download a diagram type's renderer, once per frame.
  *
  * The renderer chunks are the slow part of a first diagram (hundreds of KB
@@ -271,7 +290,11 @@ export function loadRenderer(type: string): Promise<unknown> | null {
           : type === 'plantuml' ? import('@/utils/plantuml/engine').then(({ preloadPlantUmlEngine }) => preloadPlantUmlEngine())
             : type === 'graph'
               ? import('@/utils/drawio/loadDrawioViewer').then(({ ensureDrawioViewerLoaded }) => ensureDrawioViewerLoaded(viewOrigin()))
-              : null;
+              : type === 'asyncapi'
+                ? import('@/utils/asyncapi/renderAsyncApiOutline').then(({ renderAsyncApiOutline }) => renderAsyncApiOutline)
+                : type === 'markdown'
+                  ? import('@/utils/markdown/renderMarkdownDocument').then(({ renderMarkdownDocument }) => renderMarkdownDocument)
+                  : null;
   if (!load) return null;
   rendererLoads.set(type, load);
   load.catch(() => rendererLoads.delete(type));
@@ -384,9 +407,16 @@ async function render(payload: DiagramPayload): Promise<void> {
       await renderGraph(el, payload.dsl);
     } else if (type === 'openapi') {
       await renderOpenApi(el, payload.dsl);
+    } else if (type === 'asyncapi') {
+      // An outline over the parsed YAML, not @asyncapi/react-component, whose
+      // parser needs eval (see renderAsyncApiOutline.ts).
+      const { renderAsyncApiOutline } = await import('@/utils/asyncapi/renderAsyncApiOutline');
+      renderAsyncApiOutline(el, payload.dsl);
+    } else if (type === 'markdown') {
+      await renderMarkdownView(el, payload.dsl);
     } else {
-      // AsyncAPI, Markdown and Embed are not wired up; anything else would
-      // render blank, and saying so beats an empty frame.
+      // Anything else (an Embed reference, an unknown type) would render
+      // blank, and saying so beats an empty frame.
       status(`This view cannot draw a ${payload.diagramType} diagram yet.`);
       return;
     }

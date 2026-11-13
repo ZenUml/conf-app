@@ -28,7 +28,7 @@ import { localDevUrl } from '../helpers/localDevUrl';
 
 const URL = localDevUrl('index.html?sandbox=graph-view&outputType=display');
 
-test.describe('Graph viewer — AWS icon stencils', { tag: ['@viewer', '@graph'] }, () => {
+test.describe('Graph viewer — AWS icon stencils', { tag: ['@viewer', '@graph', '@feature:rendering', '@interface:inline-viewer', '@scenario:rendering:inline-viewer', '@check:component', '@execution:preview'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } });
 
   test('AWS shapes render via stencil paths, not as fallback rectangles', async ({ page }) => {

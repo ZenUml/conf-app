@@ -322,6 +322,68 @@ function guardrailReasonOf(failure: HeadlessToolError): 'parse_error' | 'data_lo
   return reason === 'parse_error' || reason === 'data_loss' ? reason : 'other';
 }
 
+const IDENTITY_FAILURES = new Set(['no_macro_on_site', 'no_extension_node', 'app_id_mismatch', 'probe_failed']);
+
+/**
+ * Where an 'upstream' failure happened, the HTTP status it got, and — for the
+ * identity resolve — the resolver's refusal. 'upstream' alone is every
+ * Confluence and Atlassian failure at once; four create_diagram calls on one
+ * site (2026-10-23) could not be traced past it. Only closed vocabularies and a
+ * number leave here, never the detail text, which can quote a Confluence error.
+ */
+export function upstreamFailureOf(failure: HeadlessToolError): {
+  failureStep?: string;
+  upstreamStatus?: number;
+  identityFailure?: string;
+} {
+  if (failure.code !== 'upstream') return {};
+  const status = (failure.detail as { status?: unknown } | null | undefined)?.status;
+  return {
+    failureStep: failure.step,
+    upstreamStatus: typeof status === 'number' && Number.isInteger(status) ? status : undefined,
+    identityFailure:
+      failure.step === 'identity' && typeof failure.detail === 'string' && IDENTITY_FAILURES.has(failure.detail)
+        ? failure.detail
+        : undefined,
+  };
+}
+
+/**
+ * agent_link_identity_unresolved — declared in the catalog as the record of a
+ * user hitting the identity wall, and until now never sent: the headless create
+ * is the only caller that resolves an identity, and it has no macro to report
+ * from.
+ */
+async function trackIdentityUnresolved(
+  env: HeadlessEnv,
+  tool: string,
+  userId: string,
+  cloudId: string | undefined,
+  clientDomain: string | undefined,
+  identityFailure: string,
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  try {
+    await withTimeout(mixpanelTrack(
+      {
+        event: 'agent_link_identity_unresolved',
+        user_account_id: userId,
+        feature_area: 'agent_link',
+        surface: 'backend',
+        mcp_mode: 'headless',
+        mcp_tool: tool,
+        cloud_id: cloudId,
+        client_domain: clientDomain,
+        reason: identityFailure,
+      },
+      env.MIXPANEL_TOKEN,
+      env,
+    ));
+  } catch {
+    // never fail the response on analytics
+  }
+}
+
 /** The type of the diagram a guard refusal protected, so false alarms can be split by type. */
 function refusedMacroType(failure: HeadlessToolError): string | undefined {
   if (failure.code !== 'guardrail_rejected') return undefined;
@@ -392,6 +454,9 @@ async function trackToolCall(
     clientDomain?: string;
     macroType?: string;
     guardrailReason?: string;
+    failureStep?: string;
+    upstreamStatus?: number;
+    identityFailure?: string;
   },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
@@ -411,6 +476,9 @@ async function trackToolCall(
       mcp_tool_outcome: call.outcome,
       reason: call.reason,
       guardrail_reason: call.guardrailReason,
+      failure_step: call.failureStep,
+      upstream_status: call.upstreamStatus,
+      identity_failure: call.identityFailure,
       duration_ms: call.durationMs,
       macro_type: call.macroType,
     },
@@ -600,7 +668,13 @@ export async function handleHeadlessRpc(
       const trackCall = (
         outcome: ToolOutcome,
         reason?: string,
-        extra: { macroType?: string; guardrailReason?: string } = {},
+        extra: {
+          macroType?: string;
+          guardrailReason?: string;
+          failureStep?: string;
+          upstreamStatus?: number;
+          identityFailure?: string;
+        } = {},
       ) =>
         defer(trackToolCall(env, store, auth.token, {
           tool,
@@ -659,9 +733,21 @@ export async function handleHeadlessRpc(
             e,
             clientDomainOf(reachableSites, params.arguments),
           );
+          const upstream = upstreamFailureOf(e);
+          if (upstream.identityFailure) {
+            await defer(trackIdentityUnresolved(
+              env,
+              tool,
+              auth.token.userId,
+              cloudId,
+              clientDomainOf(reachableSites, params.arguments),
+              upstream.identityFailure,
+            ));
+          }
           await trackCall('tool_error', e.code, {
             macroType: refusedMacroType(e),
             guardrailReason: guardrailReasonOf(e),
+            ...upstream,
           });
           // A dead grant is the one failure the user can act on, so it is a
           // 401 with the challenge rather than a tool-level error buried in a

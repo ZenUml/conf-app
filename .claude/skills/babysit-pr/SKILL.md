@@ -13,14 +13,7 @@ This skill targets **ZenUml/conf-app** (conf-app). All commands run from the con
 
 ## CI Pipeline Overview
 
-The `Build, Test and Draft Release` workflow runs on every push and does:
-
-1. **Build + unit tests** — `pnpm install` + `pnpm test:unit`
-2. **Staging deploy** — 3 variants (lite, full, diagramly) deployed to Cloudflare Pages
-3. **Staging E2E** — Playwright tests run against live Confluence staging instances for each variant
-4. **Draft releases** — created on main only (lite, full, diagramly)
-
-Steps 2-4 run in parallel per variant. E2E depends on its variant's staging deploy + build passing.
+Read the current PR workflow and matching run rather than inferring execution from Draft state. Build, type-check and unit-test jobs retain their own rules. PR E2E requires a trusted current-commit test decision; it may run while Draft. Main, daily regression and release workflows retain their separate policies.
 
 ## Step 1: Find the PR
 
@@ -37,16 +30,18 @@ Resolve which PR to babysit, in this priority order:
 
 If no PR is found, tell the user and stop.
 
-### Note the PR's draft state
+### Verify the current test decision
 
-After finding the PR, check `isDraft`. This affects which jobs are expected to run:
+```bash
+node scripts/test-selection/pr-decision.mjs sync --pr <PR_NUMBER> --repo ZenUml/conf-app
+```
 
-| State | Jobs that run | Jobs that are `skipped` (and that's fine) |
-|---|---|---|
-| **Draft** | `Build and Unit Test`, `Deploy: Lite` | `E2E: Lite` (and Full/Diagramly variants — those skip on any feature branch) |
-| **Ready for Review** | `Build`, `Deploy: Lite`, `E2E: Lite` | Full/Diagramly variants only |
+Use the validated decision and candidate identity to build the expected-job set. Labels alone do not authorize tests.
 
-When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, which is the designed behaviour, not a failure. If the user expected E2E to run, suggest marking the PR Ready for Review (`gh pr ready <PR>`) or running `/land-branch`.
+- **Executable subset or approved full:** expect the corresponding preview/staging E2E path and `Pipeline outcome` to succeed, together with the independent basic checks. Draft and Ready have the same test authorization.
+- **Missing, stale or triage:** keep/return the PR to Draft. Monitor independent build/unit-test checks, then report **TRIAGE — E2E blocked** with the reason. Do not call `pr-triage` automatically, substitute full coverage, or mark the PR Ready to force execution.
+
+For a missing or stale decision after a push in this workflow, run `pr-labeling`. Stop waiting for E2E if it queues manual triage. A full-suite approval never transfers to a new commit.
 
 ## Step 2: Check CI Status
 
@@ -54,16 +49,11 @@ When watching a Draft PR, do NOT wait for `E2E: Lite` — it will be `skipped`, 
 gh pr checks <PR_NUMBER> --repo ZenUml/conf-app
 ```
 
-### Build the expected-jobs set FIRST, based on draft state
-
-This is the most important step — your evaluation of "did CI pass?" depends on it.
-
-- **`isDraft === true`**: expected jobs = `Build and Unit Test`, `Deploy: Lite / deploy`. `E2E: Lite / test` is **expected to be `skipped`** — treat that as success, not failure, and never wait for it. (Full/Diagramly variants always skip on feature branches regardless of draft state.)
-- **`isDraft === false` (Ready)**: expected jobs = `Build and Unit Test`, `Deploy: Lite / deploy`, `E2E: Lite / test`. All three must reach success. Full/Diagramly skip as today.
+Find the PR-associated validation run for the decision's current candidate. If it needs a fresh run, use `node scripts/test-selection/request-pr-e2e.mjs --pr <PR_NUMBER> --repo ZenUml/conf-app`. A diagnostic workflow dispatch on `main` cannot replace the PR's required checks. Derive expected stages from that run's selected plan, including legitimate empty scopes; do not treat an unexplained E2E skip as a pass.
 
 ### Evaluate
 
-- **All expected jobs passed** (and skipped jobs are the right ones): report success and stop.
+- **All expected jobs passed** with an executable current decision and actual E2E evidence: report success and stop. Report independent basic-check success separately when E2E is blocked.
 - **Some expected jobs still pending/in_progress**: wait. Use `gh run watch <RUN_ID> --repo ZenUml/conf-app` (10-minute timeout). Then re-evaluate.
 
 > **NEVER trust `gh run watch`'s exit code.** Observed twice on 2026-07-26 on the same run: it exited **0** while the run's conclusion was `failure`, then exited **1** on a re-run whose conclusion was `success`. Believing it would have reported a red main as green. After any watch, always re-read the authoritative value:
@@ -72,9 +62,9 @@ This is the most important step — your evaluation of "did CI pass?" depends on
 > gh run view <RUN_ID> --repo ZenUml/conf-app --json jobs \
 >   --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "\(.conclusion)\t\(.name)\t\(.databaseId)"'
 > ```
-> The same applies to `gh pr checks`, which lists the **cancelled duplicate `push` run's** jobs as `fail`. Resolve the authoritative run first with `gh run list --branch <b> --json event,conclusion,headSha` and read only the `pull_request` one (on `main`, the `push` one — `cancel-in-progress` is off there, so both main runs complete and the newest SHA is the one that matters).
+> The same applies to `gh pr checks`, which lists the **cancelled duplicate `push` run's** jobs as `fail`. Resolve the authoritative PR-associated validation run for the current candidate first. On `main`, use the `push` run for the candidate SHA.
 - **An expected job failed**: proceed to Step 3.
-- **An expected job was unexpectedly `skipped`** (e.g. `E2E: Lite` skipped on a Ready PR): this is a configuration bug, not a normal failure. Report it: "Expected `E2E: Lite` to run on this Ready PR but it was skipped — check the workflow `if:` condition or the PR's draft state."
+- **An expected executable E2E stage was unexpectedly skipped:** inspect decision validation, candidate identity, plan and workflow conditions. Report the unexplained skip as a blocker, regardless of Draft/Ready state.
 
 ## Step 3: Diagnose Failures
 
@@ -99,10 +89,7 @@ Categorize the failure:
 
 ## Step 4: Attempt Fix
 
-**Important**: Before fixing, make sure the local branch is up to date with the PR branch:
-```bash
-git fetch origin && git checkout <PR_BRANCH> && git pull origin <PR_BRANCH>
-```
+Before fixing, inspect `git status` and the PR head. Follow the repository worktree policy: use the matching feature worktree, or create an isolated one when the current checkout contains unrelated edits. Fetch the PR branch without moving or stashing another session's changes.
 
 ### Fix by Category
 
@@ -150,7 +137,7 @@ git fetch origin && git checkout <PR_BRANCH> && git pull origin <PR_BRANCH>
 
 E2E tests run against live Confluence staging instances, which makes them inherently more flaky than local tests.
 
-> **Which re-run: `--failed` is for PR runs only.** A `main` run (`Build, Test and Draft Release`) must be re-run whole: `gh run rerun <RUN_ID> --repo ZenUml/conf-app` with no flag, which is also what the *Run recovery* workflow does. `Source and version` uploads `main-root-options-<attempt>`, and a failed-jobs-only re-run does not execute that job again, so every phase the rerun starts fails at `Verify root ownership` with `no artifact matches any of the names or patterns provided` for `main-root-options-2` (main run 38745939051, attempt 2, child run 38748851591). On a PR run the matching artifact is the Jev proposal `test-selection-<run>-<attempt>`; its downloads (`pr-validation.yml` `select` job, `e2e-test.yml` `plan` job) are `continue-on-error`, so nothing there blocks `--failed`. Whether a rerun without that proposal selects a different E2E set was not checked; this is read from the workflow files, not observed in a run. See `docs/ops/pipeline-graphs.md`.
+> **Re-run authorization:** reconcile the current test decision before re-running PR E2E. It must still match the PR head and base. A re-run may reuse only the corresponding trusted decision artifacts; missing or mismatched artifacts must block execution rather than run full coverage. If the decision is stale, run `pr-labeling`; full approval requires a new manual triage. Main runs must be re-run whole because their root artifacts are attempt-bound (`gh run rerun <RUN_ID>` without `--failed`); see `docs/ops/pipeline-graphs.md`.
 
 Distinguish between:
 
@@ -207,8 +194,9 @@ After applying a fix:
    ```bash
    git push origin <PR_BRANCH>
    ```
-4. **Wait for CI** — use `gh run watch` on the new run
-5. **Evaluate result** — go back to Step 2
+4. **Re-label the new commit** — invoke `pr-labeling`. If it queues manual triage, finish basic checks and report E2E blocked.
+5. **Wait for authorized CI** — use `gh run watch` on the new matching run.
+6. **Evaluate result** — go back to Step 2
 
 ## Step 6: Retry Budget
 
@@ -230,7 +218,7 @@ After babysitting completes (success or exhausted retries), produce a brief repo
 
 ```
 ## PR #<number> Babysit Report
-- **Status**: [PASSED | FAILED after N attempts]
+- **Status**: [PASSED | TRIAGE — E2E blocked | FAILED after N attempts]
 - **Failures found**: <list of categories>
 - **Fixes applied**: <list of commits pushed>
 - **Flaky tests**: <any tests that passed on retry without changes>

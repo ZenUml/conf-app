@@ -23,6 +23,10 @@ Six of the seven (`Sequence`, `Mermaid`, `PlantUml`, `Graph`, `OpenApi`, `Embed`
 
 Stack, build system, and deployment targets are stated in `package.json`, `wrangler.toml`, and `manifest.yml`. The one platform fact those files do not make obvious is under **Pure Forge — no Connect code** below.
 
+### Figma design destination
+
+All Conf App Figma design work uses the existing [Conf App Figma file](https://www.figma.com/design/xyLOTL0IvXNszqFCKCdAp0/Conf-App); organize features within that file. Use a separate Figma file only when explicitly requested.
+
 ### Product variants
 
 The add-on comes in four variants:
@@ -96,9 +100,11 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 ### Never commit directly to `main`
 
-Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
+Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and ordinary unit/build checks exclude `.claude/**`).
 
 **The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — the overlap scan, per-worktree setup cost, start-of-issue steps, cleanup.
+
+**Keep the primary checkout in sync with `origin/main` — proactively, without asking.** At the start of any session in the primary checkout, and before committing there, run `git fetch origin main` and `git merge --ff-only origin/main`. A fast-forward changes no commit and discards nothing, so it needs no confirmation. If it refuses, do **not** stash, reset, rebase or discard to force it — that would displace another session's work (see the rule below). Instead report which case applies: local-only commits on `main` (list them with `git log origin/main..HEAD`), or uncommitted changes that overlap files the fast-forward would touch. When `main` is behind and a `.md`-only commit must go out now, build the commit on `origin/main` with a temporary index and push that, leaving the working tree untouched.
 
 ### Scan for overlapping work before starting a branch
 
@@ -232,7 +238,9 @@ Every push to a PR branch fires the `Build, Test and Draft Release` workflow (`.
 So when checking a PR before merge:
 - `gh pr view <pr> --json mergeStateStatus` showing **`UNSTABLE`** with some `CANCELLED` contexts is **expected and mergeable** — it is not a real failure.
 - The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
-- `.md` / `docs/**` / `.claude/**` / `.cursor/**` / `packages/pr-agent-panel/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
+- Documentation, skill, PR-panel and isolated Render MCP changes retain their previous unit/build exclusions through the independent basic-scope gate. Complete file discovery includes both rename paths; uncertainty runs basic checks. PR metadata and E2E authorization still observe every PR. Missing decisions enter Draft/triage; documentation-only PRs can request the mandatory smoke floor after a current decision is published.
+
+**PR jobs are in two workflows.** `PR checks` (four `Unit tests` shards, `AsyncAPI build and CI script tests`, the `Build and Unit Test` result job, `E2E: Viewer preview`) takes no staging lock, and a newer push cancels its older run, so a `CANCELLED` run there is also normal. `PR validation` holds `conf-app-staging`; a run that a newer push overtook skips its staging jobs and ends green. Only jobs that need staging belong in `PR validation`, because the lock holds back the whole run. See [docs/ops/pipeline-graphs.md](docs/ops/pipeline-graphs.md).
 
 ### Release order — diagramly → lite → full
 
@@ -240,7 +248,15 @@ Production releases go **Diagramly first** (canary), then **Lite** for the same 
 
 ### Release pipeline time budget
 
-Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared PR file runs everything. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main`, PR staging validation, and daily regression share the `conf-app-staging` concurrency group with `queue: max`: one run owns staging at a time, and up to 100 runs can wait. A run can start long after it was created; inspect the concurrency group and measure from its first job's `created_at`. `e2e-rerun.yml` can re-run a cancelled pending main push if it is still the tip and no other run covers that SHA. PR E2E requires a collaborator decision tied to the current head/base and complete diff (`docs/policies/pr-test-decisions.md`). Use `pr-labeling` at creation/update: select exact Feature × Interface pairs from `IMPACT-MAP.md`, retaining smoke, directly changed specs and known dependencies. Missing, stale or unresolved decisions enter `test:triage` and block PR E2E; full coverage requires explicit manual `pr-triage`. Labels display the decision and do not authorize execution. Unit/build checks remain independent; preview/export and staging E2E recheck trusted authorization. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+
+### Feature rollout and customer operations
+
+Use Forge feature flags for feature testing, staged release, and emergency disable. Retire obsolete rollout flags when behavior is stable.
+
+Use the existing `KV_FEATURE_FLAGS` binding for persistent per-tenant operational state such as enrollment, exemption, notice, and effective-date policies. Reuse feature-specific key prefixes in that namespace; do not create a new namespace unless isolation is a separate requirement. Keep requests, grants, extensions, and audit records in D1. Every backend decision must use a trusted server identity and backend authorization. `SPACE_LICENSE_KV` remains the source for existing license data; this policy does not migrate it.
+
+Use two controls only when they serve two independent needs: rollout control and persistent customer operations. Do not duplicate one control in the other.
 
 ### Feature rollout and customer operations
 
@@ -337,6 +353,6 @@ Reach for Playwright MCP only when a skill needs something agent-browser lacks, 
 - **spot-check** — ad hoc verification of a specific behavior (not a checked-in E2E test). Triggers: "spot check on staging", "verify this fix". Forge iframe rules in [Browser automation and Forge iframes](#browser-automation-and-forge-iframes).
 - **Issue tracker** — issues live as GitHub issues on `ZenUml/conf-app`; use the `gh` CLI for all operations.
 - **Triage labels** — five canonical roles, names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
-- **Domain docs** — single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
+- **Domain docs** — single-context layout: `GLOSSARY.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
 - **Vendored skill set** — the 25 skills from [mattpocock/skills](https://github.com/mattpocock/skills) (`grill-me`, `grill-with-docs`, `tdd`, `code-review`, `implement`, `triage`, `to-spec`, `to-tickets`, `wayfinder`, …) are copied into `.claude/skills/` as editable files we own, not installed as the `mattpocock-skills` plugin — a plugin install is per-machine and would not reach the team or the remote agent containers. Vendored from upstream `6654f6b` (plugin v1.2.3); to refresh, re-copy from that repo rather than editing in place, or keep local edits deliberate. Do **not** also run `claude plugins install mattpocock-skills`: that would give every skill twice.
 - **`code-review` shadows the built-in** — `.claude/skills/code-review/` (Matt Pocock's two-axis Standards + Spec review) takes precedence over Claude Code's built-in `/code-review` in this repo. Rename the directory if you want the built-in back.

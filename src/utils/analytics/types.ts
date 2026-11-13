@@ -3,6 +3,13 @@
 import type { ProductType } from "./productType";
 import type {
   FeatureArea,
+  TitleDraftLookupStatus,
+  TitleDraftCopyExperimentId,
+  TitleDraftCopyExperimentVersion,
+  TitleDraftCopyVariant,
+  TitleDraftAddFailure,
+  TitleDraftPreviewCloseReason,
+  TitleDraftPreviewRenderFailure,
   MacroTypeValue,
   CaptureFailureStage,
   Surface,
@@ -35,6 +42,7 @@ import type {
   AgentLinkListScope,
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
+  AgentLinkFailureStep,
   AgentLinkOAuthRevokeReason,
   AgentLinkOAuthRoute,
   AgentLinkOAuthAtlassianReason,
@@ -115,6 +123,8 @@ export type AnalyticsProperties = {
   /** Visible step when a targeted survey is dismissed, including an in-flight send. */
   survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;
+  /** Forge installation id (app_installed, backend-emitted; #1102). */
+  installation_id?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent
   // from src/export.js / src/asyncapi-export.js (Forge backend, outside this
@@ -125,6 +135,25 @@ export type AnalyticsProperties = {
   macro_type?: MacroTypeValue;
   /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
   magic_failure_reason?: MagicFailureReason;
+  /** Title-first offer. Never carries the title or the draft source. */
+  title_draft_status?: TitleDraftLookupStatus;
+  title_draft_failure?: TitleDraftAddFailure;
+  /** Present on preview_closed; native host dismissal cannot identify its control. */
+  title_draft_close_reason?: TitleDraftPreviewCloseReason;
+  /** Preview delay/rejection/empty output; sent on render_delayed/render_failed/reload_clicked. */
+  title_draft_render_failure?: TitleDraftPreviewRenderFailure;
+  /** Elapsed render time on rendered/render_delayed/render_failed, excluding analytics. */
+  title_draft_render_ms?: number;
+  /** Mermaid family of the draft: flowchart, sequence, state or er. */
+  title_draft_kind?: string;
+  /** Model confidence recorded by the batch, 0 to 1. */
+  title_draft_confidence?: number;
+  /** Present together only for a valid, explicitly assigned offer-copy exposure. */
+  title_draft_experiment_id?: TitleDraftCopyExperimentId;
+  title_draft_experiment_version?: TitleDraftCopyExperimentVersion;
+  title_draft_variant?: TitleDraftCopyVariant;
+  /** Opaque per-show ID, carried unchanged through this exposure's funnel. */
+  title_draft_exposure_id?: string;
   /** Automatic writeback terminal outcome. Backend is temporary transport only. */
   magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
   /**
@@ -485,6 +514,11 @@ export type AnalyticsProperties = {
   // Phase 5b, on every page-banner event so the funnel can be split by audience.
   // See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // True when the page-banner iframe received the previous page's space after
+  // a Confluence SPA navigation and the space was corrected from the page URL.
+  // Set on paywall page-banner events; a forward navigation that now shows no
+  // banner sends no event, so this counts corrected banners, not all stale loads.
+  space_context_stale?: boolean;
   // Phase 5b: WHICH gate admitted the paywall page banner, and therefore which
   // copy/CTA set the user saw.
   //   'editor'      — legacy gate: this user created/edited a macro in the last
@@ -863,6 +897,10 @@ export type AnalyticsProperties = {
   // Full only: Forge `license.active` at render time. Absent on other variants
   // and whenever Forge supplies no boolean; Forge also reports false for free apps.
   license_active?: boolean;
+  // Why the Full license notice was shown; missing license fields alone are never evidence.
+  license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock";
+  // Full viewer evaluation completed, including hidden and unavailable decisions.
+  license_notice_outcome?: "shown" | "active" | "unknown" | "disabled" | "unavailable";
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.
@@ -1109,6 +1147,12 @@ export type AnalyticsProperties = {
   // `is_internal_client_domain` expects).
   mcp_tool?: string;
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;
+  // On a `reason: 'upstream'` tool_error: which step failed, the HTTP status
+  // it got (when there was one), and for step 'identity' the resolver's
+  // refusal. See AgentLinkFailureStep.
+  failure_step?: AgentLinkFailureStep;
+  upstream_status?: number;
+  identity_failure?: AgentLinkIdentityFailure;
   mcp_client_name?: string;
   mcp_client_version?: string;
   // Set by our own smoke checks on the public render endpoint, which has no

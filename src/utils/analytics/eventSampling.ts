@@ -87,6 +87,13 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
 // (utils/analytics/macroViewOfDay.ts).
 export const MACRO_VIEWED_REPEAT_SAMPLE_RATE = 0.1;
 
+// title_draft_requested is also sampled per occurrence (features/titleDraft/
+// offer.ts): `ready` is the offer's denominator and stays at 100%; `pending`
+// and `no_diagram` are sent at this rate with `sample_rate`. On 2026-11-09 the
+// event was 3,917 of 34,285 billable events (11%), 74% `pending`, 24%
+// `no_diagram`, 2% `ready`.
+export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
+
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
 // at forgeIndex.ts, so an exact key cannot cover every variant.
@@ -110,6 +117,16 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  "title_draft_requested",
+  "title_draft_flag_shown",
+  "title_draft_not_now",
+  "title_draft_preview_opened",
+  "title_draft_preview_closed",
+  "title_draft_added",
+  "title_draft_add_failed",
+  "title_draft_undone",
+  "title_draft_undo_failed",
+  "title_draft_edit_clicked",
   "agent_link_edit_failed",
   "ai_title_generation_failed",
   "attachment_upload_async_failed",

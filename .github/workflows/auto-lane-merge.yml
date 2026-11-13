@@ -1,0 +1,54 @@
+name: Auto lane merge
+
+# Merges at most one open Dependabot PR per run when scripts/ci/auto-lane-policy.mjs classifies its diff
+# `auto-merge` and every check on its head commit is green (docs/policies/auto-lane.md).
+#
+# Ships OFF. A scheduled run does nothing unless the repository variable AUTO_LANE_ENABLED is exactly `true`.
+# A manual run is a dry run (reads only) unless `dry-run` is cleared AND the variable is `true`.
+#
+# Security: this job checks out `main` and runs the classifier from there. It never checks out or executes
+# code from a PR head; `git fetch origin pull/N/head` only reads the diff as data.
+
+on:
+  schedule:
+    - cron: '23 2 * * *'   # 02:23 UTC, off-peak, away from the :00 and :30 rush
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        type: boolean
+        default: true
+        description: Read and print decisions only; no label, merge or pipeline dispatch
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  checks: read
+
+concurrency:
+  group: auto-lane-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: Merge qualifying Dependabot PR
+    if: ${{ vars.AUTO_LANE_ENABLED == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          # The job installs nothing. The default `package-manager-cache: true` looks for pnpm
+          # (from `packageManager`) and fails when it is not on PATH.
+          package-manager-cache: false
+      - name: Merge one qualifying Dependabot PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTO_LANE_ENABLED: ${{ vars.AUTO_LANE_ENABLED }}
+          AUTO_LANE_DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dry-run || vars.AUTO_LANE_ENABLED != 'true')) && 'true' || 'false' }}
+        run: node scripts/ci/auto-lane-merge.mjs

@@ -277,7 +277,7 @@
                   <span class="viewer-btn-label">{{ action.label }}</span>
                 </button>
               </template>
-              <!-- Connect MCP (agent-link flag on, agent-editable types) takes
+              <!-- Connect MCP (agent-link flag on, every diagram type) takes
                    the Copy for AI slot, inline and in fullscreen, and opens
                    ConnectMcpDialog with the headless MCP setup and a prompt
                    naming this diagram. Inline it is labelled "MCP" at stage 0,
@@ -336,7 +336,7 @@
                 </template>
               </OverflowMenu>
               <!-- Also disabled while a title rename PUT is in flight: the modal would boot on the pre-rename body and its later save would reinstate the old title. -->
-              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason || isSavingRename" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit">
+              <button v-if="showEdit && !isFullscreenMode" :disabled="!!editDisabledReason || isSavingRename" :title="editDisabledReason || 'Edit'" @click="edit" aria-label="Edit" class="viewer-btn-ghost viewer-act-edit" :class="{ 'viewer-act-edit--pinned': diagram?.titleDraftPristine }">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                 </svg>
@@ -415,7 +415,7 @@
 
 
           <!-- Canvas -->
-          <div class="viewer-canvas">
+          <div class="viewer-canvas" :class="{'viewer-canvas--license-notice': showLicenseNotice}">
             <div v-if="isLoadFailed" class="viewer-load-failed" role="alert" data-testid="load-failed-generic">
               <div class="viewer-lf-icon-wrap">
                 <svg v-if="hasRetryableFailure" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="viewer-lf-icon" aria-hidden="true">
@@ -471,6 +471,9 @@
                 label="Refined layout" content-class="mermaid-diagram flex justify-center" :html="magicSvg" />
               <slot v-else></slot>
             </div>
+            <!-- Full variant, license explicitly inactive, flag on. Sibling of
+                 the capture node on purpose: exports never contain it. -->
+            <LicenseWatermark v-if="showLicenseNotice" />
             <!-- Canvas overlay anchor: a zero-height block between the diagram
                  and the footer row. Slot content (the Mermaid highlight feedback
                  pill) positions itself against this box, so it floats over the
@@ -503,6 +506,12 @@
                 :diagram-host="getCaptureNode"
               />
             </div>
+            <LicenseNoticeStrip
+              v-if="showLicenseNotice"
+              :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+              :macro-type="diagramType ?? 'none'"
+              :basis="licenseNoticeBasis"
+            />
             <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
                  defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
                  vite.config.mjs). See SecondDiagramPrompt.vue for the full
@@ -632,7 +641,11 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
+import { resolveLicenseNotice as evaluateLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
+import { loadLicenseNoticeEvidence } from '@/features/licenseNotice/loadEvidence'
+import LicenseWatermark from '@/components/Viewer/LicenseWatermark.vue'
+import LicenseNoticeStrip from '@/components/Viewer/LicenseNoticeStrip.vue'
 import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import forgeGlobal, { getContext, openUrl } from '@/model/globals/forgeGlobal'
@@ -778,6 +791,11 @@ export default {
     // renders exactly as it does today.
     agentLinkFeatureEnabled: false,
     architectureTokensEnabled: false,
+    // Full variant 'no active license' notice; resolved off the render path.
+    licenseNoticeActive: false,
+    licenseNoticeBasis: null,
+    licenseNoticeRequestId: 0,
+    licenseNoticeExpiryTimer: null,
     createGuideFeatureEnabled: false,
     createGuideImpressionTracked: false,
     agentLinkSession: null,
@@ -851,6 +869,8 @@ export default {
     DiagramAttributionFooter,
     SecondDiagramPrompt,
     RelatedDiagramsFooter,
+    LicenseWatermark,
+    LicenseNoticeStrip,
   },
   computed: {
     ...mapState({
@@ -913,6 +933,9 @@ export default {
       if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
       actions.push({ id: 'export-png', label: 'Export PNG', icon: ICON_PATHS.download });
       return actions;
+    },
+    showLicenseNotice() {
+      return this.licenseNoticeActive && !this.isLoadFailed;
     },
     isLoadFailed() {
       return this.isDisplayMode
@@ -1050,9 +1073,18 @@ export default {
       return !this.editDisabledReason;
     },
     // Live Agent Link MVP scope (design §11/§12): agent-native DSL types only.
-    // Graph/OpenAPI/AsyncAPI/Embed are not offered the Connect affordance.
+    // Gates the relay session (live badge, Fullscreen rail), whose macro-side
+    // bridge only applies text-DSL edits. Not the Connect MCP button.
     agentLinkMvpSupported() {
       return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml].includes(this.diagramType);
+    },
+    // Connect MCP (headless): every stored diagram type. The headless tools
+    // read and update any type through Confluence (headlessTools.ts), so the
+    // button shows on every macro — Graph, OpenAPI, AsyncAPI and Markdown
+    // included, and on embed macros, whose diagramType is the embedded
+    // diagram's. Only a diagram with no known type is left out.
+    connectMcpSupported() {
+      return !!this.diagramType && this.diagramType !== DiagramType.Unknown;
     },
     // View Source (#333): text-DSL types only. NOT gated on canUserEdit — the
     // audience includes readers without edit permission.
@@ -1130,15 +1162,14 @@ export default {
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
     showAgentLinkConnect() {
       // With relay sessions on, fullscreen connects through its rail instead.
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported
+      return this.agentLinkFeatureEnabled && this.connectMcpSupported
         && !(this.isFullscreenMode && RELAY_SESSIONS_ENABLED);
     },
     // The Copy for AI slot renders only once it is known not to be Connect
-    // MCP's: on an agent-editable macro, inline or fullscreen, that waits for
-    // the async flag, so Copy for AI never flashes and then swaps out. The
-    // other text types never show Connect MCP, so they need not wait.
+    // MCP's: on any typed macro, inline or fullscreen, that waits for the
+    // async flag, so Copy for AI never flashes and then swaps out.
     copyForAiSlotSettled() {
-      return this.agentLinkFlagResolved || !this.agentLinkMvpSupported;
+      return this.agentLinkFlagResolved || !this.connectMcpSupported;
     },
     // MCP promo corner card, Fullscreen only (the header button stays for
     // every viewer). Editors only: it pitches drawing diagrams. Never over a
@@ -1443,6 +1474,7 @@ export default {
     // the state at keypress.
     document.addEventListener('keydown', this.onEscapeKeydown, true);
     this.startHeaderLayout();
+    this.resolveLicenseNotice();
     // Export entry (see openExport): the modal was opened BY the Export PNG
     // button, so the dialog opens here on arrival. On 'diagramLoaded', not on
     // mount — the dialog captures its preview off the `visible` watcher, and
@@ -1492,7 +1524,9 @@ export default {
       console.error('Failed to load agent-link feature flag:', e);
       this.agentLinkFeatureEnabled = false;
     } finally {
-      if (this.agentLinkFeatureEnabled && this.agentLinkMvpSupported) {
+      // Not gated on the diagram type: the store can still be loading it, and
+      // both records are read only behind showAgentLinkConnect anyway.
+      if (this.agentLinkFeatureEnabled) {
         const promoScope = {
           cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
           accountId: this.currentAccountId,
@@ -1608,6 +1642,8 @@ export default {
     }
   },
   beforeUnmount() {
+    this.licenseNoticeRequestId++;
+    clearTimeout(this.licenseNoticeExpiryTimer);
     this.connectMcpUnmounted = true;
     this.headerResizeObserver?.disconnect();
     this.headerResizeObserver = null;
@@ -2295,6 +2331,63 @@ export default {
         failure_reason: result.reason,
         save_duration_ms: result.durationMs,
       });
+    },
+    // Fire-and-forget: the diagram never waits on this, and any error means
+    // no notice. Full variant only, so other variants skip the flag lookup.
+    async resolveLicenseNotice() {
+      if (import.meta.env.PRODUCT_TYPE !== 'full') return;
+      const requestId = ++this.licenseNoticeRequestId;
+      clearTimeout(this.licenseNoticeExpiryTimer);
+      try {
+        const flagEnabled = await isNoLicenseNoticeEnabled();
+        const ctx = forgeGlobal.forgeContext;
+        const decision = await evaluateLicenseNotice({
+          productType: import.meta.env.PRODUCT_TYPE,
+          licenseActive: ctx?.license?.active,
+          licenseType: ctx?.license?.type,
+          environmentType: ctx?.environmentType,
+          mockInactive: readMockLicenseInactive(),
+          flagEnabled: flagEnabled === true,
+        }, loadLicenseNoticeEvidence);
+        if (requestId !== this.licenseNoticeRequestId) return;
+        // Context can refresh while the optional backend call is in flight.
+        const activeNow = forgeGlobal.forgeContext?.license?.active === true
+          && decision.basis !== 'development_mock';
+        this.licenseNoticeBasis = activeNow ? null : decision.basis;
+        this.licenseNoticeActive = this.licenseNoticeBasis !== null;
+        if (this.licenseNoticeBasis === 'marketplace_legacy_free' && decision.expiresAt) {
+          this.licenseNoticeExpiryTimer = setTimeout(() => {
+            if (requestId !== this.licenseNoticeRequestId) return;
+            this.licenseNoticeActive = false;
+            this.licenseNoticeBasis = null;
+            trackAnalyticsEvent('license_notice_evaluated', {
+              feature_area: 'license_notice',
+              surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+              macro_type: this.diagramType ?? 'none',
+              license_notice_outcome: 'unknown',
+            });
+          }, Math.max(0, Date.parse(decision.expiresAt) - Date.now()));
+        }
+        if (decision.outcome !== 'disabled') {
+          trackAnalyticsEvent('license_notice_evaluated', {
+            feature_area: 'license_notice',
+            surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+            macro_type: this.diagramType ?? 'none',
+            license_notice_outcome: activeNow ? 'active' : decision.outcome,
+            ...(this.licenseNoticeBasis ? { license_notice_basis: this.licenseNoticeBasis } : {}),
+          });
+        }
+      } catch {
+        if (requestId !== this.licenseNoticeRequestId) return;
+        this.licenseNoticeActive = false;
+        this.licenseNoticeBasis = null;
+        trackAnalyticsEvent('license_notice_evaluated', {
+          feature_area: 'license_notice',
+          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+          macro_type: this.diagramType ?? 'none',
+          license_notice_outcome: 'unavailable',
+        });
+      }
     },
     trackRename(eventName, extra = {}) {
       const id = String(this.diagram?.id ?? '');
@@ -3300,7 +3393,7 @@ export default {
    affordance), the page navigation and a pressed Refined toggle stay visible
    at rest. Opacity only — a hidden control still takes focus, which reveals. */
 .viewer-top-actions > * { transition: opacity 200ms ease; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed) {
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed):not(.viewer-act-edit--pinned) {
   opacity: 0;
 }
 /* Inline order (prototype), in DOM order so Tab follows what is seen:
@@ -3691,6 +3784,14 @@ export default {
 }
 .viewer-canvas .screen-capture-content { position: relative; z-index: 0; }
 .viewer-canvas .screen-capture-content.w-full { width: 100%; }
+/* License notice layering. The capture node is its own stacking context
+   (z-index 0), which would pin the zoom card (z-index 2, inside it) UNDER any
+   sibling overlay. Only while the notice is on: drop that context so the
+   watermark (z-index 1) sits above the diagram but below the zoom card and the
+   floating pills (z-index 5), and isolate the canvas so those still cannot
+   climb above the header (z-index 2, outside the canvas). */
+.viewer-canvas--license-notice { isolation: isolate; }
+.viewer-canvas--license-notice .screen-capture-content { z-index: auto; }
 /* Zero height: adds nothing to the canvas layout. Its width comes from the
    canvas (never from its children), which is what makes inline-size
    containment safe here — the inline frame is width:fit-content, so the

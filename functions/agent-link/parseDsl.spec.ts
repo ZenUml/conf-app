@@ -26,7 +26,6 @@ describe('normalizeDialect', () => {
   });
   it('maps anything we still don\'t parse to "unknown"', () => {
     expect(normalizeDialect('Graph')).toBe('unknown');
-    expect(normalizeDialect('AsyncApi')).toBe('unknown');
     expect(normalizeDialect('Embed')).toBe('unknown');
     expect(normalizeDialect(undefined)).toBe('unknown');
     expect(normalizeDialect('')).toBe('unknown');
@@ -229,9 +228,30 @@ describe('parseDsl — OpenAPI (structural YAML/JSON lint, no stats, no schema v
   });
 });
 
+describe('parseDsl — AsyncAPI (structural, like OpenAPI)', () => {
+  it('maps the AsyncAPI spellings to its dialect', () => {
+    expect(normalizeDialect('AsyncAPI')).toBe('asyncapi');
+    expect(normalizeDialect('async-api')).toBe('asyncapi');
+  });
+
+  it('accepts YAML or JSON with a top-level asyncapi key', async () => {
+    expect((await parseDsl('AsyncAPI', 'asyncapi: 3.0.0\ninfo:\n  title: x\n  version: "1"\n')).ok).toBe(true);
+    expect((await parseDsl('AsyncAPI', '{"asyncapi":"2.6.0","info":{"title":"x","version":"1"}}')).ok).toBe(true);
+  });
+
+  it('rejects a document without the asyncapi key, and bad YAML with its line', async () => {
+    const missing = await parseDsl('AsyncAPI', 'openapi: 3.0.0\n');
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.errors[0].message).toMatch(/'asyncapi'/);
+    const broken = await parseDsl('AsyncAPI', 'asyncapi: 3.0.0\ninfo:\n  title: x\n bad: indent\n');
+    expect(broken.ok).toBe(false);
+    if (!broken.ok) expect(broken.errors[0].line).toBeGreaterThan(1);
+  });
+});
+
 describe('parseDsl — unknown/unparseable dialects pass through', () => {
   it('never blocks a dialect we cannot parse (returns ok + unvalidated)', async () => {
-    for (const t of ['Graph', 'AsyncApi', 'Embed', 'somethingNew']) {
+    for (const t of ['Graph', 'Markdown', 'Embed', 'somethingNew']) {
       const r = await parseDsl(t, 'literally anything <xml/>');
       expect(r.ok).toBe(true);
       if (r.ok) {

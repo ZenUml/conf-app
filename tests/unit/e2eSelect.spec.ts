@@ -80,7 +80,7 @@ describe('select()', () => {
 
   it('runs everything for a shared file, an unmapped file, or no files', () => {
     expect(select(['src/forgeIndex.ts']).mode).toBe('all');
-    expect(select(['src/components/Mermaid.vue', 'package.json']).mode).toBe('all');
+    expect(select(['src/components/Mermaid.vue', 'pnpm-lock.yaml']).mode).toBe('all');
     expect(select(['some/new/area.ts']).mode).toBe('all');
     expect(select([]).mode).toBe('all');
     expect(select(['src/forgeIndex.ts']).grep).toBe('');

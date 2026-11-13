@@ -5,11 +5,12 @@ import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters"
 import globals from '@/model/globals'
 import { callRemote } from '@/utils/requestUtil'
+import { MARKETPLACE_UPGRADE_URL } from '@/features/licenseNotice/licenseNotice'
 import { writeTargetingMarker, toMarkerSeverity } from '@/utils/paywall/warningBanner'
 
 export const MACROS_LIMIT = 100
 const WARNING_THRESHOLD = 85
-const BASE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
+const BASE_UPGRADE_URL = MARKETPLACE_UPGRADE_URL
 const BASE_LEARN_MORE_URL = 'https://zenuml.com/upgrade'
 
 const macrosCreated = ref<number>(0)

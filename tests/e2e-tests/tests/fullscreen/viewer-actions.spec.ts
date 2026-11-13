@@ -21,7 +21,7 @@ import {
 } from '../../helpers/ViewerActionsHelper.js';
 import { expectFullscreenLayout } from '../../helpers/FullscreenModalHelper.js';
 
-test.describe('Viewer toolbar actions', { tag: ['@test:viewer-actions', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@fullscreen', '@sequence', '@export'] }, () => {
+test.describe('Viewer toolbar actions', { tag: ['@test:viewer-actions', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@fullscreen', '@sequence', '@export', '@feature:fullscreen-navigation', '@interface:inline-viewer', '@scenario:fullscreen-navigation:inline-viewer', '@feature:export-image', '@scenario:export-image:inline-viewer'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
 
   // Sequence (0..3)

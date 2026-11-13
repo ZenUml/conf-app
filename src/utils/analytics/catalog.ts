@@ -26,7 +26,42 @@ export type FeatureArea =
   // The "What's new" release-notes strip in the shared page-banner host. Its
   // own area because, like "byline", it renders on any page — including pages
   // with no diagram — and measures announcement reach, not a macro lifecycle.
-  | "whats_new";
+  | "whats_new"
+  // The title-first diagram offer: a flag on a page with no diagram, a preview
+  // modal, then one macro at the top of the page. Its own area because it runs
+  // on pages that carry no diagram yet and measures first contact.
+  | "title_draft"
+  // Full variant: the "no active license" watermark and upgrade strip in the
+  // viewer. Its own area because it measures a licensing notice, not a macro
+  // lifecycle step.
+  | "license_notice";
+
+/** What the draft lookup found for this page. */
+export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
+
+/** Versioned title-draft offer-copy test; assignments are account-sticky. */
+export type TitleDraftCopyExperimentId = "title-draft-offer-copy";
+export type TitleDraftCopyExperimentVersion = 1;
+export type TitleDraftCopyVariant = "A" | "B";
+
+/** Bounded preview failure; never includes the draft or a thrown error message. */
+export type TitleDraftPreviewRenderFailure = "timeout" | "render_error" | "empty_svg";
+
+/** Why a title-draft preview closed without adding a diagram. */
+export type TitleDraftPreviewCloseReason =
+  | "escape"
+  | "render_failed"
+  // Confluence does not distinguish its X, overlay, or host-handled Escape.
+  | "host_dismissed"
+  // A dismissed payload from a previously loaded iframe carried no reason.
+  | "unknown";
+/** Why a title-draft Add did not place a new diagram. */
+export type TitleDraftAddFailure =
+  | "already_added"
+  | "forbidden"
+  | "conflict"
+  | "save_failed"
+  | "failed";
 
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
@@ -372,6 +407,8 @@ export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
 // `feedback` records the explicit start requested by the Feedback trigger.
+// `license_notice` records the explicit start requested when the Full
+// "No active license" notice is shown (license_notice_shown).
 // `timeout` means the Forge flag download did not settle within
 // SESSION_REPLAY_CONFIG_TIMEOUT_MS (#707) so replay was forced off; `off` is
 // reserved for "the flag/policy said off".
@@ -382,6 +419,8 @@ export type SessionReplayEventSource =
   | "plan_usage_page"
   | "fullscreen"
   | "feedback"
+  | "license_notice"
+  | "title_draft_preview"
   | "timeout"
   | "off";
 
@@ -1458,6 +1497,17 @@ export type AnalyticsEventName =
   // us when phase-2 embed support becomes worth building).
   | "macro_convert_job_claimed"
   | "macro_convert_job_completed"
+  // A site installed the app (#1102). Emitted by functions/forge-installed.ts
+  // from the Forge `avi:forge:installed:app` trigger, not by the browser
+  // tracker — same contract as the snapshot/conversion events above. Upgrades
+  // are deliberately NOT sent: every deploy fires `upgraded` on every install.
+  // distinct_id is the installer's accountId (the same id the frontend passes
+  // to mixpanel.identify), so "installer published a diagram within 24h" is a
+  // plain Mixpanel funnel: app_installed -> macro_create_succeeded.
+  // Properties: feature_area 'system', surface 'forge_trigger', product_type,
+  // cloud_id, installation_id, app_version, client_domain (only when D1
+  // already knows the site's domain — often absent on a brand-new install).
+  | "app_installed"
   | "close_guard_rejected"
   // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
   // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —
@@ -1556,6 +1606,9 @@ export type AnalyticsEventName =
   // the load-bearing one — a site we cannot identify is a site where creating
   // a macro would publish a broken extension, so the resolver declines and
   // this event is the only record that a user hit that wall.
+  // `_unresolved` is emitted by headless create_diagram (headlessMcp.ts) with
+  // `mcp_tool`, `cloud_id` and the refusal in `reason`; the same refusal also
+  // rides `identity_failure` on that call's `agent_link_mcp_tool_called`.
   | "agent_link_identity_resolved"
   | "agent_link_identity_unresolved"
   // W — headless authorization (design §5/§11 Phase 3). Backend-emitted like
@@ -1694,7 +1747,10 @@ export type AnalyticsEventName =
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
   // why the guard refused in `guardrail_reason`, the host in `oauth_client_id` /
   // `oauth_client_name`, the site in `client_domain`, and server-side latency in
-  // `duration_ms`. The write events stay
+  // `duration_ms`. A `reason: 'upstream'` failure also names the step that
+  // failed in `failure_step`, the HTTP status Confluence/Atlassian answered in
+  // `upstream_status` (absent when there was none, e.g. an unparseable body),
+  // and, for step 'identity', the resolver's refusal in `identity_failure`. The write events stay
   // separate: they carry write-specific properties (paywall_gate, result) this
   // one does not, and the same `cloud_id`. `_initialized` fires on each `initialize` handshake and carries
   // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
@@ -1722,6 +1778,45 @@ export type AnalyticsEventName =
   | "activation_diagram_edited"
   | "activation_completed"
   | "activation_nudge_dismissed"
+  // Title-first offer. `requested` is the draft lookup, before any copy exposure.
+  // When the independent offer-copy build switch is on, flag_shown records one native
+  // flag exposure with title_draft_experiment_id/version, title_draft_variant
+  // and a fresh title_draft_exposure_id. not_now and preview_opened describe
+  // clicks on that same exposure. Preserve these explicit properties through
+  // preview mount/render/failure, add click/result, close and post-reload actions.
+  // Flag-off and legacy flows omit all experiment fields; never send copy text.
+  // `requested` is sent at 100% for `ready` and at 10% with `sample_rate` for
+  // `pending` / `no_diagram` (TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE).
+  | "title_draft_requested"
+  // Native showFlag returned: exposure denominator, with experiment props above.
+  | "title_draft_flag_shown"
+  // Secondary offer action clicked, with the exposure that rendered the button.
+  | "title_draft_not_now"
+  // Primary offer action clicked, before opening the preview modal.
+  | "title_draft_preview_opened"
+  // Preview iframe mounted: initialize analytics and request replay at 100%.
+  | "title_draft_preview_mounted"
+  // SVG committed to the preview DOM.
+  | "title_draft_preview_rendered"
+  // The preview is still pending after 10s; recovery is offered and late success
+  // remains valid. A delayed preview is not a confirmed render failure.
+  | "title_draft_preview_render_delayed"
+  // Preview rendering rejected or returned no SVG.
+  // title_draft_render_failure identifies the bounded reason; render_ms is elapsed.
+  | "title_draft_preview_render_failed"
+  // Reload preview clicked after a render failure, before reloading only its iframe.
+  // Uses the original exposure and the failure that offered the recovery action.
+  | "title_draft_preview_reload_clicked"
+  // An enabled Add to page action was accepted, before context/save work.
+  | "title_draft_add_clicked"
+  // Keeps the existing meaning: closed without added/already_added outcome.
+  // title_draft_close_reason distinguishes known and host-level dismissals.
+  | "title_draft_preview_closed"
+  | "title_draft_added"
+  | "title_draft_add_failed"
+  | "title_draft_undone"
+  | "title_draft_undo_failed"
+  | "title_draft_edit_clicked"
   // Starter-template gallery (#334, JTBD: author job). The real "hire moment"
   // for diagram creation is at the macro editor, before the user has typed
   // anything — the gallery replaces the old external "Examples" link
@@ -1765,6 +1860,21 @@ export type AnalyticsEventName =
   // denominator; `clicked` is the accept action.
   | "macro_second_diagram_prompt_shown"
   | "macro_second_diagram_prompt_clicked"
+  // Full variant, license explicitly inactive, flag on: the viewer's
+  // watermark + upgrade strip. `shown` fires once per viewer mount when the
+  // notice becomes visible (the denominator); `upgrade_clicked` is the
+  // Marketplace button; `ticket_clicked` is the support fallback for a site
+  // that cannot upgrade; `email_copied` is the click on the support address,
+  // which copies it (mailto does nothing in the Forge sandbox). Properties:
+  // feature_area 'license_notice', surface ('viewer' | 'fullscreen'),
+  // macro_type.
+  // Full viewer decision settles or expires; flag-off views emit nothing.
+  // license_notice_basis distinguishes Forge inactivity from explicit Legacy Free evidence.
+  | "license_notice_evaluated"
+  | "license_notice_shown"
+  | "license_notice_upgrade_clicked"
+  | "license_notice_ticket_clicked"
+  | "license_notice_email_copied"
   // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
   // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
   // the detection rule). `shown` is the denominator, fired once per becoming-
@@ -2040,6 +2150,29 @@ export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" 
 // and the create was allowed. 'limit_reached' = counted and refused; no longer
 // emitted, kept so historical events still type-check in queries.
 export type AgentLinkPaywallGate = "paid" | "under_limit" | "over_limit" | "limit_reached" | "count_unknown";
+
+// Which step of a headless tools/call failed, on agent_link_mcp_tool_called
+// when `mcp_tool_outcome: 'tool_error'` with `reason: 'upstream'`. Every
+// Confluence/Atlassian failure collapses into that one code, so without this a
+// create_diagram that never worked cannot be told apart from a flaky read
+// (2026-10-23: four creates on one Lite site, all 'upstream', cause unknowable).
+// 'list_sites' = accessible-resources; 'identity' = the macro-identity resolve
+// a create needs (its refusal rides `identity_failure`); 'variant_probe' =
+// list_diagrams' installed-variant probe; 'page_read' / 'page_publish' /
+// 'page_create' = the page GET / PUT / POST; 'list' = a custom-content listing;
+// 'diagram_read' / 'diagram_write' = custom-content GET / PUT;
+// 'content_create' = the custom-content POST of a create.
+export type AgentLinkFailureStep =
+  | "list_sites"
+  | "identity"
+  | "variant_probe"
+  | "page_read"
+  | "page_publish"
+  | "page_create"
+  | "list"
+  | "diagram_read"
+  | "diagram_write"
+  | "content_create";
 
 export type AgentLinkIdentityFailure =
   | "no_macro_on_site"

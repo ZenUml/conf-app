@@ -139,7 +139,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'list_diagrams',
     ...readOnly('List diagrams'),
     description:
-      'List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Read-only.',
+      'List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, markdown, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -154,7 +154,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'read_diagram',
     ...readOnly('Read diagram'),
     description:
-      'Read one diagram by its contentId: its title, diagramType, version, and complete source (the DSL or spec text), and show it to the user. Read-only.',
+      'Read one diagram of any type by its contentId: its title, diagramType, version, and complete source (ZenUML, Mermaid or PlantUML DSL, Markdown, draw.io XML, or an OpenAPI or AsyncAPI spec), and show it to the user. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -257,7 +257,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
         type: {
           type: 'string',
           description:
-            'What the DSL is written in: sequence, mermaid, plantuml, graph or openapi. Case-insensitive; anything else is refused.',
+            'What the source is written in: sequence (ZenUML), mermaid, plantuml, markdown, graph (draw.io XML), openapi or asyncapi. Case-insensitive; anything else is refused, as is a type the site\'s ZenUML app has no macro for.',
         },
         dsl: { type: 'string', description: 'The diagram source.' },
         title: { type: 'string', description: 'Optional. Defaults to "Untitled diagram".' },
@@ -266,6 +266,19 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     },
   },
 ];
+
+/** AgentLinkFailureStep in the frontend catalog. */
+export type HeadlessFailureStep =
+  | 'list_sites'
+  | 'identity'
+  | 'variant_probe'
+  | 'page_read'
+  | 'page_publish'
+  | 'page_create'
+  | 'list'
+  | 'diagram_read'
+  | 'diagram_write'
+  | 'content_create';
 
 export class HeadlessToolError extends Error {
   constructor(
@@ -280,6 +293,11 @@ export class HeadlessToolError extends Error {
       | 'conflict'
       | 'guardrail_rejected',
     readonly detail?: unknown,
+    /**
+     * Where an 'upstream' failure happened (AgentLinkFailureStep). Analytics
+     * only: never sent to the client.
+     */
+    readonly step?: HeadlessFailureStep,
   ) {
     super(message);
     this.name = 'HeadlessToolError';
@@ -301,7 +319,20 @@ async function sitesFor(ctx: HeadlessContext) {
     );
   }
   const sites = await listAccessibleSites(ctx.fetchImpl, token.accessToken);
-  if (!sites.ok) throw new HeadlessToolError('Could not list your Atlassian sites.', 'upstream', sites.detail);
+  if (!sites.ok) {
+    // A 401 here is Atlassian rejecting the access token we just handed it, which
+    // only a fresh authorization fixes. Reported as 'upstream' it read as a
+    // Confluence blip, and every tool failed until the user re-authorized on
+    // their own (2026-10-23). 'no_grant' answers with the OAuth challenge.
+    if (sites.status === 401) {
+      throw new HeadlessToolError(
+        'Atlassian no longer accepts this authorization. Authorize ZenUML again to continue.',
+        'no_grant',
+        'sites_unauthorized',
+      );
+    }
+    throw new HeadlessToolError('Could not list your Atlassian sites.', 'upstream', { status: sites.status, detail: sites.detail }, 'list_sites');
+  }
   ctx.onSitesListed?.(sites.sites);
   return sites.sites;
 }
@@ -563,7 +594,7 @@ async function readPage(
   const res = await request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}${query}`);
   if (res.status === 403) throw new HeadlessToolError('You do not have permission to read that page.', 'forbidden');
   if (res.status === 404) throw new HeadlessToolError('No page with that id.', 'not_found');
-  if (!res.ok) throw new HeadlessToolError('Could not read the page.', 'upstream', { status: res.status });
+  if (!res.ok) throw new HeadlessToolError('Could not read the page.', 'upstream', { status: res.status }, 'page_read');
 
   const page = res.body as {
     title?: unknown;
@@ -573,7 +604,7 @@ async function readPage(
     _links?: unknown;
   };
   const version = Number(page.version?.number);
-  if (!Number.isFinite(version)) throw new HeadlessToolError('That page reports no version.', 'upstream');
+  if (!Number.isFinite(version)) throw new HeadlessToolError('That page reports no version.', 'upstream', undefined, 'page_read');
 
   return {
     title: typeof page.title === 'string' ? page.title : '',
@@ -718,6 +749,7 @@ export async function callHeadlessTool(
               identityFailureMessage('probe_failed', installed.probeError),
               'upstream',
               'probe_failed',
+              'variant_probe',
             )
           : new HeadlessToolError(identityFailureMessage('no_macro_on_site', undefined), 'not_found', 'no_macro_on_site');
       }
@@ -735,7 +767,7 @@ export async function callHeadlessTool(
         // Bodies come along for the diagram type; one page's worth is small.
         const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}/custom-content?limit=250&body-format=raw`);
         if (res.status !== 200) {
-          throw new HeadlessToolError('Confluence refused the listing.', 'upstream', { status: res.status });
+          throw new HeadlessToolError('Confluence refused the listing.', 'upstream', { status: res.status }, 'list');
         }
         for (const row of (res.body as { results?: CustomContentRow[] })?.results ?? []) {
           if (typeof row.type === 'string' && types.includes(row.type)) rows.push(row);
@@ -751,7 +783,7 @@ export async function callHeadlessTool(
           // information, not a failure (the same rule macroIdentity applies).
           if (res.status === 404) continue;
           if (res.status !== 200) {
-            throw new HeadlessToolError('Confluence refused the listing.', 'upstream', { status: res.status });
+            throw new HeadlessToolError('Confluence refused the listing.', 'upstream', { status: res.status }, 'list');
           }
           rows.push(...((res.body as { results?: CustomContentRow[] })?.results ?? []));
         }
@@ -774,7 +806,7 @@ export async function callHeadlessTool(
       const res = await get(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}?body-format=raw`);
       if (res.status === 404) throw new HeadlessToolError('No diagram with that contentId.', 'not_found');
       if (res.status !== 200) {
-        throw new HeadlessToolError('Confluence refused the read.', 'upstream', { status: res.status });
+        throw new HeadlessToolError('Confluence refused the read.', 'upstream', { status: res.status }, 'diagram_read');
       }
       const body = res.body as {
         id?: unknown;
@@ -813,7 +845,7 @@ export async function callHeadlessTool(
       const read = await request(`/wiki/api/v2/custom-content/${encodeURIComponent(contentId)}?body-format=raw`);
       if (read.status === 404) throw new HeadlessToolError('No diagram with that contentId.', 'not_found');
       if (read.status === 403) throw new HeadlessToolError('You do not have permission to edit that diagram.', 'forbidden');
-      if (!read.ok) throw new HeadlessToolError('Could not read the diagram.', 'upstream', { status: read.status });
+      if (!read.ok) throw new HeadlessToolError('Could not read the diagram.', 'upstream', { status: read.status }, 'diagram_read');
 
       const current = read.body as {
         id?: unknown;
@@ -889,7 +921,7 @@ export async function callHeadlessTool(
           status: write.status,
         });
       }
-      if (!write.ok) throw new HeadlessToolError('Confluence refused the update.', 'upstream', { status: write.status });
+      if (!write.ok) throw new HeadlessToolError('Confluence refused the update.', 'upstream', { status: write.status }, 'diagram_write');
 
       return {
         result: 'updated',
@@ -921,7 +953,7 @@ export async function callHeadlessTool(
       const storedType = canonicalDiagramType(diagramType);
       if (!storedType) {
         throw new HeadlessToolError(
-          `Unknown diagram type "${diagramType}". Use one of: sequence, mermaid, plantuml, graph, openapi.`,
+          `Unknown diagram type "${diagramType}". Use one of: sequence, mermaid, plantuml, markdown, graph, openapi, asyncapi.`,
           'bad_params',
         );
       }
@@ -939,6 +971,7 @@ export async function callHeadlessTool(
           identityFailureMessage(identity.reason, identity.detail, ' The macro key cannot be built without it.'),
           'upstream',
           identity.reason,
+          'identity',
         );
       }
       // Refuse rather than guess: a malformed extensionKey renders as an
@@ -959,7 +992,7 @@ export async function callHeadlessTool(
       );
       if (pageRead.status === 403) throw new HeadlessToolError('You do not have permission to read that page.', 'forbidden');
       if (pageRead.status === 404) throw new HeadlessToolError('No page with that id.', 'not_found');
-      if (!pageRead.ok) throw new HeadlessToolError('Could not read the page.', 'upstream', { status: pageRead.status });
+      if (!pageRead.ok) throw new HeadlessToolError('Could not read the page.', 'upstream', { status: pageRead.status }, 'page_read');
 
       const page = pageRead.body as {
         title?: unknown;
@@ -971,15 +1004,15 @@ export async function callHeadlessTool(
       const rawAdf = page.body?.atlas_doc_format?.value;
       const pageVersion = Number(page.version?.number);
       if (typeof rawAdf !== 'string' || !Number.isFinite(pageVersion)) {
-        throw new HeadlessToolError('That page has no readable body.', 'upstream');
+        throw new HeadlessToolError('That page has no readable body.', 'upstream', undefined, 'page_read');
       }
       let adf: { content?: unknown[] };
       try {
         adf = JSON.parse(rawAdf);
       } catch {
-        throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
+        throw new HeadlessToolError('That page body could not be parsed.', 'upstream', undefined, 'page_read');
       }
-      if (!Array.isArray(adf.content)) throw new HeadlessToolError('That page body could not be parsed.', 'upstream');
+      if (!Array.isArray(adf.content)) throw new HeadlessToolError('That page body could not be parsed.', 'upstream', undefined, 'page_read');
 
       // §9.1: classify for analytics only; the limit no longer blocks, as in the UI.
       const spaceKey = spaceKeyFromLinks(page._links);
@@ -1002,9 +1035,9 @@ export async function callHeadlessTool(
         },
       });
       if (created.status === 403) throw new HeadlessToolError('You do not have permission to create content here.', 'forbidden');
-      if (!created.ok) throw new HeadlessToolError('Confluence refused to store the diagram.', 'upstream', { status: created.status });
+      if (!created.ok) throw new HeadlessToolError('Confluence refused to store the diagram.', 'upstream', { status: created.status }, 'content_create');
       const contentId = String((created.body as { id?: unknown })?.id ?? '');
-      if (!contentId) throw new HeadlessToolError('Confluence stored the diagram but returned no id.', 'upstream');
+      if (!contentId) throw new HeadlessToolError('Confluence stored the diagram but returned no id.', 'upstream', undefined, 'content_create');
 
       // Already there? Only possible on a retry that re-created content, but
       // the check is cheap and `already_present` is a first-class success
@@ -1066,7 +1099,7 @@ export async function callHeadlessTool(
           contentId,
           status: published.status,
           orphaned: !discarded,
-        });
+        }, 'page_publish');
       }
 
       return {
@@ -1116,7 +1149,7 @@ export async function callHeadlessTool(
       // scope we do not hold (see spaceKeyFromLinks). Reading the parent also
       // proves the caller can see where they are about to write.
       const parent = await readPage(request, parentPageId, { bodyFormat: null });
-      if (!parent.spaceId) throw new HeadlessToolError('That parent page reports no space.', 'upstream');
+      if (!parent.spaceId) throw new HeadlessToolError('That parent page reports no space.', 'upstream', undefined, 'page_read');
 
       const created = await request('/wiki/api/v2/pages', {
         method: 'POST',
@@ -1141,7 +1174,7 @@ export async function callHeadlessTool(
         );
       }
       if (!created.ok) {
-        throw new HeadlessToolError('Confluence refused to create the page.', 'upstream', { status: created.status });
+        throw new HeadlessToolError('Confluence refused to create the page.', 'upstream', { status: created.status }, 'page_create');
       }
 
       const row = created.body as { id?: unknown; _links?: unknown };
@@ -1212,7 +1245,7 @@ export async function callHeadlessTool(
         throw new HeadlessToolError('Confluence refused the update.', 'upstream', {
           status: write.status,
           detail: errorText(write.body),
-        });
+        }, 'page_publish');
       }
 
       return { result: 'updated', pageId, version: current.version + 1, url: current.url };

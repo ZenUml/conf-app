@@ -24,6 +24,12 @@ const RENDERERS = [
   ['zenuml', '/@zenuml/'],
   ['mermaid', '/mermaid/'],
   ['openapi', '/swagger-ui/'],
+  // Our own renderers. Their files stay in their own chunks (the rule below
+  // only assigns node_modules), but naming them here sends what they share
+  // with swagger-ui (js-yaml, React) to a shared-* chunk, instead of making a
+  // Markdown or AsyncAPI view download swagger-ui.
+  ['asyncapi', '/src/utils/asyncapi/'],
+  ['markdown', '/src/utils/markdown/'],
 ];
 
 /**

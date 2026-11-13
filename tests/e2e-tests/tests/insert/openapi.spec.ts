@@ -6,7 +6,7 @@ const macroType = 'openapi' as const;
 const skip = !testConfig.macros.includes(macroType);
 const createdPageIds: string[] = [];
 
-test.describe(`Smoke Test - ${macroType}`, { tag: ['@test:openapi', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@editor', '@viewer', '@openapi', '@smoke'] }, () => {
+test.describe(`Smoke Test - ${macroType}`, { tag: ['@test:openapi', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@editor', '@viewer', '@openapi', '@smoke', '@feature:create-diagram', '@interface:openapi-editor', '@scenario:create-diagram:openapi-editor', '@feature:rendering', '@interface:inline-viewer', '@scenario:rendering:inline-viewer'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test.afterAll(async ({ request }) => {

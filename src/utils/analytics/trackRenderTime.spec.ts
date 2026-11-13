@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { measureCacheState, trackRenderTime } from "./trackRenderTime";
 import { trackAnalyticsEvent } from "./trackAnalyticsEvent";
 import { getRenderIdentity } from "./renderIdentity";
+import forgeGlobal from "@/model/globals/forgeGlobal";
 import { setDiagramFontState, _resetDiagramFontStateForTesting } from "@/utils/fonts/diagramFontState";
 
 vi.mock("./trackAnalyticsEvent", () => ({
@@ -132,6 +133,38 @@ describe("trackRenderTime", () => {
   afterEach(() => {
     delete (window as { __macroLoadStart?: number }).__macroLoadStart;
     vi.restoreAllMocks();
+  });
+
+  describe("license_active", () => {
+    const originalContext = forgeGlobal.forgeContext;
+
+    function viewedProps(): Record<string, unknown> {
+      trackRenderTime("mermaid", true);
+      return vi.mocked(trackAnalyticsEvent).mock.calls[0][1] as unknown as Record<string, unknown>;
+    }
+
+    afterEach(() => {
+      forgeGlobal.forgeContext = originalContext;
+      vi.unstubAllEnvs();
+    });
+
+    it.each([true, false])("sends Forge license.active=%s on Full", (active) => {
+      vi.stubEnv("PRODUCT_TYPE", "full");
+      forgeGlobal.forgeContext = { ...originalContext, license: { active } };
+      expect(viewedProps().license_active).toBe(active);
+    });
+
+    it("omits the property on Full when Forge supplies no boolean", () => {
+      vi.stubEnv("PRODUCT_TYPE", "full");
+      forgeGlobal.forgeContext = { ...originalContext, license: undefined };
+      expect(viewedProps()).not.toHaveProperty("license_active");
+    });
+
+    it("omits the property on Lite, where Forge reports false for a free app", () => {
+      vi.stubEnv("PRODUCT_TYPE", "lite");
+      forgeGlobal.forgeContext = { ...originalContext, license: { active: false } };
+      expect(viewedProps()).not.toHaveProperty("license_active");
+    });
   });
 
   it("defaults render_mode='live_render' and cache_source='none' for the 2-arg callers", () => {
@@ -336,5 +369,64 @@ describe("trackRenderTime content_state (#113)", () => {
 
     const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[0];
     expect(props).not.toHaveProperty("content_state");
+  });
+});
+
+describe("trackRenderTime view_of_day", () => {
+  const originalContext = forgeGlobal.forgeContext;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    window.__macroLoadStart = performance.now();
+    forgeGlobal.forgeContext = { ...originalContext, localId: "macro-local-1" };
+  });
+
+  afterEach(() => {
+    delete (window as { __macroLoadStart?: number }).__macroLoadStart;
+    forgeGlobal.forgeContext = originalContext;
+    vi.restoreAllMocks();
+  });
+
+  it("sends the first render of the day unsampled, marked first", () => {
+    trackRenderTime("mermaid", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[0];
+    expect(props).toEqual(expect.objectContaining({ view_of_day: "first" }));
+    expect(props).not.toHaveProperty("sample_rate");
+  });
+
+  it("sends a sampled-in repeat with sample_rate 0.1", () => {
+    trackRenderTime("mermaid", true);
+    vi.spyOn(Math, "random").mockReturnValue(0.05);
+    trackRenderTime("mermaid", true);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[1];
+    expect(props).toEqual(expect.objectContaining({ view_of_day: "repeat", sample_rate: 0.1 }));
+  });
+
+  it("drops a sampled-out repeat", () => {
+    trackRenderTime("mermaid", true);
+    vi.spyOn(Math, "random").mockReturnValue(0.1);
+    trackRenderTime("mermaid", true);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts the editor surface separately from the viewer", () => {
+    trackRenderTime("mermaid", true);
+    trackRenderTime("mermaid", false);
+
+    const [, props] = vi.mocked(trackAnalyticsEvent).mock.calls[1];
+    expect(props).toEqual(expect.objectContaining({ surface: "editor", view_of_day: "first" }));
+  });
+
+  it("sends at full rate without view_of_day when the macro has no id", () => {
+    forgeGlobal.forgeContext = { ...originalContext, localId: undefined };
+    trackRenderTime("mermaid", true);
+    trackRenderTime("mermaid", true);
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls[1][1]).not.toHaveProperty("view_of_day");
   });
 });

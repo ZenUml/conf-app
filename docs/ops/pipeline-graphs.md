@@ -2,6 +2,34 @@
 
 PR validation and main preparation have separate entry workflows.
 
+A PR push starts two workflows. Only `PR validation` takes the repo-wide `conf-app-staging` lock, because a workflow-level concurrency group holds back every job of its run.
+
+```mermaid
+flowchart LR
+  Push[PR push] --> C[PR checks: no lock, newer push cancels older]
+  Push --> Q[PR validation: waits for the staging lock]
+  C --> U1[Unit tests, 4 shards]
+  C --> A[AsyncAPI build and CI script tests]
+  U1 --> U[Build and Unit Test]
+  A --> U
+  C --> P[E2E: Viewer preview]
+  Q --> G{Still the PR head?}
+  G -- no --> S[Skip every staging job]
+  G -- yes --> D[Deploy: Lite]
+  D --> H{Still the PR head?}
+  H -- no --> X[Skip E2E]
+  H -- yes --> E[E2E validation, Ready PRs only]
+```
+
+| Event while a run is active | PR checks | PR validation |
+|---|---|---|
+| Newer push, old run still queued for the lock | Old run cancelled | Old run gets the lock, skips everything, releases the lock |
+| Newer push during the deploy | Old run cancelled | Deploy finishes, E2E is skipped; cleanup looks for a child run for up to 60 s, then releases the lock |
+| Newer push during E2E | Old run cancelled | E2E finishes on the old commit |
+| Draft marked Ready, same commit | Not started again | Runs with E2E |
+| `test:all` dispatch | Not started | Runs with full E2E |
+| GitHub API error during the head check | Not applicable | Validates anyway |
+
 The main graph has five jobs: Source and version, Build preparation, Staging validation, Draft preparation, and Pipeline outcome. Build preparation and Staging validation run in parallel. Each phase job links to its independent child graph and waits for the result.
 
 The build phase contains unit tests, preview tests, production bundles, and the cron deployment. The staging phase contains deployment, login preparation, and validation for each variant. Each variant validation links to its own E2E graph, which contains plans, shards, evidence, and reports. The draft phase verifies the exact build and staging producers and creates drafts only for variants whose original validation gates passed. A failed variant still fails the root run; other eligible drafts remain available.

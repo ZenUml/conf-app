@@ -1,5 +1,10 @@
 import { getDiagramFontState } from '@/utils/fonts/diagramFontState';
+import forgeGlobal from '@/model/globals/forgeGlobal';
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
+import { MACRO_VIEWED_REPEAT_SAMPLE_RATE } from './eventSampling';
+import { classifyMacroView } from './macroViewOfDay';
+import { getClientDomain } from '@/utils/ContextParameters/ContextParameters';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import type { CacheState, MacroTypeValue, RenderMode, CacheSource, ContentState, PlantUmlRenderer } from './catalog';
 import { getTimings } from './renderPerf';
 import { getRenderIdentity } from './renderIdentity';
@@ -82,13 +87,28 @@ export function trackRenderTime(
   if (import.meta.env.DEV) {
     console.debug('[macro_viewed]', { macro_type: macroType, duration_ms, ...timings });
   }
+  const surface = isDisplayMode ? 'viewer' : 'editor';
+  const viewOfDay = classifyMacroView({
+    clientDomain: getClientDomain(),
+    macroKey:
+      resolveEffectiveCustomContentId(forgeGlobal.forgeContext) ??
+      forgeGlobal.forgeContext?.localId,
+    surface,
+  });
+  if (viewOfDay === 'repeat' && Math.random() >= MACRO_VIEWED_REPEAT_SAMPLE_RATE) {
+    scheduleRendererPrefetch(macroType);
+    return;
+  }
   trackAnalyticsEvent('macro_viewed', {
     feature_area: 'macro',
-    surface: isDisplayMode ? 'viewer' : 'editor',
+    surface,
+    ...(viewOfDay !== null ? { view_of_day: viewOfDay } : {}),
+    ...(viewOfDay === 'repeat' ? { sample_rate: MACRO_VIEWED_REPEAT_SAMPLE_RATE } : {}),
     macro_type: macroType,
     render_mode: renderMode,
     cache_source: cacheSource,
     ...(contentState !== undefined ? { content_state: contentState } : {}),
+    ...getLicenseTelemetry(),
     ...(plantuml !== undefined ? { plantuml_renderer: plantuml.renderer } : {}),
     ...(plantuml?.includeRewritten ? { plantuml_include_rewritten: true } : {}),
     duration_ms,
@@ -104,7 +124,16 @@ export function trackRenderTime(
   scheduleRendererPrefetch(macroType);
 }
 
-const PREFETCHABLE: readonly PrefetchRenderer[] = ['graph', 'mermaid', 'sequence', 'openapi'];
+// Full only: Forge also reports `active: false` for free apps, so on Lite the
+// value would read as a lapsed license. Absent rather than guessed when Forge
+// supplies no boolean.
+function getLicenseTelemetry(): { license_active?: boolean } {
+  if (import.meta.env.PRODUCT_TYPE !== 'full') return {};
+  const active = forgeGlobal.forgeContext?.license?.active;
+  return typeof active === 'boolean' ? { license_active: active } : {};
+}
+
+const PREFETCHABLE: readonly PrefetchRenderer[] =['graph', 'mermaid', 'sequence', 'openapi'];
 
 // Macro-host half of the idle renderer prefetch (EAG-64): this iframe just
 // finished rendering and will stay alive, so at idle it warms the OTHER

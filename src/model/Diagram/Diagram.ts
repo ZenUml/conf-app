@@ -33,6 +33,9 @@ export class Diagram {
   // id is used only for debugging and for display only. It is NOT saved in custom content or content property.
   id?: string; // custom content id or content property id or uuid
   isCopy?: boolean;
+  // Created by the title-first offer and not yet edited: the viewer keeps Edit
+  // visible at rest. Dropped by the first client save.
+  titleDraftPristine?: boolean;
   copyReason?: 'cross-page' | 'same-page-duplicate';
   // ZEN-1170 Defect 2b: set when this diagram was loaded via the orphan-
   // sibling recovery path (the macro's stored customContentId 404s but a

@@ -24,6 +24,7 @@ on:
 jobs:
   profile:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       app: ${{ steps.profile.outputs.app }}
       backend: ${{ steps.profile.outputs.backend }}
@@ -69,7 +70,7 @@ jobs:
   version:
     name: verify version
     needs: [profile, deploy, auth]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -133,7 +134,7 @@ jobs:
       suite: regression
       auth-artifact: auth-regression-${{ inputs.variant }}
       shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
-      timeout-minutes: 35
+      timeout-minutes: 30
       artifact-suffix: regression-${{ inputs.variant }}
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}

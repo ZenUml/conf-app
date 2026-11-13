@@ -128,7 +128,7 @@ test.describe('Connect MCP — headless', { tag: ['@test:agent-link-e2e', '@vari
     });
     expect(res.status).toBe(401);
     expect(res.headers.get('www-authenticate') ?? '').toContain(
-      `resource_metadata="${AGENT_LINK_STG_BASE}/.well-known/oauth-protected-resource"`,
+      `resource_metadata="${AGENT_LINK_STG_BASE}/.well-known/oauth-protected-resource/agent-link/mcp"`,
     );
   });
 });

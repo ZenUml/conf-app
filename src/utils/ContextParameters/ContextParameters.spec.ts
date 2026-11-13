@@ -1,5 +1,5 @@
 import {setUpWindowLocation} from "../../../tests/SetUpWindowLocation";
-import {getClientDomain, getSpaceKey, getSubdomain} from "@/utils/ContextParameters/ContextParameters";
+import {getClientDomain, getSpaceKey, getSubdomain, isForgeSpaceContextStale, resolveForgeSpace} from "@/utils/ContextParameters/ContextParameters";
 import { vi } from 'vitest';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 
@@ -29,6 +29,62 @@ describe('ContextParameters', () => {
     expect(getClientDomain()).toBe('zenuml-stg');
     expect(getSpaceKey()).toBe('ZS')
   })
+
+  describe('page banner iframe after a Confluence SPA navigation', () => {
+    const SITE = 'https://example-tenant.atlassian.net';
+    const setContext = (type: string, spaceKey: string, path: string | undefined, contentId = '200') => {
+      vi.mocked(forgeGlobal).forgeContext = {
+        extension: {
+          type,
+          space: { key: spaceKey, id: '65802' },
+          content: { id: contentId },
+          location: path === undefined ? undefined : `${SITE}${path}`,
+        },
+      } as any;
+    };
+
+    beforeEach(() => {
+      setUpWindowLocation('');
+      (window as any).initialContext = undefined;
+    });
+
+    it.each([
+      ['arrived from an over-limit space', 'SD', '/wiki/spaces/~abc/pages/200/Title', '~abc', true],
+      ['arrived from a clean space', '~abc', '/wiki/spaces/SD/pages/200/Title', 'SD', true],
+      ['percent-encoded personal key', 'SD', '/wiki/spaces/%7Eabc/pages/200/Title', '~abc', true],
+      ['blog post URL', 'SD', '/wiki/spaces/~abc/blog/2026/11/08/200/Title', '~abc', true],
+      ['space overview URL', 'SD', '/wiki/spaces/~abc/overview', '~abc', true],
+      ['query string on the URL', 'SD', '/wiki/spaces/~abc/pages/200/Title?xpis=abc', '~abc', true],
+      ['context already agrees', 'SD', '/wiki/spaces/SD/pages/200/Title', 'SD', false],
+      ['case differs only: context spelling is canonical', 'SD', '/wiki/spaces/sd/pages/200/Title', 'SD', false],
+      ['URL names another page: it does not describe this content', 'SD', '/wiki/spaces/~abc/pages/999/Title', 'SD', false],
+      ['tiny link has no space', 'SD', '/wiki/x/AbCd', 'SD', false],
+      ['edit URL is not a trusted shape', 'SD', '/wiki/spaces/~abc/pages/edit-v2/200', 'SD', false],
+      ['malformed percent escape', 'SD', '/wiki/spaces/%E0%A4%A/pages/200/Title', 'SD', false],
+      ['no location at all', 'SD', undefined, 'SD', false],
+    ])('%s', (_name, contextKey, path, expectedKey, expectedStale) => {
+      setContext('confluence:pageBanner', contextKey as string, path as string | undefined);
+      expect(getSpaceKey()).toBe(expectedKey);
+      expect(isForgeSpaceContextStale()).toBe(expectedStale);
+    });
+
+    it('drops the context id with a stale key, because that id is the previous space', () => {
+      setContext('confluence:pageBanner', 'SD', '/wiki/spaces/~abc/pages/200/Title');
+      expect(resolveForgeSpace()).toEqual({ key: '~abc' });
+    });
+
+    it('keeps the context space, id included, when the context is right', () => {
+      setContext('confluence:pageBanner', 'SD', '/wiki/spaces/SD/pages/200/Title');
+      expect(resolveForgeSpace()).toEqual({ key: 'SD', id: '65802' });
+    });
+
+    it('leaves macro iframes on their own context, which was measured correct', () => {
+      setContext('xhtml', 'SD', '/wiki/spaces/~abc/pages/200/Title');
+      expect(getSpaceKey()).toBe('SD');
+      expect(isForgeSpaceContextStale()).toBe(false);
+      expect(resolveForgeSpace()).toEqual({ key: 'SD', id: '65802' });
+    });
+  });
 
   describe('getSpaceKey resolution order', () => {
     beforeEach(() => {

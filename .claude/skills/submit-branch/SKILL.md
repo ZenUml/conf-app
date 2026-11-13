@@ -73,6 +73,8 @@ Skip monitoring only if the user explicitly requested “submit only”, “don'
 
 ## Output
 
+Before reporting submission, apply `../pr-review-support-materials/SKILL.md` to the created or reused PR. Publish a top-of-description support section with BEFORE/AFTER evidence, accessible artifact links, and the actual validation/CI status. Reuse evidence collected by validate-branch; do not rerun unchanged checks just to package them. If checks are blocked or failed, publish that limitation honestly.
+
 Report:
 
 - **SUBMITTED** — PR number, URL, branch, Draft/Ready state, current test decision and the babysit result.

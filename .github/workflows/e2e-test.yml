@@ -332,7 +332,7 @@ jobs:
     # `needs` would skip this job with it. A failed bootstrap still stops the
     # shards: nothing they could do without a session is worth a runner.
     if: ${{ !cancelled() && (needs.auth.result == 'success' || needs.auth.result == 'skipped') && (!inputs.planned || (needs.plan.result == 'success' && needs.plan.outputs.count != '0')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Reap a wedged shard before a human would (a test stuck at the 300s test
     # timeout x3 retries = ~15 min), while leaving room for the SLOWEST legit
     # shard to finish AND for a wedge to fail named-with-trace.
@@ -579,6 +579,7 @@ jobs:
     needs: [plan, test]
     if: ${{ !cancelled() && inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
@@ -636,6 +637,7 @@ jobs:
     # blip in report merging could redden an E2E run whose tests all passed, and
     # block a staging deploy behind it. Per-shard HTML uploads never had that
     # power. `continue-on-error` keeps the failure visible on the job while
+    timeout-minutes: 10
     # leaving the workflow's verdict to the tests.
     continue-on-error: true
     steps:

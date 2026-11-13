@@ -18,6 +18,7 @@ import {Attachment} from './ConfluenceTypes';
 import { loadAllPaginatedData, loadPaginatedDataUntil } from '@/utils/requestUtil';
 import { keepLiveParentPageContent } from '@/utils/orphanFilter';
 import forgeGlobal from '@/model/globals/forgeGlobal';
+import { resolveForgeSpace } from '@/utils/ContextParameters/ContextParameters';
 import {forgeRequest} from '@/utils/requestUtil';
 import { SpaceAdmin } from './SpaceAdmin';
 import SpaceAdminResolver from './permissions/SpaceAdminResolver';
@@ -308,6 +309,7 @@ export default class ApWrapper2 {
     // CustomContentStorageProvider.save when source !== 'custom-content',
     // which is the Defect 1 legacy-migration path).
     const sanitizedContent = this.sanitizeCustomContentBody(content);
+    if (content.titleDraftPristine) sanitizedContent.titleDraftPristine = true;
     const data: any = {
       "type": type,
       "title": content.title || `Untitled ${new Date().toISOString()}`,
@@ -467,6 +469,9 @@ export default class ApWrapper2 {
     // it into the stored body would put a permanent flag on customer content to
     // record a decision made once, seconds earlier.
     delete body.typeRequested;
+    // Set once at creation, by createCustomContentV2. Any later save clears it,
+    // which is what ends the viewer's always-visible Edit button.
+    delete body.titleDraftPristine;
 
     // Pasted rich text carries U+00A0 into mermaidCode, which mermaid's newer
     // grammars reject on every later render. Normalise at the persistence
@@ -1541,7 +1546,7 @@ export default class ApWrapper2 {
   }
 
   async getCurrentSpace(): Promise<ISpace> {
-    return this.currentSpace || (this.currentSpace = forgeGlobal.forgeContext?.extension?.space || {key: await this._page.getSpaceKey()});
+    return this.currentSpace || (this.currentSpace = resolveForgeSpace() || {key: await this._page.getSpaceKey()});
   }
 
   async getCurrentSpaceAdmins(): Promise<SpaceAdmin[]> {

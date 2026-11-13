@@ -38,15 +38,9 @@ function host(): Window | null {
   return typeof window !== 'undefined' ? window.parent : null;
 }
 
-type Json = Record<string, unknown>;
+import { detectDiagramType } from '../functions/agent-link/detectDiagramType';
 
-/**
- * The public PlantUML server the Confluence app already draws with
- * (PlantUml.vue). PlantUML has no browser renderer, so the diagram is an <img>
- * of the server's SVG; `www.plantuml.com` is in the resource csp for exactly
- * this (mcpApps.ts uiCsp).
- */
-export const PLANTUML_SVG_BASE = 'https://www.plantuml.com/plantuml/svg/';
+type Json = Record<string, unknown>;
 
 /** Diagram payload, once we have found it in whatever shape the host delivered. */
 interface DiagramPayload {
@@ -127,16 +121,18 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
     if (!stored) continue;
     // The stored body keeps one source field per type (the editor's tabs):
     // `code` is ZenUML and OpenAPI, `mermaidCode` Mermaid, `plantUmlCode`
-    // PlantUML, `graphXml` (or `boardGraphXml` for a Board) Graph, and the
-    // inactive ones keep stale drafts. Only the field for `diagramType` is the
-    // diagram the page shows. Mirrors sourceFieldFor in headlessTools.ts.
+    // PlantUML, `markdownCode` Markdown, `graphXml` (or `boardGraphXml` for a
+    // Board) Graph, and the inactive ones keep stale drafts. Only the field for
+    // `diagramType` is the diagram the page shows. Mirrors sourceFieldFor in
+    // headlessTools.ts.
     const type = typeof stored.diagramType === 'string' ? stored.diagramType.toLowerCase() : '';
     const field =
       type === 'mermaid' ? 'mermaidCode'
         : type === 'plantuml' ? 'plantUmlCode'
-          : type === 'graph'
-            ? stored.graphEditorMode === 'board' && stored.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml'
-            : 'code';
+          : type === 'markdown' ? 'markdownCode'
+            : type === 'graph'
+              ? stored.graphEditorMode === 'board' && stored.boardGraphXml !== undefined ? 'boardGraphXml' : 'graphXml'
+              : 'code';
     candidates.push({
       diagramType: stored.diagramType,
       dsl: stored[field],
@@ -208,7 +204,7 @@ async function renderGraph(el: HTMLElement, source: string): Promise<void> {
   }
   if (!xml.startsWith('<')) throw new Error('the diagram is not DrawIO XML');
 
-  const { ensureDrawioViewerLoaded } = await import('@/utils/drawio/loadDrawioViewer');
+  const { ensureDrawioMathForDocument, ensureDrawioViewerLoaded } = await import('@/utils/drawio/loadDrawioViewer');
   await ensureDrawioViewerLoaded(viewOrigin());
   const w = window as typeof window & {
     mxUtils: { parseXml(xml: string): Document };
@@ -219,7 +215,9 @@ async function renderGraph(el: HTMLElement, source: string): Promise<void> {
   el.appendChild(container);
   // No toolbar and no lightbox: both link out to diagrams.net, which this
   // frame cannot open. Same options as ForgeGraphViewer.vue otherwise.
-  new w.GraphViewer(container, w.mxUtils.parseXml(xml).documentElement, {
+  const xmlNode = w.mxUtils.parseXml(xml).documentElement;
+  ensureDrawioMathForDocument(xmlNode);
+  new w.GraphViewer(container, xmlNode, {
     'auto-fit': true,
     border: 10,
     lightbox: false,
@@ -249,10 +247,138 @@ async function renderOpenApi(el: HTMLElement, spec: string): Promise<void> {
   ui.specActions.updateSpec(spec);
 }
 
+/**
+ * Markdown, with the app's own renderer (react-markdown + GFM, raw HTML
+ * escaped). Its ```mermaid blocks are drawn with this view's Mermaid, under
+ * the same strict security level as a Mermaid diagram here.
+ */
+async function renderMarkdownView(el: HTMLElement, source: string): Promise<void> {
+  const { renderMarkdownDocument } = await import('@/utils/markdown/renderMarkdownDocument');
+  const { html } = await renderMarkdownDocument(source, async (id, block) => {
+    const mermaid = (await import('mermaid')).default;
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+    return mermaid.render(`zen-mcp-${id}`, block);
+  });
+  el.innerHTML = '';
+  const article = document.createElement('article');
+  article.className = 'zen-mcp-markdown';
+  article.innerHTML = html;
+  el.appendChild(article);
+}
+
+/**
+ * Download a diagram type's renderer, once per frame.
+ *
+ * The renderer chunks are the slow part of a first diagram (hundreds of KB
+ * each; more than 20 s on a slow link, #1038), so the download starts as soon
+ * as `ui/notifications/tool-input` says which type is coming, not when the
+ * tool answers. render() then awaits the same promise. A failed download is
+ * forgotten so a later call can try again.
+ */
+const rendererLoads = new Map<string, Promise<unknown>>();
+
+export function loadRenderer(type: string): Promise<unknown> | null {
+  const cached = rendererLoads.get(type);
+  if (cached) return cached;
+  // Each import names only what render() uses (`then(({ default: d }) => d)`),
+  // so Rollup can still drop the rest: a bare import('@zenuml/core') kept every
+  // export and added 37 KB to the sequence renderer.
+  const load =
+    type === 'mermaid' ? import('mermaid').then(({ default: mermaid }) => mermaid)
+      : type === 'sequence' ? import('@zenuml/core').then(({ default: ZenUml }) => ZenUml)
+        : type === 'openapi' ? Promise.all([import('swagger-ui'), import('swagger-ui/dist/swagger-ui.css')])
+          : type === 'plantuml' ? import('@/utils/plantuml/engine').then(({ preloadPlantUmlEngine }) => preloadPlantUmlEngine())
+            : type === 'graph'
+              ? import('@/utils/drawio/loadDrawioViewer').then(({ ensureDrawioViewerLoaded }) => ensureDrawioViewerLoaded(viewOrigin()))
+              : type === 'asyncapi'
+                ? import('@/utils/asyncapi/renderAsyncApiOutline').then(({ renderAsyncApiOutline }) => renderAsyncApiOutline)
+                : type === 'markdown'
+                  ? import('@/utils/markdown/renderMarkdownDocument').then(({ renderMarkdownDocument }) => renderMarkdownDocument)
+                  : null;
+  if (!load) return null;
+  rendererLoads.set(type, load);
+  load.catch(() => rendererLoads.delete(type));
+  return load;
+}
+
+/** The diagram type a tool call's arguments are about to produce, if they say. */
+export function typeFromToolInput(params: unknown): string | null {
+  const args = (params as { arguments?: unknown } | undefined)?.arguments as
+    | { diagramType?: unknown; source?: unknown }
+    | undefined;
+  if (typeof args?.diagramType === 'string' && args.diagramType) return args.diagramType.toLowerCase();
+  // render_diagram may leave diagramType out; the server then detects it the same way.
+  if (typeof args?.source === 'string' && args.source.trim()) return detectDiagramType(args.source);
+  return null;
+}
+
+/**
+ * Draw the engine's SVG as an <img> from a data URL, not inline. An image cannot
+ * run script or fetch anything, whatever the agent put in the source, and the
+ * host's CSP allows `data:` images by default.
+ */
+async function renderPlantUml(el: HTMLElement, payload: DiagramPayload): Promise<void> {
+  const { renderPlantUmlLocally } = await import('@/utils/plantuml/engine');
+  const svg = await renderPlantUmlLocally(payload.dsl);
+  const img = document.createElement('img');
+  img.alt = payload.title ?? 'PlantUML diagram';
+  img.style.maxWidth = '100%';
+  // The frame's height is only right once the image has a size.
+  const loaded = new Promise<void>((resolveLoad, rejectLoad) => {
+    img.onload = () => resolveLoad();
+    img.onerror = () => rejectLoad(new Error('the drawing could not be shown'));
+  });
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  el.innerHTML = '';
+  el.appendChild(img);
+  await loaded;
+}
+
+/**
+ * Tell our own origin what became of this diagram (viewEvent.ts): only this
+ * frame knows. A string body is a CORS-simple request, so a sandboxed frame needs
+ * no preflight. Enums only, never the source or the title.
+ */
+function reportRender(type: string, failure?: unknown): void {
+  const failed = failure !== undefined;
+  const reason = (failure as { reason?: unknown } | undefined)?.reason;
+  try {
+    navigator.sendBeacon?.(
+      new URL('mcp/view-event', viewOrigin()).href,
+      JSON.stringify({
+        macro_type: type,
+        render_outcome: failed ? 'failed' : 'rendered',
+        ...(type === 'plantuml'
+          ? { plantuml_renderer: failed ? 'failed' : 'local', ...(typeof reason === 'string' ? { plantuml_failure_reason: reason } : {}) }
+          : {}),
+      }),
+    );
+  } catch {
+    // analytics never fails a render
+  }
+}
+
+// A dynamic import that failed stays failed for this document, so the useful
+// retry is a fresh view: asking again opens a new frame.
+const DOWNLOAD_FAILED = 'Could not download the diagram renderer. The connection may be slow or blocked; ask again to retry.';
+
 async function render(payload: DiagramPayload): Promise<void> {
   const el = document.getElementById('app');
   if (!el) return;
   const type = payload.diagramType.toLowerCase();
+
+  const load = loadRenderer(type);
+  if (load) {
+    status('Loading the renderer…');
+    try {
+      await load;
+    } catch (e) {
+      console.error('[zenuml] renderer download failed', e);
+      reportRender(type, e);
+      status(DOWNLOAD_FAILED);
+      return;
+    }
+  }
 
   try {
     if (type === 'mermaid') {
@@ -261,23 +387,15 @@ async function render(payload: DiagramPayload): Promise<void> {
       const { svg } = await mermaid.render(`zen-mcp-${Date.now()}`, payload.dsl);
       el.innerHTML = svg;
     } else if (type === 'plantuml') {
-      const { plantumlEncode } = await import('@/utils/plantuml/encode');
-      const img = document.createElement('img');
-      img.alt = payload.title ?? 'PlantUML diagram';
-      img.style.maxWidth = '100%';
-      // The frame's height is only right once the image has a size, and a
-      // syntax error still answers with an SVG (PlantUML draws the error), so
-      // `error` here means the server itself was unreachable.
-      const loaded = new Promise<void>((resolveLoad, rejectLoad) => {
-        img.onload = () => resolveLoad();
-        img.onerror = () => rejectLoad(new Error('the PlantUML server did not answer'));
-      });
-      img.src = PLANTUML_SVG_BASE + plantumlEncode(payload.dsl);
-      el.innerHTML = '';
-      el.appendChild(img);
-      await loaded;
+      await renderPlantUml(el, payload);
     } else if (type === 'sequence') {
-      const { default: ZenUml } = await import('@zenuml/core');
+      const [{ default: ZenUml }, { configureDiagramFonts }] = await Promise.all([
+        import('@zenuml/core'),
+        import('@/utils/fonts/configureDiagramFonts'),
+      ]);
+      // Host CSP can refuse core's embedded data: fonts. Vite resolves these
+      // hosted font assets from the module URL, rather than the host sandbox.
+      configureDiagramFonts(ZenUml);
       el.innerHTML = '';
       const zenuml = new ZenUml(el);
       // Read-only: no onContentChange, so nothing here can write back. The
@@ -289,17 +407,28 @@ async function render(payload: DiagramPayload): Promise<void> {
       await renderGraph(el, payload.dsl);
     } else if (type === 'openapi') {
       await renderOpenApi(el, payload.dsl);
+    } else if (type === 'asyncapi') {
+      // An outline over the parsed YAML, not @asyncapi/react-component, whose
+      // parser needs eval (see renderAsyncApiOutline.ts).
+      const { renderAsyncApiOutline } = await import('@/utils/asyncapi/renderAsyncApiOutline');
+      renderAsyncApiOutline(el, payload.dsl);
+    } else if (type === 'markdown') {
+      await renderMarkdownView(el, payload.dsl);
     } else {
-      // AsyncAPI, Markdown and Embed are not wired up; anything else would
-      // render blank, and saying so beats an empty frame.
+      // Anything else (an Embed reference, an unknown type) would render
+      // blank, and saying so beats an empty frame.
       status(`This view cannot draw a ${payload.diagramType} diagram yet.`);
       return;
     }
   } catch (e) {
-    status(`Could not draw the diagram: ${e instanceof Error ? e.message : String(e)}`);
+    // A chunk that only this diagram needs (C4, themes) failed after the engine loaded.
+    const downloadFailed = (e as { reason?: unknown } | undefined)?.reason === 'load_failed';
+    status(downloadFailed ? DOWNLOAD_FAILED : `Could not draw the diagram: ${e instanceof Error ? e.message : String(e)}`);
+    reportRender(type, e);
     return;
   }
 
+  reportRender(type);
   reportSize();
 }
 
@@ -332,9 +461,17 @@ export function onHostMessage(event: MessageEvent): void {
   }
 
   if (msg.method === 'ui/notifications/tool-input') {
-    // Arrives before the tool has answered. Only useful as a "something is
-    // coming" signal; the result notification is what carries the diagram.
-    status('Loading the diagram…');
+    // Arrives before the tool has answered, and says which renderer the
+    // result will need: start downloading it now (#1038). The result
+    // notification is still what carries the diagram.
+    const type = typeFromToolInput(msg.params);
+    const load = type ? loadRenderer(type) : null;
+    if (load) {
+      status('Loading the renderer…');
+      load.catch(() => undefined); // render() reports a failure, once
+    } else {
+      status('Loading the diagram…');
+    }
   }
 }
 

@@ -296,15 +296,89 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    must first be created in the Developer Console for each app (forge-feature-flag
    skill). Gate each widening on `macro_viewed` split by `plantuml_renderer`
    (`local` vs `server_fallback`) and on `plantuml_local_render_failed` reasons.
-6. **Export.** Rasterise the local SVG on a canvas instead of fetching
-   `/plantuml/png/`. The "html-to-image cannot decode the server SVG" failure in
-   `fetchPng.ts` needs re-testing: the local SVG has no external references.
-7. **MCP App view.** Bundle the engine into `vite.mcp-app.config.mjs` and remove
-   plantuml.com from `resourceDomains`.
+   **Diagramly done (2026-10-31).** Flag created (ID type `installContext`, rule
+   Everyone 100%) on development and staging at 00:16 UTC, production added at
+   00:31 UTC; both changes are on the Console Activity tab. Staging check on
+   dia-stg (build `b38b5ac`) and production check on zenuml.atlassian.net (build
+   `v2026.10.271752-diagramly`), each with a sequence, a class and a C4 diagram,
+   inspected inside the macro iframes over CDP: all three drew as inline SVG, the
+   C4 diagram loaded `c4-*.js`, and the iframes logged no CSP message or error.
+   `macro_viewed` on the day: 27/27 `local` on staging, 12/12 `local` on
+   production, no `plantuml_local_render_failed`. Customer views, Oct 31 to Nov 2
+   (internal domains excluded): none; all 39 Diagramly PlantUML views were on
+   internal sites, all `local`. The viewer sends nothing to plantuml.com, but the
+   backup PNG attachment (call site 3, step 6) still fetches `/plantuml/png/` on
+   view; for an anonymous viewer it does so on every load.
+   **Lite done (2026-10-31).** Flag created on development, staging and
+   production at 01:07 UTC. Iframe checks on lite-stg (build `116a17e`) and
+   production (build `v2026.10.271752-lite`), each with a sequence, a class and a
+   C4 diagram, passed as on Diagramly: inline SVG, `c4-*.js` loaded, no CSP message
+   or error, no plantuml.com call from the renderer; the backup PNG still fetched
+   `/plantuml/png/` on first view, and on every view for an anonymous viewer.
+   Customer `macro_viewed` (plantuml), flag time to Nov 2, internal domains
+   excluded: 960 `local`, 5 `server_fallback`, 4 `server` — 99.1% local, against
+   98.7% drawable in the engine-only run. Nov 1–2: 101 users, 32 tenants. All 5
+   `plantuml_local_render_failed` are reason `include`, unresolved include `url`,
+   on one tenant, matching the 5 fallbacks. The 4 `server` views: 1 within the
+   first hour, 3 from 2 tenants on build `v2026.10.312024-lite` (newer than the
+   renderer release), so the flag occasionally does not reach a load. Daily
+   volume matched the prior weekdays (873 views on Monday Nov 2); no spike.
+   Full is not enabled; it has no release containing the renderer.
+6. **Export.** **Done in code (2026-10-31).** `utils/plantuml/png.ts` produces
+   the backup PNG (`model/Attachment.ts`), the Export PNG and its preview
+   (`ExportModal/`). With the `local` renderer it draws the engine's SVG on a
+   canvas from a data URL, and a backup is drawn at the scale that reaches
+   `TARGET_WIDTH_PX` (`resolution.ts computeUpscaleFactor`), the sharpness the
+   server path got from its `skinparam dpi` re-fetch. A diagram the engine
+   cannot draw goes to `/plantuml/png/` as before (`server_fallback`, the
+   viewer's rule), and so does every diagram under the `server` renderer. A
+   failed local raster is not retried on the server: the backup falls back to
+   the DOM capture and the export reports `plantuml_fetch_failed`.
+   Export PNG and its preview are drawn at 2x the diagram's pixel size
+   (`PLANTUML_EXPORT_PIXEL_RATIO`); on the server path that is one request at
+   `skinparam dpi 192`, with the natural size as the fallback.
+   `plantuml_png_produced` / `plantuml_png_failed` record
+   `plantuml_png_source` and `plantuml_png_purpose`.
+   Re-test in headless Chromium (CSP `script-src 'self'; img-src 'self' data:
+   blob:`), sequence, class and C4 diagrams: every local SVG had no external
+   reference, every raster drew (backups at 1400 px wide), no request left
+   the page, and no CSP message appeared. html-to-image (`captureBlob`) also
+   captured the inlined local SVG without the old decode failure, which is why
+   the DOM-capture fallback for a failed local raster is safe.
+7. **MCP App view.** **Done in code (2026-11-07, conf-app#1031).** `mcp-app-view.ts`
+   draws with `engine.ts` and shows the engine's SVG as an `<img>` from a data URL,
+   and plantuml.com is gone from `resourceDomains`. **There is no fallback here**,
+   unlike the macro: a diagram the engine cannot draw shows an error, so the render
+   server can say that no third party sees the source. The view has no Forge flag
+   or stored diagrams to protect, and a diagram an agent just wrote can be rewritten.
+   The `<img>` keeps what the old server image gave: nothing in the drawing can run
+   or fetch. `agent_link_app_view_rendered` (posted to `/mcp/view-event`) counts
+   `plantuml_renderer` `local` vs `failed`.
 8. **Remove the egress.** Delete `https://www.plantuml.com` from `manifest.yml`. For
    our Connect-migrated apps that is a minor version (see CLAUDE.md, "major vs
    minor"); the `forge deploy` output confirms it. Then update the P&S questionnaire
    for lite, full and diagramly, and the nightly Export PNG workflow.
+
+## Licensing (2026-10-31)
+
+`@plantuml/core` is MIT from 1.2026.6 on; earlier versions are GPL-3.0-or-later
+(package README). The engine's licence text also says generated images belong to
+the author of the diagram source and need no attribution. The engine shows no
+sponsored messages: the only "sponsor" and "advertising" strings in
+`plantuml.js` sit inside its Brotli dictionary.
+
+What we owe is attribution in what we ship. The npm `plantuml.js` has no licence
+header, and the parts loaded on demand carry other authors' licences: themes
+(puml-themes, MIT), OpenIconic icons (MIT), Twemoji emoji graphics (CC-BY 4.0)
+and the self-hosted C4 library (MIT). `public/third-party-notices.txt` carries
+each notice. Vite copies it into every variant's `dist/`, so it ships with the
+code. Twemoji's README accepts a mention in the HTML/JS source as attribution.
+
+`src/utils/plantuml/thirdPartyNotices.spec.ts` fails if the pinned
+`@plantuml/core` version is missing from the notice, if the installed package is
+not MIT, or if the PlantUML or C4 licence text in the notice drifts from the file
+it was copied from. Graphviz (`viz-global.js`, EPL) is not loaded and so not
+listed. This is a reading of the licence texts, not legal advice.
 
 ## Open questions
 
@@ -314,8 +388,9 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
   matter. Step 3 settles correctness: 98.7% of production diagrams draw, and the
   rest fall back. It does not settle layout on Graphviz-layout diagrams, because
   the two-renderer run was skipped. The Diagramly canary answers that.
-- **Full and Diagramly iframes.** Lite is confirmed in a real Forge iframe. The
-  stricter CSP of the other variants is covered only by the local header test so far.
+- **Full iframes.** Lite and Diagramly are confirmed in real Forge iframes; Diagramly's
+  CSP has no `'unsafe-eval'` and logged no violation (2026-10-31). Full is covered only
+  by the local header test so far.
 
 ## Consequences
 

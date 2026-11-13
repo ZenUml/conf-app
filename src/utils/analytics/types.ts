@@ -3,7 +3,14 @@
 import type { ProductType } from "./productType";
 import type {
   FeatureArea,
+  TitleDraftLookupStatus,
+  TitleDraftCopyExperimentId,
+  TitleDraftCopyExperimentVersion,
+  TitleDraftCopyVariant,
+  TitleDraftAddFailure,
+  TitleDraftPreviewCloseReason,
   MacroTypeValue,
+  CaptureFailureStage,
   Surface,
   EntryPoint,
   CreationOrigin,
@@ -15,8 +22,11 @@ import type {
   ContentState,
   CacheSource,
   PlantUmlRenderer,
+  McpViewPlantUmlRenderer,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
+  PlantUmlPngPurpose,
+  PlantUmlPngFailure,
   ContentSource,
   MacroCountSource,
   PaywallPolicySource,
@@ -31,6 +41,7 @@ import type {
   AgentLinkListScope,
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
+  AgentLinkFailureStep,
   AgentLinkOAuthRevokeReason,
   AgentLinkOAuthRoute,
   AgentLinkOAuthAtlassianReason,
@@ -44,6 +55,8 @@ import type {
   AgentLinkMcpCopyTarget,
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
+  AgentLinkRenderValidation,
+  AgentLinkRenderTypeSource,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -109,6 +122,8 @@ export type AnalyticsProperties = {
   /** Visible step when a targeted survey is dismissed, including an in-flight send. */
   survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;
+  /** Forge installation id (app_installed, backend-emitted; #1102). */
+  installation_id?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent
   // from src/export.js / src/asyncapi-export.js (Forge backend, outside this
@@ -119,6 +134,21 @@ export type AnalyticsProperties = {
   macro_type?: MacroTypeValue;
   /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
   magic_failure_reason?: MagicFailureReason;
+  /** Title-first offer. Never carries the title or the draft source. */
+  title_draft_status?: TitleDraftLookupStatus;
+  title_draft_failure?: TitleDraftAddFailure;
+  /** Present on preview_closed; native host dismissal cannot identify its control. */
+  title_draft_close_reason?: TitleDraftPreviewCloseReason;
+  /** Mermaid family of the draft: flowchart, sequence, state or er. */
+  title_draft_kind?: string;
+  /** Model confidence recorded by the batch, 0 to 1. */
+  title_draft_confidence?: number;
+  /** Present together only for a valid, explicitly assigned offer-copy exposure. */
+  title_draft_experiment_id?: TitleDraftCopyExperimentId;
+  title_draft_experiment_version?: TitleDraftCopyExperimentVersion;
+  title_draft_variant?: TitleDraftCopyVariant;
+  /** Opaque per-show ID, carried unchanged through this exposure's funnel. */
+  title_draft_exposure_id?: string;
   /** Automatic writeback terminal outcome. Backend is temporary transport only. */
   magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
   /**
@@ -333,13 +363,20 @@ export type AnalyticsProperties = {
   diagrams_pasted?: number;
   paste_truncated?: boolean;
   // ADR-0010 self-hosted PlantUML rendering
-  plantuml_renderer?: PlantUmlRenderer;
+  plantuml_renderer?: PlantUmlRenderer | McpViewPlantUmlRenderer;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
   // library for this render. On macro_viewed (local renders) and on
   // plantuml_local_render_failed. Absent when nothing was rewritten.
   plantuml_include_rewritten?: boolean;
+  // ADR-0010 step 6: on plantuml_png_produced / plantuml_png_failed.
+  plantuml_png_source?: PlantUmlRenderer;
+  plantuml_png_purpose?: PlantUmlPngPurpose;
+  plantuml_png_failure?: PlantUmlPngFailure;
+  // True when a backup raster was drawn (local) or re-fetched (server) at a
+  // higher resolution so it reaches the PDF column width (resolution.ts).
+  plantuml_png_upscaled?: boolean;
 
   // AI
   prompt_length?: number;
@@ -472,6 +509,11 @@ export type AnalyticsProperties = {
   // Phase 5b, on every page-banner event so the funnel can be split by audience.
   // See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // True when the page-banner iframe received the previous page's space after
+  // a Confluence SPA navigation and the space was corrected from the page URL.
+  // Set on paywall page-banner events; a forward navigation that now shows no
+  // banner sends no event, so this counts corrected banners, not all stale loads.
+  space_context_stale?: boolean;
   // Phase 5b: WHICH gate admitted the paywall page banner, and therefore which
   // copy/CTA set the user saw.
   //   'editor'      — legacy gate: this user created/edited a macro in the last
@@ -640,6 +682,15 @@ export type AnalyticsProperties = {
   whats_new_expanded?: boolean;
   // whats_new_link_clicked: the item's stable id within its release.
   whats_new_item_id?: string;
+  // diagram_added_to_page, from the placement picker. Where the diagram went
+  // among the page's top-level blocks.
+  placement_position?: "start" | "middle" | "end";
+  // diagram_added_to_page and placement_picker_opened: top-level blocks on the
+  // page. A short page has few places to choose from, so read position with it.
+  placement_block_count?: number;
+  // diagram_added_to_page: the user left the preselected end-of-page gap alone.
+  // A high share means the picker is an extra click on the old append.
+  placement_default_kept?: boolean;
   // diagram_added_to_page. How many macros the page already carried when the
   // one-click place ran. Read with `result`: a page at the Lite limit is the
   // case where placing a diagram and hitting the paywall collide, and this is
@@ -831,8 +882,20 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
+  // macro_viewed only: whether this browser already reported this macro on this
+  // surface today (UTC). `first` is always emitted; `repeat` is emitted at
+  // MACRO_VIEWED_REPEAT_SAMPLE_RATE and carries `sample_rate`. Absent when the
+  // browser cannot remember (no storage, no macro id): that event is emitted.
+  view_of_day?: "first" | "repeat";
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
+  // Full only: Forge `license.active` at render time. Absent on other variants
+  // and whenever Forge supplies no boolean; Forge also reports false for free apps.
+  license_active?: boolean;
+  // Why the Full license notice was shown; missing license fields alone are never evidence.
+  license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock";
+  // Full viewer evaluation completed, including hidden and unavailable decisions.
+  license_notice_outcome?: "shown" | "active" | "unknown" | "disabled" | "unavailable";
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.
@@ -1047,6 +1110,10 @@ export type AnalyticsProperties = {
   // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // Why the write guard refused, on `_tool_called` and the write event of a
+  // `guardrail_rejected` call. `reason` there is only that code, which cannot
+  // tell a source that did not parse from a suspected truncation.
+  guardrail_reason?: AgentLinkGuardrailRejectReason;
   // agent_link_diagram_updated only: true when the call renamed the diagram
   // (a non-blank `title` that differs from the stored one, #789).
   title_changed?: boolean;
@@ -1067,14 +1134,30 @@ export type AnalyticsProperties = {
   // latency rides `duration_ms`; the target site rides `cloud_id` (only when
   // the argument is UUID-shaped — anything else is client free text). `mcp_client_name` / `mcp_client_version` are
   // the client's MCP `clientInfo`, trimmed to 64 chars. On a successful
-  // read_diagram / create_diagram the diagram's type rides the shared
-  // `macro_type` (closed vocabulary; omitted when unknown, and always on
-  // update_diagram, whose result carries no type), so MCP Apps view usage can
-  // be split by type.
+  // read_diagram / create_diagram / update_diagram the diagram's type rides the
+  // shared `macro_type` (closed vocabulary; omitted when unknown), so usage can
+  // be split by type. `_tool_called` on the headless path also names the host in
+  // `oauth_client_id` / `oauth_client_name`, because a stateless tools/call
+  // carries no `clientInfo`, and the site in `client_domain` (bare subdomain, as
+  // `is_internal_client_domain` expects).
   mcp_tool?: string;
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;
+  // On a `reason: 'upstream'` tool_error: which step failed, the HTTP status
+  // it got (when there was one), and for step 'identity' the resolver's
+  // refusal. See AgentLinkFailureStep.
+  failure_step?: AgentLinkFailureStep;
+  upstream_status?: number;
+  identity_failure?: AgentLinkIdentityFailure;
   mcp_client_name?: string;
   mcp_client_version?: string;
+  // Set by our own smoke checks on the public render endpoint, which has no
+  // user or site for `is_internal_client_domain` to read. Absent is not proof
+  // of a customer: a person on the team testing a connector looks the same.
+  internal_probe?: boolean;
+  // render_diagram on the public render endpoint (`mcp_mode: 'render'`): did
+  // the source parse.
+  render_validation?: AgentLinkRenderValidation;
+  render_type_source?: AgentLinkRenderTypeSource;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is
@@ -1098,9 +1181,23 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // convert_to_png toPng_failed / toPng_timeout (#1061). Bounded: no diagram
+  // text, data URL or query string. See CaptureFailureStage in catalog.ts.
+  capture_failure_stage?: CaptureFailureStage;
+  capture_error?: string;
+  capture_node_width?: number;
+  capture_node_height?: number;
+  document_visibility?: string;
   // Error
   error_code?: string;
   error_name?: string;
+  // graph_icon_proxy_*: icons.diagrams.net URLs found in the diagram, and how
+  // many the backend returned as data URLs. Counts only, never URLs.
+  external_icon_count?: number;
+  icon_resolved_count?: number;
+  // First per-icon code the backend reported (fetch_failed, http_<status>,
+  // bad_content_type, too_large). Says why, where error_code says only "missing".
+  upstream_error_code?: string;
   // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
   // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
   // `operations` list on the host page, so `can_create_cc_type=false` is

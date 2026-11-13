@@ -14,7 +14,7 @@
 //
 // Single source of truth: change a rate here, and it takes effect on the next
 // deploy across every call site of that event — no per-site edits.
-import { isOctoberBillingBudgetActive } from "@/lib/octoberBudgetWindow.js";
+import { isEventBudgetActive } from "@/lib/octoberBudgetWindow.js";
 
 export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // --- Sampled to 10% -------------------------------------------------------
@@ -68,7 +68,31 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // denominator toward heavier viewers and makes the measured discovery rate a
   // slight UNDER-estimate. Take the pre-sampling 3.76% as the reference point.
   copy_for_ai_impression: 0.1,
+
+  // --- Quota reduction 2026-10-31 -------------------------------------------
+  // PNG lifecycle diagnostic (docs/features/png-export-state.md), added
+  // 2026-10-19 unsampled. 29,438 events in the 7 days to 2026-10-30 across
+  // both transports (10.3% of billable volume); the browser half is
+  // 13.4k/week. It feeds state-mix trends, which survive extrapolation.
+  // The Forge export transport samples its own emit in exportSampling.js.
+  png_export_state_changed: 0.1,
+  // A 404 on the page-properties endpoint (draft/deleted/not visible), not a
+  // fault. `png_export_state_persistence_failed` stays unsampled.
+  png_export_state_persistence_skipped: 0.1,
 };
+
+// macro_viewed stays at rate 1 in the tables above and below: its sampling is
+// per occurrence, not per name. trackRenderTime sends the first render of a
+// macro per browser per UTC day and this fraction of the repeats
+// (utils/analytics/macroViewOfDay.ts).
+export const MACRO_VIEWED_REPEAT_SAMPLE_RATE = 0.1;
+
+// title_draft_requested is also sampled per occurrence (features/titleDraft/
+// offer.ts): `ready` is the offer's denominator and stays at 100%; `pending`
+// and `no_diagram` are sent at this rate with `sample_rate`. On 2026-11-09 the
+// event was 3,917 of 34,285 billable events (11%), 74% `pending`, 24%
+// `no_diagram`, 2% `ready`.
+export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
 
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
@@ -77,8 +101,9 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, number]> = [
   ["create_attachment", 0.1],
 ];
 
-// October 2026 cost control: only these conf-app browser event names are
-// stopped. Other products in the shared Mixpanel project are unaffected.
+// Event budget, started October 2026 and kept in force (isEventBudgetActive;
+// the OCTOBER_ names record when it began). Only these conf-app browser event
+// names are stopped. Other products in the shared Mixpanel project are unaffected.
 export const OCTOBER_STOP_EVENTS = new Set<string>([
   "cohorts_refreshed",
   "copy_for_ai_impression",
@@ -92,12 +117,26 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  "title_draft_requested",
+  "title_draft_flag_shown",
+  "title_draft_not_now",
+  "title_draft_preview_opened",
+  "title_draft_preview_closed",
+  "title_draft_added",
+  "title_draft_add_failed",
+  "title_draft_undone",
+  "title_draft_undo_failed",
+  "title_draft_edit_clicked",
   "agent_link_edit_failed",
-  "ai_repair_failed",
   "ai_title_generation_failed",
   "attachment_upload_async_failed",
   "attachment_upload_failed",
   "cohorts_refresh_failed",
+  // Rare, and the only read on whether the placement picker earns its extra
+  // step: at 10% a typical week would leave only a handful of events.
+  "diagram_added_to_page",
+  "placement_picker_opened",
+  "placement_picker_dismissed",
   "diagram_audience_registration_failed",
   "export_png_failed",
   "feedback_link_clicked",
@@ -148,6 +187,35 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "update_custom_content_error",
   "view_submit_failed",
   "viewer_load_failed",
+  // Preserve the low-volume AI Chat and AI Repair event families end to end. Sampling
+  // requests, successes, applications, or outcomes makes usage and conversion
+  // rates unknowable; keeping only failures would also bias health reporting.
+  "ai_chat_button_shown",
+  "ai_chat_opened",
+  "ai_chat_closed",
+  "ai_chat_suggestion_selected",
+  "ai_chat_prompt_submitted",
+  "ai_chat_no_change",
+  "ai_chat_change_applied",
+  "ai_chat_prompt_failed",
+  "ai_chat_prompt_cancelled",
+  "ai_chat_code_visibility_toggled",
+  "ai_chat_syntax_issue_shown",
+  "ai_chat_syntax_repair_requested",
+  "ai_chat_diff_toggled",
+  "ai_chat_history_opened",
+  "ai_chat_history_load_succeeded",
+  "ai_chat_history_load_failed",
+  "ai_chat_version_restore_requested",
+  "ai_chat_version_restored",
+  "ai_chat_change_undone",
+  "ai_chat_version_restore_failed",
+  "ai_repair_button_shown",
+  "ai_repair_requested",
+  "ai_repair_succeeded",
+  "ai_repair_failed",
+  "ai_repair_applied",
+  "ai_repair_dismissed",
   // Low-volume action signal with an existing E2E wire assertion.
   "copy_for_ai_clicked",
   // Connect MCP discovery denominator. Deduplicated to one per viewer per
@@ -197,28 +265,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "ai_title_dismissed",
   "ai_title_accepted",
   "ai_title_modified",
-  "ai_chat_button_shown",
-  "ai_chat_opened",
-  "ai_chat_closed",
-  "ai_chat_suggestion_selected",
-  "ai_chat_prompt_submitted",
-  "ai_chat_no_change",
-  "ai_chat_change_applied",
-  "ai_chat_prompt_cancelled",
-  "ai_chat_code_visibility_toggled",
-  "ai_chat_syntax_issue_shown",
-  "ai_chat_syntax_repair_requested",
-  "ai_chat_diff_toggled",
-  "ai_chat_history_opened",
-  "ai_chat_history_load_succeeded",
-  "ai_chat_version_restore_requested",
-  "ai_chat_version_restored",
-  "ai_chat_change_undone",
-  "ai_repair_button_shown",
-  "ai_repair_requested",
-  "ai_repair_succeeded",
-  "ai_repair_applied",
-  "ai_repair_dismissed",
   "magic_writeback_requested",
   "magic_writeback_skipped",
   "magic_availability_checked",
@@ -275,7 +321,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "whats_new_banner_expanded",
   "whats_new_banner_dismissed",
   "whats_new_link_clicked",
-  "diagram_added_to_page",
   "diagram_revealed",
   "snapshot_fallback_rendered",
   "diagram_attribution_shown",
@@ -321,6 +366,7 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "agent_link_mcp_dialog_opened",
   "agent_link_mcp_dialog_copied",
   "agent_link_mcp_dialog_closed",
+  "agent_link_mcp_promo_dismissed",
   "agent_link_mcp_initialized",
   "activation_nudge_clicked",
   "activation_served",
@@ -394,7 +440,7 @@ export function sampleRateFor(name: string, now = Date.now()): number {
       }
     }
   }
-  if (!isOctoberBillingBudgetActive(now)) return currentRate;
+  if (!isEventBudgetActive(now)) return currentRate;
   if (OCTOBER_STOP_EVENTS.has(name)) return 0;
   if (OCTOBER_RETAINED_EVENTS.has(name)) return currentRate;
   // The legacy `create_attachment<diagramType>` family has a dynamic suffix.

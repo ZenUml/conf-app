@@ -1,10 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION, PLANTUML_SVG_BASE } from './mcp-app-view';
-import { plantumlEncode } from '@/utils/plantuml/encode';
+import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION } from './mcp-app-view';
 import { compress } from '@/utils/compress';
 
-const drawio = vi.hoisted(() => ({ ensureDrawioViewerLoaded: vi.fn(async (_base?: string) => {}) }));
+const drawio = vi.hoisted(() => ({
+  ensureDrawioViewerLoaded: vi.fn(async (_base?: string) => {}),
+  ensureDrawioMathForDocument: vi.fn(),
+}));
 vi.mock('@/utils/drawio/loadDrawioViewer', () => drawio);
+
+// The real engine needs a canvas, which jsdom lacks (engine.ts).
+const { renderPlantUmlLocally, preloadPlantUmlEngine } = vi.hoisted(() => ({
+  renderPlantUmlLocally: vi.fn<(code: string) => Promise<string>>(),
+  preloadPlantUmlEngine: vi.fn<() => Promise<void>>(),
+}));
+vi.mock('@/utils/plantuml/engine', () => ({ renderPlantUmlLocally, preloadPlantUmlEngine }));
 
 const swagger = vi.hoisted(() => {
   const updateSpec = vi.fn();
@@ -15,6 +24,21 @@ const swagger = vi.hoisted(() => {
 });
 vi.mock('swagger-ui', () => ({ default: swagger.SwaggerUI }));
 vi.mock('swagger-ui/dist/swagger-ui.css', () => ({}));
+
+const mermaidMock = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(async (_id: string, _source: string) => ({ svg: '<svg data-test="mermaid-block"></svg>' })),
+}));
+vi.mock('mermaid', () => ({ default: mermaidMock }));
+
+const sequence = vi.hoisted(() => ({ setDiagramFontUrl: vi.fn(), render: vi.fn(async () => {}) }));
+vi.mock('@zenuml/core', () => ({
+  default: Object.assign(vi.fn(function () { return { render: sequence.render }; }), {
+    setDiagramFontUrl: sequence.setDiagramFontUrl,
+  }),
+}));
+vi.mock('@zenuml/core/fonts/IBMPlexSans-Regular-Latin1.woff2?url', () => ({ default: 'https://view.example/mcp-app/assets/plex.woff2' }));
+vi.mock('@zenuml/core/fonts/MS-Sans-Serif.ttf?url', () => ({ default: 'https://view.example/mcp-app/assets/mssans.ttf' }));
 
 describe('extractDiagram', () => {
   // The host decides which of these shapes it hands us, and the answer has
@@ -102,6 +126,11 @@ describe('extractDiagram', () => {
     expect(extractDiagram({ structuredContent: { source: JSON.stringify(plain) } })?.dsl).toBe(
       '<mxGraphModel>stale</mxGraphModel>',
     );
+  });
+
+  it('takes a Markdown record\'s markdownCode, not the stale code draft (#918)', () => {
+    const stored = { title: 'Notes', diagramType: 'markdown', code: 'A->B: stale zenuml draft', markdownCode: '# Notes' };
+    expect(extractDiagram({ structuredContent: { source: JSON.stringify(stored) } })?.dsl).toBe('# Notes');
   });
 
   it('skips a read_diagram source that is bare DSL with no type', () => {
@@ -214,43 +243,81 @@ describe('the host handshake', () => {
 });
 
 describe('drawing a PlantUML result', () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>hi</text></svg>';
+  const beacon = vi.fn((_url: string, _body: string) => true);
+  const reports = () => beacon.mock.calls.map(([url, body]) => ({ path: new URL(url).pathname, body: JSON.parse(body) }));
+  const result = (structuredContent: Record<string, unknown>) =>
+    onHostMessage({
+      data: { jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } },
+    } as MessageEvent);
+
   beforeEach(() => {
     document.body.innerHTML = '<div id="app"></div>';
+    beacon.mockClear();
+    vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon });
+    renderPlantUmlLocally.mockReset();
+    renderPlantUmlLocally.mockResolvedValue(svg);
+    preloadPlantUmlEngine.mockReset();
+    preloadPlantUmlEngine.mockResolvedValue(undefined);
   });
 
-  it('draws the PlantUML server SVG for the encoded source', async () => {
-    const dsl = '@startuml\nAlice -> Bob: hi\n@enduml';
-    onHostMessage({
-      data: {
-        jsonrpc: '2.0',
-        method: 'ui/notifications/tool-result',
-        params: { structuredContent: { diagramType: 'PlantUml', dsl, title: 'Greeting' } },
-      },
-    } as MessageEvent);
+  afterEach(() => vi.unstubAllGlobals());
 
-    // The renderer is a dynamic import, so the <img> lands a tick later.
+  it('draws with the local engine, as an image, and asks no server', async () => {
+    const dsl = '@startuml\nAlice -> Bob: hi\n@enduml';
+    result({ diagramType: 'PlantUml', dsl, title: 'Greeting' });
+
     await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
     const img = document.querySelector('#app img') as HTMLImageElement;
-    // Same server and encoding as the Confluence macro (PlantUml.vue), so the
-    // host shows what the page shows.
-    expect(img.getAttribute('src')).toBe(PLANTUML_SVG_BASE + plantumlEncode(dsl));
+    expect(renderPlantUmlLocally).toHaveBeenCalledWith(dsl);
+    // A data URL, so nothing in the drawing can run or reach the network.
+    expect(img.getAttribute('src')).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
     expect(img.alt).toBe('Greeting');
+
+    img.onload?.(new Event('load'));
+    await vi.waitFor(() => expect(beacon).toHaveBeenCalledOnce());
+    expect(reports()).toEqual([{
+      path: '/mcp/view-event',
+      body: { macro_type: 'plantuml', render_outcome: 'rendered', plantuml_renderer: 'local' },
+    }]);
   });
 
-  it('says so when the PlantUML server cannot be reached', async () => {
-    onHostMessage({
-      data: {
-        jsonrpc: '2.0',
-        method: 'ui/notifications/tool-result',
-        params: { structuredContent: { diagramType: 'plantuml', dsl: '@startuml\n@enduml' } },
-      },
-    } as MessageEvent);
+  it('shows the error and reports why when the engine cannot draw it, with no fallback', async () => {
+    const dsl = '@startuml\n!include <azure/Foo>\n@enduml';
+    const failure = Object.assign(new Error('This diagram uses an !include library that is not available yet'), { reason: 'include' });
+    renderPlantUmlLocally.mockRejectedValue(failure);
+    result({ diagramType: 'plantuml', dsl });
 
-    await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
-    (document.querySelector('#app img') as HTMLImageElement).onerror?.(new Event('error'));
     await vi.waitFor(() =>
-      expect(document.querySelector('#app')?.textContent).toMatch(/PlantUML server did not answer/),
+      expect(document.querySelector('#app')?.textContent).toMatch(/!include library that is not available/),
     );
+    expect(document.querySelector('#app img')).toBeNull();
+    expect(reports()[0].body).toEqual({
+      macro_type: 'plantuml', render_outcome: 'failed', plantuml_renderer: 'failed', plantuml_failure_reason: 'include',
+    });
+    expect(JSON.stringify(reports())).not.toContain('azure');
+  });
+
+  it('says the download failed, not that the library is missing, when a chunk will not load', async () => {
+    renderPlantUmlLocally.mockRejectedValue(Object.assign(new Error('chunk 404'), { reason: 'load_failed' }));
+    result({ diagramType: 'plantuml', dsl: '@startuml\n!include <C4/C4_Context>\n@enduml' });
+
+    await vi.waitFor(() =>
+      expect(document.querySelector('#app')?.textContent).toMatch(/Could not download the diagram renderer/),
+    );
+    expect(document.querySelector('#app')?.textContent).not.toMatch(/chunk 404/);
+    expect(reports()[0].body).toEqual({
+      macro_type: 'plantuml', render_outcome: 'failed', plantuml_renderer: 'failed', plantuml_failure_reason: 'load_failed',
+    });
+  });
+
+  it('never lets a failed report break the drawing', async () => {
+    beacon.mockImplementation(() => { throw new Error('blocked'); });
+    result({ diagramType: 'plantuml', dsl: '@startuml\n@enduml' });
+    await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
+    (document.querySelector('#app img') as HTMLImageElement).onload?.(new Event('load'));
+    await vi.waitFor(() => expect(beacon).toHaveBeenCalled());
+    expect(document.querySelector('#app img')).not.toBeNull();
   });
 });
 
@@ -260,6 +327,29 @@ function deliver(structuredContent: Record<string, unknown>): void {
   } as MessageEvent);
 }
 
+describe('drawing a Sequence result', () => {
+  it('configures hosted fonts before the first render in the host sandbox', async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    sequence.setDiagramFontUrl.mockClear();
+    sequence.render.mockClear();
+    sequence.render.mockImplementationOnce(async () => {
+      // Check at render time: configuring after render still attempts the
+      // embedded data: font, which strict MCP host CSP refuses.
+      expect(sequence.setDiagramFontUrl.mock.calls).toEqual([
+        ['https://view.example/mcp-app/assets/plex.woff2'],
+        ['https://view.example/mcp-app/assets/mssans.ttf', 'MS Sans Serif'],
+      ]);
+    });
+
+    deliver({ diagramType: 'Sequence', dsl: 'Alice->Bob.hello()' });
+
+    await vi.waitFor(() => expect(sequence.render).toHaveBeenCalledWith(
+      'Alice->Bob.hello()', { theme: 'theme-default', stickyOffset: false },
+    ));
+    await vi.waitFor(() => expect(document.querySelector('#app')?.textContent).toBe(''));
+  });
+});
+
 describe('drawing a Graph result', () => {
   const GraphViewer = vi.fn();
   const parseXml = vi.fn((xml: string) => new DOMParser().parseFromString(xml, 'text/xml'));
@@ -268,6 +358,7 @@ describe('drawing a Graph result', () => {
     document.body.innerHTML = '<div id="app"></div>';
     GraphViewer.mockClear();
     drawio.ensureDrawioViewerLoaded.mockClear();
+    drawio.ensureDrawioMathForDocument.mockClear();
     vi.stubGlobal('GraphViewer', GraphViewer);
     vi.stubGlobal('mxUtils', { parseXml });
   });
@@ -283,6 +374,9 @@ describe('drawing a Graph result', () => {
     expect(document.querySelector('#app')?.contains(container)).toBe(true);
     expect((node as Element).nodeName).toBe('mxGraphModel');
     expect(config).toMatchObject({ 'auto-fit': true, lightbox: false });
+    // Before the GraphViewer: only Editors created after initMath typeset math.
+    expect(drawio.ensureDrawioMathForDocument.mock.calls[0][0]).toBe(node);
+    expect(drawio.ensureDrawioMathForDocument.mock.invocationCallOrder[0]).toBeLessThan(GraphViewer.mock.invocationCallOrder[0]);
   });
 
   it('decompresses a legacy compressed record before drawing it', async () => {
@@ -315,5 +409,141 @@ describe('drawing an OpenAPI result', () => {
     const config = swagger.SwaggerUI.mock.calls[0][0];
     expect(config).toMatchObject({ supportedSubmitMethods: [], validatorUrl: null, presets: ['apis-preset'] });
     expect(document.querySelector('#app')?.contains(config.domNode as Node)).toBe(true);
+  });
+});
+
+describe('drawing an AsyncAPI result', () => {
+  beforeEach(() => { document.body.innerHTML = '<div id="app"></div>'; });
+
+  it('draws an outline of the spec read_diagram returns', async () => {
+    const spec = [
+      'asyncapi: 3.0.0',
+      'info:',
+      '  title: Orders',
+      '  version: 1.2.0',
+      'channels:',
+      '  orderPlaced:',
+      '    address: orders/placed',
+      'operations:',
+      '  publishOrder:',
+      '    action: send',
+      '    channel:',
+      '      $ref: "#/channels/orderPlaced"',
+      '',
+    ].join('\n');
+    deliver({ diagramType: 'AsyncAPI', source: spec });
+
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-asyncapi h1')?.textContent).toBe('Orders'));
+    const text = document.querySelector('#app')?.textContent ?? '';
+    expect(text).toContain('Version 1.2.0');
+    expect(text).toContain('orders/placed');
+    expect(text).toMatch(/send\s*orderPlaced/);
+  });
+
+  it('says why when the source is not AsyncAPI', async () => {
+    deliver({ diagramType: 'asyncapi', source: 'info:\n  title: x\n' });
+    await vi.waitFor(() => expect(document.querySelector('#app')?.textContent).toMatch(/Could not draw the diagram: .*asyncapi/));
+  });
+});
+
+describe('drawing a Markdown result', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="app"></div>';
+    mermaidMock.render.mockClear();
+  });
+
+  it('renders the document and draws its mermaid blocks with the view\'s own Mermaid', async () => {
+    const dsl = '# Notes\n\nSome **bold** text.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n';
+    deliver({ diagramType: 'markdown', dsl });
+
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown h1')?.textContent).toBe('Notes'));
+    expect(document.querySelector('#app strong')?.textContent).toBe('bold');
+    expect(mermaidMock.render).toHaveBeenCalledWith(expect.stringMatching(/^zen-mcp-/), 'flowchart TD\n  A --> B\n');
+    expect(document.querySelector('#app [data-test="mermaid-block"]')).not.toBeNull();
+  });
+
+  it('keeps raw HTML in the document escaped', async () => {
+    deliver({ diagramType: 'markdown', dsl: 'Hi <img src=x onerror="alert(1)">' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown')).not.toBeNull());
+    expect(document.querySelector('#app img')).toBeNull();
+  });
+});
+
+// #1038: the renderer download is the slow part of a first diagram, so it
+// starts on tool-input, and a failed download says so instead of hanging.
+describe('loading the renderer', () => {
+  type View = typeof import('./mcp-app-view');
+  let view: View;
+  const GraphViewer = vi.fn();
+
+  beforeEach(async () => {
+    // A fresh module per test: the view keeps one download per renderer.
+    vi.resetModules();
+    view = await import('./mcp-app-view');
+    document.body.innerHTML = '<div id="app"></div>';
+    GraphViewer.mockClear();
+    drawio.ensureDrawioViewerLoaded.mockReset();
+    drawio.ensureDrawioViewerLoaded.mockImplementation(async () => {});
+    vi.stubGlobal('GraphViewer', GraphViewer);
+    vi.stubGlobal('mxUtils', { parseXml: (xml: string) => new DOMParser().parseFromString(xml, 'text/xml') });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  function input(args: Record<string, unknown>): void {
+    view.onHostMessage({
+      data: { jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: args } },
+    } as MessageEvent);
+  }
+  function result(structuredContent: Record<string, unknown>): void {
+    view.onHostMessage({
+      data: { jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent } },
+    } as MessageEvent);
+  }
+  const XML = '<mxGraphModel><root/></mxGraphModel>';
+
+  it('reads the coming diagram type from the tool input, detecting it when diagramType is left out', () => {
+    expect(view.typeFromToolInput({ arguments: { diagramType: 'Mermaid', source: 'A->B.call()' } })).toBe('mermaid');
+    expect(view.typeFromToolInput({ arguments: { source: 'flowchart TD\n A --> B' } })).toBe('mermaid');
+    expect(view.typeFromToolInput({ arguments: { source: '@startuml\nA -> B\n@enduml' } })).toBe('plantuml');
+    expect(view.typeFromToolInput({ arguments: { source: 'A->B.call()' } })).toBe('sequence');
+    // read_diagram and friends carry no source in their input
+    expect(view.typeFromToolInput({ arguments: { cloudId: 'c', contentId: '1' } })).toBeNull();
+    expect(view.typeFromToolInput(undefined)).toBeNull();
+  });
+
+  it('starts the download on tool-input, before the tool has answered', async () => {
+    input({ diagramType: 'graph', source: XML });
+
+    await vi.waitFor(() => expect(drawio.ensureDrawioViewerLoaded).toHaveBeenCalledTimes(1));
+    expect(document.querySelector('#app')?.textContent).toBe('Loading the renderer…');
+    expect(GraphViewer).not.toHaveBeenCalled();
+  });
+
+  it('downloads once: the result reuses the download the input started', async () => {
+    input({ diagramType: 'graph', source: XML });
+    result({ diagramType: 'graph', source: XML });
+
+    await vi.waitFor(() => expect(GraphViewer).toHaveBeenCalledTimes(1));
+    // once by the shared download; renderGraph's own call returns at once in the real loader
+    expect(drawio.ensureDrawioViewerLoaded.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it('keeps the old status when the input does not say which renderer', () => {
+    input({ cloudId: 'c', contentId: '1' });
+    expect(document.querySelector('#app')?.textContent).toBe('Loading the diagram…');
+  });
+
+  it('says the renderer could not be downloaded, and tries again on the next result', async () => {
+    drawio.ensureDrawioViewerLoaded.mockRejectedValueOnce(new Error('network timeout'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    result({ diagramType: 'graph', source: XML });
+    await vi.waitFor(() =>
+      expect(document.querySelector('#app')?.textContent).toMatch(/Could not download the diagram renderer.*ask again/),
+    );
+    expect(GraphViewer).not.toHaveBeenCalled();
+
+    result({ diagramType: 'graph', source: XML });
+    await vi.waitFor(() => expect(GraphViewer).toHaveBeenCalledTimes(1));
   });
 });

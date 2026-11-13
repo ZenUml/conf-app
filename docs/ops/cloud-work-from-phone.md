@@ -54,7 +54,7 @@ every REST path in the table below is laptop-only; only the **connectors** and *
    - `conf-app-export-annotations` (`feat/export-annotations-shottr`): 7 modified analytics files. The 8 committed-but-unpushed commits **were pushed on 2026-09-11**.
    - `conf-app-export-fullscreen` (`feat/export-in-fullscreen`): 13 files (ExportModal, previewFit).
    - `.claude/worktrees/figma-png-export-design-fb78fe`: 5 files (ExportModal, ExportSidebar, catalog).
-   - primary `conf-app` on `main`: 2 skill docs, `CONTEXT.md`, `GenericViewer.stories.ts`, `lite-upgrade-sequence.md`.
+   - primary `conf-app` on `main`: 2 skill docs, `GLOSSARY.md`, `GenericViewer.stories.ts`, `lite-upgrade-sequence.md`.
    - Other repos: `diagramly.ai` (367 untracked, mostly artefacts), `mmd-zenuml-core` (12 untracked images), `conf-mini-sites` (24), `aws-widgets` (10), `diagramly-dev-workflow` (24 on a branch with no upstream).
 2. Re-provision the "Conf App" cloud environment (claude.ai → Code → composer environment picker → Cloud → "Conf App" → settings). Only you can do this: the values are secrets and the editor is your account. Two mechanisms, chosen by how the consumer authenticates:
    - **Environment variables + Network access = Full** (options are None / Trusted / Full / Custom). Required for anything that reads env vars itself: the `forge` CLI (`FORGE_EMAIL` / `FORGE_API_TOKEN`), `tests/e2e-tests` (`ATLASSIAN_*`), `mp_query.py` (`.env.mixpanel`), and every skill script that builds `-u "$FORGE_EMAIL:$FORGE_API_TOKEN"` on its own. The editor warns these values are visible to anyone using the environment.

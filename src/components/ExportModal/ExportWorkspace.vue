@@ -1,12 +1,11 @@
 <template>
   <section ref="workspace" class="export-workspace" aria-label="Export image" :aria-busy="busy" @keydown="onKeydown">
-    <header role="toolbar" aria-label="Export tools" class="workspace-toolbar">
+    <header role="toolbar" aria-label="Export tools" class="workspace-toolbar" :class="{ 'busy-pending': busy && !showBusyCue }">
       <button aria-label="Close export" data-tooltip="Close" @click="$emit('close')"><AdsIcon glyph="cross" /></button>
       <span class="separator" />
-      <button aria-label="Copy image" data-tooltip="Copy image" :disabled="busy || !clipboardSupported" @click="$emit('copy')"><AdsIcon :glyph="state.copySucceeded.value ? 'check' : 'copy'" /></button>
+      <button aria-label="Copy image" data-tooltip="Copy image" :disabled="busy || !clipboardSupported" @click="$emit('copy')"><AdsIcon class="copy-feedback" :class="{ 'is-fading': state.copyFading.value }" :glyph="state.copySucceeded.value ? 'check' : 'copy'" /></button>
       <button aria-label="Download image" data-tooltip="Download image" :disabled="busy" @click="$emit('export')"><AdsIcon glyph="download" /></button>
       <span class="format-label">PNG</span>
-      <span v-if="busyLabel" class="busy-status" role="status"><span class="spinner" aria-hidden="true" />{{ busyLabel }}</span>
       <span class="separator" />
       <button aria-label="Select and move" data-tooltip="Select and move" :aria-pressed="tool === null && !watermarkSelected" @click="chooseTool(null)"><AdsIcon glyph="select" /></button>
       <button v-for="entry in tools" :key="entry.type" :aria-label="entry.label" :data-tooltip="entry.label" :aria-pressed="tool === entry.type" @click="chooseTool(entry.type)"><AdsIcon :glyph="entry.icon" /></button>
@@ -16,6 +15,9 @@
            error tells the user to refresh, and the only Refresh used to live in
            the empty-preview placeholder they never see in that state. -->
       <button aria-label="Refresh preview" data-tooltip="Refresh preview" :disabled="busy" @click="$emit('refresh')"><AdsIcon glyph="refresh" /></button>
+      <!-- Last item before the spacer: when it appears the spacer shrinks and no
+           tool button moves (inline after "PNG" it pushed every tool right). -->
+      <span v-if="showBusyCue && busyLabel" class="busy-status" role="status"><span class="spinner" aria-hidden="true" />{{ busyLabel }}</span>
       <span class="toolbar-spacer" />
       <label class="background-control">Background
         <select aria-label="Image background" v-model="state.background.value" @change="backgroundMenu = false">
@@ -93,13 +95,13 @@
            squeezed into a clipped column at the right edge and pushed the
            preview off-centre. -->
       <p v-if="state.exportError.value" class="stage-message stage-message-error" role="alert">{{ state.exportError.value }}</p>
-      <p v-else-if="state.copySucceeded.value" class="stage-message" role="status">Image copied to clipboard</p>
+      <p v-else-if="state.copySucceeded.value" class="stage-message copy-feedback" :class="{ 'is-fading': state.copyFading.value }" role="status">Image copied to clipboard</p>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, toRaw, nextTick, onMounted, onUnmounted } from 'vue';
+import { computed, ref, toRaw, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import AdsIcon from './AdsIcon.vue';
 import type { ExportState, Point } from './useExportState';
 import type { Annotation, AnnotationType } from './useAnnotations';
@@ -413,6 +415,19 @@ const busy = computed(() => props.waitingForPreview || state.isCapturing.value |
 // A dimmed button reads as "unavailable", not as "working" — the export used to
 // run with no progress signal at all. The stage already announces its own
 // "Preparing preview…", so this covers only the two actions the user starts.
+// The busy cue (label + dimmed buttons) waits BUSY_CUE_DELAY_MS: a copy that
+// finishes sooner would only flash the toolbar. The buttons are disabled from
+// the first frame regardless, so a second click still does nothing.
+const BUSY_CUE_DELAY_MS = 300;
+const showBusyCue = ref(false);
+let busyCueTimer: ReturnType<typeof setTimeout> | null = null;
+watch(busy, (isBusy) => {
+  if (busyCueTimer) clearTimeout(busyCueTimer);
+  busyCueTimer = null;
+  if (!isBusy) { showBusyCue.value = false; return; }
+  busyCueTimer = setTimeout(() => { showBusyCue.value = true; }, BUSY_CUE_DELAY_MS);
+}, { immediate: true });
+onUnmounted(() => { if (busyCueTimer) clearTimeout(busyCueTimer); });
 const busyLabel = computed(() => {
   if (state.isExporting.value) return 'Exporting…';
   if (state.isCopying.value) return 'Copying…';
@@ -461,6 +476,7 @@ button { position:relative; border:0; border-radius:6px; background:transparent;
 button:hover,button[aria-pressed=true] { background:#f3f4f6; color:#374151; }
 button:focus-visible, input:focus-visible,select:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
 button:disabled { opacity:.4; cursor:default; }
+.workspace-toolbar.busy-pending button:disabled { opacity:1; cursor:progress; }
 button[data-tooltip]::after { content:attr(data-tooltip); position:absolute; left:50%; top:calc(100% + 8px); transform:translateX(-50%); padding:6px 8px; border-radius:4px; color:white; background:#111827; font-size:12px; white-space:nowrap; opacity:0; visibility:hidden; transition:opacity 150ms; pointer-events:none; z-index:10; }
 button[data-tooltip]:hover::after,button[data-tooltip]:focus-visible::after { opacity:1; visibility:visible; }
 button[data-tooltip][aria-expanded=true]::after { opacity:0; visibility:hidden; }
@@ -500,6 +516,8 @@ input[type=color] { width:28px; height:28px; padding:2px; }
 .empty-preview { text-align:center; }
 .context-tools { position:absolute; top:12px; right:16px; display:flex; align-items:center; gap:8px; padding:6px 8px; background:white; box-shadow:0 1px 4px #0000001a; border:1px solid #e5e7eb; border-radius:6px; z-index:2; }
 .stage-message { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); max-width:min(560px,calc(100% - 32px)); margin:0; padding:8px 12px; border-radius:6px; background:white; border:1px solid #e5e7eb; box-shadow:0 1px 4px #0000001a; text-align:center; line-height:1.4; z-index:2; }
+.copy-feedback { opacity:1; transition:opacity 0.3s ease-out; }
+.copy-feedback.is-fading { opacity:0; }
 .stage-message-error { border-color:#fecaca; background:#fef2f2; color:#b91c1c; }
 .context-tools label { display:flex; align-items:center; gap:4px; font-size:12px; }
 .context-tools input[type=range] { width:72px; }

@@ -99,8 +99,10 @@ const props = withDefaults(
     cloudId?: string
     pageId?: string
     contentId?: string
+    /** Replaces the default "review this diagram" prompt (editor, new diagram). */
+    prompt?: string
   }>(),
-  { diagramTitle: '', cloudId: '', pageId: '', contentId: '' }
+  { diagramTitle: '', cloudId: '', pageId: '', contentId: '', prompt: '' }
 )
 
 const emit = defineEmits<{
@@ -113,7 +115,7 @@ const emit = defineEmits<{
 const setupCommand = mcpAddCommand()
 const serverName = mcpServerName()
 
-const promptText = computed(() => buildHeadlessPrompt({
+const promptText = computed(() => props.prompt || buildHeadlessPrompt({
   title: props.diagramTitle,
   cloudId: props.cloudId,
   pageId: props.pageId,

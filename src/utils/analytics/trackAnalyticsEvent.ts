@@ -6,14 +6,17 @@ import {
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
-import type { AnalyticsEventName } from "./catalog";
+import type { AnalyticsEventName, SessionReplayEventSource } from "./catalog";
 import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
-import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
+import {
+  isNovemberReplayBudgetActive,
+  isOctoberReplayBudgetActive,
+} from "./octoberReplayBudget";
 import { resolveEffectiveCustomContentId } from "@/utils/effectiveCustomContentId";
 
 // Singleton init promise: the first tracked event per iframe resolves the
@@ -104,6 +107,14 @@ async function _resolveSessionReplayConfig(): Promise<{
 const AUTHORING_REPLAY_RATE = 0.5;
 const OCTOBER_AUTHORING_REPLAY_RATE = 0.01;
 
+// November 2026 replay budget (2026-11-01 up to but not including 2026-12-01
+// UTC). The 20,000/month quota stood at 13,198 on 2026-11-12, with ~1,400-1,900
+// replays per weekday; month-to-date attribution was authoring 3,604 and
+// fullscreen 1,734 distinct replays. Both rates drop until the month ends, then
+// the normal rates (0.5 and 100%) return on their own.
+const NOVEMBER_AUTHORING_REPLAY_RATE = 0.05;
+const NOVEMBER_FULLSCREEN_REPLAY_RATE = 0.1;
+
 // Draw once per iframe, not per event. Eligibility is stable while the same
 // rate applies. At the UTC budget boundary, compare the saved draw with the
 // new rate; this can change whether a later authoring event requests a start.
@@ -114,19 +125,52 @@ function _shouldRecordAuthoring(): boolean {
   if (_authoringReplayDraw === null) {
     _authoringReplayDraw = Math.random();
   }
-  return _authoringReplayDraw < (isOctoberReplayBudgetActive()
+  const rate = isOctoberReplayBudgetActive()
     ? OCTOBER_AUTHORING_REPLAY_RATE
-    : AUTHORING_REPLAY_RATE);
+    : isNovemberReplayBudgetActive()
+    ? NOVEMBER_AUTHORING_REPLAY_RATE
+    : AUTHORING_REPLAY_RATE;
+  return _authoringReplayDraw < rate;
 }
+
+// Fullscreen records every iframe, except during the November 2026 budget
+// window, when one random draw at init keeps NOVEMBER_FULLSCREEN_REPLAY_RATE.
+// A separate draw from the authoring one: the two decisions are independent.
+function _fullscreenReplayConfig() {
+  if (
+    isNovemberReplayBudgetActive() &&
+    Math.random() >= NOVEMBER_FULLSCREEN_REPLAY_RATE
+  ) {
+    return { percent: 0, source: "off" as const };
+  }
+  return { percent: 100, source: "fullscreen" as const };
+}
+
+// Events that always start a recording, whatever the baseline cohort decided.
+//
+// `license_notice_shown`: the Full "No active license" notice is new and goes
+// only to sites without a license (a handful, gated by the
+// `no-license-notice-enabled` Forge flag), so every such session is worth
+// watching while we learn how users react to it. Hardcoded rather than a new
+// Forge flag: the notice flag already scopes who sees it, and a second flag
+// would have to be kept in step with it by hand.
+const FORCED_REPLAY_SOURCES: Partial<
+  Record<AnalyticsEventName, SessionReplayEventSource>
+> = {
+  feedback_report_opened: "feedback",
+  license_notice_shown: "license_notice",
+  title_draft_preview_mounted: "title_draft_preview",
+};
 
 function _startExplicitReplay(
   eventName: AnalyticsEventName
 ): Partial<ExplicitReplayProperties> {
-  if (eventName === "feedback_report_opened") {
+  const forcedSource = FORCED_REPLAY_SOURCES[eventName];
+  if (forcedSource) {
     try {
       mixpanel.start_session_recording();
       const replayProperties: ExplicitReplayProperties = {
-        session_replay_source: "feedback",
+        session_replay_source: forcedSource,
         session_replay_percent: 100,
         session_replay_start_call_outcome: "returned",
       };
@@ -137,7 +181,7 @@ function _startExplicitReplay(
       return replayProperties;
     } catch (error) {
       console.error(
-        "[session-replay] feedback start call threw",
+        `[session-replay] ${forcedSource} start call threw`,
         error instanceof Error ? error.name : "unknown"
       );
       return { session_replay_start_call_outcome: "threw" };
@@ -216,25 +260,34 @@ function _initMixpanel(): Promise<void> {
       // Cost, measured 2026-09-07: ~4.1k fullscreen opens/month across all
       // variants (3.4k of them Lite), against ~17.7k distinct replays in the
       // trailing 30 days — roughly a 23% increase in recorded sessions.
-      // Revisit if the replay quota becomes the binding constraint.
+      // Revisit if the replay quota becomes the binding constraint. It did:
+      // during the November 2026 budget window fullscreen records 10% of
+      // iframes (one draw at init), and 100% again from 2026-12-01 UTC.
       const forgeContext = forgeGlobal.forgeContext as any;
       const moduleKey = forgeContext?.moduleKey;
       const isPageBanner = moduleKey === "zenuml-page-banner";
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
+      const isTitleDraftPreview =
+        forgeContext?.extension?.modal?.macroMode === "title-draft";
       let replayConfigTimedOut = false;
       // NOTE (#707): this short-circuit runs before _resolveSessionReplayConfig,
       // so the bounded flag wait below is inactive while the October budget
-      // branch is taken and becomes live on 2026-11-01 UTC.
-      const { percent, source } = isOctoberReplayBudgetActive()
+      // branch is taken. It has been live since 2026-11-01 UTC for ordinary
+      // viewer iframes; fullscreen and the other overrides never wait on it.
+      // A title draft is a deliberate preview in its own iframe. Initialize
+      // there immediately at 100%, without delaying for the baseline flag.
+      const { percent, source } = isTitleDraftPreview
+        ? { percent: 100, source: "title_draft_preview" as const }
+        : isOctoberReplayBudgetActive()
         ? { percent: 0, source: "off" as const }
         : isPageBanner
         ? { percent: 0, source: "off" as const }
         : isPlanUsagePage
         ? { percent: 100, source: "plan_usage_page" as const }
         : isFullscreen
-        ? { percent: 100, source: "fullscreen" as const }
+        ? _fullscreenReplayConfig()
         : await _resolveSessionReplayConfig().then((resolved) => {
             replayConfigTimedOut = resolved.timedOut;
             return resolved.config;
@@ -454,11 +507,11 @@ async function _getDemoPageTelemetry(
 }
 
 /**
- * Extra options handed straight to mixpanel.track. Only the transport override
- * is used today — see trackAnalyticsEventBeforeUnload.
+ * Extra options handed straight to mixpanel.track for unload-safe delivery.
  */
 interface TrackTransportOptions {
   transport: "sendBeacon";
+  send_immediately: true;
 }
 
 export async function _awaitableTrackAnalyticsEvent(
@@ -531,7 +584,8 @@ export function trackAnalyticsEvent(
  * transport is aborted by that navigation, so the event never arrives:
  * production recorded 1 `load_failed_retry_resolved` and 0
  * `load_failed_retry_clicked` on 2026-08-23. sendBeacon is queued by the
- * browser and survives unload.
+ * browser and survives unload. Mixpanel still batches beacon events unless
+ * send_immediately bypasses its queue, so both options are required here.
  *
  * Await it: the enrichment itself is async (Mixpanel init, macro uuid, space
  * telemetry), so firing and navigating would lose the event before it ever
@@ -543,6 +597,7 @@ export async function trackAnalyticsEventBeforeUnload(
 ): Promise<void> {
   await _awaitableTrackAnalyticsEvent(eventName, properties, {
     transport: "sendBeacon",
+    send_immediately: true,
   });
 }
 

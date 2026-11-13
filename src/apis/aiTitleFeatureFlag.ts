@@ -8,6 +8,8 @@ const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 const CREATE_GUIDE_FLAG_ID = 'create-guide-enabled'
 const PLANTUML_LOCAL_RENDERER_FLAG_ID = 'plantuml-local-renderer-enabled'
+const TITLE_DRAFT_FLAG_ID = 'title-draft-enabled'
+const NO_LICENSE_NOTICE_FLAG_ID = 'no-license-notice-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -44,6 +46,16 @@ function standaloneAiChatRepairEnabled(): boolean {
 function standaloneAgentLinkEnabled(): boolean {
   try {
     return localStorage.getItem('mockAgentLinkEnabled') === 'true'
+  } catch {
+    return false
+  }
+}
+
+// Defaults OFF everywhere, like Live Agent Link: standalone dev opts in only
+// through an explicit localStorage override.
+function standaloneNoLicenseNoticeEnabled(): boolean {
+  try {
+    return localStorage.getItem('mockNoLicenseNoticeEnabled') === 'true'
   } catch {
     return false
   }
@@ -173,6 +185,38 @@ export async function isPlantUmlLocalRendererEnabled(): Promise<boolean> {
     return await client.checkFlag(PLANTUML_LOCAL_RENDERER_FLAG_ID, false)
   } catch (error) {
     console.error('Failed to load PlantUML local renderer feature flag:', error)
+    return false
+  }
+}
+
+/**
+ * The title-first diagram offer on the page banner. Fail-closed: a missing flag
+ * or a lookup error means no offer, and no draft lookup, on this page load.
+ */
+export async function isTitleDraftEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return false
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(TITLE_DRAFT_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load title draft feature flag:', error)
+    return false
+  }
+}
+
+/**
+ * Full variant "no active license" watermark + upgrade strip in the viewer.
+ * Fail-closed: a missing flag or a lookup error means no notice.
+ */
+export async function isNoLicenseNoticeEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneNoLicenseNoticeEnabled()
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(NO_LICENSE_NOTICE_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load no-license notice feature flag:', error)
     return false
   }
 }

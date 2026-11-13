@@ -2,6 +2,8 @@ import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
+import { TITLE_DRAFT_MACRO_MODE } from '@/features/titleDraft/constants';
+import { PLACEMENT_PICKER_MACRO_MODE } from '@/utils/byline/placementPicker';
 import forgeGlobal, { getView, getContext as initForgeContext, isEditorMode, openModal, isInserting, isConfiguring, isFullscreenMode, isExportEntry } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus'
 import {trackEvent, serializeError} from "@/utils/window";
@@ -24,6 +26,7 @@ import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId,
 import uuidv4 from '@/utils/uuid';
 import { handleAiAideRoute } from './routes/aiAide';
 import { decidePageBanner, handlePageBannerRoute, maybeHandleTargetedSurvey } from './routes/pageBanner';
+import { isPageBannerHost } from './routes/pageBannerHost';
 import { tryFullscreenViewerPaywall, tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
 import { maybeProbeSpaceAdmin } from '@/utils/paywall/spaceAdminProbe';
 import { maybeSendFirstSeenPing } from '@/utils/firstSeen/firstSeenPing';
@@ -109,6 +112,21 @@ async function initializeCriticalPath() {
   if (context.extension?.modal?.macroMode === CREATE_GUIDE_MACRO_MODE) {
     const { mountCreateGuideModal } = await import('@/features/createGuide/mountCreateGuide');
     mountCreateGuideModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // The preview modal of the title-first offer, opened from the page banner.
+  if (context.extension?.modal?.macroMode === TITLE_DRAFT_MACRO_MODE) {
+    const { mountTitleDraftModal } = await import('@/features/titleDraft/mountTitleDraft');
+    mountTitleDraftModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // "Where on the page?", opened by the byline and the unplaced banner. Same
+  // early exit as feedback: nothing else belongs in this modal.
+  if (context.extension?.modal?.macroMode === PLACEMENT_PICKER_MACRO_MODE) {
+    const { mountPlacementPicker } = await import('@/components/Byline/mountPlacementPicker');
+    mountPlacementPicker(context);
     return { macroData: null, feedbackHandled: true };
   }
 
@@ -218,7 +236,7 @@ async function initializeCriticalPath() {
     return { macroData: null };
   }
 
-  if ((context as any).moduleKey === 'zenuml-page-banner') {
+  if (isPageBannerHost(context as any)) {
     // Phase 5a measurement: detect whether the current user is a space admin
     // and, when so, fire `space_admin_active`. Runs on EVERY page-banner load
     // (including loads where no banner shows) so we observe admin activity
@@ -245,6 +263,10 @@ async function initializeCriticalPath() {
       // lookup has a strict deadline and fails closed. It runs only after the
       // existing banners decline their slot, so it never delays their display.
       if (await maybeHandleTargetedSurvey(import.meta.env.PRODUCT_TYPE)) return { macroData: null };
+      // Last, because it is the only one that may keep the iframe open with
+      // nothing visible: the flag it shows needs this iframe for its buttons.
+      const { maybeOfferTitleDraft } = await import('@/features/titleDraft/offer');
+      if (await maybeOfferTitleDraft(import.meta.env.PRODUCT_TYPE)) return { macroData: null };
       // Idle renderer prefetch (EAG-64): the banner mounts on every page —
       // including pages with no macros — making it the only surface that can
       // warm the renderer-bundle cache for macro-free browsing. Gated by a
@@ -305,7 +327,7 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
   if (
     (!isOpenedModal &&
       ['confluence:globalSettings', 'confluence:globalPage', 'confluence:contentBylineItem', 'confluence:spacePage', 'confluence:homepageFeed'].includes(context.extension?.type)) ||
-    (context as any).moduleKey === 'zenuml-page-banner' ||
+    isPageBannerHost(context as any) ||
     (context as any).moduleKey === 'zenuml-unplaced-banner'
   ) {
     console.log('Skipping heavy components load for global context');
@@ -1156,12 +1178,15 @@ async function maybeRevealPlacedMacro(
   diagramType: string | undefined,
 ) {
   try {
-    const { claimReveal, revealThisMacro } = await import('@/utils/byline/revealDiagram');
+    const { claimReveal, revealThisMacro, followThisMacro } = await import('@/utils/byline/revealDiagram');
     const ageMs = claimReveal(pageId, customContentId);
     if (ageMs === null) return;
 
     await settled();
     revealThisMacro();
+    // Settled is only THIS document. Other macros above it can still grow and
+    // push it out of view, so keep it in view for a few more seconds.
+    followThisMacro({ onRefocus: count => console.debug('[reveal] pushed out of view; re-revealed', count) });
 
     const [{ trackAnalyticsEvent }, { toMacroType }] = await Promise.all([
       import('@/utils/analytics/trackAnalyticsEvent'),

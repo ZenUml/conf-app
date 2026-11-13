@@ -88,7 +88,7 @@ describe('feedback context custom content version', () => {
     localId: 'macro-example',
     extension: { type: 'confluence:macro', space: { name: 'Example space' }, content: { id: 'content-example' } },
   }
-  const diagram = { id: 'custom-content-example', diagramType: 'mermaid', title: 'Checkout flow' } as const
+  const diagram = { id: 'custom-content-example', diagramType: 'mermaid', title: 'Checkout flow' } as any
 
   beforeEach(() => resetLoadedCustomContentVersions())
 

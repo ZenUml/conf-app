@@ -43,6 +43,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
+          # The job installs nothing. The default `package-manager-cache: true` looks for pnpm
+          # (from `packageManager`) and fails when it is not on PATH.
+          package-manager-cache: false
       - name: Merge one qualifying Dependabot PR
         env:
           GH_TOKEN: ${{ github.token }}

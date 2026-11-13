@@ -9,5 +9,12 @@
     "checkout": "default branch",
     "persist-credentials": false
   },
-  "live_draft_conversion": "pending post-merge"
+  "live_draft_conversion": {
+    "run": 43394377249,
+    "result": "success",
+    "actor": "github-actions[bot]",
+    "ready_at": "2026-11-13T08:35:11Z",
+    "draft_at": "2026-11-13T08:35:49Z"
+  },
+  "merge_commit": "46480f305e88f84755c79c9f28edc283c570481d"
 }

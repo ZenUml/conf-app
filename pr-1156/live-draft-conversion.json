@@ -1,0 +1,20 @@
+{
+  "pr": 994,
+  "workflow_run": 43394377249,
+  "state_after": {
+    "isDraft": true
+  },
+  "transitions": [
+    {
+      "event": "ready_for_review",
+      "actor": "MrCoder",
+      "created_at": "2026-11-13T08:35:11Z"
+    },
+    {
+      "event": "convert_to_draft",
+      "actor": "github-actions[bot]",
+      "created_at": "2026-11-13T08:35:49Z"
+    }
+  ],
+  "automatically_converted": true
+}

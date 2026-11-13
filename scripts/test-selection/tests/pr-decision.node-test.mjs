@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { MARKER, catalog, readContext, validateDecision, findDecision, authorize, publish, synchronize, recordDeletedDecision } from '../pr-decision.mjs';
+import { MARKER, catalog, readContext, validateDecision, findDecision, authorize, publish, synchronize, syncAndPublish, draftIfUnresolved, recordDeletedDecision } from '../pr-decision.mjs';
 import { CATEGORIES } from '../../../tests/e2e-tests/config/categories.mjs';
 
 const HEAD = 'a'.repeat(40), BASE = 'b'.repeat(40), MERGE = 'c'.repeat(40), TREE = 'd'.repeat(40);
@@ -42,6 +42,7 @@ async function fixture() {
     if (route.startsWith('/issues/42/labels/') && method === 'DELETE') {
       state.labels = state.labels.filter(name => name !== decodeURIComponent(route.slice('/issues/42/labels/'.length))); return null;
     }
+    if (route === '/check-runs' && method === 'POST') return body;
     if (route === 'graphql' && method === 'POST') { state.pr.draft = true; return {}; }
     if (route.startsWith('/git/commits/')) return structuredClone(state.commit);
     throw new Error(`Unexpected API call: ${method} ${path}`);
@@ -400,4 +401,52 @@ test('editing an ordinary comment cannot manufacture a revocation', async () => 
   const event = { action: 'edited', issue: { number: 42, pull_request: {} }, comment: comment(f.decision), changes: { body: { from: 'Ordinary text' } } };
   assert.equal(await recordDeletedDecision(f.api, f.context, event, 'issue_comment'), false);
   assert.equal(f.state.calls.some(c => c.method !== 'GET'), false);
+});
+
+
+test('deferred synchronization publishes a blocking check before any Draft mutation', async () => {
+  const f = await fixture(); f.state.pr.draft = false;
+  const result = await syncAndPublish(f.api, f.context, { valid: false, reason: 'missing-collaborator-decision' }, { deferDraft: true, publishCheck: true });
+  assert.equal(result.executable, false);
+  assert.equal(f.state.pr.draft, false);
+  assert.equal(f.state.calls.some(call => call.path === 'graphql'), false);
+  assert.equal(f.state.calls.find(call => call.path === '/check-runs').body.conclusion, 'failure');
+  const failing = async (path, ...rest) => { if (path === 'graphql') throw new Error('Draft permission denied'); return f.api(path, ...rest); };
+  await assert.rejects(draftIfUnresolved(failing, 42), /Draft permission denied/);
+  assert.equal(f.state.calls.filter(call => call.path === '/check-runs').length, 1);
+  assert.equal(f.state.calls.find(call => call.path === '/check-runs').body.conclusion, 'failure');
+});
+
+test('Draft job rechecks current decision and only converts unresolved Ready PRs', async () => {
+  const f = await fixture();
+  assert.equal((await draftIfUnresolved(f.api, 42)).reason, 'already-draft');
+  f.state.pr.draft = false;
+  f.state.comments = [comment(f.decision)];
+  assert.equal((await draftIfUnresolved(f.api, 42)).reason, 'decision-approved');
+  assert.equal(f.state.pr.draft, false);
+  f.state.comments = [];
+  assert.equal((await draftIfUnresolved(f.api, 42)).converted, true);
+  assert.equal(f.state.pr.draft, true);
+});
+
+test('Draft job skips when an approval appears during its recheck', async () => {
+  const f = await fixture(); f.state.pr.draft = false;
+  let reads = 0;
+  const api = async (path, ...rest) => {
+    if (path.startsWith('/issues/42/comments') && ++reads === 2) f.state.comments = [comment(f.decision)];
+    return f.api(path, ...rest);
+  };
+  assert.equal((await draftIfUnresolved(api, 42)).reason, 'decision-approved');
+  assert.equal(f.state.pr.draft, false);
+});
+
+test('a failed check publication prevents deferred synchronization from succeeding', async () => {
+  const f = await fixture(); f.state.pr.draft = false;
+  const api = async (path, ...rest) => {
+    if (path === '/check-runs') throw new Error('check publication failed');
+    return f.api(path, ...rest);
+  };
+  await assert.rejects(syncAndPublish(api, f.context, { valid: false, reason: 'missing-collaborator-decision' }, { deferDraft: true, publishCheck: true }), /check publication failed/);
+  assert.equal(f.state.pr.draft, false);
+  assert.equal(f.state.calls.some(call => call.path === 'graphql'), false);
 });

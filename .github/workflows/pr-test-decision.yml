@@ -16,25 +16,55 @@ permissions:
 concurrency:
   group: pr-test-decision-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   decision:
     if: ${{ github.event_name == 'pull_request_target' || github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      needs-draft: ${{ steps.sync.outputs.needs-draft }}
+      pr-number: ${{ steps.sync.outputs.pr-number }}
     steps:
       - uses: actions/checkout@v5
         with:
           # Privileged metadata controller: only trusted default-branch code.
           # Never check out a PR or execute its scripts in this workflow.
           ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: '24.x'
           package-manager-cache: false
-      - name: Synchronize labels, Draft state and commit check
+      - name: Synchronize labels and commit check
+        id: sync
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number || github.event.issue.number }}
           PUBLISH_CHECK: 'true'
+          DEFER_DRAFT: 'true'
         run: node scripts/test-selection/pr-decision.mjs sync --pr "$PR"
+
+  draft:
+    needs: decision
+    if: ${{ needs.decision.outputs.needs-draft == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+      - name: Convert still-unresolved PR to Draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.decision.outputs.pr-number }}
+        run: node scripts/test-selection/pr-decision.mjs draft --pr "$PR"

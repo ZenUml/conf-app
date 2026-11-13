@@ -160,7 +160,7 @@ export async function findDecision(api, context) {
   return { valid: false, reason: 'missing-collaborator-decision' };
 }
 
-export async function synchronize(api, context, result) {
+export async function synchronize(api, context, result, { deferDraft = false } = {}) {
   const number = context.pr.number;
   const current = await api(`/pulls/${number}`);
   if (!sameIdentity(identity(current), identity(context.pr))) throw new Error('PR changed before synchronization; retry');
@@ -178,10 +178,37 @@ export async function synchronize(api, context, result) {
   const added = desired.filter(name => !existing.some(label => label.name === name));
   if (added.length) await api(`/issues/${number}/labels`, 'POST', { labels: added });
   for (const label of existing) if ((managed.has(label.name) || label.name.startsWith('feature:') || label.name.startsWith('interface:')) && !desired.includes(label.name)) await api(`/issues/${number}/labels/${encodeURIComponent(label.name)}`, 'DELETE');
-  if (!result.valid && !current.draft) await api('graphql', 'POST', {
+  if (!deferDraft && !result.valid && !current.draft) await api('graphql', 'POST', {
     query: 'mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{id}}}', variables: { id: current.node_id },
   });
-  return { mode: result.valid ? result.decision.mode : 'triage', executable: result.valid, reason: result.reason, labels: desired, comment_id: result.comment_id ?? null };
+  return { mode: result.valid ? result.decision.mode : 'triage', executable: result.valid, reason: result.reason, labels: desired, comment_id: result.comment_id ?? null, needs_draft: deferDraft && !result.valid && !current.draft };
+}
+
+// The check is published before the workflow requests Draft conversion. The
+// separate job has only the additional permissions needed for the mutation.
+export async function syncAndPublish(api, context, result, { deferDraft = false, publishCheck = false } = {}) {
+  const synced = await synchronize(api, context, result, { deferDraft });
+  if (publishCheck) await api('/check-runs', 'POST', {
+    name: 'PR test decision', head_sha: context.pr.head.sha, status: 'completed', conclusion: result.valid ? 'success' : 'failure',
+    output: { title: result.valid ? 'Current E2E scope approved' : 'Manual test triage required', summary: JSON.stringify({ ...synced, head_sha: context.pr.head.sha, decision_url: result.url ?? null }) },
+  });
+  return synced;
+}
+
+export async function draftIfUnresolved(api, number) {
+  const context = await readContext(api, number);
+  if (context.pr.draft) return { converted: false, reason: 'already-draft' };
+  const result = await findDecision(api, context);
+  if (result.valid) return { converted: false, reason: 'decision-approved' };
+  // Re-read both the PR and decision to avoid acting on an old webhook state.
+  const fresh = await readContext(api, number);
+  if (!sameIdentity(identity(fresh.pr), identity(context.pr))) throw new Error('PR changed before Draft conversion; retry');
+  if (fresh.pr.draft) return { converted: false, reason: 'already-draft' };
+  if ((await findDecision(api, fresh)).valid) return { converted: false, reason: 'decision-approved' };
+  await api('graphql', 'POST', {
+    query: 'mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{id}}}', variables: { id: fresh.pr.node_id },
+  });
+  return { converted: true, reason: 'unresolved-decision' };
 }
 
 export async function publish(api, context, input) {
@@ -256,6 +283,7 @@ async function main() {
     console.log(JSON.stringify(output));
     return;
   }
+  if (a.command === 'draft') { console.log(JSON.stringify(await draftIfUnresolved(api, a.pr))); return; }
   let context, discoveryFailure;
   try { context = await readContext(api, a.pr); }
   catch (error) {
@@ -276,12 +304,11 @@ async function main() {
       await recordDeletedDecision(api, context, JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')), process.env.GITHUB_EVENT_NAME);
     }
     const result = discoveryFailure || await findDecision(api, context);
-    const synced = await synchronize(api, context, result);
-    if (process.env.PUBLISH_CHECK === 'true') await api('/check-runs', 'POST', {
-      name: 'PR test decision', head_sha: context.pr.head.sha, status: 'completed', conclusion: result.valid ? 'success' : 'failure',
-      output: { title: result.valid ? 'Current E2E scope approved' : 'Manual test triage required', summary: JSON.stringify({ ...synced, head_sha: context.pr.head.sha, decision_url: result.url ?? null }) },
+    const synced = await syncAndPublish(api, context, result, {
+      deferDraft: process.env.DEFER_DRAFT === 'true', publishCheck: process.env.PUBLISH_CHECK === 'true',
     });
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `needs-draft=${synced.needs_draft}\npr-number=${context.pr.number}\n`);
     console.log(JSON.stringify(synced));
-  } else throw new Error('Usage: pr-decision.mjs inspect|publish|sync|check --pr NUMBER [--file decision.json]');
+  } else throw new Error('Usage: pr-decision.mjs inspect|publish|sync|draft|check --pr NUMBER [--file decision.json]');
 }
 if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main().catch(error => { console.error(error.message); process.exitCode = 1; });

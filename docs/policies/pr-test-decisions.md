@@ -53,7 +53,7 @@ When the user explicitly asks to try labeling an existing PR before the trusted 
 4. The trusted default-branch controller reads the decision and produces immutable raw/resolved artifacts for the candidate merge. The child, plan and shard entrypoints recheck the decision. The planner retains the mandatory floor and produces concrete test identities.
 5. `Pipeline outcome` requires selection and all configured PR E2E stages to succeed. Report executed test evidence separately from the selected plan.
 
-`pr-test-decision.yml` handles PR creation and updates before the app pipeline finishes, including documentation-only PRs. It uses `pull_request_target` only for metadata: it checks out default-branch code and never executes PR code. It reconciles labels, converts unresolved PRs to Draft and publishes the head's `PR test decision` check. Independent basic checks may still run while E2E is blocked.
+`pr-test-decision.yml` handles PR creation and updates before the app pipeline finishes, including documentation-only PRs. It uses `pull_request_target` only for metadata: it checks out default-branch code and never executes PR code. It reconciles labels and publishes the head's `PR test decision` check before a separate job rechecks the decision and converts still-unresolved PRs to Draft. Metadata events queue per PR so pending decision revocations are retained. Only the Draft job has repository contents write permission, which GitHub requires for the conversion. Independent basic checks may still run while E2E is blocked.
 
 ## Activation and limits
 

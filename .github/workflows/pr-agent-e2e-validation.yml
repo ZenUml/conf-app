@@ -39,6 +39,7 @@ jobs:
   parent:
     name: Verify staging ownership
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       oauth-token: ${{ steps.api-plan.outputs.oauth-token }}
     permissions:

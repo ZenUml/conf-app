@@ -1,0 +1,55 @@
+{
+  "baseline": "5fc739dd3e7a449e4052ac7d3bacceffb21e1bae",
+  "candidate": "8d429113625457099b0ef672eebb2612404477e0",
+  "legacy_compatibility": [
+    {
+      "path": ".github/workflows/pr-checks.yml",
+      "identical": true,
+      "before_sha256": "f6c068af0cca9196bc38857e9f832680a883efc46b48804e8bf4f4150e64da84",
+      "after_sha256": "f6c068af0cca9196bc38857e9f832680a883efc46b48804e8bf4f4150e64da84"
+    },
+    {
+      "path": ".github/workflows/pr-validation.yml",
+      "identical": true,
+      "before_sha256": "10ce6b9af9405c6581b585a71b9010e63e940bcfb3b4e390ca813d56354526ad",
+      "after_sha256": "10ce6b9af9405c6581b585a71b9010e63e940bcfb3b4e390ca813d56354526ad"
+    },
+    {
+      "path": ".github/workflows/test-selection-labels.yml",
+      "identical": true,
+      "before_sha256": "eda7078358997b3a36765aa132222e07b4819dfbd19a27c4e9509b1dd873660b",
+      "after_sha256": "eda7078358997b3a36765aa132222e07b4819dfbd19a27c4e9509b1dd873660b"
+    },
+    {
+      "path": "scripts/test-selection/labels.mjs",
+      "identical": true,
+      "before_sha256": "b8dd6714466e109c2563abbbd44e76a03e1d964daf8217d3452985d855f4134f",
+      "after_sha256": "b8dd6714466e109c2563abbbd44e76a03e1d964daf8217d3452985d855f4134f"
+    },
+    {
+      "path": "scripts/test-selection/resolve.mjs",
+      "identical": true,
+      "before_sha256": "dfd93918611ec3d31ddcf89d18c476cdccaf9f25885be926ae54b7011a518ca6",
+      "after_sha256": "dfd93918611ec3d31ddcf89d18c476cdccaf9f25885be926ae54b7011a518ca6"
+    },
+    {
+      "path": "scripts/test-selection/scoped-plan.mjs",
+      "identical": true,
+      "before_sha256": "56ed7beedec3e1b1f80663c6a929301b3d9612afa189fc9bddadc27459a49e27",
+      "after_sha256": "56ed7beedec3e1b1f80663c6a929301b3d9612afa189fc9bddadc27459a49e27"
+    }
+  ],
+  "unit": {
+    "passed": 6744,
+    "skipped": 3
+  },
+  "ci_and_policy_node": {
+    "passed": 304
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 140
+  },
+  "ui_validation": "N/A: CI controller and test metadata only",
+  "new_decision_flow": "Not activated by this foundation"
+}

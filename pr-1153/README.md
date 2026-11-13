@@ -101,3 +101,15 @@ manual assertions; existing unit/modal integration tests cover Add callbacks.
 
 See [`checks.txt`](checks.txt) for local test counts, setup failure disclosure,
 exact SHAs and CI links. Production transport root cause remains unproven.
+
+Current test-decision policy update: after the recorded CI run, the trusted
+default-branch controller required a current explicit scenario decision.
+The title-draft preview modal has no exact registered product/scenario coverage;
+pr-labeling published TRIAGE for this head/base, with per-path impact evidence:
+https://github.com/ZenUml/conf-app/pull/1153#issuecomment-6847158434
+Thus current full Staging E2E is BLOCKED pending manual triage, rather than simply
+being disabled by Draft status. No full-suite fallback or Ready transition was
+requested. Independent basic checks and the recorded manual UI evidence remain
+separate, observed results. The PR stays Draft. Staging render_error/reload-click
+events were also received on the CI merge build, as recorded in the anonymized
+telemetry file.

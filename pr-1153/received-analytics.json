@@ -49,5 +49,32 @@
     "commit": "6042686",
     "ms": 4633,
     "exposure_label": "internal-fixture-4"
+  },
+  {
+    "event": "title_draft_preview_rendered",
+    "time": 1794555171918,
+    "commit": "6042686",
+    "ms": 61,
+    "exposure_label": "internal-fixture-4"
+  },
+  {
+    "event": "title_draft_preview_render_failed",
+    "time": 1794555249473,
+    "commit": "6042686",
+    "reason": "render_error",
+    "ms": 28
+  },
+  {
+    "event": "title_draft_preview_reload_clicked",
+    "time": 1794555283810,
+    "commit": "6042686",
+    "reason": "render_error"
+  },
+  {
+    "event": "title_draft_preview_render_failed",
+    "time": 1794555283959,
+    "commit": "6042686",
+    "reason": "render_error",
+    "ms": 20
   }
 ]

@@ -55,7 +55,7 @@ describe('parseViewEvent', () => {
   it.each([
     ['not JSON', 'nope'],
     ['JSON that is no object', 'null'],
-    ['an unknown type', '{"macro_type":"asyncapi","render_outcome":"rendered"}'],
+    ['an unknown type', '{"macro_type":"embed","render_outcome":"rendered"}'],
     ['an unknown outcome', '{"macro_type":"mermaid","render_outcome":"timeout"}'],
     ['a server renderer the view never uses', '{"macro_type":"plantuml","render_outcome":"rendered","plantuml_renderer":"server"}'],
     ['free text as a reason', '{"macro_type":"plantuml","render_outcome":"failed","plantuml_failure_reason":"@startuml"}'],

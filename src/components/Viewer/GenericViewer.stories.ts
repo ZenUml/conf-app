@@ -1212,6 +1212,35 @@ export const GraphType: Story = {
   },
 }
 
+/**
+ * Connect MCP on every diagram type. The headless MCP tools read and update
+ * every stored type, so the button is not limited to the text DSLs: a Graph,
+ * OpenAPI, AsyncAPI or Markdown macro shows it too, with the agent-link flag on.
+ */
+function connectMcpStory(diagramType: DiagramType, title: string, label: string): Story {
+  return {
+    name: `Connect MCP — ${label}`,
+    decorators: [
+      () => {
+        configureStory({ diagramType, title, agentLinkEnabled: true })
+        return { template: '<story />' }
+      },
+    ],
+    render: (args: Args) => renderViewer(args, `${label} preview`),
+    play: async () => {
+      await revealHeader()
+      const canvas = within(document.body)
+      await expect(await canvas.findByTestId('connect-mcp-btn')).toBeVisible()
+      await expect(canvas.getByRole('button', { name: 'Connect MCP' })).toBeEnabled()
+    },
+  }
+}
+
+export const ConnectMcpGraph = connectMcpStory(DiagramType.Graph, 'Deployment topology', 'Graph diagram')
+export const ConnectMcpOpenApi = connectMcpStory(DiagramType.OpenApi, 'Payments API', 'OpenAPI spec')
+export const ConnectMcpAsyncApi = connectMcpStory(DiagramType.AsyncApi, 'Order events', 'AsyncAPI spec')
+export const ConnectMcpMarkdown = connectMcpStory(DiagramType.Markdown, 'Release notes', 'Markdown document')
+
 // ---------------------------------------------------------------------------
 // 5. RecoveredReadOnly — orphan-recovered diagram
 // ---------------------------------------------------------------------------

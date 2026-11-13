@@ -27,12 +27,13 @@ Read [shared evidence rules](../customer-data/evidence.md), [contact and action 
 When no customer is named and `customer-lifecycle` and `customer-feedback` return nothing that needs a reply, do not report "nothing to follow up". Rank by behaviour instead:
 
 ```bash
-python3 .claude/skills/client-health/scripts/health_score.py --json --top 60 > "$TMP/health.json"
-python3 .claude/skills/customer-followup/scripts/behaviour_targets.py --health "$TMP/health.json" --exclude "$TMP/exclude.json" --top 10
-python3 .claude/skills/marketplace/scripts/mp_report.py whois <domain> --local --json   # per candidate: Lite space-licence layer
+T=$(mktemp -d)
+python3 .claude/skills/client-health/scripts/health_score.py --json --top 60 > "$T/health.json"
+python3 .claude/skills/customer-followup/scripts/behaviour_targets.py --health "$T/health.json" --exclude "$T/exclude.json" --top 10
+python3 .claude/skills/marketplace/scripts/mp_report.py whois <domain> --json   # per candidate, live: --local skips the Lite space-licence (KV) layer
 ```
 
-Build `exclude.json` (`{"<bare subdomain>": "<reason>"}`) from the tracker's paused and recently contacted opportunities in a temporary or `private/` path; never commit it. For each candidate read the tracker stage and the last activity's date, channel and outcome, then return it as one of: **never contacted**, **contacted, no reply** (date, channel), **paused** (resume condition) or **in conversation**. When the tracker shows earlier outreach, state the reply rate per channel and choose the next channel by what got replies. `skip` rows already pay for another app; `unknown` rows have no Lite licence in the snapshot. Apply the [contact policy](references/contact-policy.md) unchanged: partner rows (`partner_name`) and unverified technical contacts follow its responsibility rules, and no ranking or telemetry goes into a customer message.
+Build `exclude.json` (`{"<bare subdomain>": "<reason>"}`) from the tracker's paused and recently contacted opportunities in `$T` or `private/`; never commit it. If the tracker cannot be read, omit `--exclude` and label the result "tracker not checked". For each candidate read the tracker stage and the last activity's date, channel and outcome, then return it as one of: **never contacted**, **contacted, no reply** (date, channel), **paused** (resume condition) or **in conversation**. When the tracker shows earlier outreach, state the reply rate per channel and choose the next channel by what got replies. A `COMPED` space licence is a support grant: find its ticket and count it as contact. `skip` rows already pay for another app; `unknown` rows have no Lite licence in the snapshot. Apply the [contact policy](references/contact-policy.md) unchanged: partner rows (`partner_name`) and unverified technical contacts follow its responsibility rules, and no ranking or telemetry goes into a customer message.
 
 ## Decide, with evidence
 

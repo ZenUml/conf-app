@@ -28,12 +28,13 @@
 未指定客户，且 `customer-lifecycle` 和 `customer-feedback` 都没有需要回复的内容时，不要报告"没有需要跟进的"。改按行为排序：
 
 ```bash
-python3 .claude/skills/client-health/scripts/health_score.py --json --top 60 > "$TMP/health.json"
-python3 .claude/skills/customer-followup/scripts/behaviour_targets.py --health "$TMP/health.json" --exclude "$TMP/exclude.json" --top 10
-python3 .claude/skills/marketplace/scripts/mp_report.py whois <domain> --local --json   # 每个候选：Lite 空间许可层
+T=$(mktemp -d)
+python3 .claude/skills/client-health/scripts/health_score.py --json --top 60 > "$T/health.json"
+python3 .claude/skills/customer-followup/scripts/behaviour_targets.py --health "$T/health.json" --exclude "$T/exclude.json" --top 10
+python3 .claude/skills/marketplace/scripts/mp_report.py whois <domain> --json   # 每个候选，在线查询：--local 会跳过 Lite 空间许可（KV）层
 ```
 
-用跟进表中已暂缓和近期已联系的机会生成 `exclude.json`（`{"<子域名>": "<原因>"}`），放在临时目录或 `private/`，不得提交。对每个候选读取跟进表阶段及最近一次活动的日期、渠道和结果，归为以下之一：**从未联系**、**已联系未回复**（日期、渠道）、**暂缓**（恢复条件）或**沟通中**。跟进表有以往外联记录时，按渠道列出回复率，并按实际得到回复的渠道选择下一步。`skip` 行已为其他应用付费；`unknown` 行在快照中没有 Lite 许可。[联系人政策](references/contact-policy.md)不变：合作伙伴行（`partner_name`）和职责未核实的技术联系人按其职责规则处理，客户消息中不出现排名或遥测数据。
+用跟进表中已暂缓和近期已联系的机会生成 `exclude.json`（`{"<子域名>": "<原因>"}`），放在 `$T` 或 `private/`，不得提交。读不到跟进表时省略 `--exclude`，并在结果中标明"未核对跟进表"。对每个候选读取跟进表阶段及最近一次活动的日期、渠道和结果，归为以下之一：**从未联系**、**已联系未回复**（日期、渠道）、**暂缓**（恢复条件）或**沟通中**。跟进表有以往外联记录时，按渠道列出回复率，并按实际得到回复的渠道选择下一步。`COMPED` 空间许可是支持授予的：找到对应工单，并计为已联系。`skip` 行已为其他应用付费；`unknown` 行在快照中没有 Lite 许可。[联系人政策](references/contact-policy.md)不变：合作伙伴行（`partner_name`）和职责未核实的技术联系人按其职责规则处理，客户消息中不出现排名或遥测数据。
 
 ## 根据证据判断
 

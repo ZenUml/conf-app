@@ -13,7 +13,7 @@ Orchestrate the full path from local branch to merged on main. This skill compos
 
 **Note:** This gets your code to main with staging deployed and draft releases created. Production deployment is a separate step via `/release-app`.
 
-**Markdown-only exception:** If the entire PR diff is Markdown files only, and does not include `CHANGELOG.md`, the repo's `Build, Test and Draft Release` workflow is intentionally skipped by `paths-ignore`. In that case, do not wait for green CI and do not require `/land-pr`'s `E2E: Lite` precondition. Run local validation, submit the PR as Ready, verify the PR is mergeable, merge it directly, and report CI/staging/draft releases as skipped by path filters.
+**Test decision:** Every PR starts Draft and needs an executable decision for its current head and base before E2E or landing. Independent workflows can still skip documentation-only changes by their own path filters; that does not bypass the test-decision check.
 
 ## Flow
 
@@ -21,8 +21,9 @@ Orchestrate the full path from local branch to merged on main. This skill compos
 validate-branch → FAIL → fix local issue → revalidate (max 3 attempts)
      | unrecoverable/exhausted → stop, report
      | PASS
-submit-branch (as Ready, not Draft) → FAIL → stop, report
-     | single CI run with E2E included
+submit-branch (Draft → pr-labeling) → FAIL → stop, report
+     | TRIAGE → stop, report E2E blocked
+     | executable current-commit decision
 babysit-pr → EXHAUSTED → stop, "CI blocked"
      | GREEN (incl. E2E)
 land-pr → BLOCKED → stop, report
@@ -30,23 +31,11 @@ land-pr → BLOCKED → stop, report
      done → suggest /release-app if production deploy is needed
 ```
 
-Markdown-only flow:
-
-```
-validate-branch → FAIL → fix local issue → revalidate (max 3 attempts)
-     | unrecoverable/exhausted → stop, report
-     | PASS
-submit-branch (as Ready, not Draft) → FAIL → stop, report
-     | PR mergeable
-merge directly → MERGED
-     done → report CI/staging/draft releases skipped by path filters
-```
-
 ## Steps
 
 ### Step 0: Create branch
 
-If the current branch is main, create a new branch from it.
+Follow the repository overlap scan and worktree policy. Keep the primary checkout on `main`; use an isolated feature worktree and preserve unrelated edits.
 
 ### Step 1: Validate locally
 
@@ -69,61 +58,25 @@ Stop and report validation as blocked when any of these applies:
 - the fix needs credentials, external coordination, destructive action, or a product decision;
 - the required change is materially broader than making the current branch pass validation.
 
-### Step 2: Submit as PR — Ready, not Draft
+### Step 2: Submit as a Draft PR and label the current commit
 
-Push the branch and create the PR as **Ready for Review** (omit `--draft`). Ship-branch means immediate landing intent — there's no iterative phase, so Draft would only generate a redundant `ready_for_review` event when we flip it, triggering two CI runs unnecessarily.
+Invoke `/submit-branch`. It pushes the branch, creates or reuses the PR, invokes `pr-labeling` and monitors executable CI. Every new PR starts Draft, including for immediate landing.
 
-```bash
-git push -u origin <branch>
-gh pr create --base main --title "<title>" --body "..."
-```
+If the result is `test:triage`, keep the PR Draft and report **MERGE BLOCKED — manual test triage required**. A landing request does not invoke `pr-triage` automatically or approve full coverage. Only an explicit user request starts that skill.
 
-Note: `/submit-branch` defaults to Draft. Override it here by running `gh pr create` directly without `--draft`. If a PR already exists for the branch, check its draft state — if Draft, flip it Ready now (`gh pr ready <PR>`), then proceed.
+On success, record the PR number, URL, current head/base and published decision. Test authorization and Ready for Review are separate: an executable decision permits E2E while Draft.
 
-On success, note the PR number and URL.
+### Step 3: Get current-commit CI green
 
-### Step 3: Get CI green
+Invoke `/babysit-pr` if submission has not already completed that monitoring. Require an executable current decision and the matching PR-associated validation/E2E evidence. Use `request-pr-e2e.mjs` through `pr-labeling` to start fresh PR checks; a diagnostic dispatch on `main` cannot replace them.
 
-Before invoking `/babysit-pr`, check whether the PR is Markdown-only:
-
-```bash
-gh pr diff <PR_NUMBER> --name-only
-```
-
-If every changed file ends in `.md` and none is `CHANGELOG.md`, skip `/babysit-pr`. The main workflow has `paths-ignore` for Markdown docs, so there is no green CI to wait for. Record `CI: SKIPPED — markdown-only path filters`.
-
-Invoke `/babysit-pr` with the PR number from Step 2. It will monitor CI (E2E runs because the PR is Ready from the start), diagnose failures, attempt fixes (up to 3 retries), and report back.
-
-If babysit-pr exhausts all 3 retry attempts, stop and report "CI blocked" with the babysit report.
+After every fix push, invoke `pr-labeling` again. A new full-suite decision requires fresh manual triage; previous approval does not transfer. If babysit-pr exhausts its 3-attempt budget, stop and report "CI blocked" with its report. Marking Ready cannot resolve a blocked test decision.
 
 ### Step 4: Land and verify
 
 **Confirm with the user before merging** unless they explicitly said "land it".
 
-For non-Markdown changes, invoke `/land-pr` with the PR number. If merge is blocked, stop and report.
-
-For Markdown-only changes, do not invoke `/land-pr`; its E2E precondition cannot be satisfied because CI is intentionally skipped. Instead:
-
-1. Verify the PR is Ready, mergeable, and has no requested-changes review:
-   ```bash
-   gh pr view <PR_NUMBER> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup
-   ```
-2. Fetch the repo's enabled merge strategies and merge directly:
-   ```bash
-   MERGE_FLAG=$(gh api repos/ZenUml/conf-app \
-     --jq 'if .allow_squash_merge and (.allow_merge_commit | not) and (.allow_rebase_merge | not) then "--squash"
-           elif .allow_rebase_merge and (.allow_merge_commit | not) and (.allow_squash_merge | not) then "--rebase"
-           else "--merge" end')
-
-   gh pr merge <PR_NUMBER> --delete-branch $MERGE_FLAG
-   ```
-
-   **Drop `--delete-branch` if any open PR is stacked on this branch** — deleting the base
-   closes the child PR permanently (it can't be reopened or retargeted; #410 → #412, 2026-07-29).
-   Check with `gh pr list --state open --base "$(gh pr view <PR_NUMBER> --json headRefName -q .headRefName)"`.
-   Full recovery order: see the **land-pr** skill.
-3. Verify the PR state is `MERGED`.
-4. Report `Staging` and `Draft releases` as `SKIPPED — markdown-only path filters`.
+Invoke `/land-pr` with the PR number. It rechecks the current decision and required checks, marks Ready when appropriate, and handles merge strategy, stacked-branch deletion safeguards and main CI verification. If merge is blocked, stop and report.
 
 On success, report the draft releases created and suggest `/release-app` if the user wants to go to production.
 
@@ -142,23 +95,11 @@ Final report:
 - Validation: PASS
 - PR: #<number> (<url>)
 - CI: GREEN
-- Merge: SQUASHED into main (<sha>)
+- Test decision: <selected subset | full approved>, <head SHA>
+- Merge: MERGED into main (<sha>)
 - Staging: Deployed (lite, full, diagramly)
 - Draft releases: Created
 - Production: Not yet — run /release-app to deploy to production
-```
-
-Markdown-only report:
-
-```
-## Ship Report: <branch-name>
-- Validation: PASS
-- PR: #<number> (<url>)
-- CI: SKIPPED — markdown-only path filters
-- Merge: MERGED into main (<sha>)
-- Staging: SKIPPED — markdown-only path filters
-- Draft releases: SKIPPED — markdown-only path filters
-- Production: Not needed for docs-only changes
 ```
 
 Or on failure:

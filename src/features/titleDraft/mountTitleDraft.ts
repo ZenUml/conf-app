@@ -2,7 +2,7 @@ import { createApp } from 'vue'
 import globals from '@/model/globals'
 import { getView } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
-import type { AnalyticsEventName } from '@/utils/analytics/catalog'
+import type { AnalyticsEventName, TitleDraftPreviewRenderFailure } from '@/utils/analytics/catalog'
 import type { AnalyticsProperties } from '@/utils/analytics/types'
 import { addDraft, type AddDraftResult } from './addDraft'
 import { TITLE_DRAFT_MACRO_MODE, type TitleDraftClosePayload, type TitleDraftModalContext } from './constants'
@@ -26,11 +26,11 @@ export function mountTitleDraftModal(forgeContext: Record<string, any>): boolean
   const track = (event: AnalyticsEventName, extra: AnalyticsProperties = {}) => {
     try { trackAnalyticsEvent(event, { ...props, ...extra }) } catch { /* analytics is best effort */ }
   }
-  const trackBeforeClose = async (event: AnalyticsEventName): Promise<void> => {
+  const trackBeforeClose = async (event: AnalyticsEventName, extra: AnalyticsProperties = {}): Promise<void> => {
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
       await Promise.race([
-        trackAnalyticsEventBeforeUnload(event, props),
+        trackAnalyticsEventBeforeUnload(event, { ...props, ...extra }),
         new Promise<void>(resolve => { timeout = setTimeout(resolve, TITLE_DRAFT_TELEMETRY_TIMEOUT_MS) }),
       ])
     } catch { /* still close if telemetry fails */ }
@@ -52,10 +52,16 @@ export function mountTitleDraftModal(forgeContext: Record<string, any>): boolean
   createApp(TitleDraftPanel, {
     mermaid: modal.mermaid, add, onClose,
     onPreviewMounted: () => track('title_draft_preview_mounted'),
-    onPreviewRendered: () => track('title_draft_preview_rendered'),
+    onPreviewRendered: (renderMs: number) => track('title_draft_preview_rendered', { title_draft_render_ms: renderMs }),
+    onPreviewRenderDelayed: (renderMs: number) => track('title_draft_preview_render_delayed', {
+      title_draft_render_failure: 'timeout', title_draft_render_ms: renderMs,
+    }),
     // Queue the beacon before context/save work, without delaying that work.
     onAddClicked: () => { pendingAddClick = trackBeforeClose('title_draft_add_clicked') },
-    onPreviewRenderFailed: () => trackBeforeClose('title_draft_preview_render_failed'),
+    onPreviewRenderFailed: (reason: TitleDraftPreviewRenderFailure, renderMs: number) => trackBeforeClose('title_draft_preview_render_failed', {
+      title_draft_render_failure: reason, title_draft_render_ms: renderMs,
+    }),
+    onPreviewReload: (reason: TitleDraftPreviewRenderFailure) => trackBeforeClose('title_draft_preview_reload_clicked', { title_draft_render_failure: reason }),
   }).mount(container)
   return true
 }

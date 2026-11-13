@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import process from 'node:process';
+import { existsSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { authorize, githubApi } from './pr-decision.mjs';
@@ -30,4 +31,4 @@ async function main() {
   const repo = args.repo || process.env.GITHUB_REPOSITORY || execFileSync('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], { encoding: 'utf8' }).trim();
   console.log(JSON.stringify(await requestPrE2E(githubApi(repo), args.pr)));
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(error.message); process.exitCode = 1; });
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main().catch(error => { console.error(error.message); process.exitCode = 1; });

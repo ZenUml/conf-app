@@ -1,4 +1,4 @@
-import { readFileSync, appendFileSync } from 'node:fs';
+import { existsSync, realpathSync, readFileSync, appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -55,7 +55,7 @@ export function verifyApiManifest(laneId, candidateRoot) {
   checkManifest(lane, manifest);
   return manifest;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
     if (process.argv[2] === 'plan') {
       const sha = process.argv[4];

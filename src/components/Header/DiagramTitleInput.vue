@@ -121,7 +121,7 @@ function onFocus() {
 
 function onBlur() {
   isFocused.value = false
-  store.dispatch('updateTitle', draftTitle.value)
+  store.commit('updateTitle', draftTitle.value)
   nextTick(updateWidth)
 }
 
@@ -139,7 +139,7 @@ function onInput(e: Event) {
     onTitleCleared()
     scheduleAutoGenerate()
   }
-  store.dispatch('updateTitle', newVal)
+  store.commit('updateTitle', newVal)
   nextTick(() => {
     updateWidth()
     const el = inputEl.value
@@ -162,7 +162,7 @@ function onClear() {
   draftTitle.value = ''
   onTitleCleared()
   scheduleAutoGenerate()
-  store.dispatch('updateTitle', '')
+  store.commit('updateTitle', '')
   nextTick(updateWidth)
 }
 

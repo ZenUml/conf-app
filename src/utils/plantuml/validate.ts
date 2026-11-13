@@ -161,7 +161,7 @@ export const validatePlantUmlSyntaxForStore = async (
   const result = await validatePlantUmlSyntax(code);
 
   if (store && actionName) {
-    store.dispatch(actionName, result.error);
+    store.commit(actionName, result.error);
   }
 
   return result.error;

@@ -91,7 +91,7 @@ export default defineComponent({
         onTitleCleared();
         scheduleAutoGenerate();
       }
-      store.dispatch("updateTitle", value);
+      store.commit("updateTitle", value);
       if (value && pendingResolve) {
         pendingResolve(value);
         pendingResolve = null;

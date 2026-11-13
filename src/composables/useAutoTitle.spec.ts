@@ -5,8 +5,8 @@ const fakeStore = vi.hoisted(() => {
   const state = { diagram: { title: '' } as { title: string } }
   return {
     state,
-    dispatch: vi.fn((action: string, payload: any) => {
-      if (action === 'updateTitle') state.diagram.title = (payload || '').trim()
+    commit: vi.fn((mutation: string, payload: any) => {
+      if (mutation === 'updateTitle') state.diagram.title = (payload || '').trim()
     }),
   }
 })
@@ -33,7 +33,7 @@ async function runAnimation(title: string) {
 describe('useAutoTitle', () => {
   beforeEach(() => {
     ;(useAutoTitle as any).__resetForTests()
-    fakeStore.dispatch.mockClear()
+    fakeStore.commit.mockClear()
     fakeStore.state.diagram.title = ''
     vi.mocked(aiGenerateTitle).mockReset()
     vi.mocked(toast).mockClear()
@@ -66,7 +66,7 @@ describe('useAutoTitle', () => {
       const { clearSavedRefusalTitle } = useAutoTitle()
       clearSavedRefusalTitle('mermaid')
       expect(fakeStore.state.diagram.title).toBe('Why do we need retries?')
-      expect(fakeStore.dispatch).not.toHaveBeenCalled()
+      expect(fakeStore.commit).not.toHaveBeenCalled()
       expect(trackAnalyticsEvent).not.toHaveBeenCalled()
     })
   })
@@ -102,7 +102,7 @@ describe('useAutoTitle', () => {
     await runAnimation('Order Checkout')
     await p
     expect(aiGenerateTitle).toHaveBeenCalledWith({ dsl: 'A->B: hi', type: 'sequence' })
-    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Order Checkout')
+    expect(fakeStore.commit).toHaveBeenCalledWith('updateTitle', 'Order Checkout')
     expect(showSpark.value).toBe(false)
   })
 
@@ -117,7 +117,7 @@ describe('useAutoTitle', () => {
     await runAnimation('Order Flow')
     await p
     expect(aiGenerateTitle).toHaveBeenCalledWith({ dsl: 'Start\nProcess order\nEnd', type: 'flowchart' })
-    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Order Flow')
+    expect(fakeStore.commit).toHaveBeenCalledWith('updateTitle', 'Order Flow')
   })
 
   it('sends the OpenAPI specification type for OpenAPI documents', async () => {
@@ -135,7 +135,7 @@ describe('useAutoTitle', () => {
       dsl: spec,
       type: 'OpenAPI specification',
     })
-    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Inventory API')
+    expect(fakeStore.commit).toHaveBeenCalledWith('updateTitle', 'Inventory API')
   })
 
   it('does not re-trigger for unchanged content (dedup hash)', async () => {
@@ -165,9 +165,9 @@ describe('useAutoTitle', () => {
     const p = generate('init', SEQ)
     await runAnimation('Order Checkout')
     await p
-    fakeStore.dispatch.mockClear()
+    fakeStore.commit.mockClear()
     dismiss()
-    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', '')
+    expect(fakeStore.commit).toHaveBeenCalledWith('updateTitle', '')
     await generate('init', SEQ)
     expect(aiGenerateTitle).toHaveBeenCalledTimes(1)
   })
@@ -308,7 +308,7 @@ describe('useAutoTitle', () => {
     const p = generate('user', { code: 'Order Service\nInventory', diagramType: DiagramType.Graph, currentTitle: '' })
     await runAnimation('Order Processing Flow')
     await p
-    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'Order Processing Flow')
+    expect(fakeStore.commit).toHaveBeenCalledWith('updateTitle', 'Order Processing Flow')
   })
 
   it('maps Mermaid + PlantUML to the right type param', async () => {
@@ -488,6 +488,6 @@ describe('useAutoTitle', () => {
     expect(displayedTitle.value).toBe('')
     await vi.advanceTimersByTimeAsync(500)
     await p
-    expect(fakeStore.dispatch).not.toHaveBeenCalledWith('updateTitle', 'Order Checkout Process')
+    expect(fakeStore.commit).not.toHaveBeenCalledWith('updateTitle', 'Order Checkout Process')
   })
 })

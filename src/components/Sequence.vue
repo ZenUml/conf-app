@@ -189,7 +189,7 @@ export default {
       setTimeout(() => this.$refs.viewport?.layout(), 10);
     },
     updateCode(newCode) {
-      this.$store.dispatch("updateCode2", newCode);
+      this.$store.commit("updateCode2", newCode);
       EventBus.$emit("updateContent", this.$store.state.diagram);
     }
   },

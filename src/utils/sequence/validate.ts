@@ -95,7 +95,7 @@ export const validateSequenceSyntaxForStore = async (
   const result = await validateSequenceSyntax(code);
 
   if (store && actionName) {
-    store.dispatch(actionName, result.error);
+    store.commit(actionName, result.error);
   }
 
   return result.error;

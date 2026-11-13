@@ -44,7 +44,7 @@ const diagramType = computed(() => store.state.diagram.diagramType);
 const code = computed(() => getCodeFromDiagram(store.state.diagram, diagramType.value))
 
 const onEditorCodeChange = (newCode) => {
-  store.dispatch(getStoreUpdateAction(diagramType.value), newCode);
+  store.commit(getStoreUpdateAction(diagramType.value), newCode);
 }
 
 // Async parsers can finish out of order. Only the validation started for the
@@ -63,7 +63,7 @@ const debouncedValidate = debounce(async (newCode, revision) => {
   }
 
   if (revision === validationRevision) {
-    store.dispatch('updateError', result.error);
+    store.commit('updateError', result.error);
   }
 }, 1000);
 // Watch for code changes and update error state
@@ -71,7 +71,7 @@ watch(code, (newCode) => {
   validationRevision += 1;
   // Any existing error describes the previous source. Clear it immediately;
   // the latest validation will restore an error if the new source is invalid.
-  store.dispatch('updateError', null);
+  store.commit('updateError', null);
   debouncedValidate(newCode, validationRevision);
 }, { immediate: true });
 
@@ -145,7 +145,7 @@ onBeforeUnmount(() => {
   cmView.value.destroy();
   resetEditorMutationSession();
   // Clear error state when component is unmounted
-  store.dispatch('updateError', null);
+  store.commit('updateError', null);
 })
 </script>
 

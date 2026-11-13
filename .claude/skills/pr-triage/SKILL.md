@@ -54,6 +54,17 @@ node "$trusted_controller_dir/scripts/test-selection/pr-decision.mjs" publish --
 
 Publication creates a new comment; edited comments cannot authorize tests. The helper validates collaborator permission and the current head/base, then reconciles labels. A stale result requires fresh investigation. Every new push requires a new decision; full coverage returns to manual triage each time.
 
+## When only the base moved
+
+`PR validation` checks the decision after it gets the staging lock, often 30+ minutes after the push. A merge to `main` in that window fails "Select E2E for this PR" with `missing-or-stale-decision`, although the PR diff did not change. When that is the only problem and the user asks to refresh it, run the script instead of repeating the steps by hand. It reuses a previous collaborator `selected` decision only if the diff fingerprint and the catalogs are unchanged; `all`, `triage`, a changed diff or changed catalogs exit 2 and need the manual flow above.
+
+```bash
+node .claude/skills/pr-triage/scripts/refresh-decision.mjs --pr <PR_NUMBER>            # dry run, changes nothing
+node .claude/skills/pr-triage/scripts/refresh-decision.mjs --pr <PR_NUMBER> --confirm  # merges main into the PR branch, publishes, requests E2E
+```
+
+`--confirm` pushes a merge of `main` into the PR branch (a new head), publishes under your `gh` login (collaborator required) and requests the run; add `--no-request` to stop before the request. It loads the controller from a temporary clean checkout of the current `main` tip and retries up to four rounds if `main` moves again (exit 3 if it never settles). The run still queues for the staging lock, so a later merge to `main` can stale the decision again; check `PR validation` after it starts.
+
 ## Retain the lesson
 
 Before closing resolved triage, update IMPACT-MAP.md with the reusable product relation, caller/dependency boundary and source evidence that made the decision possible. Update the relevant test's literal `@feature:`, `@interface:` and `@scenario:feature:interface` tags only when its assertions cover that pair; check the derived coverage inventory in `tests/e2e-tests/config/scenario-coverage.mjs` (it reads literal metadata without executing tests). Record infrastructure/retired journeys as unclassified rather than inventing product coverage. Run the map/metadata policy checks. Keep source-confirmed wiring and actual UI verification distinct; preserve pending UI questions explicitly.

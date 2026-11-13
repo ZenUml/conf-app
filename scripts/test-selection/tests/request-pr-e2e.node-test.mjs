@@ -6,7 +6,7 @@ import { MARKER, catalog, readContext } from '../pr-decision.mjs';
 const HEAD = 'a'.repeat(40), BASE = 'b'.repeat(40), MERGE = 'c'.repeat(40), TREE = 'd'.repeat(40);
 async function fixture({ existingRunLabel = false, repoLabelExists = true } = {}) {
   const state = {
-    pr: { number: 42, state: 'open', draft: true, changed_files: 1, head: { sha: HEAD }, base: { sha: BASE }, merge_commit_sha: MERGE },
+    pr: { number: 42, state: 'open', draft: true, changed_files: 1, head: { sha: HEAD }, base: { sha: BASE, ref: 'main' }, merge_commit_sha: MERGE },
     files: [{ filename: 'docs/guide.md', status: 'modified', sha: 'blob' }], comments: [], calls: [],
     labels: ['bug', 'test:selected', ...(existingRunLabel ? ['test:run'] : [])], repoLabelExists,
     afterPreparation: null,
@@ -14,6 +14,7 @@ async function fixture({ existingRunLabel = false, repoLabelExists = true } = {}
   const api = async (path, method = 'GET', body) => {
     state.calls.push({ path, method, body });
     const route = path.split('?')[0];
+    if (route === '/git/ref/heads/main') return { object: { type: 'commit', sha: state.targetSha ?? BASE } };
     if (route === '/pulls/42') return structuredClone(state.pr);
     if (route === '/pulls/42/files') return structuredClone(state.files);
     if (route === '/issues/42/comments') return structuredClone(state.comments);

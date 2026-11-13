@@ -13,8 +13,7 @@ name: Export modal validation
 # (PR #840); do not merge this ahead of it.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**', 'workers/render-mcp/**', '.github/workflows/render-mcp-deploy.yml', 'scripts/ci/check-render-mcp.mjs', 'scripts/ci/wait-for-render-mcp*']
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   schedule:
     # 04:17 UTC. smoke-test.yml runs at 02:00 and daily-regression.yml at 03:00 (both
     # use the shared robot account / staging), e2e-flake-ranking.yml at 03:00 on
@@ -33,8 +32,36 @@ permissions:
   contents: read
 
 jobs:
+  authorize:
+    name: Authorize export tests
+    if: ${{ github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'test:run' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Restrict independent runs to default branch
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: test "$BRANCH" = "$DEFAULT_BRANCH"
+      - name: Authorize current decision for PRs
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          CANDIDATE: ${{ github.sha }}
+        run: node scripts/test-selection/pr-decision.mjs check --pr "$PR" --candidate "$CANDIDATE"
+
   export-modal:
-    name: "Export modal (standalone dev server)"
+    needs: authorize
+    if: ${{ needs.authorize.result == 'success' }}
+    name: ${{ github.event.action == 'labeled' && github.event.label.name != 'test:run' && 'Ignored label export' || 'Export modal (standalone dev server)' }}
     runs-on: ubuntu-24.04
     # The suite takes about 5.5 min once dependencies are in. 20 min leaves room for a
     # cold pnpm store and a cold Playwright browser download.

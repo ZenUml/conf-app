@@ -217,7 +217,7 @@ jobs:
         run: node scripts/ci/wait-for-e2e.mjs --cleanup
 
   pr-pipeline-outcome:
-    name: Pipeline outcome
+    name: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'test:run' && 'Ignored label update' || 'Pipeline outcome' }}
     if: ${{ always() && needs.gate.outputs.run == 'true' }}
     needs: [gate, select, staging-lite, e2e-auth-lite, pr-e2e-validation]
     runs-on: ubuntu-latest

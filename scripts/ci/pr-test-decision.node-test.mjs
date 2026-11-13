@@ -5,8 +5,8 @@ import yaml from 'js-yaml';
 import { dispatchBody } from './wait-for-e2e.mjs';
 
 const workflow = async name => yaml.load(await readFile(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
-const [pr, child, runner, metadata, exporting, main, nightly] = await Promise.all([
-  'pr-validation', 'pr-e2e-validation', 'e2e-test', 'pr-test-decision', 'export-modal-nightly', 'main-staging-validation', 'staging-transaction',
+const [pr, child, runner, metadata, exporting, main, nightly, checks] = await Promise.all([
+  'pr-validation', 'pr-agent-e2e-validation', 'e2e-test', 'pr-test-decision', 'export-modal-nightly', 'main-staging-validation', 'staging-transaction', 'pr-checks',
 ].map(workflow));
 const steps = job => job.steps ?? [];
 const needs = job => Array.isArray(job.needs) ? job.needs : job.needs ? [job.needs] : [];
@@ -30,7 +30,7 @@ function allows(job, values = {}) {
 }
 
 test('all PR browser E2E lanes require successful current selection, including Draft PRs', () => {
-  for (const id of ['preview-e2e', 'export-e2e', 'e2e-auth-lite', 'pr-e2e-validation']) {
+  for (const id of ['e2e-auth-lite', 'pr-e2e-validation']) {
     const job = pr.jobs[id];
     assert.ok(needs(job).includes('select'), `${id} must depend on authorization`);
     assert.equal(allows(job), true, `${id} can run while Draft with a valid decision`);
@@ -39,12 +39,12 @@ test('all PR browser E2E lanes require successful current selection, including D
 });
 
 test('build, unit tests and deployment remain independent of test triage', () => {
-  for (const id of ['build','staging-lite']) {
+  for (const id of ['staging-lite']) {
     assert.ok(!needs(pr.jobs[id]).includes('select'));
     assert.equal(allows(pr.jobs[id], {'needs.select.result':'failure'}), true);
     assert.equal(allows(pr.jobs[id], {'needs.gate.outputs.run':'false'}), false);
   }
-  assert.match(runText(pr.jobs.build), /pnpm test:unit/);
+  assert.ok(!pr.jobs.build, 'unit tests live in independent PR checks');
 });
 
 test('PR selection uses trusted comment authorization with no Jev request or force-full input', () => {
@@ -105,14 +105,19 @@ test('each PR staging suite requires guarded artifacts and rechecks before plann
   assert.equal(planning.env.REQUIRE_PR_DECISION,'${{ inputs.require-pr-decision }}');
 });
 
-test('standalone preview and export browser suites are guarded, while default-branch export nightly remains independent', () => {
-  assert.ok(authorization(pr.jobs['preview-e2e']));
-  assert.equal(pr.jobs['export-e2e'].with['decision-id'],'${{ needs.select.outputs.decision-id }}');
-  assert.ok(needs(exporting.jobs['export-modal']).includes('authorize'));
-  const guard=authorization(exporting.jobs.authorize);
-  assert.ok(guard);
-  assert.match(guard.run,/\[ "\$BRANCH" = "\$DEFAULT_BRANCH" \]/);
+test('standalone preview and export require trusted PR authorization and replay on test:run', () => {
   assert.ok(exporting.on.schedule.length);
+  for (const [wf, id, suite] of [[checks, 'authorize-preview', 'preview-e2e'], [exporting, 'authorize', 'export-modal']]) {
+    assert.ok(wf.on.pull_request.types.includes('labeled'));
+    const gate = wf.jobs[id];
+    assert.ok(authorization(gate));
+    assert.equal(steps(gate).find(step => step.uses?.startsWith('actions/checkout@')).with.ref, defaultRef);
+    assert.ok(needs(wf.jobs[suite]).includes(id));
+    assert.match(String(gate.if), /test:run/);
+  }
+  assert.match(String(checks.jobs.unit.if), /labeled/);
+  assert.match(String(checks.jobs['asyncapi-build'].if), /labeled/);
+  assert.match(runText(exporting.jobs.authorize), /DEFAULT_BRANCH/);
 });
 
 test('privileged early metadata handles every PR and runs only trusted controller code', () => {

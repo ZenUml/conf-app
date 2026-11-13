@@ -1771,6 +1771,8 @@ export type AnalyticsEventName =
   // clicks on that same exposure. Preserve these explicit properties through
   // preview mount/render/failure, add click/result, close and post-reload actions.
   // Flag-off and legacy flows omit all experiment fields; never send copy text.
+  // `requested` is sent at 100% for `ready` and at 10% with `sample_rate` for
+  // `pending` / `no_diagram` (TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE).
   | "title_draft_requested"
   // Native showFlag returned: exposure denominator, with experiment props above.
   | "title_draft_flag_shown"
@@ -1845,6 +1847,9 @@ export type AnalyticsEventName =
   // which copies it (mailto does nothing in the Forge sandbox). Properties:
   // feature_area 'license_notice', surface ('viewer' | 'fullscreen'),
   // macro_type.
+  // Full viewer decision settles or expires; flag-off views emit nothing.
+  // license_notice_basis distinguishes Forge inactivity from explicit Legacy Free evidence.
+  | "license_notice_evaluated"
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"
   | "license_notice_ticket_clicked"

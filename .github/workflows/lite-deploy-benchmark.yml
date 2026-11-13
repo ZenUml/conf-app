@@ -34,6 +34,7 @@ concurrency:
 jobs:
   target:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       sha: ${{ steps.pin.outputs.sha }}
       pairs: ${{ steps.pin.outputs.pairs }}
@@ -188,6 +189,7 @@ jobs:
     needs: [target, migrations, baseline-1, candidate-1, candidate-2, baseline-2, baseline-3, candidate-3]
     if: ${{ !cancelled() && needs.baseline-1.result == 'success' && needs.candidate-1.result == 'success' && (needs.target.outputs.pairs == '1' || (needs.candidate-2.result == 'success' && needs.baseline-2.result == 'success' && needs.baseline-3.result == 'success' && needs.candidate-3.result == 'success')) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:

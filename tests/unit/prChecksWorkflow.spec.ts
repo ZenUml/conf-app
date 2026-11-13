@@ -20,13 +20,15 @@ describe('PR checks that do not touch staging', () => {
   });
 
   it('runs unit tests, the AsyncAPI build and the Viewer preview', () => {
-    expect(Object.keys(checks.jobs).sort()).toEqual(['asyncapi-build', 'authorize-preview', 'build', 'preview-e2e', 'unit']);
+    expect(Object.keys(checks.jobs).sort()).toEqual(['asyncapi-build', 'authorize-preview', 'basic-scope', 'build', 'preview-e2e', 'unit']);
     const guard = checks.jobs['authorize-preview'];
     expect(guard.steps.find((step: any) => step.uses?.startsWith('actions/checkout@')).with.ref).toBe('${{ github.event.repository.default_branch }}');
     expect(guard.steps.find((step: any) => step.run?.includes('pr-decision.mjs check'))).toBeDefined();
     expect(checks.jobs['preview-e2e'].needs).toBe('authorize-preview');
     expect(checks.jobs['preview-e2e'].if).toContain("needs.authorize-preview.result == 'success'");
     expect(checks.jobs.unit.if).toContain("github.event.action != 'labeled'");
+    expect(checks.jobs.unit.needs).toBe('basic-scope');
+    expect(checks.jobs.unit.if).toContain("needs.basic-scope.outputs.run != 'false'");
     expect(checks.jobs['asyncapi-build'].if).toContain("github.event.action != 'labeled'");
     expect(guard.if).toContain("github.event.label.name == 'test:run'");
     const runs = checks.jobs['asyncapi-build'].steps.map((step: any) => step.run);
@@ -45,7 +47,8 @@ describe('PR checks that do not touch staging', () => {
   it('keeps one Build and Unit Test result that fails unless every part succeeded', () => {
     const { build } = checks.jobs;
     expect(build.name).toContain('Build and Unit Test');
-    expect(build.needs).toEqual(['unit', 'asyncapi-build']);
+    expect(build.needs).toEqual(['basic-scope', 'unit', 'asyncapi-build']);
+    expect(build.if).toContain("needs.basic-scope.outputs.run != 'false'");
     expect(build.if).toContain('always()');
     expect(build.if).toContain("github.event.action != 'labeled'");
     const env = build.steps[0].env;

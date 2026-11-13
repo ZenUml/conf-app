@@ -18,6 +18,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  basic-scope:
+    name: Determine build and unit scope
+    if: ${{ github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/ci/pr-basic-scope.mjs
+
   # Four shards take half the wall time of one job, for 68% more runner time.
   # Measured on run 42038781539, three repeats each, median:
   #   shards  slowest job  total runner time
@@ -27,7 +45,8 @@ jobs:
   #   4        89 s        299 s
   # Three shards cost as much as four, so three is not offered.
   unit:
-    if: ${{ github.event.action != 'labeled' }}
+    needs: basic-scope
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
     name: ${{ github.event.action == 'labeled' && 'Ignored label unit' || 'Unit tests' }} (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -56,7 +75,8 @@ jobs:
       - run: pnpm test:unit --shard=${{ matrix.shard }}/4
 
   asyncapi-build:
-    if: ${{ github.event.action != 'labeled' }}
+    needs: basic-scope
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
     name: ${{ github.event.action == 'labeled' && 'Ignored label AsyncAPI' || 'AsyncAPI build and CI script tests' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -128,8 +148,8 @@ jobs:
   # One result for people and tools that look for this name.
   build:
     name: ${{ github.event.action == 'labeled' && 'Ignored label build' || 'Build and Unit Test' }}
-    needs: [unit, asyncapi-build]
-    if: ${{ always() && github.event.action != 'labeled' }}
+    needs: [basic-scope, unit, asyncapi-build]
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

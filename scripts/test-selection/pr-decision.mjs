@@ -9,7 +9,7 @@ import { CATEGORIES, CATEGORY_VERSION } from '../../tests/e2e-tests/config/categ
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { selectAgentFloor } from '../e2e-select.mjs';
-import { resolveSelection } from './resolve-agent.mjs';
+import { resolveSelection } from './resolve.mjs';
 import { SCENARIO_COVERAGE, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
 import { FEATURES, INTERFACES, SCENARIOS, scenarioKey, validScenarios, PRODUCT_IMPACT_FINGERPRINT } from '../../tests/e2e-tests/config/product-impact.mjs';
 

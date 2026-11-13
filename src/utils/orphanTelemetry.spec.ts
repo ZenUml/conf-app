@@ -111,9 +111,10 @@ describe('reportOrphanObserved', () => {
     );
   });
 
-  // #148: the direct by-id fetch detail rides on the event so a
-  // probe_skipped_no_probe_result can be told apart (403 vs 5xx vs thrown vs
-  // malformed) instead of collapsing into one bucket.
+  // #148: the direct by-id fetch detail rides on the event so a failed fetch
+  // can be told apart (403 vs 5xx vs thrown vs malformed). #1014: a fetch
+  // that failed WITHOUT proving the content absent is not an orphan, so it
+  // goes out as customcontent_fetch_unavailable, not customcontent_orphan_observed.
   describe('direct-fetch detail (#148)', () => {
     function lastProps() {
       return vi.mocked(trackEvent).mock.calls[0][3] as Record<string, unknown>;
@@ -130,8 +131,8 @@ describe('reportOrphanObserved', () => {
         },
       });
 
+      expect(vi.mocked(trackEvent).mock.calls[0][1]).toBe('customcontent_fetch_unavailable');
       expect(lastProps()).toMatchObject({
-        recoverable: 'probe_skipped_no_probe_result',
         direct_fetch_status: 'other_error',
         direct_fetch_http_status: 403,
         direct_fetch_error_code: 'FORBIDDEN',
@@ -189,6 +190,70 @@ describe('reportOrphanObserved', () => {
     });
   });
 
+});
+
+describe('reportOrphanObserved — transient fetch failure is not an orphan (#1014)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const rateLimited = {
+    directFetchStatus: 'other_error' as const,
+    directFetchHttpStatus: 429,
+    directFetchErrorClass: 'thrown' as const,
+  };
+
+  it('emits customcontent_fetch_unavailable, not customcontent_orphan_observed, on a 429', () => {
+    reportOrphanObserved('page1', 'cc1', 'sequence', undefined, {
+      recoveryUsed: false,
+      directFetch: rateLimited,
+    });
+
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      expect.anything(), 'customcontent_orphan_observed', expect.anything(), expect.anything(),
+    );
+    expect(trackEvent).toHaveBeenCalledWith(
+      'cc1',
+      'customcontent_fetch_unavailable',
+      'warning',
+      {
+        diagram_kind: 'sequence',
+        page_id: 'page1',
+        direct_fetch_status: 'other_error',
+        direct_fetch_http_status: 429,
+        direct_fetch_error_class: 'thrown',
+      },
+    );
+  });
+
+  it('emits customcontent_fetch_unavailable without page_id when the 429 happened with no page id', () => {
+    reportOrphanObserved(undefined, 'cc1', 'graph', undefined, { directFetch: rateLimited });
+
+    expect(vi.mocked(trackEvent).mock.calls[0][1]).toBe('customcontent_fetch_unavailable');
+    expect(vi.mocked(trackEvent).mock.calls[0][3]).not.toHaveProperty('page_id');
+  });
+
+  it('still reports a confirmed 404 with no page id as an orphan (probe_skipped_no_page_id)', () => {
+    reportOrphanObserved(undefined, 'cc1', 'openapi', undefined, {
+      directFetch: { directFetchStatus: 'not_found', directFetchHttpStatus: 404 },
+    });
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      'cc1',
+      'customcontent_orphan_observed',
+      'warning',
+      expect.objectContaining({ recoverable: 'probe_skipped_no_page_id', direct_fetch_status: 'not_found' }),
+    );
+  });
+
+  it('still reports a recovered orphan as an orphan', () => {
+    reportOrphanObserved('page1', 'cc1', 'sequence', fakeProbe({ recoverable: true, candidateCount: 1 }), {
+      recoveryUsed: true,
+      recoveredId: 'cc2',
+      directFetch: { directFetchStatus: 'not_found', directFetchHttpStatus: 404 },
+    });
+
+    expect(vi.mocked(trackEvent).mock.calls[0][1]).toBe('customcontent_orphan_observed');
+  });
 });
 
 describe('reportOrphanMacroRepaired', () => {

@@ -895,7 +895,7 @@ export type AnalyticsProperties = {
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
   // Full only: Forge `license.active` at render time. Absent on other variants
-  // and whenever Forge supplies no boolean; Forge also reports false for free apps.
+  // and whenever Forge supplies no boolean; Forge documents `license` as undefined for free apps.
   license_active?: boolean;
   // Why the Full license notice was shown; missing license fields alone are never evidence.
   license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock";

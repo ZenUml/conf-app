@@ -1,5 +1,7 @@
 # ADR-0004: Feasibility of server-side rendering for export (issue #434)
 
+> **Correction, 2026-11-05:** the minor-version claim about egress below is wrong. Slice 1 (#490) deployed as a major version and was rolled back in #498. See `CLAUDE.md`, "Forge app versions".
+
 **Status**: Proposed — feasibility only, no implementation
 **Date**: 2026-08-17
 

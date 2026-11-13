@@ -14,5 +14,14 @@
   "floor": [
     "@smoke"
   ],
-  "github_e2e": "pending"
+  "github_e2e": "passed",
+  "merge_candidate": "8f617a846a5f1c1d53150919c2b64fb50ecd8dbf",
+  "pr_checks_run": 43384084623,
+  "export_run": 43384084568,
+  "staging_parent": 43384084547,
+  "staging_child": 43385147221,
+  "merged_commit": "ed6b9f40bda3c50468b1c05410addfce029005e0",
+  "main_run": 43386130504,
+  "main_result": "success",
+  "postmerge_followup": 1156
 }

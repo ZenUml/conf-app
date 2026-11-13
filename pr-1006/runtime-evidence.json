@@ -1,0 +1,25 @@
+{
+  "tested_tree": "0311b05848a502f9dbc02143714b5941b523ee1f",
+  "complete": true,
+  "execution_succeeded": true,
+  "metrics": {
+    "planned_test_count": 7,
+    "executed_test_count": 7,
+    "passed_test_count": 7,
+    "skipped_test_count": 0,
+    "failed_test_count": 0,
+    "test_body_duration_ms": 328343,
+    "runner_setup_duration_ms": null,
+    "playwright_execution_duration_ms": null,
+    "runner_setup_critical_path_ms": 27408,
+    "playwright_execution_critical_path_ms": 75272,
+    "queue_critical_path_ms": null,
+    "queue_total_ms": 0,
+    "e2e_critical_path_ms": null,
+    "workflow_timing_source": "unavailable"
+  },
+  "validation": {
+    "valid": true,
+    "errors": []
+  }
+}

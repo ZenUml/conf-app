@@ -12,3 +12,9 @@ The new workflow uses an immutable current-commit collaborator decision rather t
 Product build inputs are unchanged from the validated foundation. Confluence UI stages are N/A. Local unit suite: 6748 passed, 3 skipped; final policy/CI Node suite: 355 passed. Independent final review found no P1/P2 in trusted checkout, provenance, API inventory, catalog parity or concurrency.
 
 `basic-scope-proof.json` exercises the actual pure basic-scope function: docs/skills-only=false; mixed source, code renamed into docs, and unavailable discovery=true. It uses fictional paths and no external network.
+
+## Completed runtime acceptance
+
+Final-head PR checks, export and authorized staged E2E succeeded. `runtime-evidence.json` records 7 planned/executed/passed staging smoke cases, no skips/failures, complete valid coverage. `actual-selection.json` records adoption of collaborator decision 6846672608 and no Jev request. Merge ed6b9f40 then passed main CI run 43386130504, including all staging variants.
+
+Live metadata execution on PR 994 succeeded and removed the old jev-all label while retaining Draft/triage. Post-merge hardening for event retention, actual target-tip freshness and GitHub Draft permissions is tracked in PR 1156; those live acceptance results remain pending here.

@@ -1,0 +1,22 @@
+{
+  "merged": true,
+  "main_run": 43386130504,
+  "main_result": "success",
+  "live_metadata_trial": {
+    "pr": 994,
+    "run": 43386691958,
+    "workflow_result": "success",
+    "mode": "triage",
+    "draft": true,
+    "legacy_jev_all_removed": true
+  },
+  "followup": {
+    "pr": 1156,
+    "status": "verification pending",
+    "purpose": [
+      "retain revocation events",
+      "isolate Draft permissions and publish blocking check first",
+      "resolve actual target tip for base identity"
+    ]
+  }
+}

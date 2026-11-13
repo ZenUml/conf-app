@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "decision_source": "agent",
+  "decision_id": 6846672608,
+  "pr_number": 1006,
+  "pr_head_sha": "58d2e42a7cb9214121698e480d6e22933bbbe4c1",
+  "head_sha": "8f617a846a5f1c1d53150919c2b64fb50ecd8dbf",
+  "base_sha": "f85f3867d1747098241ab94fa96514ca3931e2f0",
+  "mode": "selected",
+  "source": "labeling",
+  "scenarios": [],
+  "model": null,
+  "request": {
+    "outcome": "not-requested",
+    "source": "agent-skill"
+  }
+}

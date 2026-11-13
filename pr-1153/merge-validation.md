@@ -31,4 +31,4 @@ None are title-draft recovery assertions. The absence of a title-draft-specific 
 ## Post-merge
 
 Main pipeline: https://github.com/ZenUml/conf-app/actions/runs/43398790361
-Status: pending shared staging environment at this report's preparation. No production release was invoked.
+Status: SUCCESS on merge7143f5ef, including Pipeline outcome. Build child43400529075 and staging child43400526313 succeeded. Actual main E2E children: Lite43401212393 (7/7 shards), Full43401248614 (7/7), Diagramly43401245334 (7/7), AsyncAPI43401212555 (2/2), all succeeded. These are main's configured plans, separate from the full PR plan above. Draft child43401866472 and its four Draft jobs succeeded. Four draft releases v2026.11.131920-{lite,full,diagramly,asyncapi} were read back from GitHub with draft=true and target_commitish=7143f5efe24b3976fec21d2933ec48587026aff9. No production app release was published.

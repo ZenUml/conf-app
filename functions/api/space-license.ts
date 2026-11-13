@@ -16,12 +16,6 @@ export interface SpaceLicenseRecord {
   userAccountId?: string;
 }
 
-interface LicenseIndexEntry {
-  cloudId: string;
-  spaceKey: string;
-  userAccountId?: string;
-}
-
 function validateAdminAuth(request: Request, env: Env): boolean {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader) return false;
@@ -36,30 +30,30 @@ function kvKey(cloudId: string, spaceKey: string, userAccountId?: string): strin
     : `license:${cloudId}:${spaceKey}`;
 }
 
-async function getIndex(kv: KVNamespace): Promise<LicenseIndexEntry[]> {
-  const raw = await kv.get('license-index');
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as LicenseIndexEntry[];
-  } catch {
-    return [];
+/**
+ * Every licence record, read straight from its `license:` key. Workers KV
+ * returns at most 1000 keys per list call, so follow the cursor until the
+ * listing is complete. `license-index` is not a `license:` key (it has a dash,
+ * not a colon) and is never read.
+ */
+async function listLicenseKeys(kv: KVNamespace, prefix: string): Promise<string[]> {
+  const names: string[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await kv.list({ prefix, cursor });
+    for (const key of page.keys) names.push(key.name);
+    if (page.list_complete) return names;
+    cursor = page.cursor;
   }
 }
 
-async function updateIndex(
-  kv: KVNamespace,
-  cloudId: string,
-  spaceKey: string,
-  userAccountId?: string
-): Promise<void> {
-  const index = await getIndex(kv);
-  const exists = index.some(
-    (e) => e.cloudId === cloudId && e.spaceKey === spaceKey && e.userAccountId === userAccountId
-  );
-  if (!exists) {
-    index.push({ cloudId, spaceKey, ...(userAccountId && { userAccountId }) });
-    await kv.put('license-index', JSON.stringify(index));
-  }
+/**
+ * Same rule as space-status.ts: expired means `new Date(expiresAt) < now`. A
+ * missing or unparsable expiresAt compares false, so it is not expired. Do not
+ * change that here; the readers' disagreement is tracked in #973.
+ */
+function isExpired(record: SpaceLicenseRecord, now: Date): boolean {
+  return new Date(record.expiresAt) < now;
 }
 
 async function handlePost(
@@ -131,7 +125,6 @@ async function handlePost(
   }
 
   await kv.put(key, JSON.stringify(record));
-  await updateIndex(kv, cloudId, spaceKey, userAccountId);
 
   const statusCode = existing ? 200 : 201;
   return json(record, { status: statusCode });
@@ -145,18 +138,28 @@ async function handleGet(
   const filterCloudId = url.searchParams.get('cloudId');
   const filterStatus = url.searchParams.get('status');
 
-  const index = await getIndex(kv);
+  // A cloudId is a UUID with no ':' in it, so `license:<cloudId>:` matches only that site's keys.
+  const names = await listLicenseKeys(kv, filterCloudId ? `license:${filterCloudId}:` : 'license:');
+  const now = new Date();
 
-  // Fetch all records
   const records: SpaceLicenseRecord[] = [];
-  for (const entry of index) {
-    if (filterCloudId && entry.cloudId !== filterCloudId) continue;
-
-    const raw = await kv.get(kvKey(entry.cloudId, entry.spaceKey, entry.userAccountId));
+  for (const name of names) {
+    const raw = await kv.get(name);
     if (!raw) continue;
 
-    const record = JSON.parse(raw) as SpaceLicenseRecord;
-    if (filterStatus && record.status !== filterStatus) continue;
+    let record: SpaceLicenseRecord;
+    try {
+      record = JSON.parse(raw) as SpaceLicenseRecord;
+    } catch {
+      console.warn('space-license: skipping unparsable record', { key: name });
+      continue;
+    }
+
+    if (filterStatus === 'active') {
+      if (record.status !== 'active' || isExpired(record, now)) continue;
+    } else if (filterStatus && record.status !== filterStatus) {
+      continue;
+    }
 
     records.push(record);
   }

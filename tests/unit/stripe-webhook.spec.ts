@@ -21,14 +21,6 @@ async function activateLicense(
     record = { cloudId, spaceKey, status: 'active', activatedBy, paymentReference: stripeSessionId, expiresAt, createdAt: now, updatedAt: now }
   }
   await kv.put(key, JSON.stringify(record))
-
-  // Update index
-  const indexRaw = await kv.get('license-index')
-  const index: Array<{ cloudId: string; spaceKey: string }> = indexRaw ? JSON.parse(indexRaw) : []
-  if (!index.some((e) => e.cloudId === cloudId && e.spaceKey === spaceKey)) {
-    index.push({ cloudId, spaceKey })
-    await kv.put('license-index', JSON.stringify(index))
-  }
   return record
 }
 
@@ -60,21 +52,6 @@ describe('stripe-webhook activateLicense', () => {
     const oneYear = 365 * 24 * 60 * 60 * 1000
     expect(expires).toBeGreaterThan(before + oneYear - 10000)
     expect(expires).toBeLessThan(before + oneYear + 10000)
-  })
-
-  it('adds entry to license-index', async () => {
-    await activateLicense(kv, 'cloud-abc', 'MYSPACE', 'cs_test_123', 'buyer@example.com')
-    const indexJson = store['license-index']
-    const index = JSON.parse(indexJson)
-    expect(index).toContainEqual({ cloudId: 'cloud-abc', spaceKey: 'MYSPACE' })
-  })
-
-  it('does not duplicate license-index entries on re-activation', async () => {
-    await activateLicense(kv, 'cloud-abc', 'MYSPACE', 'cs_test_123', 'buyer@example.com')
-    await activateLicense(kv, 'cloud-abc', 'MYSPACE', 'cs_test_456', 'buyer@example.com')
-    const index = JSON.parse(store['license-index'])
-    const matches = index.filter((e: any) => e.cloudId === 'cloud-abc' && e.spaceKey === 'MYSPACE')
-    expect(matches).toHaveLength(1)
   })
 })
 
@@ -203,6 +180,26 @@ describe('onRequest — client_reference_id activation fallback (flow)', () => {
     expect(body.spaceKey).toBe('ENG')
     expect(global.fetch).toHaveBeenCalledWith('https://example-tenant.atlassian.net/_edge/tenant_info')
     expect(JSON.parse(kv.store['license:cloud-resolved:ENG'])).toMatchObject({ status: 'active' })
+  })
+
+  it('writes only the licence record: no license-index read-modify-write (#1075)', async () => {
+    global.fetch = vi.fn() as unknown as typeof fetch
+
+    const kv = makeKV()
+    const request = await makeRequest({
+      id: 'cs_test_idx_1',
+      customer_email: 'buyer@example.com',
+      metadata: { cloudId: 'cloud-idx', spaceKey: 'ENG' },
+    })
+
+    const response = await onRequest({
+      request,
+      env: { STRIPE_WEBHOOK_SECRET: SECRET, SPACE_LICENSE_KV: kv as unknown as KVNamespace },
+    } as any)
+
+    expect(response.status).toBe(200)
+    expect(Object.keys(kv.store)).toEqual(['license:cloud-idx:ENG'])
+    expect(kv.get).not.toHaveBeenCalledWith('license-index')
   })
 
   it('returns 500 (not 400) when tenant_info resolution fails, so Stripe retries the event', async () => {

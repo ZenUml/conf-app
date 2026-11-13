@@ -1494,6 +1494,17 @@ export type AnalyticsEventName =
   // us when phase-2 embed support becomes worth building).
   | "macro_convert_job_claimed"
   | "macro_convert_job_completed"
+  // A site installed the app (#1102). Emitted by functions/forge-installed.ts
+  // from the Forge `avi:forge:installed:app` trigger, not by the browser
+  // tracker — same contract as the snapshot/conversion events above. Upgrades
+  // are deliberately NOT sent: every deploy fires `upgraded` on every install.
+  // distinct_id is the installer's accountId (the same id the frontend passes
+  // to mixpanel.identify), so "installer published a diagram within 24h" is a
+  // plain Mixpanel funnel: app_installed -> macro_create_succeeded.
+  // Properties: feature_area 'system', surface 'forge_trigger', product_type,
+  // cloud_id, installation_id, app_version, client_domain (only when D1
+  // already knows the site's domain — often absent on a brand-new install).
+  | "app_installed"
   | "close_guard_rejected"
   // Close-guard draft-restore banner (utils/restoreDraftBanner.ts). Shipped
   // 2026-05-10 without instrumentation, so 2.5 months of usage are dark —

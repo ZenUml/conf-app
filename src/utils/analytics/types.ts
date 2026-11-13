@@ -122,6 +122,8 @@ export type AnalyticsProperties = {
   /** Visible step when a targeted survey is dismissed, including an in-flight send. */
   survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;
+  /** Forge installation id (app_installed, backend-emitted; #1102). */
+  installation_id?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent
   // from src/export.js / src/asyncapi-export.js (Forge backend, outside this

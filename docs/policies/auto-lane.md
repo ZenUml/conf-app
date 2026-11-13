@@ -102,7 +102,7 @@ split by `dependency-type`, so a development-only PR can.
 
 | Control | State | How it works |
 |---|---|---|
-| Kill switch | Built, OFF | Repository variable `AUTO_LANE_ENABLED`. Anything but the exact string `true` makes the job print `auto lane disabled` and stop before any network call. |
+| Kill switch | Built, ON since 2026-11-13 | Repository variable `AUTO_LANE_ENABLED`. Anything but the exact string `true` makes the job print `auto lane disabled` and stop before any network call. |
 | Volume cap | Built | Two merges per UTC day (counted from merged PRs that carry the `auto-lane` label) and one merge per run. Reason: `PR validation` holds the shared staging lock, median 18 min, longest 60 min over 38 runs. |
 | Ledger | Built for merges | The job adds the label `auto-lane` to a PR just before it merges it. The daily cap reads that label. |
 | Hold | Built | A person adds the label `auto-lane:hold` to a PR; the job skips it. |

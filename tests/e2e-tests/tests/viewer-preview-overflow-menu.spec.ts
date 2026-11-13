@@ -39,7 +39,7 @@ import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('viewer-preview.html')
 
-test.describe('GenericViewer — OverflowMenu trigger + Download debug info', { tag: ['@viewer', '@export'] }, () => {
+test.describe('GenericViewer — OverflowMenu trigger + Download debug info', { tag: ['@viewer', '@export', '@feature:diagnostic-download', '@interface:inline-viewer', '@scenario:diagnostic-download:inline-viewer', '@check:component', '@execution:preview'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } })
 
   test.beforeEach(async ({ page }) => {

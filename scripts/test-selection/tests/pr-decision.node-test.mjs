@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { MARKER, catalog, readContext, validateDecision, findDecision, authorize, publish, synchronize, recordDeletedDecision } from '../pr-decision.mjs';
+import { MARKER, catalog, readContext, validateDecision, findDecision, authorize, publish, synchronize, syncAndPublish, draftIfUnresolved, recordDeletedDecision } from '../pr-decision.mjs';
 import { CATEGORIES } from '../../../tests/e2e-tests/config/categories.mjs';
 
 const HEAD = 'a'.repeat(40), BASE = 'b'.repeat(40), MERGE = 'c'.repeat(40), TREE = 'd'.repeat(40);
@@ -17,7 +17,7 @@ const comment = (decision, id = 10, overrides = {}) => ({
 
 async function fixture() {
   const state = {
-    pr: { number: 42, state: 'open', node_id: 'PR_example', draft: true, changed_files: 1, head: { sha: HEAD }, base: { sha: BASE }, merge_commit_sha: MERGE },
+    pr: { number: 42, state: 'open', node_id: 'PR_example', draft: true, changed_files: 1, head: { sha: HEAD }, base: { sha: BASE, ref: 'main' }, merge_commit_sha: MERGE },
     files: [{ filename: 'docs/guide.md', status: 'modified', sha: 'blob' }], comments: [], labels: [],
     permissions: { maintainer: 'write', visitor: 'read' }, actor: 'maintainer', calls: [],
     commit: { parents: [{ sha: BASE }, { sha: HEAD }], tree: { sha: TREE } },
@@ -25,6 +25,7 @@ async function fixture() {
   const api = async (path, method = 'GET', body) => {
     state.calls.push({ path, method, body });
     const route = path.split('?')[0];
+    if (route === '/git/ref/heads/main') return { object: { type: 'commit', sha: state.targetSha ?? BASE } };
     if (route === '/pulls/42' && method === 'GET') return structuredClone(state.pr);
     if (route === '/pulls/42/files') return structuredClone(state.files);
     if (route === '/issues/42/comments' && method === 'GET') return structuredClone(state.comments);
@@ -42,6 +43,7 @@ async function fixture() {
     if (route.startsWith('/issues/42/labels/') && method === 'DELETE') {
       state.labels = state.labels.filter(name => name !== decodeURIComponent(route.slice('/issues/42/labels/'.length))); return null;
     }
+    if (route === '/check-runs' && method === 'POST') return body;
     if (route === 'graphql' && method === 'POST') { state.pr.draft = true; return {}; }
     if (route.startsWith('/git/commits/')) return structuredClone(state.commit);
     throw new Error(`Unexpected API call: ${method} ${path}`);
@@ -400,4 +402,105 @@ test('editing an ordinary comment cannot manufacture a revocation', async () => 
   const event = { action: 'edited', issue: { number: 42, pull_request: {} }, comment: comment(f.decision), changes: { body: { from: 'Ordinary text' } } };
   assert.equal(await recordDeletedDecision(f.api, f.context, event, 'issue_comment'), false);
   assert.equal(f.state.calls.some(c => c.method !== 'GET'), false);
+});
+
+
+test('deferred synchronization publishes a blocking check before any Draft mutation', async () => {
+  const f = await fixture(); f.state.pr.draft = false;
+  const result = await syncAndPublish(f.api, f.context, { valid: false, reason: 'missing-collaborator-decision' }, { deferDraft: true, publishCheck: true });
+  assert.equal(result.executable, false);
+  assert.equal(f.state.pr.draft, false);
+  assert.equal(f.state.calls.some(call => call.path === 'graphql'), false);
+  assert.equal(f.state.calls.find(call => call.path === '/check-runs').body.conclusion, 'failure');
+  const failing = async (path, ...rest) => { if (path === 'graphql') throw new Error('Draft permission denied'); return f.api(path, ...rest); };
+  await assert.rejects(draftIfUnresolved(failing, 42), /Draft permission denied/);
+  assert.equal(f.state.calls.filter(call => call.path === '/check-runs').length, 1);
+  assert.equal(f.state.calls.find(call => call.path === '/check-runs').body.conclusion, 'failure');
+});
+
+test('Draft job rechecks current decision and only converts unresolved Ready PRs', async () => {
+  const f = await fixture();
+  assert.equal((await draftIfUnresolved(f.api, 42)).reason, 'already-draft');
+  f.state.pr.draft = false;
+  f.state.comments = [comment(f.decision)];
+  assert.equal((await draftIfUnresolved(f.api, 42)).reason, 'decision-approved');
+  assert.equal(f.state.pr.draft, false);
+  f.state.comments = [];
+  assert.equal((await draftIfUnresolved(f.api, 42)).converted, true);
+  assert.equal(f.state.pr.draft, true);
+});
+
+test('Draft job skips when an approval appears during its recheck', async () => {
+  const f = await fixture(); f.state.pr.draft = false;
+  let reads = 0;
+  const api = async (path, ...rest) => {
+    if (path.startsWith('/issues/42/comments') && ++reads === 2) f.state.comments = [comment(f.decision)];
+    return f.api(path, ...rest);
+  };
+  assert.equal((await draftIfUnresolved(api, 42)).reason, 'decision-approved');
+  assert.equal(f.state.pr.draft, false);
+});
+
+test('a failed check publication prevents deferred synchronization from succeeding', async () => {
+  const f = await fixture(); f.state.pr.draft = false;
+  const api = async (path, ...rest) => {
+    if (path === '/check-runs') throw new Error('check publication failed');
+    return f.api(path, ...rest);
+  };
+  await assert.rejects(syncAndPublish(api, f.context, { valid: false, reason: 'missing-collaborator-decision' }, { deferDraft: true, publishCheck: true }), /check publication failed/);
+  assert.equal(f.state.pr.draft, false);
+  assert.equal(f.state.calls.some(call => call.path === 'graphql'), false);
+});
+
+test('actual target tip invalidates an old approval and rejects an old merge even with a fresh decision', async () => {
+  const f = await fixture();
+  const target = 'e'.repeat(40);
+  f.state.targetSha = target; // GitHub's PR base.sha remains the old BASE snapshot.
+  f.state.comments = [comment(f.decision)];
+  const context = await readContext(f.api, 42);
+  assert.equal(context.pr.base.sha, target);
+  await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/);
+  const fresh = { ...f.decision, base_sha: target, diff_fingerprint: context.diff_fingerprint };
+  f.state.comments = [comment(fresh, 11)];
+  await assert.rejects(authorize(f.api, 42), /stale or unrelated candidate/);
+  f.state.commit.parents = [{ sha: target }, { sha: HEAD }];
+  const authorized = await authorize(f.api, 42);
+  assert.equal(authorized.selection.base_sha, target);
+  assert.equal(authorized.candidate, MERGE);
+});
+
+test('a target ref change during authorization fails closed', async () => {
+  const f = await fixture(); f.state.comments = [comment(f.decision)];
+  const api = async (path, ...rest) => {
+    const response = await f.api(path, ...rest);
+    if (path.startsWith('/git/commits/')) f.state.targetSha = 'e'.repeat(40);
+    return response;
+  };
+  await assert.rejects(authorize(api, 42), /PR advanced during authorization/);
+});
+
+test('target branch lookup failures and non-commit refs fail closed', async () => {
+  const f = await fixture(); f.state.comments = [comment(f.decision)];
+  const fail = async (path, ...rest) => {
+    if (path.startsWith('/git/ref/heads/')) throw new Error('target ref unavailable');
+    return f.api(path, ...rest);
+  };
+  await assert.rejects(readContext(fail, 42), /target ref unavailable/);
+  await assert.rejects(authorize(fail, 42), /target ref unavailable/);
+  const nonCommit = async (path, ...rest) => path.startsWith('/git/ref/heads/') ? { object: { type: 'tag', sha: BASE } } : f.api(path, ...rest);
+  await assert.rejects(readContext(nonCommit, 42), /target branch tip is invalid/);
+});
+
+test('target ref names with slash are encoded for lookup', async () => {
+  const f = await fixture(); f.state.pr.base.ref = 'release/stable';
+  const api = async (path, ...rest) => path === '/git/ref/heads/release%2Fstable' ? { object: { type: 'commit', sha: BASE } } : f.api(path, ...rest);
+  assert.equal((await readContext(api, 42)).pr.base.sha, BASE);
+});
+
+test('synchronization and publication reject a target that moved after inspection', async () => {
+  const f = await fixture();
+  f.state.targetSha = 'e'.repeat(40);
+  await assert.rejects(synchronize(f.api, f.context, { valid: false, reason: 'triage-requested' }), /PR changed before synchronization/);
+  await assert.rejects(publish(f.api, f.context, f.decision), /PR changed before publication/);
+  assert.equal(f.state.comments.length, 0);
 });

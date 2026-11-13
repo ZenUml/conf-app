@@ -51,13 +51,24 @@ async function paginate(api, path) {
   throw new Error('Incomplete GitHub pagination');
 }
 
+// The PR API's base.sha can lag the target branch. Decisions bind to the
+// current target ref, and inability to resolve it must never authorize E2E.
+export async function readPull(api, number) {
+  const pr = await api(`/pulls/${number}`);
+  const ref = pr.base?.ref;
+  if (typeof ref !== 'string' || !ref || ref.length > 1024 || /[\r\n\0]/.test(ref)) throw new Error('PR target branch is invalid');
+  const target = await api(`/git/ref/heads/${encodeURIComponent(ref)}`);
+  if (target?.object?.type !== 'commit' || !sha(target.object.sha)) throw new Error('PR target branch tip is invalid');
+  return { ...pr, base: { ...pr.base, sha: target.object.sha } };
+}
+
 export async function readContext(api, number) {
   if (!/^\d+$/.test(String(number)) || Number(number) < 1) throw new Error('Invalid PR number');
-  const pr = await api(`/pulls/${number}`);
+  const pr = await readPull(api, number);
   if (pr.state !== 'open' || !sha(pr.head?.sha) || !sha(pr.base?.sha) || !Number.isSafeInteger(pr.changed_files)) throw new Error('PR is closed or its identity is invalid');
   const files = await paginate(api, `/pulls/${number}/files`);
   if (files.length !== pr.changed_files || files.length >= 3000) throw new Error('Incomplete changed-file discovery; triage required');
-  const fresh = await api(`/pulls/${number}`);
+  const fresh = await readPull(api, number);
   if (!sameIdentity(identity(pr), identity(fresh))) throw new Error('PR changed during discovery; retry');
   const paths = [...new Set(files.flatMap(f => [f.filename, ...(f.previous_filename ? [f.previous_filename] : [])]))].sort();
   const removed_paths = [...new Set(files.flatMap(f => f.status === 'removed' ? [f.filename]
@@ -162,7 +173,7 @@ export async function findDecision(api, context) {
 
 export async function synchronize(api, context, result, { deferDraft = false } = {}) {
   const number = context.pr.number;
-  const current = await api(`/pulls/${number}`);
+  const current = await readPull(api, number);
   if (!sameIdentity(identity(current), identity(context.pr))) throw new Error('PR changed before synchronization; retry');
   const desired = result.valid
     ? result.decision.mode === 'all' ? ['test:all-approved'] : ['test:selected', ...new Set(result.decision.scenarios.flatMap(pair => [`feature:${pair.feature}`, `interface:${pair.interface}`]))]
@@ -219,7 +230,7 @@ export async function publish(api, context, input) {
   const decision = { ...input, ...catalog, diff_fingerprint: context.diff_fingerprint };
   const checked = validateDecision(decision, context);
   if (!checked.valid && checked.reason !== 'triage-requested') throw new Error(`Decision rejected: ${checked.reason}`);
-  const current = await api(`/pulls/${context.pr.number}`);
+  const current = await readPull(api, context.pr.number);
   if (!sameIdentity(identity(current), identity(context.pr))) throw new Error('PR changed before publication; inspect again');
   await api(`/issues/${context.pr.number}/comments`, 'POST', { body: `${MARKER}\n\`\`\`json\n${JSON.stringify(decision, null, 2)}\n\`\`\`` });
   const latest = await readContext(api, context.pr.number);
@@ -255,7 +266,7 @@ export async function authorize(api, number, { candidate, expectedDecision, expe
   const resolved = resolveSelection({ selection, files: context.paths, head: source, tree: commit.tree.sha });
   if (!['selected', 'all'].includes(resolved.mode)) throw new Error('E2E blocked: invalid resolution');
   if (expectedMode && expectedMode !== resolved.mode || expectedGrep !== undefined && expectedGrep !== resolved.grep) throw new Error('E2E blocked: dispatch differs from decision');
-  const fresh = await api(`/pulls/${number}`);
+  const fresh = await readPull(api, number);
   if (!sameIdentity(identity(fresh), identity(context.pr))) throw new Error('E2E blocked: PR advanced during authorization');
   return { context, result, selection, resolved, candidate: source };
 }
@@ -288,7 +299,7 @@ async function main() {
   try { context = await readContext(api, a.pr); }
   catch (error) {
     if (a.command !== 'sync' || !/^[1-9][0-9]*$/.test(String(a.pr))) throw error;
-    const pr = await api(`/pulls/${a.pr}`);
+    const pr = await readPull(api, a.pr);
     if (pr.state !== 'open') return;
     context = { pr, files: [], paths: [], removed_paths: [] };
     discoveryFailure = { valid: false, reason: 'changed-file-discovery-failed' };

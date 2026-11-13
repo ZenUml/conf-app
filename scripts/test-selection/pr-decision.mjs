@@ -2,14 +2,14 @@
 import process from 'node:process';
 // PR test decisions are written by repository collaborators, not inferred from labels.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, realpathSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { CATEGORIES, CATEGORY_VERSION } from '../../tests/e2e-tests/config/categories.mjs';
 import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config/impact-map.mjs';
 import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { selectAgentFloor } from '../e2e-select.mjs';
-import { resolveSelection } from './resolve-agent.mjs';
+import { resolveSelection } from './resolve.mjs';
 import { SCENARIO_COVERAGE, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
 import { FEATURES, INTERFACES, SCENARIOS, scenarioKey, validScenarios, PRODUCT_IMPACT_FINGERPRINT } from '../../tests/e2e-tests/config/product-impact.mjs';
 
@@ -284,4 +284,4 @@ async function main() {
     console.log(JSON.stringify(synced));
   } else throw new Error('Usage: pr-decision.mjs inspect|publish|sync|check --pr NUMBER [--file decision.json]');
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(error.message); process.exitCode = 1; });
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main().catch(error => { console.error(error.message); process.exitCode = 1; });

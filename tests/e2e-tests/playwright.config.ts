@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { defineConfig, devices } from '@playwright/test';
 import { PROJECT_DEPENDENCIES } from './config/project-dependencies.mjs';
+import { optInTestIgnores } from './config/test-discovery-policy.mjs';
 import { AUTH_STATE_PATH } from './config/auth-state.js';
 
 export default defineConfig({
@@ -16,7 +17,7 @@ export default defineConfig({
     // boundary by one — measured 2026-09-11, that is what kept both
     // byline-create tests on one shard after they stopped being serial. Not
     // collected unless the run is actually live.
-    ...(process.env.BYLINE_ACTIVATION_LIVE ? [] : ['**/byline-activation.spec.ts']),
+    ...optInTestIgnores(),
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CATEGORY_SELECTION_THRESHOLD, classify, isUnitTestPath, pathRule, SENSITIVE_DIFF_PATTERN } from '../../scripts/test-selection/classify.mjs';
 import { CATEGORIES } from '../e2e-tests/config/categories.mjs';
-import { publishLabels } from '../../scripts/test-selection/labels.mjs';
 import { evaluate } from '../../scripts/test-selection/replay.mjs';
 const diff = { base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), tested_tree: 'c'.repeat(40), paths: ['src/components/Mermaid.vue'], changes: [], complete: true, diff: 'public diff' };
 const body = (probability = 0.02) => ({ model: 'jev-1.13.0', usage: { input_tokens: 12, output_tokens: 5 }, answers: Object.fromEntries(CATEGORIES.map(c => [c.id, { type: 'noul', noul: probability }])) });
@@ -46,11 +45,6 @@ describe('Jev conservative classification', () => {
   });
   it('handles API rejection and timeout', async () => { expect((await classify({ diff, apiKey: 'fake', fetchImpl: async () => new Response('', { status: 401 }) })).fallback_reason).toBe('api-http-error'); expect((await classify({ diff, apiKey: 'fake', fetchImpl: async () => { throw new Error('abort'); } })).mode).toBe('all'); });
   it('checks renamed old paths and deleted paths conservatively', async () => { const r = await classify({ diff: { ...diff, paths: ['src/model/old.ts', 'src/components/new.vue'], changes: [{ status: 'R100', path: 'src/components/new.vue', old_path: 'src/model/old.ts' }] }, apiKey: 'fake' }); expect(r.fallback_reason).toBe('shared-path'); expect(pathRule('src/model/deleted.ts')).toBe('shared-path'); });
-});
-describe('trusted label publisher', () => {
-  const selection = { schema_version: 1, category_version: '', head_sha: diff.head_sha, mode: 'selected', categories: {} };
-  it('rejects stale heads before mutations', async () => { const { CATEGORY_VERSION } = await import('../e2e-tests/config/categories.mjs'); let calls = 0; const r = await publishLabels({ selection: { ...selection, category_version: CATEGORY_VERSION }, repo: 'ZenUml/conf-app', pr: 1, token: 'fake', fetchImpl: async () => { calls++; return new Response(JSON.stringify({ head: { sha: 'd'.repeat(40) } })); } }); expect(r.outcome).toBe('stale'); expect(calls).toBe(1); });
-  it('preserves test:all and unrelated labels', async () => { const { CATEGORY_VERSION } = await import('../e2e-tests/config/categories.mjs'); const calls: any[] = []; await publishLabels({ selection: { ...selection, mode: 'all', category_version: CATEGORY_VERSION }, repo: 'ZenUml/conf-app', pr: 1, token: 'fake', fetchImpl: async (url: string, opts: any) => { calls.push([url, opts.method]); if (url.includes('/pulls/')) return new Response(JSON.stringify({ head: { sha: diff.head_sha } })); if (opts.method === 'GET') return new Response(JSON.stringify([{ name: 'test:all' }, { name: 'bug' }, { name: `test:${CATEGORIES[0].id}` }])); return new Response('{}'); } }); expect(calls.filter(c => c[1] === 'DELETE').every(c => !c[0].includes('test%3Aall') && !c[0].endsWith('/bug'))).toBe(true); });
 });
 describe('reviewed historical replay', () => {
   it('records misses and actual duration inputs without claiming calibration', () => { const r = evaluate({ mode: 'selected', categories: { one: { selected: true } } }, { id: 'review', reviewed_by: 'reviewer', expected_categories: ['one', 'two'], tests: [{ id: 't1', categories: ['one'], duration_ms: 500 }, { id: 't2', categories: ['two'], duration_ms: 900 }] }); expect(r.misses).toEqual(['two']); expect(r.missed_test_ids).toEqual(['t2']); expect(r.estimated_selected_duration_ms).toBe(500); expect(r.calibration).toBe('not-established'); });

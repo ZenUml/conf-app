@@ -1,0 +1,18 @@
+{
+  "baseline": "f85f3867d1747098241ab94fa96514ca3931e2f0",
+  "candidate": "21182f6f2f6aa9e310f341527253620bafdd0468",
+  "node_policy_tests": 351,
+  "unit_suite": {
+    "code_commit": "b5d4cd5fa6f646bf56f1089cab9e00717e580047",
+    "passed": 6748,
+    "skipped": 3,
+    "subsequent_changes": "Byte-equivalent controller module consolidation, docs and realpath CLI guard; subprocess regressions cover the new guard."
+  },
+  "decision_comment_id": 6846466100,
+  "mode": "selected",
+  "scenarios": [],
+  "floor": [
+    "@smoke"
+  ],
+  "github_e2e": "pending"
+}

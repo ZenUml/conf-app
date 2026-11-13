@@ -1,0 +1,12 @@
+{
+  "before": {
+    "returncode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "after": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "Expected --name value\n"
+  }
+}

@@ -357,8 +357,8 @@ test('published full approval survives a candidate product and coverage catalog 
     assert.notEqual(changed, original);
     writeFileSync(spec, changed);
     const script = `
-      import { resolveSelection } from './scripts/test-selection/resolve.mjs';
-      import { scopedPlan } from './scripts/test-selection/scoped-plan.mjs';
+      import { resolveSelection } from './scripts/test-selection/resolve-agent.mjs';
+      import { scopedPlan } from './scripts/test-selection/scoped-plan-agent.mjs';
       import { PRODUCT_IMPACT_FINGERPRINT } from './tests/e2e-tests/config/product-impact.mjs';
       import { SCENARIO_COVERAGE, API_LANES } from './tests/e2e-tests/config/scenario-coverage.mjs';
       import { createHash } from 'node:crypto';

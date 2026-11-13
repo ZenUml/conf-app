@@ -30,8 +30,8 @@ export function dispatchBody(env) {
     inputs.grep = env.GREP || '';
     if (env.CHILD_KIND === 'pr') {
       inputs.mode = env.MODE;
-      inputs['pr-number'] = env.PR_NUMBER;
-      inputs['decision-id'] = env.DECISION_ID;
+      if (env.PR_NUMBER) inputs['pr-number'] = env.PR_NUMBER;
+      if (env.DECISION_ID) inputs['decision-id'] = env.DECISION_ID;
     }
     else {
       inputs.suite = env.SUITE || 'insert';
@@ -232,7 +232,7 @@ async function main() {
     let verified;
     await verifyParentWithRetry(() => (verified = fetchState()), 6, pause, line => console.error(line));
     const { parent } = verified;
-    if (parent.path === '.github/workflows/pr-validation.yml') {
+    if (parent.path === '.github/workflows/pr-validation.yml' && env.PR_NUMBER) {
       const directory = mkdtempSync(join(tmpdir(), 'pr-parent-provenance-'));
       execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,
         '--name', `pr-parent-provenance-${env.PARENT_ATTEMPT}`, '--dir', directory]);

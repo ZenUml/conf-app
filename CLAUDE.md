@@ -100,7 +100,7 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 
 ### Never commit directly to `main`
 
-Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
+Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and ordinary unit/build checks exclude `.claude/**`).
 
 **The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — the overlap scan, per-worktree setup cost, start-of-issue steps, cleanup.
 
@@ -238,7 +238,7 @@ Every push to a PR branch fires the `Build, Test and Draft Release` workflow (`.
 So when checking a PR before merge:
 - `gh pr view <pr> --json mergeStateStatus` showing **`UNSTABLE`** with some `CANCELLED` contexts is **expected and mergeable** — it is not a real failure.
 - The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
-- `.md` / `docs/**` / `.claude/**` / `.cursor/**` / `packages/pr-agent-panel/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
+- Documentation, skill, PR-panel and isolated Render MCP changes retain their previous unit/build exclusions through the independent basic-scope gate. Complete file discovery includes both rename paths; uncertainty runs basic checks. PR metadata and E2E authorization still observe every PR. Missing decisions enter Draft/triage; documentation-only PRs can request the mandatory smoke floor after a current decision is published.
 
 **PR jobs are in two workflows.** `PR checks` (four `Unit tests` shards, `AsyncAPI build and CI script tests`, the `Build and Unit Test` result job, `E2E: Viewer preview`) takes no staging lock, and a newer push cancels its older run, so a `CANCELLED` run there is also normal. `PR validation` holds `conf-app-staging`; a run that a newer push overtook skips its staging jobs and ends green. Only jobs that need staging belong in `PR validation`, because the lock holds back the whole run. See [docs/ops/pipeline-graphs.md](docs/ops/pipeline-graphs.md).
 

@@ -1977,9 +1977,14 @@ export default {
       try {
         const generation = await magicGenerationKey(artifact);
         if (this.diagram?.magic !== artifact || this.diagram?.mermaidCode !== source) return;
+        // A vote cast while this load was in flight is newer than storage, and
+        // storage stays empty when the identity is incomplete (anonymous
+        // viewer): keep the in-memory vote for the same generation.
+        const sameGeneration = this.magicFeedbackGeneration === generation;
         this.magicFeedbackGeneration = generation;
         const sessionKey = this.magicSessionKey(artifact.sourceHash) + ':' + generation;
-        this.magicPreviousFeedback = readMagicFeedback(this.magicIdentity(artifact.sourceHash), generation);
+        this.magicPreviousFeedback = readMagicFeedback(this.magicIdentity(artifact.sourceHash), generation)
+          ?? (sameGeneration ? this.magicPreviousFeedback : null);
         // Inline, the survey only shows to viewers who have not voted yet.
         if (!this.magicFeedbackPrompted[sessionKey] && (this.isFullscreenMode || this.magicPreviousFeedback == null)) {
           this.magicFeedbackPrompted[sessionKey] = true;

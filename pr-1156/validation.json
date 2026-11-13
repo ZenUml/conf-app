@@ -1,7 +1,7 @@
 {
   "baseline": "ed6b9f40bda3c50468b1c05410addfce029005e0",
-  "candidate": "4fe082e65eac1f8813c64ee7f0d0a577d33344aa",
-  "local_node_tests": 360,
+  "candidate": "d79c3f4637a5203834f0aaf98023a0fcceb34b2f",
+  "local_node_tests": 365,
   "github_draft_refusal_run": 43386170037,
   "expected_privileged_job": {
     "contents": "write",

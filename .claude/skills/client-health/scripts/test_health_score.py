@@ -112,12 +112,45 @@ class BuildAndParseVolumeQuery(unittest.TestCase):
         rows = [
             {"key": ["acme", "2026-09-01", "macro_viewed"], "value": 10},
             {"key": ["acme", "2026-09-02", "macro_viewed"], "value": 5},
-            {"key": ["acme", "2026-09-02", "paywall_triggered"], "value": 2},
-            {"key": ["acme", "2026-09-02", "paywall_blocked_create"], "value": 1},
+            {"key": ["acme", "2026-09-02", "paywall_over_limit"], "value": 3},
         ]
         parsed = health_score.parse_volume_rows(rows, today=today)
         self.assertEqual(parsed["acme"]["usage_volume"], 15)
         self.assertEqual(parsed["acme"]["paywall_friction"], 3)
+
+    def test_retired_block_events_are_not_paywall_friction(self):
+        # The editor block was switched off (shouldBlockActions is constant
+        # false), so paywall_triggered / paywall_blocked_* stopped arriving
+        # on 2026-09-11. Counting them fills a 90-day window with old data.
+        rows = [
+            {"key": ["acme", "2026-09-02", "macro_viewed"], "value": 5},
+            {"key": ["acme", "2026-09-02", "paywall_triggered"], "value": 2},
+            {"key": ["acme", "2026-09-02", "paywall_blocked_create"], "value": 1},
+            {"key": ["acme", "2026-09-02", "paywall_blocked_edit"], "value": 1},
+        ]
+        parsed = health_score.parse_volume_rows(rows, today=datetime.date(2026, 9, 4))
+        self.assertEqual(parsed["acme"]["paywall_friction"], 0)
+
+    def test_volume_query_counts_gate_evaluations_on_over_limit_unpaid_spaces(self):
+        script = health_score.build_volume_query()
+        self.assertIn("paywall_gate_evaluated", health_score.VOLUME_EVENTS)
+        for retired in ("paywall_triggered", "paywall_blocked_create", "paywall_blocked_edit"):
+            self.assertNotIn(retired, script)
+        # A gate evaluation is friction when the gate fired, or when the space
+        # is over its limit, enforced and unpaid. Others are dropped.
+        self.assertEqual(health_score.is_paywall_friction(
+            {"gate_fired": True}), True)
+        cases = [
+            ({"macro_count": 120, "macro_limit": 100, "css_enabled": True, "space_paid": False}, True),
+            ({"macro_count": 100, "macro_limit": 100, "css_enabled": True, "space_paid": False}, True),   # at the limit
+            ({"macro_count": 99, "macro_limit": 100, "css_enabled": True, "space_paid": False}, False),
+            ({"macro_count": 120, "macro_limit": 100, "css_enabled": True, "space_paid": True}, False),   # space licence
+            ({"macro_count": 120, "macro_limit": 100, "css_enabled": False, "space_paid": False}, False), # exempt site
+            ({"macro_limit": 100, "css_enabled": True, "space_paid": False}, False),                      # count unknown
+        ]
+        for props, want in cases:
+            self.assertEqual(health_score.is_paywall_friction({"gate_fired": False, **props}), want, props)
+        self.assertIn(health_score.PAYWALL_FRICTION_JS.strip(), script)
 
     def test_parse_splits_recent_vs_prior_30_day_windows(self):
         today = datetime.date(2026, 9, 4)

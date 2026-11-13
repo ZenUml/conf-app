@@ -80,7 +80,10 @@ before treating it as a genuine upsell candidate.
 - `tenant` — single-tenant lookup ("is X paying", "how big is X").
 - `paywall` — CSS enrollment and paywall friction mechanics (the
   `paywall_friction` signal here is a coarse count, not the full
-  A/B analysis that skill does).
+  A/B analysis that skill does). It counts `paywall_gate_evaluated`
+  events where the gate fired, or the space is over its limit, enforced
+  and unpaid. The older `paywall_triggered` / `paywall_blocked_*` events
+  stopped on 2026-09-11 when the editor block was switched off.
 
 ## Customer follow-up boundary
 

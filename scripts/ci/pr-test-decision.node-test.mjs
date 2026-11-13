@@ -132,10 +132,29 @@ test('privileged early metadata handles every PR and runs only trusted controlle
   for (const job of Object.values(metadata.jobs)) {
     for (const step of steps(job).filter(step=>step.uses?.startsWith('actions/checkout@'))) assert.equal(step.with.ref,defaultRef);
     for (const step of steps(job).filter(step=>step.run)) {
-      assert.match(step.run,/pr-decision\.mjs sync\b/);
+      assert.match(step.run,/pr-decision\.mjs (?:sync|draft)\b/);
       assert.doesNotMatch(step.run,/pnpm|npm|git checkout|github\.event\.pull_request\.head/);
     }
   }
+});
+
+test('metadata queue preserves revocations and Draft conversion uses separate minimum permissions', () => {
+  assert.equal(metadata.concurrency['cancel-in-progress'], false);
+  assert.equal(metadata.concurrency.queue, 'max');
+  assert.equal(metadata.permissions.contents, 'read');
+  const decision = metadata.jobs.decision, draft = metadata.jobs.draft;
+  assert.equal(draft.needs, 'decision');
+  assert.match(draft.if, /needs\.decision\.outputs\.needs-draft == 'true'/);
+  assert.deepEqual(draft.permissions, { contents: 'write', 'pull-requests': 'write' });
+  for (const job of [decision, draft]) {
+    const checkout = steps(job).find(step => step.uses?.startsWith('actions/checkout@'));
+    assert.equal(checkout.with.ref, defaultRef);
+    assert.equal(checkout.with['persist-credentials'], false);
+  }
+  const sync = steps(decision).find(step => /pr-decision\.mjs sync/.test(step.run ?? ''));
+  assert.equal(sync.env.PUBLISH_CHECK, 'true');
+  assert.equal(sync.env.DEFER_DRAFT, 'true');
+  assert.match(runText(draft), /pr-decision\.mjs draft/);
 });
 
 test('legacy automatic Jev publisher and branch-ref full override no longer exist', async () => {

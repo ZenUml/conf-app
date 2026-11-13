@@ -1,0 +1,22 @@
+{
+  "docs": {
+    "run": false,
+    "reason": "complete PR file list"
+  },
+  "skills": {
+    "run": false,
+    "reason": "complete PR file list"
+  },
+  "mixed": {
+    "run": true,
+    "reason": "complete PR file list"
+  },
+  "renamedCode": {
+    "run": true,
+    "reason": "complete PR file list"
+  },
+  "discoveryFailure": {
+    "run": true,
+    "reason": "file discovery failed: unavailable"
+  }
+}

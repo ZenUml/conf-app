@@ -56,3 +56,6 @@ requested. Independent basic checks and the recorded manual UI evidence remain
 separate, observed results. The PR stays Draft. Staging render_error/reload-click
 events were also received on the CI merge build, as recorded in the anonymized
 telemetry file.
+
+Current merged head and full CI results supersede earlier triage-blocked status.
+See merge-validation.md and pr-e2e-lite.json/pr-e2e-render.json.

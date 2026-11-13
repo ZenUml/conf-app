@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "tested_tree": "751f6e95366363695b92a82e6c6f305b4fdd6154",
+  "category_version": "v1",
+  "policy_version": "v9-main-jev-empty-selection-v1",
+  "selector_catalog_version": "v2-jev-decides-behavior",
+  "selector_catalog_fingerprint": "999c493353cc58b1f05cae8183c974f1264bd8512cc883277ff9e31229fc9b8c",
+  "variant": "lite",
+  "coverage": "full",
+  "plan_fingerprint": "741efd989d1975882d44ec4e339def6c9eb25ea13a553f2f0d454f8fd69706e4",
+  "complete": true,
+  "execution_succeeded": true,
+  "validation": {
+    "valid": true,
+    "errors": []
+  },
+  "metrics": {
+    "planned_test_count": 19,
+    "executed_test_count": 19,
+    "passed_test_count": 19,
+    "skipped_test_count": 0,
+    "failed_test_count": 0,
+    "test_body_duration_ms": 207615,
+    "runner_setup_duration_ms": null,
+    "playwright_execution_duration_ms": null,
+    "runner_setup_critical_path_ms": 36630,
+    "playwright_execution_critical_path_ms": 221670,
+    "queue_critical_path_ms": null,
+    "queue_total_ms": 0,
+    "e2e_critical_path_ms": null,
+    "workflow_timing_source": "unavailable"
+  },
+  "results": [
+    {
+      "id": "e2e0c1026337b128f943-a5f595641683ce016d68",
+      "status": "passed",
+      "duration_ms": 18139,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "fe9055e12a2693ccbe6f-478c03c39b2306b0fba9",
+      "status": "passed",
+      "duration_ms": 9641,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "8d894f97e31f079625f8-fbc3da2c900ec0fa5ed6",
+      "status": "passed",
+      "duration_ms": 19234,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "8d894f97e31f079625f8-8a2c53b59212d72d8f8c",
+      "status": "passed",
+      "duration_ms": 15070,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "e9f8f45af0707c7b0de3-ad9163a38b603576c58f",
+      "status": "passed",
+      "duration_ms": 9189,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "5616ac72a743571ccc30-4ca5a561f82efc4d67d9",
+      "status": "passed",
+      "duration_ms": 10654,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "ff53db7ecfd8be609e10-7d2a0f022fb73b5aa159",
+      "status": "passed",
+      "duration_ms": 8547,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "ff53db7ecfd8be609e10-413793984f155663ef95",
+      "status": "passed",
+      "duration_ms": 11422,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "fc5f8c5b18ddb820a386-bbb1fda5207cc37db7f3",
+      "status": "passed",
+      "duration_ms": 9774,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "fc5f8c5b18ddb820a386-2a609f79707249b6bc72",
+      "status": "passed",
+      "duration_ms": 12209,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "183c95834bd8e799fac5-e9aace5e39b81926df0f",
+      "status": "passed",
+      "duration_ms": 9850,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "183c95834bd8e799fac5-5ba4f8470c25d8615ed7",
+      "status": "passed",
+      "duration_ms": 9598,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "183c95834bd8e799fac5-f5d7b1cfc2b3364a4764",
+      "status": "passed",
+      "duration_ms": 9217,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "a576eb5491d81db9ece7-e1e2933b4b628f81250f",
+      "status": "passed",
+      "duration_ms": 9040,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "a576eb5491d81db9ece7-1eec8f2b4e3f66328c1c",
+      "status": "passed",
+      "duration_ms": 8750,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "a576eb5491d81db9ece7-1bc91db6b0b1b9c8f749",
+      "status": "passed",
+      "duration_ms": 9214,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "74632a7be7420a3b6eec-02a86cca931086ed20d3",
+      "status": "passed",
+      "duration_ms": 8962,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "74632a7be7420a3b6eec-daeb9c4519367a47d2d5",
+      "status": "passed",
+      "duration_ms": 9499,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "74632a7be7420a3b6eec-8993e4a5e92df9efcd9c",
+      "status": "passed",
+      "duration_ms": 9606,
+      "retry": 0,
+      "setup": false
+    }
+  ]
+}

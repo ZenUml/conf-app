@@ -1,5 +1,7 @@
 # PR #1153 public evidence
 
+Latest merge validation and exact executed/skipped counts: [merge-validation.md](merge-validation.md). Original capture-stage statuses below are historical; PR #1153 is merged as7143f5ef with valid full-scope triage and green PR execution, including9 explicitly skipped Lite assertions.
+
 Baseline: `5fc739dd3e7a449e4052ac7d3bacceffb21e1bae`  
 Candidate: `7dc2c46c5e30864bf4c4975333e6dac20579b33d`
 

@@ -16,5 +16,16 @@
     "ready_at": "2026-11-13T08:35:11Z",
     "draft_at": "2026-11-13T08:35:49Z"
   },
-  "merge_commit": "46480f305e88f84755c79c9f28edc283c570481d"
+  "merge_commit": "46480f305e88f84755c79c9f28edc283c570481d",
+  "main_ci": {
+    "run": 43394134378,
+    "conclusion": "success",
+    "staging_variants": [
+      "lite",
+      "full",
+      "diagramly",
+      "asyncapi"
+    ],
+    "draft_releases": "created"
+  }
 }

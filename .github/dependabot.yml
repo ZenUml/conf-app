@@ -8,13 +8,23 @@ updates:
   # Group npm patch + minor bumps into a single weekly PR each. Cuts the
   # per-bump CI cost (today every dependabot bump triggers its own full
   # pipeline) and review burden, while keeping major bumps as individual PRs.
+  # Development and production packages are grouped apart so that a development-only PR can
+  # qualify for the auto lane (docs/policies/auto-lane.md); a mixed group never can.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
     groups:
-      npm-minor-and-patch:
+      npm-dev-minor-and-patch:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-prod-minor-and-patch:
+        dependency-type: "production"
         update-types:
           - "minor"
           - "patch"
@@ -24,8 +34,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
-      npm-minor-and-patch:
+      npm-dev-minor-and-patch:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-prod-minor-and-patch:
+        dependency-type: "production"
         update-types:
           - "minor"
           - "patch"
@@ -35,8 +53,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
-      npm-minor-and-patch:
+      npm-dev-minor-and-patch:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-prod-minor-and-patch:
+        dependency-type: "production"
         update-types:
           - "minor"
           - "patch"

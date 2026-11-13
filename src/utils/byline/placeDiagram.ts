@@ -1,4 +1,5 @@
 import { addDiagramToPage, reloadHostPage, type AddToPageFailure } from '@/utils/byline/addToPage'
+import type { PagePlacement } from '@/utils/byline/pagePlacement'
 import { cancelReveal, requestReveal } from '@/utils/byline/revealDiagram'
 
 /**
@@ -17,7 +18,7 @@ import { cancelReveal, requestReveal } from '@/utils/byline/revealDiagram'
  */
 export interface PlaceOutcome {
   /** The raw result, for anything a surface wants to branch on itself. */
-  result: 'added' | 'already_present' | 'forbidden' | 'conflict' | 'failed'
+  result: 'added' | 'already_present' | 'forbidden' | 'conflict' | 'page_changed' | 'failed'
   /** Macros on the page after the write, when the write got far enough to count. */
   pageMacroCount?: number
   /**
@@ -49,6 +50,7 @@ const MESSAGES: Record<string, string | null> = {
   forbidden:
     'You do not have permission to edit this page — copy the link and send it to someone who does.',
   conflict: 'Someone edited the page while we were adding it. Reload and try again.',
+  page_changed: 'The page changed while you were choosing. Add it again to pick a new spot.',
   failed: "Couldn't add it to the page. Try again, or copy the link and paste it into the editor.",
 }
 
@@ -66,8 +68,11 @@ export async function placeDiagram(
   pageId: string,
   diagram: { id: string; diagramType: string },
   onPlaced?: () => void | Promise<void>,
+  placement?: PagePlacement,
 ): Promise<PlaceOutcome> {
-  const { result, pageMacroCount, reason, status } = await addDiagramToPage(pageId, diagram)
+  const { result, pageMacroCount, reason, status } = placement
+    ? await addDiagramToPage(pageId, diagram, placement)
+    : await addDiagramToPage(pageId, diagram)
   const outcome: PlaceOutcome = {
     result,
     pageMacroCount,

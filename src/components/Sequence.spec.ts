@@ -5,6 +5,8 @@ import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { getDiagramFontState, _resetDiagramFontStateForTesting } from '@/utils/fonts/diagramFontState';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
+import { reportDiagramReady } from '@/utils/fullscreenReady';
+vi.mock('@/utils/fullscreenReady', () => ({ reportDiagramReady: vi.fn() }));
 import Example from '@/utils/sequence/Example';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -26,7 +28,7 @@ vi.mock('@/utils/window', () => ({
 // zenuml.render() is mocked per test; the constructor itself always succeeds
 // and hands back this shared instance (matches how forgeIndex.ts holds a
 // single module-scoped `zenuml` instance for the component's lifetime).
-const zenumlInstance = vi.hoisted(() => ({ render: vi.fn(() => Promise.resolve()) }));
+const zenumlInstance = vi.hoisted(() => ({ render: vi.fn(() => Promise.resolve()), parse: vi.fn(() => Promise.resolve({ pass: true })) }));
 const ZenUmlCtor = vi.hoisted(() =>
   Object.assign(
     vi.fn(function ZenUml() {
@@ -50,11 +52,29 @@ describe('Sequence render-failure telemetry', () => {
     vi.clearAllMocks();
     _resetDiagramFontStateForTesting();
     zenumlInstance.render.mockReset().mockResolvedValue(undefined);
+    zenumlInstance.parse.mockReset().mockResolvedValue({ pass: true });
     store.state.diagram = {
       ...NULL_DIAGRAM,
       diagramType: DiagramType.Sequence,
       code: 'A.method()',
     };
+  });
+
+  it('does not report Fullscreen success for invalid syntax or an empty render shell', async () => {
+    zenumlInstance.parse.mockResolvedValue({ pass: false });
+    const wrapper = mount(Sequence, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(zenumlInstance.parse).toHaveBeenCalled());
+    wrapper.get('.resize-target').element.innerHTML = '<div class="sequence-diagram"><div class="participant">A</div></div>';
+    await wrapper.vm.$nextTick();
+    expect(reportDiagramReady).not.toHaveBeenCalled();
+  });
+
+  it('waits for real diagram DOM after the renderer promise resolves', async () => {
+    const wrapper = mount(Sequence, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(zenumlInstance.parse).toHaveBeenCalled());
+    expect(reportDiagramReady).not.toHaveBeenCalled();
+    wrapper.get('.resize-target').element.innerHTML = '<div class="sequence-diagram"><div class="participant">A</div></div>';
+    await vi.waitFor(() => expect(reportDiagramReady).toHaveBeenCalledOnce());
   });
 
   it.each([
@@ -194,6 +214,7 @@ describe('Sequence unmounted while ZenUML core is still loading', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     zenumlInstance.render.mockReset().mockResolvedValue(undefined);
+    zenumlInstance.parse.mockReset().mockResolvedValue({ pass: true });
     store.state.diagram = {
       ...NULL_DIAGRAM,
       diagramType: DiagramType.Sequence,

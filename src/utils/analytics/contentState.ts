@@ -12,17 +12,19 @@ import Example from '@/utils/sequence/Example';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { EMPTY_GRAPH } from '@/utils/graph/emptyGraph';
 import { decompress } from '@/utils/compress';
+import { resolveGraphXml } from '@/utils/graph/boardDocument';
 import type { ContentState } from './catalog';
 
 type BodyFields = Pick<
   Diagram,
   'code' | 'mermaidCode' | 'plantUmlCode' | 'graphXml' | 'markdownCode'
->;
+> & { boardGraphXml?: string; graphEditorMode?: unknown };
 
 // DiagramType -> the Diagram field that holds that type's body.
 // OpenAPI and AsyncAPI keep their spec in `code`; Embed has no body of its own
 // (the viewer mounts the referenced document's real type, so that type's own
-// body is what gets classified).
+// body is what gets classified). A Graph in Board mode is the exception to the
+// table: its body is boardGraphXml, resolved by bodyOf() below.
 const BODY_FIELD: Partial<Record<DiagramType, keyof BodyFields>> = {
   [DiagramType.Sequence]: 'code',
   [DiagramType.Mermaid]: 'mermaidCode',
@@ -59,13 +61,26 @@ function plainGraphXml(body: string): string {
   }
 }
 
+// Graph defers to boardDocument.ts, which every other graph reader uses: the
+// mode recorded on the body picks Board or Diagram, and a legacy Board record
+// with no boardGraphXml falls back to graphXml. Reading graphXml for a Board
+// classified the untouched Diagram sample instead of the Board drawing.
+function bodyOf(
+  diagram: Partial<BodyFields> | null | undefined,
+  diagramType: DiagramType,
+  field: keyof BodyFields,
+): unknown {
+  if (diagramType === DiagramType.Graph) return diagram ? resolveGraphXml(diagram as Diagram) : undefined;
+  return diagram?.[field];
+}
+
 export function classifyContentState(
   diagram: Partial<BodyFields> | null | undefined,
   diagramType: DiagramType,
 ): ContentState {
   const field = BODY_FIELD[diagramType];
   if (!field) return 'authored';
-  const raw = diagram?.[field];
+  const raw = bodyOf(diagram, diagramType, field);
   if (raw == null || typeof raw !== 'string' || raw.trim() === '') return 'empty';
   const seed = DEFAULT_BODY[diagramType];
   if (seed === undefined) return 'authored';

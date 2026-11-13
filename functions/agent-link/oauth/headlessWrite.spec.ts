@@ -3,6 +3,7 @@
 // already on the page, and a free space at its limit.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { extractDiagram } from '../../../src/mcp-app-view';
 import {
   callHeadlessTool,
   canonicalDiagramType,
@@ -257,6 +258,17 @@ describe('update_diagram', () => {
     expect(writes.filter((w) => w.method === 'PUT')).toHaveLength(1);
   }, GUARD_TIMEOUT_MS);
 
+  it('returns the updated diagram in the shape the view draws', async () => {
+    // The view under update_diagram showed "No diagram in this result." in
+    // claude.ai (2026-10-24): the result carried no diagramType or source.
+    const site = emptyPage();
+    site.content.set('cc-1', { title: 'Checkout', code: CURRENT_DSL, diagramType: 'sequence' });
+    const { ctx } = await contextFor(site);
+    const dsl = `${CURRENT_DSL}\nB.extra()`;
+    const out = await callHeadlessTool('update_diagram', { cloudId: CLOUD, contentId: 'cc-1', dsl }, ctx);
+    expect(extractDiagram({ structuredContent: out })).toEqual({ diagramType: 'sequence', dsl, title: 'Checkout' });
+  }, GUARD_TIMEOUT_MS);
+
   describe('title (#789)', () => {
     // Same shape the viewer rename leaves: the body JSON title AND the record
     // title move together (renameDiagramTitle -> updateCustomContentV2).
@@ -443,7 +455,9 @@ describe('source field per diagram type', () => {
     ['openapi', 'code'],
     ['mermaid', 'mermaidCode'],
     ['plantuml', 'plantUmlCode'],
+    ['markdown', 'markdownCode'],
     ['graph', 'graphXml'],
+    ['asyncapi', 'code'],
   ])('create_diagram stores %s source under %s', async (type, field) => {
     const site = emptyPage();
     const { ctx } = await contextFor(site);
@@ -511,6 +525,21 @@ describe('create_diagram', () => {
     expect(referencesCustomContent(site.pageAdf, 'new-1', CLOUD)).toBe(true);
   });
 
+  it('returns the new diagram in the shape the view draws', async () => {
+    const site = emptyPage();
+    const { ctx } = await contextFor(site);
+    const out = await callHeadlessTool(
+      'create_diagram',
+      { cloudId: CLOUD, pageId: 'page-1', type: 'Mermaid', dsl: 'flowchart LR\n A --> B', title: 'Flow' },
+      ctx,
+    );
+    expect(extractDiagram({ structuredContent: out })).toEqual({
+      diagramType: 'mermaid',
+      dsl: 'flowchart LR\n A --> B',
+      title: 'Flow',
+    });
+  });
+
   it('builds the extensionKey from the resolved install, not a guess', async () => {
     const site = emptyPage();
     const { ctx } = await contextFor(site);
@@ -520,12 +549,27 @@ describe('create_diagram', () => {
     expect(node.attrs.extensionKey).toBe(`${LITE_APP_ID}/${ENV_ID}/static/zenuml-sequence-macro-lite`);
   });
 
-  it('refuses a diagram type the site\'s variant has no macro for', async () => {
+  // Every type now has a macro on Lite; the per-variant refusals (no graph on
+  // diagramly, no AsyncAPI on full, …) are covered in macroIdentity.spec.ts.
+  it.each([
+    ['AsyncApi', 'AsyncAPI', 'zenuml-asyncapi-macro-lite'],
+    ['markdown', 'markdown', 'zenuml-sequence-macro-lite'],
+  ])('creates a %s diagram on lite with its own macro', async (type, stored, macroKey) => {
+    const site = emptyPage();
+    const { ctx } = await contextFor(site);
+    await callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type, dsl: 'SOURCE' }, ctx);
+    const body = JSON.parse((site.content.get('new-1') as { body: { value: string } }).body.value) as Record<string, unknown>;
+    expect(body.diagramType).toBe(stored);
+    const nodes = (site.pageAdf.content as Array<Record<string, any>>).filter((n) => n.type === 'extension');
+    expect(nodes[nodes.length - 1].attrs.extensionKey).toBe(`${LITE_APP_ID}/${ENV_ID}/static/${macroKey}`);
+  });
+
+  it('refuses a type it does not know, naming every supported one', async () => {
     const site = emptyPage();
     const { ctx } = await contextFor(site);
     await expect(
-      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'AsyncApi', dsl: 'x' }, ctx),
-    ).rejects.toMatchObject({ code: 'bad_params' });
+      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'visio', dsl: 'x' }, ctx),
+    ).rejects.toMatchObject({ code: 'bad_params', message: expect.stringMatching(/markdown, graph, openapi, asyncapi/) });
   });
 
   it('loses to a human editor rather than overwriting the page', async () => {
@@ -664,7 +708,11 @@ describe('write analytics', () => {
       }),
     });
     const res = await handleHeadlessRpc(request, env, await request.clone().json(), { fetchImpl });
-    return { res, events: events.filter((e) => String(e.event).startsWith('agent_link_diagram_')) };
+    return {
+      res,
+      events: events.filter((e) => String(e.event).startsWith('agent_link_diagram_')),
+      toolCalls: events.filter((e) => e.event === 'agent_link_mcp_tool_called'),
+    };
   }
 
   it('records which gate branch allowed the create', async () => {
@@ -677,6 +725,60 @@ describe('write analytics', () => {
     expect(events[0].properties.result).toBe('added');
     expect(events[0].properties.paywall_gate).toBe('under_limit');
     expect(events[0].properties.cloud_id).toBe(CLOUD);
+  });
+
+  it('types and locates a create on both the write event and the tool call', async () => {
+    const { events, toolCalls } = await rpcCreate(emptyPage(), {
+      confluence_plugin_features: { get: async () => ({ spaces: { DESIGN: { total: 3 } } }) },
+    });
+    for (const e of [events[0], toolCalls[0]]) {
+      expect(e.properties).toMatchObject({ macro_type: 'sequence', client_domain: 'one' });
+    }
+  });
+
+  it('types an update, whose result is the only place the stored type appears', async () => {
+    const { events, toolCalls } = await rpcCreate(emptyPage(), {}, {
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: 'cc-1', dsl: CURRENT_DSL },
+    });
+    expect(events[0].properties.macro_type).toBe('sequence');
+    expect(toolCalls[0].properties.macro_type).toBe('sequence');
+  }, GUARD_TIMEOUT_MS);
+
+  it('says a refusal was suspected data loss, on both events', async () => {
+    const { events, toolCalls } = await rpcCreate(emptyPage(), {}, {
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: 'cc-1', dsl: 'A.one()' },
+    });
+    for (const e of [events[0], toolCalls[0]]) {
+      expect(e.properties).toMatchObject({
+        reason: 'guardrail_rejected',
+        guardrail_reason: 'data_loss',
+        macro_type: 'sequence',
+        client_domain: 'one',
+      });
+    }
+    expect(toolCalls[0].properties.mcp_tool_outcome).toBe('tool_error');
+  }, GUARD_TIMEOUT_MS);
+
+  it('says a refusal was a parse error, and never sends the source', async () => {
+    const dsl = `${CURRENT_DSL}\nsecret-text {{{{`;
+    const { events, toolCalls } = await rpcCreate(emptyPage(), {}, {
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: 'cc-1', dsl },
+    });
+    expect(toolCalls[0].properties.guardrail_reason).toBe('parse_error');
+    expect(events[0].properties.guardrail_reason).toBe('parse_error');
+    expect(JSON.stringify([events, toolCalls])).not.toContain('secret-text');
+  }, GUARD_TIMEOUT_MS);
+
+  it('sends no guardrail_reason on a refusal the guard did not make', async () => {
+    const { toolCalls } = await rpcCreate(emptyPage(), {}, {
+      name: 'update_diagram',
+      arguments: { cloudId: CLOUD, contentId: '', dsl: 'A.one()' },
+    });
+    expect(toolCalls[0].properties.reason).toBe('bad_params');
+    expect(toolCalls[0].properties.guardrail_reason).toBeUndefined();
   });
 
   it('records on update_diagram whether the call renamed the diagram (#789)', async () => {

@@ -1,0 +1,25 @@
+// Explicit exceptions to product pairing. Reviewed 2026-10-27; see the audit
+// document for all original twelve groups. These tags do not change skip/run.
+export const TEST_DISPOSITIONS = [
+  {file:'agent-link/agent-link-e2e.spec.ts',title:'Live Agent Link — end to end',tag:'@status:retired',
+    reason:'Retained relay UI is not offered while RELAY_SESSIONS_ENABLED=false; AGENT_LINK_RELAY=1 alone cannot restore it.',
+    evidence:['src/composables/agentLink/connectInstructions.ts:81']},
+  {file:'agent-link/agent-link-multi-page-crosstalk.spec.ts',title:'Live Agent Link — multi-page cross-talk isolation',tag:'@status:retired',
+    reason:'Cross-page relay session UI is retained but unreachable in the current headless release.',
+    evidence:['src/composables/agentLink/connectInstructions.ts:81']},
+  {file:'fullscreen/page-actions.spec.ts',title:'Page-level actions',tag:'@check:host-contract',
+    reason:'Asserts Confluence publication URL/container, its location/access dialog and top-page beforeunload; does not establish app publishing or rendered-content coverage.',
+    evidence:['tests/e2e-tests/tests/fullscreen/page-actions.spec.ts:19']},
+  {file:'fullscreen/regression.spec.ts',title:'Regression baseline',tag:'@check:orchestration',
+    reason:'RUN_REGRESSION opt-in wrapper shells out to other suites; exit codes are orchestration, not a separate product journey.',
+    evidence:['tests/e2e-tests/tests/fullscreen/regression.spec.ts:46']},
+  {file:'insert/editor-page-insert-button.spec.ts',title:'selects the modal Insert action when a search result also contains Insert',tag:'@check:adapter',
+    reason:'Synthetic page.setContent DOM exercises the test locator adapter, not a live Confluence insertion interface.',
+    evidence:['tests/e2e-tests/pages/EditorPage.ts:327']},
+  {file:'insert/m1-first-seen-ping.spec.ts',title:'identifies only the target app page-banner first-seen relay',tag:'@check:adapter',
+    reason:'Checks the synthetic relay predicate; the sibling live relay test carries first-seen-telemetry × page-banner.',
+    evidence:['tests/e2e-tests/helpers/forgeRelay.ts:7']},
+  {file:'viewer-preview-continue-editing.spec.ts',title:'Editor mounts without a blocking paywall',tag:'@check:negative-regression',
+    reason:'Current negative behavior: real gate mounts a stub editor at mocked 120/60 counts. The old blocking capability is retired, but this check is still valid; it is not positive paywall × editor coverage.',
+    evidence:['src/composables/useCustomerSuccessService.ts:60','src/editorPreview.ts:43']},
+];

@@ -1,19 +1,21 @@
 ---
 name: tenant
 description: >
-  Look up one Confluence site's verified product, license, payment, contact and pricing facts.
-  Use for tenant profiles, paid status, site size, trials and potential annual value. Reuses
-  Marketplace exports and the separate Lite KV layer; customer-followup owns action decisions.
+  Look up verified Confluence tenant seat counts (Marketplace license users), product, license,
+  payment, contact and pricing facts. Use for one site or a batch whenever the request asks for
+  seats, license users, user count, site size or license tier (席位、座席、用户数), and for tenant
+  profiles, paid status, trials or potential annual value. Reuses Marketplace exports and the
+  separate Lite KV layer; customer-followup owns action decisions.
 
 ---
 
 # Tenant lookup
 
-Answers per-tenant questions off Atlassian Marketplace license/transaction data **plus** the Lite
-Stripe/KV space-license layer. It's the single-tenant primitive over `marketplace`'s engine
-(`mp_report.py`) — same auth, cloudId join, and SQLite snapshot — so there is no separate code to
-drift. (The script physically lives under `marketplace/scripts/`; this skill references it by
-path, the same way `macro-count` references `mixpanel`'s script.)
+Answers single-tenant and batch questions off Atlassian Marketplace license/transaction data
+**plus** the Lite Stripe/KV space-license layer. It's the single-tenant primitive over
+`marketplace`'s engine (`mp_report.py`) — same auth, cloudId join, and SQLite snapshot — so there is
+no separate code to drift. (The script physically lives under `marketplace/scripts/`; this skill
+references it by path, the same way `macro-count` references `mixpanel`'s script.)
 
 ## The one command you want
 
@@ -23,16 +25,23 @@ python3 $S whois <domain>          # the card: cloudId, users, per-app STATE, li
 python3 $S whois <domain> --json   # machine-readable (self-documents data vintage in --local mode)
 ```
 
+For a seat-count request, use the `users` value parsed from the Marketplace license `tier`. Mixpanel
+active users, viewers and editors are usage measures, not seats. For multiple tenants, sync once,
+record the snapshot time, then run `whois <domain> --local --json` for every requested domain. If a
+live query or fresh sync fails, report the seat count as unknown or use a dated verified snapshot
+with its date; do not substitute a usage metric.
+
 **Always read `whois` before concluding anything about a tenant's paid status** — a naive Marketplace
 `$0` is the single most common wrong answer here.
 
 ## What the card encodes (the traps baked in)
 
 - **Purchase and settlement are independent.** Inspect raw transactions alongside the license. The current `whois` helper can label positive transaction amounts `PAID` without checking `paymentStatus`; its `PAID`, `paying` and lifetime totals are not independent payment confirmation. Verify raw Paid/Fully paid/Open status, source IDs and service periods in the Marketplace export/snapshot. A valid commercial order with Open status establishes purchase, while settlement stays unconfirmed. Do not describe that customer as unpaid or without an order.
-- **Lite → Layer B auto-checked.** Lite is free on the Marketplace (`$0` by design); real Lite paid
-  status lives in the **Stripe/KV space-license** layer. `whois` shells `wrangler kv … --remote`
+- **Lite space licenses are checked automatically.** Lite is free on the Marketplace (`$0` by design);
+  paid Lite status is the Stripe/KV space license. `whois` shells `wrangler kv … --remote`
   (the `--remote` is baked in — without it wrangler v4 reads LOCAL state and returns a false empty)
-  and prints `[Layer B: none / N space-licenses]`. `--no-kv` skips it (~2s).
+  and prints `[space licenses: none / N]`. `--no-kv` skips it (~2s). On 401 the card prints
+  `FIX: npx wrangler login`. That is an unread check, not an unpaid tenant.
 - **cloudId is the join key.** Transactions carry `cloudId` + company but NO hostname, so a text
   search by hostname finds the license yet misses every transaction → a false `$0`. `whois` joins on
   cloudId; do not hand-roll a text search.

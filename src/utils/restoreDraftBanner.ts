@@ -10,6 +10,9 @@
 // each editor's mount logic listens for the matching scope and either
 // dispatches the right state update (Restore) or clears localStorage
 // (Discard).
+//
+// It also emits 'draft-banner-visibility' (true/false), so a surface that docks
+// in the same corner can keep out of its way (useEditorMcpPromo.ts).
 
 import EventBus from '@/EventBus';
 import { clearDraft } from '@/utils/draftStore';
@@ -46,10 +49,12 @@ function relativeTime(savedAt: number): string {
 }
 
 function dismiss() {
-  if (currentRoot && currentRoot.parentNode) {
+  if (!currentRoot) return;
+  if (currentRoot.parentNode) {
     currentRoot.parentNode.removeChild(currentRoot);
   }
   currentRoot = null;
+  EventBus.$emit('draft-banner-visibility', false);
 }
 
 function show(payload: DraftPayload) {
@@ -116,6 +121,7 @@ function show(payload: DraftPayload) {
 
   document.body.appendChild(root);
   currentRoot = root;
+  EventBus.$emit('draft-banner-visibility', true);
   trackAnalyticsEvent('draft_banner_shown', draftProps(payload));
 }
 

@@ -22,7 +22,7 @@ import {
   type HeadlessContext,
 } from './headlessTools';
 import { loadAppConfig, loadGrantStore, OAuthConfigError, type OAuthEnv } from './appConfig';
-import { readUiResource, uiCapability, uiResourceList, withUiMeta, UI_EXTENSION_ID } from './mcpApps';
+import { readUiResource, uiCapability, uiResourceList, withUiMeta } from './mcpApps';
 import type { GateEnv } from './headlessGate';
 import type { GrantEvent } from './tokenStore';
 import { mixpanelTrack } from '../../service/mixpanelService';
@@ -31,6 +31,9 @@ import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
 import { issuerFor } from './asMetadata';
 import { json } from '../../OkResponse';
+import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from '../mcpProtocol';
+// Retain the existing module API for authenticated clients and tests.
+export { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from '../mcpProtocol';
 
 /**
  * The tools that change something in Confluence, and so need diagram.write.
@@ -111,8 +114,6 @@ export interface HeadlessEnv extends OAuthEnv, GateEnv {
  * a diagram it already created. The call is therefore bounded and its result
  * is not awaited by the caller.
  */
-const ANALYTICS_TIMEOUT_MS = 2_000;
-
 /** Which event each write tool reports under. Absent = not a write, so nothing is emitted. */
 const WRITE_EVENT_BY_TOOL: Record<string, string | undefined> = {
   create_diagram: 'agent_link_diagram_created',
@@ -121,20 +122,14 @@ const WRITE_EVENT_BY_TOOL: Record<string, string | undefined> = {
   update_page: 'agent_link_page_updated',
 };
 
-/** Bound a fire-and-forget analytics call so it cannot outlive the request it describes. */
-function withTimeout(work: Promise<unknown>): Promise<void> {
-  return Promise.race([
-    work.then(() => undefined),
-    new Promise<void>((resolve) => setTimeout(resolve, ANALYTICS_TIMEOUT_MS)),
-  ]).catch(() => undefined);
-}
-
 async function trackWrite(
   env: HeadlessEnv,
   tool: string,
   userId: string,
   cloudId: string | undefined,
   value: unknown,
+  clientDomain: string | undefined,
+  macroType: string | undefined,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const out = (value ?? {}) as { result?: unknown; gate?: unknown; titleChanged?: unknown };
@@ -148,6 +143,8 @@ async function trackWrite(
         feature_area: 'agent_link',
         surface: 'backend',
         cloud_id: cloudId,
+        client_domain: clientDomain,
+        macro_type: macroType,
         result: typeof out.result === 'string' ? out.result : undefined,
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
         // update_diagram only: did the call rename the diagram (#789)?
@@ -159,43 +156,6 @@ async function trackWrite(
   } catch {
     // analytics must never fail a write that already happened
   }
-}
-
-/**
- * The host fetched the MCP Apps view — the only proof it did.
- *
- * Without this we cannot separate "this host never declared the extension" from
- * "it negotiated and then did not render", and the second is a live upstream bug
- * (modelcontextprotocol/ext-apps#671). Fire-and-forget on the same timeout as
- * every other call here: a slow Mixpanel must not delay a view.
- */
-/**
- * MCP PROTOCOL revisions we can speak, newest first.
- *
- * These are revisions of the MCP protocol itself. '2026-01-26' was in this list
- * and must never be again: that is the date of the MCP APPS EXTENSION spec, not
- * a protocol revision, and because it sorted first every client that asked for
- * anything unlisted was answered with it. A version string no client
- * recognises fails the whole connection — Claude Desktop reported "zenuml
- * returned an error when connecting" and 13 of 13 handshakes on 2026-10-03 were
- * answered '2026-01-26' before this was caught.
- *
- * Keep protocol revisions and extension-spec dates apart. The extension version
- * belongs in the capability payload (mcpApps.ts), never here.
- */
-const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
-
-function negotiateProtocolVersion(requested: unknown): string {
-  return typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
-    ? requested
-    : SUPPORTED_PROTOCOL_VERSIONS[0];
-}
-
-/** Did the client advertise the MCP Apps extension in its initialize params? */
-export function clientDeclaresUi(params: unknown): boolean {
-  const ext = (params as { capabilities?: { extensions?: Record<string, unknown> } } | undefined)
-    ?.capabilities?.extensions;
-  return !!ext && Object.prototype.hasOwnProperty.call(ext, UI_EXTENSION_ID);
 }
 
 /**
@@ -322,6 +282,7 @@ async function trackWriteRefusal(
   userId: string,
   cloudId: string | undefined,
   failure: HeadlessToolError,
+  clientDomain: string | undefined,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const event = WRITE_EVENT_BY_TOOL[tool];
@@ -334,16 +295,121 @@ async function trackWriteRefusal(
         feature_area: 'agent_link',
         surface: 'backend',
         cloud_id: cloudId,
+        client_domain: clientDomain,
         // The closed-vocabulary refusal code only — never the message, which
         // can quote a Confluence error.
         reason: failure.code,
         guardrail_rejected: failure.code === 'guardrail_rejected' || undefined,
+        guardrail_reason: guardrailReasonOf(failure),
+        macro_type: refusedMacroType(failure),
       },
       env.MIXPANEL_TOKEN,
       env,
     ));
   } catch {
     // never fail the response on analytics
+  }
+}
+
+/**
+ * Why the write guard refused — AgentLinkGuardrailRejectReason. Parse errors and
+ * suspected truncations want different fixes, and only the error's detail says
+ * which. Anything unexpected is 'other', never the raw value.
+ */
+function guardrailReasonOf(failure: HeadlessToolError): 'parse_error' | 'data_loss' | 'other' | undefined {
+  if (failure.code !== 'guardrail_rejected') return undefined;
+  const reason = (failure.detail as { reason?: unknown } | undefined)?.reason;
+  return reason === 'parse_error' || reason === 'data_loss' ? reason : 'other';
+}
+
+const IDENTITY_FAILURES = new Set(['no_macro_on_site', 'no_extension_node', 'app_id_mismatch', 'probe_failed']);
+
+/**
+ * Where an 'upstream' failure happened, the HTTP status it got, and — for the
+ * identity resolve — the resolver's refusal. 'upstream' alone is every
+ * Confluence and Atlassian failure at once; four create_diagram calls on one
+ * site (2026-10-23) could not be traced past it. Only closed vocabularies and a
+ * number leave here, never the detail text, which can quote a Confluence error.
+ */
+export function upstreamFailureOf(failure: HeadlessToolError): {
+  failureStep?: string;
+  upstreamStatus?: number;
+  identityFailure?: string;
+} {
+  if (failure.code !== 'upstream') return {};
+  const status = (failure.detail as { status?: unknown } | null | undefined)?.status;
+  return {
+    failureStep: failure.step,
+    upstreamStatus: typeof status === 'number' && Number.isInteger(status) ? status : undefined,
+    identityFailure:
+      failure.step === 'identity' && typeof failure.detail === 'string' && IDENTITY_FAILURES.has(failure.detail)
+        ? failure.detail
+        : undefined,
+  };
+}
+
+/**
+ * agent_link_identity_unresolved — declared in the catalog as the record of a
+ * user hitting the identity wall, and until now never sent: the headless create
+ * is the only caller that resolves an identity, and it has no macro to report
+ * from.
+ */
+async function trackIdentityUnresolved(
+  env: HeadlessEnv,
+  tool: string,
+  userId: string,
+  cloudId: string | undefined,
+  clientDomain: string | undefined,
+  identityFailure: string,
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  try {
+    await withTimeout(mixpanelTrack(
+      {
+        event: 'agent_link_identity_unresolved',
+        user_account_id: userId,
+        feature_area: 'agent_link',
+        surface: 'backend',
+        mcp_mode: 'headless',
+        mcp_tool: tool,
+        cloud_id: cloudId,
+        client_domain: clientDomain,
+        reason: identityFailure,
+      },
+      env.MIXPANEL_TOKEN,
+      env,
+    ));
+  } catch {
+    // never fail the response on analytics
+  }
+}
+
+/** The type of the diagram a guard refusal protected, so false alarms can be split by type. */
+function refusedMacroType(failure: HeadlessToolError): string | undefined {
+  if (failure.code !== 'guardrail_rejected') return undefined;
+  const from = (failure.detail as { diagramType?: unknown } | undefined)?.diagramType;
+  return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
+}
+
+/**
+ * The site's bare subdomain, the form `is_internal_client_domain` matches. A call
+ * that names a site is attributed to that site, and only if the grant reaches
+ * it. list_sites and get_status name none, so they are attributed only when the
+ * grant reaches exactly one site: with several, there is no one site to name.
+ */
+export function clientDomainOf(sites: readonly { cloudId: string; url: string }[], args: unknown): string | undefined {
+  const wanted = (args as { cloudId?: unknown } | null | undefined)?.cloudId;
+  const site =
+    typeof wanted === 'string' && wanted
+      ? sites.find((s) => s.cloudId === wanted)
+      : sites.length === 1
+        ? sites[0]
+        : undefined;
+  if (!site) return undefined;
+  try {
+    return new URL(site.url).hostname.replace(/\.atlassian\.net$/i, '').slice(0, 80) || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -370,30 +436,57 @@ function clip(value: unknown): string | undefined {
  * never sent — only the tool's name, the site it targeted, how it ended, and
  * how long it took. `cloud_id` is what makes usage readable per customer: the
  * token says who, but only the call says which site.
+ *
+ * The call carries no `clientInfo`, so the host comes from the token's OAuth
+ * registration. That KV read runs here, after the response when `waitUntil` is
+ * available, so it never delays the tool.
  */
 async function trackToolCall(
   env: HeadlessEnv,
-  userId: string,
-  call: { tool: string; outcome: ToolOutcome; reason?: string; durationMs: number; cloudId?: string; macroType?: string },
+  store: GrantStore,
+  token: McpTokenRecord,
+  call: {
+    tool: string;
+    outcome: ToolOutcome;
+    reason?: string;
+    durationMs: number;
+    cloudId?: string;
+    clientDomain?: string;
+    macroType?: string;
+    guardrailReason?: string;
+    failureStep?: string;
+    upstreamStatus?: number;
+    identityFailure?: string;
+  },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
+  const clientName = await clientNameFor(store, token.clientId);
   await withTimeout(mixpanelTrack(
     {
       event: 'agent_link_mcp_tool_called',
-      user_account_id: userId,
+      user_account_id: token.userId,
       feature_area: 'agent_link',
       surface: 'backend',
       mcp_mode: 'headless',
       mcp_tool: call.tool,
       cloud_id: call.cloudId,
+      client_domain: call.clientDomain,
+      oauth_client_id: token.clientId,
+      oauth_client_name: clientName,
       mcp_tool_outcome: call.outcome,
       reason: call.reason,
+      guardrail_reason: call.guardrailReason,
+      failure_step: call.failureStep,
+      upstream_status: call.upstreamStatus,
+      identity_failure: call.identityFailure,
       duration_ms: call.durationMs,
       macro_type: call.macroType,
     },
     env.MIXPANEL_TOKEN,
   ));
 }
+
+const DIAGRAM_RESULT_TOOLS = new Set(['read_diagram', 'create_diagram', 'update_diagram']);
 
 /** The analytics macro_type vocabulary, keyed by the stored diagramType folded to lower case. */
 const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
@@ -407,18 +500,14 @@ const MACRO_TYPE_BY_DIAGRAM_TYPE: Record<string, string> = {
 };
 
 /**
- * Which diagram type a successful diagram tool call touched: read_diagram
- * reports it, create_diagram was told it. update_diagram knows neither, so it
- * goes untyped rather than guessed. Anything outside the closed vocabulary is
- * dropped — the stored field is free text.
+ * Which diagram type a successful diagram tool call touched. All three tools
+ * return it, because the MCP Apps view needs it: read from the result, it is the
+ * type actually stored, not what the client asked for. Anything outside the
+ * closed vocabulary is dropped — the stored field is free text.
  */
-export function macroTypeOf(tool: string, args: unknown, value: unknown): string | undefined {
-  const from =
-    tool === 'read_diagram'
-      ? (value as { diagramType?: unknown } | null)?.diagramType
-      : tool === 'create_diagram'
-        ? (args as { diagramType?: unknown } | null)?.diagramType
-        : undefined;
+export function macroTypeOf(tool: string, value: unknown): string | undefined {
+  if (!DIAGRAM_RESULT_TOOLS.has(tool)) return undefined;
+  const from = (value as { diagramType?: unknown } | null)?.diagramType;
   return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
 }
 
@@ -429,7 +518,7 @@ export interface HeadlessMcpDeps {
   /**
    * The Pages context's waitUntil. When given, usage events run after the
    * response is sent instead of delaying it; without it (tests) they are
-   * awaited, still bounded by ANALYTICS_TIMEOUT_MS.
+   * awaited, still bounded by the shared analytics timeout.
    */
   waitUntil?: (work: Promise<unknown>) => void;
 }
@@ -494,6 +583,7 @@ export async function handleHeadlessRpc(
     return new Response(null, { status: 202, headers: CORS });
   }
 
+  let reachableSites: readonly { cloudId: string; url: string }[] = [];
   const ctx: HeadlessContext = {
     store,
     secret: loadGrantStore(env).secret,
@@ -506,6 +596,9 @@ export async function handleHeadlessRpc(
     // one place (headlessGate.ts) instead of spread across the endpoint.
     gateEnv: env,
     onGrantEvent: (event) => trackGrantEvent(env, auth.token.userId, event),
+    onSitesListed: (sites) => {
+      reachableSites = sites;
+    },
   };
 
   switch (body.method) {
@@ -521,7 +614,7 @@ export async function handleHeadlessRpc(
         capabilities: { tools: {}, resources: {}, extensions: uiCapability() },
         serverInfo: { name: 'conf-agent-link-headless', version: '0.1.0' },
         instructions:
-          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
+          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. To change a diagram, find its contentId with list_diagrams, read it with read_diagram, then send the complete edited source to update_diagram. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
       });
     }
 
@@ -572,18 +665,29 @@ export async function handleHeadlessRpc(
       const tool = params.name;
       const cloudId = cloudIdOf(params.arguments);
       const startedMs = now();
-      const trackCall = (outcome: ToolOutcome, reason?: string, macroType?: string) =>
-        defer(trackToolCall(env, auth.token.userId, {
+      const trackCall = (
+        outcome: ToolOutcome,
+        reason?: string,
+        extra: {
+          macroType?: string;
+          guardrailReason?: string;
+          failureStep?: string;
+          upstreamStatus?: number;
+          identityFailure?: string;
+        } = {},
+      ) =>
+        defer(trackToolCall(env, store, auth.token, {
           tool,
           outcome,
           reason,
           cloudId,
-          macroType,
+          clientDomain: clientDomainOf(reachableSites, params.arguments),
+          ...extra,
           durationMs: Math.max(0, now() - startedMs),
         }));
       if (!HEADLESS_TOOLS.some((t) => t.name === tool)) {
         // Never the client's string: an unknown name is free text.
-        await defer(trackToolCall(env, auth.token.userId, { tool: 'unknown', outcome: 'unknown_tool', durationMs: 0 }));
+        await defer(trackToolCall(env, store, auth.token, { tool: 'unknown', outcome: 'unknown_tool', durationMs: 0 }));
         return error(200, id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${tool}`);
       }
       // Reads need diagram.read; the two write tools need diagram.write. A
@@ -602,8 +706,17 @@ export async function handleHeadlessRpc(
           (params.arguments ?? {}) as Record<string, unknown>,
           ctx,
         );
-        await trackWrite(env, params.name, auth.token.userId, cloudId, value);
-        await trackCall('success', undefined, macroTypeOf(params.name, params.arguments, value));
+        const macroType = macroTypeOf(params.name, value);
+        await trackWrite(
+          env,
+          params.name,
+          auth.token.userId,
+          cloudId,
+          value,
+          clientDomainOf(reachableSites, params.arguments),
+          macroType,
+        );
+        await trackCall('success', undefined, { macroType });
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {
@@ -612,8 +725,30 @@ export async function handleHeadlessRpc(
         });
       } catch (e) {
         if (e instanceof HeadlessToolError) {
-          await trackWriteRefusal(env, params.name, auth.token.userId, cloudId, e);
-          await trackCall('tool_error', e.code);
+          await trackWriteRefusal(
+            env,
+            params.name,
+            auth.token.userId,
+            cloudId,
+            e,
+            clientDomainOf(reachableSites, params.arguments),
+          );
+          const upstream = upstreamFailureOf(e);
+          if (upstream.identityFailure) {
+            await defer(trackIdentityUnresolved(
+              env,
+              tool,
+              auth.token.userId,
+              cloudId,
+              clientDomainOf(reachableSites, params.arguments),
+              upstream.identityFailure,
+            ));
+          }
+          await trackCall('tool_error', e.code, {
+            macroType: refusedMacroType(e),
+            guardrailReason: guardrailReasonOf(e),
+            ...upstream,
+          });
           // A dead grant is the one failure the user can act on, so it is a
           // 401 with the challenge rather than a tool-level error buried in a
           // 200 that a client will just print.

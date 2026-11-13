@@ -1,22 +1,6 @@
 name: OAuth token HTTP integration
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'functions/agent-link/**'
-      - 'functions/_middleware.ts'
-      - 'functions/utils/**'
-      - 'functions/OkResponse.ts'
-      - 'functions/service/mixpanelService.ts'
-      - 'functions/migrations/**'
-      - 'public/_routes.json'
-      - 'wrangler-stg.toml'
-      - 'tests/integration/oauth-token/**'
-      - 'vitest.oauth-integration.config.ts'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/oauth-token-integration.yml'
   push:
     branches: [main]
     paths:
@@ -59,7 +43,7 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       # Local HTTP + workerd + D1/KV only. No deployment, remote grant, secrets,
-      # browser, or global/full E2E approval is required by this narrow lane.
+      # browser, or external credentials are required by this narrow lane.
       - name: Test OAuth token lifecycle over HTTP
         env:
           WRANGLER_SEND_METRICS: 'false'

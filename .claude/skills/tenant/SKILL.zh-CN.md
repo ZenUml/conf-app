@@ -1,12 +1,12 @@
-本文件仅供中文审阅。英文主文件：[SKILL.md](SKILL.md)。规则、执行和后续修改以英文主文件为准；本译本不作为独立 skill 入口。同步日期：2026-09-28。
+本文件仅供中文审阅。英文主文件：[SKILL.md](SKILL.md)。规则、执行和后续修改以英文主文件为准；本译本不作为独立 skill 入口。同步日期：2026-11-11。
 
 技能名称：tenant
 
-用途：查询某个 Confluence 站点经核实的产品、许可证、付款、联系人和定价事实。适用于租户资料、付款状态、站点规模、试用和潜在年度价值。复用 Marketplace 导出和独立的 Lite KV 层；采取行动的判断由 `customer-followup` 负责。
+用途：查询一个或一批 Confluence 租户经核实的席位数（Marketplace 许可证用户数）、产品、许可证、付款、联系人和定价事实。用户询问席位、座席、用户数、站点规模或许可证档位时使用，也适用于租户资料、付款状态、试用和潜在年度价值。复用 Marketplace 导出和独立的 Lite KV 层；采取行动的判断由 `customer-followup` 负责。
 
 # 租户查询
 
-根据 Atlassian Marketplace 许可证/交易数据**以及**Lite Stripe/KV 空间许可证层，回答单个租户的问题。它是 `marketplace` 引擎（`mp_report.py`）上的单租户基础查询——认证方式、cloudId 关联和 SQLite 快照均相同，因此不存在另一套会发生漂移的代码。（脚本实际位于 `marketplace/scripts/` 下；本 skill 按路径引用它，和 `macro-count` 引用 `mixpanel` 脚本的方式相同。）
+根据 Atlassian Marketplace 许可证/交易数据**以及**Lite Stripe/KV 空间许可证层，回答单个或一批租户的问题。它是 `marketplace` 引擎（`mp_report.py`）上的单租户基础查询——认证方式、cloudId 关联和 SQLite 快照均相同，因此不存在另一套会发生漂移的代码。（脚本实际位于 `marketplace/scripts/` 下；本 skill 按路径引用它，和 `macro-count` 引用 `mixpanel` 脚本的方式相同。）
 
 ## 你需要的那条命令
 
@@ -16,12 +16,14 @@ python3 $S whois <domain>          # 信息卡：cloudId、用户数、各应用
 python3 $S whois <domain> --json   # 机器可读（--local 模式会注明数据时间）
 ```
 
+查询席位时，使用 `whois` 从 Marketplace 许可证 `tier` 解析出的 `users` 值。Mixpanel 的活跃用户、浏览者和编辑者是使用指标，不是席位。查询多个租户时，只同步一次并记录快照时间，然后对每个域名运行 `whois <domain> --local --json`。如果实时查询或新快照同步失败，将席位数报告为未知，或使用带日期的已验证历史快照；不得用使用指标代替席位。
+
 **对租户的付款状态作任何结论前，都先读取 `whois`**——Marketplace 上天真的 `$0` 是这里最常见的错误答案。
 
 ## 信息卡包含的内容（内置的误区）
 
 - **购买和结算是独立的。** 将原始交易与许可证一起检查。当前 `whois` 辅助程序可能把正金额交易标记为 `PAID`，而不检查 `paymentStatus`；其 `PAID`、`paying` 和累计金额都不能独立确认付款。应在 Marketplace 导出/快照中核实原始 `Paid` / `Fully paid` / `Open` 状态、来源 ID 和服务周期。有效的商业订单即使状态为 Open，也能证明发生了购买，但结算仍未确认。不要称该客户未付款或没有订单。
-- **Lite → 自动检查 Layer B。** Lite 在 Marketplace 上免费（按设计为 `$0`）；真正的 Lite 付费状态位于 **Stripe/KV 空间许可证**层。`whois` 会调用 `wrangler kv … --remote`（其中已包含 `--remote`——没有它时 wrangler v4 会读取本地状态并错误地返回空结果），并打印 `[Layer B: none / N space-licenses]`。`--no-kv` 会跳过检查（约 2 秒）。
+- **Lite 空间许可证会自动检查。** Lite 在 Marketplace 上免费（按设计为 `$0`）；真正的 Lite 付费状态是 Stripe/KV 空间许可证。`whois` 会调用 `wrangler kv … --remote`（其中已包含 `--remote`——没有它时 wrangler v4 会读取本地状态并错误地返回空结果），并打印 `[space licenses: none / N]`。`--no-kv` 会跳过检查（约 2 秒）。遇到 401 时，信息卡打印 `FIX: npx wrangler login`。这表示没查到，不是未付款。
 - **cloudId 是关联键。** 交易包含 `cloudId` + 公司名，但没有主机名，因此按主机名进行文本搜索会找到许可证，却漏掉每一笔交易 → 错误的 `$0`。`whois` 按 cloudId 关联；不要自行编写文本搜索。
 - **Slug 拼写错误 → 建议项。** 未匹配时会打印相似主机名（`example-tenant-agile` → `example-tenants-agile`）。此示例中的租户标识已匿名化。
 

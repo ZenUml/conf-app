@@ -9,8 +9,33 @@ import {
   insertAnalyticsEventFact,
   normalizeForgeInstallAnalyticsEvent,
 } from "./utils/analytics";
+import { buildAppInstalledEvent } from "./service/appInstalledAnalytics";
+import { mixpanelImportServiceEvents } from "./service/mixpanelService";
 
-export const onRequest: PagesFunction = async ({ request, env }) => {
+/**
+ * Send app_installed (#1102) off the response path. Best-effort: a Mixpanel
+ * failure is logged and never affects the D1 write or the trigger's 200.
+ */
+function emitAppInstalled(
+  env: Record<string, unknown>,
+  data: ForgeAppRequestBody,
+  site: { cloudId: string | null; clientDomain: string | null },
+  waitUntil: (promise: Promise<unknown>) => void,
+): void {
+  const token = env.MIXPANEL_TOKEN;
+  if (typeof token !== 'string' || !token) return;
+  const event = buildAppInstalledEvent(data, { ...site, now: Date.now() });
+  if (!event) return;
+  waitUntil(
+    mixpanelImportServiceEvents([event], token, { runtime: env }).catch((error) => {
+      console.warn('[forge-installed] app_installed delivery failed', {
+        reason: error instanceof Error ? error.name : 'unknown_error',
+      });
+    }),
+  );
+}
+
+export const onRequest: PagesFunction = async ({ request, env, waitUntil }) => {
   try {
     const authHeader = getAuthorizationHeader(request);
     if (!authHeader) {
@@ -32,7 +57,8 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
 
     const data = await request.json() as ForgeAppRequestBody;
     console.log('forge-installed body:', data);
-    await upsertForgeInstallation((env as any).DB, data);
+    const site = await upsertForgeInstallation((env as any).DB, data);
+    emitAppInstalled(env as Record<string, unknown>, data, site, waitUntil);
     const analyticsEvent = normalizeForgeInstallAnalyticsEvent(data);
     const r2Key = await archiveAnalyticsEvent((env as any).EVENT_BUCKET, analyticsEvent, data as unknown as Record<string, unknown>);
     await insertAnalyticsEventFact((env as any).DB, analyticsEvent, r2Key);

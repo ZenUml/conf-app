@@ -9,10 +9,10 @@ import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import globals from '@/model/globals'
-import forgeRuntime from '@/model/globals/forgeGlobal'
+import forgeRuntime, { openUrl } from '@/model/globals/forgeGlobal'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
@@ -36,6 +36,11 @@ vi.mock('@/utils/requestUtil', async (importOriginal) => ({
 
 // Default: every viewer is licensed, so the existing writeback tests keep
 // reaching callRemote. The guest/anonymous tests override it per test.
+import { loadLicenseNoticeEvidence } from '@/features/licenseNotice/loadEvidence'
+vi.mock('@/features/licenseNotice/loadEvidence', () => ({
+  loadLicenseNoticeEvidence: vi.fn(() => Promise.resolve({ state: 'unknown' })),
+}))
+
 vi.mock('@/utils/magic/viewerAccount', () => ({
   viewerAccountKind: vi.fn(() => Promise.resolve('licensed')),
 }))
@@ -60,6 +65,7 @@ vi.mock('@/apis/aiTitleFeatureFlag', () => ({
   isAgentLinkEnabled: vi.fn(() => Promise.resolve(false)),
   isArchitectureTokensEnabled: vi.fn(() => Promise.resolve(false)),
   isCreateGuideEnabled: vi.fn(() => Promise.resolve(false)),
+  isNoLicenseNoticeEnabled: vi.fn(() => Promise.resolve(false)),
 }))
 
 // The first release offers the headless MCP only (RELAY_SESSIONS_ENABLED is
@@ -846,6 +852,19 @@ describe('GenericViewer (chrome-less)', () => {
       store.state.diagram.title = ''
       const wrapper = mountViewer()
       expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')
+    })
+
+    it('shows the default title instead of a saved model refusal, and records it once', async () => {
+      store.state.diagram.title = 'Please provide the DSL that describes your flowchart and I will suggest a tit'
+      await flushPromises()
+      // Viewers left mounted by earlier tests share the store; count only this mount.
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('.viewer-title').text()).toBe('Untitled diagram')
+      const hidden = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'saved_refusal_title_hidden')
+      expect(hidden).toEqual([['saved_refusal_title_hidden', expect.objectContaining({ feature_area: 'ai', surface: 'viewer' })]])
+      wrapper.unmount()
     })
 
     it('reveals top + bottom edges on mouseenter and hides on mouseleave', async () => {
@@ -3289,12 +3308,38 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
     })
 
-    it('does not show Connect MCP for a non-MVP diagram type (graph) even when the flag is on', async () => {
-      store.commit('updateDiagramType', DiagramType.Graph)
+    it.each([
+      DiagramType.Sequence,
+      DiagramType.Mermaid,
+      DiagramType.PlantUml,
+      DiagramType.Markdown,
+      DiagramType.Graph,
+      DiagramType.OpenApi,
+      DiagramType.AsyncApi,
+    ])('shows Connect MCP for a %s diagram when the flag is on', async (type) => {
+      store.commit('updateDiagramType', type)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
+    })
+
+    it('does not show Connect MCP for a diagram of unknown type', async () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
       vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+    })
+
+    it('reports agent_link_mcp_button_shown with the macro type for a graph diagram', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls().length).toBe(1)
+      expect(shownCalls()[0][1]).toMatchObject({ macro_type: DiagramType.Graph })
     })
 
     it('opens the dialog inline without minting a session or opening Fullscreen', async () => {
@@ -3400,6 +3445,60 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
       await settleLayout()
       expect(shownCalls()).toHaveLength(0)
+    })
+
+    describe('Fullscreen MCP promo card', () => {
+      const fullscreen = () => {
+        ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' }, modal: { macroMode: 'fullscreen' } } } }
+      }
+
+      it('shows the card in fullscreen and opens the dialog from it', async () => {
+        fullscreen()
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        const wrapper = mountViewer()
+        await flushPromises()
+        const card = wrapper.find('[data-testid="mcp-promo-card"]')
+        expect(card.exists()).toBe(true)
+        expect(shownCalls()).toContainEqual([
+          'agent_link_mcp_button_shown',
+          expect.objectContaining({ surface: 'fullscreen', mcp_button_placement: 'fullscreen_card', mcp_button_reveal: 'always' }),
+        ])
+
+        await wrapper.find('[data-testid="mcp-promo-card-cta"]').trigger('click')
+        expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(true)
+        expect(wrapper.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+          'agent_link_mcp_dialog_opened',
+          expect.objectContaining({ surface: 'fullscreen', mcp_button_placement: 'fullscreen_card' })
+        )
+      })
+
+      it('never shows again after a dismissal', async () => {
+        fullscreen()
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        const wrapper = mountViewer()
+        await flushPromises()
+        await wrapper.find('[data-testid="mcp-promo-card-dismiss"]').trigger('click')
+        expect(wrapper.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+          'agent_link_mcp_promo_dismissed',
+          expect.objectContaining({ surface: 'fullscreen', mcp_button_placement: 'fullscreen_card' })
+        )
+
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        const again = mountViewer()
+        await flushPromises()
+        expect(again.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+      })
+
+      it('is not shown inline or with the flag off', async () => {
+        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+        expect(mountViewer().find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+        fullscreen()
+        const off = mountViewer()
+        await flushPromises()
+        expect(off.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+      })
     })
 
     it('does not try to reattach a relay session on mount', async () => {
@@ -3978,6 +4077,154 @@ describe('GenericViewer embed module context', () => {
 
     expect(wrapper.vm.isEmbedded).toBe(embedded)
     expect(wrapper.find('.viewer-embed-chip').exists()).toBe(embedded)
+    wrapper.unmount()
+  })
+})
+
+describe('GenericViewer license notice (Full, license inactive)', () => {
+  const UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1218380/zenuml-sequence-diagram'
+  let previousContext: typeof forgeRuntime.forgeContext
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    previousContext = forgeRuntime.forgeContext
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION', license: { active: false } } as any
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.source = DataSource.CustomContent
+    store.state.viewerLoadState = 'ready'
+    store.state.loadError = null
+    window.forgeGlobal = { forgeContext: { extension: {} } } as any
+    vi.stubEnv('PRODUCT_TYPE', 'full')
+    vi.mocked(isNoLicenseNoticeEnabled).mockResolvedValue(true)
+  })
+  afterEach(() => {
+    forgeRuntime.forgeContext = previousContext
+    vi.unstubAllEnvs()
+    vi.mocked(isNoLicenseNoticeEnabled).mockResolvedValue(false)
+  })
+
+  it('shows the watermark and the upgrade strip, with the watermark outside the capture node', async () => {
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="license-notice-upgrade"]').text()).toBe('Upgrade on Marketplace')
+    expect(wrapper.find('[data-testid="license-notice-strip"]').text()).toContain('No active license')
+    const watermark = wrapper.find('[data-testid="license-watermark"]').element
+    const capture = wrapper.find('.screen-capture-content').element
+    expect(capture.contains(watermark)).toBe(false)
+    expect(watermark.getAttribute('aria-hidden')).toBe('true')
+    expect(watermark.textContent).toContain('NO ACTIVE LICENSE')
+    wrapper.unmount()
+  })
+
+  it('renders neither part when the flag is off', async () => {
+    vi.mocked(isNoLicenseNoticeEnabled).mockResolvedValue(false)
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('license_notice_evaluated', expect.anything())
+    wrapper.unmount()
+  })
+
+  it('renders neither part when the flag lookup rejects', async () => {
+    vi.mocked(isNoLicenseNoticeEnabled).mockRejectedValue(new Error('boom'))
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders neither part when the license is active', async () => {
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION', license: { active: true } } as any
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders neither part on a non-Full variant', async () => {
+    vi.stubEnv('PRODUCT_TYPE', 'lite')
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders neither part in the load-failed state', async () => {
+    store.state.viewerLoadState = 'failed_with_source'
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="load-failed-generic"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows Legacy Free with a missing Forge license only after fresh backend evidence', async () => {
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION' } as any
+    delete forgeRuntime.forgeContext.license
+    vi.mocked(loadLicenseNoticeEvidence).mockResolvedValueOnce({ state: 'legacy_free', checkedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() })
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_shown', expect.objectContaining({ license_notice_basis: 'marketplace_legacy_free' }))
+    wrapper.unmount()
+  })
+
+  it('keeps an unknown license hidden without positive evidence', async () => {
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION' } as any
+    delete forgeRuntime.forgeContext.license
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_evaluated', expect.objectContaining({ license_notice_outcome: 'unknown' }))
+    wrapper.unmount()
+  })
+
+  it('does not apply a late Legacy Free response after the license becomes active', async () => {
+    forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION' } as any
+    delete forgeRuntime.forgeContext.license
+    let resolveEvidence!: (value: unknown) => void
+    vi.mocked(loadLicenseNoticeEvidence).mockImplementationOnce(() => new Promise(resolve => { resolveEvidence = resolve }))
+    const wrapper = mountViewer()
+    await flushPromises()
+    forgeRuntime.forgeContext.license = { active: true } as any
+    resolveEvidence({ state: 'legacy_free', checkedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('removes a displayed Marketplace notice when its evidence expires on an open page', async () => {
+    vi.useFakeTimers()
+    try {
+      forgeRuntime.forgeContext = { ...previousContext, environmentType: 'PRODUCTION' } as any
+      delete forgeRuntime.forgeContext.license
+      vi.mocked(loadLicenseNoticeEvidence).mockResolvedValueOnce({ state: 'legacy_free', checkedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 10000).toISOString() })
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('fires license_notice_shown once, and the click opens the Marketplace page and tracks', async () => {
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-notice-upgrade"]').exists()).toBe(true))
+    await flushPromises()
+    const shown = () => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([n]) => n === 'license_notice_shown')
+    expect(shown()).toHaveLength(1)
+    expect(shown()[0][1]).toEqual(expect.objectContaining({ feature_area: 'license_notice', surface: 'viewer', macro_type: 'sequence' }))
+
+    await wrapper.find('[data-testid="license-notice-upgrade"]').trigger('click')
+    expect(openUrl).toHaveBeenCalledWith(UPGRADE_URL)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_upgrade_clicked', expect.objectContaining({ feature_area: 'license_notice', surface: 'viewer' }))
+    expect(shown()).toHaveLength(1)
     wrapper.unmount()
   })
 })

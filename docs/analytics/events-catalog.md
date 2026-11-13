@@ -33,6 +33,8 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 
 **Trigger:** Every time a diagram macro finishes rendering — both viewer (display mode) and editor mode. Fired by `trackRenderTime()` in `src/utils/analytics/trackRenderTime.ts`.
 
+**Sampling (from 2026-11):** the first render of a macro on a surface per browser per UTC day is always sent with `view_of_day: "first"`. Later renders that day are sent at 10% with `view_of_day: "repeat"` and `sample_rate: 0.1` (`src/utils/analytics/macroViewOfDay.ts`). Count total renders as `sum(1 / sample_rate)`; count distinct viewers, macros and tenants from the events as before. Events without `view_of_day` (older builds, or a browser without storage) are unsampled. Timing percentiles (`duration_ms`, `cache_state`) read from a mix of all first views and a 10% sample of repeats, so weight by `1 / sample_rate` when repeat renders matter.
+
 | Property | Notes |
 |---|---|
 | `feature_area` | `"macro"` |
@@ -50,6 +52,7 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `measured_sum_ms` | Sum of the above four phases; `duration_ms − measured_sum_ms` is the unattributed remainder |
 | `tab_hidden` | `true` when the browser tab was backgrounded during load; exclude from percentile calculations |
 | `space_admin_count` | Count of space admins resolved for the current space (only on `macro_viewed`) |
+| `license_active` | Full only. Forge `license.active` at render time. Absent on other variants, on staging and development (Forge returns no license there), and when Forge supplies no boolean. A Mixpanel breakdown groups absent values under `false`, so filter `product_type = full` and treat earlier Full events as unknown. Observed 2026-11-03..08 against the Marketplace license of 33 customer sites (a correlation, not a documented Forge rule): `true` = paid (21 sites), evaluation (2) or no Marketplace match (1), so `true` does not mean paid; `false` = an inactive commercial license (1); absent = an active `LEGACY_FREE` license (8) |
 | `content_state` | Body classification at render time (#113), by `classifyContentState()` in `src/utils/analytics/contentState.ts`: `"default"` (body equals the bundled starter for the type), `"authored"` (anything else), `"empty"` (type-specific body field null, undefined or whitespace-only). A `custom_content_id` that was once `authored` and is now `empty` is a high-confidence wipe. **Where `empty` is observable:** every body-carrying type reports it, because the viewers' empty-body branches still send `macro_viewed` (with the verdict, once per mount, and without attempting a render): `sequence`, `openapi`, `asyncapi` on their normal path; `mermaid`, `graph` and `markdown` (empty string) from the empty branch; `plantuml` from its loaded body, including direct fetch, SWR cache and revalidation: the existing example fallback still renders, but runtime-only metadata preserves the original empty verdict. Whitespace-only bodies also report `empty`: Mermaid keeps its existing empty branch; PlantUML and Graph report before their existing validation/parsing, even when that path rejects the body; Markdown renders normally and reads `empty` on that path. The empty-branch event fires only for a document that loaded with an empty body of the viewer's own type (`isLoadedEmptyBody`); a never-loaded shell emits nothing. Absent when the load failed or the diagram never loaded (no verdict, never `empty`). `graph` `default` = a byte match of the empty-canvas seed (lzutf8 bodies are decompressed first); it is best-effort and rarely reached, because the editor saves DrawIO's own re-serialised `payload.xml`, not the seed string, so a blank canvas saved through the editor reads `authored`. `embed` has no body of its own: the referenced document's own type component classifies the referenced body |
 | `layout_wait_ms` | Mermaid only. Wall time the viewer waited for a measurable SVG text layout after `mermaid.render()` threw `svg element not in render tree` (collapsed or hidden macro). Absent when no wait happened. Included in `duration_ms`; exclude present values from render-time percentiles (#706) |
 
@@ -283,6 +286,16 @@ emitted when the feature flag is off, and `related_token_indicators_shown` is no
 
 Renamed 2026-09-08 from `ai_generation_*`; pre-release data carries the old names.
 
+### `ai_title_label_used`
+
+**Trigger:** a Graph has one short label and a title was requested (AI button or Publish). The label becomes the title without a model call, so no `ai_title_generation_*` or `ai_title_accepted` event fires. Fired in `useAutoTitle.ts`.
+
+| Property | Notes |
+|---|---|
+| `feature_area` | `"ai"` |
+| `surface` | `"editor"` |
+| `macro_type` | `"graph"` |
+
 ### `ai_title_generation_requested`
 
 **Trigger:** AI title generation call dispatched (user clicked the spark icon, or auto-title triggered on init). Fired in `useAutoTitle.ts` for Sequence/Mermaid/PlantUML, Graph and OpenAPI editors.
@@ -329,14 +342,23 @@ Same properties as `ai_title_generation_requested`.
 
 ### `ai_title_accepted`
 
-**Trigger:** User saved the diagram while the AI-generated title was still displayed (auto-name animation was done and the title was not manually edited). Fired by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths.
+**Trigger:** User saved the diagram and the saved title is exactly the latest AI-generated title. Fired at most once per generated title by `useAutoTitle.ts::notifyAiTitleSaved` from the Sequence, Graph and OpenAPI save paths. The event records the save attempt, so it can fire for a save that later fails.
+
+| Case | `ai_title_accepted` | `ai_title_modified` |
+|---|---|---|
+| Generated "Order Checkout", saved "Order Checkout" | fires | no |
+| Generated "Order Checkout", saved "Order Checkout EU" | no | fires |
+| Generated "Order Checkout", edited, typed "Order Checkout" back, saved | fires | fires |
+| Generated "Order Checkout", cleared, saved another or empty title | no | no |
 
 | Property | Notes |
 |---|---|
 | `feature_area` | `"ai"` |
 | `surface` | `"editor"` |
-| `accepted_title` | The AI-generated title string that was accepted |
+| `accepted_title` | The AI-generated title that was saved |
 | `content_id` | Custom content ID at the time of save |
+
+**Analysis break:** counts are not comparable across the first release of each variant that carries [PR #1054](https://github.com/ZenUml/conf-app/pull/1054), because older builds also fired this event when the user edited the generated title and saved. In those builds `accepted_title` can be the user's text, up to about 140 characters seen in Mixpanel, while the model title is capped at 80. Release dates: Diagramly pending, Lite pending, Full pending, AsyncAPI pending. Use the variant's release date, or split by `product_type` and `app_version`.
 
 ---
 
@@ -426,7 +448,7 @@ Same properties as `paywall_continue_used` with `remaining_attempts: 0`.
 
 ### `paywall_banner_shown`
 
-**Trigger:** The paywall warning banner (served from the `confluence:pageBanner` iframe) is committed to displaying. Fired in `PaywallWarningBanner.vue` on every eligible mount. There is no dismissal or impression-frequency suppression. `show_count` and optional `hours_since_last_shown` remain descriptive analytics properties.
+**Trigger:** The paywall warning banner (served from the `confluence:pageBanner` iframe) is committed to displaying. Fired in `PaywallWarningBanner.vue` on the first eligible mount per browser, site and space per UTC day (from 2026-11; before that, on every eligible mount). The banner itself still shows on every eligible load; only the event is daily. `show_count` keeps counting every display, so impressions between two events are the difference of their `show_count`; `hours_since_last_shown` is the gap to the previous display, not to the previous event.
 
 | Property | Notes |
 |---|---|
@@ -552,6 +574,27 @@ Fired by `functions/forge-user-behavior.ts` from the `avi:confluence:updated:pag
 ### `feedback_link_clicked`
 
 Backend-declared event. Not currently emitted by client code.
+
+---
+
+## Placement picker (Add to page)
+
+The page drawn from its ADF, with a selectable gap between each top-level block. `surface` is the surface that opened the picker (`byline` or `page_banner`). `diagram_added_to_page` carries the outcome, now with `placement_position`, `placement_block_count`, `placement_default_kept`, and a `page_changed` result when the chosen spot no longer exists.
+
+**Sampling:** all three events are unsampled. Volume is low, and sampling would leave too few events to read the picker's uptake.
+
+### `placement_picker_opened`
+
+| Property | Values |
+|---|---|
+| `result` | `"loaded"`, `"load_failed"` (the page could not be read) or `"open_failed"` (the modal never opened, fired by the opening surface) |
+| `placement_block_count` | Top-level blocks on the page, when `loaded` |
+
+### `placement_picker_dismissed`
+
+| Property | Values |
+|---|---|
+| `dwell_ms` | Time the picker was open before the user left without choosing |
 
 ---
 

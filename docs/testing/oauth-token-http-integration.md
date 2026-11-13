@@ -2,7 +2,7 @@
 
 Run `pnpm test:oauth-integration` from the repository root. The standalone Node test configuration builds the real Pages Functions router, starts a local workerd HTTP listener, and sends requests with Node fetch through the production middleware and handlers. It uses local Miniflare D1/KV and the exact production refresh-ledger migration (`0032`). No token handler, refresh ledger, or bearer-authentication function is mocked.
 
-The two covered service-boundary scenarios are recorded in `tests/integration/oauth-token/scenarios.json`: `agent-authorization × oauth-protocol` and `agent-authorization × external-agent`. The targeted CI workflow runs this small API lane for relevant changes, including Draft PRs, independently of browser E2E authorization. It publishes JSON/JUnit results, the actual checked-out candidate commit/tree and scenario manifest. Existing browser selection and main Jev policy remain separate.
+The two covered service-boundary scenarios are recorded in `tests/integration/oauth-token/scenarios.json`: `agent-authorization × oauth-protocol` and `agent-authorization × external-agent`. For PRs, the trusted test-decision controller authorizes this API lane when its scenarios are selected or a full run is approved. The standalone workflow runs relevant changes on main and supports manual dispatch. It publishes JSON/JUnit results, the actual checked-out candidate commit/tree and scenario manifest. Existing browser selection and main Jev policy remain separate.
 
 ## What the tests prove
 
@@ -18,4 +18,4 @@ The production Pages route allowlist is checked for both endpoints. Miniflare ex
 
 Authorization codes and client records are preconditions seeded through production fixture helpers; the tests do not cover the browser consent flow, third-party login, production deployments or a real Cloudflare edge. The local D1/KV emulation is not a remote storage test. Only migration 0032 is applied, not the application's full migration history. Full migration deployment is a separate check.
 
-These are server HTTP integration tests, not browser E2E. Do not relabel existing mocked handler tests as equivalent evidence. Keep a missing-coverage label until the targeted lane has executed successfully for the candidate and the recorded coverage scope has been reviewed. A new protocol test channel does not by itself activate the pending trusted PR-selection controller.
+These are server HTTP integration tests, not browser E2E. Do not relabel existing mocked handler tests as equivalent evidence. Keep a missing-coverage label until the targeted lane has executed successfully for the candidate and the recorded coverage scope has been reviewed. A current test decision is required before the PR lane runs.

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendFileSync, existsSync, writeFileSync, readFileSync, mkdtempSync } from 'node:fs';
+import { appendFileSync, existsSync, writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 
 // Node's default maxBuffer is 1 MiB, but one page of 100 workflow runs is already about
 // 1.3 MB. GitHub caps a page at 100 items, so 64 MiB leaves a wide margin.
@@ -28,7 +28,11 @@ export function dispatchBody(env) {
     if (env.STAGING_RUN_ID) inputs['staging-run-id'] = env.STAGING_RUN_ID;
   } else {
     inputs.grep = env.GREP || '';
-    if (env.CHILD_KIND === 'pr') inputs.mode = env.MODE;
+    if (env.CHILD_KIND === 'pr') {
+      inputs.mode = env.MODE;
+      if (env.PR_NUMBER) inputs['pr-number'] = env.PR_NUMBER;
+      if (env.DECISION_ID) inputs['decision-id'] = env.DECISION_ID;
+    }
     else {
       inputs.suite = env.SUITE || 'insert';
       inputs.timeout = env.TEST_TIMEOUT || '11';
@@ -69,6 +73,15 @@ export function verifyParent(parent, attempt, jobs, expectedJobs, provenance = {
     }
   } else if (parent.path === '.github/workflows/build-test-deploy.yml' && provenance.sourceSha && parent.head_sha !== provenance.sourceSha) {
     throw new Error('Phase source does not match its root');
+  }
+}
+
+export function verifyPrProvenance(record, parent, runId, attempt, pr, source) {
+  if (parent.path !== '.github/workflows/pr-validation.yml' || String(parent.id) !== String(runId)
+      || !/^[1-9][0-9]*$/.test(String(pr)) || !/^[a-f0-9]{40}$/.test(source ?? '')
+      || record?.run !== String(runId) || record?.attempt !== String(attempt)
+      || record?.pr !== String(pr) || record?.candidate !== source) {
+    throw new Error('PR child candidate does not match the staging parent provenance');
   }
 }
 
@@ -128,6 +141,28 @@ export function verifyDailyGate(gate, producer, rootId, attempt, source, produce
     throw new Error('Daily gate artifact does not match this root source and draft producer');
   }
   return gate;
+}
+
+// A lost response is ambiguous: the child may exist and must still be found.
+// Only GitHub's explicit missing-ref rejection proves this dispatch created none.
+export function dispatchWithRecord(api, workflow, body, marker) {
+  rmSync(`${marker}.rejected`, { force: true });
+  // Persist before invoking gh: an interrupted request may still create a child.
+  writeFileSync(`${marker}.attempted`, 'attempted');
+  try {
+    api(`actions/workflows/${workflow}/dispatches`, ['--method', 'POST', '--input', '-'], JSON.stringify(body));
+  } catch (error) {
+    if (error.status === 1 && !error.signal && /^gh: No ref found for: [^\r\n]+ \(HTTP 422\)\s*$/.test(String(error.stderr || ''))) {
+      writeFileSync(`${marker}.rejected`, 'missing ref');
+    }
+    throw error;
+  }
+  writeFileSync(marker, 'dispatched');
+}
+
+export async function cleanupWithRecord(api, title, workflow, pause, marker) {
+  if (!existsSync(`${marker}.attempted`) || existsSync(`${marker}.rejected`)) return;
+  await closeChild(api, title, workflow, pause, undefined, existsSync(marker));
 }
 
 export async function closeChild(api, title, workflow, pause, deadline = Date.now() + 8 * 60000, expected = false) {
@@ -197,6 +232,13 @@ async function main() {
     let verified;
     await verifyParentWithRetry(() => (verified = fetchState()), 6, pause, line => console.error(line));
     const { parent } = verified;
+    if (parent.path === '.github/workflows/pr-validation.yml' && env.PR_NUMBER) {
+      const directory = mkdtempSync(join(tmpdir(), 'pr-parent-provenance-'));
+      execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,
+        '--name', `pr-parent-provenance-${env.PARENT_ATTEMPT}`, '--dir', directory]);
+      verifyPrProvenance(JSON.parse(readFileSync(join(directory, 'pr-parent-provenance.json'), 'utf8')),
+        parent, env.PARENT_RUN_ID, env.PARENT_ATTEMPT, env.PR_NUMBER, env.SOURCE_SHA);
+    }
     if (parent.path === '.github/workflows/build-test-deploy.yml') {
       const directory = mkdtempSync(join(tmpdir(), 'main-root-options-'));
       execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,
@@ -210,7 +252,7 @@ async function main() {
     return;
   }
   if (process.argv.includes('--cleanup')) {
-    await closeChild(api, title, workflow, pause, undefined, existsSync(dispatchMarker));
+    await cleanupWithRecord(api, title, workflow, pause, dispatchMarker);
     return;
   }
   let child;
@@ -224,8 +266,7 @@ async function main() {
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
   try {
-    api(`actions/workflows/${workflow}/dispatches`, ['--method', 'POST', '--input', '-'], JSON.stringify(dispatchBody(env)));
-    writeFileSync(dispatchMarker, title);
+    dispatchWithRecord(api, workflow, dispatchBody(env), dispatchMarker);
     const createdDeadline = Date.now() + 120000;
     while (!child && Date.now() < createdDeadline) {
       const result = api(`actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=100`);

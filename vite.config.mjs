@@ -113,6 +113,10 @@ export default defineConfig(({ command }) => ({
     // task's. Defaults OFF; flip this literal to JSON.stringify(true) and
     // redeploy to enable. See src/components/Viewer/SecondDiagramPrompt.vue.
     'import.meta.env.VITE_SECOND_DIAGRAM_PROMPT_ENABLED': JSON.stringify(false),
+    // Title-draft offer-copy A/B test. Lite is at the Forge flag cap; this
+    // independent build switch avoids another SDK lookup. Set false and
+    // rebuild to restore original A copy without experiment attribution.
+    'import.meta.env.VITE_TITLE_DRAFT_COPY_EXPERIMENT_ENABLED': JSON.stringify(true),
   },
   // Pre-bundle the hot CJS / Vue / CodeMirror cluster on dev-server cold start.
   // Without this, Vite discovers each lazily on first request and rebuilds the
@@ -420,6 +424,7 @@ export default defineConfig(({ command }) => ({
       '**/tests/export-modal/**',
       // Real HTTP/Cloudflare runtime suite has its own Node-only command/job.
       '**/tests/integration/oauth-token/**',
+      '**/tests/ui-details/**',
       '**/packages/**',
       // Scratch dir — sessions park ad-hoc Playwright specs here; a stray
       // *.spec.ts under tmp/ otherwise fails the whole run at collection.

@@ -97,8 +97,14 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     id: 'zenuml-lite@stg',
     domain: 'lite-stg.atlassian.net',
     spaceKey: 'SD',
-    parentPageId: '524297',
-    parentPageName: 'Before release test pages',
+    // "E2E test pages 2026-10-27". The previous parent, "Before release test
+    // pages" (524297), held about 43,000 child pages because staging runs never
+    // delete their pages. With that many children, Confluence's post-publish
+    // step ran into its ~28 s internal timeout (504 ServiceCallTimeoutError),
+    // the editor showed "Can't save changes", and publishPage() failed waiting
+    // for #title-text. Move to a fresh parent again if this one grows large.
+    parentPageId: '366149957',
+    parentPageName: 'E2E test pages 2026-10-27',
     isLite: true,
     productType: 'lite',
     isForge: true,

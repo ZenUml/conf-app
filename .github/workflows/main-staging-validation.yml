@@ -14,6 +14,7 @@ jobs:
   parent:
     name: Verify root ownership
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       run: ${{ steps.owner.outputs.run }}
       grep: ${{ steps.selection.outputs.grep }}
@@ -185,7 +186,7 @@ jobs:
     needs: [staging-lite, e2e-auth-lite, parent]
     name: "Validate: Lite"
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 45
     permissions:
       actions: write
       contents: read
@@ -241,7 +242,7 @@ jobs:
     needs: [staging-full, e2e-auth-full, parent]
     name: "Validate: Full"
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 45
     permissions:
       actions: write
       contents: read
@@ -312,7 +313,7 @@ jobs:
     needs: [staging-asyncapi, e2e-auth-asyncapi, parent]
     name: "Validate: AsyncAPI"
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 45
     permissions:
       actions: write
       contents: read
@@ -354,7 +355,7 @@ jobs:
     needs: [staging-diagramly, e2e-auth-diagramly, parent]
     name: "Validate: Diagramly"
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 45
     permissions:
       actions: write
       contents: read
@@ -397,6 +398,7 @@ jobs:
     needs: [parent, migrations, staging-lite, staging-full, staging-diagramly, staging-asyncapi, staging-lite-e2e, staging-full-e2e, staging-diagramly-e2e, staging-asyncapi-e2e]
     if: ${{ always() && needs.parent.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Record immutable source and direct validation results
         env:

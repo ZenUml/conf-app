@@ -25,7 +25,7 @@ import { test, expect, Page, FrameLocator } from '../../fixtures/mixpanel-test.j
 import { testConfig } from '../../config/test-config.js';
 import { insertMacro, openEditModal } from '../../helpers/MacroFlowHelper.js';
 import { clickEditorPublish, expectModalClosed, fillEditorTitle, modalContentFrame } from '../../helpers/FullscreenModalHelper.js';
-import { pageBannerFrame as csatBannerFrame, expectBannerAbsent, setAppMocks, clearPaywallMarkers } from '../../helpers/pageBanner.js';
+import { pageBannerFrame as csatBannerFrame, expectBannerAbsent, expectCsatAbsent, setAppMocks, clearPaywallMarkers } from '../../helpers/pageBanner.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 
 // Matches CsatBanner.vue's productName; Diagramly has its own survey branding.
@@ -79,7 +79,7 @@ async function prepareCsatBannerFlow(page: Page): Promise<void> {
 // Tests
 // ---------------------------------------------------------------------------
 
-test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '@variant:full', '@variant:diagramly', '@page-banner', '@fullscreen', '@csat'] }, () => {
+test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '@variant:full', '@variant:diagramly', '@page-banner', '@fullscreen', '@csat', '@feature:csat', '@interface:page-banner', '@scenario:csat:page-banner'] }, () => {
   test.skip(!testConfig.isForge, 'pageBanner is Forge-only');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');
 
@@ -255,9 +255,10 @@ test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '
       localStorage.setItem(`csatPending-${stateKey.slice('csat_state-'.length)}`, String(Date.now()));
     });
 
-    // Reload — suppression state should prevent banner from showing.
+    // Reload — suppression must hide CSAT. Another eligible banner may use
+    // the shared page-banner slot after CSAT stands down.
     await page.reload();
     await page.waitForTimeout(3_000);
-    await expectBannerAbsent(page);
+    await expectCsatAbsent(page);
   });
 });

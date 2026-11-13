@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# shellcheck source=release-order.sh
+source "$(dirname "${BASH_SOURCE[0]}")/release-order.sh"
+
 repo="${RELEASE_REPO:-ZenUml/conf-app}"
 requested_variant="${1:-}"
 draft_tag="${2:-}"
@@ -39,6 +42,24 @@ normalized_draft_target="$(tr '[:upper:]' '[:lower:]' <<<"$draft_target")"
 [[ "$normalized_draft_sha" == "$normalized_draft_target" ]] \
   || block "$draft_tag target $draft_target did not resolve to the same commit SHA"
 
+published_releases="$(gh release list --repo "$repo" --exclude-drafts --limit 1000 \
+  --json tagName,publishedAt)" \
+  || block "could not list published releases"
+
+# Applies to every variant: publishing a draft that is not newer than what is live rolls
+# production back, whatever prerequisite it matches.
+live_tag="$(jq -r --arg v "-$variant" \
+  '[.[] | select(.tagName | endswith($v))] | sort_by(.publishedAt) | last | .tagName // empty' \
+  <<<"$published_releases")"
+if [[ -n "$live_tag" ]]; then
+  live_target="$(gh release view "$live_tag" --repo "$repo" --json targetCommitish --jq '.targetCommitish' 2>/dev/null)" \
+    || block "could not read live release $live_tag"
+  order=0
+  reason="$(draft_order "$repo" "$draft_tag" "$normalized_draft_sha" "$live_tag" "$live_target")" || order=$?
+  (( order != 2 )) || block "$reason"
+  (( order == 0 )) || block "$draft_tag is not newer than live $live_tag: $reason"
+fi
+
 case "$variant" in
   diagramly|asyncapi)
     printf 'OK: %s targets pinned commit %s and has no prerequisite\n' "$draft_tag" "$draft_sha"
@@ -50,9 +71,6 @@ esac
 
 matching_tag=""
 matching_published_at=""
-published_releases="$(gh release list --repo "$repo" --exclude-drafts --limit 1000 \
-  --json tagName,publishedAt)" \
-  || block "could not list published $prerequisite_variant releases"
 git fetch --tags --quiet origin \
   || block "could not fetch release tags from origin"
 while IFS=$'\t' read -r tag published_at; do

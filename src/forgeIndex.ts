@@ -1377,7 +1377,7 @@ EventBus.$on('save', async () => {
 
   // Captured before save runs. After save, if the returned id differs from
   // sourceId, the save forked a new custom content (cross-page-copy / same-
-  // page-duplicate path in CustomContentStorageProvider.save) and the macro
+  // page-duplicate path in saveToPlatform) and the macro
   // params must be rewritten via view.submit, else the page still points at
   // the source content while the new one sits orphaned.
   // The truthy-guard on sourceId is load-failure protection: a degraded load

@@ -627,7 +627,6 @@ import { toast } from '@/utils/toast'
 import { buildCopyForAiPrompt } from '@/utils/copyForAi/buildCopyForAiPrompt'
 import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
-import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
 import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
 import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
@@ -1045,7 +1044,7 @@ export default {
         ? 'This diagram lives on another page. Edit it there to keep both in sync.'
         // Same-page duplicates reach this disabled state via the click-time
         // Edit gate (model/editDupGate.ts): saving from the in-viewer modal
-        // would fork a new custom content (CustomContentStorageProvider.save /
+        // would fork a new custom content (saveToPlatform /
         // saveCustomContentV2 count>1) that can never be written back into the
         // macro config (#170), silently stranding the edit — so steer to the
         // page editor, the one surface where the fork can be linked.
@@ -2731,14 +2730,13 @@ export default {
       if (this.isDownloadingDebug) return;
       this.isDownloadingDebug = true;
       try {
-        const provider = new MacroIdProvider(globals.apWrapper);
         const apRequest = (url) => globals.apWrapper.request(url);
         const { bundle, serialisedSize } = await buildAndDownloadDebugBundle(
           { diagram: this.diagram, diagramType: this.diagramType },
           {
             apRequest,
-            getCustomContentId: () => provider.getId().then(v => v ?? null),
-            getMacroUuid:       () => provider.getUuid().then(v => v ?? null),
+            getCustomContentId: () => globals.apWrapper.getMacroData().then(m => m?.customContentId ?? null),
+            getMacroUuid:       () => globals.apWrapper.getMacroData().then(m => m?.uuid ?? null),
           },
         );
         trackEvent('debug_bundle_downloaded', 'click', this.diagramType, {

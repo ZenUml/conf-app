@@ -1,5 +1,4 @@
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
-import {CustomContentStorageProvider} from "@/model/ContentProvider/CustomContentStorageProvider";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import ApWrapper2 from "@/model/ApWrapper2";
@@ -55,8 +54,13 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   const saveStartedAt = performance.now();
 
   console.log('Saving diagram to platform content provider', diagram);
-  const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
-  const customContent = await customContentStorageProvider.save(diagram);
+  // Update in place only for an existing custom-content diagram. A page copy
+  // (isCopy) keeps the SOURCE id but must create a fresh record, never
+  // overwrite the original.
+  const customContent: any =
+    diagram?.source === 'custom-content' && diagram?.id && !diagram?.isCopy
+      ? await apWrapper.saveCustomContentV2(diagram.id, diagram)
+      : await apWrapper.createCustomContentV2(diagram);
 
   // conf-app#320 boundary invariant: never treat a save as successful without a
   // usable id. createCustomContentV2/updateCustomContentV2 now throw on an

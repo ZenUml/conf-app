@@ -306,7 +306,7 @@ export default class ApWrapper2 {
     // the stored CC body, or the migrated macro stays trapped in the
     // recovery UI forever. saveCustomContentV2's update branch sanitises
     // there; this is the direct-create branch (called e.g. by
-    // CustomContentStorageProvider.save when source !== 'custom-content',
+    // saveToPlatform when source !== 'custom-content',
     // which is the Defect 1 legacy-migration path).
     const sanitizedContent = this.sanitizeCustomContentBody(content);
     if (content.titleDraftPristine) sanitizedContent.titleDraftPristine = true;
@@ -1325,89 +1325,6 @@ export default class ApWrapper2 {
     };
   }
 
-  async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
-    const params = new URLSearchParams();
-    customContentTypesForVariant().forEach(type => {
-      params.append('type', this.customContentType(type));
-    });
-    params.append('limit', pageSize.toString());
-    params.append('body-format', 'raw');
-    
-    if (keyword) {
-      params.append('title', keyword);
-    }
-    
-    if (onlyMine && this.currentUser?.atlassianAccountId) {
-      params.append('contributor', this.currentUser.atlassianAccountId);
-    }
-
-    const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
-    return await this.searchPagedCustomContentByUrl(searchUrl);
-  }
-
-  async searchPagedCustomContentByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
-    try {
-      const response = await forgeRequest(searchUrl);
-      
-      if (!response || !response.results) {
-        console.warn('No search results from Forge API');
-        return {
-          size: 0,
-          results: []
-        };
-      }
-
-      const parseAndFilterResponse = (r: any) => r.results.map((customContent: any) => {
-        if(customContent.body.raw.value.length === 0) {
-          console.warn('Empty custom content body for id', customContent.id);
-          return null;
-        }
-
-        let diagram;
-        try {
-          diagram = JSON.parse(customContent.body.raw.value);
-        } catch (e) {
-          console.warn('Failed to parse custom content body', e);
-          return null;
-        }
-        
-        diagram.source = DataSource.CustomContent;
-        diagram.id = customContent.id;
-        
-        const assign = Object.assign({}, customContent, { value: diagram });
-        return assign as ICustomContent;
-      }).filter((item: ICustomContent) => item && item.value && item.value.diagramType);
-
-      let results = parseAndFilterResponse(response);
-
-      while(results.length < pageSize && response._links?.next) {
-        const nextResponse = await forgeRequest(response._links.next);
-        if (!nextResponse || !nextResponse.results) {
-          break;
-        }
-        const nextResults = parseAndFilterResponse(nextResponse);
-        results = results.concat(nextResults);
-        response._links.next = nextResponse._links?.next;
-      }
-
-      const searchResults: SearchResults = {
-        size: results.length,
-        results: results,
-        _links: response._links
-      };
-
-      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentByUrl', 'info');
-      return searchResults;
-    } catch (e) {
-      console.error('searchPagedCustomContentByUrl', e);
-      trackEvent(JSON.stringify(e), 'searchPagedCustomContentByUrl', 'error');
-      return {
-        size: 0,
-        results: []
-      };
-    }
-  }
-
   async saveCustomContentV2(customContentId: string, value: Diagram): Promise<ICustomContentResponseBodyV2> {
     let result;
     // ZEN-1170 Defect 2b: use status-aware fetch so the existence check
@@ -1465,7 +1382,7 @@ export default class ApWrapper2 {
     // 1 = the normal single macro). Genuine copies still fork: same-page
     // duplicates via count>1 (the else branch) and cross-page via
     // samePage===false — both are also flagged earlier as isCopy in
-    // CustomContentStorageProvider.save.
+    // saveToPlatform.
     const countAllowsUpdate = count <= 1;
     let saveValue: Diagram = bodyWithoutUiFlags as Diagram;
     if (recoveredFromOrphanId) {

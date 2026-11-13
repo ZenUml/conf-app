@@ -248,7 +248,7 @@ async function renderOpenApi(el: HTMLElement, spec: string): Promise<void> {
 }
 
 /**
- * Markdown, with the app's own renderer (react-markdown + GFM, raw HTML
+ * Markdown, with the app's own renderer (unified remark + GFM, raw HTML
  * escaped). Its ```mermaid blocks are drawn with this view's Mermaid, under
  * the same strict security level as a Mermaid diagram here.
  */

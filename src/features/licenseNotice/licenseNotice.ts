@@ -14,7 +14,8 @@ export interface LicenseNoticeInput {
   marketplaceEvidence?: unknown
 }
 
-const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000
+// Keep equal to MAX_VALIDITY_MS in functions/api/license-notice.ts.
+const MAX_EVIDENCE_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 function hasFreshMarketplaceEvidence(value: unknown, now: number): boolean {
   if (!value || typeof value !== 'object') return false

@@ -3,7 +3,11 @@ import { validateContextToken } from '../utils/authenticate';
 import { getAuthorizationHeader } from '../utils/requestUtils';
 
 const FULL_APP_ID = 'd9e4002b-120b-426b-834b-402a4a5adce7';
-const MAX_VALIDITY_MS = 24 * 60 * 60 * 1000;
+// An operator picks the window when preparing a record (24 hours by default,
+// up to 7 days). The cap bounds how long a stale Legacy Free fact can outlive a
+// purchase while Forge omits the license; keep it equal to MAX_EVIDENCE_AGE_MS
+// in src/features/licenseNotice/licenseNotice.ts.
+const MAX_VALIDITY_MS = 7 * 24 * 60 * 60 * 1000;
 const ENVIRONMENTS = new Set(['development', 'staging', 'production']);
 const NO_STORE = { 'Cache-Control': 'no-store' };
 

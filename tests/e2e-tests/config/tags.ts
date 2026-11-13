@@ -1,8 +1,9 @@
 import { CATEGORIES, VARIANTS } from './categories.mjs';
+import { FEATURES, INTERFACES, SCENARIOS } from './product-impact.mjs';
 /**
  * The closed tag taxonomy every E2E spec carries (ADR-0007 §5).
  *
- * Four axes. A spec declares at least one SURFACE tag, at least one TYPE or
+ * Descriptive axes: a spec declares at least one SURFACE tag, at least one TYPE or
  * CONCERN tag, and one or more BEHAVIOR tags on each of its top-level
  * `test.describe(...)` / `test(...)`
  * calls, as Playwright `{ tag: [...] }` details. `tests/unit/e2eTags.spec.ts`
@@ -15,14 +16,11 @@ import { CATEGORIES, VARIANTS } from './categories.mjs';
  * src/utils/analytics/catalog.ts (and CONTEXT.md), so one word names the same
  * thing in Mixpanel, in the Storybook sidebar and here. TYPE is `DiagramType`
  * plus `asyncapi`. CONCERN is the cross-cutting feature the spec pins.
- * BEHAVIOR names the concrete user journey and is the only axis that can
- * select tests for PR execution.
+ * BEHAVIOR names the existing journey categories used by main-branch selection.
+ * Product scenario tags identify explicit feature/interface pairs for PR selection.
  *
- * Why the tags exist: the impact-based test selection on PRs maps changed
- * source paths to these tags and runs only the specs that carry them (always
- * plus `@smoke`, and everything when a shared file changed). A tag that is
- * missing on a spec means that spec is never selected for the change it
- * covers — which is why the policing test is not optional.
+ * PR decisions select explicit scenario pairs along with baseline coverage.
+ * Missing scenario tags leave product coverage undiscoverable to that selector.
  */
 export const SURFACE_TAGS = [
   '@viewer',
@@ -67,11 +65,17 @@ export const CONCERN_TAGS = [
   '@viewport',
 ] as const;
 
-// The only tags that may drive PR execution selection. Surface, type and
-// concern tags describe a test for people and reports; they are intentionally
-// excluded here so a broad label cannot expand a narrow behavior plan.
+// Existing category selectors remain in use for main-branch Jev planning.
+// PR selection uses explicit scenario tags, not independent dimension tags.
 export const BEHAVIOR_TAGS: string[] = CATEGORIES.map((c) => `@test:${c.id}`);
 export const EXECUTION_SELECTOR_TAGS: readonly string[] = BEHAVIOR_TAGS;
 export const VARIANT_TAGS: string[] = VARIANTS.map((v) => `@variant:${v}`);
 
-export const ALL_TAGS: readonly string[] = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS, ...BEHAVIOR_TAGS, ...VARIANT_TAGS];
+export const FEATURE_TAGS: string[] = FEATURES.map((id: string) => `@feature:${id}`);
+export const INTERFACE_TAGS: string[] = INTERFACES.map((id: string) => `@interface:${id}`);
+export const SCENARIO_TAGS: string[] = SCENARIOS.map(({ feature, interface: surface }: { feature: string; interface: string }) => `@scenario:${feature}:${surface}`);
+
+// Check kind and execution host describe evidence, not product scope.
+export const CHECK_TAGS = ['@check:component', '@check:adapter', '@check:host-contract', '@check:orchestration', '@check:negative-regression', '@status:retired', '@execution:preview', '@execution:opt-in'];
+
+export const ALL_TAGS: readonly string[] = [...SURFACE_TAGS, ...TYPE_TAGS, ...CONCERN_TAGS, ...BEHAVIOR_TAGS, ...VARIANT_TAGS, ...FEATURE_TAGS, ...INTERFACE_TAGS, ...SCENARIO_TAGS, ...CHECK_TAGS];

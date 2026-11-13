@@ -45,3 +45,9 @@ Inspect current schema/migrations and deployed query access first. `FeedbackRepo
 Return the shared signal fields plus feedback category, original-text reference, resolution/reply evidence, and relationship to other records (`verified`, `suspected`, `unrelated`). Separate explicit feedback totals from behaviour/process events. Include per-source freshness and successful-empty / failed / unavailable / not-queried coverage. Do not summarise missing sources as "no feedback".
 
 Use `customer-followup` when the user also wants prioritisation, communication or a tracker update; the same evidence should be reused without re-querying unchanged sources.
+
+## Script
+
+`python3 .claude/skills/customer-feedback/scripts/sweep.py [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--out DIR] [--json]` runs the four scriptable sources read-only in one pass: Marketplace feedback export, D1 `FeedbackReport` (wrangler from the main checkout), Mixpanel CSAT and feedback events (`mp_query.py`, internal sites excluded) and ZEN tickets created or updated in the window. Default window: the last 7 complete UTC days. Each source gets `read_status`, HTTP or exit status, row count, `queried_at` and window; one failure does not stop the others. Explicit feedback (`csat_submitted`, `magic_layout_feedback_*`) is reported apart from process events (`feedback_report_submit_*`) and behaviour counts (`csat_displayed`, `csat_dismissed`). Raw payloads and `sweep.json` go to `--out`.
+
+Gmail is a connector, not reachable from the script: it is always reported `not_queried`, so search it in the session before claiming full coverage. The script only collects. Reconciliation across sources, relationship labels and judgement stay manual, as described above.

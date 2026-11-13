@@ -26,6 +26,18 @@ class EvidenceTests(unittest.TestCase):
                                     entitlementId='example-entitlement'))
         self.assertEqual(entry['expiration'], int(NOW.timestamp()) + 86400)
 
+    def test_validity_window_defaults_to_24_hours_and_allows_up_to_7_days(self):
+        default = json.loads(evidence.build_entry([row()], 'example', 'production', NOW)['value'])
+        self.assertEqual(default['expiresAt'], '2026-11-12T00:00:00.000Z')
+        week = evidence.build_entry([row()], 'example', 'production', NOW, valid_hours=168)
+        self.assertEqual(json.loads(week['value'])['expiresAt'], '2026-11-18T00:00:00.000Z')
+        self.assertEqual(week['expiration'], int(NOW.timestamp()) + 168 * 3600)
+
+    def test_validity_window_over_7_days_or_not_positive_is_rejected(self):
+        for hours in (169, 0, -1):
+            with self.subTest(hours=hours), self.assertRaises(ValueError):
+                evidence.build_entry([row()], 'example', 'production', NOW, valid_hours=hours)
+
     def test_normalizes_domain(self):
         self.assertEqual(evidence.normalize_domain('example'), 'example.atlassian.net')
         self.assertEqual(evidence.normalize_domain('https://EXAMPLE.atlassian.net/wiki'), 'example.atlassian.net')

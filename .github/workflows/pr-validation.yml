@@ -29,6 +29,7 @@ jobs:
     outputs:
       run: ${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' }}
       candidate: ${{ steps.gate.outputs.candidate }}
+      head-sha: ${{ steps.gate.outputs.head-sha }}
       pr-number: ${{ steps.gate.outputs.pr-number }}
     steps:
       - uses: actions/checkout@v5
@@ -40,6 +41,7 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PR: ${{ github.event.pull_request.number || inputs.pr-number }}
           EVENT_CANDIDATE: ${{ github.sha }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           SHOULD_RUN=true
           if [ "$EVENT" = push ] && [ "$BRANCH" != "$DEFAULT_BRANCH" ]; then
@@ -51,7 +53,11 @@ jobs:
           [ "$(jq -r .state <<<"$PR_JSON")" = open ]
           CANDIDATE=$(jq -r .merge_commit_sha <<<"$PR_JSON")
           if [ "$EVENT" = pull_request ]; then CANDIDATE="$EVENT_CANDIDATE"; fi
+          HEAD_SHA=$(jq -r .head.sha <<<"$PR_JSON")
+          if [ "$EVENT" = pull_request ]; then HEAD_SHA="$EVENT_HEAD"; fi
           [[ "$CANDIDATE" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          echo "head-sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate=$CANDIDATE" >> "$GITHUB_OUTPUT"
           echo "pr-number=$PR" >> "$GITHUB_OUTPUT"
           echo "run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
@@ -65,7 +71,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ steps.gate.outputs.head-sha }}
         run: node scripts/ci/pr-head-current.mjs
 
       - name: Record parent candidate provenance
@@ -191,7 +197,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ needs.gate.outputs.head-sha }}
         run: node scripts/ci/pr-head-current.mjs
       - name: Dispatch and wait for E2E
         if: ${{ !cancelled() && steps.current.outputs.current != 'false' }}

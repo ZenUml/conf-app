@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, access } from 'node:fs/promises';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import { dispatchBody } from './wait-for-e2e.mjs';
 
@@ -184,4 +188,36 @@ test('parent gate records PR and candidate provenance for child verification', (
   const guard = steps(child.jobs.parent).find(step => /--verify-parent/.test(step.run ?? ''));
   assert.equal(guard.env.PR_NUMBER, '${{ inputs.pr-number }}');
   assert.equal(guard.env.SOURCE_SHA, '${{ inputs.source-sha }}');
+});
+
+
+test('manual dispatch records the PR head, and both staleness checks use that recorded head', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pr-head-gate-'));
+  try {
+    const head = 'a'.repeat(40), eventHead = 'b'.repeat(40), candidate = 'c'.repeat(40);
+    writeFileSync(join(dir, 'gh'), `#!/bin/sh\nprintf '%s' '{"state":"open","head":{"sha":"${head}"},"merge_commit_sha":"${candidate}"}'\n`, { mode: 0o755 });
+    const gate = steps(pr.jobs.gate).find(step => step.id === 'gate');
+    for (const [event, expected] of [['workflow_dispatch', head], ['pull_request', eventHead]]) {
+      const output = join(dir, `out-${event}`);
+      execFileSync('bash', ['-e', '-c', gate.run], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, EVENT: event, PR: '42', EVENT_HEAD: eventHead, EVENT_CANDIDATE: candidate, GITHUB_OUTPUT: output } });
+      assert.match(readFileSync(output, 'utf8'), new RegExp(`^head-sha=${expected}$`, 'm'));
+    }
+    const first = steps(pr.jobs.gate).find(step => step.id === 'current');
+    const second = steps(pr.jobs['pr-e2e-validation']).find(step => step.id === 'current');
+    assert.equal(first.env.EXPECTED_SHA, '${{ steps.gate.outputs.head-sha }}');
+    assert.equal(second.env.EXPECTED_SHA, '${{ needs.gate.outputs.head-sha }}');
+    assert.equal(pr.jobs.gate.outputs['head-sha'], '${{ steps.gate.outputs.head-sha }}');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('commit, test:run and ignored label events cannot cancel each other', () => {
+  for (const wf of [checks, exporting]) {
+    const expression = wf.concurrency.group.match(/\$\{\{([^}]*github\.event\.action[^}]*)\}\}/)[1];
+    const group = (action, label) => Function(`return (${expression.replace(/github\.event\.action/g, JSON.stringify(action)).replace(/github\.event\.label\.name/g, JSON.stringify(label))})`)();
+    assert.equal(group('opened', ''), 'commit');
+    assert.equal(group('labeled', 'test:run'), 'request');
+    assert.equal(group('labeled', 'test:selected'), 'ignored');
+    assert.equal(group('labeled', 'bug'), 'ignored');
+    assert.equal(wf.concurrency['cancel-in-progress'], true);
+  }
 });

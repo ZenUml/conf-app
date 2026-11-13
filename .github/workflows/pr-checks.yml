@@ -14,7 +14,7 @@ on:
     types: [opened, synchronize, reopened, labeled]
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && 'label' || 'commit' }}
+  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action != 'labeled' && 'commit' || github.event.label.name == 'test:run' && 'request' || 'ignored' }}
   cancel-in-progress: true
 
 jobs:

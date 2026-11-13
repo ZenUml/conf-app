@@ -25,7 +25,7 @@ on:
 # A manual dispatch replaces a stale run of the same workflow instead of queueing
 # behind it. Not the `conf-app-staging` group: this suite never touches staging.
 concurrency:
-  group: export-modal-${{ github.event.pull_request.number || github.ref }}
+  group: export-modal-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action != 'labeled' && 'commit' || github.event.label.name == 'test:run' && 'request' || 'ignored' }}
   cancel-in-progress: true
 
 permissions:

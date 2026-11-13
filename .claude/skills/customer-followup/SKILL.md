@@ -22,6 +22,18 @@ Read [shared evidence rules](../customer-data/evidence.md), [contact and action 
    - **Communication:** Gmail, support tickets and `search-conversation-history`.
 4. Resolve contact role separately from site identity. A Marketplace technical contact can be an employee, a partner, an ex-employee or an unknown role. Never label them site admin without evidence.
 
+## General scan with no explicit signal
+
+When no customer is named and `customer-lifecycle` and `customer-feedback` return nothing that needs a reply, do not report "nothing to follow up". Rank by behaviour instead:
+
+```bash
+python3 .claude/skills/client-health/scripts/health_score.py --json --top 60 > "$TMP/health.json"
+python3 .claude/skills/customer-followup/scripts/behaviour_targets.py --health "$TMP/health.json" --exclude "$TMP/exclude.json" --top 10
+python3 .claude/skills/marketplace/scripts/mp_report.py whois <domain> --local --json   # per candidate: Lite space-licence layer
+```
+
+Build `exclude.json` (`{"<bare subdomain>": "<reason>"}`) from the tracker's paused and recently contacted opportunities in a temporary or `private/` path; never commit it. For each candidate read the tracker stage and the last activity's date, channel and outcome, then return it as one of: **never contacted**, **contacted, no reply** (date, channel), **paused** (resume condition) or **in conversation**. When the tracker shows earlier outreach, state the reply rate per channel and choose the next channel by what got replies. `skip` rows already pay for another app; `unknown` rows have no Lite licence in the snapshot. Apply the [contact policy](references/contact-policy.md) unchanged: partner rows (`partner_name`) and unverified technical contacts follow its responsibility rules, and no ranking or telemetry goes into a customer message.
+
 ## Decide, with evidence
 
 Give the customer name, goal, strongest signal, contactability, blocker, one recommended next step, and any material unknown. Prioritise concrete demand, a recent reply or referral, verified usage and a reachable appropriate person. Potential annual value helps prioritise; seats alone do not prove usage or willingness to pay.

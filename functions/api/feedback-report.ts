@@ -3,6 +3,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { ForgeRequestContext, ForgeRequestData } from '../utils/authenticate';
 import { getAtlassianInstanceClientDomain } from '../utils/dbUtils';
 import { json } from '../OkResponse';
+import { isPng } from '../../src/lib/png.js';
 
 type FeedbackSurface = 'viewer' | 'editor' | 'fullscreen' | 'png_export' | 'get_started' | 'dashboard';
 
@@ -103,9 +104,7 @@ function parseScreenshot(value: unknown): ParsedScreenshot | null {
     if (!binary.length || binary.length > MAX_SCREENSHOT_BYTES) return null;
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     const contentType = match[1];
-    const isPng = contentType === 'image/png'
-      && bytes.length >= 8
-      && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((byte, index) => bytes[index] === byte);
+    const isPngImage = contentType === 'image/png' && isPng(bytes);
     const isJpeg = contentType === 'image/jpeg'
       && bytes.length >= 3
       && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
@@ -113,7 +112,7 @@ function parseScreenshot(value: unknown): ParsedScreenshot | null {
       && bytes.length >= 12
       && String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF'
       && String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP';
-    if (!isPng && !isJpeg && !isWebp) return null;
+    if (!isPngImage && !isJpeg && !isWebp) return null;
     return { bytes, contentType };
   } catch {
     return null;

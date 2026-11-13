@@ -49,11 +49,11 @@ export class RecoveryMailError extends Error {
   constructor(public readonly code: string, public readonly status = 400) { super(code); }
 }
 
-function validEmail(value: string | undefined): value is string {
+export function validEmail(value: string | undefined): value is string {
   return Boolean(value && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value));
 }
 
-function validSender(value: string | undefined): value is string {
+export function validSender(value: string | undefined): value is string {
   return Boolean(value && (validEmail(value) || /^[^<>\r\n]{1,100} <[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>$/.test(value)));
 }
 

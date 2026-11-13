@@ -1765,6 +1765,8 @@ export type AnalyticsEventName =
   // clicks on that same exposure. Preserve these explicit properties through
   // preview mount/render/failure, add click/result, close and post-reload actions.
   // Flag-off and legacy flows omit all experiment fields; never send copy text.
+  // `requested` is sent at 100% for `ready` and at 10% with `sample_rate` for
+  // `pending` / `no_diagram` (TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE).
   | "title_draft_requested"
   // Native showFlag returned: exposure denominator, with experiment props above.
   | "title_draft_flag_shown"

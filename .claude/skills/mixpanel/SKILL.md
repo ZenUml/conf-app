@@ -205,6 +205,12 @@ without storage) the event has no `view_of_day` and is unsampled. So:
 - **Ratios against `macro_viewed`** (attribution, related-diagram and other per-view denominators):
   extrapolate `macro_viewed` first, or ratio against `view_of_day = "first"` and say so.
 
+**`title_draft_requested` is sampled per occurrence too** (from the release carrying
+`TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE`): `title_draft_status = "ready"` is sent at 100%;
+`pending` and `no_diagram` at 10% with `sample_rate: 0.1`. Count lookups as
+`sum(1 / (sample_rate || 1))`; the `ready` count and everything after the flag
+(`title_draft_flag_shown` onward) are exact.
+
 **Extrapolate inside the query, never after it**, because a window that spans 2026-08-26 mixes
 unsampled and sampled events of the same name:
 

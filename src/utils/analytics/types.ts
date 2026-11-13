@@ -442,6 +442,10 @@ export type AnalyticsProperties = {
   feedback_has_screenshot?: boolean;
   feedback_dismiss_reason?: FeedbackDismissReason;
   feedback_handoff_outcome?: FeedbackHandoffOutcome;
+  // Confluence custom-content version number the reporter was looking at
+  // (integer only, never diagram source). Sent on feedback_report_submit_*
+  // when known; absent for surfaces with no loaded diagram.
+  custom_content_version?: number;
   // Viewer Create slash-command guide (create_guide_*).
   create_guide_variant?: CreateGuideVariant;
   create_guide_close_method?: CreateGuideCloseMethod;

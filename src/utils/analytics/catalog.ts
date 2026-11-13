@@ -882,6 +882,8 @@ export type AnalyticsEventName =
   // In-product feedback funnel. feedback_report_opened fires as the surface
   // trigger opens the dialog, after requesting Session Replay, and carries
   // session_replay_source=feedback plus the synchronous SDK call outcome.
+  // feedback_report_submit_requested/_succeeded/_failed also carry
+  // custom_content_version (integer, when known).
   // Events before feedback_report_submit_requested
   // contain interaction context only: never description, screenshot bytes,
   // diagram source, or any other draft report content. The report payload is

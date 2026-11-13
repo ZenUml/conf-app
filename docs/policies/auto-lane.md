@@ -132,7 +132,8 @@ Working list of what is destructive (the session's reading; only the CI example 
 | deletes or rewrites stored data | a D1 migration that drops or rewrites a column, a script that purges KV keys | Offers the option; does not merge on its own. |
 | cannot be undone by a revert | a Forge manifest change that forces a major version (scopes, remotes), a deleted feature flag | Offers the option; does not merge on its own. |
 
-Preconditions for any session merge: not a draft, base `main`, no requested changes, `MERGEABLE`,
+The rule covers a PR by any author: the session's own, another session's or a person's (owner's
+pick, 2026-11-13). Preconditions for any session merge: not a draft, base `main`, no requested changes, `MERGEABLE`,
 every check on the head commit green, head unchanged since the checks. Run
 `.claude/skills/auto-lane/scripts/classify-pr.sh <PR>`: it checks those and lists files on paths
 that need the destructive reading (`migrations/`, `manifest.yml`, release and deploy workflows).

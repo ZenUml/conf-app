@@ -16,7 +16,7 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('staging-deploy')).toContain("github.workflow == 'Staging Deploy' && 'conf-app-staging'");
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });
-  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  evidence:')[1].split('  merge-reports:')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'test-selection-labels']) expect(workflow(name)).toContain('package-manager-cache: false'); });
+  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  evidence:')[1].split('  merge-reports:')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'pr-test-decision']) expect(workflow(name)).toContain('package-manager-cache: false'); });
   it('measures setup time on each test shard runner', () => {
     const testJob = workflow('e2e-test').split('  test:')[1].split('  evidence:')[0];
     expect(testJob).toContain('name: Start shard timing');
@@ -29,7 +29,7 @@ describe('staging workflow safety contracts', () => {
     expect(main.on).not.toHaveProperty('pull_request');
     expect(main.on.push.branches).toEqual(['main']);
     expect(pr.on).toHaveProperty('pull_request');
-    expect(pr.on.workflow_dispatch.inputs['force-all']).toMatchObject({ type: 'boolean', default: false });
+    expect(pr.on.workflow_dispatch.inputs).not.toHaveProperty('force-all');
     expect(pr.on.workflow_dispatch.inputs['pr-number'].type).toBe('string');
     expect((main.on.workflow_dispatch?.inputs || {})).not.toHaveProperty('pr-number');
     expect((main.on.workflow_dispatch?.inputs || {})).not.toHaveProperty('force-all');
@@ -61,8 +61,8 @@ describe('staging workflow safety contracts', () => {
         .filter(step => step.run === 'node scripts/ci/wait-for-e2e.mjs');
       expect(dispatches.length).toBeGreaterThan(0);
       for (const step of dispatches) {
-        expect(children).toContain(step.env.CHILD_WORKFLOW.replace(/\.yml$/, ''));
-        expect(step.env.SOURCE_SHA).toBe(name === 'pr-validation' ? '${{ github.sha }}' : '${{ inputs.source-sha }}');
+        expect([...children, 'pr-agent-e2e-validation']).toContain(step.env.CHILD_WORKFLOW.replace(/\.yml$/, ''));
+        expect(step.env.SOURCE_SHA).toBe(name === 'pr-validation' ? '${{ needs.gate.outputs.candidate }}' : '${{ inputs.source-sha }}');
       }
     }
     const staging = structure('main-staging-validation');
@@ -177,17 +177,14 @@ describe('staging workflow safety contracts', () => {
     }
   });
   it('keeps classification and privileged publication on trusted code', () => {
-    expect(workflow('pr-validation')).toContain('ref: ${{ github.event.pull_request.base.sha || github.sha }}');
-    expect(workflow('pr-validation')).toContain('ref: ${{ github.event.pull_request.base.sha }}');
-    expect(workflow('pr-validation')).toContain('--mode enabled');
-    expect(workflow('test-selection-labels')).toContain('ref: ${{ github.event.repository.default_branch }}');
-    expect(workflow('test-all-override')).not.toContain('actions/checkout');
-    expect(workflow('test-all-override')).toContain('"force-all":"true"');
-    expect(workflow('test-all-override')).toContain('actions/workflows/pr-validation.yml/dispatches');
-    expect(workflow('test-all-override')).not.toContain('actions/workflows/build-test-deploy.yml/dispatches');
+    const pr = workflow('pr-validation');
+    expect(pr).toContain('ref: ${{ github.event.repository.default_branch }}');
+    expect(pr).toContain('node scripts/test-selection/pr-decision.mjs check');
+    expect(pr).not.toContain('Human test:all override');
+    expect(workflow('pr-test-decision')).toContain('ref: ${{ github.event.repository.default_branch }}');
+    expect(workflow('pr-agent-e2e-validation')).toContain('Recheck PR authorization before starting E2E');
   });
   it('routes label publication from staging-owning parents, and bounded recovery also from PR checks', () => {
-    expect(structure('test-selection-labels').on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation']);
     // The Viewer preview moved to PR checks and must keep its one automatic retry.
     expect(structure('e2e-rerun').on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation', 'PR checks']);
     const recovery = structure('e2e-rerun').jobs.rerun;
@@ -214,7 +211,7 @@ describe('staging workflow safety contracts', () => {
     expect(script).toContain('node scripts/ci/phase-recovery.mjs');
   });
   it('preserves manual full coverage and succeeds with legitimate skips while rejecting reuse', () => {
-    const yaml = workflow('pr-validation'); expect(yaml).toContain("contains(github.event.pull_request.labels.*.name, 'test:all')"); expect(yaml).toContain('Human test:all override: full E2E coverage');
+    const yaml = workflow('pr-validation'); expect(yaml).not.toContain('Human test:all override'); expect(yaml).toContain('node scripts/test-selection/pr-decision.mjs check');
     expect(workflow('e2e-test')).toContain('if(!e.execution_succeeded) process.exit(1)');
     expect(workflow('daily-regression')).toContain("cron: '0 3 * * *'");
     expect(workflow('daily-regression')).toContain("timezone: 'Australia/Melbourne'");

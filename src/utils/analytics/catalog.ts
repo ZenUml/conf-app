@@ -1839,6 +1839,9 @@ export type AnalyticsEventName =
   // which copies it (mailto does nothing in the Forge sandbox). Properties:
   // feature_area 'license_notice', surface ('viewer' | 'fullscreen'),
   // macro_type.
+  // Full viewer decision settles or expires; flag-off views emit nothing.
+  // license_notice_basis distinguishes Forge inactivity from explicit Legacy Free evidence.
+  | "license_notice_evaluated"
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"
   | "license_notice_ticket_clicked"

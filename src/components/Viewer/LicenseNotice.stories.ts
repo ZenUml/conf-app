@@ -6,7 +6,7 @@ import store from '@/model/store2'
 import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
-import { resetStubResponses } from '@/stubs/forge-bridge'
+import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 
 // Same reason as MacroWithAttribution.stories.ts: the real root app only gets
 // the store through setup().
@@ -130,3 +130,32 @@ export const NoticeOnNarrowDiagram: Story = {
   decorators: [noticeOnDecorator],
   render: viewerRenderer(420),
 }
+
+// Exercise the real viewer decision and remote adapter, including production
+// precedence. Only the bridge transport and flag service are Storybook stubs.
+function legacyFreeStory(license: unknown, state: 'fresh' | 'unknown' | 'stale'): Story {
+  return {
+    decorators: [() => {
+      configureStory()
+      localStorage.removeItem('mockLicenseActive')
+      localStorage.setItem('mockNoLicenseNoticeEnabled', 'true')
+      const ctx = forgeGlobal.forgeContext as any
+      ctx.environmentType = 'PRODUCTION'
+      ctx.cloudId = 'example-cloud'
+      delete ctx.license
+      if (license !== undefined) ctx.license = license
+      const checkedAt = Date.now() - (state === 'stale' ? 2 * 86400000 : 1000)
+      stubResponses.remote.push({ match: '/api/license-notice', body: state === 'unknown'
+        ? { state: 'unknown' }
+        : { state: 'legacy_free', checkedAt: new Date(checkedAt).toISOString(), expiresAt: new Date(checkedAt + 86400000).toISOString() } })
+      return { template: '<story />' }
+    }],
+    render: viewerRenderer(720),
+  }
+}
+
+export const LegacyFreeForgeType = legacyFreeStory({ type: 'LEGACY_FREE' }, 'unknown')
+export const LegacyFreeVerifiedMarketplace = legacyFreeStory(undefined, 'fresh')
+export const MissingLicenseUnknown = legacyFreeStory(undefined, 'unknown')
+export const LegacyFreeEvidenceExpired = legacyFreeStory(undefined, 'stale')
+export const ActiveLicenseOverridesLegacyFree = legacyFreeStory({ active: true, type: 'LEGACY_FREE' }, 'fresh')

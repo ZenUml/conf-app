@@ -25,6 +25,7 @@ jobs:
   gate:
     name: Select authoritative event
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
@@ -240,7 +241,7 @@ jobs:
       actions: write
       contents: read
       pull-requests: read
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       # The deploy before this step takes minutes, and it is never cancelled: a
@@ -281,6 +282,7 @@ jobs:
     if: ${{ always() && needs.gate.outputs.run == 'true' }}
     needs: [gate, jev-classify, select, staging-lite, e2e-auth-lite, pr-e2e-validation]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Report the pipeline result
         env:

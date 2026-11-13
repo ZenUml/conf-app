@@ -55,6 +55,27 @@ describe('POST /api/fullscreen-recovery request notification', () => {
     await Promise.all(waited);
   });
 
+  it('looks up the site name inside waitUntil: the response does not wait for the DB, the mail carries the name', async () => {
+    vi.mocked(createRecoveryRequest).mockResolvedValue({ outcome: 'created', snapshot } as never);
+    let resolveRow!: (row: { clientDomain: string }) => void;
+    const first = vi.fn(() => new Promise((resolve) => { resolveRow = resolve as never; }));
+    const DB = { prepare: () => ({ bind: () => ({ first }) }) };
+    const fetchMock = vi.fn(async () => new Response('{"id":"r1"}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const waited: Promise<unknown>[] = [];
+    const response = await call({ ...resendEnv, DB }, waited); // resolves while the lookup is still pending
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ outcome: 'created', snapshot });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(first).toHaveBeenCalled());
+    expect(first).toHaveBeenCalledWith();
+    resolveRow({ clientDomain: 'Example-Site.atlassian.net' });
+    await Promise.all(waited);
+    const mail = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(mail.subject).toBe('Fullscreen recovery request — example-site / ENG (11111111)');
+    expect(mail.text).toContain('cloud-abc-123');
+  });
+
   it.each(['reused', 'activated', 'already_active'])('sends no email when the outcome is %s', async (outcome) => {
     vi.mocked(createRecoveryRequest).mockResolvedValue({ outcome, snapshot } as never);
     const fetchMock = vi.fn();

@@ -40,7 +40,7 @@ export const onRequestPost: PagesFunction<RecoveryEnv, string, ForgeRequestData>
             scenario_codes: input.scenarios, has_note: Boolean(input.note) }, waitUntil);
         // Tell the support mailbox. Runs after the response; its failure never reaches the customer.
         waitUntil(notifyFullscreenRecoveryRequest(env, {
-          requestId: result.snapshot.request!.id, cloudId: fit.cloudId, spaceKey: input.spaceKey,
+          requestId: result.snapshot.request!.id, cloudId: fit.cloudId, forgeAppId: fit.forgeAppId, spaceKey: input.spaceKey,
           scenarios: input.scenarios, hasNote: Boolean(input.note.trim()),
           createdAt: result.snapshot.request!.createdAt,
         }));

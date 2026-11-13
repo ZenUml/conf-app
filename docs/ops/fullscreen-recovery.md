@@ -6,10 +6,11 @@ Forge Developer Console flags and this KV policy have different jobs. Use Forge 
 
 ## New-request notification
 
-When a request is created, the backend sends one internal email through Resend, after the customer's response, so the support mailbox learns of it within seconds. A duplicate submit or an existing request sends nothing. The mail names the site (cloudId), Space key, request id, scenario codes, whether a note was given, the creation time in UTC and the `list` command. It never contains the requester's email address or note text; read those through the support CLI below.
+When a request is created, the backend sends one internal email through Resend, after the customer's response, so the support mailbox learns of it within seconds. A duplicate submit or an existing request sends nothing. The mail names the site by its client domain (for example `example-site`, looked up server-side from the verified cloudId through the same `AtlassianInstance`, then `ForgeInstallation`, chain the eligibility check uses; the browser never supplies it) and by cloudId, Space key, request id, scenario codes, whether a note was given, the creation time in UTC and the `list` command. It never contains the requester's email address or note text; read those through the support CLI below.
 
 - Recipient: optional `FULLSCREEN_RECOVERY_NOTIFY_TO`; when unset, `RESEND_REPLY_TO`. No new setting is needed where `RESEND_API_KEY`, `RESEND_FROM` and `RESEND_REPLY_TO` already exist.
 - Delivery is best effort and never changes the customer's response. A missing key, sender or recipient, or a Resend failure, logs one `console.warn` with a reason code and no personal data (search the Pages logs for `[fullscreen-recovery] request notification`). A request whose mail failed still appears in `list`.
+- The site lookup runs inside the same background work as the mail. A missing binding or row sends the mail with the cloudId in the subject and no warning; a failed query does the same with one `site_lookup_failed` warning. The lookup never delays or fails the customer's request.
 - The Resend idempotency key is `fullscreen-recovery-notify:<request id>`; there is no notification outbox table.
 
 ## What the grant does

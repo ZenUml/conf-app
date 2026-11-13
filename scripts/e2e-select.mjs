@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import process from 'node:process';
 // Deterministic E2E selection for a PR run (ADR-0007 §5).
 //
 //   node scripts/e2e-select.mjs --base <sha> --head <sha>     # git diff, prints JSON
@@ -98,6 +99,28 @@ export function select(files, { scope = 'pr' } = {}) {
   return all
     ? { mode: 'all', tags: [], grep: '', reasons, direct_test_files: [] }
     : { mode: 'selected', tags: sorted, grep: sorted.join('|'), reasons, direct_test_files: [...direct_test_files].sort() };
+}
+
+// Agent decisions may justify a subset for shared/unmapped code, but cannot
+// remove smoke, directly changed specs, or known helper dependencies.
+export function selectAgentFloor(files, { removedPaths = [] } = {}) {
+  const tags = new Set(['@smoke']);
+  const direct = new Set();
+  const review = [];
+  const reasons = ['smoke-required'];
+  for (const file of files) {
+    if (removedPaths.includes(file) && directSpecPath(file)) { reasons.push(`${file}: removed spec has no executable tests`); continue; }
+    directTestFilesFor(file).forEach(path => direct.add(path));
+    const mapped = select([file]);
+    if (mapped.mode === 'all') {
+      review.push(file);
+      reasons.push(`${file}: explicit agent impact review required`);
+    } else {
+      mapped.tags.forEach(tag => tags.add(tag));
+      reasons.push(...mapped.reasons.map(reason => reason.replaceAll('Jev-classified behavior', 'agent-reviewed behavior')));
+    }
+  }
+  return { tags: [...tags].sort(), direct_test_files: [...direct].sort(), review_paths: review, reasons };
 }
 
 function changedFiles(base, head) {

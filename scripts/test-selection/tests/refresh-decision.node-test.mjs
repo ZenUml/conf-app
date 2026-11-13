@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reuseVerdict, refreshedInput } from './refresh-decision.mjs';
+import { reuseVerdict, refreshedInput } from '../../../.claude/skills/pr-triage/scripts/refresh-decision.mjs';
 
 const catalog = { policy_version: 'p1', selector_catalog_fingerprint: 'c1' };
 const context = { diff_fingerprint: 'd1', pr: { number: 7, head: { sha: 'h'.repeat(40) }, base: { sha: 'b'.repeat(40) } } };

@@ -73,15 +73,7 @@ jobs:
           # run's JSON into one row per test × project: status is
           # expected | flaky | unexpected | skipped, `flaky` meaning it passed
           # only on a retry. Rank by suite and project, counting each run once.
-          : > ../../rows.jsonl
-          for D in ../../merged-input/*/*/; do
-            RUN=$(basename "$(dirname "$D")"); SUITE=$(basename "$D"); OUT="../../merged-$RUN-$SUITE"
-            if ! pnpm exec playwright merge-reports --reporter=json "$D" > "$OUT.json" 2> "$OUT.err"; then
-              echo "::warning::merge-reports failed for run $RUN suite $SUITE: $(head -c 300 "$OUT.err")"; continue
-            fi
-            jq -c --arg run "$RUN" --arg suite "$SUITE" -f ../../scripts/ci/flake-rows.jq \
-              "$OUT.json" >> ../../rows.jsonl
-          done
+          node ../../scripts/ci/flake-merge.mjs ../../merged-input ../../rows.jsonl "$PWD/node_modules/.bin/playwright"
           echo "$(wc -l < ../../rows.jsonl) test results from $(ls -d ../../merged-input/*/ | wc -l) runs"
           jq -r -s -f ../../scripts/ci/flake-ranking.jq ../../rows.jsonl > ../../ranking.md
           {

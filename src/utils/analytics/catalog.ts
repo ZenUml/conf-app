@@ -1592,6 +1592,9 @@ export type AnalyticsEventName =
   // the load-bearing one — a site we cannot identify is a site where creating
   // a macro would publish a broken extension, so the resolver declines and
   // this event is the only record that a user hit that wall.
+  // `_unresolved` is emitted by headless create_diagram (headlessMcp.ts) with
+  // `mcp_tool`, `cloud_id` and the refusal in `reason`; the same refusal also
+  // rides `identity_failure` on that call's `agent_link_mcp_tool_called`.
   | "agent_link_identity_resolved"
   | "agent_link_identity_unresolved"
   // W — headless authorization (design §5/§11 Phase 3). Backend-emitted like
@@ -1730,7 +1733,10 @@ export type AnalyticsEventName =
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
   // why the guard refused in `guardrail_reason`, the host in `oauth_client_id` /
   // `oauth_client_name`, the site in `client_domain`, and server-side latency in
-  // `duration_ms`. The write events stay
+  // `duration_ms`. A `reason: 'upstream'` failure also names the step that
+  // failed in `failure_step`, the HTTP status Confluence/Atlassian answered in
+  // `upstream_status` (absent when there was none, e.g. an unparseable body),
+  // and, for step 'identity', the resolver's refusal in `identity_failure`. The write events stay
   // separate: they carry write-specific properties (paywall_gate, result) this
   // one does not, and the same `cloud_id`. `_initialized` fires on each `initialize` handshake and carries
   // the MCP client's self-reported `clientInfo` (`mcp_client_name`,
@@ -2123,6 +2129,29 @@ export type AgentLinkMcpToolOutcome = "success" | "tool_error" | "scope_denied" 
 // and the create was allowed. 'limit_reached' = counted and refused; no longer
 // emitted, kept so historical events still type-check in queries.
 export type AgentLinkPaywallGate = "paid" | "under_limit" | "over_limit" | "limit_reached" | "count_unknown";
+
+// Which step of a headless tools/call failed, on agent_link_mcp_tool_called
+// when `mcp_tool_outcome: 'tool_error'` with `reason: 'upstream'`. Every
+// Confluence/Atlassian failure collapses into that one code, so without this a
+// create_diagram that never worked cannot be told apart from a flaky read
+// (2026-10-23: four creates on one Lite site, all 'upstream', cause unknowable).
+// 'list_sites' = accessible-resources; 'identity' = the macro-identity resolve
+// a create needs (its refusal rides `identity_failure`); 'variant_probe' =
+// list_diagrams' installed-variant probe; 'page_read' / 'page_publish' /
+// 'page_create' = the page GET / PUT / POST; 'list' = a custom-content listing;
+// 'diagram_read' / 'diagram_write' = custom-content GET / PUT;
+// 'content_create' = the custom-content POST of a create.
+export type AgentLinkFailureStep =
+  | "list_sites"
+  | "identity"
+  | "variant_probe"
+  | "page_read"
+  | "page_publish"
+  | "page_create"
+  | "list"
+  | "diagram_read"
+  | "diagram_write"
+  | "content_create";
 
 export type AgentLinkIdentityFailure =
   | "no_macro_on_site"

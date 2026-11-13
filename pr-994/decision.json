@@ -1,0 +1,108 @@
+{
+  "schema_version": 2,
+  "pr_number": 994,
+  "head_sha": "f69efde4dcffe735baece27d436546a7ba658e51",
+  "base_sha": "46480f305e88f84755c79c9f28edc283c570481d",
+  "mode": "selected",
+  "source": "labeling",
+  "scenarios": [
+    {
+      "feature": "agent-authorization",
+      "interface": "oauth-protocol"
+    },
+    {
+      "feature": "agent-authorization",
+      "interface": "external-agent"
+    }
+  ],
+  "reason": "OAuth token grant dispatch and removal of the unused KV-only refresh path affect authorization-code exchange, D1 refresh rotation/retry/replay revocation and legacy import. Select exactly agent-authorization x oauth-protocol and agent-authorization x external-agent, backed by the registered 14-case real HTTP Pages/workerd/D1/KV API lane and MCP bearer checks. Retain mandatory browser smoke and independent preview/export checks. Browser consent, upstream SSO and unrelated agent read/write behavior are unchanged. Main conflicts are reconciled; prior historical runs do not substitute for this fresh candidate execution.",
+  "evidence": [
+    {
+      "paths": [
+        "functions/agent-link/oauth/asStore.ts",
+        "functions/agent-link/oauth/authServer.ts"
+      ],
+      "reason": "Token endpoint production caller always supplies D1 ledger; refactor dispatches to grant-specific handlers, removes unused KV redemption and preserves production ledger/telemetry behavior. Existing legacy fixture helpers remain. Token-route, ledger, headless bearer callers and HTTP assertions were inspected.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    },
+    {
+      "paths": [
+        "functions/agent-link/oauth/authServer.spec.ts",
+        "functions/agent-link/oauth/tokenGrants.spec.ts"
+      ],
+      "reason": "Contract tests pin production D1 behavior, token response shape and telemetry. Tests now advance beyond the retry window and assert ledger-backed revocation; no browser UI behavior changes.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    },
+    {
+      "paths": [
+        "tests/integration/oauth-token/oauth.test.ts",
+        "tests/integration/oauth-token/scenarios.json",
+        "vitest.oauth-integration.config.ts"
+      ],
+      "reason": "14 isolated local HTTP cases run the generated real Pages router, production middleware/token/MCP routes and actual local D1/KV. Assertions cover exchange, binding failures, consumed code, rotation/retry, replay/cross-client revocation, legacy migration and storage failures. Manifest declares the exact two pairs; no mocks of token handlers or bearer auth, no external networking.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    },
+    {
+      "paths": [
+        ".github/workflows/oauth-token-integration.yml",
+        "docs/testing/oauth-token-http-integration.md"
+      ],
+      "reason": "Standalone lane runs only on main/manual, eliminating duplicate unauthorized PR execution. PR API lane is authorized by trusted controller for these pairs. Documentation records evidence boundaries and excludes browser consent/live SSO.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    },
+    {
+      "paths": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "vite.config.mjs"
+      ],
+      "reason": "Add dedicated Node-only test command and direct pinned Miniflare dependency already present transitively; lock diff only promotes that dependency. Default unit config excludes this explicit integration suite. Product build inputs and browser routing are unchanged; independent unit/build/preview/export checks and smoke remain.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    }
+  ]
+}

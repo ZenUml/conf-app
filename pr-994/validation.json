@@ -1,0 +1,12 @@
+{
+  "head": "f69efde4dcffe735baece27d436546a7ba658e51",
+  "base": "46480f305e88f84755c79c9f28edc283c570481d",
+  "candidate": "03874f365a11a200dbc9d9ab1c04633811ac125d",
+  "local_http_tests": 14,
+  "local_oauth_unit_passed": 384,
+  "local_live_tests_skipped": 3,
+  "current_candidate_execution": "pending",
+  "prior_validated_source": "96810b30efd2e603607a02616b309539c16916e6",
+  "final_base_merge_unchanged_inputs": true,
+  "focused_node_checks_after_merge": 70
+}

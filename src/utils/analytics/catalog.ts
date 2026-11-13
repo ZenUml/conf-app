@@ -44,6 +44,9 @@ export type TitleDraftCopyExperimentId = "title-draft-offer-copy";
 export type TitleDraftCopyExperimentVersion = 1;
 export type TitleDraftCopyVariant = "A" | "B";
 
+/** Bounded preview failure; never includes the draft or a thrown error message. */
+export type TitleDraftPreviewRenderFailure = "timeout" | "render_error" | "empty_svg";
+
 /** Why a title-draft preview closed without adding a diagram. */
 export type TitleDraftPreviewCloseReason =
   | "escape"
@@ -1795,8 +1798,15 @@ export type AnalyticsEventName =
   | "title_draft_preview_mounted"
   // SVG committed to the preview DOM.
   | "title_draft_preview_rendered"
-  // Preview rendering rejected; never carries diagram source or error text.
+  // The preview is still pending after 10s; recovery is offered and late success
+  // remains valid. A delayed preview is not a confirmed render failure.
+  | "title_draft_preview_render_delayed"
+  // Preview rendering rejected or returned no SVG.
+  // title_draft_render_failure identifies the bounded reason; render_ms is elapsed.
   | "title_draft_preview_render_failed"
+  // Reload preview clicked after a render failure, before reloading only its iframe.
+  // Uses the original exposure and the failure that offered the recovery action.
+  | "title_draft_preview_reload_clicked"
   // An enabled Add to page action was accepted, before context/save work.
   | "title_draft_add_clicked"
   // Keeps the existing meaning: closed without added/already_added outcome.

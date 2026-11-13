@@ -9,6 +9,7 @@ import type {
   TitleDraftCopyVariant,
   TitleDraftAddFailure,
   TitleDraftPreviewCloseReason,
+  TitleDraftPreviewRenderFailure,
   MacroTypeValue,
   CaptureFailureStage,
   Surface,
@@ -139,6 +140,10 @@ export type AnalyticsProperties = {
   title_draft_failure?: TitleDraftAddFailure;
   /** Present on preview_closed; native host dismissal cannot identify its control. */
   title_draft_close_reason?: TitleDraftPreviewCloseReason;
+  /** Preview delay/rejection/empty output; sent on render_delayed/render_failed/reload_clicked. */
+  title_draft_render_failure?: TitleDraftPreviewRenderFailure;
+  /** Elapsed render time on rendered/render_delayed/render_failed, excluding analytics. */
+  title_draft_render_ms?: number;
   /** Mermaid family of the draft: flowchart, sequence, state or er. */
   title_draft_kind?: string;
   /** Model confidence recorded by the batch, 0 to 1. */

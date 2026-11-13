@@ -3,6 +3,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const renderMermaid = vi.hoisted(() => vi.fn())
 vi.mock('@/utils/mermaid/renderMermaid', () => ({ renderMermaid }))
+const reloadTitleDraftPreview = vi.hoisted(() => vi.fn())
+vi.mock('./previewReload', () => ({ reloadTitleDraftPreview }))
 
 import TitleDraftPanel from './TitleDraftPanel.vue'
 
@@ -88,11 +90,94 @@ describe('TitleDraftPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('a render failure closes with dismissed', async () => {
+  it('a render failure offers recovery and leaves the modal open', async () => {
     renderMermaid.mockRejectedValue(new Error('bad syntax'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { onClose } = await setup()
-    expect(onClose).toHaveBeenCalledWith({ outcome: 'dismissed', reason: 'render_failed' })
+    const { wrapper, onClose } = await setup()
+    expect(wrapper.get('[role="alert"]').text()).toContain('This preview could not be prepared')
+    expect(wrapper.get('[data-testid="title-draft-reload"]').text()).toBe('Reload preview')
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(addButton(wrapper).attributes('disabled')).toBeDefined()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it.each(['', '   '])('offers recovery for an empty SVG (%j)', async (svg) => {
+    renderMermaid.mockResolvedValue({ svg })
+    const onPreviewRendered = vi.fn()
+    const onPreviewRenderFailed = vi.fn(async () => {})
+    const onClose = vi.fn()
+    const wrapper = mount(TitleDraftPanel, { props: {
+      mermaid: MERMAID, add: vi.fn(), onClose, onPreviewRendered, onPreviewRenderFailed,
+    } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('Reload the preview to try again.')
+    expect(onPreviewRenderFailed).toHaveBeenCalledWith('empty_svg', expect.any(Number))
+    expect(onPreviewRendered).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(addButton(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it.each(['resolve', 'reject', 'throw'])('reloads the iframe after the reload callback %s', async (outcome) => {
+    renderMermaid.mockRejectedValue(new Error('bad syntax'))
+    let finish!: () => void
+    const onPreviewReload = vi.fn(() => {
+      if (outcome === 'throw') throw new Error('analytics unavailable')
+      if (outcome === 'reject') return Promise.reject(new Error('analytics unavailable'))
+      return new Promise<void>(resolve => { finish = resolve })
+    })
+    const onClose = vi.fn()
+    const wrapper = mount(TitleDraftPanel, { props: {
+      mermaid: MERMAID, add: vi.fn(), onClose, onPreviewReload,
+    } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const reload = wrapper.get('[data-testid="title-draft-reload"]')
+    await reload.trigger('click')
+    expect(onPreviewReload).toHaveBeenCalledWith('render_error')
+    if (outcome === 'resolve') {
+      expect(reloadTitleDraftPreview).not.toHaveBeenCalled()
+      await reload.trigger('click')
+      expect(onPreviewReload).toHaveBeenCalledTimes(1)
+      finish()
+    }
+    await flushPromises()
+    expect(reloadTitleDraftPreview).toHaveBeenCalledTimes(1)
+    expect(renderMermaid).toHaveBeenCalledTimes(1)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('does not let throwing telemetry callbacks stop render or Add', async () => {
+    const fail = () => { throw new Error('analytics unavailable') }
+    const add = vi.fn(async () => ({ result: 'added' as const, contentId: 'c1' }))
+    const onClose = vi.fn()
+    const wrapper = mount(TitleDraftPanel, { props: {
+      mermaid: MERMAID, add, onClose, onPreviewMounted: fail, onPreviewRendered: fail, onAddClicked: fail,
+    } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(addButton(wrapper).attributes('disabled')).toBeUndefined()
+    await addButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledWith({ outcome: 'added', contentId: 'c1' })
+  })
+
+  it.each(['reject', 'throw'])('keeps recovery visible when failure telemetry %s', async (outcome) => {
+    renderMermaid.mockRejectedValue(new Error('bad syntax'))
+    const onPreviewRenderFailed = vi.fn(() => {
+      if (outcome === 'throw') throw new Error('analytics unavailable')
+      return Promise.reject(new Error('analytics unavailable'))
+    })
+    const onClose = vi.fn()
+    const wrapper = mount(TitleDraftPanel, { props: {
+      mermaid: MERMAID, add: vi.fn(), onClose, onPreviewRenderFailed,
+    } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(onPreviewRenderFailed).toHaveBeenCalledWith('render_error', expect.any(Number))
+    expect(wrapper.get('[role="alert"]').text()).toContain('Reload the preview')
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it.each(['resolve', 'reject'])('ignores a late render %s after unmount', async (result) => {

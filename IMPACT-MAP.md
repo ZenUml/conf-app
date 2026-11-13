@@ -1213,3 +1213,11 @@
 ## 维护规则
 
 新增或调整共享概念时先对齐 `GLOSSARY.md` 的定义，再明确用户行为与可达入口，补 Feature/Interface 和精确场景关系；稳定 ID 的分配、短码和关系清单在本文维护，术语表引用同一个 ID 并解释概念区别。修改某个格子时同步更新它的契约、源代码证据、适用条件和测试覆盖；只改变文案/布局也要检查共享宿主的关联能力。移除入口时保留简短退役说明，避免未来从残留组件重新推断“支持”。
+
+### 标题草稿预览的待分类边界（PR #1153）
+
+Lite 的 `src/routes/pageBanner.ts` 调用 `src/features/titleDraft/offer.ts`，由原生 Forge flag 打开 `macroMode: title-draft` 的独立 modal；`src/forgeIndex.ts` 经 `mountTitleDraft.ts` 挂载 `TitleDraftPanel.vue`。这是页面标题草稿的预览／Add 生命周期，不是 inline-viewer、page-editor-preview 或 Create guide。当前矩阵尚无这一 modal 的独立 Interface；不要根据 render、banner 或 title 名称推导现有配对。
+
+该 panel 调用共享 Mermaid renderer，但不修改 renderer；Add 调用既有 addDraft／Confluence 持久化路径，重载仅针对当前 iframe。PR #1153 的新行为是 pending 加载提示、10 秒慢加载恢复入口、迟到成功、失败／空 SVG 提示以及保留曝光归因的重载和渲染遥测。component/modal 单测覆盖这些状态；Storybook、Forge Tunnel 与 CI Staging 的正常／失败／重载实测见 PR 的不可变证据。Staging 慢资源注入未验证。现有 E2E 没有直接断言该标题草稿 modal，完整回归也不补足这个缺口，不应为现有测试添加虚假的 scenario 标签。
+
+此次人工测试范围采用完整已配置 PR 浏览器回归，检查原生 iframe 初始化、渲染、插入／保存、宿主关闭和 analytics 的周边兼容性，配合上述直接 UI 证据；不能用 smoke 或普通 viewer 的一个配对声称覆盖了标题草稿恢复。后续若新增专门 E2E，应先登记准确产品关系并由真实断言建立覆盖。

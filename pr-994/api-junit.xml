@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="14" failures="0" errors="0" time="8.096">
+    <testsuite name="tests/integration/oauth-token/oauth.test.ts" timestamp="2026-11-13T09:37:51.040Z" hostname="runnervmwuk1x" tests="14" failures="0" errors="0" skipped="0" time="7.536675475">
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; exchanges a code and authorizes a real MCP tools/list request" time="0.10530687">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; rejects incorrect PKCE" time="0.038719426">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; rejects incorrect client" time="0.032765411">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; rejects incorrect redirect" time="0.030302202">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; rejects a consumed code" time="0.042450598">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; rotates and returns the same pair on a retry within five minutes" time="0.070058808">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; expired retry revokes both access tokens" time="0.074891877">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; cross-client revokes both access tokens" time="0.061983632">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; legacy active token is handled without revival" time="0.102011454">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; legacy used token is handled without revival" time="0.035997604">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; legacy revoked token is handled without revival" time="0.031369357">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; returns 503 when the actual D1 operation fails and leaves the existing token usable after recovery" time="0.051215429">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; returns 503 on an actual D1 rotation write failure and recovers on retry" time="0.067861039">
+            <system-out>
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+Function request url: http://127.0.0.1:46053/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:46053/agent-link/mcp
+
+            </system-out>
+        </testcase>
+        <testcase classname="tests/integration/oauth-token/oauth.test.ts" name="OAuth through Pages HTTP and local D1/KV &gt; returns 503 when D1 is absent" time="1.820358204">
+            <system-out>
+Function request url: http://127.0.0.1:33217/agent-link/oauth/token
+
+Function request url: http://127.0.0.1:33217/agent-link/mcp
+
+            </system-out>
+        </testcase>
+    </testsuite>
+</testsuites>

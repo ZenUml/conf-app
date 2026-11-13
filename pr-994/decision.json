@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
   "pr_number": 994,
-  "head_sha": "f69efde4dcffe735baece27d436546a7ba658e51",
-  "base_sha": "46480f305e88f84755c79c9f28edc283c570481d",
+  "head_sha": "3493acb1ebe0cecfbc540af4b8e65ea7ed1d262e",
+  "base_sha": "7143f5efe24b3976fec21d2933ec48587026aff9",
   "mode": "selected",
   "source": "labeling",
   "scenarios": [
@@ -15,7 +15,7 @@
       "interface": "external-agent"
     }
   ],
-  "reason": "OAuth token grant dispatch and removal of the unused KV-only refresh path affect authorization-code exchange, D1 refresh rotation/retry/replay revocation and legacy import. Select exactly agent-authorization x oauth-protocol and agent-authorization x external-agent, backed by the registered 14-case real HTTP Pages/workerd/D1/KV API lane and MCP bearer checks. Retain mandatory browser smoke and independent preview/export checks. Browser consent, upstream SSO and unrelated agent read/write behavior are unchanged. Main conflicts are reconciled; prior historical runs do not substitute for this fresh candidate execution.",
+  "reason": "OAuth token grant dispatch and removal of the unused KV-only refresh path affect authorization-code exchange, D1 refresh rotation/retry/replay revocation and legacy import. Select exactly agent-authorization x oauth-protocol and agent-authorization x external-agent, backed by the registered 14-case real HTTP Pages/workerd/D1/KV API lane and MCP bearer checks. Retain mandatory browser smoke and independent preview/export checks. Browser consent, upstream SSO and unrelated agent read/write behavior are unchanged. Main conflicts are reconciled; prior historical runs do not substitute for this fresh candidate execution. Re-reviewed after target advanced to 7143f5ef: title-draft UI changes on main do not alter this branch diff or the OAuth scope; target fingerprints refreshed from trusted current main. Latest main is now merged into head 3493acb1; OAuth implementation and HTTP inputs remain identical.",
   "evidence": [
     {
       "paths": [

@@ -1,12 +1,34 @@
 {
-  "head": "f69efde4dcffe735baece27d436546a7ba658e51",
-  "base": "46480f305e88f84755c79c9f28edc283c570481d",
-  "candidate": "03874f365a11a200dbc9d9ab1c04633811ac125d",
+  "head": "3493acb1ebe0cecfbc540af4b8e65ea7ed1d262e",
+  "base": "7143f5efe24b3976fec21d2933ec48587026aff9",
+  "candidate": "861972c463e6b97d80f51498766f021579c1e396",
   "local_http_tests": 14,
   "local_oauth_unit_passed": 384,
   "local_live_tests_skipped": 3,
-  "current_candidate_execution": "pending",
+  "current_candidate_execution": "success",
   "prior_validated_source": "96810b30efd2e603607a02616b309539c16916e6",
   "final_base_merge_unchanged_inputs": true,
-  "focused_node_checks_after_merge": 70
+  "focused_node_checks_after_merge": 70,
+  "tested_tree": "d4aec3fab28342bc1f741867cbd0940619b9301d",
+  "decision_id": 6848862814,
+  "parent_run": 43399422096,
+  "api_passed": 14,
+  "api_skipped": 0,
+  "api_failed": 0,
+  "browser_smoke_passed": 7,
+  "browser_smoke_skipped": 0,
+  "browser_smoke_failed": 0,
+  "browser_evidence_complete": true,
+  "child_run": 43402744936,
+  "pr_checks": {
+    "run": 43399277262,
+    "attempt": 2,
+    "conclusion": "success"
+  },
+  "export": {
+    "run": 43399277731,
+    "attempt": 2,
+    "conclusion": "success"
+  },
+  "is_draft": true
 }

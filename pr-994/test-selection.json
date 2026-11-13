@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "category_version": "v1",
+  "category_catalog_fingerprint": "96645b4c6567014800376653b224483f22b7801a0b7dfc33a80979db082c2f53",
+  "product_impact_fingerprint": "088b56d9cdf2a70173e2e432afbcec668d5f5e5ae88c5f25c251bd167ccff6a6",
+  "scenario_coverage_fingerprint": "2ac4f63d1e107e26f2c9016e18f8a484d57e5a505e78a6163046a6119def5db8",
+  "policy_version": "v9-main-jev-empty-selection-v1",
+  "selector_catalog_version": "v2-jev-decides-behavior",
+  "selector_catalog_fingerprint": "999c493353cc58b1f05cae8183c974f1264bd8512cc883277ff9e31229fc9b8c",
+  "selection_scope": "pr",
+  "decision_source": "agent",
+  "decision_id": 6848862814,
+  "pr_number": 994,
+  "pr_head_sha": "3493acb1ebe0cecfbc540af4b8e65ea7ed1d262e",
+  "base_sha": "7143f5efe24b3976fec21d2933ec48587026aff9",
+  "head_sha": "861972c463e6b97d80f51498766f021579c1e396",
+  "tested_tree": "d4aec3fab28342bc1f741867cbd0940619b9301d",
+  "source_paths": [
+    ".github/workflows/oauth-token-integration.yml",
+    "docs/testing/oauth-token-http-integration.md",
+    "functions/agent-link/oauth/asStore.ts",
+    "functions/agent-link/oauth/authServer.spec.ts",
+    "functions/agent-link/oauth/authServer.ts",
+    "functions/agent-link/oauth/tokenGrants.spec.ts",
+    "package.json",
+    "pnpm-lock.yaml",
+    "tests/integration/oauth-token/oauth.test.ts",
+    "tests/integration/oauth-token/scenarios.json",
+    "vite.config.mjs",
+    "vitest.oauth-integration.config.ts"
+  ],
+  "removed_paths": [],
+  "source": "labeling",
+  "mode": "selected",
+  "execution_mode": "enabled",
+  "decision_schema_version": 2,
+  "scenarios": [
+    {
+      "feature": "agent-authorization",
+      "interface": "oauth-protocol"
+    },
+    {
+      "feature": "agent-authorization",
+      "interface": "external-agent"
+    }
+  ],
+  "categories": {
+    "agent-link-e2e": {
+      "selected": false
+    },
+    "agent-link-multi-page-crosstalk": {
+      "selected": false
+    },
+    "asyncapi-create-edit": {
+      "selected": false
+    },
+    "asyncapi-dashboard-loads": {
+      "selected": false
+    },
+    "asyncapi-macro-create-edit": {
+      "selected": false
+    },
+    "byline-activation": {
+      "selected": false
+    },
+    "byline-asyncapi": {
+      "selected": false
+    },
+    "byline-create": {
+      "selected": false
+    },
+    "byline-paywall": {
+      "selected": false
+    },
+    "copy-for-ai": {
+      "selected": false
+    },
+    "cross-cutting": {
+      "selected": false
+    },
+    "csat-banner": {
+      "selected": false
+    },
+    "draft-only-binding-fork": {
+      "selected": false
+    },
+    "draft-only-binding-samepage": {
+      "selected": false
+    },
+    "edit-graph": {
+      "selected": false
+    },
+    "embed-deeplink-autoconvert": {
+      "selected": false
+    },
+    "embed-edit-document-list": {
+      "selected": false
+    },
+    "embed-render": {
+      "selected": false
+    },
+    "feedback-report": {
+      "selected": false
+    },
+    "fetch-phase-telemetry": {
+      "selected": false
+    },
+    "graph": {
+      "selected": false
+    },
+    "graph-create": {
+      "selected": false
+    },
+    "graph-edit": {
+      "selected": false
+    },
+    "graph-render": {
+      "selected": false
+    },
+    "lite2full-render": {
+      "selected": false
+    },
+    "m1-first-seen-ping": {
+      "selected": false
+    },
+    "mermaid": {
+      "selected": false
+    },
+    "mermaid-render": {
+      "selected": false
+    },
+    "mermaid-syntax": {
+      "selected": false
+    },
+    "openapi": {
+      "selected": false
+    },
+    "openapi-create": {
+      "selected": false
+    },
+    "openapi-edit": {
+      "selected": false
+    },
+    "openapi-render": {
+      "selected": false
+    },
+    "openapi-syntax": {
+      "selected": false
+    },
+    "page-actions": {
+      "selected": false
+    },
+    "paywall-page-banner": {
+      "selected": false
+    },
+    "plantuml": {
+      "selected": false
+    },
+    "plantuml-syntax": {
+      "selected": false
+    },
+    "regression": {
+      "selected": false
+    },
+    "sequence": {
+      "selected": false
+    },
+    "sequence-create": {
+      "selected": false
+    },
+    "sequence-edit": {
+      "selected": false
+    },
+    "sequence-render": {
+      "selected": false
+    },
+    "sequence-syntax": {
+      "selected": false
+    },
+    "typed-deeplink-autoconvert": {
+      "selected": false
+    },
+    "typed-deeplink-render": {
+      "selected": false
+    },
+    "viewer-actions": {
+      "selected": false
+    },
+    "viewport-graph": {
+      "selected": false
+    },
+    "viewport-mermaid": {
+      "selected": false
+    },
+    "viewport-sequence": {
+      "selected": false
+    },
+    "writeback-gate-non-submittable": {
+      "selected": false
+    }
+  },
+  "required": [
+    "smoke"
+  ],
+  "full_reason": null,
+  "reason": "OAuth token grant dispatch and removal of the unused KV-only refresh path affect authorization-code exchange, D1 refresh rotation/retry/replay revocation and legacy import. Select exactly agent-authorization x oauth-protocol and agent-authorization x external-agent, backed by the registered 14-case real HTTP Pages/workerd/D1/KV API lane and MCP bearer checks. Retain mandatory browser smoke and independent preview/export checks. Browser consent, upstream SSO and unrelated agent read/write behavior are unchanged. Main conflicts are reconciled; prior historical runs do not substitute for this fresh candidate execution. Re-reviewed after target advanced to 7143f5ef: title-draft UI changes on main do not alter this branch diff or the OAuth scope; target fingerprints refreshed from trusted current main. Latest main is now merged into head 3493acb1; OAuth implementation and HTTP inputs remain identical.",
+  "evidence": [
+    {
+      "paths": [
+        "functions/agent-link/oauth/asStore.ts",
+        "functions/agent-link/oauth/authServer.ts"
+      ],
+      "reason": "Token endpoint production caller always supplies D1 ledger; refactor dispatches to grant-specific handlers, removes unused KV redemption and preserves production ledger/telemetry behavior. Existing legacy fixture helpers remain. Token-route, ledger, headless bearer callers and HTTP assertions were inspected.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    },
+    {
+      "paths": [
+        "functions/agent-link/oauth/authServer.spec.ts",
+        "functions/agent-link/oauth/tokenGrants.spec.ts"
+      ],
+      "reason": "Contract tests pin production D1 behavior, token response shape and telemetry. Tests now advance beyond the retry window and assert ledger-backed revocation; no browser UI behavior changes.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    },
+    {
+      "paths": [
+        "tests/integration/oauth-token/oauth.test.ts",
+        "tests/integration/oauth-token/scenarios.json",
+        "vitest.oauth-integration.config.ts"
+      ],
+      "reason": "14 isolated local HTTP cases run the generated real Pages router, production middleware/token/MCP routes and actual local D1/KV. Assertions cover exchange, binding failures, consumed code, rotation/retry, replay/cross-client revocation, legacy migration and storage failures. Manifest declares the exact two pairs; no mocks of token handlers or bearer auth, no external networking.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    },
+    {
+      "paths": [
+        ".github/workflows/oauth-token-integration.yml",
+        "docs/testing/oauth-token-http-integration.md"
+      ],
+      "reason": "Standalone lane runs only on main/manual, eliminating duplicate unauthorized PR execution. PR API lane is authorized by trusted controller for these pairs. Documentation records evidence boundaries and excludes browser consent/live SSO.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    },
+    {
+      "paths": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "vite.config.mjs"
+      ],
+      "reason": "Add dedicated Node-only test command and direct pinned Miniflare dependency already present transitively; lock diff only promotes that dependency. Default unit config excludes this explicit integration suite. Product build inputs and browser routing are unchanged; independent unit/build/preview/export checks and smoke remain.",
+      "scenarios": [
+        {
+          "feature": "agent-authorization",
+          "interface": "oauth-protocol"
+        },
+        {
+          "feature": "agent-authorization",
+          "interface": "external-agent"
+        }
+      ]
+    }
+  ],
+  "model": null,
+  "request": {
+    "outcome": "not-requested",
+    "source": "agent-skill"
+  },
+  "fallback_reason": null,
+  "diff_complete": true
+}

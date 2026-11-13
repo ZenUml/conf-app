@@ -1,0 +1,407 @@
+{
+  "schema_version": 1,
+  "tested_tree": "d4aec3fab28342bc1f741867cbd0940619b9301d",
+  "category_version": "v1",
+  "policy_version": "v9-main-jev-empty-selection-v1",
+  "selector_catalog_version": "v2-jev-decides-behavior",
+  "selector_catalog_fingerprint": "999c493353cc58b1f05cae8183c974f1264bd8512cc883277ff9e31229fc9b8c",
+  "variant": "lite",
+  "scope": "all",
+  "coverage": "selected",
+  "legacy_grep": "@smoke|(?:^|\\s)@scenario:agent-authorization:oauth-protocol(?=\\s|$)|(?:^|\\s)@scenario:agent-authorization:external-agent(?=\\s|$)",
+  "fallback_reason": null,
+  "dependencies": [
+    "auth"
+  ],
+  "tests": [
+    {
+      "id": "359a19eb39fa61f4030d-ac94d71f8eb225dbb637",
+      "file": "insert/edit-graph.spec.ts",
+      "line": 20,
+      "title": "Edit Test - graph › insert Graph (DrawIO) macro, then edit and re-save",
+      "title_path": [
+        "Edit Test - graph",
+        "insert Graph (DrawIO) macro, then edit and re-save"
+      ],
+      "project": "insert",
+      "tags": [
+        "@test:edit-graph",
+        "@variant:lite",
+        "@variant:full",
+        "@variant:diagramly",
+        "@editor",
+        "@viewer",
+        "@graph",
+        "@smoke",
+        "@feature:editing",
+        "@interface:graph-editor",
+        "@scenario:editing:graph-editor"
+      ],
+      "serial_group": "insert/edit-graph.spec.ts",
+      "dependencies": [
+        "auth"
+      ],
+      "execution_tier": "smoke"
+    },
+    {
+      "id": "a6438bb6441b80aed6ff-20d46e95a2001ac88e7e",
+      "file": "insert/embed-deeplink-autoconvert.spec.ts",
+      "line": 24,
+      "title": "Embed deeplink autoConvert - lite › pasting a /d/ deeplink converts to the embed macro (not a smart-link)",
+      "title_path": [
+        "Embed deeplink autoConvert - lite",
+        "pasting a /d/ deeplink converts to the embed macro (not a smart-link)"
+      ],
+      "project": "insert",
+      "tags": [
+        "@test:embed-deeplink-autoconvert",
+        "@variant:lite",
+        "@variant:full",
+        "@variant:diagramly",
+        "@editor",
+        "@embed",
+        "@deeplink",
+        "@smoke",
+        "@feature:paste-insertion",
+        "@interface:page-editor",
+        "@scenario:paste-insertion:page-editor"
+      ],
+      "serial_group": "insert/embed-deeplink-autoconvert.spec.ts",
+      "dependencies": [
+        "auth"
+      ],
+      "execution_tier": "smoke"
+    },
+    {
+      "id": "7005d398ec29e86b94d7-0a96a27f6c093cc33a81",
+      "file": "insert/graph.spec.ts",
+      "line": 19,
+      "title": "Smoke Test - graph › insert Graph (DrawIO) macro and verify render",
+      "title_path": [
+        "Smoke Test - graph",
+        "insert Graph (DrawIO) macro and verify render"
+      ],
+      "project": "insert",
+      "tags": [
+        "@test:graph",
+        "@variant:lite",
+        "@variant:full",
+        "@variant:diagramly",
+        "@editor",
+        "@viewer",
+        "@graph",
+        "@smoke",
+        "@feature:create-diagram",
+        "@interface:graph-editor",
+        "@scenario:create-diagram:graph-editor",
+        "@feature:rendering",
+        "@interface:inline-viewer",
+        "@scenario:rendering:inline-viewer"
+      ],
+      "serial_group": "insert/graph.spec.ts",
+      "dependencies": [
+        "auth"
+      ],
+      "execution_tier": "smoke"
+    },
+    {
+      "id": "75af51f07a52ceb484d4-f0b43ed38a93d5b613ac",
+      "file": "insert/mermaid.spec.ts",
+      "line": 24,
+      "title": "Smoke Test - mermaid › insert Mermaid macro and verify render",
+      "title_path": [
+        "Smoke Test - mermaid",
+        "insert Mermaid macro and verify render"
+      ],
+      "project": "insert",
+      "tags": [
+        "@test:mermaid",
+        "@variant:lite",
+        "@variant:full",
+        "@variant:diagramly",
+        "@editor",
+        "@viewer",
+        "@mermaid",
+        "@smoke",
+        "@feature:create-diagram",
+        "@interface:editor",
+        "@scenario:create-diagram:editor",
+        "@feature:rendering",
+        "@interface:inline-viewer",
+        "@scenario:rendering:inline-viewer"
+      ],
+      "serial_group": "insert/mermaid.spec.ts",
+      "dependencies": [
+        "auth"
+      ],
+      "execution_tier": "smoke"
+    },
+    {
+      "id": "c427c992816df8a12050-e1ba35c00a2a718b9f1a",
+      "file": "insert/openapi.spec.ts",
+      "line": 19,
+      "title": "Smoke Test - openapi › insert OpenAPI / Swagger macro and verify render",
+      "title_path": [
+        "Smoke Test - openapi",
+        "insert OpenAPI / Swagger macro and verify render"
+      ],
+      "project": "insert",
+      "tags": [
+        "@test:openapi",
+        "@variant:lite",
+        "@variant:full",
+        "@variant:diagramly",
+        "@variant:asyncapi",
+        "@editor",
+        "@viewer",
+        "@openapi",
+        "@smoke",
+        "@feature:create-diagram",
+        "@interface:openapi-editor",
+        "@scenario:create-diagram:openapi-editor",
+        "@feature:rendering",
+        "@interface:inline-viewer",
+        "@scenario:rendering:inline-viewer"
+      ],
+      "serial_group": "insert/openapi.spec.ts",
+      "dependencies": [
+        "auth"
+      ],
+      "execution_tier": "smoke"
+    },
+    {
+      "id": "b60eb1082aeb56b96f3c-69cf6f3d3fdafe801a51",
+      "file": "insert/plantuml.spec.ts",
+      "line": 25,
+      "title": "Smoke Test - plantuml › insert PlantUML macro and verify render",
+      "title_path": [
+        "Smoke Test - plantuml",
+        "insert PlantUML macro and verify render"
+      ],
+      "project": "insert",
+      "tags": [
+        "@test:plantuml",
+        "@variant:lite",
+        "@variant:full",
+        "@variant:diagramly",
+        "@editor",
+        "@viewer",
+        "@plantuml",
+        "@smoke",
+        "@feature:create-diagram",
+        "@interface:editor",
+        "@scenario:create-diagram:editor",
+        "@feature:rendering",
+        "@interface:inline-viewer",
+        "@scenario:rendering:inline-viewer"
+      ],
+      "serial_group": "insert/plantuml.spec.ts",
+      "dependencies": [
+        "auth"
+      ],
+      "execution_tier": "smoke"
+    },
+    {
+      "id": "ea7fbf79110059ccec82-e911263d46493ae66309",
+      "file": "insert/sequence.spec.ts",
+      "line": 27,
+      "title": "Smoke Test - sequence › insert Diagram macro and verify render",
+      "title_path": [
+        "Smoke Test - sequence",
+        "insert Diagram macro and verify render"
+      ],
+      "project": "insert",
+      "tags": [
+        "@test:sequence",
+        "@variant:lite",
+        "@variant:full",
+        "@variant:diagramly",
+        "@editor",
+        "@viewer",
+        "@sequence",
+        "@smoke",
+        "@feature:create-diagram",
+        "@interface:editor",
+        "@scenario:create-diagram:editor",
+        "@feature:rendering",
+        "@interface:inline-viewer",
+        "@scenario:rendering:inline-viewer"
+      ],
+      "serial_group": "insert/sequence.spec.ts",
+      "dependencies": [
+        "auth"
+      ],
+      "execution_tier": "smoke"
+    }
+  ],
+  "shards": [
+    {
+      "index": 1,
+      "test_ids": [
+        "359a19eb39fa61f4030d-ac94d71f8eb225dbb637"
+      ],
+      "projects": [
+        "insert"
+      ],
+      "files": [
+        "insert/edit-graph.spec.ts"
+      ]
+    },
+    {
+      "index": 2,
+      "test_ids": [
+        "7005d398ec29e86b94d7-0a96a27f6c093cc33a81"
+      ],
+      "projects": [
+        "insert"
+      ],
+      "files": [
+        "insert/graph.spec.ts"
+      ]
+    },
+    {
+      "index": 3,
+      "test_ids": [
+        "ea7fbf79110059ccec82-e911263d46493ae66309"
+      ],
+      "projects": [
+        "insert"
+      ],
+      "files": [
+        "insert/sequence.spec.ts"
+      ]
+    },
+    {
+      "index": 4,
+      "test_ids": [
+        "c427c992816df8a12050-e1ba35c00a2a718b9f1a"
+      ],
+      "projects": [
+        "insert"
+      ],
+      "files": [
+        "insert/openapi.spec.ts"
+      ]
+    },
+    {
+      "index": 5,
+      "test_ids": [
+        "b60eb1082aeb56b96f3c-69cf6f3d3fdafe801a51"
+      ],
+      "projects": [
+        "insert"
+      ],
+      "files": [
+        "insert/plantuml.spec.ts"
+      ]
+    },
+    {
+      "index": 6,
+      "test_ids": [
+        "75af51f07a52ceb484d4-f0b43ed38a93d5b613ac"
+      ],
+      "projects": [
+        "insert"
+      ],
+      "files": [
+        "insert/mermaid.spec.ts"
+      ]
+    },
+    {
+      "index": 7,
+      "test_ids": [
+        "a6438bb6441b80aed6ff-20d46e95a2001ac88e7e"
+      ],
+      "projects": [
+        "insert"
+      ],
+      "files": [
+        "insert/embed-deeplink-autoconvert.spec.ts"
+      ]
+    }
+  ],
+  "selection_metrics": {
+    "schema_version": 1,
+    "decision_source": "agent",
+    "decision_id": 6848862814,
+    "policy_version": "v9-main-jev-empty-selection-v1",
+    "tested_tree": "d4aec3fab28342bc1f741867cbd0940619b9301d",
+    "variant": "lite",
+    "scope": "all",
+    "mode": "selected",
+    "source_paths": [
+      ".github/workflows/oauth-token-integration.yml",
+      "docs/testing/oauth-token-http-integration.md",
+      "functions/agent-link/oauth/asStore.ts",
+      "functions/agent-link/oauth/authServer.spec.ts",
+      "functions/agent-link/oauth/authServer.ts",
+      "functions/agent-link/oauth/tokenGrants.spec.ts",
+      "package.json",
+      "pnpm-lock.yaml",
+      "tests/integration/oauth-token/oauth.test.ts",
+      "tests/integration/oauth-token/scenarios.json",
+      "vite.config.mjs",
+      "vitest.oauth-integration.config.ts"
+    ],
+    "deterministic_behavior_selectors": [
+      "@smoke"
+    ],
+    "direct_test_files": [],
+    "direct_test_count": 0,
+    "agent_behavior_selectors": [
+      "@scenario:agent-authorization:oauth-protocol",
+      "@scenario:agent-authorization:external-agent"
+    ],
+    "impact_scenarios": [
+      {
+        "feature": "agent-authorization",
+        "interface": "oauth-protocol"
+      },
+      {
+        "feature": "agent-authorization",
+        "interface": "external-agent"
+      }
+    ],
+    "jev_behavior_selectors": [],
+    "full_count": 111,
+    "legacy_count": 7,
+    "jev_count": null,
+    "final_count": 7,
+    "final_test_ids": [
+      "359a19eb39fa61f4030d-ac94d71f8eb225dbb637",
+      "a6438bb6441b80aed6ff-20d46e95a2001ac88e7e",
+      "7005d398ec29e86b94d7-0a96a27f6c093cc33a81",
+      "75af51f07a52ceb484d4-f0b43ed38a93d5b613ac",
+      "c427c992816df8a12050-e1ba35c00a2a718b9f1a",
+      "b60eb1082aeb56b96f3c-69cf6f3d3fdafe801a51",
+      "ea7fbf79110059ccec82-e911263d46493ae66309"
+    ],
+    "smoke_count": 7,
+    "missing_floor_ids": [],
+    "added_to_legacy_ids": [],
+    "retained_from_legacy_ids": [],
+    "reasons": [
+      "agent-selected-scenarios",
+      "smoke-required",
+      ".github/workflows/oauth-token-integration.yml: explicit agent impact review required",
+      "docs/testing/oauth-token-http-integration.md: no E2E impact (docs/**)",
+      "functions/agent-link/oauth/asStore.ts: agent-reviewed behavior (@ai)",
+      "functions/agent-link/oauth/authServer.spec.ts: no E2E impact (**/*.spec.ts)",
+      "functions/agent-link/oauth/authServer.ts: agent-reviewed behavior (@ai)",
+      "functions/agent-link/oauth/tokenGrants.spec.ts: no E2E impact (**/*.spec.ts)",
+      "package.json: explicit agent impact review required",
+      "pnpm-lock.yaml: explicit agent impact review required",
+      "tests/integration/oauth-token/oauth.test.ts: explicit agent impact review required",
+      "tests/integration/oauth-token/scenarios.json: explicit agent impact review required",
+      "vite.config.mjs: explicit agent impact review required",
+      "vitest.oauth-integration.config.ts: explicit agent impact review required"
+    ],
+    "fallback_reason": null,
+    "model": null,
+    "request": {
+      "outcome": "not-requested"
+    },
+    "measurement": "planned-test-counts; timing is reported separately in test-evidence.json"
+  },
+  "plan_fingerprint": "a198d81962225350d5de7dffcac47e5d3e85c51f5f6b5d27d39437b6330a9ee7"
+}

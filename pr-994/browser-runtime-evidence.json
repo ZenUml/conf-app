@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "tested_tree": "d4aec3fab28342bc1f741867cbd0940619b9301d",
+  "category_version": "v1",
+  "policy_version": "v9-main-jev-empty-selection-v1",
+  "selector_catalog_version": "v2-jev-decides-behavior",
+  "selector_catalog_fingerprint": "999c493353cc58b1f05cae8183c974f1264bd8512cc883277ff9e31229fc9b8c",
+  "variant": "lite",
+  "coverage": "selected",
+  "plan_fingerprint": "a198d81962225350d5de7dffcac47e5d3e85c51f5f6b5d27d39437b6330a9ee7",
+  "complete": true,
+  "execution_succeeded": true,
+  "validation": {
+    "valid": true,
+    "errors": []
+  },
+  "metrics": {
+    "planned_test_count": 7,
+    "executed_test_count": 7,
+    "passed_test_count": 7,
+    "skipped_test_count": 0,
+    "failed_test_count": 0,
+    "test_body_duration_ms": 311929,
+    "runner_setup_duration_ms": null,
+    "playwright_execution_duration_ms": null,
+    "runner_setup_critical_path_ms": 44517,
+    "playwright_execution_critical_path_ms": 71104,
+    "queue_critical_path_ms": null,
+    "queue_total_ms": 0,
+    "e2e_critical_path_ms": null,
+    "workflow_timing_source": "unavailable"
+  },
+  "results": [
+    {
+      "id": "359a19eb39fa61f4030d-ac94d71f8eb225dbb637",
+      "status": "passed",
+      "duration_ms": 62636,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "7005d398ec29e86b94d7-0a96a27f6c093cc33a81",
+      "status": "passed",
+      "duration_ms": 51755,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "ea7fbf79110059ccec82-e911263d46493ae66309",
+      "status": "passed",
+      "duration_ms": 48312,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "c427c992816df8a12050-e1ba35c00a2a718b9f1a",
+      "status": "passed",
+      "duration_ms": 41907,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "b60eb1082aeb56b96f3c-69cf6f3d3fdafe801a51",
+      "status": "passed",
+      "duration_ms": 47618,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "75af51f07a52ceb484d4-f0b43ed38a93d5b613ac",
+      "status": "passed",
+      "duration_ms": 43726,
+      "retry": 0,
+      "setup": false
+    },
+    {
+      "id": "a6438bb6441b80aed6ff-20d46e95a2001ac88e7e",
+      "status": "passed",
+      "duration_ms": 15975,
+      "retry": 0,
+      "setup": false
+    }
+  ]
+}

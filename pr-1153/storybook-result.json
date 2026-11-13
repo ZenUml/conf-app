@@ -1,0 +1,11 @@
+{
+  "commit": "7dc2c46c5e30864bf4c4975333e6dac20579b33d",
+  "status": "PASS",
+  "source": "Storybook/Vite actual Ready component + external network fault proxy",
+  "loading": true,
+  "slow_10s_recovery": true,
+  "late_success_automatic": true,
+  "reload_fresh_document_and_ready": true,
+  "rejection_stays_open_with_reload": true,
+  "no_save_invoked": true
+}

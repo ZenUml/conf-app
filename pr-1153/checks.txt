@@ -1,0 +1,46 @@
+PR #1153 validation summary
+Candidate: 7dc2c46c5e30864bf4c4975333e6dac20579b33d
+Baseline:  5fc739dd3e7a449e4052ac7d3bacceffb21e1bae
+
+Unit tests — pnpm test:unit -- --run (candidate SHA above)
+Combined after targeted discovery rerun: 483 passed test files, 1 skipped test file;
+6,758 passed tests, 3 skipped tests. The initial full run reported 482 passed,
+1 failed, 1 skipped test files; 6,755 passed, 3 failed, 3 skipped tests. The
+three failures were test-discovery setup failures because the separate E2E
+workspace lacked dotenv. After installing that workspace with --ignore-workspace,
+the targeted discovery rerun passed 4/4 tests (one had passed before; three
+previously blocked cases passed). The combined count avoids double-counting that
+already-passed test. This does not claim the full E2E suite passed.
+
+Raw-output excerpts (only final summary lines retained):
+  Initial full run: Test Files 1 failed | 482 passed | 1 skipped (484)
+                 Tests 3 failed | 6755 passed | 3 skipped (6761)
+                 Duration 149.63s
+  Discovery rerun: Test Files 1 passed (1)
+                 Tests 4 passed (4)
+                 Duration 17.93s
+
+Component/modal integration — pnpm test:unit -- --run src/features/titleDraft/mountTitleDraft.spec.ts src/features/titleDraft/TitleDraftPanel.spec.ts src/features/titleDraft/TitleDraftPanel.blank.spec.ts
+3 files passed; 49 tests passed; 2.41s (candidate SHA above).
+
+Lint — candidate SHA above: 0 errors, 141 warnings.
+Build — PASS, candidate SHA above (reported by the coordinating agent; build log
+is intentionally not copied into this public bundle).
+
+UI checks:
+Storybook PASS on candidate 7dc2c46c: actual loading, delayed import, late render,
+iframe reload and rejected resource.
+Forge Tunnel PASS on candidate 7dc2c46c: native normal/slow/reload/context,
+from localhost:8000 with branch Vite modules and external proxy only.
+Staging synthetic merge 6042686ecae04a4fb48ef1635e8131f2d3a373f1 (contains PR head):
+normal/rejected-render/reload/context PASS from Atlassian CDN; slow-resource
+injection SKIPPED because interception did not reach the OOPIF.
+
+CI PR checks: SUCCESS, head 7dc2c46c
+https://github.com/ZenUml/conf-app/actions/runs/43384927594
+4 unit shards, AsyncAPI build/CI script tests and Viewer preview E2E passed.
+CI PR validation: SUCCESS
+https://github.com/ZenUml/conf-app/actions/runs/43384927822
+Lite CI deployment passed. Draft staging E2E auth/validation skipped by policy.
+Standalone Export validation: SUCCESS
+https://github.com/ZenUml/conf-app/actions/runs/43384927604

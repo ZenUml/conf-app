@@ -1,0 +1,53 @@
+[
+  {
+    "event": "title_draft_preview_rendered",
+    "time": 1794553850369,
+    "commit": "7dc2c46c",
+    "ms": 337,
+    "exposure_label": "internal-fixture-1"
+  },
+  {
+    "event": "title_draft_preview_rendered",
+    "time": 1794553933897,
+    "commit": "7dc2c46c",
+    "ms": 252,
+    "exposure_label": "internal-fixture-2"
+  },
+  {
+    "event": "title_draft_preview_render_delayed",
+    "time": 1794554584928,
+    "commit": "7dc2c46c",
+    "reason": "timeout",
+    "ms": 10002,
+    "exposure_label": "internal-fixture-3"
+  },
+  {
+    "event": "title_draft_preview_reload_clicked",
+    "time": 1794554656973,
+    "commit": "7dc2c46c",
+    "reason": "timeout",
+    "exposure_label": "internal-fixture-3"
+  },
+  {
+    "event": "title_draft_preview_render_delayed",
+    "time": 1794554668400,
+    "commit": "7dc2c46c",
+    "reason": "timeout",
+    "ms": 10002,
+    "exposure_label": "internal-fixture-3"
+  },
+  {
+    "event": "title_draft_preview_rendered",
+    "time": 1794554778679,
+    "commit": "7dc2c46c",
+    "ms": 120285,
+    "exposure_label": "internal-fixture-3"
+  },
+  {
+    "event": "title_draft_preview_rendered",
+    "time": 1794555051038,
+    "commit": "6042686",
+    "ms": 4633,
+    "exposure_label": "internal-fixture-4"
+  }
+]

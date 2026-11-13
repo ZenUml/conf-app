@@ -1,0 +1,2 @@
+{"state": {"svg": 0, "disabled": true, "status": null, "alert": null, "reload": false}, "network_control": {"held_requests": 1, "released": false}}
+FAIL: preview stays blank with disabled Add and no recovery

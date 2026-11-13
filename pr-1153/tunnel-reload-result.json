@@ -1,0 +1,18 @@
+{
+  "candidate": "7dc2c46c5e30864bf4c4975333e6dac20579b33d",
+  "source": "Forge development iframe localhost:8000, upstream branch Vite via 8080 proxy",
+  "held_resource": "Mermaid ESM entry",
+  "slow": {
+    "svg": 0,
+    "add_disabled": true,
+    "alert": "This preview is taking too long. Reload the preview to try again."
+  },
+  "after_reload": {
+    "svg": 1,
+    "add_enabled": true,
+    "modal_mode": "title-draft"
+  },
+  "same_page_source_and_exposure_sha256": "cd8948a73c2333497cadd456939ea06d3205cd1509a33971028d809c9ebc5a46",
+  "context_unchanged": true,
+  "proxy_hold_safety_limit_ms": 120000
+}

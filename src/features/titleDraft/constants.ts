@@ -1,3 +1,5 @@
+import type { TitleDraftCopyExposure } from './copyExperiment'
+
 /** `macroMode` of the Forge modal that previews a title draft. */
 export const TITLE_DRAFT_MACRO_MODE = 'title-draft'
 
@@ -5,7 +7,7 @@ export const TITLE_DRAFT_MACRO_MODE = 'title-draft'
 export type TitleDraftClosePayload =
   | { outcome: 'added'; contentId: string }
   | { outcome: 'already_added' }
-  | { outcome: 'dismissed' }
+  | { outcome: 'dismissed'; reason?: 'escape' | 'render_failed' }
 
 export interface TitleDraftModalContext {
   macroMode: typeof TITLE_DRAFT_MACRO_MODE
@@ -14,4 +16,5 @@ export interface TitleDraftModalContext {
   mermaid: string
   kind?: string
   confidence?: number
+  copyExperiment?: TitleDraftCopyExposure
 }

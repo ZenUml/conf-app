@@ -12,8 +12,8 @@ Use the shared live Marketplace pricing implementation for Full. The locally con
 ## Message shape
 
 1. Remind them which app and host product this concerns. After a gap, link the verified Marketplace listing using its actual name, including Confluence where relevant.
-2. Give one or two useful verified facts: relevant space count, actual active accounts, a concrete unmet need or prior request. State the window and distinguish views, accounts, saves and inventory. Do not infer blocked engineers' intentions from event counts.
-3. Express interest in helping. "One of our most active teams" needs a comparable ranking; otherwise simply say the team is using it actively. Do not fabricate superlatives.
+2. Use customer-provided needs or prior correspondence as context. Keep internal telemetry out of customer messages: account counts, page/space activity, timestamps, inventory and inferred usage belong in private analysis; exposing them can make customers feel monitored.
+3. Express interest in helping without usage claims or rankings.
 4. Ask one easy next step: feedback, forwarding to the right colleague, or whether a quote would help. Avoid interrogating them about budget, ownership and procurement all at once.
 
 The user's priority is adoption and converting a good-fit customer; flexibility can be discussed without inventing a discount or committing to an unapproved commercial term.

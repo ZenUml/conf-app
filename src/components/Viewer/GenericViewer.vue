@@ -510,6 +510,7 @@
               v-if="showLicenseNotice"
               :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
               :macro-type="diagramType ?? 'none'"
+              :basis="licenseNoticeBasis"
             />
             <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
                  defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
@@ -641,7 +642,8 @@ import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
 import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
-import { shouldShowLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
+import { resolveLicenseNotice as evaluateLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
+import { loadLicenseNoticeEvidence } from '@/features/licenseNotice/loadEvidence'
 import LicenseWatermark from '@/components/Viewer/LicenseWatermark.vue'
 import LicenseNoticeStrip from '@/components/Viewer/LicenseNoticeStrip.vue'
 import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
@@ -791,6 +793,9 @@ export default {
     architectureTokensEnabled: false,
     // Full variant 'no active license' notice; resolved off the render path.
     licenseNoticeActive: false,
+    licenseNoticeBasis: null,
+    licenseNoticeRequestId: 0,
+    licenseNoticeExpiryTimer: null,
     createGuideFeatureEnabled: false,
     createGuideImpressionTracked: false,
     agentLinkSession: null,
@@ -1627,6 +1632,8 @@ export default {
     }
   },
   beforeUnmount() {
+    this.licenseNoticeRequestId++;
+    clearTimeout(this.licenseNoticeExpiryTimer);
     this.connectMcpUnmounted = true;
     this.headerResizeObserver?.disconnect();
     this.headerResizeObserver = null;
@@ -2317,21 +2324,59 @@ export default {
     },
     // Fire-and-forget: the diagram never waits on this, and any error means
     // no notice. Full variant only, so other variants skip the flag lookup.
-    resolveLicenseNotice() {
+    async resolveLicenseNotice() {
       if (import.meta.env.PRODUCT_TYPE !== 'full') return;
+      const requestId = ++this.licenseNoticeRequestId;
+      clearTimeout(this.licenseNoticeExpiryTimer);
       try {
-        isNoLicenseNoticeEnabled().then((flagEnabled) => {
-          const ctx = forgeGlobal.forgeContext;
-          this.licenseNoticeActive = shouldShowLicenseNotice({
-            productType: import.meta.env.PRODUCT_TYPE,
-            licenseActive: ctx?.license?.active,
-            environmentType: ctx?.environmentType,
-            mockInactive: readMockLicenseInactive(),
-            flagEnabled: flagEnabled === true,
+        const flagEnabled = await isNoLicenseNoticeEnabled();
+        const ctx = forgeGlobal.forgeContext;
+        const decision = await evaluateLicenseNotice({
+          productType: import.meta.env.PRODUCT_TYPE,
+          licenseActive: ctx?.license?.active,
+          licenseType: ctx?.license?.type,
+          environmentType: ctx?.environmentType,
+          mockInactive: readMockLicenseInactive(),
+          flagEnabled: flagEnabled === true,
+        }, loadLicenseNoticeEvidence);
+        if (requestId !== this.licenseNoticeRequestId) return;
+        // Context can refresh while the optional backend call is in flight.
+        const activeNow = forgeGlobal.forgeContext?.license?.active === true
+          && decision.basis !== 'development_mock';
+        this.licenseNoticeBasis = activeNow ? null : decision.basis;
+        this.licenseNoticeActive = this.licenseNoticeBasis !== null;
+        if (this.licenseNoticeBasis === 'marketplace_legacy_free' && decision.expiresAt) {
+          this.licenseNoticeExpiryTimer = setTimeout(() => {
+            if (requestId !== this.licenseNoticeRequestId) return;
+            this.licenseNoticeActive = false;
+            this.licenseNoticeBasis = null;
+            trackAnalyticsEvent('license_notice_evaluated', {
+              feature_area: 'license_notice',
+              surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+              macro_type: this.diagramType ?? 'none',
+              license_notice_outcome: 'unknown',
+            });
+          }, Math.max(0, Date.parse(decision.expiresAt) - Date.now()));
+        }
+        if (decision.outcome !== 'disabled') {
+          trackAnalyticsEvent('license_notice_evaluated', {
+            feature_area: 'license_notice',
+            surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+            macro_type: this.diagramType ?? 'none',
+            license_notice_outcome: activeNow ? 'active' : decision.outcome,
+            ...(this.licenseNoticeBasis ? { license_notice_basis: this.licenseNoticeBasis } : {}),
           });
-        }).catch(() => { this.licenseNoticeActive = false; });
+        }
       } catch {
+        if (requestId !== this.licenseNoticeRequestId) return;
         this.licenseNoticeActive = false;
+        this.licenseNoticeBasis = null;
+        trackAnalyticsEvent('license_notice_evaluated', {
+          feature_area: 'license_notice',
+          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+          macro_type: this.diagramType ?? 'none',
+          license_notice_outcome: 'unavailable',
+        });
       }
     },
     trackRename(eventName, extra = {}) {

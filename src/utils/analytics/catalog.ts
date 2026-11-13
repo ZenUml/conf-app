@@ -38,6 +38,20 @@ export type FeatureArea =
 
 /** What the draft lookup found for this page. */
 export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
+
+/** Versioned title-draft offer-copy test; assignments are account-sticky. */
+export type TitleDraftCopyExperimentId = "title-draft-offer-copy";
+export type TitleDraftCopyExperimentVersion = 1;
+export type TitleDraftCopyVariant = "A" | "B";
+
+/** Why a title-draft preview closed without adding a diagram. */
+export type TitleDraftPreviewCloseReason =
+  | "escape"
+  | "render_failed"
+  // Confluence does not distinguish its X, overlay, or host-handled Escape.
+  | "host_dismissed"
+  // A dismissed payload from a previously loaded iframe carried no reason.
+  | "unknown";
 /** Why a title-draft Add did not place a new diagram. */
 export type TitleDraftAddFailure =
   | "already_added"
@@ -390,6 +404,8 @@ export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
 // `feedback` records the explicit start requested by the Feedback trigger.
+// `license_notice` records the explicit start requested when the Full
+// "No active license" notice is shown (license_notice_shown).
 // `timeout` means the Forge flag download did not settle within
 // SESSION_REPLAY_CONFIG_TIMEOUT_MS (#707) so replay was forced off; `off` is
 // reserved for "the flag/policy said off".
@@ -400,6 +416,8 @@ export type SessionReplayEventSource =
   | "plan_usage_page"
   | "fullscreen"
   | "feedback"
+  | "license_notice"
+  | "title_draft_preview"
   | "timeout"
   | "off";
 
@@ -1740,13 +1758,32 @@ export type AnalyticsEventName =
   | "activation_diagram_edited"
   | "activation_completed"
   | "activation_nudge_dismissed"
-  // Title-first offer. `requested` is the draft lookup; the rest follow the flag.
+  // Title-first offer. `requested` is the draft lookup, before any copy exposure.
+  // When the independent offer-copy build switch is on, flag_shown records one native
+  // flag exposure with title_draft_experiment_id/version, title_draft_variant
+  // and a fresh title_draft_exposure_id. not_now and preview_opened describe
+  // clicks on that same exposure. Preserve these explicit properties through
+  // preview mount/render/failure, add click/result, close and post-reload actions.
+  // Flag-off and legacy flows omit all experiment fields; never send copy text.
   // `requested` is sent at 100% for `ready` and at 10% with `sample_rate` for
   // `pending` / `no_diagram` (TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE).
   | "title_draft_requested"
+  // Native showFlag returned: exposure denominator, with experiment props above.
   | "title_draft_flag_shown"
+  // Secondary offer action clicked, with the exposure that rendered the button.
   | "title_draft_not_now"
+  // Primary offer action clicked, before opening the preview modal.
   | "title_draft_preview_opened"
+  // Preview iframe mounted: initialize analytics and request replay at 100%.
+  | "title_draft_preview_mounted"
+  // SVG committed to the preview DOM.
+  | "title_draft_preview_rendered"
+  // Preview rendering rejected; never carries diagram source or error text.
+  | "title_draft_preview_render_failed"
+  // An enabled Add to page action was accepted, before context/save work.
+  | "title_draft_add_clicked"
+  // Keeps the existing meaning: closed without added/already_added outcome.
+  // title_draft_close_reason distinguishes known and host-level dismissals.
   | "title_draft_preview_closed"
   | "title_draft_added"
   | "title_draft_add_failed"
@@ -1804,6 +1841,9 @@ export type AnalyticsEventName =
   // which copies it (mailto does nothing in the Forge sandbox). Properties:
   // feature_area 'license_notice', surface ('viewer' | 'fullscreen'),
   // macro_type.
+  // Full viewer decision settles or expires; flag-off views emit nothing.
+  // license_notice_basis distinguishes Forge inactivity from explicit Legacy Free evidence.
+  | "license_notice_evaluated"
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"
   | "license_notice_ticket_clicked"

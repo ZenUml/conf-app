@@ -5,6 +5,7 @@ import {
   markNotNow,
   isNotNow,
   recordLookup,
+  PENDING_RECHECK_MS,
   isLookupFresh,
   canShowEntryFlag,
   markEntryFlagShown,
@@ -52,6 +53,23 @@ describe('title draft local state', () => {
     expect(isLookupFresh(A, 'p2', NOW)).toBe(false)
   })
 
+  it('a pending lookup is fresh for 1 hour only', () => {
+    recordLookup(A, 'p1', NOW, PENDING_RECHECK_MS)
+    expect(isLookupFresh(A, 'p1', NOW + HOUR - 1)).toBe(true)
+    expect(isLookupFresh(A, 'p1', NOW + HOUR)).toBe(false)
+  })
+
+  it('a plain timestamp (stored by older code) still means 24 hours', () => {
+    localStorage.setItem('titleDraft:lookup:example-tenant:acc-1:p1', String(NOW))
+    expect(isLookupFresh(A, 'p1', NOW + 24 * HOUR - 1)).toBe(true)
+    expect(isLookupFresh(A, 'p1', NOW + 24 * HOUR)).toBe(false)
+  })
+
+  it('a malformed stored lookup is not fresh', () => {
+    localStorage.setItem('titleDraft:lookup:example-tenant:acc-1:p1', 'abc+def')
+    expect(isLookupFresh(A, 'p1', NOW)).toBe(false)
+  })
+
   it('shows at most one entry flag per person per site per 24 hours', () => {
     expect(canShowEntryFlag(A, NOW)).toBe(true)
     markEntryFlagShown(A, NOW)
@@ -69,6 +87,15 @@ describe('title draft local state', () => {
   })
 
   describe('just added', () => {
+    it('retains a valid exposure but strips malformed stored attribution', () => {
+      const copyExperiment = { experimentId: 'title-draft-offer-copy' as const, experimentVersion: 1 as const,
+        variant: 'B' as const, exposureId: '11111111-1111-4111-8111-111111111111' }
+      writeJustAdded(A, { pageId: 'p1', contentId: 'c1', at: NOW, copyExperiment })
+      expect(takeJustAdded(A, 'p1', NOW)?.copyExperiment).toEqual(copyExperiment)
+      writeJustAdded(A, { pageId: 'p1', contentId: 'c1', at: NOW,
+        copyExperiment: { ...copyExperiment, variant: 'invalid' } as any })
+      expect(takeJustAdded(A, 'p1', NOW)).toEqual({ pageId: 'p1', contentId: 'c1', at: NOW })
+    })
     it('returns and clears a matching record under 2 minutes old', () => {
       writeJustAdded(A, { pageId: 'p1', contentId: 'c1', at: NOW })
       expect(takeJustAdded(A, 'p1', NOW + 119_000)).toEqual({ pageId: 'p1', contentId: 'c1', at: NOW })

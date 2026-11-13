@@ -138,9 +138,11 @@ describe('staging workflow safety contracts', () => {
         expect(job.if).toContain('!cancelled()');
         expect(job.if).not.toContain('always()');
         const dispatch = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
-        expect(dispatch.if).toBe(name === 'main-staging-validation'
-          ? '${{ success() && !cancelled() }}'
-          : '${{ !cancelled() }}');
+        expect(dispatch.if).toBe({
+          'main-staging-validation': '${{ success() && !cancelled() }}',
+          'build-test-deploy': '${{ !cancelled() }}',
+          'pr-validation': "${{ !cancelled() && steps.current.outputs.current != 'false' }}",
+        }[name]);
         const cleanup = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
         expect(cleanup.if).toBe('${{ always() }}');
         expect(job.steps.indexOf(cleanup)).toBeGreaterThan(job.steps.indexOf(dispatch));
@@ -184,10 +186,10 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('test-all-override')).toContain('actions/workflows/pr-validation.yml/dispatches');
     expect(workflow('test-all-override')).not.toContain('actions/workflows/build-test-deploy.yml/dispatches');
   });
-  it('routes label publication and bounded recovery only from staging-owning parents', () => {
-    for (const name of ['test-selection-labels', 'e2e-rerun']) {
-      expect(structure(name).on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation']);
-    }
+  it('routes label publication from staging-owning parents, and bounded recovery also from PR checks', () => {
+    expect(structure('test-selection-labels').on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation']);
+    // The Viewer preview moved to PR checks and must keep its one automatic retry.
+    expect(structure('e2e-rerun').on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation', 'PR checks']);
     const recovery = structure('e2e-rerun').jobs.rerun;
     expect(recovery.if).toContain("github.event.workflow_run.run_attempt == 1");
     expect(recovery.if).toContain("github.event.workflow_run.conclusion == 'failure'");

@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { renderMermaid } from '@/utils/mermaid/renderMermaid'
 import type { TitleDraftClosePayload } from './constants'
 import type { AddDraftResult } from './addDraft'
@@ -33,11 +33,23 @@ const props = defineProps<{
   mermaid: string
   add: () => Promise<AddDraftResult>
   onClose: (payload: TitleDraftClosePayload) => void
+  onPreviewMounted?: () => void
+  onPreviewRendered?: () => void
+  onPreviewRenderFailed?: () => Promise<void>
+  onAddClicked?: () => void
 }>()
 
 const svg = ref('')
 const busy = ref(false)
 const error = ref('')
+let active = true
+let closed = false
+
+function close(payload: TitleDraftClosePayload) {
+  if (!active || closed) return
+  closed = true
+  props.onClose(payload)
+}
 
 const NOT_ADDED = 'The diagram was not added. Try again.'
 const MESSAGES: Partial<Record<AddDraftResult['result'], string>> = {
@@ -48,13 +60,15 @@ const MESSAGES: Partial<Record<AddDraftResult['result'], string>> = {
 }
 
 async function addToPage() {
-  if (busy.value) return
+  if (busy.value || closed) return
   busy.value = true
+  props.onAddClicked?.()
   error.value = ''
   try {
     const outcome = await props.add()
-    if (outcome.result === 'added') return props.onClose({ outcome: 'added', contentId: outcome.contentId })
-    if (outcome.result === 'already_added') return props.onClose({ outcome: 'already_added' })
+    if (!active || closed) return
+    if (outcome.result === 'added') return close({ outcome: 'added', contentId: outcome.contentId })
+    if (outcome.result === 'already_added') return close({ outcome: 'already_added' })
     error.value = MESSAGES[outcome.result] ?? NOT_ADDED
   } catch (e) {
     console.error('[title-draft] add failed', e)
@@ -66,21 +80,32 @@ async function addToPage() {
 
 // Focus inside a Forge iframe stops Confluence's own Escape handling.
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') props.onClose({ outcome: 'dismissed' })
+  if (event.key === 'Escape') close({ outcome: 'dismissed', reason: 'escape' })
 }
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+  props.onPreviewMounted?.()
   try {
     const result = await renderMermaid(`title-draft-${Date.now()}`, props.mermaid)
+    if (!active || closed) return
     svg.value = result.svg
   } catch (e) {
+    if (!active || closed) return
     console.error('[title-draft] preview failed', e)
-    props.onClose({ outcome: 'dismissed' })
+    await props.onPreviewRenderFailed?.()
+    close({ outcome: 'dismissed', reason: 'render_failed' })
+    return
   }
+  // The event describes visible output, so wait for Vue's v-html DOM update.
+  await nextTick()
+  if (active && !closed) props.onPreviewRendered?.()
 })
 
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  active = false
+  window.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <style scoped>

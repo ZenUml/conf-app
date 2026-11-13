@@ -1,5 +1,6 @@
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
+import { readTitleDraftCopyExposure, type TitleDraftCopyExposure } from './copyExperiment'
 
 /**
  * Per-browser state for the title-draft offer. Every reader fails CLOSED when
@@ -16,10 +17,13 @@ export interface JustAdded {
   pageId: string
   contentId: string
   at: number
+  copyExperiment?: TitleDraftCopyExposure
 }
 
 const HOUR = 3600_000
 export const LOOKUP_FRESH_MS = 24 * HOUR
+/** A pending draft may be ready soon, so it is looked up again sooner. */
+export const PENDING_RECHECK_MS = HOUR
 export const ENTRY_FLAG_INTERVAL_MS = 24 * HOUR
 export const JUST_ADDED_TTL_MS = 2 * 60_000
 
@@ -82,15 +86,30 @@ export function isNotNow(id: TitleDraftIdentity, pageId: string): boolean {
   return raw === undefined || raw !== null
 }
 
-export function recordLookup(id: TitleDraftIdentity, pageId: string, now: number = Date.now()): void {
-  write(key('lookup', id, pageId), String(now))
+export function recordLookup(
+  id: TitleDraftIdentity,
+  pageId: string,
+  now: number = Date.now(),
+  freshMs: number = LOOKUP_FRESH_MS,
+): void {
+  // The default window stays a plain timestamp, so stored values remain compatible.
+  write(key('lookup', id, pageId), freshMs === LOOKUP_FRESH_MS ? String(now) : `${now}+${freshMs}`)
 }
 
-/** Unavailable storage reads as fresh: do not re-ask the backend. */
+/**
+ * Unavailable storage reads as fresh: do not re-ask the backend.
+ * A lookup may carry its own window as "<at>+<ms>"; a plain number means 24 hours.
+ */
 export function isLookupFresh(id: TitleDraftIdentity, pageId: string, now: number = Date.now()): boolean {
-  const at = readNumber(key('lookup', id, pageId))
-  if (at === undefined) return true
-  return at !== null && now - at < LOOKUP_FRESH_MS
+  const raw = read(key('lookup', id, pageId))
+  if (raw === undefined) return true
+  if (raw === null) return false
+  const [atText, msText, ...rest] = raw.split('+')
+  if (rest.length) return false
+  const at = Number(atText)
+  const ms = msText === undefined ? LOOKUP_FRESH_MS : Number(msText)
+  if (!atText || (msText !== undefined && !msText) || !Number.isFinite(at) || !Number.isFinite(ms)) return false
+  return now - at < ms
 }
 
 export function canShowEntryFlag(id: TitleDraftIdentity, now: number = Date.now()): boolean {
@@ -127,7 +146,8 @@ export function takeJustAdded(id: TitleDraftIdentity, pageId: string, now: numbe
       || v.pageId !== pageId || now - v.at >= JUST_ADDED_TTL_MS || now < v.at
     ) return null
     remove(k)
-    return { pageId: v.pageId, contentId: v.contentId, at: v.at }
+    const exposure = readTitleDraftCopyExposure(v.copyExperiment)
+    return { pageId: v.pageId, contentId: v.contentId, at: v.at, ...(exposure ? { copyExperiment: exposure } : {}) }
   } catch {
     return null
   }

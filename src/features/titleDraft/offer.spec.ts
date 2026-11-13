@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   showFlag: vi.fn(),
   openModal: vi.fn(),
   isTitleDraftEnabled: vi.fn(),
+  isTitleDraftCopyExperimentEnabled: vi.fn(),
   viewerAccountKind: vi.fn(),
   requestConfluenceJson: vi.fn(),
   callRemote: vi.fn(),
@@ -14,6 +15,8 @@ const m = vi.hoisted(() => ({
   readTitleDraftRecord: vi.fn(),
   trackAnalyticsEvent: vi.fn(),
   reloadHostPage: vi.fn(),
+  undoTitleDraft: vi.fn(),
+  clientDomain: 'example-tenant',
   forge: { forgeContext: {} as any },
 }))
 
@@ -21,6 +24,7 @@ vi.mock('@forge/bridge', () => ({ showFlag: m.showFlag }))
 vi.mock('@/model/globals/forgeGlobal', () => ({ default: m.forge, openModal: m.openModal }))
 vi.mock('@/model/globals', () => ({ default: { apWrapper: { initializeContext: vi.fn(async () => {}) } } }))
 vi.mock('@/apis/aiTitleFeatureFlag', () => ({ isTitleDraftEnabled: m.isTitleDraftEnabled }))
+vi.mock('@/utils/featureConstants', () => ({ isTitleDraftCopyExperimentEnabled: m.isTitleDraftCopyExperimentEnabled }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: m.trackAnalyticsEvent }))
 vi.mock('@/utils/byline/addToPage', async (orig) => ({
   ...(await orig<typeof import('@/utils/byline/addToPage')>()),
@@ -28,10 +32,11 @@ vi.mock('@/utils/byline/addToPage', async (orig) => ({
 }))
 vi.mock('@/utils/byline/confluenceRequest', () => ({ requestConfluenceJson: m.requestConfluenceJson }))
 vi.mock('@/utils/magic/viewerAccount', () => ({ viewerAccountKind: m.viewerAccountKind }))
-vi.mock('@/utils/ContextParameters/ContextParameters', () => ({ getClientDomain: () => 'example-tenant' }))
+vi.mock('@/utils/ContextParameters/ContextParameters', () => ({ getClientDomain: () => m.clientDomain }))
 vi.mock('@/utils/requestUtil', () => ({ callRemote: m.callRemote }))
 vi.mock('./canEdit', () => ({ canEditPage: m.canEditPage }))
 vi.mock('./pageState', () => ({ readTitleDraftRecord: m.readTitleDraftRecord }))
+vi.mock('./undo', () => ({ undoTitleDraft: m.undoTitleDraft }))
 
 import { maybeOfferTitleDraft } from './offer'
 import { markNotNow } from './localState'
@@ -61,6 +66,8 @@ beforeEach(() => {
   vi.useRealTimers()
   setPage('100')
   m.isTitleDraftEnabled.mockResolvedValue(true)
+  m.isTitleDraftCopyExperimentEnabled.mockReturnValue(false)
+  m.clientDomain = 'example-tenant'
   m.viewerAccountKind.mockResolvedValue('licensed')
   m.requestConfluenceJson.mockImplementation(async (url: string) => ({
     ok: true,
@@ -72,6 +79,7 @@ beforeEach(() => {
   m.showFlag.mockImplementation(() => ({ close: vi.fn() }))
   m.openModal.mockResolvedValue(undefined)
   m.reloadHostPage.mockResolvedValue(true)
+  m.undoTitleDraft.mockResolvedValue({ result: 'undone' })
 })
 
 afterEach(() => vi.useRealTimers())
@@ -108,6 +116,29 @@ describe('maybeOfferTitleDraft gates', () => {
     markNotNow(IDENTITY, '100')
     await maybeOfferTitleDraft('lite')
     expect(m.requestConfluenceJson).not.toHaveBeenCalled()
+  })
+
+  it('status pending: the backend is asked again after 1 hour', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.parse('2026-11-08T00:00:00Z'))
+    m.callRemote.mockResolvedValue({ status: 'pending' })
+    await maybeOfferTitleDraft('lite')
+    vi.setSystemTime(Date.parse('2026-11-08T00:59:00Z'))
+    await maybeOfferTitleDraft('lite')
+    expect(m.callRemote).toHaveBeenCalledTimes(1)
+    vi.setSystemTime(Date.parse('2026-11-08T01:00:00Z'))
+    await maybeOfferTitleDraft('lite')
+    expect(m.callRemote).toHaveBeenCalledTimes(2)
+  })
+
+  it('status no_diagram: still skipped 1 hour later', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.parse('2026-11-08T00:00:00Z'))
+    m.callRemote.mockResolvedValue({ status: 'no_diagram' })
+    await maybeOfferTitleDraft('lite')
+    vi.setSystemTime(Date.parse('2026-11-08T01:00:00Z'))
+    await maybeOfferTitleDraft('lite')
+    expect(m.callRemote).toHaveBeenCalledTimes(1)
   })
 
   it.each(['pending', 'no_diagram'])('status %s: no flag, and a second call the same day skips the backend', async (status) => {
@@ -202,6 +233,7 @@ describe('maybeOfferTitleDraft actions', () => {
       title: `Diagram for ${TITLE}`,
       context: { pageId: '100', pageTitle: TITLE, mermaid: MERMAID },
     })
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_opened', expect.objectContaining({ surface: 'page_banner' }))
   })
 
   async function openAndClose(payload: unknown) {
@@ -211,9 +243,25 @@ describe('maybeOfferTitleDraft actions', () => {
     m.openModal.mock.calls[0][0].onClose(payload)
   }
 
+  it.each([
+    { payload: undefined, reason: 'host_dismissed' },
+    { payload: { outcome: 'dismissed' }, reason: 'unknown' },
+    { payload: { outcome: 'dismissed', reason: 'escape' }, reason: 'escape' },
+    { payload: { outcome: 'dismissed', reason: 'render_failed' }, reason: 'render_failed' },
+  ])('reports the close reason $reason once through the parent lifecycle', async ({ payload, reason }) => {
+    await openAndClose(payload)
+    m.openModal.mock.calls[0][0].onClose(payload)
+    const closed = m.trackAnalyticsEvent.mock.calls.filter(c => c[0] === 'title_draft_preview_closed')
+    expect(closed).toEqual([['title_draft_preview_closed', expect.objectContaining({
+      surface: 'modal', page_id: '100', title_draft_kind: 'sequence', title_draft_confidence: 0.9,
+      title_draft_close_reason: reason,
+    })]])
+  })
+
   it('closing with added reloads the host, and the next view shows the added flag', async () => {
     await openAndClose({ outcome: 'added', contentId: 'c1' })
     expect(m.reloadHostPage).toHaveBeenCalledTimes(1)
+    expect(m.trackAnalyticsEvent.mock.calls.filter(c => c[0] === 'title_draft_preview_closed')).toHaveLength(0)
 
     expect(await maybeOfferTitleDraft('lite')).toBe(true)
     const added = flags().at(-1)
@@ -246,5 +294,92 @@ describe('maybeOfferTitleDraft actions', () => {
     await openAndClose({ outcome: 'already_added' })
     await vi.waitFor(() => expect(flags().at(-1)?.title).toBe('A diagram was already added to this page'))
     expect(m.reloadHostPage).not.toHaveBeenCalled()
+    expect(m.trackAnalyticsEvent.mock.calls.filter(c => c[0] === 'title_draft_preview_closed')).toHaveLength(0)
+  })
+})
+
+describe('title draft offer copy attribution', () => {
+  it('disabled builds retain exact original A copy without experiment attribution', async () => {
+    await maybeOfferTitleDraft('lite')
+    expect(flags()[0]).toMatchObject({
+      title: 'A diagram for this page is ready',
+      description: 'ZenUML sketched it from the page title. Nothing changes until you add it.',
+    })
+    expect(flags()[0].actions.map((a: any) => a.text)).toEqual(['See diagram', 'Not now'])
+    actionOf(flags()[0], 'See diagram').onClick()
+    await vi.waitFor(() => expect(m.openModal).toHaveBeenCalled())
+    expect(m.openModal.mock.calls[0][0].context).not.toHaveProperty('copyExperiment')
+    for (const [, props] of m.trackAnalyticsEvent.mock.calls) {
+      expect(Object.keys(props).filter(key => /title_draft_(experiment|variant|exposure)/.test(key))).toEqual([])
+    }
+  })
+
+  const cases = [
+    { account: 'acc-1', variant: 'A', title: 'A diagram for this page is ready',
+      description: 'ZenUML sketched it from the page title. Nothing changes until you add it.', primary: 'See diagram' },
+    { account: 'account-1', variant: 'B', title: 'Help readers understand this page',
+      description: 'Preview a draft diagram based on the page title. Your page stays unchanged until you add it.', primary: 'Preview diagram' },
+  ]
+  it.each(cases)('shows exact $variant copy and propagates one exposure through the callbacks', async ({ account, variant, title, description, primary }) => {
+    m.isTitleDraftCopyExperimentEnabled.mockReturnValue(true)
+    m.forge.forgeContext.accountId = account
+    await maybeOfferTitleDraft('lite')
+    const flag = flags()[0]
+    expect(flag).toMatchObject({ title, description })
+    expect(flag.actions.map((a: any) => a.text)).toEqual([primary, 'Not now'])
+    const shown = m.trackAnalyticsEvent.mock.calls.find(c => c[0] === 'title_draft_flag_shown')![1]
+    expect(shown).toMatchObject({ title_draft_experiment_id: 'title-draft-offer-copy', title_draft_experiment_version: 1, title_draft_variant: variant, title_draft_exposure_id: expect.any(String) })
+    expect(m.trackAnalyticsEvent.mock.calls.find(c => c[0] === 'title_draft_requested')![1]).not.toHaveProperty('title_draft_variant')
+    actionOf(flag, primary).onClick()
+    await vi.waitFor(() => expect(m.openModal).toHaveBeenCalled())
+    const modal = m.openModal.mock.calls[0][0]
+    expect(modal.context.copyExperiment).toEqual({
+      experimentId: shown.title_draft_experiment_id, experimentVersion: shown.title_draft_experiment_version,
+      variant, exposureId: shown.title_draft_exposure_id,
+    })
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_opened', shown)
+    // A changed identity/build state cannot reassign this already-rendered flag.
+    m.forge.forgeContext.accountId = 'another-account'
+    m.isTitleDraftCopyExperimentEnabled.mockReturnValue(false)
+    actionOf(flag, 'Not now').onClick()
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_not_now', shown)
+    modal.onClose({ outcome: 'dismissed', reason: 'escape' })
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_closed', { ...shown, surface: 'modal', page_id: '100', title_draft_close_reason: 'escape' })
+    expect(m.isTitleDraftCopyExperimentEnabled).toHaveBeenCalledTimes(1)
+    const serialized = JSON.stringify(m.trackAnalyticsEvent.mock.calls)
+    expect(serialized).not.toContain(TITLE)
+    expect(serialized).not.toContain(MERMAID)
+    for (const [, eventProps] of m.trackAnalyticsEvent.mock.calls) expect(Object.values(eventProps)).not.toContain(account)
+  })
+
+  it('keeps the cohort across pages, sites and fresh storage but gives each show a new exposure', async () => {
+    m.isTitleDraftCopyExperimentEnabled.mockReturnValue(true)
+    await maybeOfferTitleDraft('lite')
+    const first = m.trackAnalyticsEvent.mock.calls.find(c => c[0] === 'title_draft_flag_shown')![1]
+    localStorage.clear()
+    setPage('200')
+    m.clientDomain = 'other-tenant'
+    await maybeOfferTitleDraft('lite')
+    const second = m.trackAnalyticsEvent.mock.calls.filter(c => c[0] === 'title_draft_flag_shown')[1][1]
+    expect(second.title_draft_variant).toBe(first.title_draft_variant)
+    expect(second.title_draft_exposure_id).not.toBe(first.title_draft_exposure_id)
+  })
+
+  it.each(['Edit diagram', 'Undo'])('retains the exposure through reload and $0', async (action) => {
+    m.isTitleDraftCopyExperimentEnabled.mockReturnValue(true)
+    m.forge.forgeContext.accountId = 'account-1'
+    await maybeOfferTitleDraft('lite')
+    actionOf(flags()[0], 'Preview diagram').onClick()
+    await vi.waitFor(() => expect(m.openModal).toHaveBeenCalled())
+    const modal = m.openModal.mock.calls[0][0]
+    const exposureId = modal.context.copyExperiment.exposureId
+    modal.onClose({ outcome: 'added', contentId: 'cc-1' })
+    m.isTitleDraftCopyExperimentEnabled.mockReturnValue(false)
+    await maybeOfferTitleDraft('lite')
+    actionOf(flags().at(-1), action).onClick()
+    await vi.waitFor(() => expect(m.trackAnalyticsEvent).toHaveBeenCalledWith(action === 'Undo' ? 'title_draft_undone' : 'title_draft_edit_clicked', expect.objectContaining({
+      title_draft_variant: 'B', title_draft_exposure_id: exposureId,
+    })))
+    expect(m.isTitleDraftCopyExperimentEnabled).toHaveBeenCalledTimes(1)
   })
 })

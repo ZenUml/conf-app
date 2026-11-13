@@ -1,4 +1,15 @@
-import { execFileSync } from "node:child_process";
+#!/usr/bin/env node
+// Worktree helpers: link git-ignored config from the primary checkout instead of copying
+// it, check that a worktree is clean before it is removed, and clear generated output.
+//
+//   pnpm link:environment <primary-checkout> [--dry-run]
+//   pnpm worktree:clean
+//   pnpm clean [--dry-run]
+//
+// Policy: docs/policies/git-workflow.md. Config is linked, never copied, so a secret exists
+// in one place. Nothing here deletes a real file outside this worktree, or a folder that
+// holds a nested git repo or worktree. Tests run in CI: scripts/ci/worktree.node-test.mjs.
+import { execFileSync } from 'node:child_process';
 import {
   lstatSync,
   mkdirSync,
@@ -7,225 +18,215 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
-  unlinkSync,
-} from "node:fs";
-import { basename, dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+} from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const USAGE = "Usage: pnpm link:environment <main worktree path> [--dry-run]";
-const CLEAN_USAGE = "Usage: pnpm clean [--dry-run]";
-// Ignored env files inside these folders belong to tools or to other worktrees.
-const SKIPPED =
-  /(^|\/)(node_modules|\.next|\.turbo|\.vercel|\.wrangler|\.cindy-worktrees|dist|\.claude)\//;
-const isEnvName = (name) => name.startsWith(".env");
+// Git-ignored files a worktree needs and git does not carry over.
+export const ENV_FILES = [
+  '.env',
+  '.env.forge',
+  '.env.forge.local',
+  '.env.mixpanel',
+  '.env.sentry-build-plugin',
+  '.mcp.json',
+  'tests/e2e-tests/.env',
+  'wrangler.toml',
+  '.claude/settings.local.json',
+];
 
-function git(cwd, ...args) {
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-}
+// Generated output that is safe to delete and is rebuilt on demand.
+export const GENERATED = ['dist', 'storybook-static', 'coverage', 'test-results', 'playwright-report'];
 
-function mainWorktree(cwd) {
-  const first = git(cwd, "worktree", "list", "--porcelain").split("\n")[0];
-  return realpathSync(first.replace(/^worktree /, ""));
-}
+const git = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: 'pipe' }).toString().trim();
 
-function envFiles(main) {
-  return git(
-    main,
-    "ls-files",
-    "-z",
-    "-o",
-    "-i",
-    "--exclude-standard",
-    "--",
-    ":(glob)**/.env*",
-  )
-    .split("\0")
-    .filter((path) => path && !SKIPPED.test(path));
-}
-
-function state(source, target) {
-  let stat;
+const isSymlink = p => {
   try {
-    stat = lstatSync(target);
+    return lstatSync(p).isSymbolicLink();
   } catch {
-    return "create";
+    return false;
   }
-  return stat.isSymbolicLink() && readlinkSync(target) === source
-    ? "linked"
-    : "conflict";
-}
+};
 
-function resolveRoots(mainArg, cwd) {
-  const root = realpathSync(git(cwd, "rev-parse", "--show-toplevel").trim());
-  const main = realpathSync(mainArg);
-  const actualMain = mainWorktree(cwd);
-  if (main !== actualMain)
-    throw Error(`${main} is not the main worktree of this repo`);
-  if (root === main) throw Error("Run this from a linked worktree, not main");
-  return { root, main };
-}
-
-/** Exit codes: 0 done, 1 an existing file blocks a link, 2 usage error. */
-export function linkEnvironment(
-  args,
-  { cwd = process.cwd(), log = console.log, lstat = lstatSync } = {},
-) {
-  const flags = args.filter((arg) => arg.startsWith("-"));
-  const paths = args.filter((arg) => !arg.startsWith("-"));
-  if (paths.length !== 1 || flags.some((flag) => flag !== "--dry-run")) {
-    log(USAGE);
-    return 2;
-  }
-  let roots;
+const present = p => {
   try {
-    roots = resolveRoots(paths[0], cwd);
-  } catch (error) {
-    log(`${error.message}\n${USAGE}`);
-    return 2;
+    lstatSync(p);
+    return true;
+  } catch {
+    return false;
   }
-  const plan = [];
-  for (const path of envFiles(roots.main)) {
-    const source = join(roots.main, path);
-    try {
-      lstat(source);
-    } catch {
-      log(`skipped (missing): ${path}`);
+};
+
+function commonDir(dir) {
+  return realpathSync(resolve(dir, git(dir, 'rev-parse', '--git-common-dir')));
+}
+
+function topLevel(dir) {
+  return realpathSync(git(dir, 'rev-parse', '--show-toplevel'));
+}
+
+// Is this path ignored by the repository that owns `dir`?
+function isIgnored(dir, rel) {
+  try {
+    execFileSync('git', ['check-ignore', '-q', '--', rel], { cwd: dir, stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function linkEnvironment({ primary, cwd = process.cwd(), dryRun = false }) {
+  const here = topLevel(cwd);
+  const main = topLevel(primary);
+  if (here === main) throw new Error('This is the primary checkout; run this inside a worktree.');
+  if (commonDir(here) !== commonDir(main)) {
+    throw new Error(`${main} is not in the same repository as ${here}.`);
+  }
+  // Another worktree only holds links. The real files live in the primary checkout.
+  if (main !== realpathSync(resolve(commonDir(here), '..'))) {
+    throw new Error(`${main} is a worktree, not the primary checkout (${resolve(commonDir(here), '..')}).`);
+  }
+  const result = { linked: [], alreadyLinked: [], conflicts: [], skipped: [] };
+  for (const rel of ENV_FILES) {
+    const source = join(main, rel);
+    const target = join(here, rel);
+    if (!present(source)) {
+      result.skipped.push(rel);
       continue;
     }
-    const target = join(roots.root, path);
-    plan.push({ path, source, target, state: state(source, target) });
-  }
-  const conflicts = plan.filter((item) => item.state === "conflict");
-  if (conflicts.length) {
-    for (const { path } of conflicts)
-      log(`blocked: ${path} already exists and is not a link to main`);
-    log("Nothing was linked. Move or delete those files first.");
-    return 1;
-  }
-  const dryRun = flags.includes("--dry-run");
-  for (const { path, source, target, state: current } of plan) {
-    if (current === "linked") {
-      log(`already linked: ${path}`);
+    // Only ever link files git ignores in the primary; a tracked file comes with the checkout.
+    if (!isIgnored(main, rel)) {
+      result.skipped.push(rel);
       continue;
     }
-    log(`${dryRun ? "would link" : "linked"}: ${path}`);
-    if (dryRun) continue;
-    mkdirSync(dirname(target), { recursive: true });
-    symlinkSync(source, target);
+    if (isSymlink(target)) {
+      if (readlinkSync(target) === source) result.alreadyLinked.push(rel);
+      else result.conflicts.push(rel);
+      continue;
+    }
+    if (present(target)) {
+      result.conflicts.push(rel);
+      continue;
+    }
+    if (!dryRun) {
+      mkdirSync(dirname(target), { recursive: true });
+      symlinkSync(source, target);
+    }
+    result.linked.push(rel);
   }
-  return 0;
+  return result;
 }
 
-/** Exit codes: 0 clean, 1 uncommitted or untracked files, 2 not a git repo. */
-export function worktreeClean({ cwd = process.cwd(), log = console.log } = {}) {
-  let status;
-  try {
-    status = git(cwd, "status", "--porcelain", "--untracked-files=all");
-  } catch {
-    log("Not inside a git worktree");
-    return 2;
+export function checkWorktree({ cwd = process.cwd(), primary }) {
+  const here = topLevel(cwd);
+  const problems = [];
+  const status = git(here, 'status', '--porcelain');
+  if (status) problems.push(`uncommitted changes:\n${status}`);
+  if (primary) {
+    const main = topLevel(primary);
+    for (const rel of ENV_FILES) {
+      const target = join(here, rel);
+      if (present(join(main, rel)) && present(target) && !isSymlink(target)) {
+        problems.push(`${rel} is a copy, not a link to the primary checkout`);
+      }
+    }
   }
-  if (status) {
-    log(status.trimEnd());
-    return 1;
-  }
-  log("Worktree is clean");
-  return 0;
+  return { problems };
 }
 
-// Why a path must be kept: it is or holds an .env file, or it holds a git
-// repo or worktree (a `.git` file or folder), such as another session's
-// worktree under `.claude/worktrees/`. Never follows symlinks, so a link to a
-// directory is not searched. Returns null when the path is safe to remove.
-function keepReason(path) {
+// Does this path hold a git repo or worktree (a `.git` file or folder)? Another session's
+// worktree can sit under a generated folder with unsaved work. Never follows symlinks.
+function holdsGit(path) {
   let stat;
   try {
     stat = lstatSync(path);
   } catch {
-    return null;
+    return false;
   }
-  const name = basename(path);
-  if (name === ".git") return "git repo";
-  if (isEnvName(name)) return ".env";
-  if (!stat.isDirectory()) return null;
-  for (const child of readdirSync(path)) {
-    const reason = keepReason(join(path, child));
-    if (reason) return reason;
-  }
-  return null;
+  if (basename(path) === '.git') return true;
+  if (!stat.isDirectory()) return false;
+  return readdirSync(path).some(child => holdsGit(join(path, child)));
 }
 
-/**
- * Removes git-ignored files and folders from a LINKED worktree.
- * Exit codes: 0 done, 2 usage error, run in the main worktree, or not a repo.
- */
-export function clean(
-  args,
-  { cwd = process.cwd(), log = console.log } = {},
-) {
-  if (args.some((arg) => arg !== "--dry-run")) {
-    log(CLEAN_USAGE);
-    return 2;
+export function cleanWorktree({ cwd = process.cwd(), primary, dryRun = false }) {
+  const here = topLevel(cwd);
+  const removed = [];
+  const kept = [];
+  for (const rel of GENERATED) {
+    const target = join(here, rel);
+    if (present(target)) {
+      if (holdsGit(target)) {
+        kept.push(rel);
+        continue;
+      }
+      if (!dryRun) rmSync(target, { recursive: true, force: true });
+      removed.push(rel);
+    }
   }
-  const dryRun = args.includes("--dry-run");
-  let root;
+  if (primary) {
+    const main = topLevel(primary);
+    for (const rel of ENV_FILES) {
+      const target = join(here, rel);
+      // Remove only a link that points at the primary's own file.
+      if (isSymlink(target) && readlinkSync(target) === join(main, rel)) {
+        if (!dryRun) rmSync(target, { force: true });
+        removed.push(rel);
+      }
+    }
+  }
+  return { removed, kept };
+}
+
+function parse(argv) {
+  const flags = new Set(argv.filter(a => a.startsWith('--')));
+  const args = argv.filter(a => !a.startsWith('--'));
+  return { flags, args };
+}
+
+// The primary checkout is where the common git dir lives.
+function primaryOf(dir) {
+  return resolve(commonDir(dir), '..');
+}
+
+function main(argv) {
+  const [command, ...rest] = argv;
+  const { flags, args } = parse(rest);
+  const dryRun = flags.has('--dry-run');
+  if (command === 'link-environment') {
+    if (!args[0]) throw new Error('Usage: pnpm link:environment <primary-checkout> [--dry-run]');
+    const r = linkEnvironment({ primary: args[0], dryRun });
+    const verb = dryRun ? 'would link' : 'linked';
+    for (const f of r.linked) console.log(`${verb}  ${f}`);
+    for (const f of r.alreadyLinked) console.log(`already linked  ${f}`);
+    for (const f of r.conflicts) console.log(`CONFLICT  ${f} exists here and is not a link to the primary; left alone`);
+    for (const f of r.skipped) console.log(`skipped  ${f} (not present or not ignored in the primary)`);
+    return r.conflicts.length ? 1 : 0;
+  }
+  if (command === 'check') {
+    const r = checkWorktree({ primary: args[0] || primaryOf(process.cwd()) });
+    if (r.problems.length) {
+      for (const p of r.problems) console.error(p);
+      return 1;
+    }
+    console.log('worktree is clean');
+    return 0;
+  }
+  if (command === 'clean') {
+    const r = cleanWorktree({ primary: args[0] || primaryOf(process.cwd()), dryRun });
+    const verb = dryRun ? 'would remove' : 'removed';
+    for (const f of r.removed) console.log(`${verb}  ${f}`);
+    for (const f of r.kept) console.log(`kept  ${f} (holds a git repo or worktree)`);
+    if (!r.removed.length && !r.kept.length) console.log('nothing to remove');
+    return 0;
+  }
+  throw new Error('Usage: worktree.mjs link-environment <primary> | check | clean [--dry-run]');
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   try {
-    root = realpathSync(git(cwd, "rev-parse", "--show-toplevel").trim());
-    if (root === mainWorktree(cwd)) {
-      log("Refusing to clean the main worktree. Run this in a linked worktree.");
-      return 2;
-    }
-  } catch {
-    log("Not inside a git worktree");
-    return 2;
+    process.exitCode = main(process.argv.slice(2));
+  } catch (e) {
+    console.error(e.message);
+    process.exitCode = 2;
   }
-  const candidates = git(
-    root,
-    "ls-files",
-    "-z",
-    "-o",
-    "-i",
-    "--exclude-standard",
-    "--directory",
-  )
-    .split("\0")
-    .filter(Boolean)
-    .map((path) => path.replace(/\/$/, ""));
-  for (const path of candidates) {
-    if (path.split("/").includes(".git")) continue;
-    const full = join(root, path);
-    const reason = keepReason(full);
-    if (reason) {
-      log(
-        reason === ".env" && isEnvName(basename(path))
-          ? `skipped (.env): ${path}`
-          : `skipped (contains ${reason}): ${path}`,
-      );
-      continue;
-    }
-    if (dryRun) {
-      log(`would remove: ${path}`);
-      continue;
-    }
-    if (lstatSync(full).isSymbolicLink()) unlinkSync(full);
-    else rmSync(full, { recursive: true, force: true });
-    log(`removed: ${path}`);
-  }
-  return 0;
-}
-
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [command, ...args] = process.argv.slice(2);
-  process.exitCode =
-    command === "link-environment"
-      ? linkEnvironment(args)
-      : command === "clean-check"
-        ? worktreeClean()
-        : command === "clean"
-          ? clean(args)
-          : 2;
 }

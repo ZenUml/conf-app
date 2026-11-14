@@ -24,6 +24,7 @@ import type {
   CacheSource,
   PlantUmlRenderer,
   McpViewPlantUmlRenderer,
+  McpViewFullscreenOutcome,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
   PlantUmlPngPurpose,
@@ -369,6 +370,11 @@ export type AnalyticsProperties = {
   paste_truncated?: boolean;
   // ADR-0010 self-hosted PlantUML rendering
   plantuml_renderer?: PlantUmlRenderer | McpViewPlantUmlRenderer;
+  // MCP Apps view (agent_link_app_view_rendered): whether the host offered
+  // the fullscreen display mode, i.e. whether the view showed its button.
+  fullscreen_available?: boolean;
+  // agent_link_app_view_fullscreen_requested only.
+  fullscreen_outcome?: McpViewFullscreenOutcome;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4

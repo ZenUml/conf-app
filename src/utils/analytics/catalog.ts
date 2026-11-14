@@ -316,6 +316,9 @@ export type PlantUmlRenderer = "server" | "local" | "server_fallback";
 // The MCP Apps view's vocabulary for `plantuml_renderer`: it never asks the
 // server, so a diagram the engine cannot draw is `failed`, not `server_fallback`.
 export type McpViewPlantUmlRenderer = "local" | "failed";
+// What the host did when the MCP Apps view asked for fullscreen or to leave it
+// (agent_link_app_view_fullscreen_requested).
+export type McpViewFullscreenOutcome = "entered" | "exited" | "declined" | "failed";
 
 // Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
 // is NOT a failure: the engine draws it like the server did, and the existing
@@ -1662,9 +1665,20 @@ export type AnalyticsEventName =
   // `macro_type` and `render_outcome` (rendered | failed), and for PlantUML
   // `plantuml_renderer` (local | failed; the view has no server fallback, ADR-0010
   // step 7) and on failure `plantuml_failure_reason`. A syntax error the engine
-  // drew counts as rendered. Never carries the source, a title or any free text,
+  // drew counts as rendered. Also `fullscreen_available`: whether the host
+  // listed `fullscreen` in its availableDisplayModes (so the view showed its
+  // fullscreen button). Never carries the source, a title or any free text,
   // and no user or site: the endpoint accepts these enums and nothing else.
   | "agent_link_app_view_rendered"
+  // The MCP Apps view's fullscreen button was pressed, and what the host did
+  // with `ui/request-display-mode` (POST /mcp/view-event, like _rendered).
+  // Carries `macro_type` and `fullscreen_outcome`: `entered` (host switched
+  // to fullscreen), `exited` (back to inline), `declined` (host answered with
+  // the mode it was already in), `failed` (host answered with an error). The
+  // button only shows where the host lists `fullscreen` in its
+  // availableDisplayModes, so the denominator is _rendered with
+  // `fullscreen_available: true`. Enums only, like _rendered.
+  | "agent_link_app_view_fullscreen_requested"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the
   // only way to tell "the host never offered MCP Apps" apart from "it offered
   // them and did not render" — the view-fetch events cover the second case

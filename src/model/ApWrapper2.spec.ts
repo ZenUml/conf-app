@@ -858,6 +858,17 @@ describe('ApWrapper2', () => {
       expect(result.directFetchErrorClass).toBe('structured');
     });
 
+    it('carries the error name and message of a thrown direct fetch with no HTTP status', async () => {
+      vi.mocked(forgeRequest).mockRejectedValueOnce(new TypeError('Load failed'));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchErrorClass).toBe('thrown');
+      expect(result.directFetchHttpStatus).toBeUndefined();
+      expect(result.directFetchErrorName).toBe('TypeError');
+      expect(result.directFetchErrorMessage).toBe('Load failed');
+    });
+
     it('classifies a thrown direct fetch as errorClass "thrown"', async () => {
       vi.mocked(forgeRequest).mockRejectedValueOnce(Object.assign(new Error('network down'), { status: 503 }));
 

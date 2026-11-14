@@ -1433,6 +1433,14 @@ export default {
         trackEvent('load_failed_shown', 'view', 'load_failed_generic', {
           state: state === 'failed_with_source' ? 'with_id' : 'no_id',
           content_id: String(this.failedCustomContentId ?? ''),
+          // Why the load failed, from the store's DiagramLoadError. Unsampled,
+          // unlike customcontent_orphan_observed, so every failed panel says
+          // whether it was a 404, a 403/5xx or a thrown fetch (and which).
+          ...(this.loadError?.directFetchStatus && { direct_fetch_status: this.loadError.directFetchStatus }),
+          ...(this.loadError?.errorClass && { error_class: this.loadError.errorClass }),
+          ...(this.loadError?.httpStatus !== undefined && { http_status: this.loadError.httpStatus }),
+          ...(this.loadError?.errorName && { error_name: this.loadError.errorName }),
+          ...(this.loadError?.errorMessage && { error_message: this.loadError.errorMessage }),
         });
       },
     },

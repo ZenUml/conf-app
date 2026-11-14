@@ -145,7 +145,7 @@ needs the owner's explicit trigger.
 
 It skips a PR, with the reason printed, unless all of these hold, tested in this order:
 the switch is `true`; fewer than 2 merged today; not a draft; author is `app/dependabot` and a bot; head
-repository is this repository; base is `main`; no `auto-lane:hold` label; GitHub reports `MERGEABLE`; the
+repository is this repository; base is `main`; no `auto-lane:hold` label; GitHub reports `MERGEABLE` (an `UNKNOWN` answer is read again up to 3 times, 5 seconds apart, then skipped as `mergeable-unknown`); the
 classifier, run from `main` on `merge-base..head`, says `auto-merge`; there is at least one check run on the
 head SHA; none is unfinished; none failed (a cancelled run is ignored when a later run of the same name
 succeeded); `Build and Unit Test`, `E2E validation` and `Pipeline outcome` all succeeded; and each of those three finished

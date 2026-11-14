@@ -21,6 +21,10 @@ export const MAX_MERGES_PER_DAY = 2;
 export const MAX_PRS_PER_RUN = 20;
 // A green run on an old head says nothing about today's `main`: the PR must have been checked within this window.
 export const MAX_CHECK_AGE_DAYS = 7;
+// GitHub computes mergeability lazily: the first read after `main` moves answers UNKNOWN, and asking is what
+// starts the computation. Ask again a bounded number of times before giving up on the PR for this run.
+export const MERGEABLE_READS = 3;
+export const MERGEABLE_WAIT_MS = 5_000;
 const HOLD_LABEL = "auto-lane:hold";
 const LEDGER_LABEL = "auto-lane";
 const PIPELINE_WORKFLOW = "build-test-deploy.yml";
@@ -51,6 +55,7 @@ export function decide(input) {
     if (!pr.headRepoFullName || pr.headRepoFullName !== pr.baseRepoFullName) return skip("fork");
     if (pr.baseRef !== "main") return skip("base");
     if ((pr.labels ?? []).includes(HOLD_LABEL)) return skip("hold");
+    if (pr.mergeable === "UNKNOWN") return skip("mergeable-unknown");
     if (pr.mergeable !== "MERGEABLE") return skip("not-mergeable");
     if (!classification || classification.level !== "auto-merge") return skip(`policy:${classification?.lane ?? "error"}`);
     if (!Array.isArray(checks) || checks.length === 0) return skip("no-checks");
@@ -81,6 +86,7 @@ const defaultDeps = {
   gh: run("gh"),
   git: run("git"),
   classify: (baseSha, headSha) => classifyChange(buildInputFromGit(baseSha, headSha)),
+  sleep: (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
 };
 
 const LIST_FIELDS = "number,isDraft,author,headRefOid,baseRefName,mergeable,labels,isCrossRepository,headRepository,headRepositoryOwner";
@@ -88,7 +94,7 @@ const LIST_FIELDS = "number,isDraft,author,headRefOid,baseRefName,mergeable,labe
 const msg = (e) => String(e?.stderr?.toString().trim() || e?.message || e).split("\n")[0].slice(0, 200);
 
 export function main(argv = process.argv.slice(2), env = process.env, out = process.stdout, deps = defaultDeps, err = process.stderr) {
-  const { gh, git, classify } = { ...defaultDeps, ...deps };
+  const { gh, git, classify, sleep } = { ...defaultDeps, ...deps };
   const dryRun = argv.includes("--dry-run") || env.AUTO_LANE_DRY_RUN === "true";
   const unknown = argv.filter((a) => a !== "--dry-run");
   if (unknown.length) {
@@ -137,6 +143,12 @@ export function main(argv = process.argv.slice(2), env = process.env, out = proc
           ".check_runs[] | {id,name,status,conclusion,completed_at}"])
           .split("\n").filter(Boolean).map((l) => JSON.parse(l));
 
+        let mergeable = row.mergeable;
+        for (let read = 0; mergeable === "UNKNOWN" && read < MERGEABLE_READS; read++) {
+          sleep(MERGEABLE_WAIT_MS);
+          mergeable = JSON.parse(gh(["pr", "view", String(row.number), "--repo", repo, "--json", "mergeable"])).mergeable;
+        }
+
         const pr = {
           number: row.number,
           isDraft: row.isDraft,
@@ -147,7 +159,7 @@ export function main(argv = process.argv.slice(2), env = process.env, out = proc
           baseRepoFullName: repo,
           baseRef: row.baseRefName,
           headSha,
-          mergeable: row.mergeable,
+          mergeable,
           labels: (row.labels ?? []).map((l) => l.name),
         };
         const decision = decide({ enabled, pr, classification, checks, mergedToday, now: new Date().toISOString() });

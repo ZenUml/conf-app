@@ -56,7 +56,7 @@ const rows = [
   ["base not main", { pr: pr({ baseRef: "release" }) }, "base"],
   ["hold label", { pr: pr({ labels: ["dependencies", "auto-lane:hold"] }) }, "hold"],
   ["not mergeable CONFLICTING", { pr: pr({ mergeable: "CONFLICTING" }) }, "not-mergeable"],
-  ["not mergeable UNKNOWN", { pr: pr({ mergeable: "UNKNOWN" }) }, "not-mergeable"],
+  ["mergeable UNKNOWN", { pr: pr({ mergeable: "UNKNOWN" }) }, "mergeable-unknown"],
   ["classifier failed", { classification: null }, "policy:error"],
   ["lane auto-pr", { classification: { level: "auto-pr", lane: "deps-prod-minor" } }, "policy:deps-prod-minor"],
   ["lane report-only", { classification: { level: "report-only", lane: "deps-major" } }, "policy:deps-major"],
@@ -103,7 +103,7 @@ test("rule order: disabled beats everything, cap beats draft, mergeable beats po
   assert.equal(decide(bad).reason, "disabled");
   assert.equal(decide({ ...bad, enabled: "true" }).reason, "daily-cap");
   assert.equal(decide({ ...bad, enabled: "true", mergedToday: 0 }).reason, "draft");
-  assert.equal(decide({ ...bad, enabled: "true", mergedToday: 0, pr: pr({ mergeable: "UNKNOWN" }) }).reason, "not-mergeable");
+  assert.equal(decide({ ...bad, enabled: "true", mergedToday: 0, pr: pr({ mergeable: "CONFLICTING" }) }).reason, "not-mergeable");
   assert.equal(decide({ ...bad, enabled: "true", mergedToday: 0, pr: pr() }).reason, "policy:error");
   assert.equal(decide({ ...bad, enabled: "true", mergedToday: 0, pr: pr(), classification: { level: "auto-merge", lane: "x" } }).reason, "no-checks");
 });
@@ -319,4 +319,47 @@ test("main: output never contains the token", async () => {
   const out = sink();
   await main([], { AUTO_LANE_ENABLED: "true", GH_TOKEN: "ghp_SECRET123" }, out, deps);
   assert.ok(!out.text.includes("ghp_SECRET123"));
+});
+
+// GitHub computes mergeability lazily: the first read after `main` moves answers UNKNOWN (seen 2026-11-13 and
+// 2026-11-14: every PR in the list read UNKNOWN, then MERGEABLE seconds later).
+function withMergeableAnswers(answers) {
+  const { calls, deps } = fakeDeps({ rows: [listRow({ mergeable: "UNKNOWN" })] });
+  const sleeps = [];
+  const gh = (args) => {
+    if (args[0] === "pr" && args[1] === "view") {
+      calls.push(["gh", ...args]);
+      return JSON.stringify({ mergeable: answers.shift() ?? "UNKNOWN" });
+    }
+    return deps.gh(args);
+  };
+  return { calls, sleeps, deps: { ...deps, gh, sleep: (ms) => sleeps.push(ms) } };
+}
+
+test("main: UNKNOWN mergeability is asked again and merges once GitHub answers MERGEABLE", async () => {
+  const { calls, sleeps, deps } = withMergeableAnswers(["UNKNOWN", "MERGEABLE"]);
+  const out = sink();
+  assert.equal(await main([], { AUTO_LANE_ENABLED: "true", GITHUB_REPOSITORY: "ZenUml/conf-app" }, out, deps), 0);
+  assert.match(out.text, /#100 merge all-conditions-met/);
+  assert.equal(calls.filter((c) => c[1] === "pr" && c[2] === "view").length, 2);
+  assert.equal(sleeps.length, 2);
+});
+
+test("main: mergeability that stays UNKNOWN is skipped under its own reason after a bounded number of reads", async () => {
+  const { calls, deps } = withMergeableAnswers([]);
+  const out = sink();
+  assert.equal(await main([], { AUTO_LANE_ENABLED: "true", GITHUB_REPOSITORY: "ZenUml/conf-app" }, out, deps), 0);
+  assert.match(out.text, /#100 skip mergeable-unknown/);
+  assert.equal(calls.filter((c) => c[1] === "pr" && c[2] === "view").length, 3);
+  assert.equal(calls.some((c) => c[1] === "pr" && c[2] === "merge"), false);
+});
+
+test("main: a re-read that answers CONFLICTING is skipped as not-mergeable; MERGEABLE rows are never re-read", async () => {
+  const { deps } = withMergeableAnswers(["CONFLICTING"]);
+  const out = sink();
+  await main([], { AUTO_LANE_ENABLED: "true", GITHUB_REPOSITORY: "ZenUml/conf-app" }, out, deps);
+  assert.match(out.text, /#100 skip not-mergeable/);
+  const plain = fakeDeps();
+  await main([], { AUTO_LANE_ENABLED: "true", GITHUB_REPOSITORY: "ZenUml/conf-app" }, sink(), plain.deps);
+  assert.equal(plain.calls.some((c) => c[1] === "pr" && c[2] === "view"), false);
 });

@@ -1,5 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION } from './mcp-app-view';
+import {
+  applyHostContext,
+  currentUserZoom,
+  extractDiagram,
+  fitScale,
+  fullscreenAvailable,
+  onHostMessage,
+  onKeyDown,
+  onWheel,
+  resetViewState,
+  start,
+  toggleFullscreen,
+  UI_PROTOCOL_VERSION,
+  zoom,
+} from './mcp-app-view';
 import { compress } from '@/utils/compress';
 
 const drawio = vi.hoisted(() => ({
@@ -24,6 +38,12 @@ const swagger = vi.hoisted(() => {
 });
 vi.mock('swagger-ui', () => ({ default: swagger.SwaggerUI }));
 vi.mock('swagger-ui/dist/swagger-ui.css', () => ({}));
+
+const mermaidMock = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(async (_id: string, _source: string) => ({ svg: '<svg data-test="mermaid-block"></svg>' })),
+}));
+vi.mock('mermaid', () => ({ default: mermaidMock }));
 
 const sequence = vi.hoisted(() => ({ setDiagramFontUrl: vi.fn(), render: vi.fn(async () => {}) }));
 vi.mock('@zenuml/core', () => ({
@@ -272,7 +292,7 @@ describe('drawing a PlantUML result', () => {
     await vi.waitFor(() => expect(beacon).toHaveBeenCalledOnce());
     expect(reports()).toEqual([{
       path: '/mcp/view-event',
-      body: { macro_type: 'plantuml', render_outcome: 'rendered', plantuml_renderer: 'local' },
+      body: { macro_type: 'plantuml', render_outcome: 'rendered', fullscreen_available: false, plantuml_renderer: 'local' },
     }]);
   });
 
@@ -287,7 +307,7 @@ describe('drawing a PlantUML result', () => {
     );
     expect(document.querySelector('#app img')).toBeNull();
     expect(reports()[0].body).toEqual({
-      macro_type: 'plantuml', render_outcome: 'failed', plantuml_renderer: 'failed', plantuml_failure_reason: 'include',
+      macro_type: 'plantuml', render_outcome: 'failed', fullscreen_available: false, plantuml_renderer: 'failed', plantuml_failure_reason: 'include',
     });
     expect(JSON.stringify(reports())).not.toContain('azure');
   });
@@ -301,7 +321,7 @@ describe('drawing a PlantUML result', () => {
     );
     expect(document.querySelector('#app')?.textContent).not.toMatch(/chunk 404/);
     expect(reports()[0].body).toEqual({
-      macro_type: 'plantuml', render_outcome: 'failed', plantuml_renderer: 'failed', plantuml_failure_reason: 'load_failed',
+      macro_type: 'plantuml', render_outcome: 'failed', fullscreen_available: false, plantuml_renderer: 'failed', plantuml_failure_reason: 'load_failed',
     });
   });
 
@@ -367,7 +387,7 @@ describe('drawing a Graph result', () => {
     const [container, node, config] = GraphViewer.mock.calls[0];
     expect(document.querySelector('#app')?.contains(container)).toBe(true);
     expect((node as Element).nodeName).toBe('mxGraphModel');
-    expect(config).toMatchObject({ 'auto-fit': true, lightbox: false });
+    expect(config).toMatchObject({ 'auto-fit': false, lightbox: false });
     // Before the GraphViewer: only Editors created after initMath typeset math.
     expect(drawio.ensureDrawioMathForDocument.mock.calls[0][0]).toBe(node);
     expect(drawio.ensureDrawioMathForDocument.mock.invocationCallOrder[0]).toBeLessThan(GraphViewer.mock.invocationCallOrder[0]);
@@ -403,6 +423,63 @@ describe('drawing an OpenAPI result', () => {
     const config = swagger.SwaggerUI.mock.calls[0][0];
     expect(config).toMatchObject({ supportedSubmitMethods: [], validatorUrl: null, presets: ['apis-preset'] });
     expect(document.querySelector('#app')?.contains(config.domNode as Node)).toBe(true);
+  });
+});
+
+describe('drawing an AsyncAPI result', () => {
+  beforeEach(() => { document.body.innerHTML = '<div id="app"></div>'; });
+
+  it('draws an outline of the spec read_diagram returns', async () => {
+    const spec = [
+      'asyncapi: 3.0.0',
+      'info:',
+      '  title: Orders',
+      '  version: 1.2.0',
+      'channels:',
+      '  orderPlaced:',
+      '    address: orders/placed',
+      'operations:',
+      '  publishOrder:',
+      '    action: send',
+      '    channel:',
+      '      $ref: "#/channels/orderPlaced"',
+      '',
+    ].join('\n');
+    deliver({ diagramType: 'AsyncAPI', source: spec });
+
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-asyncapi h1')?.textContent).toBe('Orders'));
+    const text = document.querySelector('#app')?.textContent ?? '';
+    expect(text).toContain('Version 1.2.0');
+    expect(text).toContain('orders/placed');
+    expect(text).toMatch(/send\s*orderPlaced/);
+  });
+
+  it('says why when the source is not AsyncAPI', async () => {
+    deliver({ diagramType: 'asyncapi', source: 'info:\n  title: x\n' });
+    await vi.waitFor(() => expect(document.querySelector('#app')?.textContent).toMatch(/Could not draw the diagram: .*asyncapi/));
+  });
+});
+
+describe('drawing a Markdown result', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="app"></div>';
+    mermaidMock.render.mockClear();
+  });
+
+  it('renders the document and draws its mermaid blocks with the view\'s own Mermaid', async () => {
+    const dsl = '# Notes\n\nSome **bold** text.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n';
+    deliver({ diagramType: 'markdown', dsl });
+
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown h1')?.textContent).toBe('Notes'));
+    expect(document.querySelector('#app strong')?.textContent).toBe('bold');
+    expect(mermaidMock.render).toHaveBeenCalledWith(expect.stringMatching(/^zen-mcp-/), 'flowchart TD\n  A --> B\n');
+    expect(document.querySelector('#app [data-test="mermaid-block"]')).not.toBeNull();
+  });
+
+  it('keeps raw HTML in the document escaped', async () => {
+    deliver({ diagramType: 'markdown', dsl: 'Hi <img src=x onerror="alert(1)">' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown')).not.toBeNull());
+    expect(document.querySelector('#app img')).toBeNull();
   });
 });
 
@@ -482,5 +559,334 @@ describe('loading the renderer', () => {
 
     result({ diagramType: 'graph', source: XML });
     await vi.waitFor(() => expect(GraphViewer).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('fitting a drawing to its container', () => {
+  const natural = { width: 1000, height: 400 };
+
+  it('shrinks a wide drawing to the inline width, and never enlarges one inline', () => {
+    expect(fitScale(natural, { width: 500, height: null }, false)).toBe(0.5);
+    expect(fitScale({ width: 200, height: 100 }, { width: 500, height: null }, false)).toBe(1);
+  });
+
+  it('fits both width and height in fullscreen, enlarging up to a cap', () => {
+    expect(fitScale(natural, { width: 2000, height: 400 }, true)).toBe(1);
+    expect(fitScale({ width: 100, height: 50 }, { width: 2000, height: 1000 }, true)).toBe(3);
+    expect(fitScale(natural, { width: 2000, height: 200 }, true)).toBe(0.5);
+  });
+
+  it('stops shrinking where the drawing would be unreadable, and lets the frame scroll', () => {
+    expect(fitScale({ width: 10000, height: 100 }, { width: 500, height: null }, false)).toBe(0.25);
+  });
+});
+
+describe('fullscreen', () => {
+  let posted: Array<Record<string, unknown>>;
+  let spy: ReturnType<typeof vi.spyOn>;
+  const beacon = vi.fn((_url: string, _body: string) => true);
+  const fire = (data: unknown) => onHostMessage({ data } as MessageEvent);
+  const button = () => document.getElementById('zen-mcp-fullscreen') as HTMLButtonElement | null;
+  const draw = async () => {
+    fire({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: { diagramType: 'mermaid', dsl: 'graph TD;A-->B;' } } });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-fit-inner svg')).not.toBeNull());
+  };
+  /** Answer the latest display-mode request the way a host would. */
+  const answer = (reply: Record<string, unknown>) => {
+    const req = posted.filter((m) => m.method === 'ui/request-display-mode').at(-1)!;
+    fire({ jsonrpc: '2.0', id: req.id, ...reply });
+    return req;
+  };
+  const fullscreenReports = () =>
+    beacon.mock.calls.map(([, body]) => JSON.parse(body)).filter((b) => b.kind === 'fullscreen');
+
+  beforeEach(() => {
+    resetViewState();
+    document.body.innerHTML = '<div id="app"></div>';
+    posted = [];
+    spy = vi.spyOn(window, 'postMessage').mockImplementation(((msg: unknown) => {
+      posted.push(msg as Record<string, unknown>);
+    }) as typeof window.postMessage);
+    beacon.mockClear();
+    vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon });
+  });
+
+  afterEach(() => {
+    spy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('tells the host the view supports fullscreen', () => {
+    start();
+    const init = posted.find((m) => m.method === 'ui/initialize')!;
+    expect((init.params as { appCapabilities: unknown }).appCapabilities).toEqual({ availableDisplayModes: ['inline', 'fullscreen'] });
+  });
+
+  it('reads the host context from the initialize result', () => {
+    start();
+    const id = posted.find((m) => m.method === 'ui/initialize')!.id;
+    fire({ jsonrpc: '2.0', id, result: { protocolVersion: UI_PROTOCOL_VERSION, hostContext: { availableDisplayModes: ['inline', 'fullscreen'] } } });
+    expect(fullscreenAvailable()).toBe(true);
+  });
+
+  it('shows no button where the host does not offer fullscreen', async () => {
+    applyHostContext({ availableDisplayModes: ['inline'] });
+    await draw();
+    expect(button()).toBeNull();
+    expect(JSON.parse(beacon.mock.calls[0][1])).toMatchObject({ macro_type: 'mermaid', fullscreen_available: false });
+  });
+
+  it('shows the button once a diagram is drawn where the host offers fullscreen', async () => {
+    applyHostContext({ availableDisplayModes: ['inline', 'fullscreen'] });
+    expect(button()).toBeNull(); // nothing to enlarge yet
+    await draw();
+    expect(button()?.getAttribute('aria-label')).toBe('Fullscreen');
+    expect(JSON.parse(beacon.mock.calls[0][1])).toMatchObject({ fullscreen_available: true });
+  });
+
+  it('asks the host for fullscreen, follows its answer, and reports it', async () => {
+    applyHostContext({ availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'inline' });
+    await draw();
+    button()!.click();
+    const req = answer({ result: { mode: 'fullscreen' } });
+    expect(req.params).toEqual({ mode: 'fullscreen' });
+    await vi.waitFor(() => expect(fullscreenReports()).toHaveLength(1));
+    expect(document.documentElement.dataset.displayMode).toBe('fullscreen');
+    expect(button()?.getAttribute('aria-label')).toBe('Exit fullscreen');
+    expect(fullscreenReports()[0]).toEqual({ kind: 'fullscreen', macro_type: 'mermaid', fullscreen_outcome: 'entered' });
+
+    const leaving = toggleFullscreen();
+    expect(answer({ result: { mode: 'inline' } }).params).toEqual({ mode: 'inline' });
+    await leaving;
+    expect(fullscreenReports()[1].fullscreen_outcome).toBe('exited');
+    expect(button()?.getAttribute('aria-label')).toBe('Fullscreen');
+  });
+
+  it('stays inline when the host answers with the mode it was in', async () => {
+    applyHostContext({ availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'inline' });
+    await draw();
+    const asking = toggleFullscreen();
+    answer({ result: { mode: 'inline' } });
+    await asking;
+    expect(document.documentElement.dataset.displayMode).toBe('inline');
+    expect(fullscreenReports()[0].fullscreen_outcome).toBe('declined');
+  });
+
+  it('reports a failure when the host answers with an error', async () => {
+    applyHostContext({ availableDisplayModes: ['inline', 'fullscreen'] });
+    await draw();
+    const asking = toggleFullscreen();
+    answer({ error: { code: -32601, message: 'no' } });
+    await asking;
+    expect(fullscreenReports()[0].fullscreen_outcome).toBe('failed');
+  });
+
+  it('follows the host when it leaves fullscreen on its own', async () => {
+    applyHostContext({ availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'fullscreen' });
+    await draw();
+    fire({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'inline' } });
+    expect(document.documentElement.dataset.displayMode).toBe('inline');
+    expect(button()?.getAttribute('aria-label')).toBe('Fullscreen');
+    expect(fullscreenAvailable()).toBe(true); // a partial update keeps the rest
+  });
+});
+
+// PR 1176 fitted sequence diagrams on their own; they now share the fit every
+// drawing uses, which is what makes fullscreen fit them to the screen too.
+describe('fitting a sequence diagram to the frame', () => {
+  let natural = { width: 0, height: 0 };
+  const restore: Array<() => void> = [];
+
+  /** jsdom has no layout: give the fit box's inner element the size a browser would. */
+  function stubLayout(frameWidth: number): void {
+    const offset = (key: 'offsetWidth' | 'offsetHeight', pick: () => number) => {
+      const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)!;
+      Object.defineProperty(HTMLElement.prototype, key, {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.classList.contains('zen-mcp-fit-inner') ? pick() : 0;
+        },
+      });
+      restore.push(() => Object.defineProperty(HTMLElement.prototype, key, original));
+    };
+    offset('offsetWidth', () => natural.width);
+    offset('offsetHeight', () => natural.height);
+    applyHostContext({ containerDimensions: { width: frameWidth } });
+  }
+
+  const drawSequence = async () => {
+    deliver({ diagramType: 'sequence', dsl: 'A->B.hi()' });
+    await vi.waitFor(() => expect(document.querySelector<HTMLElement>('#app .zen-mcp-fit')?.dataset.scale).toBeDefined());
+    const box = document.querySelector<HTMLElement>('#app .zen-mcp-fit')!;
+    return { box, inner: box.querySelector<HTMLElement>('.zen-mcp-fit-inner')! };
+  };
+
+  beforeEach(() => {
+    resetViewState();
+    document.body.innerHTML = '<div id="app"></div>';
+  });
+
+  afterEach(() => {
+    while (restore.length) restore.pop()!();
+  });
+
+  it('draws into the fit box, scales a wide diagram down to the frame width and sizes the box to the scaled height', async () => {
+    natural = { width: 1128, height: 600 };
+    stubLayout(884 + 16); // the frame, plus the page margins
+    const { box, inner } = await drawSequence();
+    const ZenUml = (await import('@zenuml/core')).default as unknown as ReturnType<typeof vi.fn>;
+    expect(ZenUml.mock.calls.at(-1)![0]).toBe(inner);
+    const scale = 884 / 1128;
+    expect(inner.style.transform).toBe(`scale(${scale})`);
+    expect(box.style.width).toBe(`${Math.ceil(1128 * scale)}px`);
+    expect(box.style.height).toBe(`${Math.ceil(600 * scale)}px`);
+  });
+
+  it('leaves a diagram that already fits at its own size, never magnified', async () => {
+    natural = { width: 400, height: 300 };
+    stubLayout(900);
+    const { box, inner } = await drawSequence();
+    expect(inner.style.transform).toBe('');
+    expect(box.dataset.scale).toBe('1.000');
+    expect(box.style.height).toBe('300px');
+  });
+
+  it('does nothing before the diagram has a size', async () => {
+    natural = { width: 0, height: 0 };
+    stubLayout(900);
+    deliver({ diagramType: 'sequence', dsl: 'A->B.hi()' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-fit-inner')).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    const box = document.querySelector<HTMLElement>('#app .zen-mcp-fit')!;
+    expect(box.dataset.scale).toBeUndefined();
+    expect(box.style.height).toBe('');
+  });
+});
+
+describe('zooming a drawing', () => {
+  let natural = { width: 1000, height: 400 };
+  const restore: Array<() => void> = [];
+  const beacon = vi.fn((_url: string, _body: string) => true);
+  const zoomReports = () => beacon.mock.calls.map(([, body]) => JSON.parse(body)).filter((b) => b.kind === 'zoom');
+  const box = () => document.querySelector<HTMLElement>('#app .zen-mcp-fit')!;
+  const scale = () => Number(box().dataset.scale);
+
+  function stubLayout(): void {
+    for (const key of ['offsetWidth', 'offsetHeight'] as const) {
+      const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)!;
+      Object.defineProperty(HTMLElement.prototype, key, {
+        configurable: true,
+        get(this: HTMLElement) {
+          if (!this.classList.contains('zen-mcp-fit-inner')) return 0;
+          return key === 'offsetWidth' ? natural.width : natural.height;
+        },
+      });
+      restore.push(() => Object.defineProperty(HTMLElement.prototype, key, original));
+    }
+  }
+
+  const drawMermaid = async () => {
+    deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;' });
+    await vi.waitFor(() => expect(box()?.dataset.scale).toBeDefined());
+  };
+
+  beforeEach(() => {
+    resetViewState();
+    document.body.innerHTML = '<div id="app"></div>';
+    natural = { width: 1000, height: 400 };
+    stubLayout();
+    applyHostContext({ containerDimensions: { width: 516 } }); // 500 after the page margins
+    beacon.mockClear();
+    vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon });
+  });
+
+  afterEach(() => {
+    while (restore.length) restore.pop()!();
+    vi.unstubAllGlobals();
+  });
+
+  it('shows zoom controls for a drawing, with the fitted percentage', async () => {
+    await drawMermaid();
+    expect(document.getElementById('zen-mcp-zoom-in')).not.toBeNull();
+    expect(document.getElementById('zen-mcp-zoom-out')).not.toBeNull();
+    expect(document.getElementById('zen-mcp-zoom-fit')?.textContent).toBe('50%');
+  });
+
+  it('shows no zoom controls for a document, which reflows instead', async () => {
+    deliver({ diagramType: 'markdown', dsl: '# Title' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown')).not.toBeNull());
+    expect(document.getElementById('zen-mcp-zoom-in')).toBeNull();
+    expect(zoom('zoom_in')).toBe(false);
+  });
+
+  it('zooms by the viewer\'s 1.2 step on top of the fit, and goes back to fit', async () => {
+    await drawMermaid();
+    document.getElementById('zen-mcp-zoom-in')!.click();
+    expect(scale()).toBeCloseTo(0.6, 3);
+    expect(box().style.width).toBe('600px');
+    expect(document.getElementById('zen-mcp-zoom-fit')?.textContent).toBe('60%');
+    document.getElementById('zen-mcp-zoom-out')!.click();
+    document.getElementById('zen-mcp-zoom-out')!.click();
+    expect(currentUserZoom()).toBeCloseTo(1 / 1.2, 5);
+    document.getElementById('zen-mcp-zoom-fit')!.click();
+    expect(currentUserZoom()).toBe(1);
+    expect(scale()).toBe(0.5);
+    expect(zoomReports().map((r) => r.viewport_action)).toEqual(['zoom_in', 'zoom_out', 'zoom_out', 'fit']);
+    expect(zoomReports()[0]).toEqual({ kind: 'zoom', macro_type: 'mermaid', viewport_action: 'zoom_in', viewport_input: 'toolbar', fullscreen_active: false });
+  });
+
+  it('stops at the viewer\'s limits and reports nothing that did not change', async () => {
+    await drawMermaid();
+    for (let i = 0; i < 40; i++) zoom('zoom_in');
+    expect(currentUserZoom()).toBe(12);
+    expect(zoom('zoom_in')).toBe(false);
+    expect(zoom('fit')).toBe(true);
+    expect(zoom('fit')).toBe(false);
+  });
+
+  it('zooms with + - 0, but leaves Ctrl/Cmd keys to the browser', async () => {
+    await drawMermaid();
+    onKeyDown(new KeyboardEvent('keydown', { key: '+' }));
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    onKeyDown(new KeyboardEvent('keydown', { key: '-', ctrlKey: true }));
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    onKeyDown(new KeyboardEvent('keydown', { key: '0' }));
+    expect(currentUserZoom()).toBe(1);
+    expect(zoomReports().map((r) => r.viewport_input)).toEqual(['keyboard', 'keyboard']);
+  });
+
+  it('zooms on the wheel without a modifier, and on a pinch, reporting one gesture once', async () => {
+    await drawMermaid();
+    const wheel = (init: WheelEventInit) => {
+      const e = new WheelEvent('wheel', { cancelable: true, ...init });
+      onWheel(e);
+      return e;
+    };
+    expect(wheel({ deltaY: -100 }).defaultPrevented).toBe(true);
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    wheel({ deltaY: -100, ctrlKey: true }); // a trackpad pinch
+    expect(currentUserZoom()).toBeCloseTo(1.44, 5);
+    wheel({ deltaY: 100 });
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    expect(zoomReports()).toHaveLength(1);
+    expect(zoomReports()[0]).toMatchObject({ viewport_action: 'zoom_in', viewport_input: 'wheel' });
+  });
+
+  it('leaves the wheel to scroll a document', async () => {
+    deliver({ diagramType: 'markdown', dsl: '# Title' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown')).not.toBeNull());
+    const e = new WheelEvent('wheel', { cancelable: true, deltaY: -100 });
+    onWheel(e);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it('starts a new diagram, and a change of display mode, fitted', async () => {
+    await drawMermaid();
+    zoom('zoom_in');
+    applyHostContext({ displayMode: 'fullscreen' });
+    expect(currentUserZoom()).toBe(1);
+    zoom('zoom_in');
+    await drawMermaid();
+    expect(currentUserZoom()).toBe(1);
   });
 });

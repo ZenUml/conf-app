@@ -1,20 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram';
-import { CustomContentStorageProvider } from '@/model/ContentProvider/CustomContentStorageProvider';
+import { saveToPlatform } from '@/model/ContentProvider/Persistence';
 import { DataSource, DiagramType, type Diagram } from '@/model/Diagram/Diagram';
+
+vi.mock('@/services/CustomContent', () => ({ syncCustomContent: vi.fn() }));
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }));
+vi.mock('@/model/SnapshotAttachment', async (orig) => ({
+  ...(await orig<any>()),
+  buildSnapshot: vi.fn(() => null),
+}));
 
 // Regression: editing an AsyncAPI document from the dashboard created a NEW
 // document instead of updating it. Root cause: ApWrapper2.getCustomContentByIdV2
 // runs cross-page-copy detection that false-positives on dashboard loads (the
 // dashboard space page is never the content's origin page), stamping
-// isCopy=true. CustomContentStorageProvider.save then refuses to update
+// isCopy=true. saveToPlatform then refuses to update
 // (requires !isCopy) and CREATES a copy. The fix pins the dashboard save to
 // the known id and clears isCopy via buildAsyncApiSaveDiagram({ pinToId }).
 
 function mockApWrapper() {
   return {
+    getMacroData: vi.fn(async () => ({})),
     saveCustomContentV2: vi.fn(async (id: string, _d: Diagram) => ({ id })),
-    createCustomContentV2: vi.fn(async (_d: Diagram) => ({ id: 'newly-created-id' })),
+    createCustomContentV2: vi.fn(async (_d: Diagram) => ({ id: '900000001' })),
   } as any;
 }
 
@@ -68,14 +76,14 @@ describe('AsyncAPI dashboard edit routes save to UPDATE, not create', () => {
       spec: 'new',
       pinToId: '682262581',
     });
-    await new CustomContentStorageProvider(ap).save(diagram);
+    await saveToPlatform(diagram, ap);
     expect(ap.saveCustomContentV2).toHaveBeenCalledWith('682262581', diagram);
     expect(ap.createCustomContentV2).not.toHaveBeenCalled();
   });
 
   it('documents the original bug: false-positive isCopy with no pin → createCustomContentV2', async () => {
     const ap = mockApWrapper();
-    await new CustomContentStorageProvider(ap).save(loadedDashboardDoc());
+    await saveToPlatform(loadedDashboardDoc(), ap);
     expect(ap.createCustomContentV2).toHaveBeenCalled();
     expect(ap.saveCustomContentV2).not.toHaveBeenCalled();
   });
@@ -86,7 +94,7 @@ describe('AsyncAPI dashboard edit routes save to UPDATE, not create', () => {
       existing: { id: 'macro-cc', source: DataSource.CustomContent, isCopy: false, diagramType: DiagramType.AsyncApi } as Diagram,
       spec: 'new',
     });
-    await new CustomContentStorageProvider(ap).save(diagram);
+    await saveToPlatform(diagram, ap);
     expect(ap.saveCustomContentV2).toHaveBeenCalledWith('macro-cc', diagram);
   });
 });

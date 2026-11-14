@@ -27,7 +27,11 @@ export interface RecoveryEnv {
   MACRO_COUNT_SNAPSHOT_BUCKET?: R2Bucket;
   FULLSCREEN_RECOVERY_ENCRYPTION_KEY?: string;
   FULLSCREEN_RECOVERY_SUPPORT_TOKENS?: string;
+  RESEND_API_KEY?: string;
+  RESEND_FROM?: string;
   RESEND_REPLY_TO?: string;
+  /** Optional recipient of the internal "request arrived" email; falls back to RESEND_REPLY_TO. */
+  FULLSCREEN_RECOVERY_NOTIFY_TO?: string;
   MIXPANEL_TOKEN?: string;
 }
 export interface RecoveryIdentity { cloudId: string; accountId: string; forgeAppId: string }

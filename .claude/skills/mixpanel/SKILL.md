@@ -39,6 +39,25 @@ Section comments in `types.ts` are organisational, not authoritative — `conflu
 | Bulk / historical / offline / pre-2026-04 deep dives | the **duckdb-mixpanel** skill (local Parquet), not this. |
 | ~~`mcp__mixpanel__Run-Query`~~ (the older MCP) | **Deprecated.** `growth` still uses it; migrate to the claude.ai MCP. |
 
+## Quota: will the month stay under the event allowance
+
+```bash
+python3 .claude/skills/mixpanel/scripts/mp_quota.py                                # current UTC month
+python3 .claude/skills/mixpanel/scripts/mp_quota.py --event title_draft_requested  # one event per day, raw and count / sample_rate
+```
+
+One JQL call. It prints billable events per day (names not starting with `$`), the month-end
+projection against the 1,000,000 allowance, the overage cost, and the top events of the last 7
+complete days. The run rate is split by weekday and weekend and comes from the last `--window`
+complete days, so **a projection made right after a volume change still reflects the old rate**:
+re-run it one full weekday later. It is an estimate; the exact counter is Settings > Org > Plan
+Details & Billing > Data Usage. Policy and the replay cap: `docs/ops/mixpanel-quota-check.md`.
+
+When one event dominates the top list, check whether it fires on a user action or on every
+lookup before proposing a mechanism (2026-11-13: `title_draft_requested` was 19% of billable
+volume because it fired for every `pending` / `no_diagram` lookup; fixed by per-occurrence
+sampling in #1095).
+
 ## Immutable facts (don't re-derive)
 
 - **Project:** `3373228` (conf-app + Diagramly + other apps are co-resident — always filter by domain/URL). The claude.ai MCP resolves it via `project_id=3373228`.
@@ -204,6 +223,12 @@ without storage) the event has no `view_of_day` and is unsampled. So:
   surface x day.
 - **Ratios against `macro_viewed`** (attribution, related-diagram and other per-view denominators):
   extrapolate `macro_viewed` first, or ratio against `view_of_day = "first"` and say so.
+
+**`title_draft_requested` is sampled per occurrence too** (from the release carrying
+`TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE`): `title_draft_status = "ready"` is sent at 100%;
+`pending` and `no_diagram` at 10% with `sample_rate: 0.1`. Count lookups as
+`sum(1 / (sample_rate || 1))`; the `ready` count and everything after the flag
+(`title_draft_flag_shown` onward) are exact.
 
 **Extrapolate inside the query, never after it**, because a window that spans 2026-08-26 mixes
 unsampled and sampled events of the same name:

@@ -48,27 +48,6 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // a rate, not a census, so 5% plus `sample_rate` extrapolation answers it.
   diagram_attribution_shown: 0.05,
 
-  // --- Quota reduction 2026-09-07 -------------------------------------------
-  // Fires once per eligible viewer INSTANCE, so a page of macros produces one
-  // per macro: 80,912 occurrences from 4,414 unique users in the 30 days to
-  // 2026-09-07 — 18.3 each, and 19.4% of all billable event volume, which is
-  // most of the month's projected overage on its own.
-  //
-  // Its only consumer is the Copy for AI discovery rate (clicks ÷ impressions),
-  // a rate rather than a census, and the click side stays at full fidelity.
-  // The rate this event was built to produce is 3.76% (166 ÷ 4,414), first
-  // computed on 2026-09-07 — after the demand test it was meant to inform had
-  // already concluded on its own denominator.
-  //
-  // Caveat for whoever reads it next: `sample_rate` extrapolates EVENT counts,
-  // not UNIQUE-USER counts. At 10% a user averaging 18.3 impressions still has
-  // an ~86% chance of keeping at least one, so the unique-user denominator
-  // shrinks by roughly a seventh rather than by nine tenths — but the loss
-  // falls hardest on users with a single impression, which biases the
-  // denominator toward heavier viewers and makes the measured discovery rate a
-  // slight UNDER-estimate. Take the pre-sampling 3.76% as the reference point.
-  copy_for_ai_impression: 0.1,
-
   // --- Quota reduction 2026-10-31 -------------------------------------------
   // PNG lifecycle diagnostic (docs/features/png-export-state.md), added
   // 2026-10-19 unsampled. 29,438 events in the 7 days to 2026-10-30 across
@@ -87,6 +66,13 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
 // (utils/analytics/macroViewOfDay.ts).
 export const MACRO_VIEWED_REPEAT_SAMPLE_RATE = 0.1;
 
+// title_draft_requested is also sampled per occurrence (features/titleDraft/
+// offer.ts): `ready` is the offer's denominator and stays at 100%; `pending`
+// and `no_diagram` are sent at this rate with `sample_rate`. On 2026-11-09 the
+// event was 3,917 of 34,285 billable events (11%), 74% `pending`, 24%
+// `no_diagram`, 2% `ready`.
+export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
+
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
 // at forgeIndex.ts, so an exact key cannot cover every variant.
@@ -99,7 +85,6 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, number]> = [
 // names are stopped. Other products in the shared Mixpanel project are unaffected.
 export const OCTOBER_STOP_EVENTS = new Set<string>([
   "cohorts_refreshed",
-  "copy_for_ai_impression",
   "editor_global_replace_observed",
   "report_macro_metrics",
   "snapshot_backfill_skipped",
@@ -209,8 +194,6 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "ai_repair_failed",
   "ai_repair_applied",
   "ai_repair_dismissed",
-  // Low-volume action signal with an existing E2E wire assertion.
-  "copy_for_ai_clicked",
   // Connect MCP discovery denominator. Deduplicated to one per viewer per
   // UTC day in the viewer, so it stays low-volume at full rate.
   "agent_link_mcp_button_shown",
@@ -285,7 +268,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "mermaid_highlight_preference_changed",
   "mermaid_highlight_hint_shown",
   "mermaid_highlight_hint_dismissed",
-  "copy_for_ai_menu_opened",
   "viewer_more_menu_opened",
   "create_guide_impression",
   "create_guide_opened",

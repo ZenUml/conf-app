@@ -35,7 +35,7 @@ describe('main Jev behavior selection', () => {
     'tests/e2e-tests/config/categories.mjs',
     'tests/e2e-tests/playwright.config.ts',
     'tests/e2e-tests/globalSetup.ts',
-    'tests/e2e-tests/helpers/CopyForAiHelper.ts',
+    'tests/e2e-tests/helpers/ViewerActionsHelper.ts',
   ])('asks Jev about main infrastructure changes and retains smoke: %s', async path => {
     const infrastructureDiff = { ...diff, paths: [path], diff: `public diff for ${path}` };
     const fetchImpl = vi.fn(fakeResponse());

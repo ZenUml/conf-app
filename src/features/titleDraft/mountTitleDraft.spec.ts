@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   initializeContext: vi.fn(),
   addDraft: vi.fn(),
   close: vi.fn(),
+  reloadPreview: vi.fn(),
 }))
 vi.mock('@/utils/mermaid/renderMermaid', () => ({ renderMermaid: m.renderMermaid }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -17,6 +18,7 @@ vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
 vi.mock('@/model/globals', () => ({ default: { apWrapper: { initializeContext: m.initializeContext } } }))
 vi.mock('@/model/globals/forgeGlobal', () => ({ getView: async () => ({ close: m.close }) }))
 vi.mock('./addDraft', () => ({ addDraft: m.addDraft }))
+vi.mock('./previewReload', () => ({ reloadTitleDraftPreview: m.reloadPreview }))
 
 import { mountTitleDraftModal, TITLE_DRAFT_TELEMETRY_TIMEOUT_MS } from './mountTitleDraft'
 
@@ -60,7 +62,7 @@ describe('title draft modal instrumentation', () => {
     await flushPromises()
     const expected = { ...props, ...experimentProps, title_draft_variant: variant }
     expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_mounted', expected)
-    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_rendered', expected)
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_rendered', { ...expected, title_draft_render_ms: expect.any(Number) })
     expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_add_clicked', expected)
     expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_added', expected)
   })
@@ -76,13 +78,14 @@ describe('title draft modal instrumentation', () => {
     })
   })
 
-  it('retains the explicit exposure on automatic render failure', async () => {
+  it('retains the explicit exposure on recoverable render failure', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     m.renderMermaid.mockRejectedValue(new Error('bad syntax'))
     mountTitleDraftModal({ extension: { modal: { ...modal, copyExperiment: exposure } } })
     await flushPromises()
-    expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_preview_render_failed', { ...props, ...experimentProps })
-    expect(m.close).toHaveBeenCalledWith({ outcome: 'dismissed', reason: 'render_failed' })
+    expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_preview_render_failed', { ...props, ...experimentProps, title_draft_render_failure: 'render_error', title_draft_render_ms: expect.any(Number) })
+    expect(m.close).not.toHaveBeenCalled()
+    expect(document.querySelector('[role=alert]')).not.toBeNull()
   })
 
   it.each([undefined, {}, { ...exposure, variant: 'C' }, { ...exposure, experimentVersion: 2 }, { ...exposure, exposureId: 'private text' }])(
@@ -107,7 +110,7 @@ describe('title draft modal instrumentation', () => {
     })
     finish({ svg: '<svg data-testid="rendered-draft"></svg>' })
     await flushPromises()
-    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_rendered', props)
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_rendered', { ...props, title_draft_render_ms: expect.any(Number) })
     expect(JSON.stringify(m.trackAnalyticsEvent.mock.calls)).not.toContain(modal.pageTitle)
     expect(JSON.stringify(m.trackAnalyticsEvent.mock.calls)).not.toContain(modal.mermaid)
   })
@@ -115,6 +118,26 @@ describe('title draft modal instrumentation', () => {
   it('does not track a non-preview mount', () => {
     expect(mountTitleDraftModal({ extension: { modal: { macroMode: 'editor' } } })).toBe(false)
     expect(m.trackAnalyticsEvent).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes a slow preview from failure and retains its exposure on late success', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let finish!: (value: { svg: string }) => void
+    m.renderMermaid.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    mountTitleDraftModal({ extension: { modal: { ...modal, copyExperiment: exposure } } })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_render_delayed', {
+      ...props, ...experimentProps, title_draft_render_failure: 'timeout', title_draft_render_ms: expect.any(Number),
+    })
+    expect(m.trackAnalyticsEventBeforeUnload).not.toHaveBeenCalledWith('title_draft_preview_render_failed', expect.anything())
+    finish({ svg: '<svg data-testid="late-valid-preview"></svg>' })
+    await flushPromises()
+    expect(m.trackAnalyticsEvent).toHaveBeenCalledWith('title_draft_preview_rendered', {
+      ...props, ...experimentProps, title_draft_render_ms: expect.any(Number),
+    })
+    expect(document.querySelector('[data-testid="late-valid-preview"]')).not.toBeNull()
+    expect(document.querySelector<HTMLButtonElement>('[data-testid="title-draft-add"]')!.disabled).toBe(false)
+    expect(m.close).not.toHaveBeenCalled()
   })
 
   it('tracks one accepted add click before context/save, including retries', async () => {
@@ -139,18 +162,27 @@ describe('title draft modal instrumentation', () => {
     expect(m.close).toHaveBeenCalledWith({ outcome: 'added', contentId: 'cc-1' })
   })
 
-  it('flushes render failure without sensitive error text before automatic close', async () => {
+  it('flushes the original exposure and bounded reason before reloading the preview', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     m.renderMermaid.mockRejectedValue(new Error('private broken source'))
+    mountTitleDraftModal({ extension: { modal: { ...modal, copyExperiment: exposure } } })
+    await flushPromises()
+    expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_preview_render_failed', {
+      ...props, ...experimentProps, title_draft_render_failure: 'render_error', title_draft_render_ms: expect.any(Number),
+    })
     let tracked!: () => void
     m.trackAnalyticsEventBeforeUnload.mockImplementation(() => new Promise<void>(resolve => { tracked = resolve }))
-    mountTitleDraftModal({ extension: { modal } })
+    document.querySelector<HTMLButtonElement>('[data-testid="title-draft-reload"]')!.click()
     await flushPromises()
-    expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_preview_render_failed', props)
-    expect(m.close).not.toHaveBeenCalled()
+    expect(m.trackAnalyticsEventBeforeUnload).toHaveBeenCalledWith('title_draft_preview_reload_clicked', {
+      ...props, ...experimentProps, title_draft_render_failure: 'render_error',
+    })
+    expect(m.reloadPreview).not.toHaveBeenCalled()
     tracked()
     await flushPromises()
-    expect(m.close).toHaveBeenCalledWith({ outcome: 'dismissed', reason: 'render_failed' })
+    expect(m.reloadPreview).toHaveBeenCalledTimes(1)
+    expect(m.close).not.toHaveBeenCalled()
+    expect(JSON.stringify(m.trackAnalyticsEventBeforeUnload.mock.calls)).not.toContain('private broken source')
   })
 
   it('analytics failure neither blocks closing nor turns a successful render into failure', async () => {
@@ -166,13 +198,14 @@ describe('title draft modal instrumentation', () => {
     expect(m.close).toHaveBeenCalledWith({ outcome: 'added', contentId: 'cc-1' })
   })
 
-  it('closes even if render failure telemetry rejects', async () => {
+  it('keeps recovery available even if render failure telemetry rejects', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     m.renderMermaid.mockRejectedValue(new Error('bad syntax'))
     m.trackAnalyticsEventBeforeUnload.mockRejectedValue(new Error('analytics unavailable'))
     mountTitleDraftModal({ extension: { modal } })
     await flushPromises()
-    expect(m.close).toHaveBeenCalledWith({ outcome: 'dismissed', reason: 'render_failed' })
+    expect(m.close).not.toHaveBeenCalled()
+    expect(document.querySelector('[role=alert]')).not.toBeNull()
   })
 
   it('queues click and terminal beacons before a fast successful save closes', async () => {
@@ -193,18 +226,20 @@ describe('title draft modal instrumentation', () => {
     expect(m.close).toHaveBeenCalledWith({ outcome: 'added', contentId: 'cc-1' })
   })
 
-  it.each(['render failure', 'add success'])('bounds never-resolving telemetry on %s', async (scenario) => {
+  it.each(['reload', 'add success'])('bounds never-resolving telemetry on %s', async (scenario) => {
     vi.useFakeTimers()
     vi.spyOn(console, 'error').mockImplementation(() => {})
     m.trackAnalyticsEventBeforeUnload.mockImplementation(() => new Promise(() => {}))
-    if (scenario === 'render failure') m.renderMermaid.mockRejectedValue(new Error('bad syntax'))
+    if (scenario === 'reload') m.renderMermaid.mockRejectedValue(new Error('bad syntax'))
     mountTitleDraftModal({ extension: { modal } })
     await flushPromises()
     if (scenario === 'add success') document.querySelector('button')!.click()
+    else document.querySelector<HTMLButtonElement>('[data-testid=title-draft-reload]')!.click()
     await flushPromises()
     expect(m.close).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(TITLE_DRAFT_TELEMETRY_TIMEOUT_MS)
-    expect(m.close).toHaveBeenCalledTimes(1)
+    if (scenario === 'add success') expect(m.close).toHaveBeenCalledTimes(1)
+    else expect(m.reloadPreview).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)
   })
 })

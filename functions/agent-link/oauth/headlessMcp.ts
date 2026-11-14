@@ -322,6 +322,68 @@ function guardrailReasonOf(failure: HeadlessToolError): 'parse_error' | 'data_lo
   return reason === 'parse_error' || reason === 'data_loss' ? reason : 'other';
 }
 
+const IDENTITY_FAILURES = new Set(['no_macro_on_site', 'no_extension_node', 'app_id_mismatch', 'probe_failed']);
+
+/**
+ * Where an 'upstream' failure happened, the HTTP status it got, and — for the
+ * identity resolve — the resolver's refusal. 'upstream' alone is every
+ * Confluence and Atlassian failure at once; four create_diagram calls on one
+ * site (2026-10-23) could not be traced past it. Only closed vocabularies and a
+ * number leave here, never the detail text, which can quote a Confluence error.
+ */
+export function upstreamFailureOf(failure: HeadlessToolError): {
+  failureStep?: string;
+  upstreamStatus?: number;
+  identityFailure?: string;
+} {
+  if (failure.code !== 'upstream') return {};
+  const status = (failure.detail as { status?: unknown } | null | undefined)?.status;
+  return {
+    failureStep: failure.step,
+    upstreamStatus: typeof status === 'number' && Number.isInteger(status) ? status : undefined,
+    identityFailure:
+      failure.step === 'identity' && typeof failure.detail === 'string' && IDENTITY_FAILURES.has(failure.detail)
+        ? failure.detail
+        : undefined,
+  };
+}
+
+/**
+ * agent_link_identity_unresolved — declared in the catalog as the record of a
+ * user hitting the identity wall, and until now never sent: the headless create
+ * is the only caller that resolves an identity, and it has no macro to report
+ * from.
+ */
+async function trackIdentityUnresolved(
+  env: HeadlessEnv,
+  tool: string,
+  userId: string,
+  cloudId: string | undefined,
+  clientDomain: string | undefined,
+  identityFailure: string,
+): Promise<void> {
+  if (!env.MIXPANEL_TOKEN) return;
+  try {
+    await withTimeout(mixpanelTrack(
+      {
+        event: 'agent_link_identity_unresolved',
+        user_account_id: userId,
+        feature_area: 'agent_link',
+        surface: 'backend',
+        mcp_mode: 'headless',
+        mcp_tool: tool,
+        cloud_id: cloudId,
+        client_domain: clientDomain,
+        reason: identityFailure,
+      },
+      env.MIXPANEL_TOKEN,
+      env,
+    ));
+  } catch {
+    // never fail the response on analytics
+  }
+}
+
 /** The type of the diagram a guard refusal protected, so false alarms can be split by type. */
 function refusedMacroType(failure: HeadlessToolError): string | undefined {
   if (failure.code !== 'guardrail_rejected') return undefined;
@@ -391,7 +453,11 @@ async function trackToolCall(
     cloudId?: string;
     clientDomain?: string;
     macroType?: string;
+    embeddedDiagramCount?: number;
     guardrailReason?: string;
+    failureStep?: string;
+    upstreamStatus?: number;
+    identityFailure?: string;
   },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
@@ -411,8 +477,12 @@ async function trackToolCall(
       mcp_tool_outcome: call.outcome,
       reason: call.reason,
       guardrail_reason: call.guardrailReason,
+      failure_step: call.failureStep,
+      upstream_status: call.upstreamStatus,
+      identity_failure: call.identityFailure,
       duration_ms: call.durationMs,
       macro_type: call.macroType,
+      embedded_diagram_count: call.embeddedDiagramCount,
     },
     env.MIXPANEL_TOKEN,
   ));
@@ -441,6 +511,18 @@ export function macroTypeOf(tool: string, value: unknown): string | undefined {
   if (!DIAGRAM_RESULT_TOOLS.has(tool)) return undefined;
   const from = (value as { diagramType?: unknown } | null)?.diagramType;
   return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
+}
+
+/**
+ * How many diagrams a page-scoped list_diagrams found embedded on the page
+ * from elsewhere. Undefined for any other call, so the property only appears
+ * where zero means something.
+ */
+export function embeddedDiagramCountOf(tool: string, args: unknown, value: unknown): number | undefined {
+  if (tool !== 'list_diagrams' || typeof (args as { pageId?: unknown } | null)?.pageId !== 'string') return undefined;
+  const diagrams = (value as { diagrams?: unknown } | null)?.diagrams;
+  if (!Array.isArray(diagrams)) return undefined;
+  return diagrams.filter((d) => (d as { embedded?: unknown } | null)?.embedded === true).length;
 }
 
 export interface HeadlessMcpDeps {
@@ -546,7 +628,7 @@ export async function handleHeadlessRpc(
         capabilities: { tools: {}, resources: {}, extensions: uiCapability() },
         serverInfo: { name: 'conf-agent-link-headless', version: '0.1.0' },
         instructions:
-          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. To change a diagram, find its contentId with list_diagrams, read it with read_diagram, then send the complete edited source to update_diagram. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
+          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. To change a diagram, find its contentId with list_diagrams, read it with read_diagram, then send the complete edited source to update_diagram. A diagram list_diagrams marks embedded is shown on that page but stored on another; read_diagram and update_diagram work on it as on any other, and an edit changes it everywhere it appears. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
       });
     }
 
@@ -600,7 +682,14 @@ export async function handleHeadlessRpc(
       const trackCall = (
         outcome: ToolOutcome,
         reason?: string,
-        extra: { macroType?: string; guardrailReason?: string } = {},
+        extra: {
+          macroType?: string;
+          embeddedDiagramCount?: number;
+          guardrailReason?: string;
+          failureStep?: string;
+          upstreamStatus?: number;
+          identityFailure?: string;
+        } = {},
       ) =>
         defer(trackToolCall(env, store, auth.token, {
           tool,
@@ -642,7 +731,7 @@ export async function handleHeadlessRpc(
           clientDomainOf(reachableSites, params.arguments),
           macroType,
         );
-        await trackCall('success', undefined, { macroType });
+        await trackCall('success', undefined, { macroType, embeddedDiagramCount: embeddedDiagramCountOf(params.name, params.arguments, value) });
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {
@@ -659,9 +748,21 @@ export async function handleHeadlessRpc(
             e,
             clientDomainOf(reachableSites, params.arguments),
           );
+          const upstream = upstreamFailureOf(e);
+          if (upstream.identityFailure) {
+            await defer(trackIdentityUnresolved(
+              env,
+              tool,
+              auth.token.userId,
+              cloudId,
+              clientDomainOf(reachableSites, params.arguments),
+              upstream.identityFailure,
+            ));
+          }
           await trackCall('tool_error', e.code, {
             macroType: refusedMacroType(e),
             guardrailReason: guardrailReasonOf(e),
+            ...upstream,
           });
           // A dead grant is the one failure the user can act on, so it is a
           // 401 with the challenge rather than a tool-level error buried in a

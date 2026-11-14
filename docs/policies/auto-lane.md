@@ -24,7 +24,7 @@ node scripts/ci/auto-lane-policy.mjs --base origin/main --head HEAD --require au
 | Level | Meaning |
 |---|---|
 | `auto-merge` | Automation may merge to `main` after every check on the head commit is green. |
-| `auto-pr` | Automation may open the PR. A person merges. |
+| `auto-pr` | Automation may open the PR. The daily job does not merge it. |
 | `report-only` | Automation may file an issue with evidence. It opens no PR. |
 
 `main` has no required checks and no required review (ruleset `main`: deletion and
@@ -102,7 +102,7 @@ split by `dependency-type`, so a development-only PR can.
 
 | Control | State | How it works |
 |---|---|---|
-| Kill switch | Built, OFF | Repository variable `AUTO_LANE_ENABLED`. Anything but the exact string `true` makes the job print `auto lane disabled` and stop before any network call. |
+| Kill switch | Built, ON since 2026-11-13 | Repository variable `AUTO_LANE_ENABLED`. Anything but the exact string `true` makes the job print `auto lane disabled` and stop before any network call. |
 | Volume cap | Built | Two merges per UTC day (counted from merged PRs that carry the `auto-lane` label) and one merge per run. Reason: `PR validation` holds the shared staging lock, median 18 min, longest 60 min over 38 runs. |
 | Ledger | Built for merges | The job adds the label `auto-lane` to a PR just before it merges it. The daily cap reads that label. |
 | Hold | Built | A person adds the label `auto-lane:hold` to a PR; the job skips it. |
@@ -111,6 +111,35 @@ split by `dependency-type`, so a development-only PR can.
 | Promotion | Not built | A lane moves from auto-pr to auto-merge after 10 merges with no revert. Today the levels are fixed in the classifier. |
 | Error signatures | Not built | Standing signatures become `report-only` issues, without tenant names (this repository is public). |
 | Other authors | Not built | The job merges only PRs by `app/dependabot`, the login `gh` prints for Dependabot. Agent and human PRs are never merged by it. |
+
+## Agent sessions
+
+Owner's rule, 2026-11-13: "AI对于低风险的PR可以自行合并，毋须确认。" Amended the same day: "把低风险改成
+非破坏性，比如CICD的只要不是直接部署都是属于非破坏性。" An agent session may merge a non-destructive PR
+to `main` without asking. This replaces the 2026-10-22 rule that every merge was the owner's.
+
+The classifier levels above bind the daily job only. A session does not need `auto-merge` or
+`auto-pr`: a CI change under `.github/**` is `report-only` for the job and still non-destructive
+for a session, unless it deploys.
+
+Working list of what is destructive (the session's reading; only the CI example is the owner's):
+
+| The PR, once merged, ... | Example | Agent session |
+|---|---|---|
+| changes CI/CD without deploying anything itself | test selection, a new check, a cron job that only reads | Merges without asking. |
+| changes code, tests or docs, with every check green | a bug fix with its test | Merges without asking. |
+| deploys or releases directly | a workflow step that publishes a production release, or deploys on merge with no human trigger | Offers `[AI] Merge PR #N`; merges when the owner picks it. |
+| deletes or rewrites stored data | a D1 migration that drops or rewrites a column, a script that purges KV keys | Offers the option; does not merge on its own. |
+| cannot be undone by a revert | a Forge manifest change that forces a major version (scopes, remotes), a deleted feature flag | Offers the option; does not merge on its own. |
+
+The rule covers a PR by any author: the session's own, another session's or a person's (owner's
+pick, 2026-11-13). Preconditions for any session merge: not a draft, base `main`, no requested changes, `MERGEABLE`,
+every check on the head commit green, head unchanged since the checks. Run
+`.claude/skills/auto-lane/scripts/classify-pr.sh <PR>`: it checks those and lists files on paths
+that need the destructive reading (`migrations/`, `manifest.yml`, release and deploy workflows).
+Merge with a merge commit and `--match-head-commit`, then watch `main` CI. The normal staging
+deploy that every merge to `main` starts is not "deploying directly". A production release still
+needs the owner's explicit trigger.
 
 ### What the merge job checks
 

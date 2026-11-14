@@ -28,7 +28,7 @@ import {
   GRAPH_DIRTY_MARKER,
 } from '../../helpers/CloseGuardHelper.js';
 
-test.describe('Graph (DrawIO) — Create flow', { tag: ['@test:graph-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@graph'] }, () => {
+test.describe('Graph (DrawIO) — Create flow', { tag: ['@test:graph-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@graph', '@feature:create-diagram', '@interface:graph-editor', '@scenario:create-diagram:graph-editor', '@feature:publishing', '@scenario:publishing:graph-editor'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('graph'), 'graph not in profile');
 

@@ -16,7 +16,9 @@ import {
 
 global.fetch = () => Promise.resolve(new Response("mock fetch success"));
 
-const mockSave = vi.fn(() => ({id: "mocked_custom_content_id"}));
+// mockSave = apWrapper.createCustomContentV2; mockUpdate = apWrapper.saveCustomContentV2
+const mockSave = vi.fn((_d?: any): any => ({id: "mocked_custom_content_id"}));
+const mockUpdate = vi.fn((_id?: string, _d?: any): any => ({id: "mocked_custom_content_id"}));
 const mockGetMacroData = async () => {
   return {
     "uuid": "uuid_from_macro_data"
@@ -26,6 +28,8 @@ const mockGetMacroData = async () => {
 //@ts-ignore
 const mockApWrapper: ApWrapper2 = {
   getMacroData: mockGetMacroData,
+  createCustomContentV2: mockSave,
+  saveCustomContentV2: mockUpdate,
 };
 
 vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
@@ -43,24 +47,47 @@ vi.mock("@/services/MacroMetrics", () => ({
   },
 }));
 
-vi.mock("@/model/ContentProvider/CustomContentStorageProvider", () => {
-  return {
-    CustomContentStorageProvider: class CustomContentStorageProvider {
-      save = mockSave
-    }
-  }
-})
-
 describe('Persistence', function () {
 
   beforeEach(() => {
     mockSave.mockClear();
+    mockUpdate.mockClear();
     vi.mocked(trackAnalyticsEvent).mockClear();
     vi.mocked(syncCustomContent).mockClear();
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
     _resetCreationFlowForTesting();
     resetEditorMutationSession();
+  });
+
+  describe('create vs update routing', () => {
+    it('updates in place via saveCustomContentV2 for an existing custom-content diagram', async () => {
+      const diagram = { ...NULL_DIAGRAM, id: 'existing-id', source: 'custom-content', diagramType: DiagramType.Sequence } as any;
+      await saveToPlatform(diagram, mockApWrapper);
+      expect(mockUpdate).toHaveBeenCalledWith('existing-id', diagram);
+      expect(mockSave).not.toHaveBeenCalled();
+    });
+
+    it('creates via createCustomContentV2 for a new diagram (no id)', async () => {
+      const diagram = { ...NULL_DIAGRAM, diagramType: DiagramType.Sequence } as any;
+      await saveToPlatform(diagram, mockApWrapper);
+      expect(mockSave).toHaveBeenCalledWith(diagram);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('creates (never updates the source) for a copied diagram that still carries the source id', async () => {
+      const diagram = { ...NULL_DIAGRAM, id: 'source-id', source: 'custom-content', isCopy: true, diagramType: DiagramType.Sequence } as any;
+      await saveToPlatform(diagram, mockApWrapper);
+      expect(mockSave).toHaveBeenCalledWith(diagram);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('creates when the diagram has an id but a non-custom-content source', async () => {
+      const diagram = { ...NULL_DIAGRAM, id: 'legacy-id', source: 'content-property', diagramType: DiagramType.Sequence } as any;
+      await saveToPlatform(diagram, mockApWrapper);
+      expect(mockSave).toHaveBeenCalledWith(diagram);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
   });
 
   it('does NOT report macro metrics on save — the editor iframe is torn down on submit/close, which would kill a long enumeration; reporting is moved to editor-open', async () => {
@@ -223,7 +250,7 @@ describe('Persistence', function () {
   })
 
   // Copies enter the macro_save_succeeded branch because diagram.id is set to
-  // the SOURCE customContentId, but CustomContentStorageProvider.save() creates
+  // the SOURCE customContentId, but saveToPlatform creates
   // a brand new record with a DIFFERENT id. Analytics must tag the new id, not
   // the source id from context. Without the explicit override, central
   // enrichment would join the event to the wrong customContent.

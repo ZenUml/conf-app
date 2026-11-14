@@ -17,8 +17,13 @@ describe('license notice evidence', () => {
   })
   it('accepts only fresh positive backend evidence for an otherwise unknown license', () => {
     expect(licenseNoticeBasis({ ...base, marketplaceEvidence: evidence }, now)).toBe('marketplace_legacy_free')
-    for (const value of [undefined, {}, { state: 'unknown' }, { ...evidence, expiresAt: '2026-11-11T09:00:00Z' }, { ...evidence, checkedAt: '2026-11-11T10:00:00Z' }, { ...evidence, expiresAt: '2026-11-15T08:00:00Z' }]) {
+    for (const value of [undefined, {}, { state: 'unknown' }, { ...evidence, expiresAt: '2026-11-11T09:00:00Z' }, { ...evidence, checkedAt: '2026-11-11T10:00:00Z' }, { ...evidence, expiresAt: '2026-11-18T08:00:01Z' }]) {
       expect(licenseNoticeBasis({ ...base, marketplaceEvidence: value }, now)).toBeNull()
+    }
+  })
+  it('accepts a validity window of up to 7 days', () => {
+    for (const expiresAt of ['2026-11-15T08:00:00Z', '2026-11-18T08:00:00Z']) {
+      expect(licenseNoticeBasis({ ...base, marketplaceEvidence: { ...evidence, expiresAt } }, now)).toBe('marketplace_legacy_free')
     }
   })
   it('does not query a backend when active, explicitly inactive, disabled or non-Full', async () => {

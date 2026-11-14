@@ -9,7 +9,6 @@ export default {
   "estimates": {
     "agent-link:agent-link/agent-link-e2e.spec.ts": 8918,
     "feedback:feedback/feedback-report.spec.ts": 49835,
-    "fullscreen:fullscreen/copy-for-ai.spec.ts": 45796,
     "fullscreen:fullscreen/cross-cutting.spec.ts": 24448,
     "fullscreen:fullscreen/csat-banner.spec.ts": 52610,
     "fullscreen:fullscreen/draft-only-binding-fork.spec.ts": 72770,

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diagram Refinement"
+  short_description: "Refine Mermaid diagrams with semantic and visual review"
+  default_prompt: "Use $diagram-refinement to refine the supplied Mermaid diagram and prepare an original/refined preview."

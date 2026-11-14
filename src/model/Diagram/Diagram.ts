@@ -122,6 +122,8 @@ export class Diagram {
     httpStatus?: number;
     errorCode?: string;
     errorClass?: 'thrown' | 'structured' | 'malformed';
+    errorName?: string;
+    errorMessage?: string;
   } = undefined;
 }
 

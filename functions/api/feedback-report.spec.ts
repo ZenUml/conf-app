@@ -181,4 +181,37 @@ describe('feedback-report', () => {
     expect(result.status).toBe(201);
     expect(db.insertBind.mock.calls[0]).toContain('png_export');
   });
+
+  describe('customContentVersion', () => {
+    async function save(version: unknown) {
+      const db = dbWithDomain();
+      const context_: Record<string, unknown> = { ...BASE_PAYLOAD.context };
+      if (version !== 'omit') context_.customContentVersion = version;
+      const result = await onRequestPost({
+        ...context({ DB: db }),
+        request: request({ ...BASE_PAYLOAD, context: context_ } as any),
+      } as any);
+      return { result, db };
+    }
+    const lastBind = (db: ReturnType<typeof dbWithDomain>) => {
+      const values = db.insertBind.mock.calls[0] as unknown[];
+      return values[values.length - 1];
+    };
+
+    it('stores a valid positive integer version', async () => {
+      const { result, db } = await save(7);
+      expect(result.status).toBe(201);
+      expect(db.prepare.mock.calls.some(([sql]: [string]) => sql.includes('customContentVersion'))).toBe(true);
+      expect(lastBind(db)).toBe(7);
+    });
+
+    it.each([['omit'], [0], [-3], [1.5], ['7'], [null], [Number.MAX_SAFE_INTEGER + 2], [{ n: 1 }]])(
+      'stores NULL and still accepts the report for %j',
+      async (bad) => {
+        const { result, db } = await save(bad);
+        expect(result.status).toBe(201);
+        expect(lastBind(db)).toBeNull();
+      },
+    );
+  });
 });

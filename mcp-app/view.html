@@ -14,6 +14,63 @@
         max-width: 100%;
         overflow-x: auto;
       }
+      /* Drawings: the inner box keeps the natural size, scaled by
+         fitDiagram() in src/mcp-app-view.ts; the outer box takes the
+         scaled size so the page follows what is seen. */
+      .zen-mcp-fit { overflow: hidden; }
+      .zen-mcp-fit-inner { width: max-content; transform-origin: 0 0; }
+      html[data-display-mode="fullscreen"] .zen-mcp-fit,
+      html[data-display-mode="fullscreen"] .zen-mcp-markdown { margin: 0 auto; }
+      /* A strip for the toolbar, so it never covers the diagram's corner.
+         Kept in step with TOOLBAR_SPACE in src/mcp-app-view.ts. */
+      body:has(#zen-mcp-toolbar) #app { padding-top: 34px; }
+      /* Zoom controls for drawings, and fullscreen where the host offers it. */
+      #zen-mcp-toolbar {
+        position: fixed;
+        top: 6px;
+        right: 6px;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid rgba(127, 127, 127, 0.35);
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.92);
+        opacity: 0.6;
+      }
+      #zen-mcp-toolbar:hover,
+      #zen-mcp-toolbar:focus-within { opacity: 1; }
+      .zen-mcp-tool {
+        display: grid;
+        place-items: center;
+        min-width: 26px;
+        height: 26px;
+        padding: 0 4px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: #333;
+        font: 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+        cursor: pointer;
+      }
+      .zen-mcp-tool:hover { background: rgba(127, 127, 127, 0.15); }
+      .zen-mcp-zoom-level { min-width: 42px; font-variant-numeric: tabular-nums; }
+      /* Markdown documents: a readable measure, and diagrams that fit. */
+      .zen-mcp-markdown {
+        font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+        max-width: 760px;
+        padding: 0 8px 12px;
+      }
+      .zen-mcp-markdown pre {
+        overflow-x: auto;
+        padding: 8px;
+        background: rgba(127, 127, 127, 0.12);
+        border-radius: 4px;
+      }
+      .zen-mcp-markdown table { border-collapse: collapse; margin: 0 0 16px; }
+      .zen-mcp-markdown th, .zen-mcp-markdown td { border: 1px solid rgba(127, 127, 127, 0.4); padding: 4px 8px; }
+      .zen-mcp-markdown .markdown-diagram svg { max-width: 100%; height: auto; }
     </style>
   </head>
   <body>

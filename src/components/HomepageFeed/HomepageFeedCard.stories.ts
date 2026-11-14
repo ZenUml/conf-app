@@ -115,14 +115,9 @@ export const ConnectMcpOpen: Story = {
   name: 'Connect MCP row, opened',
   loaders: [
     () => {
-      // The card never resolves a Forge context in Storybook, so forgeGlobal
-      // keeps its isForge: true default and the flag lookup would fail closed.
+      // The card never resolves a Forge context in Storybook; take the
+      // standalone (non-Forge) paths instead of waiting on one.
       forgeGlobal.isForge = false
-      try {
-        localStorage.setItem('mockAgentLinkEnabled', 'true')
-      } catch {
-        /* storage blocked: the row stays hidden, which the play below reports */
-      }
       return {}
     },
   ],
@@ -149,11 +144,6 @@ export const ConnectMcpFullProduction: Story = {
       forgeGlobal.isAsyncApi = false
       forgeGlobal.zenumlRemoteBaseUrl = 'https://conf-full.zenuml.com'
       forgeGlobal.forgeContext = { environmentType: 'PRODUCTION', cloudId: 'example-cloud-id' }
-      try {
-        localStorage.setItem('mockAgentLinkEnabled', 'true')
-      } catch {
-        /* storage blocked: the row stays hidden, which the play below reports */
-      }
       return {}
     },
   ],

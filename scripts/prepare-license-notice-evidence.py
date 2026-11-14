@@ -37,10 +37,15 @@ def updated_at(row):
         return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
 
 
-def build_entry(rows, domain, environment, now=None):
+MAX_VALID_HOURS = 168  # Must equal the endpoint and viewer cap (7 days).
+
+
+def build_entry(rows, domain, environment, now=None, valid_hours=24):
     """Pure builder; rows must come from a fresh, complete Full license export."""
     if environment not in ENVIRONMENTS:
         raise ValueError('Unsupported Forge environment')
+    if not isinstance(valid_hours, int) or isinstance(valid_hours, bool) or not 0 < valid_hours <= MAX_VALID_HOURS:
+        raise ValueError(f'Validity window must be 1 to {MAX_VALID_HOURS} hours')
     domain = normalize_domain(domain)
     rows = [r for r in rows if r.get('addonKey') == FULL_ADDON]
     matching = [r for r in rows if str(r.get('cloudSiteHostname', '')).lower() == domain]
@@ -65,7 +70,7 @@ def build_entry(rows, domain, environment, now=None):
     if checked.tzinfo is None:
         raise ValueError('Evidence timestamp must have a timezone')
     checked = checked.astimezone(dt.timezone.utc)
-    expires = checked + dt.timedelta(hours=24)
+    expires = checked + dt.timedelta(hours=valid_hours)
     iso = lambda timestamp: timestamp.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
     record = dict(schemaVersion=1, licenseType='LEGACY_FREE', source='atlassian_marketplace',
                   checkedAt=iso(checked), expiresAt=iso(expires), entitlementId=entitlement)
@@ -89,10 +94,12 @@ def main():
     parser.add_argument('--domain', required=True, help='Confluence site slug or hostname')
     parser.add_argument('--environment', required=True, choices=ENVIRONMENTS)
     parser.add_argument('--output', required=True, help='New private output file for Wrangler bulk-put JSON')
+    parser.add_argument('--valid-hours', type=int, default=24,
+                        help=f'How long the record stays valid, 1 to {MAX_VALID_HOURS} hours (default 24)')
     args = parser.parse_args()
     try:
         domain = normalize_domain(args.domain)
-        entry = build_entry(live_full_licenses(), domain, args.environment)
+        entry = build_entry(live_full_licenses(), domain, args.environment, valid_hours=args.valid_hours)
         # Refuse to replace an earlier evidence artifact silently.
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w', encoding='utf-8') as output:

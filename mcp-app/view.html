@@ -14,6 +14,33 @@
         max-width: 100%;
         overflow-x: auto;
       }
+      /* Drawings: the inner box keeps the natural size, scaled by
+         fitDiagram() in src/mcp-app-view.ts; the outer box takes the
+         scaled size so the page follows what is seen. */
+      .zen-mcp-fit { overflow: hidden; }
+      .zen-mcp-fit-inner { width: max-content; transform-origin: 0 0; }
+      html[data-display-mode="fullscreen"] .zen-mcp-fit,
+      html[data-display-mode="fullscreen"] .zen-mcp-markdown { margin: 0 auto; }
+      /* Shown only where the host offers fullscreen. */
+      #zen-mcp-fullscreen {
+        position: fixed;
+        top: 6px;
+        right: 6px;
+        z-index: 10;
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid rgba(127, 127, 127, 0.35);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.9);
+        color: #333;
+        cursor: pointer;
+        opacity: 0.6;
+      }
+      #zen-mcp-fullscreen:hover,
+      #zen-mcp-fullscreen:focus-visible { opacity: 1; }
       /* Markdown documents: a readable measure, and diagrams that fit. */
       .zen-mcp-markdown {
         font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;

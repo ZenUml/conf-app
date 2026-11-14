@@ -45,6 +45,7 @@ describe('parseViewEvent', () => {
       dsl: '@startuml\nsecret\n@enduml',
       title: 'Customer title',
     }))).toEqual({
+      event: 'agent_link_app_view_rendered',
       macro_type: 'plantuml',
       render_outcome: 'failed',
       plantuml_renderer: 'failed',
@@ -59,9 +60,27 @@ describe('parseViewEvent', () => {
     ['an unknown outcome', '{"macro_type":"mermaid","render_outcome":"timeout"}'],
     ['a server renderer the view never uses', '{"macro_type":"plantuml","render_outcome":"rendered","plantuml_renderer":"server"}'],
     ['free text as a reason', '{"macro_type":"plantuml","render_outcome":"failed","plantuml_failure_reason":"@startuml"}'],
+    ['a fullscreen report with no outcome', '{"kind":"fullscreen","macro_type":"mermaid"}'],
+    ['a fullscreen report with free text', '{"kind":"fullscreen","macro_type":"mermaid","fullscreen_outcome":"graph TD"}'],
+    ['an unknown kind', '{"kind":"zoom","macro_type":"mermaid","render_outcome":"rendered"}'],
+    ['a non-boolean fullscreen_available', '{"macro_type":"mermaid","render_outcome":"rendered","fullscreen_available":"yes"}'],
     ['an oversized body', JSON.stringify({ macro_type: 'mermaid', render_outcome: 'rendered', pad: 'x'.repeat(600) })],
   ])('refuses %s', (_label, text) => {
     expect(parseViewEvent(text)).toBeNull();
+  });
+});
+
+describe('parseViewEvent — fullscreen', () => {
+  it('keeps whether the host offered fullscreen on a render report', () => {
+    expect(parseViewEvent('{"macro_type":"sequence","render_outcome":"rendered","fullscreen_available":true}')).toEqual({
+      event: 'agent_link_app_view_rendered', macro_type: 'sequence', render_outcome: 'rendered', fullscreen_available: true,
+    });
+  });
+
+  it('reads a fullscreen report as its own event, dropping anything else', () => {
+    expect(parseViewEvent('{"kind":"fullscreen","macro_type":"graph","fullscreen_outcome":"entered","render_outcome":"rendered","title":"x"}')).toEqual({
+      event: 'agent_link_app_view_fullscreen_requested', macro_type: 'graph', fullscreen_outcome: 'entered',
+    });
   });
 });
 

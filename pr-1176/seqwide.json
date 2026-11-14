@@ -1,0 +1,1 @@
+{"diagramType":"sequence","title":"Wide","source":"Browser->APIGateway: step 1\nAPIGateway->AuthService: step 2\nAuthService->UserService: step 3\nUserService->OrderService: step 4\nOrderService->PaymentService: step 5\nPaymentService->InventoryService: step 6\nInventoryService->NotificationService: step 7\nNotificationService->Database: step 8\nDatabase->Cache: step 9\n"}

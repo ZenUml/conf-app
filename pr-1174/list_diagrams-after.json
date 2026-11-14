@@ -1,0 +1,37 @@
+{
+  "92766232": {
+    "diagrams": [
+      {
+        "contentId": "92536843",
+        "title": "Embed custom content of page E2E test page at 🧩 · lite · embed · 2026-05-29 05:34 - 6cm",
+        "diagramType": "sequence",
+        "pageId": "92766232",
+        "modifiedAt": "2026-05-29T05:34:10.456Z"
+      }
+    ]
+  },
+  "181436418": {
+    "diagrams": [
+      {
+        "contentId": "180224050",
+        "title": "Edit Test Graph Lite",
+        "diagramType": "graph",
+        "pageId": "181141506",
+        "modifiedAt": "2026-07-30T10:25:08.418Z",
+        "embedded": true
+      }
+    ]
+  },
+  "277872821": {
+    "diagrams": [
+      {
+        "contentId": "12124224",
+        "title": "Test Diagram Lite",
+        "diagramType": "sequence",
+        "pageId": "12222500",
+        "modifiedAt": "2026-04-03T09:13:25.674Z",
+        "embedded": true
+      }
+    ]
+  }
+}

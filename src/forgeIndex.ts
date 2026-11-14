@@ -538,6 +538,8 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       if (!fresh) return; // content unreadable now — keep the last-known-good cached render
       const freshAttribution = attributionFromCustomContent(loaded.customContent);
       if (loaded.customContent) {
+        rememberLoadedCustomContentVersion(ccId, loaded.customContent.version?.number);
+        rememberLoadedCustomContentVersion(loaded.customContent.id, loaded.customContent.version?.number);
         import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
           maybeBackfillSnapshot({
             hostPageId: String(pageId),
@@ -657,6 +659,8 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
     // unlike a plain viewer render. Fire-and-forget: never on the critical
     // rendering path, and maybeBackfillSnapshot itself never throws.
     if (doc && loaded.customContent) {
+      rememberLoadedCustomContentVersion(customContentId, loaded.customContent.version?.number);
+      rememberLoadedCustomContentVersion(loaded.customContent.id, loaded.customContent.version?.number);
       import('@/model/SnapshotAttachment').then(({ maybeBackfillSnapshot }) =>
         maybeBackfillSnapshot({
           hostPageId: String(recoveryPageId),
@@ -1354,6 +1358,7 @@ EventBus.$on('edit', async(params: any) => {
 // top of the page; each editor's mount logic emits the event on reopen.
 import { installRestoreDraftBanner } from '@/utils/restoreDraftBanner';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
+import { rememberLoadedCustomContentVersion } from '@/features/feedback/loadedCustomContentVersion';
 import { diagnoseSaveFailure, GENERIC_SAVE_FAILED_MESSAGE } from '@/model/saveFailureDiagnosis';
 installRestoreDraftBanner();
 

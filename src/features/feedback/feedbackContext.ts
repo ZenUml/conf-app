@@ -1,5 +1,6 @@
 import type { Diagram } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
+import { loadedCustomContentVersion } from './loadedCustomContentVersion'
 import type { FeedbackContext, FeedbackSurface } from './feedbackSession'
 
 type ForgeLikeContext = Record<string, any>
@@ -64,6 +65,11 @@ export function deriveFeedbackContext(context: ForgeLikeContext, diagram?: Parti
   const config = context?.extension?.config ?? {}
   const space = context?.extension?.space ?? {}
 
+  const customContentId = globalSurface
+    ? NA
+    : String(diagram?.id || modal.customContentId || config.customContentId || UNAVAILABLE)
+  const customContentVersion = globalSurface ? undefined : loadedCustomContentVersion(customContentId)
+
   return {
     surface,
     hostModule: String(context?.moduleKey || UNAVAILABLE),
@@ -78,8 +84,7 @@ export function deriveFeedbackContext(context: ForgeLikeContext, diagram?: Parti
     contentId: globalSurface
       ? NA
       : String(context?.contentId || context?.extension?.content?.id || modal.contentId || modal.pageId || UNAVAILABLE),
-    customContentId: globalSurface
-      ? NA
-      : String(diagram?.id || modal.customContentId || config.customContentId || UNAVAILABLE),
+    customContentId,
+    ...(customContentVersion !== undefined ? { customContentVersion } : {}),
   }
 }

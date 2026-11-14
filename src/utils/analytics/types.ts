@@ -452,6 +452,10 @@ export type AnalyticsProperties = {
   feedback_has_screenshot?: boolean;
   feedback_dismiss_reason?: FeedbackDismissReason;
   feedback_handoff_outcome?: FeedbackHandoffOutcome;
+  // Confluence custom-content version number the reporter was looking at
+  // (integer only, never diagram source). Sent on feedback_report_submit_*
+  // when known; absent for surfaces with no loaded diagram.
+  custom_content_version?: number;
   // Join keys between the viewer iframe and the Feedback modal iframe, which
   // are separate Mixpanel sessions. `feedback_token` is the per-open random id;
   // `viewer_replay_id` is the viewer's `$mp_replay_id`. Both are registered as

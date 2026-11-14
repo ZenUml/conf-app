@@ -30,6 +30,7 @@ function isFeedbackContext(value: unknown): value is FeedbackContext {
     && typeof context.macroUuid === 'string'
     && typeof context.contentId === 'string'
     && typeof context.customContentId === 'string'
+    && (context.customContentVersion === undefined || typeof context.customContentVersion === 'number')
 }
 
 export function mountFeedbackModal(forgeContext: Record<string, any>): boolean {

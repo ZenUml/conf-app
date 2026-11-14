@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi, macroTypeOf, clientDomainOf } from './headlessMcp';
+import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi, macroTypeOf, clientDomainOf, embeddedDiagramCountOf } from './headlessMcp';
 import { authenticateHeadless, challengeFor } from './headlessAuth';
 import { issueAccessToken, saveClient, type GrantStoreLike } from './asStore';
 import { saveGrant } from './tokenStore';
@@ -753,5 +753,18 @@ describe('clientDomainOf', () => {
   it('survives an unparseable site URL and a site list that never loaded', () => {
     expect(clientDomainOf([{ cloudId: 'x', url: 'not a url' }], { cloudId: 'x' })).toBeUndefined();
     expect(clientDomainOf([], undefined)).toBeUndefined();
+  });
+});
+
+describe('embeddedDiagramCountOf', () => {
+  it('counts the embedded rows of a page-scoped list_diagrams, zero included', () => {
+    const value = { diagrams: [{ contentId: '1' }, { contentId: '2', embedded: true }, { contentId: '3', embedded: true }] };
+    expect(embeddedDiagramCountOf('list_diagrams', { pageId: '9' }, value)).toBe(2);
+    expect(embeddedDiagramCountOf('list_diagrams', { pageId: '9' }, { diagrams: [] })).toBe(0);
+  });
+
+  it('is absent where embeds are not looked up', () => {
+    expect(embeddedDiagramCountOf('list_diagrams', {}, { diagrams: [{ embedded: true }] })).toBeUndefined();
+    expect(embeddedDiagramCountOf('read_diagram', { pageId: '9' }, {})).toBeUndefined();
   });
 });

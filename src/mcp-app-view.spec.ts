@@ -686,3 +686,75 @@ describe('fullscreen', () => {
     expect(fullscreenAvailable()).toBe(true); // a partial update keeps the rest
   });
 });
+
+// PR 1176 fitted sequence diagrams on their own; they now share the fit every
+// drawing uses, which is what makes fullscreen fit them to the screen too.
+describe('fitting a sequence diagram to the frame', () => {
+  let natural = { width: 0, height: 0 };
+  const restore: Array<() => void> = [];
+
+  /** jsdom has no layout: give the fit box's inner element the size a browser would. */
+  function stubLayout(frameWidth: number): void {
+    const offset = (key: 'offsetWidth' | 'offsetHeight', pick: () => number) => {
+      const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)!;
+      Object.defineProperty(HTMLElement.prototype, key, {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.classList.contains('zen-mcp-fit-inner') ? pick() : 0;
+        },
+      });
+      restore.push(() => Object.defineProperty(HTMLElement.prototype, key, original));
+    };
+    offset('offsetWidth', () => natural.width);
+    offset('offsetHeight', () => natural.height);
+    applyHostContext({ containerDimensions: { width: frameWidth } });
+  }
+
+  const drawSequence = async () => {
+    deliver({ diagramType: 'sequence', dsl: 'A->B.hi()' });
+    await vi.waitFor(() => expect(document.querySelector<HTMLElement>('#app .zen-mcp-fit')?.dataset.scale).toBeDefined());
+    const box = document.querySelector<HTMLElement>('#app .zen-mcp-fit')!;
+    return { box, inner: box.querySelector<HTMLElement>('.zen-mcp-fit-inner')! };
+  };
+
+  beforeEach(() => {
+    resetViewState();
+    document.body.innerHTML = '<div id="app"></div>';
+  });
+
+  afterEach(() => {
+    while (restore.length) restore.pop()!();
+  });
+
+  it('draws into the fit box, scales a wide diagram down to the frame width and sizes the box to the scaled height', async () => {
+    natural = { width: 1128, height: 600 };
+    stubLayout(884 + 16); // the frame, plus the page margins
+    const { box, inner } = await drawSequence();
+    const ZenUml = (await import('@zenuml/core')).default as unknown as ReturnType<typeof vi.fn>;
+    expect(ZenUml.mock.calls.at(-1)![0]).toBe(inner);
+    const scale = 884 / 1128;
+    expect(inner.style.transform).toBe(`scale(${scale})`);
+    expect(box.style.width).toBe(`${Math.ceil(1128 * scale)}px`);
+    expect(box.style.height).toBe(`${Math.ceil(600 * scale)}px`);
+  });
+
+  it('leaves a diagram that already fits at its own size, never magnified', async () => {
+    natural = { width: 400, height: 300 };
+    stubLayout(900);
+    const { box, inner } = await drawSequence();
+    expect(inner.style.transform).toBe('');
+    expect(box.dataset.scale).toBe('1.000');
+    expect(box.style.height).toBe('300px');
+  });
+
+  it('does nothing before the diagram has a size', async () => {
+    natural = { width: 0, height: 0 };
+    stubLayout(900);
+    deliver({ diagramType: 'sequence', dsl: 'A->B.hi()' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-fit-inner')).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    const box = document.querySelector<HTMLElement>('#app .zen-mcp-fit')!;
+    expect(box.dataset.scale).toBeUndefined();
+    expect(box.style.height).toBe('');
+  });
+});

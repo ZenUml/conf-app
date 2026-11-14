@@ -24,7 +24,7 @@ import { listAccessibleSites, type AtlassianAppConfig, type FetchLike, type Acce
 import { confluenceReaderFor } from './confluenceReader';
 import { confluenceRequestFor, type ConfluenceRequest } from './confluenceWriter';
 import { checkCreateAllowed, type GateEnv } from './headlessGate';
-import { buildMacroNode, countExtensions, referencesCustomContent } from '../macroNode';
+import { buildMacroNode, countExtensions, embeddedContentIds, referencesCustomContent } from '../macroNode';
 import {
   DATA_LOSS_MIN_CURRENT_NONWS,
   DATA_LOSS_MIN_RATIO,
@@ -139,7 +139,7 @@ export const HEADLESS_TOOLS: readonly HeadlessToolDescriptor[] = [
     name: 'list_diagrams',
     ...readOnly('List diagrams'),
     description:
-      'List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, markdown, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. Read-only.',
+      'List ZenUML diagrams on a site, most-recently-modified first, each with its contentId, title, page and diagramType (sequence, mermaid, plantuml, markdown, graph, OpenAPI, AsyncAPI; null when the stored record names none). Scope to one page with pageId, or omit it for the whole site. With pageId the list also includes diagrams embedded on that page from other pages, marked embedded: true with the page they are stored on. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -679,6 +679,48 @@ function listedDiagramType(row: CustomContentRow): string | null {
   return canonicalDiagramType(stored) ?? stored;
 }
 
+/** At most this many embed targets are fetched per listing: one request each. */
+const MAX_EMBEDS_LISTED = 25;
+
+/**
+ * The diagrams a page shows through embed macros, as listing rows marked
+ * `embedded: true`. Each row is the embedded diagram itself — its own
+ * contentId, type and the page it is stored on — so read_diagram on it draws
+ * it like any other. Targets already listed (stored on this page), of a type
+ * that is not ours, or that this user cannot read are left out: the macro on
+ * the page shows nothing more for them either.
+ *
+ * Null when the page body cannot be read; the caller says so.
+ */
+async function embeddedDiagramRows(
+  get: ConfluenceGet,
+  cloudId: string,
+  pageId: string,
+  types: string[],
+  alreadyListed: Set<string>,
+): Promise<Array<ReturnType<typeof diagramRow> & { embedded: true }> | null> {
+  const res = await get(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}?body-format=atlas_doc_format`);
+  if (res.status !== 200) return null;
+  let adf: unknown;
+  try {
+    adf = JSON.parse(String((res.body as { body?: { atlas_doc_format?: { value?: unknown } } })?.body?.atlas_doc_format?.value));
+  } catch {
+    return null;
+  }
+
+  const ids = embeddedContentIds(adf, cloudId).filter((id) => !alreadyListed.has(id)).slice(0, MAX_EMBEDS_LISTED);
+  const rows = await Promise.all(
+    ids.map(async (id) => {
+      const target = await get(`/wiki/api/v2/custom-content/${encodeURIComponent(id)}?body-format=raw`);
+      if (target.status !== 200) return null;
+      const row = target.body as CustomContentRow;
+      if (typeof row?.type !== 'string' || !types.includes(row.type)) return null;
+      return { ...diagramRow(row), embedded: true as const };
+    }),
+  );
+  return rows.filter((r): r is NonNullable<typeof r> => r !== null);
+}
+
 function diagramRow(row: CustomContentRow) {
   return {
     contentId: typeof row.id === 'string' ? row.id : String(row.id ?? ''),
@@ -789,11 +831,25 @@ export async function callHeadlessTool(
         }
       }
 
-      const diagrams = rows
-        .map(diagramRow)
+      const listed: Array<ReturnType<typeof diagramRow> & { embedded?: true }> = rows.map(diagramRow);
+      let embedsUnread = false;
+      if (pageId) {
+        const embeds = await embeddedDiagramRows(get, cloudId, pageId, types, new Set(listed.map((d) => d.contentId)));
+        if (embeds === null) embedsUnread = true;
+        else listed.push(...embeds);
+      }
+
+      const diagrams = listed
         .sort((a, b) => (b.modifiedAt ?? '').localeCompare(a.modifiedAt ?? ''))
         .slice(0, limit);
-      return { cloudId, variants: installed.variants, diagrams };
+      return {
+        cloudId,
+        variants: installed.variants,
+        diagrams,
+        // Said rather than silently missing: the listing above is still right,
+        // but it may lack diagrams the page shows through an embed macro.
+        ...(embedsUnread ? { note: 'Could not read the page body, so diagrams embedded on it from other pages are not listed.' } : {}),
+      };
     }
 
     case 'read_diagram': {

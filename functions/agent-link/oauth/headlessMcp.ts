@@ -453,6 +453,7 @@ async function trackToolCall(
     cloudId?: string;
     clientDomain?: string;
     macroType?: string;
+    embeddedDiagramCount?: number;
     guardrailReason?: string;
     failureStep?: string;
     upstreamStatus?: number;
@@ -481,6 +482,7 @@ async function trackToolCall(
       identity_failure: call.identityFailure,
       duration_ms: call.durationMs,
       macro_type: call.macroType,
+      embedded_diagram_count: call.embeddedDiagramCount,
     },
     env.MIXPANEL_TOKEN,
   ));
@@ -509,6 +511,18 @@ export function macroTypeOf(tool: string, value: unknown): string | undefined {
   if (!DIAGRAM_RESULT_TOOLS.has(tool)) return undefined;
   const from = (value as { diagramType?: unknown } | null)?.diagramType;
   return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
+}
+
+/**
+ * How many diagrams a page-scoped list_diagrams found embedded on the page
+ * from elsewhere. Undefined for any other call, so the property only appears
+ * where zero means something.
+ */
+export function embeddedDiagramCountOf(tool: string, args: unknown, value: unknown): number | undefined {
+  if (tool !== 'list_diagrams' || typeof (args as { pageId?: unknown } | null)?.pageId !== 'string') return undefined;
+  const diagrams = (value as { diagrams?: unknown } | null)?.diagrams;
+  if (!Array.isArray(diagrams)) return undefined;
+  return diagrams.filter((d) => (d as { embedded?: unknown } | null)?.embedded === true).length;
 }
 
 export interface HeadlessMcpDeps {
@@ -670,6 +684,7 @@ export async function handleHeadlessRpc(
         reason?: string,
         extra: {
           macroType?: string;
+          embeddedDiagramCount?: number;
           guardrailReason?: string;
           failureStep?: string;
           upstreamStatus?: number;
@@ -716,7 +731,7 @@ export async function handleHeadlessRpc(
           clientDomainOf(reachableSites, params.arguments),
           macroType,
         );
-        await trackCall('success', undefined, { macroType });
+        await trackCall('success', undefined, { macroType, embeddedDiagramCount: embeddedDiagramCountOf(params.name, params.arguments, value) });
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {

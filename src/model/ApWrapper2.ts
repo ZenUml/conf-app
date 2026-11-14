@@ -3,7 +3,7 @@ import time from '@/utils/timer';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import {IMacroData} from "@/model/IMacroData";
 import {IContentProperty} from "@/model/IContentProperty";
-import {ICustomContent, ICustomContentV2, SearchResults} from "@/model/ICustomContent";
+import {ICustomContent, ICustomContentV2} from "@/model/ICustomContent";
 import {IUser} from "@/model/IUser";
 import {ILicense} from "@/model/ILicense";
 import {DataSource, Diagram, DiagramType} from "@/model/Diagram/Diagram";

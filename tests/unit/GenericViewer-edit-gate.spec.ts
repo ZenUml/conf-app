@@ -122,7 +122,7 @@ describe('GenericViewer — Edit button does not gate at viewer level', () => {
     await wrapper.vm.$nextTick()
 
     const vm = wrapper.vm as any
-    // CustomContentStorageProvider.save() forks a copy into a new,
+    // saveToPlatform forks a copy into a new,
     // independent custom-content record rather than updating the shared
     // original in place — editing a same-page copy does NOT affect the
     // other copies, so the tooltip must say that, not the reverse.

@@ -1,0 +1,19 @@
+{
+  "name": "f6-td-pipes",
+  "direction": "TB",
+  "nodes": [
+    {"id": "A", "text": "Receive order"}, {"id": "B", "text": "Stock available?"}, {"id": "C", "text": "Pack items"},
+    {"id": "D", "text": "Back-order"}, {"id": "E", "text": "Insure parcel"}, {"id": "F", "text": "Dispatch"}
+  ],
+  "edges": [
+    {"source": "A", "target": "B", "label": "", "dashed": false},
+    {"source": "B", "target": "C", "label": "yes", "dashed": false},
+    {"source": "B", "target": "D", "label": "no", "dashed": false},
+    {"source": "C", "target": "E", "label": "optional", "dashed": true},
+    {"source": "C", "target": "F", "label": "ship", "dashed": false},
+    {"source": "E", "target": "F", "label": "", "dashed": true}
+  ],
+  "thick": ["C>F"],
+  "groups": [],
+  "ungrouped": ["A", "B", "C", "D", "E", "F"]
+}

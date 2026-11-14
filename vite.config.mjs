@@ -424,6 +424,9 @@ export default defineConfig(({ command }) => ({
       '**/tests/export-modal/**',
       '**/tests/ui-details/**',
       '**/packages/**',
+      // The Pi tool uses node:test and its own browser runner, independently
+      // of the Confluence app's jsdom/Vitest setup. Run pnpm test:pi-diagram.
+      '**/tools/pi-diagram-agent/**',
       // Scratch dir — sessions park ad-hoc Playwright specs here; a stray
       // *.spec.ts under tmp/ otherwise fails the whole run at collection.
       '**/tmp/**',

@@ -1,0 +1,8 @@
+flowchart LR
+  classDef ext fill:#fef3c7,stroke:#b45309,color:#451a03
+  classDef store fill:#dbeafe,stroke:#1d4ed8,color:#172554
+  U([Client]):::ext --> API[Gateway]
+  API --> S[[Validate]]
+  S --> DB[(Records)]:::store
+  S -->|reject| X((Stop))
+  DB --> H{{Archive}}:::store

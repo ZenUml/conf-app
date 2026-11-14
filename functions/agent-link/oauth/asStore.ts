@@ -277,6 +277,7 @@ export async function revokeAccessToken(store: GrantStore, token: string): Promi
   await store.delete(`${PREFIX}-token:${await hashSecret(token)}`);
 }
 
+/** Writes a KV refresh row. The token endpoint no longer issues these (the D1 ledger does); kept to seed legacy rows in tests. */
 export async function issueRefreshToken(store: GrantStore, record: RefreshTokenRecord): Promise<string> {
   const token = randomToken();
   await putJson(store, `${PREFIX}-refresh:${await hashSecret(token)}`, record, REFRESH_TOKEN_TTL_SECONDS);
@@ -322,40 +323,6 @@ export async function revokeChain(store: GrantStore, chainId: string, nowMs: num
 
 export async function isChainRevoked(store: GrantStore, chainId: string): Promise<boolean> {
   return (await store.get(chainRevokedKey(chainId))) !== null;
-}
-
-export type RefreshRedemption =
-  /** Redeemed now. The record always carries a chain id, a new one for a pre-chain token. */
-  | { status: 'ok'; record: RefreshTokenRecord & { chainId: string } }
-  /** Never issued, or past its TTL. */
-  | { status: 'unknown' }
-  /** Its chain was revoked earlier. */
-  | { status: 'revoked' }
-  /** Already redeemed once: the caller must revoke the chain. */
-  | { status: 'reused'; record: RefreshTokenRecord & { chainId: string } };
-
-/**
- * Redeem a refresh token, marking it used in the same step.
- *
- * Rotation, matching Atlassian's own behaviour (ADR 0008 Decision 2): the
- * presented token is dead whether or not the caller ends up using the new one.
- * Unlike a delete, the used marker lets a second presentation be told apart
- * from a token we never issued; see "refresh chains" above for what follows.
- */
-export async function redeemRefreshToken(
-  store: GrantStore,
-  token: string,
-  nowMs: number,
-): Promise<RefreshRedemption> {
-  const key = `${PREFIX}-refresh:${await hashSecret(token)}`;
-  const record = await getJson<RefreshTokenRecord>(store, key);
-  if (!record) return { status: 'unknown' };
-  if (record.chainId && (await isChainRevoked(store, record.chainId))) return { status: 'revoked' };
-  // A token issued before chains existed starts its chain here.
-  const chained = { ...record, chainId: record.chainId ?? newChainId() };
-  if (record.usedAtMs !== undefined) return { status: 'reused', record: chained };
-  await putJson(store, key, { ...chained, usedAtMs: nowMs }, REFRESH_TOKEN_TTL_SECONDS);
-  return { status: 'ok', record: chained };
 }
 
 // -------------------------------------------------------------- consent

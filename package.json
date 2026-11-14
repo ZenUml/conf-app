@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test:unit": "vitest --run",
+    "test:oauth-integration": "vitest run --config vitest.oauth-integration.config.ts",
     "test:worktree-tooling": "node --test scripts/ci/worktree.node-test.mjs",
     "test:ui-details": "playwright test -c tests/ui-details/playwright.config.ts",
     "test:mermaid-highlights": "node scripts/ci/mermaid-highlights.mjs",
@@ -169,6 +170,7 @@
     "eslint": "^9.4.0",
     "eslint-plugin-vue": "^9.0.0",
     "jsdom": "^23.1.0",
+    "miniflare": "4.20260120.0",
     "portless": "^0.15.6",
     "rollup-plugin-visualizer": "^6.0.5",
     "storybook": "^10.4.1",

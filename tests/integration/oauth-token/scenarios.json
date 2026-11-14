@@ -1,0 +1,7 @@
+{
+  "scope": "server HTTP integration with local Cloudflare storage; excludes browser consent and live SSO",
+  "scenarios": [
+    { "feature": "agent-authorization", "interface": "oauth-protocol" },
+    { "feature": "agent-authorization", "interface": "external-agent" }
+  ]
+}

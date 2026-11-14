@@ -1294,7 +1294,14 @@ export type AnalyticsProperties = {
   // and 'malformed' for a body with no `body.raw.value`. `http_status` /
   // `error_code` come from the first structured error.
   load_status?: 'not_found' | 'other_error';
-  error_class?: 'structured' | 'malformed';
+  // load_failed_shown (GenericViewer) reuses `error_class`, `http_status` and
+  // `direct_fetch_status` from the store's load error, and adds 'thrown' for a
+  // by-id fetch that rejected instead of returning a response. For 'thrown',
+  // `error_name` is the rejection's name (e.g. TypeError) and `error_message`
+  // its message scrubbed of query strings, emails and 4+ digit runs, max 100
+  // chars (utils/fetchErrorDiagnostics.ts).
+  error_class?: 'thrown' | 'structured' | 'malformed';
+  error_message?: string;
   // customcontent_orphan_observed: the by-id GET (the "direct fetch") that ran
   // before any probe. Without these, `recoverable: 'probe_skipped_no_probe_result'`
   // could not say whether the fetch hit a 403, a 5xx, a thrown request or a

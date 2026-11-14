@@ -269,13 +269,20 @@ async function renderGraph(el: HTMLElement, source: string): Promise<void> {
   // frame cannot open. Same options as ForgeGraphViewer.vue otherwise.
   const xmlNode = w.mxUtils.parseXml(xml).documentElement;
   ensureDrawioMathForDocument(xmlNode);
-  // Not auto-fit: that fits to the container's width, and the fit box is as
-  // wide as its content, so fitDiagram does the scaling instead.
-  new w.GraphViewer(container, xmlNode, {
-    'auto-fit': false,
-    border: 10,
-    lightbox: false,
-  });
+  // Not auto-fit, and room to draw: the viewer shrinks a diagram to its
+  // container's width and draws nothing into a zero-width one, which is what
+  // the content-sized fit box is before it has content. Drawn wide, it keeps
+  // its natural size and sets that width on `container`; fitDiagram scales it.
+  el.style.width = '100000px';
+  try {
+    new w.GraphViewer(container, xmlNode, {
+      'auto-fit': false,
+      border: 10,
+      lightbox: false,
+    });
+  } finally {
+    el.style.width = '';
+  }
 }
 
 /**

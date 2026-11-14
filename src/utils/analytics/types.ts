@@ -442,6 +442,12 @@ export type AnalyticsProperties = {
   feedback_has_screenshot?: boolean;
   feedback_dismiss_reason?: FeedbackDismissReason;
   feedback_handoff_outcome?: FeedbackHandoffOutcome;
+  // Join keys between the viewer iframe and the Feedback modal iframe, which
+  // are separate Mixpanel sessions. `feedback_token` is the per-open random id;
+  // `viewer_replay_id` is the viewer's `$mp_replay_id`. Both are registered as
+  // super-properties, never report content.
+  feedback_token?: string;
+  viewer_replay_id?: string;
   // Viewer Create slash-command guide (create_guide_*).
   create_guide_variant?: CreateGuideVariant;
   create_guide_close_method?: CreateGuideCloseMethod;

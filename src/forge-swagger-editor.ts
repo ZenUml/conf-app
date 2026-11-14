@@ -3,10 +3,6 @@ import "swagger-editor/dist/swagger-editor.css";
 import "./assets/swagger-editor.css";
 import SpecListener from './utils/spec-listener'
 
-import React from 'react';
-import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
-import SwaggerEditor from "@/components/react/SwaggerEditor";
 // @ts-ignore
 import './assets/tailwind.css'
 
@@ -27,12 +23,12 @@ import { markEditorAuthoringStarted, registerEditorCloseTracking, trackEditorClo
 import forgeGlobal, { getView, getContext as initForgeContext, isInserting, isConfiguring } from '@/model/globals/forgeGlobal';
 import EventBus from './EventBus';
 import store from "@/model/store2";
+import { mountRoot } from '@/mount-root';
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
 import { computed, createApp, defineComponent, h } from 'vue';
 import EditorMcpPromo from '@/components/AgentLink/EditorMcpPromo.vue';
-import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
 import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
@@ -60,23 +56,9 @@ let originalConfigUuid: string | undefined;
 // ZEN-1170 Defect 2b: captured at editor open so the save callback can detect
 // when the persisted id differs from the macro's stale config id and repair
 // the macro XML via view.submit({config:...}).
-//
-// Captured from OpenedDocument.origin once mountEditorDocument's
-// openDocument() call resolves (Slice 1 of the content-opening
-// unification) — replaces the old module-scope originalCustomContentId /
-// recoveryPageId variables the save handler used to read directly.
 let capturedOrigin: { originalCustomContentId?: string; recoveryPageId?: string; recoveredFromOrphan: boolean } =
   { recoveredFromOrphan: false };
-// True when this editor was opened from the "My API Documents" dashboard's Edit
-// action — a standalone modal carrying the id via modal.customContentId, with no
-// macro on the dashboard space page. On that path the shared loader
-// false-positives isCopy=true, so the save must pin the id + clear isCopy to
-// update in place. Mirrors the AsyncAPI editor's isDashboardEdit/pinToId guard.
 let isDashboardEdit = false;
-// Only pin the save when the target doc genuinely loaded with content. If the
-// load failed (transient API error), leave this false so the save takes the
-// normal copy-aware path and forks a new doc, rather than pinning + overwriting
-// the real document with a blank OpenApiExample template.
 let dashboardEditDocLoaded = false;
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
@@ -90,7 +72,7 @@ const debouncedValidateOpenApi = debounce(async (spec: string) => {
 // Track editor session start time
 const editorStartTime = Date.now();
 
-let swaggerReactMounted = false;
+let swaggerBundleMounted = false;
 let openApiDocumentHydrated = false;
 let isNewOpenApi = true;
 let editorBaseline: OpenApiEditorBaseline | undefined;
@@ -123,23 +105,15 @@ function mountEditorMcpPromo(diagramId: string | undefined) {
   })).use(store).mount(host);
 }
 
-function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
-  if (!mountEl) {
-    console.error('OpenAPI editor: missing DOM mount element');
+function bootstrapSwaggerEditorBundle() {
+  if (swaggerBundleMounted) {
     return;
   }
-  if (swaggerReactMounted) {
+  if (!document.getElementById('swagger-editor')) {
+    console.error('OpenAPI editor: missing #swagger-editor DOM element');
     return;
   }
-  swaggerReactMounted = true;
-
-  // SwaggerEditorBundle immediately queries the #swagger-editor element that
-  // this shell creates, so the concurrent root must commit before bootstrap.
-  flushSync(() => {
-    createRoot(mountEl).render(
-      React.createElement(SwaggerEditor as any, { saveAndExit: saveOpenApiAndExit, exit: exit }),
-    );
-  });
+  swaggerBundleMounted = true;
 
   const editor = SwaggerEditorBundle({
     dom_id: '#swagger-editor',
@@ -154,15 +128,9 @@ function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
 
 async function saveOpenApiAndExit() {
   // Start the publish-latency clock at the save-handler entry (≈ the Publish
-  // click in react/Header.tsx). Stopped at the redirect below.
+  // click in OpenApiHeader.vue). Stopped at the redirect below.
   markPublishClicked();
   const code = window.specContent;
-  // Dashboard Edit: force an in-place update. CustomContentStorageProvider.save
-  // only updates when (id && !isCopy); the dashboard space page false-positives
-  // isCopy=true, which would otherwise fork a new doc ("editing made a new
-  // diagram"). Pin the known id and clear isCopy — the same guard
-  // buildAsyncApiSaveDiagram applies via pinToId for AsyncAPI dashboard edits.
-  // Gated on dashboardEditDocLoaded so a failed load can't pin + overwrite.
   const diagram = buildOpenApiSaveDiagram({
     existing: window.diagram,
     spec: code,
@@ -173,18 +141,11 @@ async function saveOpenApiAndExit() {
   // @ts-ignore
   window.diagram = Object.assign(window.diagram || {}, diagram);
 
-  // Record acceptance while the shared AI-title state still identifies this
-  // as an unmodified generated suggestion. Mirrors the sequence/graph saves.
   notifyAiTitleSaved({
     title: window.diagram?.title,
     contentId: window.diagram?.id,
   });
 
-  // Captured before save. If the returned id differs from sourceId, the save
-  // forked a new custom content (cross-page-copy / same-page-duplicate path)
-  // and the macro params must be rewritten via view.submit, else the page
-  // still points at the source content while the new one sits orphaned.
-  // The truthy-guard is load-failure protection (NULL_DIAGRAM fallback).
   // @ts-ignore
   const sourceId = window.diagram?.id ? String(window.diagram.id) : '';
 
@@ -193,13 +154,6 @@ async function saveOpenApiAndExit() {
     // @ts-ignore
     id = await saveToPlatform(window.diagram);
   } catch (error) {
-    // Persistence layer refused save because the direct fetch came back
-    // indeterminate (forbidden/5xx/malformed) rather than a confirmed
-    // absence — content may still exist, unverified. Retry won't help until
-    // that's resolved — direct the user to refresh / contact support instead
-    // (mirrors forge-graph-editor.ts's own LegacyLoadBlockedSaveError handling,
-    // with wording accurate to OpenAPI, which never used legacy content
-    // properties — see openApiTarget.ts).
     if (error instanceof LegacyLoadBlockedSaveError) {
       toast({
         message: "This diagram's content couldn't be verified — saving is disabled to prevent data loss. Please refresh the page or contact support.",
@@ -209,7 +163,6 @@ async function saveOpenApiAndExit() {
       return;
     }
     console.error('saveOpenApiAndExit failed', error);
-    // Release the Publish button — editor stays open for retry (react/Header.tsx).
     EventBus.$emit('save-error', error);
     trackEvent('save_failed', 'save_failed', 'error', {
       error_message: String((error as any)?.message || error).substring(0, 500),
@@ -217,21 +170,14 @@ async function saveOpenApiAndExit() {
       error_code: (error as any)?.code,
       error_shape: (error as any)?.errorShape,
     });
-    // A create-time 404 is probed once (save_failed_diagnosed) so the toast can
-    // name a missing space permission instead of inviting a retry that cannot
-    // succeed — see model/saveFailureDiagnosis.ts.
     const message = await diagnoseSaveFailure(error, { surface: 'editor', macro_type: 'openapi' }, globals.apWrapper);
     toast({ message, duration: message === GENERIC_SAVE_FAILED_MESSAGE ? 5000 : 12000 });
-    // Do NOT end journey, do NOT close — keep editor open so the user can retry.
     return;
   }
-  // End journey on save
   if (getEditJourneyId()) {
     endEditJourney('saved');
   }
 
-  // Capture derivation inputs now — window.diagram may move under the
-  // deferred writeback below.
   const derivationInput = {
     sourceId,
     newId: id,
@@ -247,7 +193,6 @@ async function saveOpenApiAndExit() {
     const { attemptRepair, needsWriteback } = decideWriteback(
       deriveWritebackSignals({ ...derivationInput, inserting, configuring })
     );
-    // Redirect starts now (view.submit / view.close below). Stop the clock.
     trackPublishCompleted({
       macro_type: 'openapi',
       operation_mode: inserting ? 'create' : 'edit',
@@ -256,11 +201,6 @@ async function saveOpenApiAndExit() {
     });
     try {
       if (needsWriteback && !isValidCustomContentId(id)) {
-        // conf-app#320 defense-in-depth: never write a garbage customContentId
-        // ("undefined"/"null"/non-numeric) into the macro config — that is the
-        // exact state that permanently orphans a macro. saveToPlatform should
-        // have thrown already; if we somehow got here, close without persisting
-        // the bad id rather than stamping it.
         trackEvent('save_failed', 'writeback_skipped_invalid_id', 'error', {
           new_custom_content_id: String(id),
           macro_type: 'openapi',
@@ -278,13 +218,9 @@ async function saveOpenApiAndExit() {
       } else {
         await (await getView()).close();
       }
-      // Notify draft listeners (react/Header.tsx subscribes to 'saved')
-      // only after the macro state is durable. If submit throws below, the
-      // local draft survives as a retry anchor.
       EventBus.$emit('saved', id);
     } catch (error) {
       console.error('view.submit/close failed after openapi save', error);
-      // Dialog didn't close — release the Publish button (react/Header.tsx).
       EventBus.$emit('save-error', error);
       trackEvent('save_failed', 'view_submit_failed', 'error', {
         error_message: String((error as any)?.message || error).substring(0, 500),
@@ -298,10 +234,8 @@ async function saveOpenApiAndExit() {
 
 async function exit() {
   const hadChanges = hadEditorChanges();
-  
-  // Prepare event data
   const elapsedTimeMs = Date.now() - editorStartTime;
-  
+
   const eventProps = {
     had_changes: hadChanges,
     source: 'swagger_editor',
@@ -310,39 +244,32 @@ async function exit() {
     journey_id: getEditJourneyId(),
     session_id: getOrCreateSession(),
   };
-  
+
   if (hadChanges) {
-    // Show custom modal dialog for Forge
     const result = await showCloseWithoutSavingDialog();
-    
+
     if (result === 'discard') {
-      // User confirmed exit - track exit event
       const exitEventAction = isNewOpenApi ? 'create_macro_exit' : 'edit_macro_exit';
       trackEvent('', exitEventAction, DiagramType.OpenApi, eventProps);
       await trackEditorClosedWithoutSave('discard_dialog');
-      
-      // End journey on exit
+
       if (getEditJourneyId()) {
         endEditJourney('cancelled');
       }
-      
+
       await (await getView()).close();
     } else {
-      // User cancelled exit (chose to keep editing) - track cancelled event
       const cancelledEventAction = isNewOpenApi ? 'create_macro_exit_cancelled' : 'edit_macro_exit_cancelled';
       trackEvent('', cancelledEventAction, DiagramType.OpenApi, eventProps);
-      // Do NOT end journey - user continues editing
     }
   } else {
-    // No changes - immediate exit
     const exitEventAction = isNewOpenApi ? 'create_macro_exit' : 'edit_macro_exit';
     trackEvent('', exitEventAction, DiagramType.OpenApi, eventProps);
-    
-    // End journey on exit
+
     if (getEditJourneyId()) {
       endEditJourney('window_close');
     }
-    
+
     await (await getView()).close();
   }
 }
@@ -352,16 +279,14 @@ async function initializeMacro() {
 
   originalConfigUuid = context.extension?.config?.uuid;
 
-  // Start journey tracking
   const macroUuid =
     forgeGlobal.forgeContext?.localId
     || context.extension?.config?.uuid
     || uuidv4();
   const isDialog = !!context.extension?.modal;
   const isMacroConfig = !!context.extension?.macro?.isConfiguring || !!context.extension?.macro?.isInserting;
-  
+
   if (isDialog || isMacroConfig) {
-    // Check if journey was passed from parent (for modals opened from viewer)
     const modalContext = context.extension?.modal;
     if (isDialog && modalContext?.journey_id) {
       continueEditJourney(modalContext.journey_id, macroUuid, modalContext.journey_start_time);
@@ -370,40 +295,19 @@ async function initializeMacro() {
       startEditJourney(macroUuid, source);
     }
   }
-  
-  // Ensure session is initialized
+
   getOrCreateSession();
-  // Read customContentId from extension.config (macro / page-editor context) AND
-  // extension.modal (the dashboard's Edit / View flow).
-  //
-  // ZEN-1170 (2026-05-23) removed the modal fallback because, at that time,
-  // OpenAPI had no dashboard — the only modal was the page-macro viewer, where
-  // config.customContentId always resolved. The dual-format dashboard
-  // reintroduces a dashboard Edit that opens THIS editor as a standalone modal
-  // carrying the id via modal.customContentId, so the fallback is required
-  // again. saveOpenApiAndExit pins the save for that path (see isDashboardEdit).
-  // configContentId stays a RAW config read: isDashboardEdit means "no config,
-  // came in through the modal", so it must not see any fallback. The pasted
-  // deeplink is folded into customContentId only — a pasted OpenAPI macro is a
-  // page macro, not a dashboard edit.
   const configContentId = context.extension?.config?.customContentId;
   const modalContentId = context.extension?.modal?.customContentId;
   const customContentId = resolveEffectiveCustomContentId(context);
   isNewOpenApi = !customContentId;
-  // The journey started before this resolved, so tell it what kind of session
-  // it is now that we know. Drives macro_authoring_ended's operation_mode.
   setEditJourneyMeta({
     macroType: 'openapi',
     operationMode: customContentId ? 'edit' : 'create',
   });
   isDashboardEdit = !configContentId && !!modalContentId;
-  // Passed to openDocument() below as `pageId`; the resolved id/recovery
-  // origin it feeds back is captured into `capturedOrigin`, not this const.
   const recoveryPageId = context.extension?.content?.id;
   if (isDashboardEdit) {
-    // Volume signal for the dashboard-edit path. Was a regression detector when
-    // the modal fallback was treated as a bug; now it measures the intended
-    // dashboard route.
     trackAnalyticsEvent('swagger_editor_config_empty_with_modal', {
       feature_area: 'macro',
       surface: 'editor',
@@ -434,25 +338,9 @@ async function initializeMacro() {
         recoveredFromOrphan: outcome.document.origin.recoveredFromOrphan,
       };
     } else if (outcome.error.indeterminate) {
-      // An id existed but the failure was indeterminate (forbidden/5xx/
-      // malformed on the direct fetch) — content may still exist, just
-      // unverifiable right now. Data-integrity guard: mount NULL_DIAGRAM
-      // with legacyLoadBlocked set so saveToPlatform refuses to persist
-      // over it, instead of silently letting Publish overwrite the real
-      // document with a blank template.
       doc = { ...NULL_DIAGRAM, legacyLoadBlocked: true };
       capturedOrigin = { recoveredFromOrphan: false };
     } else {
-      // A clean, confirmed-absent customContentId (deleted, or nothing ever
-      // existed) with nothing left to recover — self-heals like a brand-new
-      // macro: a fresh save creates a new document, and originalCustomContentId
-      // (the now-dead id) still drives deriveWritebackSignals' macroNeedsRepair
-      // so the macro config gets repointed at the replacement, mirroring
-      // forge-graph-editor.ts's own not-found repair path. That repoint only
-      // happens on submittable surfaces (inserting || configuring) though —
-      // in the in-viewer Edit modal, decideWriteback correctly returns
-      // needsWriteback: false (issue #170's pre-existing gate) and the macro
-      // keeps pointing at the dead id.
       doc = { ...NULL_DIAGRAM };
       capturedOrigin = {
         originalCustomContentId: outcome.error.customContentId,
@@ -461,29 +349,15 @@ async function initializeMacro() {
       };
     }
 
-    // Record that a dashboard-edit target actually loaded with content, so
-    // saveOpenApiAndExit only pins (forces an in-place update) for a real doc.
     if (isDashboardEdit && typeof doc?.code === 'string' && doc.code.trim().length > 0) {
       dashboardEditDocLoaded = true;
     }
 
-    // Swagger renders OpenApiExample for a new macro. Mirror that visible spec
-    // (and the OpenAPI type) into Vuex so SyntaxErrorBox/AIRepair does not read
-    // an empty code value from the Unknown sentinel diagram.
     const editorDiagram = createOpenApiEditorState(doc);
-    // Store plain strings before Vuex, Swagger's spec listeners, and React's
-    // title synchronization can mutate this same diagram object.
     editorBaseline = captureOpenApiEditorBaseline(editorDiagram);
     store.state.diagram = editorDiagram;
-
-    // Header title edits and saveOpenApiAndExit both use window.diagram. New
-    // macros must share this initialized object too, otherwise their title is
-    // visible in React but absent from the custom-content save payload.
     window.diagram = editorDiagram;
 
-    // Telemetry: existing macro (customContentId set) loaded with an empty
-    // spec. Wipe-precursor signal aligned with the cross-editor event in
-    // forgeIndex.ts and graph_editor_init_empty in ForgeGraphEditor.vue.
     if (customContentId && !doc?.code) {
       trackAnalyticsEvent('editor_load_empty_active_field', {
         feature_area: 'macro',
@@ -497,7 +371,6 @@ async function initializeMacro() {
     // @ts-ignore
     window.updateSpec(store.state.diagram.code || OpenApiExample);
 
-    // Initialize spec listeners for validation and store sync
     window.specListeners = window.specListeners || [];
     window.specListeners.push((spec: string) => {
       store.dispatch('updateCode2', spec);
@@ -510,25 +383,8 @@ async function initializeMacro() {
       }
     });
 
-    // Render the syntax error box using Vue
-    const syntaxErrorBoxContainer = document.getElementById('syntax-error-box');
-    if (syntaxErrorBoxContainer) {
-      syntaxErrorBoxContainer.style.fontSize = '14px'; // Set a consistent base font size
-      createApp(SyntaxErrorBox, {
-        onRequestAiChatRepair: () => {
-          window.dispatchEvent(new CustomEvent('ai-chat-request-syntax-repair'));
-        },
-      }).use(store).mount(syntaxErrorBoxContainer);
-    }
-
     mountEditorMcpPromo(isNewOpenApi ? undefined : customContentId);
 
-    // Track begin event (create or edit)
-    // conf-app: MacroUtil.isCreateNew() reads only extension.config.customContentId
-    // (ApWrapper2.getMacroData), so an existing macro opened from the modal
-    // surface reported as a CREATE. Measured 2026-08-06..09-04: 58 graph and 37
-    // openapi "creates" ended in macro_save_succeeded, versus 1 for the DSL
-    // editor, which has always used the fuller resolver below.
     markEditorAuthoringStarted();
     if (isNewOpenApi) {
       trackAnalyticsEvent('macro_create_started', {
@@ -546,40 +402,39 @@ async function initializeMacro() {
         entry_point: 'macro_toolbar',
       });
     }
-    // Close-without-save outcome (macro_create_cancelled / macro_edit_cancelled)
-    // on the Atlassian modal X; exit() below covers the in-editor discard.
     registerEditorCloseTracking({
       getMacroType: () => 'openapi',
       operationMode: isNewOpenApi ? 'create' : 'edit',
       hadChanges: hadEditorChanges,
     });
 
-    // Trigger initial validation after a short delay to ensure everything is set up
     setTimeout(() => {
       if (window.specContent) {
         debouncedValidateOpenApi(window.specContent);
       }
-    }, 300); // Using 300ms to ensure everything is properly set up
+    }, 300);
+  };
+
+  const shellProps = {
+    saveAndExit: saveOpenApiAndExit,
+    exit,
+    onMountedBootstrap: async () => {
+      bootstrapSwaggerEditorBundle();
+      await mountEditorDocument();
+    },
   };
 
   const paywalled = await tryPageEditorPaywall({
     doc: NULL_DIAGRAM,
     content: SwaggerForgeEditorShell,
-    contentProps: {
-      onMountedBootstrap: async () => {
-        bootstrapSwaggerUi(document.getElementById('openapi-bootstrap-root'));
-        await mountEditorDocument();
-      },
-    },
+    contentProps: shellProps,
     macroKind: 'openapi',
     customContentId,
   });
   if (!paywalled) {
-    bootstrapSwaggerUi(document.getElementById('app'));
-    await mountEditorDocument();
+    mountRoot(NULL_DIAGRAM, SwaggerForgeEditorShell, shellProps);
   }
 }
-
 
 // eslint-disable-next-line
 // @ts-ignore

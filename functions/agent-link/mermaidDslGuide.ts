@@ -26,6 +26,11 @@
 //     label to an `as` alias must preserve the label's own `<br/>` line
 //     breaks (this was silently dropped in the two round-1 `<br/>`-drift
 //     rows).
+// The "Layout" section (2026-11) distils the layout preferences of the
+// diagram-refinement skill (.claude/skills/diagram-refinement/references/
+// quality.md) for new diagrams and explicit layout requests only; it sits
+// below the minimal-edit contract, which still governs every repair. Its
+// example was measured in the MCP Apps view (src/mcp-app-view.ts).
 // Example identifiers are genericised for client privacy (this file's own
 // dslGuides.spec.ts sanitization test guards against real corpus names
 // leaking through).
@@ -166,6 +171,56 @@ A failing cylinder/circle/rounded node is almost always an inner-quote
 problem, not a shape problem. Do NOT downgrade it to a plain \`X["..."]\`
 rectangle to make it parse — that silently deletes information the diagram
 was using the shape to convey, which the minimal-edit contract forbids.
+
+## Layout — only for a NEW diagram, or when the user asks to improve the layout
+The minimal-edit contract above still governs every repair and every requested
+edit: there, keep the existing direction, order, spacing and styling as they
+are. Use this section only when you write a diagram from scratch, or the user
+explicitly asks to tidy, refine or re-lay-out one.
+
+The diagram is shown in a chat card roughly 600–880 px wide, which scales a
+drawing down until it fits. Text drawn much below ~70% of its size is hard to
+read, so a layout that fits at full size beats a denser one that gets shrunk.
+
+1. **Meaning first.** Before re-laying-out, list every node and its label,
+   and every edge with its endpoints, direction, label and style — then keep
+   them all. Do not merge, add, reverse or re-target an edge, drop text, or
+   change a shape. Layout moves things; it never changes what they say.
+2. **Choose the direction from the flow's shape.** A chain of more than about
+   six nodes in \`flowchart LR\` ends up too small to read in a chat card; use
+   \`flowchart TD\` instead (a tall diagram scrolls, a wide one shrinks). Keep
+   \`LR\` for short chains and wide-but-shallow structures.
+3. **A subgraph's own \`direction\` is ignored as soon as one of its nodes links
+   to a node outside it.** Do not count on \`direction LR\` inside a subgraph to
+   wrap a long chain into rows, and never re-point an edge at the subgraph
+   itself to make it work — that changes the edge's meaning.
+4. **Main path straight, side paths beside it.** Declare the main path first so
+   it gets the straight line, and hang failure / retry / cancel paths off to
+   the side. A return edge (\`Retry -- yes --> Payment\`) should not share a gap
+   with the edge that left (\`Payment -- declined --> Retry\`).
+5. **Tighten spacing before anything gets shrunk:**
+   \`%%{init: {"flowchart": {"rankSpacing": 32, "nodeSpacing": 28}}}%%\`.
+6. **Colour only what carries meaning, and keep it restrained.** One
+   \`classDef\` for a role such as the failure path is enough
+   (\`classDef failure fill:#fff4f2,stroke:#c8553d,color:#5c2418\`). Keep
+   existing colours that encode meaning; no rainbow palettes.
+7. **Keep labels short enough to fit at the viewing size.** Break a long label
+   with \`<br/>\` rather than letting it widen its whole row.
+
+Measured example: a 12-node order pipeline written as one \`flowchart LR\` row
+was 1706 px wide and drew at 37% in a 640 px card. Re-laid-out as below — same
+12 nodes and 12 edges — it draws at 100%:
+\`\`\`
+%%{init: {"flowchart": {"rankSpacing": 32, "nodeSpacing": 28}}}%%
+flowchart TD
+  Cart --> Checkout --> Payment
+  Payment -- declined --> Retry{Retry?}
+  Retry -- yes --> Payment
+  Retry -- no --> Cancelled[Order Cancelled]
+  Payment -- approved --> Fraud[Fraud Check] --> Reserve[Reserve Stock] --> Pick --> Pack --> Ship --> Deliver --> Review
+  classDef failure fill:#fff4f2,stroke:#c8553d,color:#5c2418
+  class Retry,Cancelled failure
+\`\`\`
 
 ## Notes
 - Comments start with \`%%\`.

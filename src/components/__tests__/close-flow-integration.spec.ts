@@ -229,7 +229,7 @@ describe('Test 4 — draft-restore dispatches updateCode2 + updateTitle and clea
     );
 
     const store = makeStore();
-    const dispatchSpy = vi.spyOn(store, 'dispatch');
+    const commitSpy = vi.spyOn(store, 'commit');
     await mountHeader(store);
 
     // Simulate user clicking "Restore" — EventBus carries scope+draft.
@@ -241,10 +241,10 @@ describe('Test 4 — draft-restore dispatches updateCode2 + updateTitle and clea
     // Allow any microtasks (clearDraft is async).
     await new Promise((r) => setTimeout(r, 0));
 
-    // updateCode2 should have been dispatched with the draft code.
-    expect(dispatchSpy).toHaveBeenCalledWith('updateCode2', 'A->B: draft code');
-    // updateTitle should have been dispatched with the draft title.
-    expect(dispatchSpy).toHaveBeenCalledWith('updateTitle', 'Draft Title');
+    // updateCode2 should have been committed with the draft code.
+    expect(commitSpy).toHaveBeenCalledWith('updateCode2', 'A->B: draft code');
+    // updateTitle should have been committed with the draft title.
+    expect(commitSpy).toHaveBeenCalledWith('updateTitle', 'Draft Title');
 
     // Draft should be removed from localStorage.
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
@@ -252,7 +252,7 @@ describe('Test 4 — draft-restore dispatches updateCode2 + updateTitle and clea
 
   it('ignores draft-restore events whose scope does not match this editor', async () => {
     const store = makeStore();
-    const dispatchSpy = vi.spyOn(store, 'dispatch');
+    const commitSpy = vi.spyOn(store, 'commit');
     await mountHeader(store);
 
     // Emit with a different scope.
@@ -262,7 +262,7 @@ describe('Test 4 — draft-restore dispatches updateCode2 + updateTitle and clea
     });
 
     // updateCode2 should NOT have been called.
-    expect(dispatchSpy).not.toHaveBeenCalledWith('updateCode2', expect.anything());
+    expect(commitSpy).not.toHaveBeenCalledWith('updateCode2', expect.anything());
   });
 });
 

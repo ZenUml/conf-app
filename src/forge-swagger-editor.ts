@@ -81,7 +81,7 @@ let dashboardEditDocLoaded = false;
 
 const debouncedValidateOpenApi = debounce(async (spec: string) => {
   if (!spec) {
-    store.dispatch('updateError', null);
+    store.commit('updateError', null);
     return;
   }
   await validateOpenApiSpecForStore(spec, store, 'updateError');
@@ -500,10 +500,10 @@ async function initializeMacro() {
     // Initialize spec listeners for validation and store sync
     window.specListeners = window.specListeners || [];
     window.specListeners.push((spec: string) => {
-      store.dispatch('updateCode2', spec);
+      store.commit('updateCode2', spec);
       debouncedValidateOpenApi(spec);
     });
-    store.dispatch('updateError', null);
+    store.commit('updateError', null);
     store.subscribe((mutation, state) => {
       if (mutation.type === 'updateCode2' && window.editor && window.specContent !== state.diagram.code) {
         window.updateSpec(state.diagram.code || '');

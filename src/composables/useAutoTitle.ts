@@ -117,7 +117,7 @@ export function useAutoTitle() {
     const loneLabel = diagramType === DiagramType.Graph ? singleShortLabel(code) : ''
     if (loneLabel) {
       if (trigger === 'user') {
-        store.dispatch('updateTitle', loneLabel)
+        store.commit('updateTitle', loneLabel)
         trackAnalyticsEvent('ai_title_label_used', {
           feature_area: 'ai',
           surface: 'editor',
@@ -181,7 +181,7 @@ export function useAutoTitle() {
       await typeOut(title, token)
       if (token !== genToken) return
 
-      store.dispatch('updateTitle', title)
+      store.commit('updateTitle', title)
       isAnimating.value = false
       isGeneratingTitle.value = false
       lastGeneratedTitle = title
@@ -204,7 +204,7 @@ export function useAutoTitle() {
   function dismiss(): void {
     trackAnalyticsEvent('ai_title_dismissed', { feature_area: 'ai', surface: 'editor' })
     genToken += 1
-    store.dispatch('updateTitle', '')
+    store.commit('updateTitle', '')
     isAnimating.value = false
     displayedTitle.value = ''
     showDismiss.value = false
@@ -239,7 +239,7 @@ export function useAutoTitle() {
   // Publish a real title. Nothing is written until the user publishes.
   function clearSavedRefusalTitle(macroType: string): void {
     if (!isSavedRefusalTitle(store.state.diagram.title)) return
-    store.dispatch('updateTitle', '')
+    store.commit('updateTitle', '')
     trackAnalyticsEvent('saved_refusal_title_hidden', {
       feature_area: 'ai',
       surface: 'editor',

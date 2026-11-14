@@ -197,7 +197,7 @@ const Component = ({
 
   const setTitleWithSideEffect = (value: string) => {
     setTitle(value);
-    store.dispatch('updateTitle', value);
+    store.commit('updateTitle', value);
     if (window.diagram) {
       window.diagram.title = value;
     }

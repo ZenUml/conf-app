@@ -5,8 +5,8 @@ const fakeStore = vi.hoisted(() => {
   const state = { diagram: { title: '', diagramType: 'sequence', code: 'A->B: hi' } as any }
   return {
     state,
-    dispatch: vi.fn((action: string, payload: any) => {
-      if (action === 'updateTitle') state.diagram.title = (payload || '').trim()
+    commit: vi.fn((mutation: string, payload: any) => {
+      if (mutation === 'updateTitle') state.diagram.title = (payload || '').trim()
     }),
   }
 })
@@ -22,7 +22,7 @@ import EventBus from '@/EventBus'
 describe('DiagramTitleInput', () => {
   beforeEach(() => {
     ;(useAutoTitle as any).__resetForTests()
-    fakeStore.dispatch.mockClear()
+    fakeStore.commit.mockClear()
     fakeStore.state.diagram.title = ''
     vi.useFakeTimers()
   })
@@ -38,7 +38,7 @@ describe('DiagramTitleInput', () => {
     const wrapper = mount(DiagramTitleInput)
     await flushPromises()
     await wrapper.find('input').setValue('My own title')
-    expect(fakeStore.dispatch).toHaveBeenCalledWith('updateTitle', 'My own title')
+    expect(fakeStore.commit).toHaveBeenCalledWith('updateTitle', 'My own title')
     expect((useAutoTitle() as any).hasManuallyEditedTitle.value).toBe(true)
   })
 

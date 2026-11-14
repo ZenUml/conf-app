@@ -139,7 +139,7 @@ export interface UseAgentLinkSessionOptions {
   // Fires after a relay-driven `update_diagram` op persists successfully
   // (see relayClient.ts's onDiagramUpdated doc comment). The host
   // (GenericViewer.vue) wires this to update its local diagram state the
-  // SAME WAY the in-app code editor does — store.dispatch(getStoreUpdateAction(
+  // SAME WAY the in-app code editor does — store.commit(getStoreUpdateAction(
   // diagramType), dsl) — so the macro re-renders live, without a reload.
   // `macroType` is this session's own bound diagram type, forwarded here so
   // the host doesn't need a separate lookup.
@@ -1310,7 +1310,7 @@ export function useAgentLinkSession(
     //  - a live edit arrives as a dsl-only update while already 'connected'.
     // Display-only: this instance never owns the relay socket — it mirrors
     // the edit into its OWN Vue store via the host's onDiagramUpdated
-    // (GenericViewer.applyAgentDiagramUpdate -> store.dispatch), exactly the
+    // (GenericViewer.applyAgentDiagramUpdate -> store.commit), exactly the
     // same seam the relay owner uses. lastHydratedDsl dedups the idempotent
     // re-deliveries from the reactive handoff watcher.
     if (typeof session.dsl === 'string' && session.dsl !== lastHydratedDsl) {

@@ -481,7 +481,7 @@ export default {
       if (payload.draft.graphEditorMode && payload.draft.graphEditorMode !== this.editorMode) return;
       try {
         this.loadIntoFrame(payload.draft.code);
-        if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
+        if (payload.draft.title) this.$store.commit('updateTitle', payload.draft.title);
         this.drawioModified = true;
         this.setXmlForMode(this.editorMode, payload.draft.code);
         clearDraft(this.draftScope);

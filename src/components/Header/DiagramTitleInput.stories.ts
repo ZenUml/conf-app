@@ -48,9 +48,9 @@ function setupStore({
   title = '',
   diagramType = DiagramType.Sequence,
 }: { code?: string; title?: string; diagramType?: DiagramType } = {}) {
-  store.dispatch('updateDiagramType', diagramType)
-  store.dispatch('updateCode2', code)
-  store.dispatch('updateTitle', title)
+  store.commit('updateDiagramType', diagramType)
+  store.commit('updateCode2', code)
+  store.commit('updateTitle', title)
 }
 
 const meta: Meta<typeof DiagramTitleInput> = {

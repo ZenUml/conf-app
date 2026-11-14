@@ -16,7 +16,7 @@ setup((app: { use(plugin: typeof store): unknown }) => {
 type Story = StoryObj<typeof SyntaxErrorBox>
 
 function setError(error: string | null) {
-  store.dispatch('updateError', error)
+  store.commit('updateError', error)
 }
 
 const meta: Meta<typeof SyntaxErrorBox> = {

@@ -109,7 +109,7 @@ export interface CreateRelayClientOptions {
   // the currently-mounted Vue app's diagram re-render (that was the bug).
   // The caller (useAgentLinkSession -> GenericViewer.vue) uses this to
   // mirror the in-app code editor's own live-update mechanism
-  // (store.dispatch(getStoreUpdateAction(diagramType), dsl) — see
+  // (store.commit(getStoreUpdateAction(diagramType), dsl) — see
   // Editor.vue's onEditorCodeChange) so the diagram redraws WITHOUT reload.
   onDiagramUpdated?: (dsl: string) => void
   // Fires once per `update_diagram` op, after the write settles (resolved OR

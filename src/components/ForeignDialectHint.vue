@@ -123,10 +123,10 @@ function switchDialect() {
   trackAnalyticsEvent("foreign_dialect_hint_switch_clicked", baseProps());
   const source = code.value;
   if (detectedDialect.value === "mermaid") {
-    store.dispatch("updateMermaidCode", source);
+    store.commit("updateMermaidCode", source);
     store.commit("updateDiagramType", DiagramType.Mermaid);
   } else {
-    store.dispatch("updatePlantUmlCode", source);
+    store.commit("updatePlantUmlCode", source);
     store.commit("updateDiagramType", DiagramType.PlantUml);
   }
   // Editor.vue's error-clearing watcher keys off its `code` computed's VALUE.

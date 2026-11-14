@@ -126,7 +126,7 @@ const requestRepair = () => {
 };
 // Handle applying the repair
 const handleApplyRepair = (repairedCode) => {
-  store.dispatch(getStoreUpdateAction(store.state.diagram.diagramType), repairedCode);
+  store.commit(getStoreUpdateAction(store.state.diagram.diagramType), repairedCode);
   showAIRepairDialog.value = false;
 };
 watch(aiRepairVisible, (visible, wasVisible) => {

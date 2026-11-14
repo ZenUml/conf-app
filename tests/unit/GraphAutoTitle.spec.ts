@@ -14,10 +14,10 @@ import { mount, flushPromises } from '@vue/test-utils'
 vi.mock('@/model/store2', async () => {
   const { reactive } = await import('vue')
   const state = reactive({ diagram: { title: '', id: undefined as string | undefined } })
-  const dispatch = vi.fn((action: string, payload: any) => {
-    if (action === 'updateTitle') state.diagram.title = (payload || '').trim()
+  const commit = vi.fn((mutation: string, payload: any) => {
+    if (mutation === 'updateTitle') state.diagram.title = (payload || '').trim()
   })
-  return { default: { state, dispatch } }
+  return { default: { state, commit } }
 })
 vi.mock('@/apis/aiGenerateTitle', () => ({ default: vi.fn() }))
 vi.mock('@/apis/aiTitleFeatureFlag', () => ({ resetFeatureFlagsForTests: vi.fn() }))
@@ -70,7 +70,7 @@ function mountGraphTitle(currentXml: string, editorMode: 'diagram' | 'board' = '
 describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
   beforeEach(() => {
     ;(useAutoTitle as any).__resetForTests()
-    vi.mocked(store.dispatch as any).mockClear()
+    vi.mocked(store.commit as any).mockClear()
     ;(store as any).state.diagram.title = ''
     vi.mocked(aiGenerateTitle).mockReset().mockResolvedValue(okRes(TITLE))
     ;(window as any).graphXml = undefined
@@ -115,7 +115,7 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     // currentXml → extractGraphText → backend call with the labels + graph type.
     expect(aiGenerateTitle).toHaveBeenCalledWith({ dsl: LABELLED_DSL, type: 'flowchart' })
     // Generated title committed to the store (→ window.diagram.title for save).
-    expect(store.dispatch).toHaveBeenCalledWith('updateTitle', TITLE)
+    expect(store.commit).toHaveBeenCalledWith('updateTitle', TITLE)
     // Dismiss affordance appears, and the committed title shows in the box.
     expect(wrapper.find(DISMISS).exists()).toBe(true)
     await wrapper.vm.$nextTick()
@@ -141,7 +141,7 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     await vi.advanceTimersByTimeAsync(1500)
     await runGeneration()
     expect(aiGenerateTitle).toHaveBeenCalledWith({ dsl: AWS_DSL, type: 'flowchart' })
-    expect(store.dispatch).toHaveBeenCalledWith('updateTitle', TITLE)
+    expect(store.commit).toHaveBeenCalledWith('updateTitle', TITLE)
     void wrapper
   })
 
@@ -150,9 +150,9 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     await flushPromises()
     await vi.advanceTimersByTimeAsync(1500)
     await runGeneration()
-    vi.mocked(store.dispatch as any).mockClear()
+    vi.mocked(store.commit as any).mockClear()
     await wrapper.find(DISMISS).trigger('click')
-    expect(store.dispatch).toHaveBeenCalledWith('updateTitle', '')
+    expect(store.commit).toHaveBeenCalledWith('updateTitle', '')
   })
 
   it('generates on the manual spark click', async () => {
@@ -162,7 +162,7 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     await wrapper.find(SPARK).trigger('click') // generate('user') immediately
     await runGeneration()
     expect(aiGenerateTitle).toHaveBeenCalledWith({ dsl: LABELLED_DSL, type: 'flowchart' })
-    expect(store.dispatch).toHaveBeenCalledWith('updateTitle', TITLE)
+    expect(store.commit).toHaveBeenCalledWith('updateTitle', TITLE)
   })
 
   // The exact bug from the reported UI: publishing with an empty title now
@@ -175,7 +175,7 @@ describe('Graph macro AI auto-title (DrawIoExtension + DrawIoHeader)', () => {
     await runGeneration()
     const resolved = await pending
     expect(aiGenerateTitle).toHaveBeenCalledWith({ dsl: LABELLED_DSL, type: 'flowchart' })
-    expect(store.dispatch).toHaveBeenCalledWith('updateTitle', TITLE)
+    expect(store.commit).toHaveBeenCalledWith('updateTitle', TITLE)
     expect(resolved).toBe(TITLE)
     void wrapper
   })

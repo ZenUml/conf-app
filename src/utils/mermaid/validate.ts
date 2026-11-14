@@ -103,7 +103,7 @@ export const validateMermaidSyntaxForStore = async (
   const result = await validateMermaidSyntax(code);
 
   if (store && actionName) {
-    store.dispatch(actionName, result.error);
+    store.commit(actionName, result.error);
   }
 
   return result.error;

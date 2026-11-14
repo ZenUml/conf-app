@@ -6,8 +6,8 @@ const fakeStore = vi.hoisted(() => {
   const state = { diagram: { title: '' } as { title: string } }
   return {
     state,
-    dispatch: vi.fn((action: string, payload: string) => {
-      if (action === 'updateTitle') state.diagram.title = (payload || '').trim()
+    commit: vi.fn((mutation: string, payload: string) => {
+      if (mutation === 'updateTitle') state.diagram.title = (payload || '').trim()
     }),
   }
 })
@@ -33,7 +33,7 @@ describe('OpenApiTitleInput', () => {
   beforeEach(() => {
     ;(useAutoTitle as any).__resetForTests()
     fakeStore.state.diagram.title = ''
-    fakeStore.dispatch.mockClear()
+    fakeStore.commit.mockClear()
     vi.mocked(aiGenerateTitle).mockReset()
     vi.useFakeTimers()
     container = document.createElement('div')
@@ -105,7 +105,7 @@ describe('OpenApiTitleInput', () => {
     })
 
     expect(onTitleChange).toHaveBeenLastCalledWith('')
-    expect(fakeStore.dispatch).toHaveBeenLastCalledWith('updateTitle', '')
+    expect(fakeStore.commit).toHaveBeenLastCalledWith('updateTitle', '')
   })
 
   it('auto-generates after the OpenAPI spec debounce when the title is empty', async () => {

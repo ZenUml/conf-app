@@ -187,11 +187,7 @@ export default class ApWrapper2 {
       if (window) {
         //@ts-ignore
         window.initialContext = {
-          currentUser: this.currentUser,
           currentSpace: this.currentSpace,
-          currentPageUrl: this.currentPageUrl,
-          currentPageId: this.currentPageId,
-          locationTarget: this.locationTarget
         };
       }
     } catch (e: any) {

@@ -120,7 +120,8 @@ export function buildHeadlessPrompt(target: HeadlessDiagramTarget): string {
 // the author's own publish, so the agent drafts source for the author to
 // paste, and only touches Confluence after the diagram is saved.
 export function buildEditorDraftPrompt(target: { cloudId?: string; pageId?: string; dialect: string }): string {
-  const lines = [`Use the ${mcpServerName()} MCP to help me draw a ${target.dialect} diagram for my Confluence page.`]
+  const article = /^[aeiou]/i.test(target.dialect) ? 'an' : 'a'
+  const lines = [`Use the ${mcpServerName()} MCP to help me draw ${article} ${target.dialect} diagram for my Confluence page.`]
   if (target.cloudId) lines.push(`cloudId: ${target.cloudId}`)
   if (target.pageId) lines.push(`pageId: ${target.pageId}`)
   lines.push(

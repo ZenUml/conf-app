@@ -855,20 +855,29 @@ describe('zooming a drawing', () => {
     expect(zoomReports().map((r) => r.viewport_input)).toEqual(['keyboard', 'keyboard']);
   });
 
-  it('zooms on Ctrl/Cmd + wheel or pinch, not on a plain wheel, and reports one gesture once', async () => {
+  it('zooms on the wheel without a modifier, and on a pinch, reporting one gesture once', async () => {
     await drawMermaid();
     const wheel = (init: WheelEventInit) => {
       const e = new WheelEvent('wheel', { cancelable: true, ...init });
       onWheel(e);
       return e;
     };
-    expect(wheel({ deltaY: -300 }).defaultPrevented).toBe(false);
-    expect(currentUserZoom()).toBe(1);
-    expect(wheel({ deltaY: -100, ctrlKey: true }).defaultPrevented).toBe(true);
-    wheel({ deltaY: -100, ctrlKey: true });
+    expect(wheel({ deltaY: -100 }).defaultPrevented).toBe(true);
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    wheel({ deltaY: -100, ctrlKey: true }); // a trackpad pinch
     expect(currentUserZoom()).toBeCloseTo(1.44, 5);
+    wheel({ deltaY: 100 });
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
     expect(zoomReports()).toHaveLength(1);
     expect(zoomReports()[0]).toMatchObject({ viewport_action: 'zoom_in', viewport_input: 'wheel' });
+  });
+
+  it('leaves the wheel to scroll a document', async () => {
+    deliver({ diagramType: 'markdown', dsl: '# Title' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown')).not.toBeNull());
+    const e = new WheelEvent('wheel', { cancelable: true, deltaY: -100 });
+    onWheel(e);
+    expect(e.defaultPrevented).toBe(false);
   });
 
   it('starts a new diagram, and a change of display mode, fitted', async () => {

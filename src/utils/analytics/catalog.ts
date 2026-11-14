@@ -1683,8 +1683,8 @@ export type AnalyticsEventName =
   // _rendered), the view's counterpart of viewport_control_used. Carries
   // `macro_type`, `viewport_action` (zoom_in | zoom_out | fit, where fit is
   // the "back to fit" control), `viewport_input` (toolbar | wheel | keyboard;
-  // a Ctrl/Cmd-wheel or pinch gesture counts once, as in the Confluence
-  // viewer) and `fullscreen_active` (whether the view was in fullscreen).
+  // here a plain wheel zooms, no Ctrl/Cmd needed, and a wheel or pinch
+  // gesture counts once, as in the Confluence viewer) and `fullscreen_active` (whether the view was in fullscreen).
   // Enums only, like _rendered.
   | "agent_link_app_view_zoomed"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the

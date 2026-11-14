@@ -39,7 +39,7 @@ function host(): Window | null {
 }
 
 import { detectDiagramType } from '../functions/agent-link/detectDiagramType';
-import { createGestureGate, createWheelStepper, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import { createGestureGate, createWheelStepper } from '@/utils/viewport/wheelZoom';
 
 type Json = Record<string, unknown>;
 
@@ -686,11 +686,14 @@ const wheelStep = createWheelStepper((direction) => {
 });
 
 /**
- * Ctrl/Cmd + wheel, and trackpad pinch (which arrives as one), zoom the
- * drawing. A plain wheel stays the frame's to scroll.
+ * The wheel zooms a drawing, with or without Ctrl/Cmd; a trackpad pinch
+ * arrives as a Ctrl + wheel and zooms the same way. Unlike the Confluence page
+ * viewer, which keeps a plain wheel for scrolling the page, here the drawing
+ * is the whole frame, so the wheel goes to it. Over a document the wheel
+ * scrolls as usual.
  */
 export function onWheel(e: WheelEvent): void {
-  if (!isZoomIntent(e) || !zoomable()) return;
+  if (!zoomable()) return;
   e.preventDefault();
   wheelStep(e, window.innerHeight);
 }

@@ -1,7 +1,6 @@
-// src/composables/agentLink/clipboard.ts
+// src/utils/clipboard.ts
 //
-// Clipboard write shared by the Connect MCP surfaces (the macro's dialog and
-// the Home page card). Forge iframes may deny the async Clipboard API, so a
+// Shared text clipboard write. Forge iframes may deny the async Clipboard API, so a
 // failure falls back to execCommand('copy') on a hidden textarea. Resolves
 // false when both fail, so the caller can show "Select & copy" instead.
 export async function writeClipboard(text: string): Promise<boolean> {
@@ -21,6 +20,7 @@ export async function writeClipboard(text: string): Promise<boolean> {
     textarea.setAttribute('readonly', '')
     document.body.appendChild(textarea)
     textarea.select()
+    textarea.setSelectionRange(0, text.length) // iOS ignores select() alone
     const ok = document.execCommand('copy')
     document.body.removeChild(textarea)
     return ok

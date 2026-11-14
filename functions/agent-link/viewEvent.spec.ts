@@ -84,6 +84,22 @@ describe('parseViewEvent — fullscreen', () => {
   });
 });
 
+describe('parseViewEvent — zoom', () => {
+  it('reads a zoom report as its own event, dropping anything else', () => {
+    expect(parseViewEvent('{"kind":"zoom","macro_type":"mermaid","viewport_action":"zoom_in","viewport_input":"wheel","fullscreen_active":true,"title":"x"}')).toEqual({
+      event: 'agent_link_app_view_zoomed', macro_type: 'mermaid', viewport_action: 'zoom_in', viewport_input: 'wheel', fullscreen_active: true,
+    });
+  });
+
+  it.each([
+    ['an unknown action', '{"kind":"zoom","macro_type":"mermaid","viewport_action":"zoom_to_400","viewport_input":"toolbar","fullscreen_active":false}'],
+    ['an unknown input', '{"kind":"zoom","macro_type":"mermaid","viewport_action":"fit","viewport_input":"voice","fullscreen_active":false}'],
+    ['no fullscreen_active', '{"kind":"zoom","macro_type":"mermaid","viewport_action":"fit","viewport_input":"toolbar"}'],
+  ])('refuses %s', (_label, text) => {
+    expect(parseViewEvent(text)).toBeNull();
+  });
+});
+
 describe('handleViewEvent', () => {
   it('records one event and answers 204 without waiting for Mixpanel', async () => {
     const waitUntil = vi.fn();

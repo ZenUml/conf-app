@@ -1665,6 +1665,14 @@ export type AnalyticsEventName =
   // availableDisplayModes, so the denominator is _rendered with
   // `fullscreen_available: true`. Enums only, like _rendered.
   | "agent_link_app_view_fullscreen_requested"
+  // A deliberate zoom in the MCP Apps view (POST /mcp/view-event, like
+  // _rendered), the view's counterpart of viewport_control_used. Carries
+  // `macro_type`, `viewport_action` (zoom_in | zoom_out | fit, where fit is
+  // the "back to fit" control), `viewport_input` (toolbar | wheel | keyboard;
+  // here a plain wheel zooms, no Ctrl/Cmd needed, and a wheel or pinch
+  // gesture counts once, as in the Confluence viewer) and `fullscreen_active` (whether the view was in fullscreen).
+  // Enums only, like _rendered.
+  | "agent_link_app_view_zoomed"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the
   // only way to tell "the host never offered MCP Apps" apart from "it offered
   // them and did not render" — the view-fetch events cover the second case

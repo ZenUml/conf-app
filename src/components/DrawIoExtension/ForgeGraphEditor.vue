@@ -18,14 +18,17 @@
     <DrawIoExtension :doc="doc" :current-xml="currentXml" :editor-mode="editorMode" />
     <!-- MCP promo (useEditorMcpPromo). Fed only from autosaves DrawIO marks
          modified: its load-time autosave is not an edit by the author, and
-         treating it as one would hide the new-diagram card at once. Bottom
-         left keeps clear of the Format panel on the right. -->
+         treating it as one would hide the new-diagram card at once. It sits
+         in the canvas's bottom-right corner: clear of the shape library on the
+         left, the Format panel (240px) on the right and the page tabs below. -->
     <EditorMcpPromo
       diagram-type="graph"
       :code="mcpPromoXml"
       :diagram-id="customContentId || ''"
       :diagram-title="doc?.title || ''"
-      corner="bottom-left"
+      corner="bottom-right"
+      :inset-side="264"
+      :inset-bottom="48"
     />
     <!-- Publishing overlay. The graph macro's Publish button lives INSIDE the
          DrawIO iframe (Save & Exit, relabeled), so unlike the other editors it

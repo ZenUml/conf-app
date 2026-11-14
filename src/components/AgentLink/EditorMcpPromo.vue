@@ -10,7 +10,7 @@
   from one the author has started, and counts edits for the tip.
 -->
 <template>
-  <div class="editor-mcp-promo" :class="`editor-mcp-promo--${corner}`">
+  <div class="editor-mcp-promo" :class="`editor-mcp-promo--${corner}`" :style="insetStyle">
     <McpPromoCard
       v-if="promo.showNewDiagramCard.value"
       title="Start from your code"
@@ -57,7 +57,15 @@ const props = withDefaults(defineProps<{
   diagramTitle?: string
   /** Which corner of the editor the cards sit in, clear of its own controls. */
   corner?: 'bottom-left' | 'bottom-right'
-}>(), { diagramId: '', diagramTitle: '', corner: 'bottom-right' })
+  /** Distance in px from that corner's side and from the bottom, to clear an editor's side panel or footer. */
+  insetSide?: number
+  insetBottom?: number
+}>(), { diagramId: '', diagramTitle: '', corner: 'bottom-right', insetSide: 24, insetBottom: 24 })
+
+const insetStyle = computed(() => ({
+  [props.corner === 'bottom-left' ? 'left' : 'right']: `${props.insetSide}px`,
+  bottom: `${props.insetBottom}px`,
+}))
 
 const promo = useEditorMcpPromo({
   diagramType: toRef(props, 'diagramType'),
@@ -75,12 +83,8 @@ const newDiagramBody = computed(() => (props.diagramType === 'graph'
 <style scoped>
 .editor-mcp-promo {
   position: fixed;
-  bottom: 24px;
   z-index: 50;
 }
-.editor-mcp-promo--bottom-right { right: 24px; }
-.editor-mcp-promo--bottom-left { left: 24px; }
-.editor-mcp-promo:empty { display: none; }
 .editor-mcp-promo-dialog-layer {
   position: fixed;
   inset: 0;

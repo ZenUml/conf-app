@@ -48,7 +48,7 @@ const opensDialog: Story['play'] = async ({ args }) => {
 
 export const GraphNewDiagram: Story = {
   name: 'Graph editor — new diagram',
-  args: { diagramType: 'graph', code: '', corner: 'bottom-left' },
+  args: { diagramType: 'graph', code: '', insetSide: 264, insetBottom: 48 },
   play: opensDialog,
 }
 

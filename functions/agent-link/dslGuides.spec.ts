@@ -51,6 +51,17 @@ describe('guide content — each guide encodes its top-3 mined signatures', () =
     expect(ZENUML_DSL_GUIDE).toMatch(/Grounded in .* failures/);
   });
 
+  it('Mermaid layout rules apply only to new diagrams or layout requests, never to a repair', () => {
+    const layoutAt = MERMAID_DSL_GUIDE.indexOf('## Layout — only for a NEW diagram');
+    expect(layoutAt).toBeGreaterThan(MERMAID_DSL_GUIDE.indexOf('## Minimal-edit contract'));
+    const layout = MERMAID_DSL_GUIDE.slice(layoutAt, MERMAID_DSL_GUIDE.indexOf('## Notes'));
+    expect(layout).toContain('minimal-edit contract above still governs every repair');
+    expect(layout).toContain('Meaning first');
+    // The measured Mermaid behaviour the rules rest on.
+    expect(layout).toContain('direction` is ignored as soon as one of its nodes links');
+    expect(layout).toContain('drew at 37%');
+  });
+
   it('Mermaid top-3: quote special chars, no fence leakage, flowchart-vs-sequence', () => {
     expect(MERMAID_DSL_GUIDE).toContain('Quote any label containing');
     expect(MERMAID_DSL_GUIDE).toContain('Never leave markdown fences');

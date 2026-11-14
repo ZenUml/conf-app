@@ -1606,7 +1606,7 @@ export default class ApWrapper2 {
   // regardless of body-format — confirmed live against lite-dev on 2026-07-30
   // (identical _links shape with and without ?body-format=export_view) — so
   // callers can derive the page URL from this single response instead of a
-  // second /pages/{id} round trip (see GenericViewer.vue's copyForAi path).
+  // second /pages/{id} round trip.
   async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}, _links?: {base?: string, webui?: string}} | undefined> {
     const pageId = await this._getCurrentPageId();
     return await this.request(`/api/v2/pages/${pageId}?body-format=export_view`);

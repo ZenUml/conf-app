@@ -453,6 +453,7 @@ async function trackToolCall(
     cloudId?: string;
     clientDomain?: string;
     macroType?: string;
+    embeddedDiagramCount?: number;
     guardrailReason?: string;
     failureStep?: string;
     upstreamStatus?: number;
@@ -481,6 +482,7 @@ async function trackToolCall(
       identity_failure: call.identityFailure,
       duration_ms: call.durationMs,
       macro_type: call.macroType,
+      embedded_diagram_count: call.embeddedDiagramCount,
     },
     env.MIXPANEL_TOKEN,
   ));
@@ -509,6 +511,18 @@ export function macroTypeOf(tool: string, value: unknown): string | undefined {
   if (!DIAGRAM_RESULT_TOOLS.has(tool)) return undefined;
   const from = (value as { diagramType?: unknown } | null)?.diagramType;
   return typeof from === 'string' ? MACRO_TYPE_BY_DIAGRAM_TYPE[from.toLowerCase()] : undefined;
+}
+
+/**
+ * How many diagrams a page-scoped list_diagrams found embedded on the page
+ * from elsewhere. Undefined for any other call, so the property only appears
+ * where zero means something.
+ */
+export function embeddedDiagramCountOf(tool: string, args: unknown, value: unknown): number | undefined {
+  if (tool !== 'list_diagrams' || typeof (args as { pageId?: unknown } | null)?.pageId !== 'string') return undefined;
+  const diagrams = (value as { diagrams?: unknown } | null)?.diagrams;
+  if (!Array.isArray(diagrams)) return undefined;
+  return diagrams.filter((d) => (d as { embedded?: unknown } | null)?.embedded === true).length;
 }
 
 export interface HeadlessMcpDeps {
@@ -614,7 +628,7 @@ export async function handleHeadlessRpc(
         capabilities: { tools: {}, resources: {}, extensions: uiCapability() },
         serverInfo: { name: 'conf-agent-link-headless', version: '0.1.0' },
         instructions:
-          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. To change a diagram, find its contentId with list_diagrams, read it with read_diagram, then send the complete edited source to update_diagram. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
+          'These tools read and edit ZenUML diagrams in Confluence as you, with no browser tab open. Call list_sites first for the cloudId every other tool needs. To change a diagram, find its contentId with list_diagrams, read it with read_diagram, then send the complete edited source to update_diagram. A diagram list_diagrams marks embedded is shown on that page but stored on another; read_diagram and update_diagram work on it as on any other, and an edit changes it everywhere it appears. A page edit publishes one page version, which page history can revert. A diagram edit saves a new version of the diagram only, not of the page, so undo it by writing the previous source back with update_diagram.',
       });
     }
 
@@ -670,6 +684,7 @@ export async function handleHeadlessRpc(
         reason?: string,
         extra: {
           macroType?: string;
+          embeddedDiagramCount?: number;
           guardrailReason?: string;
           failureStep?: string;
           upstreamStatus?: number;
@@ -716,7 +731,7 @@ export async function handleHeadlessRpc(
           clientDomainOf(reachableSites, params.arguments),
           macroType,
         );
-        await trackCall('success', undefined, { macroType });
+        await trackCall('success', undefined, { macroType, embeddedDiagramCount: embeddedDiagramCountOf(params.name, params.arguments, value) });
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {

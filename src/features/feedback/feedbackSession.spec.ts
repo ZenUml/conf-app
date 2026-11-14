@@ -102,4 +102,30 @@ describe('feedback session privacy boundary', () => {
 
     expect(submit.mock.calls[0][0].description).toBe(original)
   })
+
+  it('adds custom_content_version to submit events only, and only when known', async () => {
+    const withVersion = { ...context, customContentVersion: 9 }
+    const track = vi.fn()
+    const session = createFeedbackSession({
+      context: withVersion,
+      submit: vi.fn().mockResolvedValue({ reportReference: 'FBR-EXAMPLE1234' }),
+      track,
+    })
+    session.setDescription('x')
+    await session.submit()
+    const names = track.mock.calls.filter(([, p]) => p.custom_content_version === 9).map(([n]) => n)
+    expect(names).toEqual(['feedback_report_submit_requested', 'feedback_report_submit_succeeded'])
+
+    const failTrack = vi.fn()
+    const failing = createFeedbackSession({ context: withVersion, submit: vi.fn().mockRejectedValue(new Error('x')), track: failTrack })
+    failing.setDescription('x')
+    await failing.submit()
+    expect(failTrack).toHaveBeenCalledWith('feedback_report_submit_failed', expect.objectContaining({ custom_content_version: 9 }))
+
+    const noVersionTrack = vi.fn()
+    const plain = createFeedbackSession({ context, submit: vi.fn().mockResolvedValue({ reportReference: 'FBR-EXAMPLE1234' }), track: noVersionTrack })
+    plain.setDescription('x')
+    await plain.submit()
+    expect(noVersionTrack.mock.calls.some(([, p]) => 'custom_content_version' in p)).toBe(false)
+  })
 })

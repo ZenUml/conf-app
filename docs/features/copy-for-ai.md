@@ -1,4 +1,9 @@
-# Copy for AI (demand test)
+# Copy for AI (demand test) — removed
+
+> **Removed 2026-11-14.** Retiring the `agent-link-enabled` Forge flag made Connect MCP the header
+> action in every app, in the slot Copy for AI used to hold, so the button, its menu, the prompt
+> builder (`src/utils/copyForAi/`) and the `copy_for_ai_*` events were deleted. Mixpanel keeps the
+> historical events. The rest of this page is the record of the demand test, kept as written.
 
 Viewer split button that copies a context-framed markdown payload — the diagram's DSL plus the
 surrounding Confluence page's text — to the clipboard, for pasting into an AI agent (Claude Code,

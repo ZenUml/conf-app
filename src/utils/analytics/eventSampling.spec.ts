@@ -26,14 +26,14 @@ describe("eventSampling", () => {
       }
     });
 
-    it("stops the seven named diagnostics from October 2026 onward", () => {
+    it("stops the six named diagnostics from October 2026 onward", () => {
       for (const name of [
-        "cohorts_refreshed", "copy_for_ai_impression", "editor_global_replace_observed",
+        "cohorts_refreshed", "editor_global_replace_observed",
         "report_macro_metrics", "snapshot_backfill_skipped", "viewport_control_used",
         "whats_new_banner_evaluated",
       ]) {
         expect(sampleRateFor(name, october)).toBe(0);
-        expect(sampleRateFor(name, before)).toBe(name === "copy_for_ai_impression" || name === "report_macro_metrics" ? 0.1 : 1);
+        expect(sampleRateFor(name, before)).toBe(name === "report_macro_metrics" ? 0.1 : 1);
         expect(sampleRateFor(name, after)).toBe(0);
       }
     });
@@ -114,8 +114,7 @@ describe("eventSampling", () => {
     });
 
     it("reduces only listed success/info events to one tenth of their existing arrival rate", () => {
-      expect(sampleRateFor("copy_for_ai_clicked", october)).toBe(1);
-      expect(sampleRateFor("copy_for_ai_menu_opened", october)).toBe(0.1);
+      expect(sampleRateFor("viewer_more_menu_opened", october)).toBe(0.1);
       expect(sampleRateFor("diagram_attribution_shown", october)).toBe(0.005);
       expect(sampleRateFor("space_admin_active", october)).toBe(0.01);
       expect(sampleRateFor("convert_to_png", october)).toBe(0.01);
@@ -196,21 +195,6 @@ describe("eventSampling", () => {
       expect(sampleRateFor("create_attachmentmermaid")).toBe(0.1);
       expect(sampleRateFor("create_attachmentplantuml")).toBe(0.1);
       expect(sampleRateFor("create_attachmentsequence")).toBe(0.1);
-    });
-
-    // copy_for_ai_impression is an instance-level event: 80,912 occurrences from
-    // 4,414 users in the 30 days to 2026-09-07, 19.4% of all billable volume.
-    // Its only consumer is a rate (clicks / impressions), so a sample answers it.
-    it("samples the Copy for AI impression to 10%", () => {
-      expect(sampleRateFor("copy_for_ai_impression")).toBe(0.1);
-    });
-
-    // The click side of the same rate must stay whole — it is ~166 users a
-    // month, contributes nothing to the bill, and sampling both sides would
-    // multiply the estimator's error for no saving.
-    it("leaves the Copy for AI click and menu events at full fidelity", () => {
-      expect(sampleRateFor("copy_for_ai_clicked")).toBe(1);
-      expect(sampleRateFor("copy_for_ai_menu_opened")).toBe(1);
     });
 
     it("leaves error / funnel events at full fidelity", () => {

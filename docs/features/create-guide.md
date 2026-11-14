@@ -34,10 +34,10 @@ The header collapses with the viewer's width (container query on `.generic.viewe
 
 | Viewer width | Change |
 |---|---|
-| < 660 px | Source, Copy for AI, Connect → icon only |
+| < 660 px | Source, Connect MCP → icon only |
 | < 530 px | Edit, Fullscreen → icon only |
 | < 430 px | Create → icon only |
-| < 380 px | Copy for AI, Connect hidden |
+| < 380 px | Connect MCP hidden |
 | < 320 px | Source hidden |
 
 Edit, Fullscreen and Create never hide; each breakpoint leaves the title ~120px.

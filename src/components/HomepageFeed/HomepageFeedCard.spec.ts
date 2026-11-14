@@ -14,11 +14,6 @@ vi.mock("@/model/globals/forgeGlobal", () => ({
 }));
 import { openUrl, navigateToPage } from "@/model/globals/forgeGlobal";
 
-const isAgentLinkEnabled = vi.fn();
-vi.mock("@/apis/aiTitleFeatureFlag", () => ({
-  isAgentLinkEnabled: () => isAgentLinkEnabled(),
-}));
-
 vi.mock("@/composables/agentLink/connectInstructions", () => ({
   mcpAddCommand: () => "claude mcp add --transport http zenuml https://conf-lite.zenuml.com/agent-link/mcp",
   mcpServerName: () => "zenuml",
@@ -78,7 +73,6 @@ describe("HomepageFeedCard (confluence:homepageFeed)", () => {
     vi.mocked(openUrl).mockClear();
     vi.mocked(navigateToPage).mockClear();
     searchDiagramsForge.mockReset();
-    isAgentLinkEnabled.mockReset().mockResolvedValue(false);
     writeClipboard.mockReset();
   });
 
@@ -238,8 +232,7 @@ describe("HomepageFeedCard (confluence:homepageFeed)", () => {
       mcp_button_placement: "homepage_feed",
     };
 
-    async function mountWithFlag(enabled: boolean) {
-      isAgentLinkEnabled.mockResolvedValue(enabled);
+    async function mountCard() {
       const wrapper = await mountSettled([]);
       await Promise.resolve();
       await wrapper.vm.$nextTick();
@@ -250,22 +243,14 @@ describe("HomepageFeedCard (confluence:homepageFeed)", () => {
       delete (window as unknown as { forgeGlobal?: unknown }).forgeGlobal;
     });
 
-    it("stays hidden while the agent-link flag is off", async () => {
-      const wrapper = await mountWithFlag(false);
-      expect(wrapper.find('[data-testid="homepage-feed-mcp"]').exists()).toBe(false);
-    });
-
-    it("stays hidden when the flag lookup fails", async () => {
-      isAgentLinkEnabled.mockRejectedValue(new Error("flags down"));
-      const wrapper = await mountSettled([]);
-      await Promise.resolve();
-      await wrapper.vm.$nextTick();
-      expect(wrapper.find('[data-testid="homepage-feed-mcp"]').exists()).toBe(false);
+    it("shows the Connect MCP row on every app (the agent-link flag was retired)", async () => {
+      const wrapper = await mountCard();
+      expect(wrapper.find('[data-testid="homepage-feed-mcp"]').exists()).toBe(true);
     });
 
     it("opens the setup command and a site-scoped prompt, and reports the open", async () => {
       (window as unknown as { forgeGlobal: unknown }).forgeGlobal = { forgeContext: { cloudId: "c-1" } };
-      const wrapper = await mountWithFlag(true);
+      const wrapper = await mountCard();
       vi.mocked(trackAnalyticsEvent).mockClear();
 
       await wrapper.find('[data-testid="homepage-feed-mcp-toggle"]').trigger("click");
@@ -276,7 +261,7 @@ describe("HomepageFeedCard (confluence:homepageFeed)", () => {
     });
 
     it("reports the dwell when the row is closed again", async () => {
-      const wrapper = await mountWithFlag(true);
+      const wrapper = await mountCard();
       const toggle = wrapper.find('[data-testid="homepage-feed-mcp-toggle"]');
       await toggle.trigger("click");
       vi.mocked(trackAnalyticsEvent).mockClear();
@@ -292,7 +277,7 @@ describe("HomepageFeedCard (confluence:homepageFeed)", () => {
 
     it("copies the setup command and reports the outcome", async () => {
       writeClipboard.mockResolvedValue(true);
-      const wrapper = await mountWithFlag(true);
+      const wrapper = await mountCard();
       await wrapper.find('[data-testid="homepage-feed-mcp-toggle"]').trigger("click");
       vi.mocked(trackAnalyticsEvent).mockClear();
 
@@ -312,7 +297,7 @@ describe("HomepageFeedCard (confluence:homepageFeed)", () => {
 
     it("offers manual selection when the clipboard is unavailable", async () => {
       writeClipboard.mockResolvedValue(false);
-      const wrapper = await mountWithFlag(true);
+      const wrapper = await mountCard();
       await wrapper.find('[data-testid="homepage-feed-mcp-toggle"]').trigger("click");
 
       const copy = wrapper.find('[data-testid="homepage-feed-mcp-copy-prompt"]');

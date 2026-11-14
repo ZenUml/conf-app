@@ -6,6 +6,7 @@ import FeedbackHost from './FeedbackHost.vue'
 import { deriveFeedbackContext, feedbackSurfaceForContext } from './feedbackContext'
 import { requestFeedbackCapture } from './feedbackBridge'
 import { createFeedbackTransport } from './feedbackTransport'
+import { registerAnalyticsSuperProperties } from '@/utils/analytics/trackAnalyticsEvent'
 import type { FeedbackContext } from './feedbackSession'
 
 const HOST_ID = 'zenuml-feedback-host'
@@ -29,6 +30,7 @@ function isFeedbackContext(value: unknown): value is FeedbackContext {
     && typeof context.macroUuid === 'string'
     && typeof context.contentId === 'string'
     && typeof context.customContentId === 'string'
+    && (context.customContentVersion === undefined || typeof context.customContentVersion === 'number')
 }
 
 export function mountFeedbackModal(forgeContext: Record<string, any>): boolean {
@@ -41,6 +43,11 @@ export function mountFeedbackModal(forgeContext: Record<string, any>): boolean {
   const captureCurrentView = feedbackToken && typeof BroadcastChannel !== 'undefined'
     ? () => requestFeedbackCapture(feedbackToken)
     : undefined
+  const viewerReplayId = typeof modal.viewerReplayId === 'string' ? modal.viewerReplayId : ''
+  void registerAnalyticsSuperProperties({
+    ...(feedbackToken ? { feedback_token: feedbackToken } : {}),
+    ...(viewerReplayId ? { viewer_replay_id: viewerReplayId } : {}),
+  })
   const close = async () => { await (await getView()).close() }
 
   createApp(FeedbackDialog, {

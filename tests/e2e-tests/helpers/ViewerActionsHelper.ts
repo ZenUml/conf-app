@@ -17,7 +17,7 @@
 //  - Versions in the current build only logs to console — there's no DOM
 //    target to assert on. We listen to console messages and pattern-match.
 //  - "More" must be matched exactly: getByRole name matching is a substring
-//    match, and the Copy for AI chevron is labelled "Copy for AI — more options".
+//    match, so any other button whose name contains "more" would also match.
 
 import { Page, FrameLocator, expect, ConsoleMessage } from '@playwright/test';
 import { MacroPage } from '../pages/MacroPage.js';

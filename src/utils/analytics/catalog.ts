@@ -258,7 +258,7 @@ export type EditorInputMethod =
   | "redo"
   | "unknown";
 export type ContentDeltaBucket = "none" | "tiny" | "small" | "medium" | "large";
-export type CopySource = "copy_for_ai" | "view_source";
+export type CopySource = "view_source";
 
 // Format slice selected on the dual-format ("My API Documents") dashboard's
 // tab / Format filter. "all" shows both AsyncAPI and OpenAPI docs.
@@ -316,6 +316,9 @@ export type PlantUmlRenderer = "server" | "local" | "server_fallback";
 // The MCP Apps view's vocabulary for `plantuml_renderer`: it never asks the
 // server, so a diagram the engine cannot draw is `failed`, not `server_fallback`.
 export type McpViewPlantUmlRenderer = "local" | "failed";
+// What the host did when the MCP Apps view asked for fullscreen or to leave it
+// (agent_link_app_view_fullscreen_requested).
+export type McpViewFullscreenOutcome = "entered" | "exited" | "declined" | "failed";
 
 // Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
 // is NOT a failure: the engine draws it like the server did, and the existing
@@ -407,6 +410,8 @@ export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
 // `feedback` records the explicit start requested by the Feedback trigger.
+// `feedback_dialog` records the Feedback modal iframe itself, which starts at
+// 100% on init (the viewer's `feedback` source covers only the trigger click).
 // `license_notice` records the explicit start requested when the Full
 // "No active license" notice is shown (license_notice_shown).
 // `timeout` means the Forge flag download did not settle within
@@ -421,6 +426,7 @@ export type SessionReplayEventSource =
   | "feedback"
   | "license_notice"
   | "title_draft_preview"
+  | "feedback_dialog"
   | "timeout"
   | "off";
 
@@ -882,6 +888,8 @@ export type AnalyticsEventName =
   // In-product feedback funnel. feedback_report_opened fires as the surface
   // trigger opens the dialog, after requesting Session Replay, and carries
   // session_replay_source=feedback plus the synchronous SDK call outcome.
+  // feedback_report_submit_requested/_succeeded/_failed also carry
+  // custom_content_version (integer, when known).
   // Events before feedback_report_submit_requested
   // contain interaction context only: never description, screenshot bytes,
   // diagram source, or any other draft report content. The report payload is
@@ -1035,25 +1043,11 @@ export type AnalyticsEventName =
   // preference_changed with action_location=canvas_hint).
   | "mermaid_highlight_hint_shown"
   | "mermaid_highlight_hint_dismissed"
-  // Copy-for-AI discovery funnel. Impression fires once per eligible viewer
-  // instance; menu_opened fires on every closed -> open transition.
-  | "copy_for_ai_impression"
-  | "copy_for_ai_menu_opened"
   // Viewer header "More" (⋯) menu, closed -> open. feature_area=macro,
   // surface=viewer|fullscreen, macro_type, and on the inline macro
   // `header_stage` (0-3) — the collapse stage the header was in, because at
-  // stage 3 Source and Copy for AI are reachable only through this menu.
+  // stage 3 Source and Connect MCP are reachable only through this menu.
   | "viewer_more_menu_opened"
-  // "Copy for AI" demand-test button in the viewer top-actions row (alongside
-  // View Source): a split button — a one-click primary segment (job:
-  // 'generic') plus a chevron menu of five job-framed entry points (explain /
-  // update / implement / audit / tests) that only vary the copied preamble
-  // (buildCopyForAiPrompt.ts), never the DSL+page payload itself. Fires once
-  // per click, primary or menu item, with `job` recording which one. `outcome`
-  // distinguishes a full copy (diagram + surrounding page context) from the
-  // diagram-only fallback (page context unavailable) and an outright
-  // clipboard-write failure.
-  | "copy_for_ai_clicked"
   // Viewer "Create" slash-command guide. The top-actions Create button opens an
   // untitled Forge medium modal that loops a silent video of: Edit the page ->
   // place the caret -> type "/" + macro name -> pick the macro. impression fires
@@ -1078,7 +1072,7 @@ export type AnalyticsEventName =
   // menu that replaced it) or `fullscreen_header` (Fullscreen's header
   // "Diagram link" button).
   // Fires once per click, in a finally block, after the terminal outcome is
-  // known — same convention as `copy_for_ai_clicked`. `outcome` distinguishes
+  // known. `outcome` distinguishes
   // a successful clipboard write from a clipboard-write failure from the
   // three "couldn't even mint a link" paths (missing host/contentId, or an
   // unresolvable cloudId), which used to fire this event identically to
@@ -1659,9 +1653,28 @@ export type AnalyticsEventName =
   // `macro_type` and `render_outcome` (rendered | failed), and for PlantUML
   // `plantuml_renderer` (local | failed; the view has no server fallback, ADR-0010
   // step 7) and on failure `plantuml_failure_reason`. A syntax error the engine
-  // drew counts as rendered. Never carries the source, a title or any free text,
+  // drew counts as rendered. Also `fullscreen_available`: whether the host
+  // listed `fullscreen` in its availableDisplayModes (so the view showed its
+  // fullscreen button). Never carries the source, a title or any free text,
   // and no user or site: the endpoint accepts these enums and nothing else.
   | "agent_link_app_view_rendered"
+  // The MCP Apps view's fullscreen button was pressed, and what the host did
+  // with `ui/request-display-mode` (POST /mcp/view-event, like _rendered).
+  // Carries `macro_type` and `fullscreen_outcome`: `entered` (host switched
+  // to fullscreen), `exited` (back to inline), `declined` (host answered with
+  // the mode it was already in), `failed` (host answered with an error). The
+  // button only shows where the host lists `fullscreen` in its
+  // availableDisplayModes, so the denominator is _rendered with
+  // `fullscreen_available: true`. Enums only, like _rendered.
+  | "agent_link_app_view_fullscreen_requested"
+  // A deliberate zoom in the MCP Apps view (POST /mcp/view-event, like
+  // _rendered), the view's counterpart of viewport_control_used. Carries
+  // `macro_type`, `viewport_action` (zoom_in | zoom_out | fit, where fit is
+  // the "back to fit" control), `viewport_input` (toolbar | wheel | keyboard;
+  // here a plain wheel zooms, no Ctrl/Cmd needed, and a wheel or pinch
+  // gesture counts once, as in the Confluence viewer) and `fullscreen_active` (whether the view was in fullscreen).
+  // Enums only, like _rendered.
+  | "agent_link_app_view_zoomed"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the
   // only way to tell "the host never offered MCP Apps" apart from "it offered
   // them and did not render" — the view-fetch events cover the second case
@@ -1706,8 +1719,8 @@ export type AnalyticsEventName =
   // breakdown. Like X, these carry the target site in `cloud_id`.
   | "agent_link_page_created"
   | "agent_link_page_updated"
-  // Z — "Connect MCP" dialog (inline macro viewer; replaces the Copy for AI
-  // button when the agent-link flag is on). The first release offers the
+  // Z — "Connect MCP" dialog (inline macro viewer; replaced the Copy for AI
+  // button, removed 2026-11-14 with the agent-link flag). The first release offers the
   // headless MCP only (`mcp_mode: 'headless'`): no relay session is minted, so
   // the dialog carries setup instructions and a prompt naming this diagram.
   // opened = the button (or More menu item) click that shows the dialog;

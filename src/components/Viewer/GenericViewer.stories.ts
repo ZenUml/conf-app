@@ -38,12 +38,11 @@ setup((app: { use(plugin: typeof store): unknown }) => {
 /**
  * Stories for the macro viewer HEADER (.viewer-edge-top in GenericViewer.vue):
  * the title area (title, EMBED chip, READ-ONLY recovered chip) and the
- * top-right action row (Edit, View Source, the "Copy for AI ▾" split
- * button + its five-job menu, Fullscreen).
+ * top-right action row (Edit, View Source, Connect MCP, More, Fullscreen).
  *
  * GenericViewer is mounted for real (not a structural facsimile) — same
  * approach as Header.stories.ts — because the header's interactive bits
- * (the split button's inline state machine, CopyForAiMenu's popover) are
+ * (the More menu, the View Source sheet, the Connect MCP dialog) are
  * exactly what these stories exist to showcase. The two runtime dependencies
  * that would otherwise hit the network (globals.apWrapper.getCurrentPage /
  * canUserEdit) are shadowed directly on the singleton instance, mirroring
@@ -178,33 +177,25 @@ function stubFeatureFlags(architectureTokensEnabled: boolean) {
 }
 
 /**
- * copyForAi()'s page-context lookup (resolveCopyForAiPage) calls
- * globals.apWrapper.getCurrentPage() directly — the exact call
- * GenericViewer.spec.ts mocks via vi.mock('@/model/globals', …). Storybook
- * has no vi.mock, so shadow the instance method on the singleton instead.
- * `delayMs` lets the CopyCopying story hold the button in its transient
- * state, matching GenericViewer.spec.ts's "pending promise" technique for
- * that same assertion.
+ * Storybook has no vi.mock, so shadow the globals.apWrapper instance methods
+ * GenericViewer.spec.ts mocks via vi.mock('@/model/globals', …) on the
+ * singleton instead.
  */
-function stubApWrapper({ delayMs = 0, displayMode = true }: { delayMs?: number; displayMode?: boolean } = {}) {
+function stubApWrapper({ displayMode = true }: { displayMode?: boolean } = {}) {
   globals.apWrapper.isDisplayMode = () => displayMode
   globals.apWrapper.canUserEdit = async () => true
   globals.apWrapper.initializeContext = async () => undefined
-  globals.apWrapper.getCurrentPage = async () => {
-    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
-    return SAMPLE_PAGE
-  }
+  globals.apWrapper.getCurrentPage = async () => SAMPLE_PAGE
 }
 
 /**
- * copyForAi() fires trackAnalyticsEvent('copy_for_ai_clicked', …) on every
- * outcome — real production behavior these stories don't want to fake away.
- * But .storybook/main.ts defines VITE_MIXPANEL_TOKEN as '' (no real project),
+ * The viewer fires trackAnalyticsEvent(…) on real interactions — production
+ * behavior these stories don't want to fake away. But .storybook/main.ts defines VITE_MIXPANEL_TOKEN as '' (no real project),
  * and mixpanel-browser's init()/register() throw internally against an empty
  * token (verified live: "Cannot read properties of undefined (reading
  * 'before_register')"). trackAnalyticsEvent already catches that (analytics
- * failures must never break the UI — see its outer try/catch), so the button
- * still reaches 'copied'/'failed' correctly either way; this just keeps the
+ * failures must never break the UI — see its outer try/catch), so the UI
+ * behaves correctly either way; this just keeps the
  * story's console clean by no-op'ing the calls instead of letting them throw
  * into a caught-and-logged error every time.
  */
@@ -301,16 +292,13 @@ function configureStory(options: {
   snapshotFallback?: boolean
   moduleKey?: string
   clipboardWrites?: boolean
-  pageFetchDelayMs?: number
   fullscreenMode?: boolean
   exportEntryMode?: boolean
   architectureTokensEnabled?: boolean
   customContentId?: string
   displayMode?: boolean
   accountId?: string
-  agentLinkEnabled?: boolean
 } = {}) {
-  localStorage.setItem('mockAgentLinkEnabled', String(Boolean(options.agentLinkEnabled)))
   resetStubResponses()
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
   stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId, options.accountId)
@@ -328,7 +316,7 @@ function configureStory(options: {
       ...(options.exportEntryMode ? { openExport: true } : {}),
     }
   }
-  stubApWrapper({ delayMs: options.pageFetchDelayMs, displayMode: options.displayMode })
+  stubApWrapper({ displayMode: options.displayMode })
   stubMixpanel()
   installClipboardMock(options.clipboardWrites ?? true)
   setupStore(options)
@@ -336,7 +324,7 @@ function configureStory(options: {
 }
 
 /**
- * The top-right action row (Edit/Source/Copy for AI/More/Fullscreen) is
+ * The top-right action row (Edit/Source/Connect MCP/More/Fullscreen) is
  * revealed per control: each one sits at opacity 0 until the surface gets
  * `.viewer-surface--revealed` (hover, keyboard focus inside, or an open
  * menu — GenericViewer.vue's `headerRevealed`). Every story below hovers
@@ -363,7 +351,7 @@ async function revealHeader() {
 /**
  * Renders GenericViewer with a lightweight placeholder in the diagram slot.
  * `minHeight` exists because the frame is only as tall as its content: the
- * Copy for AI job menu and the View Source sheet are each ~300px and would
+ * More menu and the View Source sheet are each ~300px and would
  * otherwise be clipped by a frame sized to a one-line placeholder.
  */
 function renderViewer(args: Args, placeholderLabel = 'Diagram preview', minHeight = 0) {
@@ -565,8 +553,7 @@ const meta: Meta<typeof GenericViewer> = {
         component:
           'The macro viewer as a reader meets it on a Confluence page. The header row ' +
           '(.viewer-edge-top): title, EMBED and READ-ONLY chips, and the hover-revealed actions — ' +
-          'Edit, View Source, the "Copy for AI ▾" split button (one-click copy plus a chevron menu ' +
-          'of five job-framed entries, with inline Copying…/Copied/Copy failed feedback) and ' +
+          'Edit, View Source, Connect MCP (which opens the MCP setup dialog), More and ' +
           'Fullscreen. Then the surfaces below it: the View Source sheet inline and fullscreen, ' +
           'Mermaid pan and zoom across all three surfaces, the load-failed recovery panel, the ' +
           'Architecture Tokens footer through the real Mermaid renderer, the export entry point, ' +
@@ -584,7 +571,7 @@ export default meta
 
 /**
  * A text-DSL diagram (Mermaid) with an ordinary edit permission and no
- * recovery/embed state: Edit, Source, "Copy for AI ▾" (idle), and Fullscreen
+ * recovery/embed state: Edit, Source, Connect MCP, and Fullscreen
  * are all visible in the top-right action row.
  */
 export const Default: Story = {
@@ -601,8 +588,7 @@ export const Default: Story = {
     const canvas = within(document.body)
     await expect(canvas.getByRole('button', { name: 'Edit' })).toBeEnabled()
     await expect(await canvas.findByTestId('view-source-btn')).toBeVisible()
-    const copyBtn = await canvas.findByTestId('copy-for-ai-btn')
-    await expect(copyBtn).toHaveAttribute('data-copy-state', 'idle')
+    await expect(await canvas.findByTestId('connect-mcp-btn')).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Fullscreen' })).toBeVisible()
   },
 }
@@ -1043,158 +1029,15 @@ export const MermaidEditorPanZoom: Story = {
 }
 
 // ---------------------------------------------------------------------------
-// 2. CopyStates — the four inline states of the Copy for AI primary segment
-// ---------------------------------------------------------------------------
-// Each story drives the SAME real click → copyForAi() flow the button uses in
-// production (not a forced internal-data shortcut) so the states shown are
-// exactly what a user would see. 'idle' needs no interaction; 'copying' holds
-// on a page-fetch promise that never resolves (mirrors the spec's pending-
-// promise technique); 'copied' and 'failed' let the real flow settle and
-// assert on the terminal label + data-copy-state before the ~2s auto-revert.
-
-/** Idle — the split button before any interaction. */
-export const CopyStateIdle: Story = {
-  name: 'Copy for AI — idle',
-  decorators: [
-    () => {
-      configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
-      return { template: '<story />' }
-    },
-  ],
-  render: (args: Args) => renderViewer(args),
-  play: async () => {
-    await revealHeader()
-    const canvas = within(document.body)
-    const btn = await canvas.findByTestId('copy-for-ai-btn')
-    await expect(btn).toHaveAttribute('data-copy-state', 'idle')
-    await expect(btn.querySelector('[data-active="true"]')).toHaveTextContent('Copy for AI')
-  },
-}
-
-/** Copying — the page-context fetch is deliberately held open. */
-export const CopyStateCopying: Story = {
-  name: 'Copy for AI — copying',
-  decorators: [
-    () => {
-      // pageFetchDelayMs never resolves within the story's lifetime — holds
-      // the button in 'copying' for the static demo, same shape as the
-      // spec's pending promise for this exact assertion.
-      configureStory({
-        diagramType: DiagramType.Sequence,
-        title: 'Login flow',
-        code: SAMPLE_SEQUENCE,
-        pageFetchDelayMs: 24 * 60 * 60 * 1000,
-      })
-      return { template: '<story />' }
-    },
-  ],
-  render: (args: Args) => renderViewer(args),
-  play: async () => {
-    await revealHeader()
-    const canvas = within(document.body)
-    const btn = await canvas.findByTestId('copy-for-ai-btn')
-    await userEvent.click(btn)
-    await waitFor(() => expect(btn).toHaveAttribute('data-copy-state', 'copying'))
-    await expect(btn).toHaveAttribute('aria-busy', 'true')
-    await expect(btn).toBeDisabled()
-    await expect(btn.querySelector('[data-active="true"]')).toHaveTextContent('Copying…')
-  },
-}
-
-/** Copied — clipboard write succeeds. */
-export const CopyStateCopied: Story = {
-  name: 'Copy for AI — copied',
-  decorators: [
-    () => {
-      configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
-      return { template: '<story />' }
-    },
-  ],
-  render: (args: Args) => renderViewer(args),
-  play: async () => {
-    await revealHeader()
-    const canvas = within(document.body)
-    const btn = await canvas.findByTestId('copy-for-ai-btn')
-    await userEvent.click(btn)
-    await waitFor(() => expect(btn).toHaveAttribute('data-copy-state', 'copied'))
-    await expect(btn.querySelector('[data-active="true"]')).toHaveTextContent('Copied')
-    await expect(await canvas.findByTestId('copy-for-ai-announcement')).toHaveTextContent('Copied')
-  },
-}
-
-/** Copy failed — clipboard.writeText rejects. */
-export const CopyStateFailed: Story = {
-  name: 'Copy for AI — copy failed',
-  decorators: [
-    () => {
-      configureStory({
-        diagramType: DiagramType.Sequence,
-        title: 'Login flow',
-        code: SAMPLE_SEQUENCE,
-        clipboardWrites: false,
-      })
-      return { template: '<story />' }
-    },
-  ],
-  render: (args: Args) => renderViewer(args),
-  play: async () => {
-    await revealHeader()
-    const canvas = within(document.body)
-    const btn = await canvas.findByTestId('copy-for-ai-btn')
-    await userEvent.click(btn)
-    await waitFor(() => expect(btn).toHaveAttribute('data-copy-state', 'failed'))
-    await expect(btn.querySelector('[data-active="true"]')).toHaveTextContent('Copy failed')
-  },
-}
-
-// ---------------------------------------------------------------------------
-// 3. JobMenuOpen — the chevron's five-entry job menu
+// 4. GraphType — non-text-DSL diagram: no Source
 // ---------------------------------------------------------------------------
 
 /**
- * Clicks the chevron segment to open CopyForAiMenu's popover, showing all
- * five job-framed entries with their description lines.
- */
-export const JobMenuOpen: Story = {
-  name: 'Copy for AI — job menu, five entries',
-  decorators: [
-    () => {
-      configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE })
-      return { template: '<story />' }
-    },
-  ],
-  // The popover is ~300px tall and the frame hugs its content, so a normal
-  // placeholder clips three of the five entries the story is named for.
-  render: (args: Args) => renderViewer(args, 'Diagram preview', 300),
-  play: async () => {
-    await revealHeader()
-    const canvas = within(document.body)
-    const menuBtn = await canvas.findByTestId('copy-for-ai-menu-btn')
-    await userEvent.click(menuBtn)
-
-    await expect(await canvas.findByTestId('copy-for-ai-job-explain')).toHaveTextContent('Ask about this flow')
-    await expect(canvas.getByTestId('copy-for-ai-job-explain')).toHaveTextContent('Get answers from the diagram and its page')
-    await expect(canvas.getByTestId('copy-for-ai-job-update')).toHaveTextContent('Update this diagram')
-    await expect(canvas.getByTestId('copy-for-ai-job-update')).toHaveTextContent('Describe a change, get paste-ready source back')
-    await expect(canvas.getByTestId('copy-for-ai-job-implement')).toHaveTextContent('Implement this design')
-    await expect(canvas.getByTestId('copy-for-ai-job-implement')).toHaveTextContent('Take the spec into your coding agent')
-    await expect(canvas.getByTestId('copy-for-ai-job-audit')).toHaveTextContent('Check against my codebase')
-    await expect(canvas.getByTestId('copy-for-ai-job-audit')).toHaveTextContent('Find where diagram and code disagree')
-    await expect(canvas.getByTestId('copy-for-ai-job-tests')).toHaveTextContent('Generate test cases')
-    await expect(canvas.getByTestId('copy-for-ai-job-tests')).toHaveTextContent('Derive tests from this flow')
-  },
-}
-
-// ---------------------------------------------------------------------------
-// 4. GraphType — non-text-DSL diagram: no Source, no Copy for AI
-// ---------------------------------------------------------------------------
-
-/**
- * A Graph (DrawIO) diagram. View Source and Copy for AI are text-DSL-only
- * (showViewSource) so both are absent; Edit and Fullscreen stay present.
+ * A Graph (DrawIO) diagram. View Source is text-DSL-only (showViewSource) so
+ * it is absent; Edit, Connect MCP and Fullscreen stay present.
  */
 export const GraphType: Story = {
-  name: 'Graph diagram — no View Source, no Copy for AI',
+  name: 'Graph diagram — no View Source',
   decorators: [
     () => {
       configureStory({ diagramType: DiagramType.Graph, title: 'Deployment topology' })
@@ -1207,7 +1050,7 @@ export const GraphType: Story = {
     const canvas = within(document.body)
     await expect(canvas.getByRole('button', { name: 'Edit' })).toBeEnabled()
     await expect(canvas.queryByTestId('view-source-btn')).toBeNull()
-    await expect(canvas.queryByTestId('copy-for-ai-btn')).toBeNull()
+    await expect(await canvas.findByTestId('connect-mcp-btn')).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Fullscreen' })).toBeVisible()
   },
 }
@@ -1215,14 +1058,14 @@ export const GraphType: Story = {
 /**
  * Connect MCP on every diagram type. The headless MCP tools read and update
  * every stored type, so the button is not limited to the text DSLs: a Graph,
- * OpenAPI, AsyncAPI or Markdown macro shows it too, with the agent-link flag on.
+ * OpenAPI, AsyncAPI or Markdown macro shows it too.
  */
 function connectMcpStory(diagramType: DiagramType, title: string, label: string): Story {
   return {
     name: `Connect MCP — ${label}`,
     decorators: [
       () => {
-        configureStory({ diagramType, title, agentLinkEnabled: true })
+        configureStory({ diagramType, title })
         return { template: '<story />' }
       },
     ],
@@ -1590,7 +1433,7 @@ export const MermaidFullscreenMagicWritebackMiss: Story = {
 // The prototype's three macros at the four column widths it was designed
 // for. Pick `columnWidth` in Controls (or ?args=columnWidth:560) to watch the
 // header collapse: S0 all labels, S1 Edit + Refined (+ Connect MCP) icon-only, S2 Fullscreen
-// icon-only, S3 Source + Copy for AI into More. data-stage on .viewer-frame
+// icon-only, S3 Source + Connect MCP into More. data-stage on .viewer-frame
 // shows the stage picked. The Graph fixture has no source, so stops at S2.
 
 const STAGED_COLUMN_ARG_TYPES = {
@@ -1771,7 +1614,7 @@ export const HeaderMermaidFullscreen: Story = {
   loaders: MermaidFullscreenPanZoom.loaders,
   decorators: [() => {
     configureStory({ diagramType: DiagramType.Mermaid, title: 'Basic pipelines',
-      mermaidCode: SAMPLE_MERMAID_WIDE, fullscreenMode: true, agentLinkEnabled: true })
+      mermaidCode: SAMPLE_MERMAID_WIDE, fullscreenMode: true })
     return { template: '<story />' }
   }],
   render: () => renderZenUmlFullscreenViewer(),
@@ -1789,7 +1632,7 @@ export const HeaderMermaidInline: Story = {
   ...HeaderMermaidFullscreen,
   name: 'Header redesign — Mermaid inline with relationship menu',
   decorators: [() => {
-    configureStory({ diagramType: DiagramType.Mermaid, title: 'Basic pipelines', mermaidCode: SAMPLE_MERMAID_WIDE, agentLinkEnabled: true })
+    configureStory({ diagramType: DiagramType.Mermaid, title: 'Basic pipelines', mermaidCode: SAMPLE_MERMAID_WIDE })
     return { template: '<story />' }
   }],
   render: () => renderZenUmlInlineViewer(),
@@ -1843,7 +1686,7 @@ export const McpPromoFullscreenCard: Story = {
   parameters: { layout: 'fullscreen' },
   decorators: [() => {
     resetMcpPromoStorage()
-    configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE, fullscreenMode: true, agentLinkEnabled: true })
+    configureStory({ diagramType: DiagramType.Sequence, title: 'Login flow', code: SAMPLE_SEQUENCE, fullscreenMode: true })
     return { template: '<story />' }
   }],
   render: () => renderZenUmlFullscreenViewer(),

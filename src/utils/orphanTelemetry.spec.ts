@@ -149,6 +149,23 @@ describe('reportOrphanObserved', () => {
       expect(lastProps()).not.toHaveProperty('direct_fetch_error_code');
     });
 
+    it('reports the error name and message of a thrown fetch', () => {
+      reportOrphanObserved('page1', 'orphan1', 'sequence', undefined, {
+        directFetch: {
+          directFetchStatus: 'other_error',
+          directFetchErrorClass: 'thrown',
+          directFetchErrorName: 'TypeError',
+          directFetchErrorMessage: 'Load failed',
+        },
+      });
+
+      expect(lastProps()).toMatchObject({
+        direct_fetch_error_class: 'thrown',
+        direct_fetch_error_name: 'TypeError',
+        direct_fetch_error_message: 'Load failed',
+      });
+    });
+
     it('reports a malformed body with class malformed', () => {
       reportOrphanObserved('page1', 'orphan1', 'graph', undefined, {
         directFetch: { directFetchStatus: 'other_error', directFetchErrorClass: 'malformed' },

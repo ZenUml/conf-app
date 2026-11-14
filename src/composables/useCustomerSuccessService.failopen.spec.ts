@@ -10,13 +10,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // outcome correctly, since `paywall_gate_evaluated.macro_count_source` still
 // reports it.
 
-vi.mock('@/apis/featureFlags', () => ({
-  default: vi.fn().mockResolvedValue({ PAYWALL_EXEMPT: false }),
-}))
-
 // Unpaid space so spacePaid can't independently disable the gate.
 vi.mock('@/utils/requestUtil', () => ({
-  callRemote: vi.fn().mockResolvedValue({ isPaid: false, source: 'lic_param' }),
+  callRemote: vi.fn().mockResolvedValue({ isPaid: false, paywallExempt: false, source: 'lic_param' }),
 }))
 
 vi.mock('@/utils/window', () => ({

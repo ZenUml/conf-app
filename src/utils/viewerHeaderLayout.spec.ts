@@ -21,11 +21,11 @@ const measureLabel = (text: string, size: 12 | 13) => text.length * (size === 13
 // MACROS) is built around.
 const MERMAID_LONG = {
   title: 'Checkout service: order placement with payment retry and inventory compensation',
-  model: { hasSource: true, magic: true, pages: 0, hasEdit: true } satisfies HeaderModel,
+  model: { hasSource: true, magic: true, pages: 0, hasEdit: true, connectMcp: true } satisfies HeaderModel,
 }
 const PLANTUML_SHORT = {
   title: 'Auth token refresh',
-  model: { hasSource: true, magic: false, pages: 0, hasEdit: true } satisfies HeaderModel,
+  model: { hasSource: true, magic: false, pages: 0, hasEdit: true, connectMcp: true } satisfies HeaderModel,
 }
 const GRAPH_PAGES = {
   title: 'Payments platform regional deployment topology (EU-West, US-East, failover)',
@@ -61,7 +61,7 @@ describe('viewerHeaderLayout', () => {
   })
 
   describe('maxHeaderStage', () => {
-    it('allows stage 3 (Source + Copy for AI into More) only when the diagram has source', () => {
+    it('allows stage 3 (Source + Connect MCP into More) only when the diagram has source', () => {
       expect(maxHeaderStage(MERMAID_LONG.model)).toBe(3)
       expect(maxHeaderStage(GRAPH_PAGES.model)).toBe(2)
     })
@@ -81,7 +81,8 @@ describe('viewerHeaderLayout', () => {
     })
 
     it('makes Edit icon-only at stage 1 only when Edit is present', () => {
-      const noEdit = { ...PLANTUML_SHORT.model, hasEdit: false }
+      // Without Connect MCP too, which also turns icon-only at stage 1.
+      const noEdit = { ...PLANTUML_SHORT.model, hasEdit: false, connectMcp: false }
       expect(controlsWidth(noEdit, 0, measureLabel)).toBe(controlsWidth(noEdit, 1, measureLabel))
     })
 
@@ -92,12 +93,11 @@ describe('viewerHeaderLayout', () => {
       // Labelled: 8px padding + 1px border each side, 16px icon, 6px gap and
       // 'MCP' (3 glyphs at 7px), against a 28px icon-only button.
       expect(s0 - s1).toBe(40 + 3 * 7 - 28)
-      // Icon-only it is a 28px button 6px from Source, not Copy for AI's
-      // 2px-joined split with its 18px chevron.
-      const copy = { ...mcp, connectMcp: false }
-      expect(s1).toBe(controlsWidth(copy, 1, measureLabel) - 18 + 4)
+      // Icon-only it is a 28px button 6px from Source.
+      const without = { ...mcp, connectMcp: false }
+      expect(s1).toBe(controlsWidth(without, 1, measureLabel) + 28 + 6)
       // Stage 3 moves it into More with Source.
-      expect(controlsWidth(mcp, 3, measureLabel)).toBe(controlsWidth(copy, 3, measureLabel))
+      expect(controlsWidth(mcp, 3, measureLabel)).toBe(controlsWidth(without, 3, measureLabel))
     })
 
     it('reserves the page navigation width for multi-page diagrams', () => {
@@ -182,21 +182,21 @@ describe('viewerHeaderLayout', () => {
       }
     })
 
-    it('leads with Source and Copy for AI at stage 3', () => {
+    it('leads with Source at stage 3', () => {
       expect(moreMenuItems({ ...base, stage: 3 })).toEqual([
-        'source', 'copy-for-ai', 'separator',
+        'source', 'separator',
         'copy-diagram-link', 'export-png', 'versions', 'separator', 'debug',
       ])
     })
 
-    it('lists Connect MCP in place of Copy for AI when it holds that slot', () => {
+    it('lists Connect MCP after Source at stage 3', () => {
       expect(moreMenuItems({ ...base, connectMcp: true, stage: 3 }).slice(0, 3)).toEqual([
         'source', 'connect-mcp', 'separator',
       ])
       expect(moreMenuItems({ ...base, connectMcp: true, stage: 2 })).not.toContain('connect-mcp')
     })
 
-    it('never lists Source or Copy for AI for a diagram without source', () => {
+    it('never lists Source or Connect MCP for a diagram without source', () => {
       expect(moreMenuItems({ ...base, hasSource: false, stage: 3 })).toEqual([
         'copy-diagram-link', 'export-png', 'versions', 'separator', 'debug',
       ])

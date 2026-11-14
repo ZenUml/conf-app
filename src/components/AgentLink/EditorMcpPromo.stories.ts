@@ -2,11 +2,9 @@ import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, within } from 'storybook/test'
 import EditorMcpPromo from './EditorMcpPromo.vue'
 
-// The promo reads the agent-link flag (mockAgentLinkEnabled outside Forge) and
-// the shared frequency state (mcpPromo.ts); reset both so every story starts
-// as a first visit.
+// The promo reads the shared frequency state (mcpPromo.ts); reset it so every
+// story starts as a first visit.
 function freshVisit() {
-  localStorage.setItem('mockAgentLinkEnabled', 'true')
   for (const key of Object.keys(localStorage)) {
     if (key.startsWith('zenuml.mcpPromo') || key.startsWith('zenuml.connectMcpShown')) localStorage.removeItem(key)
   }

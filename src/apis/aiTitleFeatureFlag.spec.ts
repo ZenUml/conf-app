@@ -42,7 +42,6 @@ import {
   isAiChatEnabled,
   isAiChatRepairEnabled,
   isAiRepairEnabled,
-  isAgentLinkEnabled,
   isArchitectureTokensEnabled,
   isNoLicenseNoticeEnabled,
   isPlantUmlLocalRendererEnabled,
@@ -201,56 +200,6 @@ describe('isAiChatRepairEnabled', () => {
       featureFlagsState.checkError,
     )
     consoleError.mockRestore()
-  })
-})
-
-describe('isAgentLinkEnabled', () => {
-  beforeEach(() => {
-    resetFeatureFlagsForTests()
-    forgeState.isForge = true
-    forgeState.context = {
-      cloudId: 'cloud-1',
-      accountId: 'account-1',
-      environmentType: 'STAGING',
-    }
-    featureFlagsState.instances = []
-    featureFlagsState.nextValue = true
-    featureFlagsState.initializeError = undefined
-    featureFlagsState.checkError = undefined
-    localStorage.clear()
-  })
-
-  it('checks the Forge agent-link-enabled flag with a false default', async () => {
-    // nextValue is true on the mock client, but the real-world default
-    // (Console flag not yet created / not targeted) is what checkFlag's
-    // second arg encodes — assert we ask for `false`, not that we get it.
-    await expect(isAgentLinkEnabled()).resolves.toBe(true)
-
-    const instance = featureFlagsState.instances[0]
-    expect(instance.checkFlag).toHaveBeenCalledWith('agent-link-enabled', false)
-  })
-
-  it('resolves false when the Console flag evaluates false (the shipped default)', async () => {
-    featureFlagsState.nextValue = false
-    await expect(isAgentLinkEnabled()).resolves.toBe(false)
-  })
-
-  it('reuses the initialized Forge client between checks', async () => {
-    await isAgentLinkEnabled()
-    await isAgentLinkEnabled()
-
-    expect(featureFlagsState.instances).toHaveLength(1)
-    expect(featureFlagsState.instances[0].initialize).toHaveBeenCalledTimes(1)
-    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledTimes(2)
-  })
-
-  it('defaults to DISABLED in standalone local dev unless localStorage explicitly opts in', async () => {
-    forgeState.isForge = false
-    await expect(isAgentLinkEnabled()).resolves.toBe(false)
-
-    localStorage.setItem('mockAgentLinkEnabled', 'true')
-    await expect(isAgentLinkEnabled()).resolves.toBe(true)
-    expect(featureFlagsState.instances).toHaveLength(0)
   })
 })
 

@@ -18,7 +18,6 @@
  */
 import { computed, onMounted, onUnmounted, reactive, ref, watch, type Ref } from 'vue'
 import { DiagramType } from '@/model/Diagram/Diagram'
-import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import EventBus from '@/EventBus'
 import { getContext } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -208,13 +207,6 @@ export function useEditorMcpPromo(options: {
     const forgeCtx = (window as any).forgeGlobal?.forgeContext
     scope.cloudId = scope.cloudId || forgeCtx?.cloudId || ''
     scope.pageId = String(forgeCtx?.extension?.content?.id ?? '')
-    let flag = false
-    try {
-      flag = await isAgentLinkEnabled()
-    } catch {
-      flag = false
-    }
-    if (!flag) return
     promoState = createMcpPromoState({ cloudId: scope.cloudId, accountId: scope.accountId })
     enabled.value = promoState.canShow()
   })

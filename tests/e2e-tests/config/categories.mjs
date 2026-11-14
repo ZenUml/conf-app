@@ -152,24 +152,6 @@ export const CATEGORIES = [
     ]
   },
   {
-    "id": "copy-for-ai",
-    "description": "Copy for AI button. Verifies copy-for-ai:0 \u2014 visible on a Mermaid macro, copies diagram + page context, and fires copy_for_ai_clicked; copy-for-ai:1 \u2014 absent on a Graph macro (not a text-DSL type).",
-    "variants": [
-      "lite",
-      "full",
-      "diagramly"
-    ],
-    "dependencies": [],
-    "positive_examples": [
-      "fullscreen/copy-for-ai.spec.ts",
-      "copy-for-ai:0 \u2014 visible on a Mermaid macro, copies diagram + page context, and fires copy_for_ai_clicked",
-      "copy-for-ai:1 \u2014 absent on a Graph macro (not a text-DSL type)"
-    ],
-    "negative_examples": [
-      "Changes confined to a different diagram format and not shared rendering, persistence, or UI controls."
-    ]
-  },
-  {
     "id": "cross-cutting",
     "description": "Forge fullscreen modal chrome and lifecycle: maximize/restore, close button, Escape dismissal, focus and page scroll restoration, and dirty draft persistence after closing and reopening editors.",
     "variants": [

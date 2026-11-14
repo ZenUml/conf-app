@@ -16,7 +16,7 @@
     </template>
 
     <template v-else>
-      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen || copyForAiMenuOpen, 'viewer-frame--connect-mcp': showConnectMcpDialog}" :data-stage="isFullscreenMode ? null : headerStage">
+      <div class="viewer-frame" :class="{'viewer-frame--wide': isWide, 'viewer-frame--auto': !isWide, 'viewer-frame--fullscreen': isFullscreenMode, 'viewer-frame--export-entry': isExportEntryModal, 'viewer-frame--menu-open': moreMenuOpen, 'viewer-frame--connect-mcp': showConnectMcpDialog}" :data-stage="isFullscreenMode ? null : headerStage">
         <!-- viewer-body is a plain wrapper (no layout of its own) unless the
              Fullscreen Connect rail is showing, in which case it becomes a
              two-column flex row — see .viewer-body--with-agent-rail below. -->
@@ -179,92 +179,6 @@
                 </svg>
                 <span class="viewer-btn-label">Source</span>
               </button>
-              <!-- Copy for AI split button: primary segment (one click = copy
-                   with the generic prompt, job: 'generic') + chevron segment
-                   opening a menu of five job-framed entry points (explain /
-                   update / implement / audit / tests — CopyForAiMenu.vue).
-                   Every entry copies the SAME diagram DSL + page-context
-                   payload (buildCopyForAiPrompt.ts) — only the preamble
-                   differs by job. Same gate as View Source (text-DSL types
-                   only) — not restricted by edit permission or fullscreen,
-                   mirroring that button's audience. -->
-              <div v-if="showViewSource && !showAgentLinkConnect && copyForAiSlotSettled" class="copy-for-ai-split viewer-act-copy">
-                <button
-                  type="button"
-                  class="viewer-btn-ghost copy-for-ai-split-primary"
-                  :aria-label="copyForAiButtonLabel"
-                  title="Copy diagram + page context for an AI agent"
-                  data-testid="copy-for-ai-btn"
-                  :data-copy-state="copyForAiState"
-                  :disabled="copyForAiState === 'copying'"
-                  :aria-busy="copyForAiState === 'copying'"
-                  @click="copyForAi('generic')"
-                >
-                  <!-- Constant-width sizer: every possible label (icon+text pair)
-                       is stacked in the same grid cell (grid-area: 1 / 1) so the
-                       button's width is permanently the widest of the five —
-                       identical in idle and through every transition. Only the
-                       state matching copyForAiActiveLabelKey is visible
-                       (visibility, not display:none, so it keeps sizing the
-                       grid); the rest stay in the layout aria-hidden. The
-                       button's own aria-label (above) already carries the
-                       correct accessible name regardless of which cell is
-                       visible. -->
-                  <span class="copy-for-ai-label-stack">
-                    <span
-                      class="copy-for-ai-label-cell"
-                      :data-active="copyForAiActiveLabelKey === 'idle' ? 'true' : 'false'"
-                      :aria-hidden="copyForAiActiveLabelKey === 'idle' ? null : 'true'"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-                      </svg>
-                      <span class="viewer-btn-label">Copy for AI</span>
-                    </span>
-                    <span
-                      class="copy-for-ai-label-cell"
-                      :data-active="copyForAiActiveLabelKey === 'copying' ? 'true' : 'false'"
-                      :aria-hidden="copyForAiActiveLabelKey === 'copying' ? null : 'true'"
-                    >
-                      <span>Copying…</span>
-                    </span>
-                    <span
-                      class="copy-for-ai-label-cell"
-                      :data-active="copyForAiActiveLabelKey === 'copied' ? 'true' : 'false'"
-                      :aria-hidden="copyForAiActiveLabelKey === 'copied' ? null : 'true'"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                      </svg>
-                      <span>Copied</span>
-                    </span>
-                    <span
-                      class="copy-for-ai-label-cell"
-                      :data-active="copyForAiActiveLabelKey === 'copy-failed' ? 'true' : 'false'"
-                      :aria-hidden="copyForAiActiveLabelKey === 'copy-failed' ? null : 'true'"
-                    >
-                      <span>Copy failed</span>
-                    </span>
-                    <span
-                      class="copy-for-ai-label-cell"
-                      :data-active="copyForAiActiveLabelKey === 'nothing-to-copy' ? 'true' : 'false'"
-                      :aria-hidden="copyForAiActiveLabelKey === 'nothing-to-copy' ? null : 'true'"
-                    >
-                      <span>Nothing to copy</span>
-                    </span>
-                  </span>
-                </button>
-                <CopyForAiMenu ref="copyForAiMenu" @select="copyForAi" @opened="onCopyForAiMenuOpened" @closed="copyForAiMenuOpen = false" />
-                <!-- Mintlify-style inline feedback: the button's own label already
-                     shows Copying…/Copied/Copy failed/Nothing to copy visibly, but a
-                     visually-hidden live region also announces the terminal states
-                     (Copied / Copy failed / Nothing to copy) for screen-reader users
-                     who aren't focused on the button when it changes. 'copying' is
-                     already communicated via aria-busy on the button itself, so it's
-                     deliberately not echoed here. No toast anywhere in this flow (see
-                     copyForAi()) — this replaces the old toast confirmation. -->
-                <span class="sr-only" role="status" aria-live="polite" data-testid="copy-for-ai-announcement">{{ copyForAiAnnouncement }}</span>
-              </div>
               <!-- Fullscreen: the actions the inline macro keeps in More are
                    header buttons here (labels by viewport width, see CSS). -->
               <template v-if="isFullscreenMode">
@@ -277,8 +191,8 @@
                   <span class="viewer-btn-label">{{ action.label }}</span>
                 </button>
               </template>
-              <!-- Connect MCP (agent-link flag on, every diagram type) takes
-                   the Copy for AI slot, inline and in fullscreen, and opens
+              <!-- Connect MCP (every diagram type) sits after Source,
+                   inline and in fullscreen, and opens
                    ConnectMcpDialog with the headless MCP setup and a prompt
                    naming this diagram. Inline it is labelled "MCP" at stage 0,
                    icon-only from stage 1, and stage 3 moves it into More; it
@@ -525,8 +439,8 @@
             />
 
             <!-- Live Agent Link perceived-latency overlay (charter §6 Track F).
-                 Flag-gated exactly like the Connect affordance so the flag-off
-                 DOM is unchanged; renders nothing internally while idle. Shows
+                 Mounted for the MVP diagram types; renders nothing internally
+                 while idle. Shows
                  on BOTH surfaces (inline + Fullscreen) because both render this
                  .viewer-canvas — Fullscreen mirrors the state via the handoff. -->
             <ThinkingOverlay v-if="showAgentLinkThinking" :state="agentLinkThinking" />
@@ -536,7 +450,7 @@
         </div>
         <slot name="viewer-sidebar"></slot>
         <!-- Fullscreen Connect rail (design §5.1, §9) — only mounted when the
-             flag is on, the diagram type is MVP-supported, and we're actually
+             relay sessions are on, the diagram type is MVP-supported, and we're actually
              in the Fullscreen modal. See connectToAgent()'s comment: this
              panel is driven by ITS OWN useAgentLinkSession() instance
              (a fresh Vue app boot inside the Fullscreen modal's iframe). -->
@@ -621,11 +535,8 @@ import {DataSource, DiagramType} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
 import OverflowMenu from '@/components/Viewer/OverflowMenu.vue'
-import CopyForAiMenu from '@/components/Viewer/CopyForAiMenu.vue'
 import ViewSourcePanel from '@/components/Viewer/ViewSourcePanel.vue'
 import { toast } from '@/utils/toast'
-import { buildCopyForAiPrompt } from '@/utils/copyForAi/buildCopyForAiPrompt'
-import { htmlToPlainText } from '@/utils/htmlToPlainText'
 import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
@@ -641,7 +552,7 @@ import { useAgentLinkSession } from '@/composables/agentLink/useAgentLinkSession
 import { createBridgeOps, createUnwiredBridgeOps } from '@/composables/agentLink/bridgeOps'
 import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
 import { resolveLicenseNotice as evaluateLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
 import { loadLicenseNoticeEvidence } from '@/features/licenseNotice/loadEvidence'
 import LicenseWatermark from '@/components/Viewer/LicenseWatermark.vue'
@@ -654,7 +565,6 @@ import { getForgeCustomContentId } from '@/utils/viewerLoadOutcome'
 import { readRetryMarker, startRetryMarker, settleRetryMarker, clearRetryMarker, reloadViewer } from '@/utils/loadFailedRetry'
 import { deeplinkHostForProductType, buildEmbedDeeplink } from '@/utils/embedDeeplink'
 import DiagramAttributionFooter from '@/components/Viewer/DiagramAttributionFooter.vue'
-import { getRenderIdentity } from '@/utils/analytics/renderIdentity'
 import { recordSuccessfulCopyAttribution } from '@/utils/analytics/copyAttribution'
 import SecondDiagramPrompt from '@/components/Viewer/SecondDiagramPrompt.vue'
 import RelatedDiagramsFooter from '@/components/Viewer/RelatedDiagramsFooter.vue'
@@ -714,7 +624,6 @@ const ICON_PATHS = {
 };
 const MORE_MENU_META = {
   'source': { label: 'Source', icon: ICON_PATHS.code },
-  'copy-for-ai': { label: 'Copy for AI', icon: ICON_PATHS.spark },
   'connect-mcp': { label: 'Connect MCP', icon: ICON_PATHS.mcp },
   'copy-diagram-link': { label: 'Copy diagram link', icon: ICON_PATHS.share },
   'export-png': { label: 'Export PNG', icon: ICON_PATHS.download },
@@ -748,7 +657,6 @@ export default {
     headerTitleSpace: null,
     headerFocusWithin: false,
     moreMenuOpen: false,
-    copyForAiMenuOpen: false,
     showExportModal: false,
     // Export-entry auto-open bookkeeping (see mounted / openExportOnce).
     exportAutoOpened: false,
@@ -756,15 +664,6 @@ export default {
     exportPreviewReady: false,
     showSourcePanel: false,
     isDownloadingDebug: false,
-    // Copy for AI inline feedback state machine (Mintlify-style — replaces the
-    // old shared-toast confirmation). 'idle' | 'copying' | 'copied' | 'failed'.
-    // See setCopyForAiState()/copyForAi() below for the transitions and
-    // copy-for-ai-announcement's doc comment above for the live-region pairing.
-    copyForAiState: 'idle',
-    copyForAiLabel: '',
-    copyForAiAnnouncement: '',
-    copyForAiRevertTimer: null,
-    copyForAiImpressionTracked: false,
     // Connect MCP dialog (ConnectMcpDialog.vue) — inline only.
     showConnectMcpDialog: false,
     // MCP promo (mcpPromo.ts): the shared state, whether it allowed a promo
@@ -775,21 +674,13 @@ export default {
     mcpPromoHidden: false,
     mcpPromoShownTracked: false,
     // Per-viewer daily dedupe for agent_link_mcp_button_shown
-    // (connectMcpShown.ts); null until the flag resolves on.
+    // (connectMcpShown.ts); null until mounted() has the viewer's identity.
     connectMcpShownRecord: null,
     connectMcpShownTracked: false,
     // Set on unmount so a shown event still waiting for the header layout
     // is dropped instead of reporting a viewer that no longer exists.
     connectMcpUnmounted: false,
     connectMcpOpenedAt: 0,
-    // Set once isAgentLinkEnabled() settles either way (see copyForAiSlotSettled).
-    agentLinkFlagResolved: false,
-    copyForAiPermissionResolved: false,
-    // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
-    // master flag, resolved async in mounted(). Defaults false so the flag
-    // controls the ENTIRE feature — until it resolves true, this macro
-    // renders exactly as it does today.
-    agentLinkFeatureEnabled: false,
     architectureTokensEnabled: false,
     // Full variant 'no active license' notice; resolved off the render path.
     licenseNoticeActive: false,
@@ -857,7 +748,6 @@ export default {
     Debug,
     ExportModal,
     OverflowMenu,
-    CopyForAiMenu,
     DiagramViewport,
     ViewSourcePanel,
     ConnectMcpDialog,
@@ -885,7 +775,7 @@ export default {
     // macro, or while one of its menus is open (a menu must not vanish when
     // the pointer leaves for it).
     headerRevealed() {
-      return this.isHovering || this.headerFocusWithin || this.moreMenuOpen || this.copyForAiMenuOpen;
+      return this.isHovering || this.headerFocusWithin || this.moreMenuOpen;
     },
     // Same availability gate as Fullscreen's version switch.
     showInlineRefined() {
@@ -927,7 +817,7 @@ export default {
     moreMenuMeta() {
       return MORE_MENU_META;
     },
-    // Reference and export stay together after Source (and optional Copy for AI).
+    // Reference and export stay together after Source and Connect MCP.
     fullscreenHeaderActions() {
       const actions = [];
       if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
@@ -1107,15 +997,6 @@ export default {
     connectMcpEffectiveReveal() {
       return this.isFullscreenMode ? 'always' : 'hover';
     },
-    copyForAiImpressionEligible() {
-      return this.copyForAiPermissionResolved
-        && this.isDisplayMode
-        && !this.hideHeader
-        && !this.isLoadFailed
-        && this.showViewSource
-        && this.copyForAiSlotSettled
-        && !this.showAgentLinkConnect;
-    },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
     },
@@ -1128,48 +1009,11 @@ export default {
         default: return 'ZenUML';
       }
     },
-    // Fence language for the "Copy for AI" markdown code block. Only
-    // reachable when showViewSource is true (the button's gate), so the
-    // default only exists to satisfy the type — it never observes a
-    // non-text-DSL diagramType in practice.
-    copyForAiFenceLang() {
-      switch (this.diagramType) {
-        case DiagramType.Markdown: return 'markdown';
-        case DiagramType.Mermaid: return 'mermaid';
-        case DiagramType.PlantUml: return 'plantuml';
-        case DiagramType.Sequence:
-        default: return 'zenuml';
-      }
-    },
-    // Copy for AI split-button primary segment's visible label + accessible
-    // name — idle keeps the original static text, every other state shows
-    // whatever setCopyForAiState() last set (Copying… / Copied / Copy failed
-    // / Nothing to copy).
-    copyForAiButtonLabel() {
-      return this.copyForAiState === 'idle' ? 'Copy for AI' : this.copyForAiLabel;
-    },
-    // Selects which grid-stack cell (see the template) is the currently
-    // visible one. Mirrors copyForAiButtonLabel's state->text mapping, but as
-    // a fixed key: the 'failed' state carries two different possible labels
-    // (empty-DSL guard vs. clipboard-write failure), and the sizer needs a
-    // literal, always-present cell per label — not one cell whose text swaps
-    // at runtime — so the button's width truly never changes.
-    copyForAiActiveLabelKey() {
-      if (this.copyForAiState !== 'failed') return this.copyForAiState;
-      return this.copyForAiLabel === 'Nothing to copy' ? 'nothing-to-copy' : 'copy-failed';
-    },
     // Small-macro action-area affordance — hidden once already in Fullscreen
     // (that surface shows the Connect *rail* instead, see showAgentLinkPanel).
     showAgentLinkConnect() {
       // With relay sessions on, fullscreen connects through its rail instead.
-      return this.agentLinkFeatureEnabled && this.connectMcpSupported
-        && !(this.isFullscreenMode && RELAY_SESSIONS_ENABLED);
-    },
-    // The Copy for AI slot renders only once it is known not to be Connect
-    // MCP's: on any typed macro, inline or fullscreen, that waits for the
-    // async flag, so Copy for AI never flashes and then swaps out.
-    copyForAiSlotSettled() {
-      return this.agentLinkFlagResolved || !this.connectMcpSupported;
+      return this.connectMcpSupported && !(this.isFullscreenMode && RELAY_SESSIONS_ENABLED);
     },
     // MCP promo corner card, Fullscreen only (the header button stays for
     // every viewer). Editors only: it pitches drawing diagrams. Never over a
@@ -1184,9 +1028,8 @@ export default {
         && this.mcpPromoAllowed
         && !this.mcpPromoHidden;
     },
-    // Connect MCP takes Copy for AI's slot but not its sparkles: with the same
-    // icon, icon-only and hover-revealed, a customer could not find it
-    // (2026-10). It draws the official MCP mark instead.
+    // Connect MCP draws the official MCP mark: with a generic sparkles icon,
+    // icon-only and hover-revealed, a customer could not find it (2026-10).
     connectMcpIcon() {
       return ICON_PATHS.mcp;
     },
@@ -1221,11 +1064,11 @@ export default {
     },
     // Collapsed (non-fullscreen) "● live" indicator (design §3 decision #8).
     showAgentLinkBadge() {
-      return RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && !this.isFullscreenMode;
+      return RELAY_SESSIONS_ENABLED && this.agentLinkMvpSupported && !this.isFullscreenMode;
     },
     // The Fullscreen Connect rail (design §5.1 ConnectPanel / §9).
     showAgentLinkPanel() {
-      return RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && this.agentLinkMvpSupported && this.isFullscreenMode;
+      return RELAY_SESSIONS_ENABLED && this.agentLinkMvpSupported && this.isFullscreenMode;
     },
     // The fullscreen column is capped at 1000px so the byline under the diagram keeps a
     // readable line length. That reasoning is about TEXT, so it holds for the types whose
@@ -1287,13 +1130,12 @@ export default {
     agentLinkAtCap() {
       return this.agentLinkSession?.atCap.value ?? false;
     },
-    // Perceived-latency overlay gate (charter §6 Track F). Same flag/type
-    // gating as the other affordances, but NOT restricted to Fullscreen: the
-    // "AI is thinking" state must show on the inline macro surface too (both
-    // surfaces render .viewer-canvas). Off ⇒ overlay never mounts ⇒ flag-off
-    // DOM is unchanged.
+    // Perceived-latency overlay gate (charter §6 Track F). Same type gating as
+    // the other affordances, but NOT restricted to Fullscreen: the "AI is
+    // thinking" state must show on the inline macro surface too (both surfaces
+    // render .viewer-canvas). It renders nothing while idle.
     showAgentLinkThinking() {
-      return this.agentLinkFeatureEnabled && this.agentLinkMvpSupported;
+      return this.agentLinkMvpSupported;
     },
     agentLinkThinking() {
       return this.agentLinkSession?.thinkingState.value ?? 'idle';
@@ -1381,20 +1223,6 @@ export default {
         mcp_button_reveal: 'always',
       }));
     },
-    copyForAiImpressionEligible: {
-      immediate: true,
-      handler(eligible) {
-        if (!eligible || this.copyForAiImpressionTracked) return;
-        this.copyForAiImpressionTracked = true;
-        trackAnalyticsEvent('copy_for_ai_impression', {
-          feature_area: 'macro',
-          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
-          macro_type: this.diagramType,
-          has_edit_permission: !!this.canUserEdit,
-          instance_nonce: getRenderIdentity().instance_nonce,
-        });
-      },
-    },
     // Fire viewer_load_failed when the error store slot becomes truthy while
     // the macro is in display (viewer) mode. The isDisplayMode guard prevents
     // false positives from editor-context syntax validation errors, which also
@@ -1450,12 +1278,10 @@ export default {
     // One useAgentLinkSession() instance per GenericViewer mount, shared by
     // the Connect button / live badge / Fullscreen rail below (whichever
     // template branch is active in THIS mount — see the cross-iframe note
-    // on connectToAgent()). This placeholder instance is provisional: the
-    // agent-link flag resolves async in mounted() below, and nothing in this
-    // window can invoke startConnect()/applyEdit() — the Connect affordance
-    // is flag-gated and not yet rendered. mounted() swaps in the real
-    // Forge-bridge-backed ops once the flag settles (or keeps this one for
-    // standalone/dev/no-context).
+    // on connectToAgent()). This placeholder instance is provisional: nothing
+    // can invoke startConnect()/applyEdit() before mounted(), which swaps in
+    // the real Forge-bridge-backed ops when relay sessions are on (or keeps
+    // this one for standalone/dev/no-context).
     this.agentLinkSession = markRaw(useAgentLinkSession(createUnwiredBridgeOps(), {
       macroType: this.diagramType || 'none',
       clickSurface: 'viewer',
@@ -1471,8 +1297,8 @@ export default {
     }));
   },
   async mounted() {
-    // Escape dismisses one layer at a time: the Copy-for-AI menu first, then
-    // the Source panel (Fullscreen Viewer v2). CopyForAiMenu.vue has its own
+    // Escape dismisses one layer at a time: an open More menu first, then
+    // the Source panel (Fullscreen Viewer v2). The menu has its own
     // document-level Escape handler and calls stopPropagation(), which does
     // NOT stop a second listener on that same node — and because a child's
     // mounted() runs before its parent's, the menu would already have set
@@ -1510,8 +1336,6 @@ export default {
       this.canUserEdit = await globals.apWrapper.canUserEdit();
     } catch (e) {
       console.error('canUserEdit failed', e);
-    } finally {
-      this.copyForAiPermissionResolved = true;
     }
     try {
       // SecondDiagramPrompt's author-match display condition — fails closed
@@ -1526,24 +1350,16 @@ export default {
       this.magicIdentityReady = true;
       this.initializeMagic();
     }
-    try {
-      this.agentLinkFeatureEnabled = await isAgentLinkEnabled();
-    } catch (e) {
-      console.error('Failed to load agent-link feature flag:', e);
-      this.agentLinkFeatureEnabled = false;
-    } finally {
-      // Not gated on the diagram type: the store can still be loading it, and
-      // both records are read only behind showAgentLinkConnect anyway.
-      if (this.agentLinkFeatureEnabled) {
-        const promoScope = {
-          cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
-          accountId: this.currentAccountId,
-        };
-        this.connectMcpShownRecord = createConnectMcpShownRecord(promoScope);
-        this.mcpPromoState = createMcpPromoState(promoScope);
-        this.mcpPromoAllowed = this.mcpPromoState.canShow();
-      }
-      this.agentLinkFlagResolved = true;
+    // Not gated on the diagram type: the store can still be loading it, and
+    // both records are read only behind showAgentLinkConnect anyway.
+    {
+      const promoScope = {
+        cloudId: this.magicCloudId ?? window.forgeGlobal?.forgeContext?.cloudId,
+        accountId: this.currentAccountId,
+      };
+      this.connectMcpShownRecord = createConnectMcpShownRecord(promoScope);
+      this.mcpPromoState = createMcpPromoState(promoScope);
+      this.mcpPromoAllowed = this.mcpPromoState.canShow();
     }
     try {
       this.architectureTokensEnabled = await isArchitectureTokensEnabled();
@@ -1551,14 +1367,14 @@ export default {
       this.architectureTokensEnabled = false;
     }
     this.createGuideFeatureEnabled = await isCreateGuideEnabled();
-    // Live Agent Link real bridge (design §4.2/§4.4): once the flag resolves
-    // ON and a real Forge-bridge context (globals.apWrapper) is available,
+    // Live Agent Link real bridge (design §4.2/§4.4): when relay sessions are
+    // on and a real Forge-bridge context (globals.apWrapper) is available,
     // swap the placeholder for the ApWrapper2-backed bridge so writeDiagram
     // actually persists via saveCustomContentV2 — wrapped in createBridgeOps
     // so the write-scope guard (only the bound contentId) still applies.
     // Standalone/dev/no-context keeps the unwired placeholder, which fails
     // loudly instead of silently doing nothing (see bridgeOps.ts).
-    if (RELAY_SESSIONS_ENABLED && this.agentLinkFeatureEnabled && globals.apWrapper) {
+    if (RELAY_SESSIONS_ENABLED && globals.apWrapper) {
       const bridge = createForgeAgentLinkBridge({ apWrapper: globals.apWrapper });
       // Relay wiring (design §4.3): only in a real Forge runtime — cloudId
       // has no standalone-context equivalent (getStandaloneContext() never
@@ -1610,7 +1426,7 @@ export default {
     // socket — so this is safe to run unconditionally whenever the rail is
     // actually showing.
     //
-    // DELIBERATELY NOT gated on `agentLinkFeatureEnabled && globals.apWrapper`
+    // DELIBERATELY NOT gated on `globals.apWrapper`
     // above: live spot-check found the Fullscreen modal iframe's `agentLinkSession`
     // stuck in 'idle' with a real session already sitting in localStorage —
     // that block (which builds the Forge-bridge-backed instance AND used to
@@ -1669,14 +1485,10 @@ export default {
       this.exportAutoOpenTimer = null;
     }
     // Cleans up the storage-event listener + poll interval started by
-    // watchForHandoff() above (no-op if it was never set up, e.g. flag-off
-    // or non-fullscreen).
+    // watchForHandoff() above (no-op if it was never set up, e.g. relay
+    // sessions off or non-fullscreen).
     this._agentLinkHandoffUnsubscribe?.();
     this._agentLinkHandoffUnsubscribe = null;
-    if (this.copyForAiRevertTimer) {
-      clearTimeout(this.copyForAiRevertTimer);
-      this.copyForAiRevertTimer = null;
-    }
   },
   methods: {
     setZoomHeaderTarget(element) {
@@ -2016,14 +1828,14 @@ export default {
       this.magicEvent(previous == null ? 'magic_layout_feedback_submitted' : 'magic_layout_feedback_updated', { magic_layout_preference: choice });
     },
     // See the addEventListener comment in mounted() for why this is a
-    // capture-phase listener. Yields to the Copy-for-AI menu while it is open
-    // so one Escape dismisses one layer.
+    // capture-phase listener. Yields to the More menu while it is open so one
+    // Escape dismisses one layer.
     onEscapeKeydown(e) {
       if (e.key !== 'Escape') return;
       // The rename input's own keydown.esc handler owns Escape while it is
       // open — cancelling the rename must not also close the source panel.
       if (this.isRenaming) return;
-      if (this.$refs.copyForAiMenu?.open || this.$refs.moreMenu?.open) return;
+      if (this.$refs.moreMenu?.open) return;
       if (this.showConnectMcpDialog) {
         this.closeConnectMcpDialog();
         return;
@@ -2130,7 +1942,6 @@ export default {
       const where = 'header_more_menu';
       switch (item) {
         case 'source': close(); this.openViewSource(where); return;
-        case 'copy-for-ai': this.copyForAi('generic', where); close(); return;
         case 'connect-mcp': close(); this.openConnectMcpDialog(where); return;
         case 'copy-diagram-link': this.copyDeeplink(where); close(); return;
         case 'export-png': close(); this.openExport(where); return;
@@ -2446,14 +2257,6 @@ export default {
         ...(attribution ? { copy_id: attribution.copy_id } : {}),
       });
     },
-    onCopyForAiMenuOpened() {
-      this.copyForAiMenuOpen = true;
-      trackAnalyticsEvent('copy_for_ai_menu_opened', {
-        feature_area: 'macro',
-        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
-        macro_type: this.diagramType ?? 'none',
-      });
-    },
     // Connect-to-Agent affordance (design §5.1, §9): kicks off this mount's
     // local session state, then reuses the EXISTING, unmodified Fullscreen
     // open path (EventBus 'fullscreen' -> forgeIndex.ts's openModal). Forge
@@ -2645,26 +2448,6 @@ export default {
         .catch(error => console.error('Error retrieving content versions:', error));
       toast({ message: 'Version history printed to developer console (F12)', duration: 2200 });
     },
-    // #442: Safari-safe clipboard write. MUST be called before any await in
-    // the click task: the ClipboardItem is constructed synchronously with a
-    // still-pending payload promise — the pattern WebKit supports for async
-    // clipboard content, keeping the write tied to the user gesture.
-    // Resolves false when the modern API is unavailable or the write is
-    // rejected; the caller then retries via copyToClipboard's legacy order.
-    writeClipboardKeepingActivation(resultPromise) {
-      const supported = navigator.clipboard
-        && typeof navigator.clipboard.write === 'function'
-        && typeof window.ClipboardItem === 'function'
-        && window.isSecureContext;
-      if (!supported) return Promise.resolve(false);
-      const item = new window.ClipboardItem({
-        'text/plain': resultPromise.then(r => new Blob([r.text], { type: 'text/plain' })),
-      });
-      return navigator.clipboard.write([item]).then(() => true, (error) => {
-        console.warn('copyForAi: ClipboardItem write rejected, falling back to legacy copy', error);
-        return false;
-      });
-    },
     async copyToClipboard(text) {
       if (navigator.clipboard && window.isSecureContext) {
         try { await navigator.clipboard.writeText(text); return true; }
@@ -2690,8 +2473,7 @@ export default {
     },
     // Mints and copies the bare embed deeplink (task 6). Fires
     // deeplink_copied ONCE per click, in a finally block, after the terminal
-    // outcome is known — same outcome convention as copy_for_ai_clicked
-    // (see that method below): 'copied' = clipboard write succeeded,
+    // outcome is known: 'copied' = clipboard write succeeded,
     // 'clipboard_failed' = the write itself returned false or threw,
     // 'unavailable' = the link couldn't even be minted (no host/contentId,
     // or cloudId unresolved) — three silent-failure paths that used to fire
@@ -2766,7 +2548,7 @@ export default {
         if (typeof closeMenu === 'function') closeMenu();
       }
     },
-    // Shared page-URL lookup for copyLink and copyForAi's page context.
+    // Page-URL lookup for copyLink.
     // Dynamic import keeps the standalone (non-Forge) preview harness from
     // breaking at module load. Returns '' (not a throw) when the page has no
     // usable base+webui links; throws only on a failed lookup request.
@@ -2793,150 +2575,6 @@ export default {
         console.error('copyLink failed', error);
         toast({ message: 'Failed to copy link', duration: 2000 });
       }
-    },
-    // Page context for "Copy for AI" — same read agentLink's readPage uses
-    // (ApWrapper2.getCurrentPage() + _getCurrentPageId(), see
-    // composables/agentLink/forgeBridge.ts's readPage). The page URL is
-    // derived from that SAME response's _links (base+webui) rather than a
-    // second /pages/{id} round trip via resolvePageUrl() — the v2 API
-    // includes _links regardless of body-format (verified live). Returns
-    // undefined only when the page fetch itself fails (standalone/dev with
-    // no page context, a rejected request) so the caller falls back to a
-    // diagram-only payload instead of blocking the copy. A page that fetched
-    // fine but has no resolvable URL still comes back with url: '' — title +
-    // text are real context on their own (buildCopyForAiPrompt omits the URL
-    // line when url is empty).
-    async resolveCopyForAiPage() {
-      try {
-        const currentPage = await globals.apWrapper.getCurrentPage();
-        const text = htmlToPlainText(currentPage?.body?.export_view?.value || '');
-        const base = currentPage?._links?.base || '';
-        const webui = currentPage?._links?.webui || '';
-        const url = (base && webui) ? `${base}${webui}` : '';
-        return { title: currentPage?.title || '', url, text };
-      } catch (error) {
-        console.error('copyForAi: page context unavailable, falling back to diagram-only', error);
-        return undefined;
-      }
-    },
-    // Drives the Copy for AI split button's inline (Mintlify-style) feedback
-    // state machine — idle -> copying -> copied|failed -> (revert) idle.
-    // Clears any pending revert timer first so a fresh copy started while a
-    // previous 'copied'/'failed' label is still showing (the button is only
-    // disabled during 'copying', not during those terminal states) doesn't
-    // get yanked back to idle by the OLD timer mid-flight. 'copied'/'failed'
-    // arm a ~2s revert timer and update the visually-hidden live region
-    // (copy-for-ai-announcement in the template) so screen-reader users not
-    // focused on the button hear the outcome too; 'copying' is announced via
-    // aria-busy on the button itself instead, so the live region is cleared
-    // for it. beforeUnmount() clears this timer on unmount.
-    setCopyForAiState(state, label) {
-      if (this.copyForAiRevertTimer) {
-        clearTimeout(this.copyForAiRevertTimer);
-        this.copyForAiRevertTimer = null;
-      }
-      this.copyForAiState = state;
-      this.copyForAiLabel = label;
-      this.copyForAiAnnouncement = (state === 'copied' || state === 'failed') ? label : '';
-      if (state === 'copied' || state === 'failed') {
-        this.copyForAiRevertTimer = setTimeout(() => {
-          this.copyForAiState = 'idle';
-          this.copyForAiLabel = '';
-          this.copyForAiAnnouncement = '';
-          this.copyForAiRevertTimer = null;
-        }, 2000);
-      }
-    },
-    // "Copy for AI" (catalog.ts: copy_for_ai_clicked): writes the diagram DSL
-    // (same source View Source shows) plus best-effort page context to the
-    // clipboard as one plain-text payload, for pasting into an external AI
-    // chat. `job` (default 'generic') selects which preamble
-    // buildCopyForAiPrompt.ts opens the payload with — the split button's
-    // primary segment passes 'generic' explicitly, CopyForAiMenu.vue's five
-    // menu items pass their own job value on @select and drive this SAME
-    // method, so the state machine below plays on the primary segment no
-    // matter which entry point triggered it. Every job shares the exact same
-    // clipboard/analytics outcome logic below; only the copied text and the
-    // tracked `job` property vary. Page context is optional —
-    // buildCopyForAiPrompt/resolveCopyForAiPage decide the fallback; this
-    // method only decides the clipboard/analytics outcome.
-    // Empty-DSL guard: no clipboard write and no analytics event, since an
-    // empty copy carries no demand signal; the button surfaces "Nothing to
-    // copy" instead of a toast. Overlapping-click guard: 'copying' disables
-    // the button in the template, but also short-circuit here for
-    // non-pointer activation paths (e.g. a held Enter key repeating faster
-    // than Vue re-renders).
-    async copyForAi(job = 'generic', actionLocation) {
-      if (this.copyForAiState === 'copying') return;
-      if (!this.viewSourceCode) { this.setCopyForAiState('failed', 'Nothing to copy'); return; }
-      this.setCopyForAiState('copying', 'Copying…');
-      // #442: the clipboard call must be issued in the click's own task.
-      // Safari drops the transient user activation across an awaited fetch,
-      // so the previous order (await page fetch, then write) threw
-      // NotAllowedError on every Safari click. The payload is therefore
-      // built as a promise and handed to the clipboard API synchronously via
-      // writeClipboardKeepingActivation; no await may precede that call.
-      const resultPromise = this.resolveCopyForAiPage().then(page => buildCopyForAiPrompt({
-        dslLabel: this.viewSourceDslLabel,
-        fenceLang: this.copyForAiFenceLang,
-        diagramTitle: this.title,
-        dsl: this.viewSourceCode,
-        page,
-        job,
-      }));
-
-      let ok = false;
-      try {
-        ok = await this.writeClipboardKeepingActivation(resultPromise);
-      } catch (error) {
-        console.error('copyForAi: activation-preserving clipboard write failed', error);
-      }
-      if (!ok) {
-        // Legacy order (resolve payload first, then writeText/execCommand):
-        // the only path for browsers without ClipboardItem, and the retry
-        // when the modern write is rejected. On Safari a rejection here is
-        // expected — the activation is already gone — and surfaces as
-        // outcome=clipboard_failed, same as before this fix.
-        try {
-          const built = await resultPromise;
-          ok = await this.copyToClipboard(built.text);
-        } catch (error) {
-          console.error('copyForAi: clipboard write failed', error);
-          ok = false;
-        }
-      }
-
-      const result = await resultPromise;
-      let outcome;
-      if (ok) {
-        outcome = result.pageBytes > 0 ? 'copied' : 'copied_diagram_only';
-        this.setCopyForAiState('copied', 'Copied');
-      } else {
-        outcome = 'clipboard_failed';
-        this.setCopyForAiState('failed', 'Copy failed');
-      }
-
-      const attribution = ok
-        ? recordSuccessfulCopyAttribution({
-            customContentId: getForgeCustomContentId(),
-            source: 'copy_for_ai',
-            job,
-          })
-        : null;
-
-      trackAnalyticsEvent('copy_for_ai_clicked', {
-        feature_area: 'macro',
-        surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
-        macro_type: this.diagramType,
-        outcome,
-        dsl_bytes: result.dslBytes,
-        page_bytes: result.pageBytes,
-        job,
-        copy_source: 'copy_for_ai',
-        copy_job: job,
-        ...(attribution ? { copy_id: attribution.copy_id } : {}),
-        ...(actionLocation ? { action_location: actionLocation } : {}),
-      });
     },
   },
 }
@@ -2968,7 +2606,7 @@ export default {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 .viewer-frame--auto { width: fit-content; margin-left: auto; margin-right: auto; }
-/* A header menu (More, Copy for AI) is taller than a short diagram's card and,
+/* A header menu (More) is taller than a short diagram's card and,
    on a narrow card, wider than the space left of its trigger. While one is
    open the frame stops clipping so the menu shows whole; the header keeps the
    frame's top corners (its own radius below). */
@@ -3170,9 +2808,9 @@ export default {
 
 .viewer-surface { position: relative; }
 
-/* ----- Live Agent Link mounting seam (flag-gated, see showAgentLinkPanel) --
+/* ----- Live Agent Link mounting seam (gated, see showAgentLinkPanel) ------
    .viewer-body is a no-op wrapper (default block) when the rail is hidden —
-   it changes nothing about layout/sizing for the flag-off / non-fullscreen
+   it changes nothing about layout/sizing for the relay-off / non-fullscreen
    path. It only becomes a two-column row when the Fullscreen Connect rail
    is actually showing. */
 .viewer-body--with-agent-rail {
@@ -3405,7 +3043,7 @@ export default {
   opacity: 0;
 }
 /* Inline order (prototype), in DOM order so Tab follows what is seen:
-   Refined, page nav, slot actions, Source, Copy for AI, |, Connect, More,
+   Refined, page nav, slot actions, Source, Connect MCP, |, More,
    Edit, Fullscreen, Create. */
 
 .viewer-header-sep {
@@ -3533,41 +3171,6 @@ export default {
 .viewer-btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
 .viewer-btn-ghost:disabled:hover { background: transparent; color: #374151; }
 
-/* Copy for AI split button: primary segment (unchanged viewer-btn-ghost look,
-   right corners squared off to join the chevron) + CopyForAiMenu.vue's own
-   chevron trigger (left corners squared off, shares the primary's border).
-   NOT `overflow: hidden` on the wrapper — CopyForAiMenu's popover is a
-   descendant positioned outside this wrapper's own box (top: calc(100% +
-   8px)) and must not be clipped by it. */
-.copy-for-ai-split {
-  display: inline-flex;
-  align-items: stretch;
-}
-.copy-for-ai-split-primary {
-  border-radius: 6px 0 0 6px;
-}
-
-/* Constant-width sizer (see the template comment above the button markup):
-   every label cell shares grid-area 1/1, so the grid's own size — and with
-   it the button's content-box width — is permanently the widest cell,
-   independent of which one is visible. visibility:hidden (not display:none)
-   keeps the inactive cells sized-but-invisible so they keep contributing to
-   that measurement through every transition. */
-.copy-for-ai-label-stack {
-  display: grid;
-  justify-items: center;
-  align-items: center;
-}
-.copy-for-ai-label-cell {
-  grid-area: 1 / 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.copy-for-ai-label-cell[data-active="false"] {
-  visibility: hidden;
-}
-
 .viewer-btn-primary {
   display: inline-flex;
   align-items: center;
@@ -3602,25 +3205,14 @@ export default {
 .viewer-top-actions .viewer-btn-ghost:focus-visible { outline: 2px solid #0C66E4; outline-offset: 1px; }
 .viewer-top-actions .viewer-btn-primary:focus-visible { outline: 2px solid #0C66E4; outline-offset: 2px; }
 
-/* Inline Source and Copy for AI are icon-only at every stage; the Copy for AI
-   sizer drops its inactive cells, and "Copied" shows as a green check. A
-   transient text state (Copying… / Copy failed / Nothing to copy) still
-   shows its words briefly. */
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source,
-.viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary {
+/* Inline Source is icon-only at every stage. */
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source {
   min-width: 28px;
   padding: 0;
   color: #6B7280;
 }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source:hover,
-.viewer-frame:not(.viewer-frame--fullscreen) .copy-for-ai-split-primary:hover { color: #374151; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy { margin-left: -4px; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .viewer-btn-label,
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell svg + span { display: none; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-copy .copy-for-ai-label-cell > span:only-child { padding: 0 6px; }
-.copy-for-ai-split-primary[data-copy-state="copied"] .viewer-icon { color: #36B37E; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source:hover { color: #374151; }
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-act-source .viewer-btn-label { display: none; }
 
 /* Inline Connect MCP keeps its label at stage 0 (it is the one header action a
    viewer has to discover, and an unlabelled icon was missed), and goes
@@ -3634,9 +3226,7 @@ export default {
 
 /* Staged collapse (data-stage on .viewer-frame, set by updateHeaderStage).
    1: Edit + Refined (+ Connect MCP) → icon. 2: Fullscreen → icon.
-   3: Source + Copy for AI (or Connect MCP) move into More (the Copy for AI
-   wrapper stays mounted, visually hidden, so its live region still announces
-   a copy started from the menu). */
+   3: Source + Connect MCP move into More. */
 .viewer-frame[data-stage="1"] .viewer-act-edit .viewer-btn-label,
 .viewer-frame[data-stage="2"] .viewer-act-edit .viewer-btn-label,
 .viewer-frame[data-stage="3"] .viewer-act-edit .viewer-btn-label,
@@ -3655,22 +3245,11 @@ export default {
 .viewer-frame[data-stage="3"] .viewer-refined-toggle { padding: 0; }
 .viewer-frame[data-stage="3"] .viewer-act-source,
 .viewer-frame[data-stage="3"] .viewer-act-connect-mcp,
-.viewer-frame[data-stage="3"] .viewer-act-sep,
-.viewer-frame[data-stage="3"] .viewer-act-copy > .copy-for-ai-split-primary,
-.viewer-frame[data-stage="3"] .viewer-act-copy > .copy-for-ai-menu { display: none; }
-.viewer-frame[data-stage="3"] .viewer-act-copy {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
+.viewer-frame[data-stage="3"] .viewer-act-sep { display: none; }
 
 /* ----- Fullscreen header actions -----------------------------------------
    Labels by viewport (the modal is the viewport): >= 1280px every action is
-   labelled; 1100-1279px only Source and Copy for AI (or Connect MCP in its
-   slot); below 1100px all are
+   labelled; 1100-1279px only Source and Connect MCP; below 1100px all are
    icon-only and the version switch reads Refined / Original. */
 .viewer-fs-act .viewer-icon { color: #6B7280; flex-shrink: 0; }
 .viewer-frame--fullscreen .viewer-fs-act { min-width: 28px; padding: 0; }
@@ -3681,13 +3260,9 @@ export default {
 }
 @media (max-width: 1099px) {
   .viewer-frame--fullscreen .viewer-act-source,
-  .viewer-frame--fullscreen .viewer-act-connect-mcp,
-  .viewer-frame--fullscreen .copy-for-ai-split-primary { min-width: 28px; padding: 0; }
+  .viewer-frame--fullscreen .viewer-act-connect-mcp { min-width: 28px; padding: 0; }
   .viewer-frame--fullscreen .viewer-act-source .viewer-btn-label,
   .viewer-frame--fullscreen .viewer-act-connect-mcp .viewer-btn-label,
-  .viewer-frame--fullscreen .viewer-act-copy .viewer-btn-label,
-  .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
-  .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
   .viewer-frame--fullscreen .viewer-version-long { display: none; }
 }
 .viewer-load-failed {
@@ -3869,14 +3444,11 @@ export default {
 /* Source reserves 45vw beside the viewer. Use compact actions in the remaining
    desktop column so the title and every action still fit in the same row. */
 .generic--source-panel-open .viewer-frame--fullscreen .viewer-act-source,
-.generic--source-panel-open .viewer-frame--fullscreen .copy-for-ai-split-primary,
 .generic--source-panel-open .viewer-frame--fullscreen .viewer-fs-act,
 .generic--source-panel-open .viewer-frame--fullscreen .viewer-act-connect-mcp {
   min-width: 28px;
   padding: 0;
 }
 .generic--source-panel-open .viewer-frame--fullscreen .viewer-btn-label,
-.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell[data-active="false"],
-.generic--source-panel-open .viewer-frame--fullscreen .viewer-act-copy .copy-for-ai-label-cell svg + span,
 .generic--source-panel-open .viewer-frame--fullscreen .viewer-version-long { display: none; }
 </style>

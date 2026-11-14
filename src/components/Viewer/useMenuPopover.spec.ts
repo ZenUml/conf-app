@@ -2,7 +2,6 @@ import { mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import { describe, it, expect, afterEach } from 'vitest'
 import { useMenuPopover } from './useMenuPopover'
-import CopyForAiMenu from './CopyForAiMenu.vue'
 import OverflowMenu from './OverflowMenu.vue'
 
 const Harness = defineComponent({
@@ -37,7 +36,6 @@ type Case = { name: string; make: () => ReturnType<typeof mount>; trigger: strin
 const cases: Case[] = [
   { name: 'useMenuPopover harness', make: () => mountIt(Harness), trigger: '[data-testid="trigger"]', item: '[data-testid="item-1"]' },
   { name: 'OverflowMenu', make: () => mountIt(OverflowMenu, { slots: { default: '<button role="menuitem" data-testid="item-1">a</button>' } }), trigger: '.overflow-menu-trigger', item: '[data-testid="item-1"]' },
-  { name: 'CopyForAiMenu', make: () => mountIt(CopyForAiMenu), trigger: '[data-testid="copy-for-ai-menu-btn"]', item: '[data-testid="copy-for-ai-job-explain"]' },
 ]
 
 describe.each(cases)('menu popover behaviour: $name', ({ make, trigger, item }) => {
@@ -100,17 +98,5 @@ describe.each(cases)('menu popover behaviour: $name', ({ make, trigger, item }) 
     w.unmount()
     wrapper = undefined
     expect(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))).not.toThrow()
-  })
-})
-
-describe('CopyForAiMenu select', () => {
-  it('emits select with the job and closes returning focus to the trigger', async () => {
-    wrapper = mountIt(CopyForAiMenu)
-    await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
-    await flush()
-    await wrapper.find('[data-testid="copy-for-ai-job-tests"]').trigger('click')
-    expect(wrapper.emitted('select')).toEqual([['tests']])
-    expect(wrapper.emitted('closed')).toHaveLength(1)
-    expect(document.activeElement).toBe(wrapper.find('[data-testid="copy-for-ai-menu-btn"]').element)
   })
 })

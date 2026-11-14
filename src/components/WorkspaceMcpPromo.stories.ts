@@ -42,7 +42,6 @@ function prepare({ id, isNew = false, code = STARTER, preferredType, galleryAlre
     if (key.startsWith('zenuml.mcpPromo') || key.startsWith('zenuml.connectMcpShown') || key.startsWith(GALLERY_MARKER_PREFIX)) localStorage.removeItem(key)
   }
   sessionStorage.removeItem('zenuml.mcpPromo.session')
-  localStorage.setItem('mockAgentLinkEnabled', 'true')
   localStorage.removeItem(PREFERRED_TYPE_KEY)
   if (preferredType) localStorage.setItem(PREFERRED_TYPE_KEY, preferredType)
   if (galleryAlreadyOpened) {

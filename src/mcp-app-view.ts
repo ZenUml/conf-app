@@ -159,6 +159,58 @@ export function extractDiagram(result: unknown): DiagramPayload | null {
   return null;
 }
 
+/**
+ * Scale a rendered ZenUML diagram down to the frame's width, never up.
+ *
+ * @zenuml/core draws HTML, not one `<svg>`, so it cannot shrink itself the way
+ * Mermaid's and PlantUML's images do: a wide diagram overflowed the host's
+ * fixed-width frame and needed a sideways scroll. This is the Confluence
+ * viewer's fit (DiagramTransformViewport.vue): measure the untransformed
+ * content, scale it with a CSS transform, and set the box to the scaled height,
+ * because a transform does not change layout and the frame would otherwise keep
+ * the full height.
+ */
+/**
+ * The element @zenuml/core lays the diagram out in: the first child of
+ * `.zenuml`, the `.zenuml > div` the Confluence viewer transforms. Not that
+ * selector: jsdom's nwsapi 2.2.24 hangs on a child combinator, which froze the
+ * unit tests.
+ */
+function sequenceLayout(box: HTMLElement): HTMLElement | null {
+  return (box.querySelector('.zenuml')?.firstElementChild as HTMLElement | null) ?? null;
+}
+
+export function fitSequence(box: HTMLElement): void {
+  const target = sequenceLayout(box);
+  if (!target) return;
+  // Layout metrics ignore transforms, so these stay the natural size.
+  const width = target.scrollWidth;
+  const height = target.scrollHeight;
+  const available = box.clientWidth;
+  if (!width || !height || !available) return;
+  const scale = Math.max(0.1, Math.min(1, available / width));
+  target.style.transformOrigin = '0 0';
+  target.style.transform = scale < 1 ? `scale(${scale})` : '';
+  box.style.height = scale < 1 ? `${Math.ceil(height * scale)}px` : '';
+}
+
+/**
+ * Fit now, and again whenever the frame's width or the diagram's natural size
+ * changes: the host resizes the frame, and web fonts can widen the diagram
+ * after render() resolves.
+ */
+let sequenceObserver: ResizeObserver | null = null;
+function keepSequenceFitted(box: HTMLElement): void {
+  // A new result replaces the previous diagram; stop watching the old one.
+  sequenceObserver?.disconnect();
+  fitSequence(box);
+  if (typeof ResizeObserver === 'undefined') return;
+  sequenceObserver = new ResizeObserver(() => fitSequence(box));
+  sequenceObserver.observe(box);
+  const target = sequenceLayout(box);
+  if (target) sequenceObserver.observe(target);
+}
+
 /** Report our drawn height so the host can size the iframe to the diagram. */
 function reportSize(): void {
   const el = document.getElementById('app');
@@ -397,12 +449,16 @@ async function render(payload: DiagramPayload): Promise<void> {
       // hosted font assets from the module URL, rather than the host sandbox.
       configureDiagramFonts(ZenUml);
       el.innerHTML = '';
-      const zenuml = new ZenUml(el);
+      const box = document.createElement('div');
+      box.className = 'zen-mcp-sequence';
+      el.appendChild(box);
+      const zenuml = new ZenUml(box);
       // Read-only: no onContentChange, so nothing here can write back. The
       // option shape mirrors Sequence.vue's call, minus everything that needs a
       // Confluence store (scoped themes, sticky offset against a scrolling
       // iframe) — this frame does not scroll and has no per-diagram theme.
       await zenuml.render(payload.dsl, { theme: 'theme-default', stickyOffset: false });
+      keepSequenceFitted(box);
     } else if (type === 'graph') {
       await renderGraph(el, payload.dsl);
     } else if (type === 'openapi') {

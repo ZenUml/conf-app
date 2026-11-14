@@ -14,6 +14,9 @@
         max-width: 100%;
         overflow-x: auto;
       }
+      /* Sequence: fitSequence scales the diagram inside this box; clip the
+         untransformed layout box it leaves behind. */
+      .zen-mcp-sequence { overflow: hidden; }
       /* Markdown documents: a readable measure, and diagrams that fit. */
       .zen-mcp-markdown {
         font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;

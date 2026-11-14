@@ -5,7 +5,7 @@ The public render endpoint now has a separate deployment target described in [In
 The headless MCP endpoint (`POST /agent-link/mcp`, `functions/agent-link/oauth/headlessMcp.ts`) answers `read_diagram`, `create_diagram` and `update_diagram` with a rendered diagram, not just DSL text. It does this through the MCP Apps extension (`io.modelcontextprotocol/ui`, [spec](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx)). The host (claude.ai, the Claude desktop app, …) fetches a `ui://` resource and mounts it in a sandboxed iframe. That page is **the view**.
 
 It draws:
-- Sequence (`@zenuml/core`);
+- Sequence (`@zenuml/core`), scaled down to the frame width and never up (`fitSequence`, the same rule as the Confluence viewer's `DiagramTransformViewport.vue`), because it draws HTML that cannot shrink itself the way an SVG or `<img>` can;
 - Mermaid (`mermaid`);
 - PlantUML, with the in-browser engine (`@plantuml/core`, `src/utils/plantuml/engine.ts`), as an `<img>` of the SVG in a `data:` URL. The source stays in the frame. A diagram the engine cannot draw (an `!include` we do not host, a crash, a chunk that will not load) shows the error: unlike the Confluence macro, this view has no plantuml.com fallback, so the render server can say that no third party sees the source (ADR-0010 step 7);
 - Graph, with the static DrawIO viewer (`GraphViewer`, via `src/utils/drawio/loadDrawioViewer.ts`), loaded from the deploy's own `drawio/`. Legacy LZUTF8-compressed XML is decompressed first;

@@ -271,6 +271,8 @@ function _initMixpanel(): Promise<void> {
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
       const isTitleDraftPreview =
         forgeContext?.extension?.modal?.macroMode === "title-draft";
+      const isFeedbackDialog =
+        forgeContext?.extension?.modal?.macroMode === "feedback";
       let replayConfigTimedOut = false;
       // NOTE (#707): this short-circuit runs before _resolveSessionReplayConfig,
       // so the bounded flag wait below is inactive while the October budget
@@ -278,8 +280,12 @@ function _initMixpanel(): Promise<void> {
       // viewer iframes; fullscreen and the other overrides never wait on it.
       // A title draft is a deliberate preview in its own iframe. Initialize
       // there immediately at 100%, without delaying for the baseline flag.
+      // The feedback dialog is likewise a deliberate, short-lived modal iframe;
+      // record it at 100% without waiting on the flag (same placement).
       const { percent, source } = isTitleDraftPreview
         ? { percent: 100, source: "title_draft_preview" as const }
+        : isFeedbackDialog
+        ? { percent: 100, source: "feedback_dialog" as const }
         : isOctoberReplayBudgetActive()
         ? { percent: 0, source: "off" as const }
         : isPageBanner
@@ -599,6 +605,55 @@ export async function trackAnalyticsEventBeforeUnload(
     transport: "sendBeacon",
     send_immediately: true,
   });
+}
+
+/**
+ * Replay id of this iframe's current recording, or undefined when it is not
+ * recording. The recorder starts inside the first tracked event (after init),
+ * so this waits for init and then polls briefly for the id to appear. Never
+ * rejects; bounded so callers (e.g. opening a modal) are not held hostage.
+ */
+export async function getSessionReplayId(
+  timeoutMs = 500,
+  intervalMs = 50
+): Promise<string | undefined> {
+  const read = (): string | undefined => {
+    try {
+      const props = mixpanel.get_session_recording_properties?.() as
+        | { $mp_replay_id?: string }
+        | undefined;
+      const id = props?.$mp_replay_id;
+      return typeof id === "string" && id ? id : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  try {
+    if (_initPromise) await _initPromise;
+    let id = read();
+    for (let waited = 0; !id && waited < timeoutMs; waited += intervalMs) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      id = read();
+    }
+    return id;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Register super-properties (stamped on every later event of this iframe).
+ * Awaits init so the registration is not lost before mixpanel.init runs.
+ */
+export async function registerAnalyticsSuperProperties(
+  properties: Pick<AnalyticsProperties, "feedback_token" | "viewer_replay_id">
+): Promise<void> {
+  try {
+    await _initMixpanel();
+    mixpanel.register(properties);
+  } catch (e) {
+    console.error("[analytics] registerAnalyticsSuperProperties failed", e);
+  }
 }
 
 export function _resetForTesting(): void {

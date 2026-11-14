@@ -6,6 +6,8 @@ import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextP
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import {
   _awaitableTrackAnalyticsEvent,
+  getSessionReplayId,
+  registerAnalyticsSuperProperties,
   _resetForTesting,
   SESSION_REPLAY_CONFIG_TIMEOUT_MS,
   trackAnalyticsEvent,
@@ -24,6 +26,7 @@ vi.mock("mixpanel-browser", () => ({
     register: vi.fn(),
     start_session_recording: vi.fn(),
     stop_session_recording: vi.fn(),
+    get_session_recording_properties: vi.fn(),
   },
 }));
 
@@ -218,6 +221,38 @@ describe("trackAnalyticsEvent", () => {
       surface: 'modal', page_id: '100', session_replay_source: 'title_draft_preview',
       session_replay_percent: 100, session_replay_start_call_outcome: 'returned',
     }));
+  });
+
+  it('records the feedback modal iframe at 100% as feedback_dialog without a Forge flag wait', async () => {
+    vi.mocked(forgeGlobal).forgeContext = {
+      localId: 'modal-fb', moduleKey: 'zenuml-macro',
+      extension: { modal: { macroMode: 'feedback' } },
+    } as any;
+    vi.mocked(getSessionReplayConfig).mockImplementation(() => new Promise(() => {}));
+    await _awaitableTrackAnalyticsEvent('feedback_report_opened', { surface: 'modal' });
+    expect(getSessionReplayConfig).not.toHaveBeenCalled();
+    expect(mixpanel.init).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ record_sessions_percent: 100 }));
+    expect(mixpanel.register).toHaveBeenCalledWith(expect.objectContaining({
+      session_replay_percent: 100, session_replay_source: 'feedback_dialog',
+    }));
+  });
+
+  it('registerAnalyticsSuperProperties waits for init then registers', async () => {
+    vi.mocked(forgeGlobal).forgeContext = { localId: 'modal-fb', extension: { modal: { macroMode: 'feedback' } } } as any;
+    await registerAnalyticsSuperProperties({ feedback_token: 't1', viewer_replay_id: 'r1' });
+    expect(mixpanel.init).toHaveBeenCalled();
+    expect(mixpanel.register).toHaveBeenCalledWith({ feedback_token: 't1', viewer_replay_id: 'r1' });
+  });
+
+  it('getSessionReplayId returns the id once the recorder has one, and undefined on timeout', async () => {
+    vi.mocked(mixpanel.get_session_recording_properties)
+      .mockReturnValueOnce({} as any)
+      .mockReturnValue({ $mp_replay_id: 'replay-9' } as any);
+    expect(await getSessionReplayId(500, 1)).toBe('replay-9');
+    vi.mocked(mixpanel.get_session_recording_properties).mockReturnValue({} as any);
+    expect(await getSessionReplayId(10, 1)).toBeUndefined();
+    vi.mocked(mixpanel.get_session_recording_properties).mockImplementation(() => { throw new Error('x'); });
+    expect(await getSessionReplayId(10, 1)).toBeUndefined();
   });
 
   it('keeps banner preview intent at zero replay without starting the recorder', async () => {

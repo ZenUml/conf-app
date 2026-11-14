@@ -1,0 +1,4 @@
+ ✓ functions/agent-link/viewEvent.spec.ts (23 tests) 15ms
+ ✓ src/mcp-app-view.spec.ts (59 tests) 2227ms
+ Test Files  2 passed (2)
+      Tests  82 passed (82)

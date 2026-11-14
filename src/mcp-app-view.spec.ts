@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   applyHostContext,
+  currentUserZoom,
   extractDiagram,
   fitScale,
   fullscreenAvailable,
   onHostMessage,
+  onKeyDown,
+  onWheel,
   resetViewState,
   start,
   toggleFullscreen,
   UI_PROTOCOL_VERSION,
+  zoom,
 } from './mcp-app-view';
 import { compress } from '@/utils/compress';
 
@@ -756,5 +760,124 @@ describe('fitting a sequence diagram to the frame', () => {
     const box = document.querySelector<HTMLElement>('#app .zen-mcp-fit')!;
     expect(box.dataset.scale).toBeUndefined();
     expect(box.style.height).toBe('');
+  });
+});
+
+describe('zooming a drawing', () => {
+  let natural = { width: 1000, height: 400 };
+  const restore: Array<() => void> = [];
+  const beacon = vi.fn((_url: string, _body: string) => true);
+  const zoomReports = () => beacon.mock.calls.map(([, body]) => JSON.parse(body)).filter((b) => b.kind === 'zoom');
+  const box = () => document.querySelector<HTMLElement>('#app .zen-mcp-fit')!;
+  const scale = () => Number(box().dataset.scale);
+
+  function stubLayout(): void {
+    for (const key of ['offsetWidth', 'offsetHeight'] as const) {
+      const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)!;
+      Object.defineProperty(HTMLElement.prototype, key, {
+        configurable: true,
+        get(this: HTMLElement) {
+          if (!this.classList.contains('zen-mcp-fit-inner')) return 0;
+          return key === 'offsetWidth' ? natural.width : natural.height;
+        },
+      });
+      restore.push(() => Object.defineProperty(HTMLElement.prototype, key, original));
+    }
+  }
+
+  const drawMermaid = async () => {
+    deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;' });
+    await vi.waitFor(() => expect(box()?.dataset.scale).toBeDefined());
+  };
+
+  beforeEach(() => {
+    resetViewState();
+    document.body.innerHTML = '<div id="app"></div>';
+    natural = { width: 1000, height: 400 };
+    stubLayout();
+    applyHostContext({ containerDimensions: { width: 516 } }); // 500 after the page margins
+    beacon.mockClear();
+    vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon });
+  });
+
+  afterEach(() => {
+    while (restore.length) restore.pop()!();
+    vi.unstubAllGlobals();
+  });
+
+  it('shows zoom controls for a drawing, with the fitted percentage', async () => {
+    await drawMermaid();
+    expect(document.getElementById('zen-mcp-zoom-in')).not.toBeNull();
+    expect(document.getElementById('zen-mcp-zoom-out')).not.toBeNull();
+    expect(document.getElementById('zen-mcp-zoom-fit')?.textContent).toBe('50%');
+  });
+
+  it('shows no zoom controls for a document, which reflows instead', async () => {
+    deliver({ diagramType: 'markdown', dsl: '# Title' });
+    await vi.waitFor(() => expect(document.querySelector('#app .zen-mcp-markdown')).not.toBeNull());
+    expect(document.getElementById('zen-mcp-zoom-in')).toBeNull();
+    expect(zoom('zoom_in')).toBe(false);
+  });
+
+  it('zooms by the viewer\'s 1.2 step on top of the fit, and goes back to fit', async () => {
+    await drawMermaid();
+    document.getElementById('zen-mcp-zoom-in')!.click();
+    expect(scale()).toBeCloseTo(0.6, 3);
+    expect(box().style.width).toBe('600px');
+    expect(document.getElementById('zen-mcp-zoom-fit')?.textContent).toBe('60%');
+    document.getElementById('zen-mcp-zoom-out')!.click();
+    document.getElementById('zen-mcp-zoom-out')!.click();
+    expect(currentUserZoom()).toBeCloseTo(1 / 1.2, 5);
+    document.getElementById('zen-mcp-zoom-fit')!.click();
+    expect(currentUserZoom()).toBe(1);
+    expect(scale()).toBe(0.5);
+    expect(zoomReports().map((r) => r.viewport_action)).toEqual(['zoom_in', 'zoom_out', 'zoom_out', 'fit']);
+    expect(zoomReports()[0]).toEqual({ kind: 'zoom', macro_type: 'mermaid', viewport_action: 'zoom_in', viewport_input: 'toolbar', fullscreen_active: false });
+  });
+
+  it('stops at the viewer\'s limits and reports nothing that did not change', async () => {
+    await drawMermaid();
+    for (let i = 0; i < 40; i++) zoom('zoom_in');
+    expect(currentUserZoom()).toBe(12);
+    expect(zoom('zoom_in')).toBe(false);
+    expect(zoom('fit')).toBe(true);
+    expect(zoom('fit')).toBe(false);
+  });
+
+  it('zooms with + - 0, but leaves Ctrl/Cmd keys to the browser', async () => {
+    await drawMermaid();
+    onKeyDown(new KeyboardEvent('keydown', { key: '+' }));
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    onKeyDown(new KeyboardEvent('keydown', { key: '-', ctrlKey: true }));
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    onKeyDown(new KeyboardEvent('keydown', { key: '0' }));
+    expect(currentUserZoom()).toBe(1);
+    expect(zoomReports().map((r) => r.viewport_input)).toEqual(['keyboard', 'keyboard']);
+  });
+
+  it('zooms on Ctrl/Cmd + wheel or pinch, not on a plain wheel, and reports one gesture once', async () => {
+    await drawMermaid();
+    const wheel = (init: WheelEventInit) => {
+      const e = new WheelEvent('wheel', { cancelable: true, ...init });
+      onWheel(e);
+      return e;
+    };
+    expect(wheel({ deltaY: -300 }).defaultPrevented).toBe(false);
+    expect(currentUserZoom()).toBe(1);
+    expect(wheel({ deltaY: -100, ctrlKey: true }).defaultPrevented).toBe(true);
+    wheel({ deltaY: -100, ctrlKey: true });
+    expect(currentUserZoom()).toBeCloseTo(1.44, 5);
+    expect(zoomReports()).toHaveLength(1);
+    expect(zoomReports()[0]).toMatchObject({ viewport_action: 'zoom_in', viewport_input: 'wheel' });
+  });
+
+  it('starts a new diagram, and a change of display mode, fitted', async () => {
+    await drawMermaid();
+    zoom('zoom_in');
+    applyHostContext({ displayMode: 'fullscreen' });
+    expect(currentUserZoom()).toBe(1);
+    zoom('zoom_in');
+    await drawMermaid();
+    expect(currentUserZoom()).toBe(1);
   });
 });

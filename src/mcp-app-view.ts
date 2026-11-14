@@ -39,6 +39,7 @@ function host(): Window | null {
 }
 
 import { detectDiagramType } from '../functions/agent-link/detectDiagramType';
+import { createGestureGate, createWheelStepper, isZoomIntent } from '@/utils/viewport/wheelZoom';
 
 type Json = Record<string, unknown>;
 
@@ -100,6 +101,7 @@ let hostContext: HostContext = {};
 export function resetViewState(): void {
   hostContext = {};
   drawnType = null;
+  userZoom = 1;
   pendingRequests.clear();
 }
 
@@ -222,7 +224,7 @@ function reportSize(): void {
 
 function status(message: string): void {
   drawnType = null;
-  updateFullscreenButton();
+  updateToolbar();
   const el = document.getElementById('app');
   if (el) el.innerHTML = `<p class="zen-mcp-status"></p>`;
   const p = el?.querySelector('.zen-mcp-status');
@@ -468,12 +470,16 @@ function giveSvgItsNaturalSize(container: HTMLElement): void {
   svg.style.maxWidth = '';
 }
 
+/** The strip above the diagram that the toolbar sits in (view.html's #app padding). */
+const TOOLBAR_SPACE = 34;
+
 /** The space the diagram may take, from the host's container where it says. */
 function availableSpace(): { width: number; height: number | null } {
   const dims = hostContext.containerDimensions ?? {};
   const width = (dims.width ?? dims.maxWidth ?? document.documentElement.clientWidth) - 2 * PAGE_MARGIN;
   const fixedHeight = dims.height ?? (isFullscreen() ? window.innerHeight : null);
-  return { width, height: fixedHeight === null ? null : fixedHeight - 2 * PAGE_MARGIN };
+  const toolbar = document.getElementById('zen-mcp-toolbar') ? TOOLBAR_SPACE : 0;
+  return { width, height: fixedHeight === null ? null : fixedHeight - 2 * PAGE_MARGIN - toolbar };
 }
 
 /** The scale for a drawing of this natural size. Exported for its tests. */
@@ -495,18 +501,97 @@ function fitDiagram(): void {
   if (!box || !inner) return;
   const natural = { width: inner.offsetWidth, height: inner.offsetHeight };
   if (!natural.width || !natural.height) return;
-  const scale = fitScale(natural, availableSpace(), isFullscreen());
+  const scale = fitScale(natural, availableSpace(), isFullscreen()) * userZoom;
   inner.style.transform = scale === 1 ? '' : `scale(${scale})`;
   box.style.width = `${Math.ceil(natural.width * scale)}px`;
   box.style.height = `${Math.ceil(natural.height * scale)}px`;
   box.dataset.scale = scale.toFixed(3);
+  updateZoomLabel(scale);
+}
+
+/**
+ * The reader's zoom, on top of the fit: 1 is fitted. The same step and limits
+ * as the Confluence viewer's DiagramTransformViewport, so a diagram zooms the
+ * same way in a host as on the page.
+ */
+let userZoom = 1;
+const ZOOM_STEP = 1.2;
+const MIN_USER_ZOOM = 0.2;
+const MAX_USER_ZOOM = 12;
+
+export type ZoomAction = 'zoom_in' | 'zoom_out' | 'fit';
+export type ZoomInput = 'toolbar' | 'wheel' | 'keyboard';
+
+/** Zoom only drawings; documents reflow and keep the host's text zoom. */
+function zoomable(): boolean {
+  return drawnType !== null && FIT_TYPES.has(drawnType);
+}
+
+/** The reader's zoom over the fit (1 = fitted). Exported for tests. */
+export function currentUserZoom(): number {
+  return userZoom;
+}
+
+/**
+ * Zoom in, out or back to fit, keeping the point at the middle of what is
+ * visible where it was. Returns whether anything changed.
+ */
+export function zoom(action: ZoomAction): boolean {
+  if (!zoomable()) return false;
+  const next =
+    action === 'fit' ? 1
+      : Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, userZoom * (action === 'zoom_in' ? ZOOM_STEP : 1 / ZOOM_STEP)));
+  if (next === userZoom) return false;
+  const app = document.getElementById('app');
+  const page = document.scrollingElement ?? document.documentElement;
+  // Where the middle of the view sits, as a fraction of what can be scrolled.
+  const middleX = app && app.scrollWidth ? (app.scrollLeft + app.clientWidth / 2) / app.scrollWidth : 0.5;
+  const middleY = page.scrollHeight ? (page.scrollTop + window.innerHeight / 2) / page.scrollHeight : 0.5;
+  userZoom = next;
+  fitDiagram();
+  reportSize();
+  if (app) app.scrollLeft = middleX * app.scrollWidth - app.clientWidth / 2;
+  page.scrollTop = middleY * page.scrollHeight - window.innerHeight / 2;
+  return true;
+}
+
+function zoomAndReport(action: ZoomAction, input: ZoomInput): void {
+  if (zoom(action)) reportZoom(action, input);
+}
+
+function reportZoom(action: ZoomAction, input: ZoomInput): void {
+  if (!drawnType) return;
+  try {
+    navigator.sendBeacon?.(
+      new URL('mcp/view-event', viewOrigin()).href,
+      JSON.stringify({
+        kind: 'zoom',
+        macro_type: drawnType,
+        viewport_action: action,
+        viewport_input: input,
+        fullscreen_active: isFullscreen(),
+      }),
+    );
+  } catch {
+    // analytics never fails the view
+  }
+}
+
+function updateZoomLabel(scale: number): void {
+  const label = document.getElementById('zen-mcp-zoom-fit');
+  if (!label) return;
+  label.textContent = `${Math.round(scale * 100)}%`;
+  label.title = userZoom === 1 ? 'Fitted to the view' : 'Back to fit';
 }
 
 /** Merge what the host sent, then follow it: the button, the mode, the fit. */
 export function applyHostContext(changed: HostContext): void {
+  const wasFullscreen = isFullscreen();
   hostContext = { ...hostContext, ...changed };
+  // A new size of view starts fitted, as a new diagram does.
+  if (isFullscreen() !== wasFullscreen) userZoom = 1;
   document.documentElement.dataset.displayMode = isFullscreen() ? 'fullscreen' : 'inline';
-  updateFullscreenButton();
+  updateToolbar();
   fitDiagram();
   reportSize();
 }
@@ -514,24 +599,100 @@ export function applyHostContext(changed: HostContext): void {
 const ENTER_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
 const EXIT_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
 
-/** Show the fullscreen button where the host offers fullscreen and a diagram is on screen. */
-function updateFullscreenButton(): void {
+const ZOOM_OUT_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8h10" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+const ZOOM_IN_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8h10M8 3v10" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+
+function toolButton(id: string, label: string, onClick: () => void): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.id = id;
+  button.type = 'button';
+  button.className = 'zen-mcp-tool';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+/**
+ * The toolbar in the top-right corner: zoom controls for a drawing, and the
+ * fullscreen button where the host offers fullscreen. Rebuilt when either
+ * changes, and absent while there is no diagram.
+ */
+function updateToolbar(): void {
+  const wantsZoom = zoomable();
+  const wantsFullscreen = fullscreenAvailable() && drawnType !== null;
+  let bar = document.getElementById('zen-mcp-toolbar');
+  if (!wantsZoom && !wantsFullscreen) {
+    bar?.remove();
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'zen-mcp-toolbar';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Diagram view');
+    document.body.appendChild(bar);
+  }
+  const hasZoom = !!document.getElementById('zen-mcp-zoom-in');
+  if (wantsZoom && !hasZoom) {
+    const out = toolButton('zen-mcp-zoom-out', 'Zoom out', () => zoomAndReport('zoom_out', 'toolbar'));
+    out.innerHTML = ZOOM_OUT_ICON;
+    const fit = toolButton('zen-mcp-zoom-fit', 'Back to fit', () => zoomAndReport('fit', 'toolbar'));
+    fit.classList.add('zen-mcp-zoom-level');
+    const zoomIn = toolButton('zen-mcp-zoom-in', 'Zoom in', () => zoomAndReport('zoom_in', 'toolbar'));
+    zoomIn.innerHTML = ZOOM_IN_ICON;
+    // Before the fullscreen button, in reading order.
+    for (const control of [zoomIn, fit, out]) bar.insertBefore(control, bar.firstChild);
+  } else if (!wantsZoom && hasZoom) {
+    for (const id of ['zen-mcp-zoom-out', 'zen-mcp-zoom-fit', 'zen-mcp-zoom-in']) document.getElementById(id)?.remove();
+  }
   let button = document.getElementById('zen-mcp-fullscreen') as HTMLButtonElement | null;
-  if (!fullscreenAvailable() || drawnType === null) {
+  if (!wantsFullscreen) {
     button?.remove();
     return;
   }
   if (!button) {
-    button = document.createElement('button');
-    button.id = 'zen-mcp-fullscreen';
-    button.type = 'button';
-    button.addEventListener('click', () => void toggleFullscreen());
-    document.body.appendChild(button);
+    button = toolButton('zen-mcp-fullscreen', 'Fullscreen', () => void toggleFullscreen());
+    bar.appendChild(button);
   }
   const label = isFullscreen() ? 'Exit fullscreen' : 'Fullscreen';
   button.innerHTML = isFullscreen() ? EXIT_ICON : ENTER_ICON;
   button.title = label;
   button.setAttribute('aria-label', label);
+}
+
+/**
+ * Keys inside the frame: Esc leaves fullscreen (the host's own key handling
+ * cannot see a key pressed in our frame); + and - zoom, 0 goes back to fit.
+ * Not with Ctrl/Cmd, which is the browser's own page zoom.
+ */
+export function onKeyDown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && isFullscreen()) {
+    void toggleFullscreen();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const action: ZoomAction | null = e.key === '+' || e.key === '=' ? 'zoom_in' : e.key === '-' ? 'zoom_out' : e.key === '0' ? 'fit' : null;
+  if (!action || !zoomable()) return;
+  e.preventDefault();
+  zoomAndReport(action, 'keyboard');
+}
+
+/** One report per wheel gesture, as in the Confluence viewer. */
+const wheelGestureStarts = createGestureGate();
+const wheelStep = createWheelStepper((direction) => {
+  const action: ZoomAction = direction > 0 ? 'zoom_in' : 'zoom_out';
+  if (zoom(action) && wheelGestureStarts()) reportZoom(action, 'wheel');
+});
+
+/**
+ * Ctrl/Cmd + wheel, and trackpad pinch (which arrives as one), zoom the
+ * drawing. A plain wheel stays the frame's to scroll.
+ */
+export function onWheel(e: WheelEvent): void {
+  if (!isZoomIntent(e) || !zoomable()) return;
+  e.preventDefault();
+  wheelStep(e, window.innerHeight);
 }
 
 /** Ask the host for the other display mode, and follow its answer. */
@@ -640,7 +801,8 @@ async function render(payload: DiagramPayload): Promise<void> {
   }
 
   drawnType = type;
-  updateFullscreenButton();
+  userZoom = 1;
+  updateToolbar();
   fitDiagram();
   reportRender(type);
   reportSize();
@@ -723,9 +885,8 @@ export function start(): void {
   });
   // Esc leaves fullscreen when focus is in our frame, where the host's own
   // key handling cannot see it.
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isFullscreen()) void toggleFullscreen();
-  });
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('wheel', onWheel, { passive: false });
   // swagger-ui and the DrawIO viewer keep laying out after render() returns
   // (sections expand, fonts and stencils arrive), so follow the content's own
   // size rather than measuring once.

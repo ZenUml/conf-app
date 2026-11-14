@@ -2990,6 +2990,33 @@ describe('GenericViewer (chrome-less)', () => {
       )
     })
 
+    it('puts the load error class, status, name and message on load_failed_shown', async () => {
+      const windowMod = await import('@/utils/window')
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      store.state.viewerLoadState = 'failed_with_source'
+      store.state.loadError = {
+        directFetchStatus: 'other_error',
+        errorClass: 'thrown',
+        errorName: 'TypeError',
+        errorMessage: 'Load failed',
+      }
+      mountViewer()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(trackSpy).toHaveBeenCalledWith(
+        'load_failed_shown',
+        'view',
+        'load_failed_generic',
+        expect.objectContaining({
+          direct_fetch_status: 'other_error',
+          error_class: 'thrown',
+          error_name: 'TypeError',
+          error_message: 'Load failed',
+        }),
+      )
+      const props = trackSpy.mock.calls.find(c => c[0] === 'load_failed_shown')?.[3] as Record<string, unknown>
+      expect(props).not.toHaveProperty('http_status')
+    })
+
     it('copies diagnostics, tracks support click, then opens the support portal after a delay', async () => {
       const openUrlMod = await import('@/model/globals/forgeGlobal')
       const windowMod = await import('@/utils/window')

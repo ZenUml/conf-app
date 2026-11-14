@@ -24,6 +24,7 @@ import type {
   CacheSource,
   PlantUmlRenderer,
   McpViewPlantUmlRenderer,
+  McpViewFullscreenOutcome,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
   PlantUmlPngPurpose,
@@ -177,7 +178,8 @@ export type AnalyticsProperties = {
   magic_layout_preference?: 'magic' | 'original' | 'no_preference';
   // Diagram viewport pan/zoom. This is the user's explicit control intent, not
   // every intermediate wheel, drag, or pinch callback.
-  viewport_action?: "zoom_in" | "zoom_out" | "fit_height" | "fit_width";
+  // `fit` (back to fit) only from the MCP Apps view (agent_link_app_view_zoomed).
+  viewport_action?: "zoom_in" | "zoom_out" | "fit_height" | "fit_width" | "fit";
   /** Header relocation is distinct from the existing floating editor toolbar. */
   viewport_control_location?: "header" | "canvas";
   /** Fit/zoom was applied by a ready renderer; disabled controls emit nothing. */
@@ -185,7 +187,8 @@ export type AnalyticsProperties = {
   // Which control the reader used to zoom. `wheel` is one whole Ctrl/Cmd +
   // scroll gesture, not one per step, so a wheel zoom and a button click cost
   // the same one event and the two are directly comparable.
-  viewport_input?: "toolbar" | "wheel";
+  // `keyboard` only from the MCP Apps view (agent_link_app_view_zoomed).
+  viewport_input?: "toolbar" | "wheel" | "keyboard";
   entry_point?: EntryPoint;
   // Create funnel only (macro_create_started / macro_create_succeeded /
   // macro_create_cancelled). `creation_origin` names the surface that started
@@ -369,6 +372,13 @@ export type AnalyticsProperties = {
   paste_truncated?: boolean;
   // ADR-0010 self-hosted PlantUML rendering
   plantuml_renderer?: PlantUmlRenderer | McpViewPlantUmlRenderer;
+  // MCP Apps view (agent_link_app_view_rendered): whether the host offered
+  // the fullscreen display mode, i.e. whether the view showed its button.
+  fullscreen_available?: boolean;
+  // agent_link_app_view_fullscreen_requested only.
+  fullscreen_outcome?: McpViewFullscreenOutcome;
+  // agent_link_app_view_zoomed: whether the view was in fullscreen.
+  fullscreen_active?: boolean;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
@@ -729,33 +739,17 @@ export type AnalyticsProperties = {
   // committed the same title; 'empty' = committed a blank title (refused,
   // the previous title stands).
   rename_exit_reason?: 'escape' | 'unchanged' | 'empty';
-  // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts) AND the
-  // "Copy diagram link" pill action (deeplink_copied — catalog.ts) share this
-  // one `outcome` axis. For copy_for_ai_clicked: 'copied' = full page+diagram
-  // copy, 'copied_diagram_only' = fell back to diagram-only content (page
-  // context unavailable), 'clipboard_failed' = the clipboard write itself
-  // threw. For deeplink_copied: 'copied' = clipboard write succeeded,
-  // 'clipboard_failed' = the write returned false or threw, 'unavailable' =
-  // the link couldn't be minted at all (no host/contentId, or cloudId
-  // unresolved) — 'copied_diagram_only' does not apply to deeplink_copied.
-  // `dsl_bytes` / `page_bytes` are the byte sizes of the diagram DSL and the
-  // surrounding page context that were attempted, regardless of outcome
-  // (copy_for_ai_clicked only).
-  // `job` identifies which entry point fired the click: 'generic' = the
-  // one-click primary segment (today's generic prompt, unchanged); the other
-  // five are the split-button menu's job-framed entry points — explain /
-  // update / implement / audit / tests — which only swap the preamble
-  // buildCopyForAiPrompt.ts builds (same DSL + page payload, same fallback
-  // rules). Absent on events emitted before this axis existed.
-  outcome?: 'copied' | 'copied_diagram_only' | 'clipboard_failed' | 'unavailable';
-  dsl_bytes?: number;
-  page_bytes?: number;
-  job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
+  // Copy outcome, shared by the "Copy diagram link" action (deeplink_copied —
+  // catalog.ts), viewer_source_copied and the Connect MCP dialog copies:
+  // 'copied' = clipboard write succeeded, 'clipboard_failed' = the write
+  // returned false or threw, 'unavailable' = the deeplink couldn't be minted
+  // at all (no host/contentId, or cloudId unresolved). The retired Copy for
+  // AI action (removed 2026-11-14) also sent 'copied_diagram_only'.
+  outcome?: 'copied' | 'clipboard_failed' | 'unavailable';
   // Copy -> editor attribution. A marker is written only after a successful
   // clipboard write and contains metadata only — never diagram text or hashes.
   copy_id?: string;
   copy_source?: CopySource;
-  copy_job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   ms_since_copy?: number;
   // Per-transaction editor replacement signal. journey_id/session_id join the
   // operation to the editor lifecycle; replace_index preserves repeated whole
@@ -764,7 +758,7 @@ export type AnalyticsProperties = {
   session_id?: string;
   // --- macro_authoring_ended (utils/journeyTracking.ts) ---------------------
   // How the authoring session ended. Named `authoring_outcome` rather than
-  // reusing the existing `outcome`, which is the copy-for-AI result union and
+  // reusing the existing `outcome`, which is the copy result union and
   // would collide on type.
   authoring_outcome?: AuthoringOutcome;
   // Wall-clock ms from startEditJourney to the terminal event — the editor's
@@ -801,7 +795,6 @@ export type AnalyticsProperties = {
   delta_from_last_replace_bucket?: ContentDeltaBucket;
   last_copy_id?: string;
   last_copy_source?: CopySource;
-  last_copy_job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
   // affordance minted the deeplink: the old bottom pill or the header More menu. Not
   // the same surface as the `/deeplink-ticket` share-preview endpoint, which
@@ -811,9 +804,9 @@ export type AnalyticsProperties = {
   // The bottom pill is gone: its actions (Copy diagram link, Copy page link,
   // Export PNG, Versions, Download debug info) moved into the inline header's
   // More (⋯) menu (`header_more_menu`) and onto Fullscreen's header
-  // (`fullscreen_header`); at collapse stage 3 Source and Copy for AI also
+  // (`fullscreen_header`); at collapse stage 3 Source and Connect MCP also
   // run from the More menu. Carried by deeplink_copied, fullscreen_opened
-  // (entry_point=export), viewer_source_opened, copy_for_ai_clicked, and in
+  // (entry_point=export), viewer_source_opened, and in
   // the free-form details of the legacy trackEvent copy_link /
   // show_content_versions / debug_bundle_downloaded events. Absent = the
   // action's own header button (or an event from before 2026-10).
@@ -823,7 +816,7 @@ export type AnalyticsProperties = {
   // viewer_more_menu_opened: the inline header's collapse stage when the More
   // menu opened, and agent_link_mcp_button_shown: the stage when the button
   // was shown. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
-  // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.
+  // icon-only, 3 Source + Connect MCP moved into the menu. Absent in Fullscreen.
   header_stage?: 0 | 1 | 2 | 3;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many
@@ -1310,6 +1303,12 @@ export type AnalyticsProperties = {
   direct_fetch_http_status?: number;
   direct_fetch_error_code?: string;
   direct_fetch_error_class?: 'thrown' | 'structured' | 'malformed';
+  // Thrown direct fetch only: the rejection's name (e.g. TypeError) and its
+  // message scrubbed of query strings, emails and 4+ digit runs, max 100 chars
+  // (utils/fetchErrorDiagnostics.ts). Separates a network failure from a
+  // host-side bridge rejection when there is no HTTP status.
+  direct_fetch_error_name?: string;
+  direct_fetch_error_message?: string;
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

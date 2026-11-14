@@ -272,7 +272,6 @@ export function recordEditorTransaction(transaction: Transaction): void {
     ...(attribution ? {
       copy_id: attribution.copy_id,
       copy_source: attribution.copy_source,
-      copy_job: attribution.copy_job,
       ms_since_copy: Math.max(0, now - attribution.copied_at),
     } : {}),
   });
@@ -297,7 +296,6 @@ export function getEditorMutationSummary(): Partial<AnalyticsProperties> {
     ...(activeSession.lastAttribution ? {
       last_copy_id: activeSession.lastAttribution.copy_id,
       last_copy_source: activeSession.lastAttribution.copy_source,
-      last_copy_job: activeSession.lastAttribution.copy_job,
     } : {}),
   };
 }

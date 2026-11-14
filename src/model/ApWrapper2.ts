@@ -1,6 +1,7 @@
 import {trackEvent, addonKey} from '@/utils/window';
 import time from '@/utils/timer';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { describeThrownFetchError } from '@/utils/fetchErrorDiagnostics';
 import {IMacroData} from "@/model/IMacroData";
 import {IContentProperty} from "@/model/IContentProperty";
 import {ICustomContent, ICustomContentV2, SearchResults} from "@/model/ICustomContent";
@@ -576,6 +577,11 @@ export default class ApWrapper2 {
     httpStatus?: number;
     errorCode?: string;
     errorClass?: 'thrown' | 'structured' | 'malformed';
+    // Thrown only: the rejection's name and scrubbed message. A thrown fetch
+    // with no status (network failure, host bridge rejection) is otherwise
+    // indistinguishable in telemetry.
+    errorName?: string;
+    errorMessage?: string;
   }> {
     let rawResponse: any;
     try {
@@ -593,6 +599,10 @@ export default class ApWrapper2 {
         errorDetail: e?.message ? String(e.message) : String(e),
         httpStatus,
         errorClass: 'thrown',
+        ...(() => {
+          const { name, message } = describeThrownFetchError(e);
+          return { errorName: name, errorMessage: message };
+        })(),
       };
     }
     const errors = rawResponse?.errors;
@@ -890,6 +900,8 @@ export default class ApWrapper2 {
     directFetchHttpStatus?: number;
     directFetchErrorCode?: string;
     directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
+    directFetchErrorName?: string;
+    directFetchErrorMessage?: string;
   }> {
     // conf-app#320: a macro whose stored customContentId is the string
     // "undefined"/"null"/empty (a broken save writeback) can never resolve.
@@ -913,6 +925,8 @@ export default class ApWrapper2 {
       directFetchHttpStatus: direct.httpStatus,
       directFetchErrorCode: direct.errorCode,
       directFetchErrorClass: direct.errorClass,
+      directFetchErrorName: direct.errorName,
+      directFetchErrorMessage: direct.errorMessage,
     };
     if (direct.status !== 'not_found') {
       // Transient / 403 / 5xx / malformed — refuse to probe. Probing here
@@ -1602,7 +1616,7 @@ export default class ApWrapper2 {
   // regardless of body-format — confirmed live against lite-dev on 2026-07-30
   // (identical _links shape with and without ?body-format=export_view) — so
   // callers can derive the page URL from this single response instead of a
-  // second /pages/{id} round trip (see GenericViewer.vue's copyForAi path).
+  // second /pages/{id} round trip.
   async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}, _links?: {base?: string, webui?: string}} | undefined> {
     const pageId = await this._getCurrentPageId();
     return await this.request(`/api/v2/pages/${pageId}?body-format=export_view`);

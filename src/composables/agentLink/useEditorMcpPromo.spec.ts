@@ -3,12 +3,10 @@ import { computed, defineComponent, h, nextTick, reactive, ref, type Ref } from 
 import { flushPromises, mount } from '@vue/test-utils'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { isAgentLinkEnabled } from '@/apis/aiTitleFeatureFlag'
 import EventBus from '@/EventBus'
 import { TIP_EDIT_MS, TIP_MIN_EDITS, TIP_TYPED_CHARS, useEditorMcpPromo } from './useEditorMcpPromo'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({ isAgentLinkEnabled: vi.fn(() => Promise.resolve(true)) }))
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: {},
   getContext: vi.fn(() => Promise.resolve({ cloudId: 'cloud-1', accountId: 'acct-1' })),
@@ -57,7 +55,6 @@ describe('useEditorMcpPromo', () => {
     localStorage.clear()
     sessionStorage.clear()
     vi.mocked(trackAnalyticsEvent).mockClear()
-    vi.mocked(isAgentLinkEnabled).mockResolvedValue(true)
     ;(window as any).forgeGlobal = { forgeContext: { extension: { content: { id: '42' } } } }
   })
 
@@ -172,12 +169,7 @@ describe('useEditorMcpPromo', () => {
     expect(second.api.showNewDiagramCard.value).toBe(false)
   })
 
-  it('stays hidden with the flag off or for a diagram of unknown type', async () => {
-    vi.mocked(isAgentLinkEnabled).mockResolvedValue(false)
-    const off = setup()
-    await flushPromises()
-    expect(off.api.showNewDiagramCard.value).toBe(false)
-    vi.mocked(isAgentLinkEnabled).mockResolvedValue(true)
+  it('stays hidden for a diagram of unknown type', async () => {
     const unknown = setup({ type: DiagramType.Unknown })
     await flushPromises()
     expect(unknown.api.showNewDiagramCard.value).toBe(false)

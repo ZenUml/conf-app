@@ -54,7 +54,7 @@ export const CONCERN_TAGS = [
   '@export',
   '@feedback',
   '@csat',
-  // AI-facing features: Copy for AI, Agent Link, AI Repair.
+  // AI-facing features: Agent Link (Connect MCP), AI Repair.
   '@ai',
   // The Lite -> Full conversion pipeline.
   '@conversion',

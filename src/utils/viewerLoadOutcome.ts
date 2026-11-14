@@ -245,6 +245,8 @@ export function mapCustomContentLoadError(loaded: {
   directFetchHttpStatus?: number;
   directFetchErrorCode?: string;
   directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
+  directFetchErrorName?: string;
+  directFetchErrorMessage?: string;
 }): DiagramLoadError | null {
   if (
     loaded.directFetchStatus === undefined
@@ -259,5 +261,7 @@ export function mapCustomContentLoadError(loaded: {
     httpStatus: loaded.directFetchHttpStatus,
     errorCode: loaded.directFetchErrorCode,
     errorClass: loaded.directFetchErrorClass,
+    errorName: loaded.directFetchErrorName,
+    errorMessage: loaded.directFetchErrorMessage,
   };
 }

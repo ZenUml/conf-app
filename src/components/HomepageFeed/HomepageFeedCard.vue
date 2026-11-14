@@ -164,7 +164,6 @@ import { navigateToPage, openUrl } from "@/model/globals/forgeGlobal";
 import globals from "@/model/globals";
 import { typeLabel, toMacroType } from "@/utils/byline/pageDiagrams";
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { isAgentLinkEnabled } from "@/apis/aiTitleFeatureFlag";
 import {
   mcpAddCommand,
   mcpServerName,
@@ -269,9 +268,9 @@ const diagrams = ref([]);
 const openExample = ref(null);
 const loadedImages = ref({});
 
-// Connect MCP row: hidden until the agent-link flag resolves on, the same
-// flag that gates the macro's Connect MCP button. Fails closed.
-const mcpEnabled = ref(false);
+// Connect MCP row: shown on every app since the agent-link-enabled flag was
+// retired, like the macro's Connect MCP button.
+const mcpEnabled = ref(true);
 const mcpOpen = ref(false);
 const mcpSetupCommand = ref("");
 const mcpName = ref("");
@@ -338,19 +337,9 @@ function mcpProps(extra = {}) {
   };
 }
 
-async function loadMcpFlag() {
-  try {
-    mcpEnabled.value = await isAgentLinkEnabled();
-  } catch (e) {
-    console.error("[homepageFeed] agent-link flag lookup failed", e);
-    mcpEnabled.value = false;
-  }
-}
-
 onMounted(() => {
   trackAnalyticsEvent("homepage_feed_viewed", baseProps());
   void loadRecent();
-  void loadMcpFlag();
 });
 
 async function openDiagram(hit) {

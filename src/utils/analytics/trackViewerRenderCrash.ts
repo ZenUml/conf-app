@@ -16,7 +16,7 @@
 // syntax-validation failures (and, for PlantUML, its own fetch failures —
 // see audit §2.1, §6; investigating that class is explicitly out of scope
 // here). The two paths are kept separate on purpose: routing a genuine
-// render crash through `store.dispatch('updateError', ...)` would also
+// render crash through `store.commit('updateError', ...)` would also
 // surface the editor's SyntaxErrorBox/AI-Repair UI for input that IS
 // syntactically valid — a user-facing behavior change this fix must not
 // introduce (task scope is measurement only, silent-degrade UX stays).

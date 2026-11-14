@@ -2529,7 +2529,7 @@ export default {
     // store.state.diagram.{code,mermaidCode,plantUmlCode} changes (see
     // Sequence.vue/Mermaid.vue/PlantUml.vue's `watch` on that field), which is
     // exactly the mechanism the in-app code editor uses (Editor.vue's
-    // onEditorCodeChange: store.dispatch(getStoreUpdateAction(diagramType), newCode)).
+    // onEditorCodeChange: store.commit(getStoreUpdateAction(diagramType), newCode)).
     // Mirror that here so a relay-driven edit renders live, without a reload.
     applyAgentDiagramUpdate(dsl, macroType) {
       const type = macroType || this.diagramType;

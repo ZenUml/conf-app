@@ -33,7 +33,7 @@ async function bootstrap() {
   await getContext()
 
   // Seed the store from the preset. Without a diagram type the viewer hides
-  // everything gated on one — Source, the Copy for AI split button, the
+  // everything gated on one — Source, the Connect MCP button, the
   // fullscreen type chip — so the harness rendered chrome no real macro shows.
   const preset = getPresetById(params.get('sandbox') ?? 'seq-view')
   if (preset) {

@@ -26,7 +26,7 @@ test('a matrix edit without its contract cannot silently authorize a new pair', 
 });
 test('known dependencies remain a floor without selecting unrelated parent categories', () => {
   assert.deepEqual(dependencyTagsForScenarios([]),[]);
-  const tags=dependencyTagsForScenarios([{feature:'copy-for-ai',interface:'inline-viewer'}]);
+  const tags=dependencyTagsForScenarios([{feature:'view-source',interface:'inline-viewer'}]);
   assert.ok(tags.every(tag=>tag.startsWith('@test:')));
   assert.throws(()=>dependencyTagsForScenarios([{feature:'unknown',interface:'editor'}]),/Invalid/);
 });

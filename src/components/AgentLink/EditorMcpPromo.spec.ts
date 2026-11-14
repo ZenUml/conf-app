@@ -4,7 +4,6 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import EditorMcpPromo from './EditorMcpPromo.vue'
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({ isAgentLinkEnabled: vi.fn(() => Promise.resolve(true)) }))
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: {},
   getContext: vi.fn(() => Promise.resolve({ cloudId: 'cloud-1', accountId: 'acct-1' })),

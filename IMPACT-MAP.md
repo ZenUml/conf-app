@@ -117,7 +117,6 @@
 | [F26 Mermaid 关系高亮](#f26) | · | G | · | · | · | · | · | · | · | · | · | · | · |
 | [F27 Mermaid Refined 布局](#f27) | · | G | · | · | · | · | · | · | · | · | · | · | · |
 | [F28 查看与复制源码](#f28) | · | G | · | · | · | · | · | · | · | · | · | · | · |
-| [F29 复制给外部 AI](#f29) | · | G | · | · | · | · | · | · | · | · | · | · | · |
 | [F30 宏内容、页面与放置链接](#f30) | · | G | · | · | · | · | · | · | · | · | · | · | · |
 | [F31 引用已有内容](#f31) | · | · | ↗ | · | · | · | · | ● | ● | · | · | · | · |
 | [F32 粘贴创建与引用宏](#f32) | ● | · | · | · | · | · | · | · | · | · | · | · | · |
@@ -152,7 +151,6 @@
 | [F26 Mermaid 关系高亮](#f26) | G | G | · | G | · | · | · | · |
 | [F27 Mermaid Refined 布局](#f27) | G | G | · | · | · | · | · | · |
 | [F28 查看与复制源码](#f28) | ↗ | ↗ | · | G | ● | · | · | · |
-| [F29 复制给外部 AI](#f29) | G | G | · | G | · | · | · | · |
 | [F30 宏内容、页面与放置链接](#f30) | G | G | · | G | · | · | · | · |
 | [F31 引用已有内容](#f31) | · | · | · | ● | · | · | · | · |
 | [F32 粘贴创建与引用宏](#f32) | · | · | · | G | · | · | · | · |
@@ -566,17 +564,6 @@
 **契约与边界**：查看器面板支持 ZenUML/Mermaid/PlantUML/Markdown，独立于编辑权限；byline 的 Copy source 还受行状态与更高优先级放置动作影响。
 
 **代码证据**：[src/components/Viewer/GenericViewer.vue:1035](src/components/Viewer/GenericViewer.vue#L1035)；[src/components/Viewer/ViewSourcePanel.vue:1](src/components/Viewer/ViewSourcePanel.vue#L1)；[src/components/Byline/BylineDiagrams.vue:213](src/components/Byline/BylineDiagrams.vue#L213)；[src/components/Byline/BylineDiagrams.vue:985](src/components/Byline/BylineDiagrams.vue#L985)；[src/components/Viewer/ForgeEmbedViewer.vue:12](src/components/Viewer/ForgeEmbedViewer.vue#L12)；[src/components/Viewer/GenericViewer.vue:12](src/components/Viewer/GenericViewer.vue#L12)。
-
-<a id="f29"></a>
-### F29 · 复制给外部 AI — `copy-for-ai`
-
-**能力**：复制源文与尽力获取的页面上下文，并选择任务 prompt。
-
-**交互面**：`inline-viewer` G；`fullscreen-viewer` G；`embedded-viewer` G；`page-editor-preview` G。
-
-**契约与边界**：提供 generic/explain/update/implement/audit/tests；只向剪贴板传输，不在这里调用模型。页面上下文失败可退化为图表上下文；Connect MCP 开启时可占据其主按钮位置。
-
-**代码证据**：[src/components/Viewer/CopyForAiMenu.vue:60](src/components/Viewer/CopyForAiMenu.vue#L60)；[src/components/Viewer/GenericViewer.vue:1056](src/components/Viewer/GenericViewer.vue#L1056)；[src/components/Viewer/GenericViewer.vue:2616](src/components/Viewer/GenericViewer.vue#L2616)；[src/utils/copyForAi/buildCopyForAiPrompt.ts:73](src/utils/copyForAi/buildCopyForAiPrompt.ts#L73)；[src/components/Viewer/ForgeEmbedViewer.vue:12](src/components/Viewer/ForgeEmbedViewer.vue#L12)；[src/components/Viewer/GenericViewer.vue:12](src/components/Viewer/GenericViewer.vue#L12)。
 
 <a id="f30"></a>
 ### F30 · 宏内容、页面与放置链接 — `diagram-links`

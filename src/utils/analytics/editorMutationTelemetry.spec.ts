@@ -217,8 +217,7 @@ describe('editor mutation session', () => {
       track: (event, properties) => tracked.push([event, properties]),
       readAttribution: () => ({
         copy_id: 'copy-1',
-        copy_source: 'copy_for_ai',
-        copy_job: 'update',
+        copy_source: 'view_source',
         copied_at: 1_200,
         custom_content_id: '12345',
       }),
@@ -237,8 +236,7 @@ describe('editor mutation session', () => {
       replace_index: 1,
       ms_since_editor_open: 500,
       copy_id: 'copy-1',
-      copy_source: 'copy_for_ai',
-      copy_job: 'update',
+      copy_source: 'view_source',
       ms_since_copy: 300,
     })]);
     expect(tracked[1][1]).toMatchObject({ replace_index: 2, ms_since_editor_open: 1_000 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { extractDiagram, onHostMessage, start, UI_PROTOCOL_VERSION } from './mcp-app-view';
+import { extractDiagram, fitSequence, onHostMessage, start, UI_PROTOCOL_VERSION } from './mcp-app-view';
 import { compress } from '@/utils/compress';
 
 const drawio = vi.hoisted(() => ({
@@ -545,5 +545,39 @@ describe('loading the renderer', () => {
 
     result({ diagramType: 'graph', source: XML });
     await vi.waitFor(() => expect(GraphViewer).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('fitting a sequence diagram to the frame', () => {
+  // jsdom lays nothing out, so give the box and the diagram their sizes.
+  function sized(boxWidth: number, contentWidth: number, contentHeight: number) {
+    const box = document.createElement('div');
+    box.innerHTML = '<div class="zenuml"><div></div></div>';
+    const target = box.querySelector('.zenuml')!.firstElementChild as HTMLElement;
+    Object.defineProperty(box, 'clientWidth', { value: boxWidth });
+    Object.defineProperty(target, 'scrollWidth', { value: contentWidth });
+    Object.defineProperty(target, 'scrollHeight', { value: contentHeight });
+    return { box, target };
+  }
+
+  it('scales a wide diagram down to the frame width and sizes the box to the scaled height', () => {
+    const { box, target } = sized(800, 1600, 600);
+    fitSequence(box);
+    expect(target.style.transform).toBe('scale(0.5)');
+    expect(target.style.transformOrigin).toBe('0 0');
+    expect(box.style.height).toBe('300px');
+  });
+
+  it('leaves a diagram that already fits at its own size, never magnified', () => {
+    const { box, target } = sized(800, 400, 300);
+    fitSequence(box);
+    expect(target.style.transform).toBe('');
+    expect(box.style.height).toBe('');
+  });
+
+  it('does nothing before the diagram has a size', () => {
+    const { box, target } = sized(800, 0, 0);
+    fitSequence(box);
+    expect(target.style.transform).toBe('');
   });
 });

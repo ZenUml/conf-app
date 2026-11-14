@@ -178,7 +178,8 @@ export type AnalyticsProperties = {
   magic_layout_preference?: 'magic' | 'original' | 'no_preference';
   // Diagram viewport pan/zoom. This is the user's explicit control intent, not
   // every intermediate wheel, drag, or pinch callback.
-  viewport_action?: "zoom_in" | "zoom_out" | "fit_height" | "fit_width";
+  // `fit` (back to fit) only from the MCP Apps view (agent_link_app_view_zoomed).
+  viewport_action?: "zoom_in" | "zoom_out" | "fit_height" | "fit_width" | "fit";
   /** Header relocation is distinct from the existing floating editor toolbar. */
   viewport_control_location?: "header" | "canvas";
   /** Fit/zoom was applied by a ready renderer; disabled controls emit nothing. */
@@ -186,7 +187,8 @@ export type AnalyticsProperties = {
   // Which control the reader used to zoom. `wheel` is one whole Ctrl/Cmd +
   // scroll gesture, not one per step, so a wheel zoom and a button click cost
   // the same one event and the two are directly comparable.
-  viewport_input?: "toolbar" | "wheel";
+  // `keyboard` only from the MCP Apps view (agent_link_app_view_zoomed).
+  viewport_input?: "toolbar" | "wheel" | "keyboard";
   entry_point?: EntryPoint;
   // Create funnel only (macro_create_started / macro_create_succeeded /
   // macro_create_cancelled). `creation_origin` names the surface that started
@@ -375,6 +377,8 @@ export type AnalyticsProperties = {
   fullscreen_available?: boolean;
   // agent_link_app_view_fullscreen_requested only.
   fullscreen_outcome?: McpViewFullscreenOutcome;
+  // agent_link_app_view_zoomed: whether the view was in fullscreen.
+  fullscreen_active?: boolean;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4

@@ -3,6 +3,7 @@ import {
   UI_EXTENSION_ID,
   UI_MIME_TYPE,
   DIAGRAM_VIEW_URI,
+  LEGACY_RESOURCE_URI_META_KEY,
   DIAGRAM_VIEW_ASSET_PATH,
   VIEW_TOOLS,
   RENDERABLE_TYPES,
@@ -80,6 +81,14 @@ describe('withUiMeta', () => {
   it('leaves list_diagrams alone — a table is already the right shape', () => {
     const listed = withUiMeta(tools, ORIGIN).find((t) => t.name === 'list_diagrams');
     expect(listed).not.toHaveProperty('_meta');
+  });
+
+  it('also carries the legacy flat key on every view tool, as the ext-apps SDK does', () => {
+    for (const name of VIEW_TOOLS) {
+      const tool = withUiMeta(tools, ORIGIN).find((t) => t.name === name) as { _meta: Record<string, unknown> };
+      expect(tool._meta[LEGACY_RESOURCE_URI_META_KEY]).toBe(DIAGRAM_VIEW_URI);
+    }
+    expect(LEGACY_RESOURCE_URI_META_KEY).toBe('ui/resourceUri');
   });
 
   it('points _meta.ui at the view', () => {

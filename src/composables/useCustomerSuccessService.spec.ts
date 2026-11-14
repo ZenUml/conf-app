@@ -3,10 +3,6 @@ import { useCustomerSuccessService } from './useCustomerSuccessService'
 import { getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 
 // Mock dependencies
-vi.mock('@/apis/featureFlags', () => ({
-  default: vi.fn().mockResolvedValue({ PAYWALL_EXEMPT: false })
-}))
-
 vi.mock('@/services/MacroMetrics', () => ({
   default: {
     getMacroMetrics: vi.fn().mockResolvedValue({ total: 50 })
@@ -282,9 +278,9 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
     vi.mocked(callRemote).mockResolvedValue({ isPaid: false })
   })
 
-  it('Lite + PAYWALL_EXEMPT:false resolves default_on and enables the paywall', async () => {
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
-    vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
+  it('Lite + paywallExempt:false resolves default_on and enables the paywall', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false, paywallExempt: false })
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
     const svc = useCustomerSuccessService()
@@ -292,11 +288,12 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
 
     expect(svc.paywallPolicySource.value).toBe('default_on')
     expect(svc.cssEnabled.value).toBe(true)
+    expect(callRemote).toHaveBeenCalledOnce()
   })
 
-  it('Lite + PAYWALL_EXEMPT:true resolves exemption and disables the paywall', async () => {
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
-    vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: true })
+  it('Lite + paywallExempt:true resolves exemption and disables the paywall', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false, paywallExempt: true })
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
     const svc = useCustomerSuccessService()
@@ -304,11 +301,12 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
 
     expect(svc.paywallPolicySource.value).toBe('exemption')
     expect(svc.cssEnabled.value).toBe(false)
+    expect(callRemote).toHaveBeenCalledOnce()
   })
 
-  it('Lite + an empty feature-flags response resolves fail_open and disables the paywall', async () => {
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
-    vi.mocked(getFeatureFlags).mockResolvedValue({})
+  it('Lite + an omitted paywallExempt in space-status resolves fail_open and disables the paywall', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false })
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
     const svc = useCustomerSuccessService()
@@ -318,9 +316,9 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
     expect(svc.cssEnabled.value).toBe(false)
   })
 
-  it('Lite + a rejected feature-flags call resolves fail_open and disables the paywall', async () => {
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
-    vi.mocked(getFeatureFlags).mockRejectedValue(new Error('network down'))
+  it('Lite + a rejected space-status call resolves fail_open and disables the paywall', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockRejectedValue(new Error('network down'))
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
     const svc = useCustomerSuccessService()
@@ -330,10 +328,10 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
     expect(svc.cssEnabled.value).toBe(false)
   })
 
-  it('non-Lite resolves the fail_open compatibility state and never requests PAYWALL_EXEMPT', async () => {
+  it('non-Lite resolves the fail_open compatibility state and never calls space-status', async () => {
     const globals = await import('@/model/globals')
     vi.mocked(globals.default.apWrapper.isLite).mockReturnValue(false)
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
+    const { callRemote } = await import('@/utils/requestUtil')
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
     const svc = useCustomerSuccessService()
@@ -341,7 +339,7 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
 
     expect(svc.paywallPolicySource.value).toBe('fail_open')
     expect(svc.cssEnabled.value).toBe(false)
-    expect(getFeatureFlags).not.toHaveBeenCalled()
+    expect(callRemote).not.toHaveBeenCalled()
   })
 
   it('mockCSSEnabled=true maps to effective default_on for test/dev use', async () => {
@@ -367,8 +365,8 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
   })
 
   it('default_on warns at 85 macros in an unpaid space (below the block threshold)', async () => {
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
-    vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false, paywallExempt: false })
     localStorage.mockMacroCount = '85'
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
@@ -380,8 +378,8 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
   })
 
   it('default_on no longer blocks at 100 macros in an unpaid space (paywall block retired)', async () => {
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
-    vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false, paywallExempt: false })
     localStorage.mockMacroCount = '100'
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
@@ -392,8 +390,8 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
   })
 
   it('an explicit exemption disables both the warning and the block at the same counts', async () => {
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
-    vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: true })
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false, paywallExempt: true })
     localStorage.mockMacroCount = '150'
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
@@ -405,10 +403,8 @@ describe('useCustomerSuccessService - paywall policy source (lite-paywall-defaul
   })
 
   it('a user/space license still overrides a real (non-mocked) default_on decision', async () => {
-    const getFeatureFlags = (await import('@/apis/featureFlags')).default
-    vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
     const { callRemote } = await import('@/utils/requestUtil')
-    vi.mocked(callRemote).mockResolvedValue({ isPaid: true, source: 'space_license' })
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: true, source: 'space_license', paywallExempt: false })
     localStorage.mockMacroCount = '150'
 
     const { useCustomerSuccessService } = await import('./useCustomerSuccessService')

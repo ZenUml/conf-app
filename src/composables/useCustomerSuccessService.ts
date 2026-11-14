@@ -1,6 +1,5 @@
 import { ref, computed } from 'vue'
 import type { MacroCountSource, PaywallPolicySource } from '@/utils/analytics/catalog'
-import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
 import macroMetrics from "@/services/MacroMetrics"
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters"
 import globals from '@/model/globals'
@@ -21,8 +20,8 @@ const macroCountSource = ref<MacroCountSource>('undefined')
 // Which policy produced the effective Lite paywall decision (lite-paywall-
 // default-on). Starts 'fail_open' (the safe default before a real decision
 // is loaded) and stays 'fail_open' for the whole session on a non-Lite
-// variant, a missing/unreadable/malformed PAYWALL_EXEMPT lookup, or a
-// rejected /feature-flags call. Rides on paywall_gate_evaluated.
+// variant, a missing/unreadable/malformed paywallExempt lookup, or a
+// rejected /api/space-status call. Rides on paywall_gate_evaluated.
 const policySource = ref<PaywallPolicySource>('fail_open')
 // Effective paywall-enabled boolean — kept under its legacy CSS name for
 // compatibility (return value `cssEnabled`, the page-banner marker's
@@ -44,6 +43,7 @@ let macroMetricsLoaded = false;
 let cssFlagLoaded = false;
 let spacePaidStatusLoaded = false;
 let spaceKeyLoaded = false;
+let spaceStatusPromise: Promise<any> | null = null;
 
 export function useCustomerSuccessService() {
   const actionRequired = computed(() => {
@@ -127,11 +127,44 @@ export function useCustomerSuccessService() {
     }
   }
 
+  async function loadSpaceKey(): Promise<void> {
+    if (spaceKeyLoaded) return;
+
+    if (localStorage.mockSpaceKey) {
+      currentSpaceKey.value = localStorage.mockSpaceKey
+      spaceKeyLoaded = true
+      return;
+    }
+
+    try {
+      const space = await globals.apWrapper.getCurrentSpace()
+      currentSpaceKey.value = space?.key || ''
+    } catch (e) {
+      console.warn('Could not get spaceKey from page context:', e)
+    } finally {
+      spaceKeyLoaded = true
+    }
+  }
+
+  function fetchSpaceStatus(): Promise<any> {
+    if (!spaceStatusPromise) {
+      spaceStatusPromise = (async () => {
+        await loadSpaceKey()
+        const spaceKey = currentSpaceKey.value
+
+        // READ BY docs/reference/paid-space-detection.md:29
+        console.log('🔍 Checking space paid status...')
+        return await callRemote(`/api/space-status?spaceKey=${encodeURIComponent(spaceKey)}`, 'GET')
+      })()
+    }
+    return spaceStatusPromise
+  }
+
   // Resolve the fixed Lite paywall policy: on by default, unless the backend
   // returns an explicit exemption, unless the lookup itself is unavailable
-  // (missing/malformed KV, rejected fetch) — in which case the decision fails
-  // open. Non-Lite variants never make the PAYWALL_EXEMPT lookup at all; the
-  // effective paywall stays disabled for the whole session.
+  // (missing/malformed KV, missing domain mapping, rejected callRemote) — in
+  // which case the decision fails open. Non-Lite variants never make the
+  // lookup at all; the effective paywall stays disabled for the whole session.
   async function loadPaywallPolicy(): Promise<void> {
     if (cssFlagLoaded) {
       return;
@@ -151,7 +184,7 @@ export function useCustomerSuccessService() {
         // Legacy-named dev/test override, retained as the effective decision
         // override (design doc): 'true' behaves like default_on, 'false'
         // behaves like an explicit exemption. Does not traverse the real
-        // PAYWALL_EXEMPT lookup.
+        // paywallExempt lookup.
         const mockEnabled = localStorage.mockCSSEnabled === 'true'
         policySource.value = mockEnabled ? 'default_on' : 'exemption'
         customerSuccessServiceEnabled.value = mockEnabled
@@ -159,15 +192,27 @@ export function useCustomerSuccessService() {
         return;
       }
 
-      const flags: any = await getFeatureFlagsForCurrentDomain(['PAYWALL_EXEMPT'])
-      if (typeof flags.PAYWALL_EXEMPT !== 'boolean') {
-        // Absent property: missing/unreadable/malformed KV, or the lookup
-        // itself failed inside getFeatureFlagsForCurrentDomain (which turns
-        // any transport error into `{}`). Fail open — never treat "unknown"
-        // as "safe to restrict".
+      if (localStorage.mockSpacePaid !== undefined) {
         policySource.value = 'fail_open'
         customerSuccessServiceEnabled.value = false
-      } else if (flags.PAYWALL_EXEMPT) {
+        cssFlagLoaded = true;
+        return;
+      }
+
+      const response: any = await fetchSpaceStatus()
+      const exempt = typeof response?.paywallExempt === 'boolean'
+        ? response.paywallExempt
+        : typeof response?.PAYWALL_EXEMPT === 'boolean'
+          ? response.PAYWALL_EXEMPT
+          : undefined
+
+      if (typeof exempt !== 'boolean') {
+        // Absent property: missing/unreadable/malformed KV, unresolvable
+        // domain, or failed lookup. Fail open — never treat "unknown" as
+        // "safe to restrict".
+        policySource.value = 'fail_open'
+        customerSuccessServiceEnabled.value = false
+      } else if (exempt) {
         policySource.value = 'exemption'
         customerSuccessServiceEnabled.value = false
       } else {
@@ -183,25 +228,6 @@ export function useCustomerSuccessService() {
       // this iframe's lifecycle, not retried into a surprise mid-session
       // restriction.
       cssFlagLoaded = true;
-    }
-  }
-
-  async function loadSpaceKey(): Promise<void> {
-    if (spaceKeyLoaded) return;
-
-    if (localStorage.mockSpaceKey) {
-      currentSpaceKey.value = localStorage.mockSpaceKey
-      spaceKeyLoaded = true
-      return;
-    }
-
-    try {
-      const space = await globals.apWrapper.getCurrentSpace()
-      currentSpaceKey.value = space?.key || ''
-    } catch (e) {
-      console.warn('Could not get spaceKey from page context:', e)
-    } finally {
-      spaceKeyLoaded = true
     }
   }
 
@@ -224,12 +250,7 @@ export function useCustomerSuccessService() {
         return;
       }
 
-      await loadSpaceKey()
-      const spaceKey = currentSpaceKey.value
-
-      // READ BY docs/reference/paid-space-detection.md:29
-      console.log('🔍 Checking space paid status...')
-      const response = await callRemote(`/api/space-status?spaceKey=${encodeURIComponent(spaceKey)}`, 'GET')
+      const response = await fetchSpaceStatus()
 
       if (response && typeof response.isPaid === 'boolean') {
         spacePaidStatus.value = response.isPaid
@@ -314,6 +335,7 @@ export function useCustomerSuccessService() {
   cssFlagLoaded = false
   spacePaidStatusLoaded = false
   spaceKeyLoaded = false
+  spaceStatusPromise = null
 }
 
 export function getUpgradeContext() {

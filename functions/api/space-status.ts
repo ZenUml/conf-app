@@ -3,9 +3,16 @@ import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import type { SpaceLicenseRecord } from './space-license';
 import { json } from '../OkResponse';
+import {
+  checkPaidRail,
+  paidLicense,
+  readPaywallExemptionsMap,
+  resolveTrustedClientDomain,
+} from '../service/paywallPolicy';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
+  KV_FEATURE_FLAGS?: KVNamespace;
   ALLOWED_FORGE_APP_IDS?: string;
   // Optional: the project-wide "DB" D1 binding (conf-zenuml-prod). Optional
   // because some environments (tests, older wrangler configs) don't bind it —
@@ -18,59 +25,7 @@ export interface SpaceStatusResponse {
   isPaid: boolean;
   decisionKnown: boolean;
   source?: 'user_license' | 'space_license' | 'paid_rail';
-}
-
-// Full and Diagramly Forge app identifiers (our own app IDs, not tenant
-// data — see .claude/skills/forge-installs/SKILL.md).
-const FULL_APP_ID = 'd9e4002b-120b-426b-834b-402a4a5adce7';
-const DIAGRAMLY_APP_ID = '01ede8b1-4e88-451a-b9ef-89eeef93afaf';
-
-// Atlassian's Forge trial is 30 days; +15 days buffer for install-to-decision
-// lag. Long-term paid Full/Diagramly tenants are handled by explicit
-// PAYWALL_EXEMPTIONS entries (see the paywall skill), NOT by this query —
-// this suppression is deliberately time-boxed so it can never substitute for
-// a real license check on an old install.
-//
-// Caveat (verified against Atlassian's own docs, not assumed): ForgeInstallation.createdAt
-// (functions/utils/dbUtils.ts upsertForgeInstallation) is overwritten to "now" on EVERY
-// upsert, including avi:forge:upgraded:app — but per
-// https://developer.atlassian.com/platform/forge/events-reference/life-cycle/ that event
-// "is not sent for minor or patch version upgrades", only major ones (scope/licensing/consent
-// changes — see this repo's own "Forge app versions" doc). Majors are rare, so createdAt is a
-// reasonable install-date proxy for most tenants; a tenant whose install had a recent MAJOR
-// version bump (not a routine release) will also read as "recent" here — an occasional,
-// fail-safe (over-suppressing, not under-suppressing) false positive, not a systemic one.
-const PAID_RAIL_TRIAL_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
-
-/**
- * Paid-rail suppression (owner directive 2026-08-07): a cloudId with a
- * RECENT Full or Diagramly Forge install is very likely mid-trial on one of
- * those products and evaluating whether to buy — don't paywall their Lite
- * usage on the same tenant while that evaluation is in flight. This is our
- * own D1 (ForgeInstallation), not the Atlassian Marketplace API.
- *
- * Returns a paid-rail response on a hit, null on a confirmed miss, and
- * undefined when D1 is missing or failed. The legacy isPaid path remains
- * fail-open while decisionKnown exposes whether the read was complete.
- */
-async function checkPaidRail(db: D1Database | undefined, cloudId: string): Promise<SpaceStatusResponse | null | undefined> {
-  if (!db) return undefined;
-  try {
-    const cutoff = new Date(Date.now() - PAID_RAIL_TRIAL_WINDOW_MS).toISOString();
-    const row = await db
-      .prepare(
-        `SELECT 1 FROM ForgeInstallation WHERE cloudId = ?1 AND appId IN ('${FULL_APP_ID}','${DIAGRAMLY_APP_ID}') AND createdAt >= ?2 LIMIT 1`
-      )
-      .bind(cloudId, cutoff)
-      .first();
-    if (row) {
-      return { isPaid: true, decisionKnown: true, source: 'paid_rail' };
-    }
-    return null;
-  } catch (error) {
-    console.error('space-status: paid_rail D1 check failed', error);
-    return undefined;
-  }
+  paywallExempt?: boolean;
 }
 
 // Forge invokeRemote requires valid JSON + application/json for every status
@@ -82,19 +37,54 @@ const NO_STORE = { 'Cache-Control': 'no-store' };
 const PRIVATE_CACHE_5MIN = { 'Cache-Control': 'private, max-age=300' };
 
 /**
+ * Resolve the tenant-level paywall exemption verdict for an authenticated
+ * `cloudId`. Never trusts a client-supplied `?client=` parameter: the domain is
+ * resolved server-side from D1 (`AtlassianInstance` / `ForgeInstallation`).
+ * Returns `undefined` when `KV_FEATURE_FLAGS`, `DB`, the domain mapping, or the
+ * `PAYWALL_EXEMPTIONS` map is unavailable/malformed so the frontend fails open.
+ */
+async function resolvePaywallExemptForCloudId(
+  env: Env,
+  cloudId: string,
+  forgeAppId?: string,
+): Promise<boolean | undefined> {
+  if (!env.KV_FEATURE_FLAGS || !env.DB) return undefined;
+  const exemptions = await readPaywallExemptionsMap(env.KV_FEATURE_FLAGS);
+  if (!exemptions) return undefined;
+  const clientDomain = await resolveTrustedClientDomain(env.DB, cloudId, forgeAppId);
+  if (!clientDomain) return undefined;
+  return exemptions['*'] === true || exemptions[clientDomain] === true;
+}
+
+function withPaywallExempt(
+  body: SpaceStatusResponse,
+  paywallExempt: boolean | undefined,
+): SpaceStatusResponse {
+  return typeof paywallExempt === 'boolean' ? { ...body, paywallExempt } : body;
+}
+
+/**
  * The shared tail for both "no active license" exits: a missing space-level
  * KV record, and a record that's present but inactive/expired. Both must
  * check the D1 paid-rail fallback before finally reporting not-paid — the
  * user- and space-license checks above this still win when they hit.
  */
-async function notPaidOrPaidRail(env: Env, cloudId: string): Promise<Response> {
+async function notPaidOrPaidRail(
+  env: Env,
+  cloudId: string,
+  paywallExempt: boolean | undefined,
+): Promise<Response> {
   const paidRail = await checkPaidRail(env.DB, cloudId);
   if (paidRail) {
-    return json(paidRail, { status: 200, headers: PRIVATE_CACHE_5MIN });
+    return json(withPaywallExempt(paidRail, paywallExempt), {
+      status: 200,
+      headers: PRIVATE_CACHE_5MIN,
+    });
   }
   const decisionKnown = paidRail === null;
-  return json({ isPaid: false, decisionKnown }, {
-    status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE,
+  return json(withPaywallExempt({ isPaid: false, decisionKnown }, paywallExempt), {
+    status: 200,
+    headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE,
   });
 }
 
@@ -142,6 +132,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // guard below already treats as "no decision to make".
     const rawCloudId = payload.cloudId || payload.payload.context?.cloudId;
     const cloudId = typeof rawCloudId === 'string' ? rawCloudId : undefined;
+    const rawForgeAppId = (payload as { forgeAppId?: unknown; forgeAppAri?: unknown }).forgeAppId
+      || (payload as { forgeAppAri?: unknown }).forgeAppAri
+      || (payload.payload?.app as { id?: unknown } | undefined)?.id;
+    const forgeAppId = typeof rawForgeAppId === 'string' ? rawForgeAppId : undefined;
     // Derived from the Forge-validated token, never a client query param — a
     // query param would let any user claim another user's accountId.
     const accountId = payload?.payload?.principal;
@@ -157,19 +151,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return json({ isPaid: false, decisionKnown: false }, { status: 200, headers: NO_STORE });
     }
 
+    const paywallExempt = await resolvePaywallExemptForCloudId(env, cloudId, forgeAppId);
+
     // User-scoped extension (checked first): only when the token carries a
     // real accountId — never build/match a key on a missing one.
     if (accountId) {
       const userLicenseRaw = await env.SPACE_LICENSE_KV.get(`license:${cloudId}:${spaceKey}:${accountId}`);
       if (userLicenseRaw) {
-        const userRecord = JSON.parse(userLicenseRaw) as SpaceLicenseRecord;
-        const userIsActive = userRecord.status === 'active';
-        const userIsExpired = new Date(userRecord.expiresAt) < new Date();
-        if (userIsActive && !userIsExpired) {
+        const userVerdict = paidLicense(userLicenseRaw);
+        if (userVerdict === 'unknown') {
+          throw new Error('Malformed user space license record');
+        }
+        if (userVerdict) {
           const decisionKnown = (await checkPaidRail(env.DB, cloudId)) !== undefined;
-          return json({ isPaid: true, decisionKnown, source: 'user_license' }, {
-            status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE,
-          });
+          return json(
+            withPaywallExempt({ isPaid: true, decisionKnown, source: 'user_license' }, paywallExempt),
+            { status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE },
+          );
         }
       }
     }
@@ -178,14 +176,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!licenseRaw) {
       console.log('space-status: no license found for', `license:${cloudId}:${spaceKey}`);
-      return await notPaidOrPaidRail(env, cloudId);
+      return await notPaidOrPaidRail(env, cloudId, paywallExempt);
     }
 
     const record = JSON.parse(licenseRaw) as SpaceLicenseRecord;
-
+    const spaceVerdict = paidLicense(licenseRaw);
+    if (spaceVerdict === 'unknown') {
+      throw new Error('Malformed space license record');
+    }
+    const isPaid = spaceVerdict;
     const isActive = record.status === 'active';
-    const isExpired = new Date(record.expiresAt) < new Date();
-    const isPaid = isActive && !isExpired;
+    const isExpired = !isPaid && isActive;
 
     console.log('space-status: license check', {
       key: `license:${cloudId}:${spaceKey}`,
@@ -198,12 +199,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (isPaid) {
       const decisionKnown = (await checkPaidRail(env.DB, cloudId)) !== undefined;
-      return json({ isPaid: true, decisionKnown, source: 'space_license' }, {
-        status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE,
-      });
+      return json(
+        withPaywallExempt({ isPaid: true, decisionKnown, source: 'space_license' }, paywallExempt),
+        { status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE },
+      );
     }
 
-    return await notPaidOrPaidRail(env, cloudId);
+    return await notPaidOrPaidRail(env, cloudId, paywallExempt);
   } catch (error) {
     console.error('Error checking space status:', error);
     captureError(error);

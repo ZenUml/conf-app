@@ -16,7 +16,6 @@ import { useCustomerSuccessService } from '@/composables/useCustomerSuccessServi
  * the page is really in.
  */
 vi.mock('@/model/globals/forgeGlobal', () => ({ default: { isForge: true, forgeContext: null } }))
-vi.mock('@/apis/featureFlags', () => ({ default: vi.fn().mockResolvedValue({}) }))
 vi.mock('@/services/MacroMetrics', () => ({ default: { getMacroMetrics: vi.fn() } }))
 vi.mock('@/utils/requestUtil', () => ({ callRemote: vi.fn() }))
 vi.mock('@/utils/window', () => ({ getUrlParam: vi.fn(), trackEvent: vi.fn() }))

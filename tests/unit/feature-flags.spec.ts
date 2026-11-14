@@ -43,7 +43,7 @@ function makeContext(params: Record<string, string>, kvData: Record<string, stri
 describe('feature-flags onRequestGet', () => {
   describe('validation', () => {
     it('returns 400 when client is missing', async () => {
-      const ctx = makeContext({ features: 'TEST' });
+      const ctx = makeContext({ features: 'PAYWALL_EXEMPT' });
       const response = await onRequestGet(ctx);
       expect(response.status).toBe(400);
     });
@@ -55,28 +55,20 @@ describe('feature-flags onRequestGet', () => {
     });
   });
 
-  describe('CUSTOMER_SUCCESS_SERVICE', () => {
-    it('returns CUSTOMER_SUCCESS_SERVICE for matching domain', async () => {
-      const cssValue = { 'example.atlassian.net': { plan: 'enterprise' } };
+  describe('retired CUSTOMER_SUCCESS_SERVICE and queryAll', () => {
+    it('ignores CUSTOMER_SUCCESS_SERVICE and queryAll (#1164)', async () => {
+      const cssValue = { 'example-tenant': { plan: 'enterprise' } };
       const ctx = makeContext(
-        { client: 'example.atlassian.net', features: 'CUSTOMER_SUCCESS_SERVICE' },
-        { CUSTOMER_SUCCESS_SERVICE: JSON.stringify(cssValue) },
+        { client: 'example-tenant', features: 'CUSTOMER_SUCCESS_SERVICE', queryAll: 'true' },
+        {
+          CUSTOMER_SUCCESS_SERVICE: JSON.stringify(cssValue),
+          PAYWALL_EXEMPTIONS: JSON.stringify({ 'example-tenant': true }),
+        },
       );
       const response = await onRequestGet(ctx);
       expect(response.status).toBe(200);
       const body = await response.json() as Record<string, unknown>;
-      expect(body.CUSTOMER_SUCCESS_SERVICE).toEqual({ plan: 'enterprise' });
-    });
-
-    it('returns empty object when client does not match CUSTOMER_SUCCESS_SERVICE', async () => {
-      const cssValue = { 'other.atlassian.net': { plan: 'enterprise' } };
-      const ctx = makeContext(
-        { client: 'example.atlassian.net', features: 'CUSTOMER_SUCCESS_SERVICE' },
-        { CUSTOMER_SUCCESS_SERVICE: JSON.stringify(cssValue) },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.CUSTOMER_SUCCESS_SERVICE).toBeUndefined();
+      expect(body).toEqual({});
     });
   });
 
@@ -89,7 +81,7 @@ describe('feature-flags onRequestGet', () => {
     });
   });
 
-  describe('PAYWALL_EXEMPT', () => {
+  describe('PAYWALL_EXEMPT (retained for older cached frontends)', () => {
     function ctxWith(exemptionsValue: string, client = 'example-tenant') {
       return makeContext(
         { client, features: 'PAYWALL_EXEMPT' },
@@ -172,21 +164,6 @@ describe('feature-flags onRequestGet', () => {
       const response = await onRequestGet(ctx);
       const body = await response.json() as Record<string, unknown>;
       expect('PAYWALL_EXEMPT' in body).toBe(false);
-    });
-
-    it('leaves the existing CSS response untouched when both features are requested', async () => {
-      const cssValue = { 'example-tenant': { plan: 'enterprise' } };
-      const ctx = makeContext(
-        { client: 'example-tenant', features: 'CUSTOMER_SUCCESS_SERVICE,PAYWALL_EXEMPT' },
-        {
-          CUSTOMER_SUCCESS_SERVICE: JSON.stringify(cssValue),
-          PAYWALL_EXEMPTIONS: JSON.stringify({ 'example-tenant': true }),
-        },
-      );
-      const response = await onRequestGet(ctx);
-      const body = await response.json() as Record<string, unknown>;
-      expect(body.CUSTOMER_SUCCESS_SERVICE).toEqual({ plan: 'enterprise' });
-      expect(body.PAYWALL_EXEMPT).toBe(true);
     });
   });
 });

@@ -9,8 +9,10 @@ import { onRequest } from './space-status';
 
 const future = '2035-01-01T00:00:00.000Z';
 const active = JSON.stringify({ status: 'active', expiresAt: future });
-const fit = (cloudId: string | undefined = 'site-a') => ({
-  cloudId, payload: { principal: 'user-a', context: { cloudId } },
+const fit = (cloudId: string | undefined = 'site-a', forgeAppId = 'lite-id') => ({
+  cloudId,
+  forgeAppId,
+  payload: { principal: 'user-a', context: { cloudId } },
 });
 function db(result: object | null = null, fail = false) {
   const first = vi.fn(async () => {
@@ -21,22 +23,45 @@ function db(result: object | null = null, fail = false) {
 }
 function context(options: {
   spaceKey?: string;
+  client?: string;
   kv?: Record<string, string | null> | null;
   kvFails?: boolean;
-  database?: ReturnType<typeof db> | null;
+  featureFlagsKv?: Record<string, string | null> | null;
+  featureFlagsKvFails?: boolean;
+  database?: any;
 } = {}) {
-  const { spaceKey = 'ENG', kv = {}, kvFails = false, database = db() } = options;
+  const {
+    spaceKey = 'ENG',
+    client,
+    kv = {},
+    kvFails = false,
+    featureFlagsKv = null,
+    featureFlagsKvFails = false,
+    database = db(),
+  } = options;
   const kvBinding = kv === null ? undefined : {
     get: vi.fn(async (key: string) => {
       if (kvFails) throw new Error('KV unavailable');
       return kv[key] ?? null;
     }),
   };
+  const featureFlagsBinding = featureFlagsKv === null ? undefined : {
+    get: vi.fn(async (key: string) => {
+      if (featureFlagsKvFails) throw new Error('Feature flags KV unavailable');
+      return featureFlagsKv[key] ?? null;
+    }),
+  };
   const url = new URL('https://api.example.test/api/space-status');
   if (spaceKey) url.searchParams.set('spaceKey', spaceKey);
+  if (client) url.searchParams.set('client', client);
   return {
     request: new Request(url, { headers: { Authorization: 'Bearer valid-fit' } }),
-    env: { ALLOWED_FORGE_APP_IDS: 'lite-id', SPACE_LICENSE_KV: kvBinding, DB: database ?? undefined },
+    env: {
+      ALLOWED_FORGE_APP_IDS: 'lite-id',
+      SPACE_LICENSE_KV: kvBinding,
+      KV_FEATURE_FLAGS: featureFlagsBinding,
+      DB: database ?? undefined,
+    },
   } as any;
 }
 async function read(options: Parameters<typeof context>[0] = {}) {
@@ -90,6 +115,92 @@ describe('space-status decisionKnown', () => {
     expect(failed.response.status).toBe(500);
     expect(failed.body).toEqual({
       isPaid: false, decisionKnown: false, error: 'internal_error', message: 'Internal Server Error',
+    });
+  });
+
+  describe('server-derived paywallExempt (#1164)', () => {
+    function domainDb(options: {
+      instanceDomain?: string | null;
+      installDomain?: string | null;
+      paidRail?: boolean;
+    } = {}) {
+      return {
+        prepare: vi.fn((sql: string) => ({
+          bind: vi.fn(() => ({
+            first: vi.fn(async () => {
+              if (sql.includes('FROM AtlassianInstance')) {
+                return options.instanceDomain ? { clientDomain: options.instanceDomain } : null;
+              }
+              if (sql.includes('SELECT clientDomain')) {
+                return options.installDomain ? { clientDomain: options.installDomain } : null;
+              }
+              if (sql.includes('SELECT 1 FROM ForgeInstallation')) {
+                return options.paidRail ? { 1: 1 } : null;
+              }
+              return null;
+            }),
+          })),
+        })),
+      };
+    }
+
+    it('resolves paywallExempt from FIT cloudId -> AtlassianInstance domain and ignores ?client= spoofing', async () => {
+      const database = domainDb({ instanceDomain: 'real-tenant.atlassian.net' });
+      const { body } = await read({
+        client: 'exempt-tenant',
+        database,
+        featureFlagsKv: {
+          PAYWALL_EXEMPTIONS: JSON.stringify({ 'exempt-tenant': true, 'real-tenant': false }),
+        },
+      });
+      expect(body).toEqual({ isPaid: false, decisionKnown: true, paywallExempt: false });
+    });
+
+    it('falls back to ForgeInstallation clientDomain when AtlassianInstance has no row', async () => {
+      const database = domainDb({ instanceDomain: null, installDomain: 'https://exempt-tenant.atlassian.net' });
+      const { body } = await read({
+        database,
+        featureFlagsKv: {
+          PAYWALL_EXEMPTIONS: JSON.stringify({ 'exempt-tenant': true }),
+        },
+      });
+      expect(body).toEqual({ isPaid: false, decisionKnown: true, paywallExempt: true });
+    });
+
+    it('honors wildcard "*": true when the trusted clientDomain is resolved', async () => {
+      const database = domainDb({ instanceDomain: 'example-tenant' });
+      const { body } = await read({
+        database,
+        featureFlagsKv: {
+          PAYWALL_EXEMPTIONS: JSON.stringify({ '*': true }),
+        },
+      });
+      expect(body).toEqual({ isPaid: false, decisionKnown: true, paywallExempt: true });
+    });
+
+    it('omits paywallExempt (fail-open) when domain cannot be resolved or PAYWALL_EXEMPTIONS is missing/malformed', async () => {
+      const unmappedDb = domainDb({ instanceDomain: null, installDomain: null });
+      expect((await read({
+        database: unmappedDb,
+        featureFlagsKv: { PAYWALL_EXEMPTIONS: JSON.stringify({ '*': false }) },
+      })).body).toEqual({ isPaid: false, decisionKnown: true });
+
+      const mappedDb = domainDb({ instanceDomain: 'example-tenant' });
+      expect((await read({
+        database: mappedDb,
+        featureFlagsKv: {},
+      })).body).toEqual({ isPaid: false, decisionKnown: true });
+
+      expect((await read({
+        database: mappedDb,
+        featureFlagsKv: { PAYWALL_EXEMPTIONS: '{"bad": "not-a-boolean"}' },
+      })).body).toEqual({ isPaid: false, decisionKnown: true });
+
+      expect((await read({
+        database: mappedDb,
+        featureFlagsKv: { PAYWALL_EXEMPTIONS: JSON.stringify({ '*': false }) },
+        featureFlagsKvFails: true,
+      })).body).toEqual({ isPaid: false, decisionKnown: true });
     });
   });
 });

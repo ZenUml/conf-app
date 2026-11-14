@@ -9,11 +9,11 @@
 # no in-app restrictions or upgrade flow. There is nothing pricing-related to
 # document for them on our side.
 #
-# Last verified: 2026-09-02 against main @ bd82e002 — the restrictions block
+# Last verified: 2026-11-14 — the restrictions block
 # (scope, bypass_conditions, thresholds), space_license_check and constants,
 # read from src/composables/useCustomerSuccessService.ts,
 # src/utils/paywall/continueAttempts.ts, functions/api/space-status.ts and
-# functions/feature-flags.ts. concepts, block_surface and tracking_events were
+# functions/service/paywallPolicy.ts. concepts, block_surface and tracking_events were
 # last verified 2026-04-25; channels.marketplace was re-verified 2026-08-27.
 # Verification commands at the bottom of the file.
 
@@ -32,7 +32,7 @@ meta:
     - src/components/UpgradePrompt/upgradePrompt.ts
     - functions/api/space-status.ts
     - functions/api/space-license.ts
-    - functions/feature-flags.ts
+    - functions/service/paywallPolicy.ts
     - src/utils/paywall/continueAttempts.ts
     - src/components/Viewer/GenericViewer.vue
     - src/utils/upgradeTracking.ts
@@ -191,18 +191,21 @@ restrictions:
   # /api/space-status the order is user_license, space_license, paid_rail.
   bypass_conditions:
     - name: tenant_exemption
-      layer: paywall policy — src/composables/useCustomerSuccessService.ts loadPaywallPolicy
+      layer: paywall policy — src/composables/useCustomerSuccessService.ts loadPaywallPolicy + functions/api/space-status.ts
       mechanism: |
-        The frontend calls GET {backend}/feature-flags?client={clientDomain}&features=PAYWALL_EXEMPT.
-        functions/feature-flags.ts reads the PAYWALL_EXEMPTIONS map from the KV_FEATURE_FLAGS
-        namespace and answers PAYWALL_EXEMPT = true when the exact clientDomain key is true
-        OR the "*" key is true (fleet-wide kill switch). A false value equals absent.
+        The frontend calls GET /api/space-status?spaceKey={key} via callRemote (invokeRemote).
+        functions/api/space-status.ts resolves the trusted clientDomain server-side from the FIT
+        cloudId via D1 (AtlassianInstance / ForgeInstallation) and reads the PAYWALL_EXEMPTIONS
+        map from the KV_FEATURE_FLAGS namespace (functions/service/paywallPolicy.ts), returning
+        paywallExempt = true when the exact clientDomain key is true OR the "*" key is true
+        (fleet-wide kill switch). A false value equals absent. (functions/feature-flags.ts is
+        retained temporarily for older cached frontends.)
       effect: paywall off for the whole tenant (cssEnabled = false, paywallPolicySource = exemption)
       fail_open: |
-        A missing or malformed map, or a rejected /feature-flags call, leaves PAYWALL_EXEMPT
-        absent; paywallPolicySource becomes fail_open and the paywall stays off for that
-        iframe session. Unknown is never treated as safe-to-restrict. Non-Lite variants never
-        make the lookup and stay fail_open.
+        A missing or malformed map, an unresolvable clientDomain, or a rejected /api/space-status
+        call leaves paywallExempt absent; paywallPolicySource becomes fail_open and the paywall
+        stays off for that iframe session. Unknown is never treated as safe-to-restrict. Non-Lite
+        variants never make the lookup and stay fail_open.
       admin_tool: python3 .claude/skills/paywall/scripts/paywall_exemptions.py get|put '<json>'
     - name: user_license
       layer: GET /api/space-status — functions/api/space-status.ts (checked first)
@@ -286,7 +289,7 @@ space_license_check:
     createdAt: ISO8601 string
     updatedAt: ISO8601 string
   is_paid_predicate: status == "active" AND expiresAt > now
-  response_shape: "{ isPaid: boolean, source?: user_license | space_license | paid_rail }"
+  response_shape: "{ isPaid: boolean, decisionKnown: boolean, source?: user_license | space_license | paid_rail, paywallExempt?: boolean }"
   fallback_when_no_active_license: paid_rail D1 check (restrictions.bypass_conditions[paid_rail]); then isPaid = false
   cache_control_short: private, max-age=300   # private because the answer varies by accountId (user_license)
   admin_endpoint: /api/space-license   # POST/GET/DELETE, ADMIN_API_SECRET bearer
@@ -363,8 +366,8 @@ constants:
   MONTHS_IN_YEAR_BILLED: 10
   CSS_FEATURE_FLAG_NAME: CUSTOMER_SUCCESS_SERVICE   # snapshot-enrollment list only since 2026-08-07; not the runtime gate
   PAYWALL_EXEMPTIONS_KV_KEY: PAYWALL_EXEMPTIONS      # KV_FEATURE_FLAGS namespace; the runtime gate (restrictions.bypass_conditions[tenant_exemption])
-  PAYWALL_EXEMPT_FLAG_NAME: PAYWALL_EXEMPT           # the flag the frontend requests from /feature-flags
-  PAID_RAIL_TRIAL_WINDOW_DAYS: 45                    # functions/api/space-status.ts PAID_RAIL_TRIAL_WINDOW_MS
+  PAYWALL_EXEMPT_FIELD_NAME: paywallExempt           # returned on GET /api/space-status (legacy PAYWALL_EXEMPT on /feature-flags retained for cached bundles)
+  PAID_RAIL_TRIAL_WINDOW_DAYS: 45                    # functions/service/paywallPolicy.ts PAID_RAIL_TRIAL_WINDOW_MS
   DEFAULT_CONTINUE_ATTEMPTS: 3                       # src/utils/paywall/continueAttempts.ts; 15 until 2026-08-16 (PR #479). A stored localStorage balance is never rewritten, so a user who first hit the gate before that date can still hold up to 15.
   KV_NAMESPACE_BINDING: SPACE_LICENSE_KV
 
@@ -434,8 +437,8 @@ verification:
   license_endpoint: |
     cat functions/api/space-status.ts | grep -nE 'license|isPaid|SPACE_LICENSE_KV'
   paywall_policy: |
-    grep -nE 'PAYWALL_EXEMPT' src/composables/useCustomerSuccessService.ts functions/feature-flags.ts
+    grep -nE 'paywallExempt|PAYWALL_EXEMPT' src/composables/useCustomerSuccessService.ts functions/api/space-status.ts functions/service/paywallPolicy.ts
   paid_rail: |
-    grep -nE 'PAID_RAIL_TRIAL_WINDOW_MS|paid_rail' functions/api/space-status.ts
+    grep -nE 'PAID_RAIL_TRIAL_WINDOW_MS|paid_rail' functions/service/paywallPolicy.ts functions/api/space-status.ts
   continue_attempts: |
     grep -nE 'DEFAULT_CONTINUE_ATTEMPTS' src/utils/paywall/continueAttempts.ts

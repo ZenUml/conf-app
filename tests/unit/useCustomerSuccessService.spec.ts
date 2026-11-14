@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/utils/requestUtil', () => ({ callRemote: vi.fn() }));
-vi.mock('@/apis/featureFlags', () => ({
-  default: vi.fn(),
-}));
 vi.mock('@/services/MacroMetrics', () => ({
   default: { getMacroMetrics: vi.fn(async () => ({ total: 50 })) },
 }));
@@ -26,7 +23,6 @@ vi.mock('@/model/globals', () => ({
 
 import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService';
 import { callRemote } from '@/utils/requestUtil';
-import getFeatureFlags from '@/apis/featureFlags';
 
 describe('useCustomerSuccessService', () => {
   beforeEach(() => {
@@ -35,27 +31,26 @@ describe('useCustomerSuccessService', () => {
   });
 
   it('exposes spacePaid = true for paid spaces', async () => {
-    (callRemote as any).mockResolvedValue({ isPaid: true, source: 'space_license' });
-    (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: false });
+    (callRemote as any).mockResolvedValue({ isPaid: true, source: 'space_license', paywallExempt: false });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
     expect(svc.spacePaid.value).toBe(true);
+    expect(callRemote).toHaveBeenCalledOnce();
   });
 
   it('exposes spacePaid = false for unpaid spaces', async () => {
-    (callRemote as any).mockResolvedValue({ isPaid: false });
-    (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: false });
+    (callRemote as any).mockResolvedValue({ isPaid: false, paywallExempt: false });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
     expect(svc.spacePaid.value).toBe(false);
+    expect(callRemote).toHaveBeenCalledOnce();
   });
 
   it('shouldBlockActions stays false when macroCount >= MACROS_LIMIT and CSS flag is on and isLite (paywall block retired)', async () => {
     localStorage.setItem('mockMacroCount', '120');
-    (callRemote as any).mockResolvedValue({ isPaid: false });
-    (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: false });
+    (callRemote as any).mockResolvedValue({ isPaid: false, paywallExempt: false });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();
@@ -71,8 +66,7 @@ describe('useCustomerSuccessService', () => {
 
   it('an explicit exemption stores the effective boolean (false) on the legacy page-banner marker field', async () => {
     localStorage.setItem('mockMacroCount', '120');
-    (callRemote as any).mockResolvedValue({ isPaid: false });
-    (getFeatureFlags as any).mockResolvedValue({ PAYWALL_EXEMPT: true });
+    (callRemote as any).mockResolvedValue({ isPaid: false, paywallExempt: true });
 
     const svc = useCustomerSuccessService();
     await svc.initialize();

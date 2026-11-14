@@ -1,0 +1,63 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Fake MCP host</title>
+<style>
+ body{font:14px system-ui;margin:16px;background:#f4f3ee}
+ #controls{margin-bottom:8px;display:flex;gap:8px;align-items:center}
+ #card{width:var(--w,640px);border:1px solid #ccc;border-radius:8px;background:#fff;padding:4px}
+ iframe{border:0;width:100%;height:120px;display:block}
+ #card.fullscreen{position:fixed;inset:0;width:auto;border-radius:0;padding:0;z-index:5}
+ #card.fullscreen iframe{height:100vh}
+ #log{font:11px monospace;white-space:pre;margin-top:8px;max-height:160px;overflow:auto}
+</style></head><body>
+<div id="controls">
+ <select id="type"></select>
+ width <input id="width" type="number" value="640" step="40" style="width:70px">
+ <label><input id="offer" type="checkbox" checked> host offers fullscreen</label>
+ <button id="go">Render</button>
+</div>
+<div id="card"><iframe id="f"></iframe></div>
+<div id="log"></div>
+<script>
+const SAMPLES = {
+ sequence: `title Checkout\nCustomer Browser WebApp CartService InventoryService PaymentGateway OrderService EmailService Warehouse\nCustomer->Browser.checkout() {\n  Browser->WebApp.submit(cart) {\n    WebApp->CartService.validate(cart)\n    WebApp->InventoryService.reserve(items)\n    WebApp->PaymentGateway.charge(card)\n    WebApp->OrderService.create(order) {\n      OrderService->Warehouse.schedulePick(order)\n      OrderService->EmailService.sendConfirmation(order)\n    }\n  }\n}`,
+ mermaid: `flowchart LR\n  A[User submits form] --> B{Valid?}\n  B -- Yes --> C[Save] --> D[Email] --> E[Audit log] --> F[Analytics] --> G[Done]\n  B -- No --> H[Show errors] --> A`,
+ plantuml: `@startuml\nclass Customer {\n  id: UUID\n  name: String\n}\nclass Order {\n  id: UUID\n  total: Decimal\n}\nCustomer "1" --> "*" Order : places\n@enduml`,
+ graph: `<mxfile><diagram name="P"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="a" value="Browser" style="rounded=1;" vertex="1" parent="1"><mxGeometry x="0" y="40" width="160" height="60" as="geometry"/></mxCell><mxCell id="b" value="API Gateway" style="rounded=1;" vertex="1" parent="1"><mxGeometry x="400" y="40" width="160" height="60" as="geometry"/></mxCell><mxCell id="c" value="Database" style="shape=cylinder3;" vertex="1" parent="1"><mxGeometry x="800" y="30" width="120" height="80" as="geometry"/></mxCell><mxCell id="e1" value="HTTPS" edge="1" parent="1" source="a" target="b"><mxGeometry relative="1" as="geometry"/></mxCell><mxCell id="e2" value="SQL" edge="1" parent="1" source="b" target="c"><mxGeometry relative="1" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>`,
+ markdown: `# Release plan\n\n| Phase | Owner |\n|---|---|\n| Build | Bob |\n\n\`\`\`mermaid\ngraph LR\nDesign-->Build-->Launch\n\`\`\``,
+ openapi: `openapi: 3.0.3\ninfo: {title: Pets, version: 1.0.0}\npaths:\n  /pets:\n    get: {summary: List pets, responses: {'200': {description: OK}}}`,
+ asyncapi: `asyncapi: 3.0.0\ninfo: {title: Order Events, version: 1.0.0}\nchannels:\n  created: {address: orders.created}\noperations:\n  send: {action: send, channel: {$ref: '#/channels/created'}}`,
+};
+const sel = document.getElementById('type');
+for (const k of Object.keys(SAMPLES)) sel.add(new Option(k, k));
+const f = document.getElementById('f'), card = document.getElementById('card'), log = document.getElementById('log');
+let mode = 'inline';
+const L = (m) => { log.textContent = m + '\n' + log.textContent; };
+const ctx = () => mode === 'fullscreen'
+  ? { displayMode: 'fullscreen', containerDimensions: { width: innerWidth, height: innerHeight } }
+  : { displayMode: 'inline', containerDimensions: { width: card.clientWidth - 8, maxHeight: 2000 } };
+const post = (m) => f.contentWindow.postMessage({ jsonrpc: '2.0', ...m }, '*');
+addEventListener('message', (e) => {
+  if (e.source !== f.contentWindow) return;
+  const m = e.data; L('view -> ' + JSON.stringify(m).slice(0, 140));
+  if (m.method === 'ui/initialize') post({ id: m.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'fake' }, hostCapabilities: {},
+    hostContext: { ...ctx(), availableDisplayModes: document.getElementById('offer').checked ? ['inline', 'fullscreen'] : ['inline'] } } });
+  if (m.method === 'ui/notifications/initialized') {
+    const t = sel.value;
+    post({ method: 'ui/notifications/tool-input', params: { arguments: { diagramType: t, source: SAMPLES[t] } } });
+    post({ method: 'ui/notifications/tool-result', params: { structuredContent: { diagramType: t, source: SAMPLES[t], dsl: SAMPLES[t], valid: true } } });
+  }
+  if (m.method === 'ui/notifications/size-changed' && mode === 'inline') f.style.height = m.params.height + 'px';
+  if (m.method === 'ui/request-display-mode') {
+    mode = m.params.mode; card.classList.toggle('fullscreen', mode === 'fullscreen'); if (mode === 'fullscreen') f.style.height = '';
+    post({ id: m.id, result: { mode } });
+    post({ method: 'ui/notifications/host-context-changed', params: ctx() });
+  }
+});
+document.getElementById('go').onclick = () => {
+  mode = 'inline'; card.classList.remove('fullscreen');
+  card.style.setProperty('--w', document.getElementById('width').value + 'px');
+  f.src = (new URLSearchParams(location.search).get('v') || 'after') + '/mcp-app/view.html?' + Date.now();
+};
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode === 'fullscreen') { mode = 'inline'; card.classList.remove('fullscreen'); post({ method: 'ui/notifications/host-context-changed', params: ctx() }); } });
+document.getElementById('go').click();
+</script></body></html>

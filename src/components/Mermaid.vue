@@ -251,9 +251,18 @@ export default {
       // mounted() now records macro_viewed only when an SVG was actually applied.
       trackViewerRenderCrash('mermaid', this.isDisplayMode, error);
     },
+    // `Could not find a suitable point for the given distance` is the same
+    // no-layout failure in other words. Reproduced against mermaid 11.17.2 in
+    // Chromium: in a display:none body or iframe, class and ER diagrams throw
+    // `svg element not in render tree`, while state diagrams and flowcharts with
+    // a self-loop throw this one (label placement walks edge points that came
+    // out NaN). All four render once the document has layout. In production
+    // 25 of the 33 Mermaid macros that hit it 2026-11-01..13 also rendered
+    // normally at other times.
     isTransientRenderError(error) {
       const message = error instanceof Error ? error.message : String(error ?? '');
       return message.includes('svg element not in render tree')
+        || message.includes('Could not find a suitable point for the given distance')
         || /matrix (?:is )?(?:not |non[- ]?)invertible/i.test(message);
     },
     // The wait itself is awaitSvgTextLayout, unchanged. Around it: one

@@ -157,7 +157,7 @@ async function saveOpenApiAndExit() {
   // click in react/Header.tsx). Stopped at the redirect below.
   markPublishClicked();
   const code = window.specContent;
-  // Dashboard Edit: force an in-place update. CustomContentStorageProvider.save
+  // Dashboard Edit: force an in-place update. saveToPlatform
   // only updates when (id && !isCopy); the dashboard space page false-positives
   // isCopy=true, which would otherwise fork a new doc ("editing made a new
   // diagram"). Pin the known id and clear isCopy — the same guard

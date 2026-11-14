@@ -24,6 +24,7 @@ import { Diagram, DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram'
 import { saveToPlatform } from '@/model/ContentProvider/Persistence'
 import { buildAsyncApiSaveDiagram } from '@/model/asyncapi/buildSaveDiagram'
 import { mountRoot } from '@/mount-root'
+import { asyncApiViewerSurface } from '@/utils/asyncapi/viewerSurface'
 import { guardEditClick } from '@/utils/guardEditClick'
 import { trackAuthoringStarted } from '@/utils/analytics/authoringStarted'
 import EventBus from './EventBus'
@@ -89,20 +90,14 @@ async function initializeMacro() {
   // embedded stays a page-editor (macro-config) operation.
   const isEmbedMacro = (context.moduleKey ?? '').startsWith('zenuml-asyncapi-embed-macro')
 
-  const macroMode = context.extension?.modal?.macroMode
-  const isModal = !!macroMode
-  // Both the macro Fullscreen viewer (macroMode 'fullscreen') and the
-  // dashboard "View" modal (macroMode 'viewer') render on this modal path.
-  // The inline ✎ Edit button belongs only to the dashboard view — the macro
-  // fullscreen viewer is read-only chrome (editing is reached via Confluence's
-  // macro toolbar / page editor), so it must not show an Edit affordance.
-  const showInlineEdit = isModal && macroMode !== 'fullscreen'
+  // The dashboard "View" modal renders the bare React viewer; the macro and
+  // its Fullscreen render inside GenericViewer (see viewerSurface.ts).
+  const surface = asyncApiViewerSurface(context.extension?.modal?.macroMode)
 
-  if (isModal) {
-    // -------- Modal path (dashboard "View" + macro Fullscreen) --------
-    // Inline React viewer. The dashboard view gets an Edit button that swaps
-    // to the Studio editor in place (no second modal, no gesture loss); the
-    // fullscreen macro viewer omits it (showInlineEdit === false).
+  if (surface === 'studio-modal') {
+    // -------- Dashboard "View" modal --------
+    // Inline React viewer with an Edit button that swaps to the Studio editor
+    // in place (no second modal, no gesture loss).
     const reactRoot = createRoot(root)
 
     async function closeModal() {
@@ -155,13 +150,13 @@ async function initializeMacro() {
     reactRoot.render(
       React.createElement(AsyncApiViewer, {
         spec,
-        onEdit: showInlineEdit ? renderEditor : undefined,
+        onEdit: renderEditor,
         onCancel: closeModal,
         loadError,
       }),
     )
   } else {
-    // -------- Page-rendered macro path --------
+    // -------- Page-rendered macro, and its Fullscreen --------
     // Mount the Vue wrapper so GenericViewer's chrome (Edit / Fullscreen /
     // Export PNG / Versions / Copy page link) shows up around the spec.
     const [{ default: AsyncApiMacroViewer }] = await Promise.all([

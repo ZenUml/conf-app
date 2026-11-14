@@ -1316,6 +1316,12 @@ export type AnalyticsProperties = {
   direct_fetch_http_status?: number;
   direct_fetch_error_code?: string;
   direct_fetch_error_class?: 'thrown' | 'structured' | 'malformed';
+  // Thrown direct fetch only: the rejection's name (e.g. TypeError) and its
+  // message scrubbed of query strings, emails and 4+ digit runs, max 100 chars
+  // (utils/fetchErrorDiagnostics.ts). Separates a network failure from a
+  // host-side bridge rejection when there is no HTTP status.
+  direct_fetch_error_name?: string;
+  direct_fetch_error_message?: string;
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

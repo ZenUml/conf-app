@@ -1,6 +1,7 @@
 import {trackEvent, addonKey} from '@/utils/window';
 import time from '@/utils/timer';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { describeThrownFetchError } from '@/utils/fetchErrorDiagnostics';
 import {IMacroData} from "@/model/IMacroData";
 import {IContentProperty} from "@/model/IContentProperty";
 import {ICustomContent, ICustomContentV2, SearchResults} from "@/model/ICustomContent";
@@ -580,6 +581,11 @@ export default class ApWrapper2 {
     httpStatus?: number;
     errorCode?: string;
     errorClass?: 'thrown' | 'structured' | 'malformed';
+    // Thrown only: the rejection's name and scrubbed message. A thrown fetch
+    // with no status (network failure, host bridge rejection) is otherwise
+    // indistinguishable in telemetry.
+    errorName?: string;
+    errorMessage?: string;
   }> {
     let rawResponse: any;
     try {
@@ -597,6 +603,10 @@ export default class ApWrapper2 {
         errorDetail: e?.message ? String(e.message) : String(e),
         httpStatus,
         errorClass: 'thrown',
+        ...(() => {
+          const { name, message } = describeThrownFetchError(e);
+          return { errorName: name, errorMessage: message };
+        })(),
       };
     }
     const errors = rawResponse?.errors;
@@ -894,6 +904,8 @@ export default class ApWrapper2 {
     directFetchHttpStatus?: number;
     directFetchErrorCode?: string;
     directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
+    directFetchErrorName?: string;
+    directFetchErrorMessage?: string;
   }> {
     // conf-app#320: a macro whose stored customContentId is the string
     // "undefined"/"null"/empty (a broken save writeback) can never resolve.
@@ -917,6 +929,8 @@ export default class ApWrapper2 {
       directFetchHttpStatus: direct.httpStatus,
       directFetchErrorCode: direct.errorCode,
       directFetchErrorClass: direct.errorClass,
+      directFetchErrorName: direct.errorName,
+      directFetchErrorMessage: direct.errorMessage,
     };
     if (direct.status !== 'not_found') {
       // Transient / 403 / 5xx / malformed — refuse to probe. Probing here

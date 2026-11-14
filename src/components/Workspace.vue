@@ -312,11 +312,11 @@
         // The error belongs to the code being replaced. Clear it synchronously
         // so AI Chat cannot offer a repair for a stale validation result while
         // Editor.vue validates the new code in the background.
-        this.$store.dispatch('updateError', null)
-        this.$store.dispatch(action, code)
+        this.$store.commit('updateError', null)
+        this.$store.commit(action, code)
       },
       bindDiagramlyDiagram(diagramId: string) {
-        this.$store.dispatch('updateMetadata', {
+        this.$store.commit('updateMetadata', {
           ...(this.$store.state.diagram.metadata || {}),
           aiChat: {
             ...(this.$store.state.diagram.metadata?.aiChat || {}),

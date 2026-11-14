@@ -320,7 +320,7 @@ export default {
     // until Publish, so no destructive-overwrite guard is needed here.
     applyTemplate(template) {
       const action = getStoreUpdateAction(this.diagramType);
-      if (action) this.$store.dispatch(action, template.dsl);
+      if (action) this.$store.commit(action, template.dsl);
       trackAnalyticsEvent("editor_template_applied", {
         feature_area: "macro",
         surface: "editor",
@@ -513,14 +513,14 @@ export default {
       const draft = payload.draft;
       for (const option of this.diagramOptions) {
         const buffer = draft.buffers?.[option.value];
-        if (typeof buffer === 'string') this.$store.dispatch(getStoreUpdateAction(option.value), buffer);
+        if (typeof buffer === 'string') this.$store.commit(getStoreUpdateAction(option.value), buffer);
       }
       if (draft.diagramType && this.diagramOptions.some(option => option.value === draft.diagramType)) {
         this.updateDiagramType(draft.diagramType);
       }
       const action = getStoreUpdateAction(this.diagramType);
-      if (action) this.$store.dispatch(action, draft.code);
-      if (draft.title) this.$store.dispatch("updateTitle", draft.title);
+      if (action) this.$store.commit(action, draft.code);
+      if (draft.title) this.$store.commit("updateTitle", draft.title);
       this.originalCode = ''; // force the restored code to be considered dirty
       clearDraft(this._draftScope);
     };

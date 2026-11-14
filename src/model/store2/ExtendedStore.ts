@@ -48,32 +48,6 @@ const ExtendedStore: StoreOptions<RootState> = {
       state.publishBlock = payload
     },
   },
-  actions: {
-    updateCode2({commit}: any, payload: any) {
-      commit('updateCode2', payload)
-    },
-    updateMermaidCode({commit}: any, payload: any) {
-      commit('updateMermaidCode', payload)
-    },
-    updatePlantUmlCode({commit}: any, payload: any) {
-      commit('updatePlantUmlCode', payload)
-    },
-    updateMarkdownCode({commit}: any, payload: string) {
-      commit('updateMarkdownCode', payload);
-    },
-    updateDiagramType({commit}: any, payload: DiagramType) {
-      commit('updateDiagramType', payload)
-    },
-    updateTitle({commit}: any, payload: any) {
-      commit('updateTitle', payload)
-    },
-    updateMetadata({commit}: any, payload: any) {
-      commit('updateMetadata', payload)
-    },
-    updateError({commit}: any, payload: any) {
-      commit('updateError', payload)
-    }
-  },
   getters: {
     isDisplayMode: () => globals.apWrapper.isDisplayMode(),
   },

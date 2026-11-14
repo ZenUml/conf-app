@@ -2135,7 +2135,7 @@ export default {
       this.isRenaming = false;
       this.renameDraft = '';
       if (result.ok) {
-        this.$store.dispatch('updateTitle', next);
+        this.$store.commit('updateTitle', next);
         this.trackRename('viewer_rename_succeeded', { save_duration_ms: result.durationMs });
         return;
       }
@@ -2340,11 +2340,11 @@ export default {
     // store.state.diagram.{code,mermaidCode,plantUmlCode} changes (see
     // Sequence.vue/Mermaid.vue/PlantUml.vue's `watch` on that field), which is
     // exactly the mechanism the in-app code editor uses (Editor.vue's
-    // onEditorCodeChange: store.dispatch(getStoreUpdateAction(diagramType), newCode)).
+    // onEditorCodeChange: store.commit(getStoreUpdateAction(diagramType), newCode)).
     // Mirror that here so a relay-driven edit renders live, without a reload.
     applyAgentDiagramUpdate(dsl, macroType) {
       const type = macroType || this.diagramType;
-      this.$store.dispatch(getStoreUpdateAction(type), dsl);
+      this.$store.commit(getStoreUpdateAction(type), dsl);
       // Track F: signal the composable once the COMPLETE new diagram has
       // actually painted (next tick after the store change the viewer watches),
       // so it clears the "thinking" overlay exactly when the new diagram is on

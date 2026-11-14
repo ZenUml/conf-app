@@ -122,7 +122,7 @@ export default {
       if (!newVal) {
         this.svg = null;
         this.error = null;
-        this.$store.dispatch('updateError', null);
+        this.$store.commit('updateError', null);
       } else {
         this.validateAndRender(newVal);
       }
@@ -197,7 +197,7 @@ export default {
       if (!validationResult.valid) {
         // Update store error for SyntaxErrorBox (only if different)
         if (currentError !== validationResult.error) {
-          this.$store.dispatch('updateError', validationResult.error);
+          this.$store.commit('updateError', validationResult.error);
         }
         // Also set local error
         this.error = validationResult.error;
@@ -206,7 +206,7 @@ export default {
       }
       
       // Clear errors if validation passes
-      this.$store.dispatch('updateError', null);
+      this.$store.commit('updateError', null);
       
       // Proceed with rendering
       this.debouncedRender(code);
@@ -244,7 +244,7 @@ export default {
       } catch (err) {
         console.error('PlantUML render error', err);
         this.error = `Failed to render PlantUML: ${err.message}`;
-        this.$store.dispatch('updateError', this.error);
+        this.$store.commit('updateError', this.error);
       } finally {
         this.loading = false;
         await this.$nextTick();

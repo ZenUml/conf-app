@@ -32,8 +32,8 @@ const Component = ({ saveAndExit, exit }: Props) => {
     );
   }), []);
 
-  const bindDiagramlyDiagram = async (diagramId: string) => {
-    await store.dispatch("updateMetadata", {
+  const bindDiagramlyDiagram = (diagramId: string) => {
+    store.commit("updateMetadata", {
       ...(store.state.diagram.metadata || {}),
       aiChat: {
         ...((store.state.diagram.metadata as any)?.aiChat || {}),
@@ -130,7 +130,7 @@ const Component = ({ saveAndExit, exit }: Props) => {
               diagramlyDiagramId={diagramlyDiagramId}
               onClose={closeAIChat}
               onToggleCode={() => setShowCodeEditor((current) => !current)}
-              onApplyCode={(code) => store.dispatch("updateCode2", code)}
+              onApplyCode={(code) => store.commit("updateCode2", code)}
               onDiagramlyDiagramBound={bindDiagramlyDiagram}
             />
           </div>

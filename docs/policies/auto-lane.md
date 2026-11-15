@@ -118,6 +118,15 @@ Owner's rule, 2026-11-13: "AI对于低风险的PR可以自行合并，毋须确�
 非破坏性，比如CICD的只要不是直接部署都是属于非破坏性。" An agent session may merge a non-destructive PR
 to `main` without asking. This replaces the 2026-10-22 rule that every merge was the owner's.
 
+Restated by the owner on 2026-11-15: "以后技术风险低的 PR 就不用等我批准了，直接可以合并，合并完了之后报备一下就行了。"
+The session reads "low technical risk" as the same class: non-destructive by the table below, every
+check green, and the validation the change needs already done. Two points are now explicit:
+
+- **Do not ask first.** Do not write the merge as an option, do not wait for approval, and do not
+  hand a finished PR back "for merge approval".
+- **Report after.** Once merged, tell the owner in the same turn: PR link, merge commit, the risk
+  reading in one line, and what is not yet verified (for example `main` CI still running).
+
 The classifier levels above bind the daily job only. A session does not need `auto-merge` or
 `auto-pr`: a CI change under `.github/**` is `report-only` for the job and still non-destructive
 for a session, unless it deploys.
@@ -133,7 +142,10 @@ Working list of what is destructive (the session's reading; only the CI example 
 | cannot be undone by a revert | a Forge manifest change that forces a major version (scopes, remotes), a deleted feature flag | Offers the option; does not merge on its own. |
 
 The rule covers a PR by any author: the session's own, another session's or a person's (owner's
-pick, 2026-11-13). Preconditions for any session merge: not a draft, base `main`, no requested changes, `MERGEABLE`,
+pick, 2026-11-13). A Draft that the session itself finished (validation done, test decision current)
+is marked Ready by the session, then merged; a Draft that is someone else's work in progress is left
+alone (owner, 2026-11-15, said this for one PR; applying it to every finished Draft is the session's
+reading). Preconditions for any session merge: not a draft, base `main`, no requested changes, `MERGEABLE`,
 every check on the head commit green, head unchanged since the checks. Run
 `.claude/skills/auto-lane/scripts/classify-pr.sh <PR>`: it checks those and lists files on paths
 that need the destructive reading (`migrations/`, `manifest.yml`, release and deploy workflows).

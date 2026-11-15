@@ -154,6 +154,7 @@ reached".
 | Space licence present, `expiresAt` in the past | no |
 | None of the above, and every read succeeded | no |
 | Licence record malformed, or the exemption list or the paid-rail read failed | unknown |
+| `PAYWALL_EXEMPTIONS` key absent, not an object, or holding a non-boolean value | unknown (same rule as the Fullscreen gate; the key must hold at least `{}` for enforcement to run) |
 
 ### 4. Enforcement
 
@@ -408,10 +409,11 @@ Rollback at any point: delete the key. The next `space-status` read returns no e
 |---|---|
 | Create displacement | Users can create in a space under 100 or open a new space. In the A/B, edits in blocked spaces fell while licensed spaces rose, and blocked spaces stayed low for five weeks after the block was lifted for everyone. A per-space limit invites this; v1 measures it (creates in spaces under 100, count of spaces over 100) and does not prevent it |
 | Many requesters, no buyer | Past extension requests came from different people each time. Replies must ask who owns Confluence apps |
-| Stale macro count | A space that shrank below 100 with no later save can stay "over" in the cache. Count unknown or under 100 is fail-open, but a stale high count is not |
+| Stale macro count | A space that shrank below 100 with no later save can stay at 100 or more in the cache. Count unknown or under 100 is fail-open, but a stale high count is not |
+| Decision cached for 5 minutes | `/api/space-status` answers with `private, max-age=300`. After `effectiveAt` passes or the policy key changes, a viewer can keep the earlier decision for up to 5 minutes. The result is late, not wrong |
 | Shared staging slot | Forge staging is one slot; validate on the candidate build only |
 | Watermark has no conversion evidence | The Full notice is days old on two sites. Read its result before the T+30 review |
-| Watermark claim without a published term | The mark tells every reader that payment or an upgrade is due. Confirm where the 100-diagram limit is published before a "required" headline ships |
+| Watermark not named in the published term | The mark tells every reader that an upgrade is due. The 100-diagram limit is published (see "Viewer watermark"), but the FAQ names a paywall prompt only. Add the watermark to the FAQ before the `watermark` stage reaches a customer |
 | Readers cannot buy | Reader-to-admin relay produced no purchase in 15 months of banner use. The watermark is a stronger and more public signal, but the path from reader to buyer is still one message long |
 
 ## Validation
@@ -476,5 +478,6 @@ evidence is the unchanged gate plus the captured event.
 3. Whether a site-wide Stripe price exists for sites with many over-limit spaces, or those sites
    are sent to the Marketplace Full plan only.
 4. Whether the Fullscreen recovery policy stays on for a site that also has this policy.
-5. Where the 100-diagram limit is published to customers (needed before the `UPGRADE REQUIRED`
-   headline ships; see "Viewer watermark").
+5. Resolved 2026-11-15: the 100-diagram limit is published on zenuml.com and its wording matches
+   `count >= 100` (see "Viewer watermark"). Still open: add the watermark to the FAQ text before
+   the `watermark` stage reaches a customer.

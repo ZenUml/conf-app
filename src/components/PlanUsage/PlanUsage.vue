@@ -58,11 +58,13 @@
                 <td class="space-key">{{ s.spaceKey }}</td>
                 <td class="num space-count">{{ s.macroCount.toLocaleString() }} / {{ macrosLimit.toLocaleString() }}</td>
                 <td class="space-purchase">
+                  <div class="space-purchase-content">
                   <template v-if="canPurchase(s.spaceKey)">
                     <span class="space-price">${{ ENTERPRISE_BUNDLE_ANNUAL_COST }}/yr/space</span>
                     <button type="button" class="btn btn-secondary" :aria-label="`Unlock this space: ${s.spaceKey}`" @click="purchaseSpace(s)">Unlock this space</button>
                   </template>
                   <span v-else class="license-state">{{ paidLoading ? 'Checking license…' : paidStatuses[s.spaceKey]?.isPaid === true ? 'Covered by a paid license' : 'License status unavailable' }}</span>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -450,11 +452,12 @@ table.space-table { width: 720px; max-width: 100%; border-collapse: collapse; }
   padding: 0;
   border-bottom: 0.5px solid var(--pu-control-border);
 }
-.space-table td { height: 40px; padding: 0; border-bottom: 0.5px solid var(--pu-hairline); font-weight: 500; }
+.space-table td { height: 60px; padding: 0; border-bottom: 0.5px solid var(--pu-hairline); font-weight: 500; }
 .space-table .num { text-align: right; }
 .purchase-help { color: var(--pu-text-low); margin: 0 0 12px; font-size: 12px; line-height: 16px; }
 .space-table .purchase-heading { padding-left: 32px; }
-.space-table .space-purchase { padding: 8px 0 8px 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; height: auto; }
+.space-table .space-purchase { padding: 0 0 0 32px; }
+.space-purchase-content { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; box-sizing: border-box; }
 .space-price { font-size: 14px; white-space: nowrap; }
 .license-state { color: var(--pu-text-low); font-size: 12px; font-weight: 400; }
 .space-count { color: var(--pu-warning); font-variant-numeric: tabular-nums; }

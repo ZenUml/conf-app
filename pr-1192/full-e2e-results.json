@@ -1,0 +1,77 @@
+{
+  "head": "0ce0578cdab3aa63b03af8d8a52afead4262d40c",
+  "synthetic_candidate": "308542f9d769ccc4345f9e32b8b8211a744b4d36",
+  "groups": [
+    {
+      "group": "test-evidence-lite-stg-render",
+      "tested_tree": "21212a4af895a9544415d385e69deceaff3414aa",
+      "coverage": "full",
+      "complete": true,
+      "execution_succeeded": true,
+      "validation": {
+        "valid": true,
+        "errors": []
+      },
+      "metrics": {
+        "planned_test_count": 19,
+        "executed_test_count": 19,
+        "passed_test_count": 19,
+        "skipped_test_count": 0,
+        "failed_test_count": 0,
+        "test_body_duration_ms": 161260,
+        "runner_setup_duration_ms": null,
+        "playwright_execution_duration_ms": null,
+        "runner_setup_critical_path_ms": 36224,
+        "playwright_execution_critical_path_ms": 173670,
+        "queue_critical_path_ms": null,
+        "queue_total_ms": 0,
+        "e2e_critical_path_ms": null,
+        "workflow_timing_source": "unavailable"
+      },
+      "retried_results": []
+    },
+    {
+      "group": "test-evidence-lite-stg",
+      "tested_tree": "21212a4af895a9544415d385e69deceaff3414aa",
+      "coverage": "full",
+      "complete": false,
+      "execution_succeeded": true,
+      "validation": {
+        "valid": true,
+        "errors": []
+      },
+      "metrics": {
+        "planned_test_count": 109,
+        "executed_test_count": 109,
+        "passed_test_count": 101,
+        "skipped_test_count": 8,
+        "failed_test_count": 0,
+        "test_body_duration_ms": 3914648,
+        "runner_setup_duration_ms": null,
+        "playwright_execution_duration_ms": null,
+        "runner_setup_critical_path_ms": 37912,
+        "playwright_execution_critical_path_ms": 524125,
+        "queue_critical_path_ms": null,
+        "queue_total_ms": 0,
+        "e2e_critical_path_ms": null,
+        "workflow_timing_source": "unavailable"
+      },
+      "retried_results": [
+        {
+          "id": "ba3aaa9c305ee80ad478-a726e080a4452945e08e",
+          "status": "passed",
+          "duration_ms": 62187,
+          "retry": 1,
+          "setup": false
+        }
+      ]
+    }
+  ],
+  "optional_guard_skips": {
+    "PAGE_ID": 2,
+    "AGENT_LINK_RELAY": 3,
+    "RUN_REGRESSION": 2,
+    "REPRO_PAGE_ID": 1
+  },
+  "retry_note": "One same-page duplicate Edit-gate UI assertion failed on the first attempt and passed on Playwright retry1; cause unproven. No code fix or workflow rerun was made."
+}

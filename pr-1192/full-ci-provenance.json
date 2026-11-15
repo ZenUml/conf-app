@@ -1,0 +1,13 @@
+{
+  "pr": 1192,
+  "head": "0ce0578cdab3aa63b03af8d8a52afead4262d40c",
+  "base": "597cc56331ff0698f7a7c344d4dc2561eefb1742",
+  "runtime_evidence_sha": "a87551e99388d2a548ba837609b1d6c7a0037555",
+  "full_approval": "https://github.com/ZenUml/conf-app/pull/1192#issuecomment-6902895245",
+  "authoritative_run": "https://github.com/ZenUml/conf-app/actions/runs/43772919155",
+  "preview_run": "https://github.com/ZenUml/conf-app/actions/runs/43772997987",
+  "export_run": "https://github.com/ZenUml/conf-app/actions/runs/43772997995",
+  "unit_build_run": "https://github.com/ZenUml/conf-app/actions/runs/43772919022",
+  "metadata_check": "5/5 Node product-impact checks passed",
+  "runtime_changed_after_evidence": false
+}

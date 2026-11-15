@@ -3653,3 +3653,17 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     wrapper.unmount()
   })
 })
+
+describe('GenericViewer template references', () => {
+  it('renders without touching properties the component does not define', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const wrapper = mountViewer()
+    await flushPromises()
+    const undefinedAccess = warn.mock.calls
+      .map((args) => String(args[0]))
+      .filter((msg) => msg.includes('was accessed during render but is not defined'))
+    wrapper.unmount()
+    warn.mockRestore()
+    expect(undefinedAccess).toEqual([])
+  })
+})

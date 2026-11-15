@@ -1786,7 +1786,8 @@ export type AnalyticsEventName =
   // the recognised mistakes (AgentLinkRenderIssue; omitted when none) and
   // `render_warnings_returned` says whether lint warnings went back with a
   // source that parsed, so first-attempt pass rate and the mistake mix are
-  // readable without a new event.
+  // readable without a new event. `render_fix_suggested` says whether a
+  // rewritten source (checked to parse with no warnings) went back too.
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only

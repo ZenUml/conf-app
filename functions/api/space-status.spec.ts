@@ -114,8 +114,10 @@ describe('space-status enforcement', () => {
   }
   async function readEnforced(options: {
     policyRaw?: string | null; count?: number; kv?: Record<string, string>; paidRail?: boolean; now?: string;
+    exemptions?: string | null;
   } = {}) {
-    const { policyRaw = policy, count = 2282, kv = {}, paidRail = false, now = '2026-12-09T00:00:00Z' } = options;
+    const { policyRaw = policy, count = 2282, kv = {}, paidRail = false, now = '2026-12-09T00:00:00Z',
+      exemptions = '{}' } = options;
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(now));
     try {
@@ -123,7 +125,7 @@ describe('space-status enforcement', () => {
       ctx.env.KV_FEATURE_FLAGS = {
         get: vi.fn(async (key: string) => {
           if (key === 'paywall-enforcement:policy:site-a') return policyRaw;
-          if (key === 'PAYWALL_EXEMPTIONS') return '{}';
+          if (key === 'PAYWALL_EXEMPTIONS') return exemptions;
           return null;
         }),
       };
@@ -170,5 +172,30 @@ describe('space-status enforcement', () => {
     const body = await readEnforced({ now: '2026-12-01T00:00:00Z' });
     expect(body.enforcement.stage).toBe('notice');
     expect(body.enforcement.effects.watermark).toBe(false);
+  });
+  // Spec end-to-end examples 7, 9, 10 and 13 at the endpoint.
+  it('example 7: user licence covers that viewer only', async () => {
+    const kv = { 'license:site-a:ENG:user-a': active };
+    const covered = await readEnforced({ kv });
+    expect(covered.enforcement).toBeUndefined();
+    expect(covered.isPaid).toBe(true);
+    vi.mocked(validateContextToken).mockResolvedValue({
+      cloudId: 'site-a', payload: { principal: 'user-b', context: { cloudId: 'site-a' } }, forgeAppId: LITE,
+    } as any);
+    expect((await readEnforced({ kv })).enforcement?.stage).toBe('watermark');
+  });
+  it('example 9: site domain or wildcard exempt: absent', async () => {
+    expect((await readEnforced({ exemptions: '{"example-tenant":true}' })).enforcement).toBeUndefined();
+    expect((await readEnforced({ exemptions: '{"*":true}' })).enforcement).toBeUndefined();
+    expect((await readEnforced({ exemptions: '{"another-tenant":true}' })).enforcement?.stage).toBe('watermark');
+  });
+  it('example 10: exemption key absent or unreadable: absent, body otherwise unchanged', async () => {
+    for (const exemptions of [null, 'not json']) {
+      expect(await readEnforced({ exemptions })).toEqual({ isPaid: false, decisionKnown: true });
+    }
+  });
+  it('example 13: not the Lite app: absent', async () => {
+    vi.mocked(validateContextToken).mockResolvedValue({ ...fit(), forgeAppId: 'full-app-id' } as any);
+    expect(await readEnforced()).toEqual({ isPaid: false, decisionKnown: true });
   });
 });

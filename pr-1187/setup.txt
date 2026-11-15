@@ -9,4 +9,3 @@ Done in 774ms using pnpm v10.34.5
 
 > pi-diagram-agent@0.1.0 setup:browser /workspace/conf-app/tools/pi-diagram-agent
 > playwright install chromium
-

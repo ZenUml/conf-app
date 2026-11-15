@@ -15,4 +15,3 @@ Lite render: selected 3/19, required floor 0
       Tests  10 passed (10)
    Start at  10:05:58
    Duration  26.55s (transform 295ms, setup 74ms, collect 705ms, tests 43.44s, environment 1.81s, prepare 493ms)
-

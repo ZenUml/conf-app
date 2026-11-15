@@ -2,7 +2,7 @@ export const MARKETPLACE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1
 export const SUPPORT_EMAIL = 'support@zenuml.com'
 export const SUPPORT_TICKET_URL = 'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/1'
 
-export type LicenseNoticeBasis = 'forge_inactive' | 'forge_legacy_free' | 'marketplace_legacy_free' | 'development_mock'
+export type LicenseNoticeBasis = 'forge_inactive' | 'forge_legacy_free' | 'marketplace_legacy_free' | 'development_mock' | 'site_policy_limit_reached'
 export interface LicenseNoticeInput {
   productType: string | undefined
   licenseActive: unknown
@@ -14,7 +14,8 @@ export interface LicenseNoticeInput {
   marketplaceEvidence?: unknown
 }
 
-const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000
+// Keep equal to MAX_VALIDITY_MS in functions/api/license-notice.ts.
+const MAX_EVIDENCE_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 function hasFreshMarketplaceEvidence(value: unknown, now: number): boolean {
   if (!value || typeof value !== 'object') return false

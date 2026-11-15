@@ -2,8 +2,8 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { MENU_ITEM_SELECTOR, handleMenuKeydown, shouldAlignMenuStart } from './menuKeyboard'
 
 /**
- * Open/close controller shared by the viewer header menus (OverflowMenu and
- * CopyForAiMenu): document click-outside + Escape listeners, first-item focus
+ * Open/close controller for the viewer header menus (OverflowMenu "More"):
+ * document click-outside + Escape listeners, first-item focus
  * and start-alignment on open, and the two close flavours.
  *
  * - `close()` closes and returns focus to the trigger (Escape, an item picked).

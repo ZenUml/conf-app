@@ -11,14 +11,31 @@ name: PR checks
 # because that is the event that starts E2E.
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**', '.cursor/**', 'packages/pr-agent-panel/**', 'workers/render-mcp/**', '.github/workflows/render-mcp-deploy.yml', 'scripts/ci/check-render-mcp.mjs', 'scripts/ci/wait-for-render-mcp*']
+    types: [opened, synchronize, reopened, labeled]
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}
+  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action != 'labeled' && 'commit' || github.event.label.name == 'test:run' && 'request' || 'ignored' }}
   cancel-in-progress: true
 
 jobs:
+  basic-scope:
+    name: Determine build and unit scope
+    if: ${{ github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/ci/pr-basic-scope.mjs
+
   # Four shards take half the wall time of one job, for 68% more runner time.
   # Measured on run 42038781539, three repeats each, median:
   #   shards  slowest job  total runner time
@@ -28,7 +45,9 @@ jobs:
   #   4        89 s        299 s
   # Three shards cost as much as four, so three is not offered.
   unit:
-    name: Unit tests (${{ matrix.shard }}/4)
+    needs: basic-scope
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
+    name: ${{ github.event.action == 'labeled' && 'Ignored label unit' || 'Unit tests' }} (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -56,7 +75,9 @@ jobs:
       - run: pnpm test:unit --shard=${{ matrix.shard }}/4
 
   asyncapi-build:
-    name: AsyncAPI build and CI script tests
+    needs: basic-scope
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
+    name: ${{ github.event.action == 'labeled' && 'Ignored label AsyncAPI' || 'AsyncAPI build and CI script tests' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -126,9 +147,9 @@ jobs:
 
   # One result for people and tools that look for this name.
   build:
-    name: Build and Unit Test
-    needs: [unit, asyncapi-build]
-    if: ${{ always() }}
+    name: ${{ github.event.action == 'labeled' && 'Ignored label build' || 'Build and Unit Test' }}
+    needs: [basic-scope, unit, asyncapi-build]
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -140,7 +161,28 @@ jobs:
           echo "Unit tests: $UNIT; AsyncAPI build and CI script tests: $ASYNCAPI"
           [ "$UNIT" = success ] && [ "$ASYNCAPI" = success ]
 
+  authorize-preview:
+    name: Authorize preview tests
+    if: ${{ github.event.action != 'labeled' || github.event.label.name == 'test:run' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Authorize current decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          CANDIDATE: ${{ github.sha }}
+        run: node scripts/test-selection/pr-decision.mjs check --pr "$PR" --candidate "$CANDIDATE"
+
   preview-e2e:
+    needs: authorize-preview
+    if: ${{ needs.authorize-preview.result == 'success' }}
     # The one E2E project that needs no Confluence site, no Forge app and no
     # OTP: the viewer/editor preview specs drive a local Vite dev server, so
     # they cost a runner and nothing else. That makes this the cheapest real
@@ -148,7 +190,7 @@ jobs:
     # runs on EVERY push, drafts included. Before this job the `preview` project
     # was collected but never gated: it only ran when someone remembered to
     # start Vite and run it by hand.
-    name: "E2E: Viewer preview"
+    name: "${{ github.event.action == 'labeled' && github.event.label.name != 'test:run' && 'Ignored label preview' || 'E2E: Viewer preview' }}"
     runs-on: ubuntu-24.04
     # Generous next to a ~2 min expectation: the whole point of this job is to
     # be cheap and quiet, so give a cold pnpm store room rather than reap it.

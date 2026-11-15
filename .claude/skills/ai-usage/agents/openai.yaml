@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI 线上使用统计"
+  short_description: "统计 AI Chat 与 AI Repair 线上使用量、客户覆盖、结果和耗时"
+  default_prompt: "使用 $ai-usage 统计近 7 天 AI Chat 和 AI Repair 的生产使用情况并用中文汇报。"

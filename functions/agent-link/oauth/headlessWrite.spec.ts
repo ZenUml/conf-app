@@ -455,7 +455,9 @@ describe('source field per diagram type', () => {
     ['openapi', 'code'],
     ['mermaid', 'mermaidCode'],
     ['plantuml', 'plantUmlCode'],
+    ['markdown', 'markdownCode'],
     ['graph', 'graphXml'],
+    ['asyncapi', 'code'],
   ])('create_diagram stores %s source under %s', async (type, field) => {
     const site = emptyPage();
     const { ctx } = await contextFor(site);
@@ -547,12 +549,27 @@ describe('create_diagram', () => {
     expect(node.attrs.extensionKey).toBe(`${LITE_APP_ID}/${ENV_ID}/static/zenuml-sequence-macro-lite`);
   });
 
-  it('refuses a diagram type the site\'s variant has no macro for', async () => {
+  // Every type now has a macro on Lite; the per-variant refusals (no graph on
+  // diagramly, no AsyncAPI on full, …) are covered in macroIdentity.spec.ts.
+  it.each([
+    ['AsyncApi', 'AsyncAPI', 'zenuml-asyncapi-macro-lite'],
+    ['markdown', 'markdown', 'zenuml-sequence-macro-lite'],
+  ])('creates a %s diagram on lite with its own macro', async (type, stored, macroKey) => {
+    const site = emptyPage();
+    const { ctx } = await contextFor(site);
+    await callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type, dsl: 'SOURCE' }, ctx);
+    const body = JSON.parse((site.content.get('new-1') as { body: { value: string } }).body.value) as Record<string, unknown>;
+    expect(body.diagramType).toBe(stored);
+    const nodes = (site.pageAdf.content as Array<Record<string, any>>).filter((n) => n.type === 'extension');
+    expect(nodes[nodes.length - 1].attrs.extensionKey).toBe(`${LITE_APP_ID}/${ENV_ID}/static/${macroKey}`);
+  });
+
+  it('refuses a type it does not know, naming every supported one', async () => {
     const site = emptyPage();
     const { ctx } = await contextFor(site);
     await expect(
-      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'AsyncApi', dsl: 'x' }, ctx),
-    ).rejects.toMatchObject({ code: 'bad_params' });
+      callHeadlessTool('create_diagram', { cloudId: CLOUD, pageId: 'page-1', type: 'visio', dsl: 'x' }, ctx),
+    ).rejects.toMatchObject({ code: 'bad_params', message: expect.stringMatching(/markdown, graph, openapi, asyncapi/) });
   });
 
   it('loses to a human editor rather than overwriting the page', async () => {

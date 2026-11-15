@@ -1,6 +1,5 @@
 /**
- * Keyboard model shared by the viewer header menus (OverflowMenu "More" and
- * CopyForAiMenu), per the staged-header prototype and the WAI-ARIA menu
+ * Keyboard model for the viewer header menus (OverflowMenu "More"), per the staged-header prototype and the WAI-ARIA menu
  * button pattern: ↑ ↓ wrap, Home / End jump, Escape closes and returns focus
  * to the trigger, Tab closes and lets focus move on.
  *

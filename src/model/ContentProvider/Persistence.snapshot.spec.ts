@@ -48,12 +48,13 @@ vi.mock('@/model/SnapshotAttachment', () => ({
   snapshotFailureDetail: mockSnapshotFailureDetail,
 }));
 
-const mockSave = vi.fn(() => ({ id: 'mocked_custom_content_id', version: { number: 3 } }));
+const mockSave = vi.fn((_d?: any): any => ({ id: 'mocked_custom_content_id', version: { number: 3 } }));
 
 //@ts-ignore
 const mockApWrapper: ApWrapper2 = {
   getMacroData: async () => ({ uuid: 'uuid_from_macro_data' }),
   _getCurrentPageId: vi.fn(() => Promise.resolve('host-page-1')),
+  createCustomContentV2: mockSave,
 };
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
@@ -68,12 +69,6 @@ vi.mock('@/services/MacroMetrics', () => ({
   default: {
     reportMacroMetrics: vi.fn(() => Promise.resolve()),
     getMacroMetrics: vi.fn(() => Promise.resolve()),
-  },
-}));
-
-vi.mock('@/model/ContentProvider/CustomContentStorageProvider', () => ({
-  CustomContentStorageProvider: class CustomContentStorageProvider {
-    save = mockSave;
   },
 }));
 

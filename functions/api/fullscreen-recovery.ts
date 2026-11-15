@@ -6,6 +6,7 @@ import {
   isRecoveryIdentity, parseRecoveryActivation, parseRecoveryRequest, recoverySnapshot,
   type RecoveryEnv,
 } from '../service/fullscreenRecoveryService';
+import { notifyFullscreenRecoveryRequest } from '../service/fullscreenRecoveryNotify';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
@@ -31,11 +32,19 @@ export const onRequestPost: PagesFunction<RecoveryEnv, string, ForgeRequestData>
     if (action === 'request') {
       const input: RecoveryRequestInput = parseRecoveryRequest(body);
       const result = await createRecoveryRequest(env, fit, input);
-      if (result.outcome === 'created') emitFullscreenRecoveryEvent(env,
-        'fullscreen_recovery_request_completed', `${result.snapshot.request!.id}:created`, fit.accountId,
-        { recovery_outcome: 'created', recovery_request_id: result.snapshot.request!.id,
-          recovery_grant_id: result.snapshot.grant!.id, attempt_id: input.attemptId,
-          scenario_codes: input.scenarios, has_note: Boolean(input.note) }, waitUntil);
+      if (result.outcome === 'created') {
+        emitFullscreenRecoveryEvent(env,
+          'fullscreen_recovery_request_completed', `${result.snapshot.request!.id}:created`, fit.accountId,
+          { recovery_outcome: 'created', recovery_request_id: result.snapshot.request!.id,
+            recovery_grant_id: result.snapshot.grant!.id, attempt_id: input.attemptId,
+            scenario_codes: input.scenarios, has_note: Boolean(input.note) }, waitUntil);
+        // Tell the support mailbox. Runs after the response; its failure never reaches the customer.
+        waitUntil(notifyFullscreenRecoveryRequest(env, {
+          requestId: result.snapshot.request!.id, cloudId: fit.cloudId, forgeAppId: fit.forgeAppId, spaceKey: input.spaceKey,
+          scenarios: input.scenarios, hasNote: Boolean(input.note.trim()),
+          createdAt: result.snapshot.request!.createdAt,
+        }));
+      }
       return json(result, { headers: NO_STORE });
     }
     if (action === 'activate') {

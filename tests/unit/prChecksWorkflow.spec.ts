@@ -10,16 +10,27 @@ describe('PR checks that do not touch staging', () => {
   const checks = structure('pr-checks');
 
   it('holds no staging lock and cancels older runs of the same PR', () => {
-    expect(checks.concurrency).toEqual({
-      group: 'pr-checks-${{ github.event.pull_request.number }}',
-      'cancel-in-progress': true,
-    });
+    const expression = checks.concurrency.group.match(/\$\{\{([^}]*github\.event\.action[^}]*)\}\}/)[1];
+    const group = (action: string, label: string) => Function(`return (${expression.replace(/github\.event\.action/g, JSON.stringify(action)).replace(/github\.event\.label\.name/g, JSON.stringify(label))})`)();
+    expect(checks.concurrency['cancel-in-progress']).toBe(true);
+    expect(group('opened', '')).toBe('commit');
+    expect(group('labeled', 'test:run')).toBe('request');
+    expect(group('labeled', 'bug')).toBe('ignored');
     expect(text('pr-checks')).not.toContain('conf-app-staging');
   });
 
   it('runs unit tests, the AsyncAPI build and the Viewer preview', () => {
-    expect(Object.keys(checks.jobs).sort()).toEqual(['asyncapi-build', 'build', 'preview-e2e', 'unit']);
-    expect(checks.jobs['preview-e2e'].name).toBe('E2E: Viewer preview');
+    expect(Object.keys(checks.jobs).sort()).toEqual(['asyncapi-build', 'authorize-preview', 'basic-scope', 'build', 'preview-e2e', 'unit']);
+    const guard = checks.jobs['authorize-preview'];
+    expect(guard.steps.find((step: any) => step.uses?.startsWith('actions/checkout@')).with.ref).toBe('${{ github.event.repository.default_branch }}');
+    expect(guard.steps.find((step: any) => step.run?.includes('pr-decision.mjs check'))).toBeDefined();
+    expect(checks.jobs['preview-e2e'].needs).toBe('authorize-preview');
+    expect(checks.jobs['preview-e2e'].if).toContain("needs.authorize-preview.result == 'success'");
+    expect(checks.jobs.unit.if).toContain("github.event.action != 'labeled'");
+    expect(checks.jobs.unit.needs).toBe('basic-scope');
+    expect(checks.jobs.unit.if).toContain("needs.basic-scope.outputs.run != 'false'");
+    expect(checks.jobs['asyncapi-build'].if).toContain("github.event.action != 'labeled'");
+    expect(guard.if).toContain("github.event.label.name == 'test:run'");
     const runs = checks.jobs['asyncapi-build'].steps.map((step: any) => step.run);
     expect(runs).toContain('pnpm build:asyncapi');
     expect(runs).toContain('node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs');
@@ -35,9 +46,11 @@ describe('PR checks that do not touch staging', () => {
 
   it('keeps one Build and Unit Test result that fails unless every part succeeded', () => {
     const { build } = checks.jobs;
-    expect(build.name).toBe('Build and Unit Test');
-    expect(build.needs).toEqual(['unit', 'asyncapi-build']);
-    expect(build.if).toBe('${{ always() }}');
+    expect(build.name).toContain('Build and Unit Test');
+    expect(build.needs).toEqual(['basic-scope', 'unit', 'asyncapi-build']);
+    expect(build.if).toContain("needs.basic-scope.outputs.run != 'false'");
+    expect(build.if).toContain('always()');
+    expect(build.if).toContain("github.event.action != 'labeled'");
     const env = build.steps[0].env;
     expect(env.UNIT).toBe('${{ needs.unit.result }}');
     expect(env.ASYNCAPI).toBe('${{ needs.asyncapi-build.result }}');
@@ -59,13 +72,14 @@ describe('PR checks that do not touch staging', () => {
   it('covers the same paths, and does not repeat the commit when a draft is marked ready', () => {
     const validation = structure('pr-validation');
     expect(checks.on.pull_request['paths-ignore']).toEqual(validation.on.pull_request['paths-ignore']);
-    expect(checks.on.pull_request.types).toEqual(['opened', 'synchronize', 'reopened']);
+    expect(checks.on.pull_request.types).toEqual(['opened', 'synchronize', 'reopened', 'labeled']);
+    expect(checks.jobs['authorize-preview'].if).toContain("github.event.label.name == 'test:run'");
   });
 });
 
 describe('PR validation that owns staging', () => {
   const validation = structure('pr-validation');
-  const expectedSha = '${{ github.event.pull_request.head.sha || github.sha }}';
+  const expectedSha = '${{ steps.gate.outputs.head-sha }}';
   const prNumber = '${{ github.event.pull_request.number || inputs.pr-number }}';
 
   it('keeps one queued, uncancelled lock across the deploy and the E2E run', () => {
@@ -93,7 +107,7 @@ describe('PR validation that owns staging', () => {
     const names = job.steps.map((step: any) => step.id ?? step.name);
     const current = job.steps.find((step: any) => step.id === 'current');
     expect(current.run).toBe('node scripts/ci/pr-head-current.mjs');
-    expect(current.env).toMatchObject({ PR_NUMBER: prNumber, EXPECTED_SHA: expectedSha });
+    expect(current.env).toMatchObject({ PR_NUMBER: prNumber, EXPECTED_SHA: '${{ needs.gate.outputs.head-sha }}' });
     expect(job.permissions['pull-requests']).toBe('read');
     expect(names.indexOf('current')).toBeLessThan(names.indexOf('Dispatch and wait for E2E'));
     const dispatch = job.steps.find((step: any) => step.name === 'Dispatch and wait for E2E');

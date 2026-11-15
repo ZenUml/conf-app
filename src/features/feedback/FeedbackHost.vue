@@ -29,7 +29,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import ChatBubbleOvalLeftEllipsisIcon from '@heroicons/vue/24/outline/ChatBubbleOvalLeftEllipsisIcon'
 import { openModal } from '@/model/globals/forgeGlobal'
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { getSessionReplayId, registerAnalyticsSuperProperties, trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import FeedbackDialog from './FeedbackDialog.vue'
 import { captureFeedbackSurface } from './feedbackCapture'
 import { serveFeedbackCapture } from './feedbackBridge'
@@ -94,6 +94,10 @@ async function openFeedback() {
     return
   }
   const feedbackToken = crypto.randomUUID()
+  // trackAnalyticsEvent above starts the viewer recording once init settles;
+  // the helper waits for that, then reads the replay id for the modal to echo.
+  void registerAnalyticsSuperProperties({ feedback_token: feedbackToken })
+  const viewerReplayId = await getSessionReplayId()
   stopCaptureServer?.()
   if (typeof BroadcastChannel !== 'undefined') {
     stopCaptureServer = serveFeedbackCapture(feedbackToken, props.captureCurrentView ?? captureFeedbackSurface)
@@ -104,6 +108,7 @@ async function openFeedback() {
     context: {
       macroMode: 'feedback',
       feedbackToken,
+      ...(viewerReplayId ? { viewerReplayId } : {}),
       feedbackContext: props.context,
     },
     onClose: () => stopCaptureServer?.(),

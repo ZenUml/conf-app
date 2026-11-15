@@ -7,7 +7,7 @@
  *   stage 0  every label shown
  *   stage 1  Edit, Refined and Connect MCP become icon-only
  *   stage 2  Fullscreen becomes icon-only
- *   stage 3  Source and Copy for AI move into the More (⋯) menu
+ *   stage 3  Source and Connect MCP move into the More (⋯) menu
  *            (only when the diagram has source; otherwise stage 2 is the last)
  *
  * The chosen stage is the smallest one at which the title shows at least
@@ -24,12 +24,12 @@ export const HEADER_STAGE_NAMES: Record<HeaderStage, string> = {
   0: 'all labels',
   1: 'Edit + Refined + Connect MCP → icon',
   2: 'Fullscreen → icon',
-  3: 'Source + Copy for AI → More',
+  3: 'Source + Connect MCP → More',
 }
 
 /** What the header contains — only the parts whose width depends on the stage. */
 export interface HeaderModel {
-  /** Source + Copy for AI are present (text-DSL diagram types). */
+  /** Source is present (text-DSL diagram types). */
   hasSource: boolean
   /** The Refined (Magic) toggle is present. */
   magic: boolean
@@ -37,7 +37,7 @@ export interface HeaderModel {
   pages: number
   /** The Edit button is present. */
   hasEdit: boolean
-  /** Connect MCP holds the Copy for AI slot (agent-link flag on). */
+  /** Connect MCP sits next to Source (inline, every diagram type). */
   connectMcp?: boolean
 }
 
@@ -73,14 +73,11 @@ export function controlsWidth(model: HeaderModel, stage: HeaderStage, measureLab
   }
   const toolbar: number[] = []
   if (model.hasSource && stage < 3) {
-    if (model.connectMcp) {
-      // Source icon, then Connect MCP: labelled "MCP" at stage 0 (8px padding
-      // + 1px border each side, 16px icon, 6px gap, label), icon-only after.
-      toolbar.push(ICON, stage < 1 ? 40 + measureLabel('MCP', 13) : ICON, SEPARATOR)
-    } else {
-      // Source icon, 2px, Copy for AI split (28px icon + 18px chevron), separator.
-      toolbar.push(ICON + 2 + ICON + 18, SEPARATOR)
-    }
+    // Source icon, then Connect MCP: labelled "MCP" at stage 0 (8px padding
+    // + 1px border each side, 16px icon, 6px gap, label), icon-only after.
+    toolbar.push(ICON)
+    if (model.connectMcp) toolbar.push(stage < 1 ? 40 + measureLabel('MCP', 13) : ICON)
+    toolbar.push(SEPARATOR)
   }
   toolbar.push(ICON) // More
   if (model.hasEdit) {
@@ -137,7 +134,6 @@ export function pickHeaderStage(options: {
 
 export type MoreMenuItemId =
   | 'source'
-  | 'copy-for-ai'
   | 'connect-mcp'
   | 'separator'
   | 'copy-diagram-link'
@@ -147,14 +143,14 @@ export type MoreMenuItemId =
 
 /**
  * Contents of the header More (⋯) menu, top to bottom. Inline, it holds the
- * actions the bottom pill used to carry, led by Source and Copy for AI once
+ * actions the bottom pill used to carry, led by Source and Connect MCP once
  * stage 3 moves them out of the toolbar. Fullscreen shows those actions as
  * header buttons, so its menu holds Versions and Download debug info.
  */
 export function moreMenuItems(options: {
   stage: HeaderStage
   hasSource: boolean
-  /** Connect MCP holds the Copy for AI slot (agent-link flag on, inline). */
+  /** Connect MCP sits next to Source (inline). */
   connectMcp?: boolean
   isCustomContent: boolean
   hasDeeplinkHost: boolean
@@ -162,7 +158,11 @@ export function moreMenuItems(options: {
 }): MoreMenuItemId[] {
   if (options.fullscreen) return options.isCustomContent ? ['versions', 'separator', 'debug'] : ['debug']
   const items: MoreMenuItemId[] = []
-  if (options.stage >= 3 && options.hasSource) items.push('source', options.connectMcp ? 'connect-mcp' : 'copy-for-ai', 'separator')
+  if (options.stage >= 3 && options.hasSource) {
+    items.push('source')
+    if (options.connectMcp) items.push('connect-mcp')
+    items.push('separator')
+  }
   if (options.isCustomContent && options.hasDeeplinkHost) items.push('copy-diagram-link')
   items.push('export-png')
   if (options.isCustomContent) items.push('versions')

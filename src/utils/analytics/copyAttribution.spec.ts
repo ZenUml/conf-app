@@ -15,15 +15,13 @@ describe('copy attribution marker', () => {
 
     const written = recordSuccessfulCopyAttribution({
       customContentId: '12345',
-      source: 'copy_for_ai',
-      job: 'update',
+      source: 'view_source',
       now: 1_000,
     });
 
     expect(written).toEqual({
       copy_id: '11111111-1111-4111-8111-111111111111',
-      copy_source: 'copy_for_ai',
-      copy_job: 'update',
+      copy_source: 'view_source',
       copied_at: 1_000,
       custom_content_id: '12345',
     });
@@ -51,8 +49,7 @@ describe('copy attribution marker', () => {
 
     expect(recordSuccessfulCopyAttribution({
       customContentId: '12345',
-      source: 'copy_for_ai',
-      job: 'explain',
+      source: 'view_source',
     })).toBeNull();
     expect(warning).toHaveBeenCalledOnce();
   });

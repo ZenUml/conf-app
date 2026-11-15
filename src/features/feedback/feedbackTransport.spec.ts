@@ -28,6 +28,17 @@ describe('feedback transport', () => {
     expect(handoff).toEqual({ opened: true, manualUrl: open.mock.calls[0][0] })
   })
 
+  it('sends the custom content version inside the submitted context', async () => {
+    const callRemote = vi.fn().mockResolvedValue({ ok: true, reportReference: 'FBR-EXAMPLE1234' })
+    const transport = createFeedbackTransport({ callRemote, open: vi.fn() })
+    await transport.submit({
+      submissionId: '1dc9c2a9-e064-4fa1-bfe5-a58f1af9cf13',
+      description: 'd',
+      context: { customContentVersion: 4 } as any,
+    })
+    expect(callRemote.mock.calls[0][2].context.customContentVersion).toBe(4)
+  })
+
   it('returns a manual support link when navigation is blocked', async () => {
     const open = vi.fn().mockRejectedValue(new Error('popup blocked'))
     const transport = createFeedbackTransport({ callRemote: vi.fn(), open })

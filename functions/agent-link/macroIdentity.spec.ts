@@ -201,10 +201,16 @@ describe('macroKeyFor', () => {
   const async: MacroIdentity = { appId: ASYNCAPI.appId, environmentId: ENV_ID, variant: 'asyncapi' };
 
   it('shares one macro across the text-DSL family', () => {
-    for (const type of ['sequence', 'mermaid', 'plantuml']) {
+    for (const type of ['sequence', 'mermaid', 'plantuml', 'markdown']) {
       expect(macroKeyFor(lite, type)).toBe('zenuml-sequence-macro-lite');
       expect(macroKeyFor(full, type)).toBe('zenuml-sequence-macro');
+      expect(macroKeyFor(dia, type)).toBe('gpt-diagram-macro');
     }
+  });
+
+  it('hosts AsyncAPI on lite as well as the asyncapi app (ADR-0005)', () => {
+    expect(macroKeyFor(lite, 'asyncapi')).toBe('zenuml-asyncapi-macro-lite');
+    expect(macroKeyFor(async, 'asyncapi')).toBe('zenuml-asyncapi-macro');
   });
 
   it('applies the -lite suffix only on lite', () => {
@@ -228,7 +234,11 @@ describe('macroKeyFor', () => {
     expect(macroKeyFor(dia, 'graph')).toBeNull();
     expect(macroKeyFor(dia, 'openapi')).toBeNull();
     expect(macroKeyFor(async, 'graph')).toBeNull();
-    expect(macroKeyFor(lite, 'asyncapi')).toBeNull();
+    expect(macroKeyFor(full, 'asyncapi')).toBeNull();
+    expect(macroKeyFor(dia, 'asyncapi')).toBeNull();
+    // The asyncapi app ships no text-DSL macro.
+    expect(macroKeyFor(async, 'sequence')).toBeNull();
+    expect(macroKeyFor(async, 'markdown')).toBeNull();
     expect(macroKeyFor(lite, 'nonsense')).toBeNull();
   });
 

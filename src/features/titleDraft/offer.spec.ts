@@ -151,6 +151,36 @@ describe('maybeOfferTitleDraft gates', () => {
     expect(m.showFlag).not.toHaveBeenCalled()
   })
 
+  describe('title_draft_requested sampling', () => {
+    const requested = () => m.trackAnalyticsEvent.mock.calls.filter(([name]) => name === 'title_draft_requested')
+    afterEach(() => vi.restoreAllMocks())
+
+    it('sends every ready lookup, unsampled', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.99)
+      await maybeOfferTitleDraft('lite')
+      expect(requested()).toHaveLength(1)
+      expect(requested()[0][1]).toMatchObject({ title_draft_status: 'ready' })
+      expect(requested()[0][1]).not.toHaveProperty('sample_rate')
+    })
+
+    it.each(['pending', 'no_diagram'])('sends a sampled-in %s lookup with sample_rate 0.1', async (status) => {
+      m.callRemote.mockResolvedValue({ status })
+      vi.spyOn(Math, 'random').mockReturnValue(0.05)
+      await maybeOfferTitleDraft('lite')
+      expect(requested()).toHaveLength(1)
+      expect(requested()[0][1]).toMatchObject({ title_draft_status: status, sample_rate: 0.1 })
+    })
+
+    it.each(['pending', 'no_diagram'])('drops a sampled-out %s lookup but still remembers it', async (status) => {
+      m.callRemote.mockResolvedValue({ status })
+      vi.spyOn(Math, 'random').mockReturnValue(0.1)
+      await maybeOfferTitleDraft('lite')
+      expect(requested()).toHaveLength(0)
+      await maybeOfferTitleDraft('lite')
+      expect(m.callRemote).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('status ready shows the entry flag, then the 24 h cap hides it on a second page', async () => {
     expect(await maybeOfferTitleDraft('lite')).toBe(true)
     expect(m.callRemote).toHaveBeenCalledTimes(1)

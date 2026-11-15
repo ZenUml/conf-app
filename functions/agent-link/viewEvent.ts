@@ -21,13 +21,37 @@ const MAX_BODY_CHARS = 512;
 const RENDER_OUTCOMES = ['rendered', 'failed'];
 const PLANTUML_RENDERERS = ['local', 'failed'];
 const PLANTUML_FAILURE_REASONS = ['load_failed', 'include', 'engine_error'];
+const FULLSCREEN_OUTCOMES = ['entered', 'exited', 'declined', 'failed'];
+const ZOOM_ACTIONS = ['zoom_in', 'zoom_out', 'fit'];
+const ZOOM_INPUTS = ['toolbar', 'wheel', 'keyboard'];
 
-interface ViewEvent {
+/** A render report (agent_link_app_view_rendered). */
+interface RenderViewEvent {
+  event: 'agent_link_app_view_rendered';
   macro_type: string;
   render_outcome: string;
+  fullscreen_available?: boolean;
   plantuml_renderer?: string;
   plantuml_failure_reason?: string;
 }
+
+/** A press of the fullscreen button (agent_link_app_view_fullscreen_requested), sent with `kind: 'fullscreen'`. */
+interface FullscreenViewEvent {
+  event: 'agent_link_app_view_fullscreen_requested';
+  macro_type: string;
+  fullscreen_outcome: string;
+}
+
+/** A deliberate zoom (agent_link_app_view_zoomed), sent with `kind: 'zoom'`. */
+interface ZoomViewEvent {
+  event: 'agent_link_app_view_zoomed';
+  macro_type: string;
+  viewport_action: string;
+  viewport_input: string;
+  fullscreen_active: boolean;
+}
+
+type ViewEvent = RenderViewEvent | FullscreenViewEvent | ZoomViewEvent;
 
 function isOneOf(value: unknown, allowed: readonly string[]): value is string {
   return typeof value === 'string' && allowed.includes(value);
@@ -43,8 +67,28 @@ export function parseViewEvent(text: string): ViewEvent | null {
     return null;
   }
   if (!body || typeof body !== 'object') return null;
-  if (!isOneOf(body.macro_type, RENDER_TYPES) || !isOneOf(body.render_outcome, RENDER_OUTCOMES)) return null;
-  const event: ViewEvent = { macro_type: body.macro_type, render_outcome: body.render_outcome };
+  if (!isOneOf(body.macro_type, RENDER_TYPES)) return null;
+  if (body.kind === 'fullscreen') {
+    if (!isOneOf(body.fullscreen_outcome, FULLSCREEN_OUTCOMES)) return null;
+    return { event: 'agent_link_app_view_fullscreen_requested', macro_type: body.macro_type, fullscreen_outcome: body.fullscreen_outcome };
+  }
+  if (body.kind === 'zoom') {
+    if (!isOneOf(body.viewport_action, ZOOM_ACTIONS) || !isOneOf(body.viewport_input, ZOOM_INPUTS)) return null;
+    if (typeof body.fullscreen_active !== 'boolean') return null;
+    return {
+      event: 'agent_link_app_view_zoomed',
+      macro_type: body.macro_type,
+      viewport_action: body.viewport_action,
+      viewport_input: body.viewport_input,
+      fullscreen_active: body.fullscreen_active,
+    };
+  }
+  if (body.kind !== undefined || !isOneOf(body.render_outcome, RENDER_OUTCOMES)) return null;
+  const event: RenderViewEvent = { event: 'agent_link_app_view_rendered', macro_type: body.macro_type, render_outcome: body.render_outcome };
+  if (body.fullscreen_available !== undefined) {
+    if (typeof body.fullscreen_available !== 'boolean') return null;
+    event.fullscreen_available = body.fullscreen_available;
+  }
   if (body.plantuml_renderer !== undefined) {
     if (!isOneOf(body.plantuml_renderer, PLANTUML_RENDERERS)) return null;
     event.plantuml_renderer = body.plantuml_renderer;
@@ -73,7 +117,7 @@ export async function handleViewEvent(
   if (env.MIXPANEL_TOKEN) {
     const work = withTimeout(
       mixpanelTrack(
-        { event: 'agent_link_app_view_rendered', feature_area: 'agent_link', surface: 'mcp_app_view', ...event },
+        { feature_area: 'agent_link', surface: 'mcp_app_view', ...event },
         env.MIXPANEL_TOKEN,
         env,
       ),

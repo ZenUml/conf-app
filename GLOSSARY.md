@@ -162,9 +162,6 @@ Reviewing, undoing, or restoring changes within the AI-assisted content editing 
 **Diagramly Aide conversation（Diagramly Aide 问答，`feature:ai-aide`）**:
 A standalone question-and-answer conversation reached through Diagramly. Receiving an answer is distinct from applying a change to macro content in an editor.
 
-**Copy for AI（复制给外部 AI，`feature:copy-for-ai`）**:
-Preparing supported macro source content, available context, and a task prompt for copying into another AI tool. Copying the material does not itself call a model or grant access to Confluence.
-
 **Refined layout（Mermaid Refined 布局，`feature:refined-layout`）**:
 An alternative prepared layout of a Mermaid diagram that can be viewed alongside its original rendering. Selecting that layout is distinct from editing the diagram source or requesting a new AI generation.
 

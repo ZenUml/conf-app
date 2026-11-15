@@ -24,11 +24,14 @@
 // What the server adds over a plain echo is the parse check (parseDsl.ts): the
 // agent gets ZenUML and Mermaid errors with line and column, and a structural
 // check for PlantUML and OpenAPI, instead of a picture that silently failed.
+// For ZenUML it also names known mistakes (zenumlDslGuide.ts): `warnings` on a
+// source that parsed but draws the wrong diagram, and `hints` that put a
+// specific fix before the parser's errors on one that did not.
 
 import { parseDsl, type DslError } from './parseDsl';
 import { detectDiagramType } from './detectDiagramType';
 import { getGuideByUri, listGuideResources } from './dslGuides';
-import { ZENUML_RENDER_CHEAT_SHEET } from './zenumlDslGuide';
+import { lintZenuml, ZENUML_RENDER_CHEAT_SHEET, zenumlFailureHints, type ZenumlIssue } from './zenumlDslGuide';
 import {
   DIAGRAM_VIEW_URI,
   readUiResource,
@@ -137,6 +140,10 @@ export interface RenderResult {
   /** True for a type with no parser here (graph). */
   unvalidated?: true;
   errors?: DslError[];
+  /** ZenUML only: the source parsed, but these mistakes change what is drawn. */
+  warnings?: ZenumlIssue[];
+  /** ZenUML only: specific fixes for recognised mistakes in a failed parse. */
+  hints?: ZenumlIssue[];
 }
 
 class RenderParamsError extends Error {
@@ -181,20 +188,42 @@ export async function renderDiagram(args: Record<string, unknown>): Promise<Rend
   const { diagramType, detected, source, title } = readParams(args);
   const parsed = await parseDsl(diagramType, source);
   const base = { diagramType, source, ...(title ? { title } : {}), ...(detected ? { detected: true as const } : {}) };
-  if (!parsed.ok) return { ...base, valid: false, errors: parsed.errors };
-  return { ...base, valid: true, ...(parsed.unvalidated ? { unvalidated: true as const } : {}) };
+  const zenuml = diagramType === 'sequence';
+  if (!parsed.ok) {
+    const hints = zenuml ? zenumlFailureHints(source, parsed.errors) : [];
+    return { ...base, valid: false, errors: parsed.errors, ...(hints.length ? { hints } : {}) };
+  }
+  const warnings = zenuml ? lintZenuml(source) : [];
+  return {
+    ...base,
+    valid: true,
+    ...(parsed.unvalidated ? { unvalidated: true as const } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  };
 }
 
 /** What the agent reads first. The source itself rides structuredContent, for the view. */
 function summaryFor(r: RenderResult): string {
   const detected = r.detected ? ` (detected from the source; pass diagramType if that is wrong)` : '';
+  const at = (e: { line: number; col: number; message: string }) => `- line ${e.line}, column ${e.col}: ${e.message}`;
   if (!r.valid) {
-    const lines = (r.errors ?? []).map((e) => `- line ${e.line}, column ${e.col}: ${e.message}`);
+    const lines = [...(r.hints ?? []), ...(r.errors ?? [])].map(at);
     const hint = r.diagramType === 'sequence' ? `\n\n${ZENUML_RENDER_CHEAT_SHEET}` : '';
     return `The ${r.diagramType} source${detected} did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n${lines.join('\n')}${hint}`;
   }
   if (r.unvalidated) return `Sent the ${r.diagramType} diagram${detected} to the view. This type is not syntax-checked here.`;
+  if (r.warnings?.length) {
+    return `Rendered the ${r.diagramType} diagram${detected}. The source parsed, but it will not draw what you meant. Fix these and call render_diagram again:\n${r.warnings.map(at).join('\n')}`;
+  }
   return `Rendered the ${r.diagramType} diagram${detected}. The source parsed.`;
+}
+
+/** render_issues / render_warnings_returned, for ZenUML sources only. */
+function zenumlIssueProps(r: RenderResult): Record<string, unknown> {
+  if (r.diagramType !== 'sequence') return {};
+  const codes = [...new Set([...(r.warnings ?? []), ...(r.hints ?? [])].map((i) => i.code as string))];
+  if (!r.valid && codes.length === 0) codes.push('unrecognised');
+  return { render_warnings_returned: Boolean(r.warnings?.length), ...(codes.length ? { render_issues: codes } : {}) };
 }
 
 type ToolOutcome = 'success' | 'tool_error' | 'unknown_tool' | 'exception' | 'rate_limited';
@@ -341,6 +370,7 @@ export async function handleRenderRpc(
           macro_type: value.diagramType,
           render_validation: value.unvalidated ? 'unvalidated' : value.valid ? 'valid' : 'invalid',
           render_type_source: value.detected ? 'detected' : 'given',
+          ...zenumlIssueProps(value),
           ...rateUnavailable,
         });
         // The view reads structuredContent (extractDiagram in

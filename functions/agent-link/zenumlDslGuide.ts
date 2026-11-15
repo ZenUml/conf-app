@@ -225,3 +225,164 @@ export const ZENUML_RENDER_CHEAT_SHEET =
 
 /** URI of the guide exposed via resources/list + resources/read. */
 export const ZENUML_DSL_GUIDE_URI = 'zenuml://dsl-guide';
+
+// ---- render_diagram lint ---------------------------------------------------
+// Two ZenUML mistakes parse and still draw the wrong diagram, and two others
+// fail with a parser error that points away from the cause. These checks are
+// source scans, checked against the real parser in zenumlCheatSheet.spec.ts:
+// - `group "x" { A->B: m }`: a group body holds only participant names, so the
+//   parser ends the group at its name and reads the braces as a separate
+//   block. The group draws empty.
+// - `A->B: text { B->C: y }` on one line: the braces are part of the label.
+// - `group` after the first message: "mismatched input 'group'".
+// - `A->B: text {` with the block on later lines: the parser reports the
+//   closing `}`, lines below the message that caused it.
+
+export type ZenumlIssueCode =
+  | 'group_with_messages'
+  | 'block_in_async_message'
+  | 'group_after_message'
+  | 'block_after_async_message';
+
+export interface ZenumlIssue {
+  code: ZenumlIssueCode;
+  /** 1-based line. */
+  line: number;
+  /** 0-based column. */
+  col: number;
+  /** One sentence: what goes wrong and the fix. */
+  message: string;
+}
+
+/**
+ * Blank out string contents and `//` comments, keeping every offset, so the
+ * scans below see neither an arrow in a quoted label nor one in a comment.
+ */
+function maskZenuml(source: string): string {
+  let out = '';
+  let inString = false;
+  let inComment = false;
+  for (const ch of source) {
+    if (ch === '\n') {
+      inString = false;
+      inComment = false;
+      out += ch;
+    } else if (inComment) {
+      out += ' ';
+    } else if (inString) {
+      if (ch === '"') inString = false;
+      out += ch === '"' ? '"' : ' ';
+    } else if (ch === '"') {
+      inString = true;
+      out += ch;
+    } else if (ch === '/' && out.endsWith('/')) {
+      inComment = true;
+      out = `${out.slice(0, -1)}  `;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+function position(text: string, offset: number): { line: number; col: number } {
+  const before = text.slice(0, offset);
+  const line = before.split('\n').length;
+  return { line, col: offset - (before.lastIndexOf('\n') + 1) };
+}
+
+/** An arrow, a call `B.m(` / `B."x"(`, an assignment from a call, or a return. */
+const STATEMENT = /->|[A-Za-z_]\w*\s*\.\s*(?:[A-Za-z_]|")|\breturn\b/;
+const GROUP_HEAD = /^[ \t]*(group)\b[ \t]*(?:"[^"\n]*"|[A-Za-z_]\w*)?\s*\{/gm;
+const NAME = String.raw`(?:[A-Za-z_]\w*|"[^"\n]*")`;
+const ASYNC_MESSAGE = new RegExp(String.raw`^[ \t]*(${NAME})?\s*->\s*(${NAME})\s*:([^\n]*)$`, 'd');
+
+/** Each `A->B: label` line, with its participants as written (quotes kept). */
+function asyncMessages(masked: string, original: string) {
+  const originalLines = original.split('\n');
+  return masked.split('\n').flatMap((text, i) => {
+    const m = ASYNC_MESSAGE.exec(text);
+    const at = m?.indices;
+    if (!m || !at) return [];
+    const written = (span?: [number, number]) => (span ? originalLines[i].slice(span[0], span[1]) : '');
+    return [{ line: i + 1, label: m[3], labelStart: at[3][0], from: written(at[1]), to: written(at[2]) }];
+  });
+}
+
+function nestedFix(from: string, to: string): string {
+  return `${from}->${to}.method() { … }`;
+}
+
+/** Warnings for a ZenUML source that parsed but will not draw what was meant. */
+export function lintZenuml(source: string): ZenumlIssue[] {
+  const masked = maskZenuml(source);
+  const issues: ZenumlIssue[] = [];
+
+  for (const m of masked.matchAll(GROUP_HEAD)) {
+    const open = (m.index ?? 0) + m[0].length - 1;
+    let depth = 0;
+    let close = masked.length;
+    for (let i = open; i < masked.length; i++) {
+      if (masked[i] === '{') depth++;
+      else if (masked[i] === '}' && --depth === 0) {
+        close = i;
+        break;
+      }
+    }
+    if (!STATEMENT.test(masked.slice(open + 1, close))) continue;
+    issues.push({
+      code: 'group_with_messages',
+      ...position(source, (m.index ?? 0) + m[0].indexOf('group')),
+      message:
+        'This group holds a message, so the parser ends the group at its name and reads the braces as a separate ' +
+        'block, and the group draws empty: put only participant names inside it (`group "Backend" { B C }`) and ' +
+        'write the messages after it.',
+    });
+  }
+
+  for (const msg of asyncMessages(masked, source)) {
+    const brace = msg.label.indexOf('{');
+    if (brace < 0 || !STATEMENT.test(msg.label.slice(brace + 1))) continue;
+    issues.push({
+      code: 'block_in_async_message',
+      line: msg.line,
+      col: msg.labelStart + brace,
+      message:
+        'The `{ … }` after this async message is read as part of its label, so nothing inside it is drawn: nest ' +
+        `the calls with \`${nestedFix(msg.from || 'A', msg.to)}\` instead.`,
+    });
+  }
+
+  return issues.sort((a, b) => a.line - b.line || a.col - b.col);
+}
+
+/** Specific fixes for recognised mistakes in a ZenUML source that did not parse. */
+export function zenumlFailureHints(
+  source: string,
+  errors: ReadonlyArray<{ line: number; col: number; message: string }>,
+): ZenumlIssue[] {
+  const hints: ZenumlIssue[] = [];
+  const groupError = errors.find((e) => /'group'/.test(e.message));
+  if (groupError) {
+    hints.push({
+      code: 'group_after_message',
+      line: groupError.line,
+      col: groupError.col,
+      message:
+        '`group` must come before the first message: move this group to the top and keep only participant names in it.',
+    });
+  }
+  for (const msg of asyncMessages(maskZenuml(source), source)) {
+    const label = msg.label.trimEnd();
+    if (!label.endsWith('{')) continue;
+    hints.push({
+      code: 'block_after_async_message',
+      line: msg.line,
+      col: msg.labelStart + label.length - 1,
+      message:
+        'An async message `A->B: text` cannot open a `{ }` block, and the parser reports the error at the closing ' +
+        `brace instead: write \`${nestedFix(msg.from || 'A', msg.to)}\` to nest the calls.`,
+    });
+  }
+  return hints.sort((a, b) => a.line - b.line || a.col - b.col);
+}

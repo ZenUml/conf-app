@@ -130,6 +130,44 @@ describe('POST /mcp/render', () => {
     });
   });
 
+  describe('ZenUML mistakes', () => {
+    it('returns lint warnings for a message inside a group, which parses', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'group "Backend" {\n  A->B: msg\n}\nB->C: z' });
+      const r = body.result.structuredContent;
+      expect(r.valid).toBe(true);
+      expect(r.warnings).toEqual([expect.objectContaining({ code: 'group_with_messages', line: 1, col: 0 })]);
+      const text: string = body.result.content[0].text;
+      expect(text).toMatch(/parsed, but/);
+      expect(text).toMatch(/line 1, column 0: /);
+    });
+
+    it('returns lint warnings for a one-line block after an async message', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'A->B: POST /orders { B->C: save() }' });
+      expect(body.result.structuredContent.warnings).toEqual([expect.objectContaining({ code: 'block_in_async_message', line: 1 })]);
+    });
+
+    it('returns no warnings for a valid diagram without those patterns', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'group "Backend" {\n  B\n}\nA->B.m() {\n  B->C: x\n}' });
+      expect(body.result.structuredContent.warnings).toBeUndefined();
+      expect(body.result.content[0].text).toBe('Rendered the sequence diagram. The source parsed.');
+    });
+
+    it('puts a targeted fix before the parser errors and keeps the cheat sheet as fallback', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'A->B: POST /x {\n  B->C: y\n}' });
+      expect(body.result.structuredContent.hints).toEqual([expect.objectContaining({ code: 'block_after_async_message', line: 1 })]);
+      const text: string = body.result.content[0].text;
+      const fix = text.indexOf('A->B.method() {');
+      expect(fix).toBeGreaterThan(-1);
+      expect(fix).toBeLessThan(text.indexOf('line 3, column 0'));
+      expect(text).toContain(ZENUML_RENDER_CHEAT_SHEET);
+    });
+
+    it('does not lint other diagram types', async () => {
+      const { body } = await call({ diagramType: 'mermaid', source: 'sequenceDiagram\n  A->>B: x { y }' });
+      expect(body.result.structuredContent.warnings).toBeUndefined();
+    });
+  });
+
   it('returns valid source in the shape the view extracts', async () => {
     const { body } = await call({ diagramType: 'sequence', source: 'A->B: hello', title: 'Greeting' });
     expect(body.result.isError).toBeUndefined();
@@ -301,6 +339,24 @@ describe('POST /mcp/render', () => {
         }),
       );
       expect(JSON.stringify(events)).not.toContain('secret-text');
+    });
+
+    it('records the recognised ZenUML mistakes and whether warnings were returned', async () => {
+      const events = captureEvents();
+      const env = { MIXPANEL_TOKEN: 't' };
+      await call({ diagramType: 'sequence', source: 'A->B: ok' }, env);
+      await call({ diagramType: 'sequence', source: 'group "x" {\n  A->B: m\n}' }, env);
+      await call({ diagramType: 'sequence', source: 'A->B: m\ngroup "x" { B }' }, env);
+      await call({ diagramType: 'sequence', source: 'A->B.m(' }, env);
+      await call({ diagramType: 'mermaid', source: 'flowchart TD\n  A --> B' }, env);
+      const props = events.filter((e) => e.event === 'agent_link_mcp_tool_called').map((e) => e.properties);
+      expect(props[0]).toEqual(expect.objectContaining({ render_warnings_returned: false }));
+      expect(props[0].render_issues).toBeUndefined();
+      expect(props[1]).toEqual(expect.objectContaining({ render_warnings_returned: true, render_issues: ['group_with_messages'] }));
+      expect(props[2]).toEqual(expect.objectContaining({ render_warnings_returned: false, render_issues: ['group_after_message'] }));
+      expect(props[3]).toEqual(expect.objectContaining({ render_validation: 'invalid', render_issues: ['unrecognised'] }));
+      expect(props[4].render_issues).toBeUndefined();
+      expect(props[4].render_warnings_returned).toBeUndefined();
     });
 
     it('records a refusal with its code', async () => {

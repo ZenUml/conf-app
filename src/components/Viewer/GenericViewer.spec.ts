@@ -3588,8 +3588,9 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
   ])('shows nothing for %s', async (_name, value) => {
     siteEnforcement.value = value
     const wrapper = mountViewer()
+    // The lookup starts after a dynamic import; one flush is not always enough on a loaded runner.
+    await vi.waitFor(() => expect(initialize).toHaveBeenCalled())
     await flushPromises()
-    expect(initialize).toHaveBeenCalled()
     expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
     wrapper.unmount()

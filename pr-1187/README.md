@@ -45,3 +45,7 @@ The complete final local run passed **943 Node tests (936 main + 7 isolated perf
 Final candidate: `ec8386bf05b9459bbb654fe02a4243854a88f93d`. Linux run [43657020581](https://github.com/ZenUml/conf-app/actions/runs/43657020581) narrowed the remaining differences to seven observed width vectors for four glyphs (`?`, `K`, `Y`, `a`). Both estimators now cover those measured bounds. The observation fixture was red before correction and is retained alongside the actual-browser tests; the auditor and rules were not weakened.
 
 The affected glyph/doctor/spec/shape/box/edge-label tests passed 163/163 with zero skips, and Python passed 42/42. The root CLI path-with-spaces test additionally passed using a no-model fake Pi and the real command parser. Doctor's error now states that measured font metrics exceed supported bounds rather than asserting a font is absent. The final Linux full-suite CI result is linked in the PR.
+
+## Linux confirmation
+
+[Standalone runtime CI 43657974800](https://github.com/ZenUml/conf-app/actions/runs/43657974800) passed for exact final commit `ec8386bf05b9459bbb654fe02a4243854a88f93d`: **945 Node tests (938 main + 7 isolated performance) and 42 Python tests, zero skipped**. This is the authoritative Linux confirmation of the four glyph corrections, doctor preflight, local SDK load and path handling. `linux-ci-final-summary.txt` captures the reported totals. No model calls occur in this workflow.

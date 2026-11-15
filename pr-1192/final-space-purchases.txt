@@ -1,0 +1,41 @@
+- heading "Plan and usage" [level=1, ref=e1]
+- generic
+  - button "View locations" [ref=e3]
+- heading "Spaces over the limit" [level=2, ref=e2]
+- table
+  - rowgroup
+    - row
+      - columnheader "Space" [ref=e25]
+      - columnheader "Diagrams / limit" [ref=e26]
+      - columnheader "Unlock one space" [ref=e27]
+  - row
+    - cell "ENG" [ref=e7]
+    - cell "143 / 100" [ref=e8]
+    - cell "$299/yr/space Unlock this space: ENG" [ref=e9]
+      - button "Unlock this space: ENG" [ref=e28]
+  - row
+    - cell "OPS" [ref=e10]
+    - cell "100 / 100" [ref=e11]
+    - cell "$299/yr/space Unlock this space: OPS" [ref=e12]
+      - button "Unlock this space: OPS" [ref=e29]
+  - row
+    - cell "~abc123" [ref=e13]
+    - cell "120 / 100" [ref=e14]
+    - cell "$299/yr/space Unlock this space: ~abc123" [ref=e15]
+      - button "Unlock this space: ~abc123" [ref=e30]
+  - row
+    - cell "PAID" [ref=e16]
+    - cell "400 / 100" [ref=e17]
+    - cell "Covered by a paid license" [ref=e18]
+  - row
+    - cell "USER" [ref=e19]
+    - cell "400 / 100" [ref=e20]
+    - cell "Covered by a paid license" [ref=e21]
+  - row
+    - cell "UNKNOWN" [ref=e22]
+    - cell "143 / 100" [ref=e23]
+    - cell "License status unavailable" [ref=e24]
+- generic
+  - heading "Upgrade to Full" [level=2, ref=e4]
+  - button "Request Full" [ref=e5]
+  - button "View on Marketplace" [ref=e6]

@@ -1,0 +1,52 @@
+{
+  "candidate": "a87551e9",
+  "source": "http://localhost:6009 / isolated worktree",
+  "viewport": "1280x1000",
+  "results": [
+    {
+      "pass": true,
+      "rowHeights": [
+        61
+      ],
+      "story": "default"
+    },
+    {
+      "pass": true,
+      "rowHeights": [
+        61,
+        61,
+        61,
+        61,
+        61,
+        61
+      ],
+      "story": "space-purchases"
+    },
+    {
+      "pass": true,
+      "rowHeights": [
+        61
+      ],
+      "story": "paid-status-unavailable"
+    },
+    {
+      "pass": true,
+      "rowHeights": [
+        61
+      ],
+      "story": "paid-status-pending"
+    },
+    {
+      "pass": true,
+      "rowHeights": [],
+      "story": "no-spaces-over-limit"
+    },
+    {
+      "pass": true,
+      "rowHeights": [
+        61
+      ],
+      "story": "fullscreen-ordinary-space"
+    }
+  ]
+}

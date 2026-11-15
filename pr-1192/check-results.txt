@@ -1,0 +1,9 @@
+Candidate a87551e99388d2a548ba837609b1d6c7a0037555
+Final lint: exit0;0 errors,138 warnings.
+Final affected tests:5 files/72 tests passed.
+Full suite initial candidate631a07ad:492 passed files,2 failed due missing E2E dotenv dependency,1 skipped file. After isolated E2E workspace installation, both failed files passed (10 tests). Final affected suites rerun for final source.
+Lite build:exit0, includes AsyncAPI Studio + main Lite + MCP app.
+Storybook:6/6 rendered states passed;1280x1000,fixture data.
+Forge Tunnel:live source localhost:8000 with @vite/client and /src/forgeIndex.ts; development SD127/100 row; external handoff lite-dev__SD observed, Cancel clicked. New multi-key backend not deployed at tunnel stage.
+Typecheck unavailable:vue-tsc1.8/TypeScript5.9 startup supportedTSExtensions incompatibility.
+CI staging/E2E:not yet run;trusted registry lacks the relevant plan-usage pairs.

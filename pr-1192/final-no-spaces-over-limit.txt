@@ -1,0 +1,7 @@
+- heading "Plan and usage" [level=1, ref=e1]
+- generic
+  - button "View locations" [ref=e2]
+- generic
+  - heading "Upgrade to Full" [level=2, ref=e3]
+  - button "Request Full" [ref=e4]
+  - button "View on Marketplace" [ref=e5]

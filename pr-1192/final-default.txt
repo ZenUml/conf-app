@@ -1,0 +1,19 @@
+- heading "Plan and usage" [level=1, ref=e1]
+- generic
+  - button "View locations" [ref=e3]
+- heading "Spaces over the limit" [level=2, ref=e2]
+- table
+  - rowgroup
+    - row
+      - columnheader "Space" [ref=e10]
+      - columnheader "Diagrams / limit" [ref=e11]
+      - columnheader "Unlock one space" [ref=e12]
+  - row
+    - cell "ENG" [ref=e7]
+    - cell "118 / 100" [ref=e8]
+    - cell "$299/yr/space Unlock this space: ENG" [ref=e9]
+      - button "Unlock this space: ENG" [ref=e13]
+- generic
+  - heading "Upgrade to Full" [level=2, ref=e4]
+  - button "Request Full" [ref=e5]
+  - button "View on Marketplace" [ref=e6]

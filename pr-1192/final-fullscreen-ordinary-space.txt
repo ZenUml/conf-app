@@ -1,0 +1,25 @@
+- heading "Plan and usage" [level=1, ref=e1]
+- generic
+  - paragraph
+  - heading "Review Fullscreen options" [level=2, ref=e3]
+  - paragraph
+    - StaticText "You selected: Inspect details on my own."
+  - button "Return to diagram" [ref=e4]
+- generic
+  - button "View locations" [ref=e5]
+- heading "Spaces over the limit" [level=2, ref=e2]
+- table
+  - rowgroup
+    - row
+      - columnheader "Space" [ref=e12]
+      - columnheader "Diagrams / limit" [ref=e13]
+      - columnheader "Unlock one space" [ref=e14]
+  - row
+    - cell "ENG" [ref=e9]
+    - cell "118 / 100" [ref=e10]
+    - cell "$299/yr/space Unlock this space: ENG" [ref=e11]
+      - button "Unlock this space: ENG" [ref=e15]
+- generic
+  - heading "Explore a plan for your Fullscreen use" [level=2, ref=e6]
+  - button "Request Full" [ref=e7]
+  - button "View on Marketplace" [ref=e8]

@@ -18,12 +18,24 @@ type MetricsDocument = { spaces?: Record<string, { total?: unknown }> };
 /** Reuse the exact metrics KV entry served by /metrics-cache/query. Legacy
  * entries can be written through the existing browser update path; this is
  * an existing count dependency, not an independently verified inventory. */
-async function cachedSpaceCount(kv: KVNamespace, domain: string, spaceKey: string): Promise<number | null> {
+export async function cachedSpaceCount(kv: KVNamespace, domain: string, spaceKey: string): Promise<number | null> {
   const metrics = await kv.get(`metrics:${domain}:lite`, 'json') as MetricsDocument | null;
   if (!metrics?.spaces || typeof metrics.spaces !== 'object' || Array.isArray(metrics.spaces)
     || !Object.prototype.hasOwnProperty.call(metrics.spaces, spaceKey)) return null;
   const count = metrics.spaces[spaceKey]?.total;
   return Number.isSafeInteger(count) && Number(count) >= 0 ? Number(count) : null;
+}
+
+/** Site domain from D1 (instance row first, then the Forge installation rows); '' when unknown or malformed. */
+export async function resolveSiteDomain(
+  db: D1Database, identity: { cloudId: string; forgeAppId: string },
+): Promise<string> {
+  const appAri = `ari:cloud:ecosystem::app/${identity.forgeAppId}`;
+  const rawDomain = await getAtlassianInstanceClientDomain(db, identity.cloudId)
+    || await getForgeInstallationClientDomain(db, appAri, identity.cloudId)
+    || await getForgeInstallationClientDomain(db, identity.forgeAppId, identity.cloudId);
+  const domain = rawDomain ? normalizeClientDomain(rawDomain) : '';
+  return /^[a-z0-9][a-z0-9-]{0,126}$/.test(domain) ? domain : '';
 }
 
 /** Account/site identity and paid status are server-derived; the count follows
@@ -40,12 +52,8 @@ export async function recoveryEligibility(
     return 'unavailable';
   }
   try {
-    const appAri = `ari:cloud:ecosystem::app/${identity.forgeAppId}`;
-    const rawDomain = await getAtlassianInstanceClientDomain(env.DB, identity.cloudId)
-      || await getForgeInstallationClientDomain(env.DB, appAri, identity.cloudId)
-      || await getForgeInstallationClientDomain(env.DB, identity.forgeAppId, identity.cloudId);
-    const domain = rawDomain ? normalizeClientDomain(rawDomain) : '';
-    if (!domain || !/^[a-z0-9][a-z0-9-]{0,126}$/.test(domain)) return 'unavailable';
+    const domain = await resolveSiteDomain(env.DB, identity);
+    if (!domain) return 'unavailable';
 
     const count = await cachedSpaceCount(env.confluence_plugin_features, domain, spaceKey);
     if (count === null) return 'unavailable';

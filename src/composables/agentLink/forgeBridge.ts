@@ -7,10 +7,10 @@
 //   - readPage()            -> ApWrapper2.getCurrentPage() (same v2 pages
 //     read every other page-body consumer in this app would use)
 //   - readDiagram(id)        -> ApWrapper2.getCustomContentForCurrentPage(id)
-//     (the exact read CustomContentStorageProvider.getDiagram() uses)
+//     (the exact read ApWrapper2.getCustomContentForCurrentPage() uses)
 //   - writeDiagram(id, dsl)  -> ApWrapper2.saveCustomContentV2(id, diagram)
 //     (the exact create-vs-update + v2 body-shape logic
-//     CustomContentStorageProvider.save() uses — status:"current" +
+//     saveToPlatform uses — status:"current" +
 //     version.number increment happen inside it, not duplicated here)
 //
 // writeDiagram only persists (saveCustomContentV2) — it does NOT, by itself,

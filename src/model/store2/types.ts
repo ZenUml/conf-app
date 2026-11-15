@@ -7,6 +7,9 @@ export interface DiagramLoadError {
   httpStatus?: number;
   errorCode?: string;
   errorClass?: 'thrown' | 'structured' | 'malformed';
+  /** Thrown fetch only: rejection name and scrubbed message (fetchErrorDiagnostics). */
+  errorName?: string;
+  errorMessage?: string;
   /**
    * The load produced a document that LOOKS renderable but is not the one the
    * macro asked for (a Board macro holding only a legacy Diagram body).

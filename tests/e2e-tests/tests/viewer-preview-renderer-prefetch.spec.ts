@@ -19,9 +19,8 @@
  * the sibling unit spec (src/utils/prefetch/rendererPrefetch.spec.ts) was
  * updated in that same commit, but this E2E spec was not, because nothing
  * in CI ran it (see issue #374). `runPrefetchInPage`'s `flagOverride` param
- * is now a harmless no-op, kept only so the remaining "flag on" test name
- * still reads sensibly; do not add new fail-closed assertions here unless
- * flag gating actually returns.
+ * is now a harmless legacy no-op. The current test name describes runtime
+ * guards; do not add flag-off assertions unless flag gating actually returns.
  *
  * Status: local-first (preview project), like all viewer-preview-* specs.
  *
@@ -39,13 +38,13 @@ import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('viewer-preview.html')
 
-test.describe('renderer prefetch — browser mechanics', { tag: ['@viewer', '@mermaid', '@plantuml'] }, () => {
+test.describe('renderer prefetch — browser mechanics', { tag: ['@viewer', '@mermaid', '@plantuml', '@feature:renderer-prefetch', '@interface:inline-viewer', '@scenario:renderer-prefetch:inline-viewer', '@check:component', '@execution:preview'] }, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE)
     await clearPrefetchState(page)
   })
 
-  test('flag on: injects DrawIO prefetch links that all resolve, warms mermaid, writes the done-key', async ({ page }) => {
+  test('runtime guards allow prefetch: injects DrawIO prefetch links that all resolve, warms mermaid, writes the done-key', async ({ page }) => {
     const result = await runPrefetchInPage(page, 'macro', true)
 
     // 4 DrawIO scripts + common.css (manifest chunks absent on the dev server).

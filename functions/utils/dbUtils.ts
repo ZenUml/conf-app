@@ -87,7 +87,10 @@ async function upsertForgeApp(db: D1Database, body: ForgeAppRequestBody) {
   console.log('DB ForgeApp Upsert Result:', result);
 }
 
-export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequestBody) {
+export async function upsertForgeInstallation(
+  db: D1Database,
+  body: ForgeAppRequestBody,
+): Promise<{ cloudId: string | null; clientDomain: string | null }> {
   await upsertForgeApp(db, body);
 
   let cloudId: string | null = null;
@@ -136,4 +139,6 @@ export async function upsertForgeInstallation(db: D1Database, body: ForgeAppRequ
   ) .run();
 
   console.log('DB ForgeInstallation Upsert Result:', result);
+  // Returned so the caller can stamp app_installed without a second lookup.
+  return { cloudId, clientDomain: clientDomain || null };
 }

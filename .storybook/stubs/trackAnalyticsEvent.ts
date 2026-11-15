@@ -21,3 +21,17 @@ export async function trackAnalyticsEventBeforeUnload(
 ): Promise<void> {}
 
 export function _resetForTesting(): void {}
+
+export const SESSION_REPLAY_CONFIG_TIMEOUT_MS = 3000
+
+/** No recorder in Storybook, so there is never a replay id. */
+export async function getSessionReplayId(
+  _timeoutMs = 500,
+  _intervalMs = 50,
+): Promise<string | undefined> {
+  return undefined
+}
+
+export async function registerAnalyticsSuperProperties(
+  _properties: Pick<AnalyticsProperties, 'feedback_token' | 'viewer_replay_id'>,
+): Promise<void> {}

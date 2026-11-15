@@ -24,8 +24,9 @@ export async function readDrawnScale(frame: FrameLocator): Promise<number | null
       return matrix.a || null;
     }
     // The biggest SVG is the diagram; the small ones are toolbar icons — the
-    // same reasoning as MacroPage.assertMacroRendersDiagram.
-    const measured = ([...document.querySelectorAll('svg')] as SVGSVGElement[])
+    // same reasoning as MacroPage.assertMacroRendersDiagram. The licence
+    // watermark overlay is excluded for the same reason as there.
+    const measured = ([...document.querySelectorAll('svg:not([data-testid="license-watermark"])')] as SVGSVGElement[])
       .map((el) => {
         const rect = el.getBoundingClientRect();
         return { el, area: rect.width * rect.height };

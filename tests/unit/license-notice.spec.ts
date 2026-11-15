@@ -73,10 +73,14 @@ describe('GET /api/license-notice', () => {
     { ...record, source: 'manual' }, { ...record, entitlementId: '' }, { ...record, entitlementId: '  ' },
     { ...record, checkedAt: 'invalid' }, { ...record, checkedAt: '2026-11-12T00:00:00.000Z' },
     { ...record, expiresAt: NOW }, { ...record, expiresAt: '2026-11-10T22:00:00.000Z' },
-    { ...record, expiresAt: '2026-11-12T00:00:00.000Z' }, { ...record, expiresAt: 123 },
+    { ...record, expiresAt: '2026-11-17T23:00:00.001Z' }, { ...record, expiresAt: 123 },
     { ...record, checkedAt: '2026-11-10' }, { ...record, checkedAt: '2026-02-30T00:00:00.000Z' },
   ])('returns unknown for missing or invalid record %#', async value => {
     expect(await (await onRequest(context(value))).json()).toEqual({ state: 'unknown' });
+  });
+  it.each(['2026-11-12T00:00:00.000Z', '2026-11-17T23:00:00.000Z'])('accepts a validity window up to 7 days (expires %s)', async expiresAt => {
+    const ctx = context({ ...record, expiresAt });
+    expect(await (await onRequest(ctx)).json()).toEqual({ state: 'legacy_free', checkedAt: record.checkedAt, expiresAt });
   });
   it('returns unknown for malformed JSON', async () => {
     expect(await (await onRequest(context('{', { raw: true }))).json()).toEqual({ state: 'unknown' });

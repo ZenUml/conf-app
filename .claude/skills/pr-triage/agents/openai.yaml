@@ -1,0 +1,6 @@
+interface:
+  display_name: "PR Test Triage"
+  short_description: "Resolve E2E scope for PRs awaiting manual triage"
+  default_prompt: "Use $pr-triage to investigate this PR's E2E scope and publish a justified decision."
+policy:
+  allow_implicit_invocation: false

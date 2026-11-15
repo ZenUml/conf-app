@@ -83,7 +83,7 @@ async function dialogFrame(page: Page): Promise<Frame | null> {
 // OAuth sign-in needs a real MCP client and an interactive consent, so it is
 // out of scope; this covers the macro side and the 401 discovery challenge
 // that hands a client to it.
-test.describe('Connect MCP — headless', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@ai'] }, () => {
+test.describe('Connect MCP — headless', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@ai', '@feature:connect-mcp', '@interface:connect-mcp-dialog', '@scenario:connect-mcp:connect-mcp-dialog'] }, () => {
   test('the dialog shows the setup command and a prompt for this diagram, and mints nothing', async ({ page }) => {
     test.skip(
       !(await isAgentLinkEndpointLive()),
@@ -136,7 +136,7 @@ test.describe('Connect MCP — headless', { tag: ['@test:agent-link-e2e', '@vari
 // lite only: the "Connect to Agent" affordance needs the Agent Link feature
 // flag and the /agent-link/mcp route, which exist on lite-stg alone — on
 // dia-stg and full-stg the macro never renders it (main runs 2026-10-08).
-test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@fullscreen', '@ai'] }, () => {
+test.describe('Live Agent Link — end to end', { tag: ['@test:agent-link-e2e', '@variant:lite', '@viewer', '@fullscreen', '@ai', '@status:retired'] }, () => {
   // The relay session UI is not offered in the headless-only first release
   // (RELAY_SESSIONS_ENABLED=false in src/composables/agentLink/connectInstructions.ts),
   // so there is no button to start a session. Flip that constant and run

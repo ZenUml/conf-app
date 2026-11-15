@@ -1,6 +1,25 @@
 import { test, expect, installMixpanelIsolation } from '../fixtures/mixpanel-test.js';
 import { captureMixpanelEvents } from '../helpers/macroViewedCapture.js';
-import { waitForCopyForAiTrackingRequest } from '../helpers/CopyForAiHelper.js';
+import type { Page } from '@playwright/test';
+
+// Resolves with the properties of the first `event` in a Mixpanel track
+// request's JSON `data=` batch.
+async function waitForTrackedEvent(page: Page, event: string): Promise<Record<string, unknown>> {
+  const decode = (postData: string | null): Array<{ event?: string; properties?: Record<string, unknown> }> => {
+    const match = postData?.match(/(?:^|&)data=([^&]*)/);
+    if (!match) return [];
+    try {
+      const parsed = JSON.parse(decodeURIComponent(match[1]));
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      return [];
+    }
+  };
+  const request = await page.waitForRequest(req => req.method() === 'POST'
+    && /mixpanel\.com\/track/i.test(req.url())
+    && decode(req.postData()).some(e => e.event === event), { timeout: 20_000 });
+  return decode(request.postData()).find(e => e.event === event)?.properties ?? {};
+}
 
 test('Mixpanel requests on both API hosts are acknowledged locally and remain observable', { tag: ['@route', '@analytics'] }, async ({ page, context, browser }) => {
   const seen: string[] = [];
@@ -20,7 +39,7 @@ test('Mixpanel requests on both API hosts are acknowledged locally and remain ob
   await page.goto('https://fixture.example.test/');
   await context.setOffline(true);
   const captured = captureMixpanelEvents(context);
-  const copyTracking = waitForCopyForAiTrackingRequest(page);
+  const copyTracking = waitForTrackedEvent(page, 'viewer_source_copied');
 
   const first = await page.evaluate(async () => {
     const response = await fetch('https://api-js.mixpanel.com/track/?ip=1', {
@@ -28,7 +47,7 @@ test('Mixpanel requests on both API hosts are acknowledged locally and remain ob
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'data=' + encodeURIComponent(JSON.stringify([
         { event: 'macro_viewed', properties: { macro_type: 'sequence' } },
-        { event: 'copy_for_ai_clicked', properties: { surface: 'viewer' } },
+        { event: 'viewer_source_copied', properties: { surface: 'viewer' } },
       ])),
     });
     return [response.status, await response.text()];
@@ -71,7 +90,7 @@ test('Mixpanel requests on both API hosts are acknowledged locally and remain ob
   expect(fromFrame).toEqual([200, '1']);
   expect(captured.forMacro('sequence')).toHaveLength(1);
   expect(await copyTracking).toMatchObject({ surface: 'viewer' });
-  expect(seen.some(body => body.includes('copy_for_ai_clicked'))).toBe(true);
+  expect(seen.some(body => body.includes('viewer_source_copied'))).toBe(true);
   expect(seen).toContain('data=server-host-payload');
   expect(seen).toContain('data=iframe-payload');
   expect(seen).toContain('data=beacon-payload');

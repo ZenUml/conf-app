@@ -13,13 +13,29 @@
       />
     </svg>
     <div class="license-notice-text">
-      <p class="license-notice-title">No active license</p>
-      <p class="license-notice-body">
-        This diagram stays viewable. Ask your Confluence admin to subscribe to remove the watermark.
-      </p>
+      <template v-if="isSitePolicy">
+        <p class="license-notice-title">Lite diagram limit reached</p>
+        <p class="license-notice-body" data-testid="license-notice-body-lite">
+          This diagram stays viewable. This space has {{ countLabel }} diagrams and Lite covers {{ limitLabel }} per space. Ask your Confluence admin to upgrade to Full to remove the watermark.
+        </p>
+      </template>
+      <template v-else>
+        <p class="license-notice-title">No active license</p>
+        <p class="license-notice-body">
+          This diagram stays viewable. Ask your Confluence admin to subscribe to remove the watermark.
+        </p>
+      </template>
     </div>
     <div class="license-notice-cta">
       <button
+        v-if="isSitePolicy"
+        type="button"
+        class="license-notice-btn"
+        data-testid="license-notice-plan-usage"
+        @click="onPlanUsage"
+      >View plan and usage</button>
+      <button
+        v-else
         type="button"
         class="license-notice-btn"
         data-testid="license-notice-upgrade"
@@ -55,8 +71,8 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { openUrl } from '@/model/globals/forgeGlobal'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { navigateToAppPage, openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { LicenseNoticeBasis } from '@/features/licenseNotice/licenseNotice'
 import { MARKETPLACE_UPGRADE_URL, SUPPORT_EMAIL, SUPPORT_TICKET_URL } from '@/features/licenseNotice/licenseNotice'
@@ -67,7 +83,15 @@ const props = defineProps<{
   surface: 'viewer' | 'fullscreen'
   macroType: string
   basis?: LicenseNoticeBasis | null
+  /** Lite site-policy variant only: the space's diagram count and the Lite limit. */
+  count?: number
+  limit?: number
+  stage?: 'notice' | 'watermark' | 'block_create' | 'block_edit'
 }>()
+
+const isSitePolicy = computed(() => props.basis === 'site_policy_limit_reached')
+const countLabel = computed(() => (props.count ?? 0).toLocaleString('en-US'))
+const limitLabel = computed(() => (props.limit ?? 0).toLocaleString('en-US'))
 
 const copied = ref(false)
 let copiedTimer: ReturnType<typeof setTimeout> | undefined
@@ -78,6 +102,8 @@ function baseProps() {
     surface: props.surface,
     macro_type: props.macroType as any,
     ...(props.basis ? { license_notice_basis: props.basis } : {}),
+    ...(props.stage ? { enforcement_stage: props.stage } : {}),
+    ...(isSitePolicy.value && props.count !== undefined ? { macro_count: props.count } : {}),
   }
 }
 
@@ -87,6 +113,16 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => clearTimeout(copiedTimer))
+
+// Lite sells nothing here: the button opens the in-app Plan and usage page.
+async function onPlanUsage() {
+  trackAnalyticsEvent('license_notice_plan_usage_clicked', baseProps())
+  try {
+    await navigateToAppPage('zenuml-plan-usage')
+  } catch (e) {
+    console.error('[license-notice] could not open Plan and usage', e)
+  }
+}
 
 async function onUpgrade() {
   trackAnalyticsEvent('license_notice_upgrade_clicked', baseProps())

@@ -17,6 +17,8 @@ interface FeedbackContextInput {
   macroUuid: string;
   contentId: string;
   customContentId: string;
+  // Optional; validated to a positive integer or dropped (never rejects the report).
+  customContentVersion?: unknown;
 }
 
 interface FeedbackReportInput {
@@ -50,6 +52,12 @@ function boundedString(value: unknown, max: number, allowEmpty = false): string 
   if (!allowEmpty && !normalized) return null;
   if (normalized.length > max) return null;
   return normalized;
+}
+
+// Confluence custom-content version: a positive safe integer, else NULL.
+// A bad or missing version must never cause the report itself to be rejected.
+function parseCustomContentVersion(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 ? value : null;
 }
 
 function parseInput(value: unknown): FeedbackReportInput | null {
@@ -86,6 +94,7 @@ function parseInput(value: unknown): FeedbackReportInput | null {
       macroUuid,
       contentId,
       customContentId,
+      customContentVersion: parseCustomContentVersion(context.customContentVersion) ?? undefined,
     },
     screenshot: body.screenshot,
   };
@@ -167,8 +176,9 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
         reportReference, submissionId, installationId, cloudId, forgeAppId,
         accountId, clientDomain, description, surface,
         hostModule, diagramType, diagramTitle, spaceName, macroUuid, contentId, customContentId,
-        screenshotData, screenshotContentType, screenshotExpiresAt
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+        screenshotData, screenshotContentType, screenshotExpiresAt,
+        customContentVersion
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
     `).bind(
       reportReference,
       input.submissionId,
@@ -189,6 +199,7 @@ export const onRequestPost: PagesFunction<Env, string, ForgeRequestData> = async
       screenshot ? screenshot.bytes.buffer : null,
       screenshot?.contentType ?? null,
       screenshotExpiresAt,
+      input.context.customContentVersion ?? null,
     ).run();
   } catch (error) {
     // Do not log the report body or upstream database error: both may contain

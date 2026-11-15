@@ -1,9 +1,10 @@
 import {trackEvent, addonKey} from '@/utils/window';
 import time from '@/utils/timer';
 import * as renderPerf from '@/utils/analytics/renderPerf';
+import { describeThrownFetchError } from '@/utils/fetchErrorDiagnostics';
 import {IMacroData} from "@/model/IMacroData";
 import {IContentProperty} from "@/model/IContentProperty";
-import {ICustomContent, ICustomContentV2, SearchResults} from "@/model/ICustomContent";
+import {ICustomContent, ICustomContentV2} from "@/model/ICustomContent";
 import {IUser} from "@/model/IUser";
 import {ILicense} from "@/model/ILicense";
 import {DataSource, Diagram, DiagramType} from "@/model/Diagram/Diagram";
@@ -306,7 +307,7 @@ export default class ApWrapper2 {
     // the stored CC body, or the migrated macro stays trapped in the
     // recovery UI forever. saveCustomContentV2's update branch sanitises
     // there; this is the direct-create branch (called e.g. by
-    // CustomContentStorageProvider.save when source !== 'custom-content',
+    // saveToPlatform when source !== 'custom-content',
     // which is the Defect 1 legacy-migration path).
     const sanitizedContent = this.sanitizeCustomContentBody(content);
     if (content.titleDraftPristine) sanitizedContent.titleDraftPristine = true;
@@ -580,6 +581,11 @@ export default class ApWrapper2 {
     httpStatus?: number;
     errorCode?: string;
     errorClass?: 'thrown' | 'structured' | 'malformed';
+    // Thrown only: the rejection's name and scrubbed message. A thrown fetch
+    // with no status (network failure, host bridge rejection) is otherwise
+    // indistinguishable in telemetry.
+    errorName?: string;
+    errorMessage?: string;
   }> {
     let rawResponse: any;
     try {
@@ -597,6 +603,10 @@ export default class ApWrapper2 {
         errorDetail: e?.message ? String(e.message) : String(e),
         httpStatus,
         errorClass: 'thrown',
+        ...(() => {
+          const { name, message } = describeThrownFetchError(e);
+          return { errorName: name, errorMessage: message };
+        })(),
       };
     }
     const errors = rawResponse?.errors;
@@ -894,6 +904,8 @@ export default class ApWrapper2 {
     directFetchHttpStatus?: number;
     directFetchErrorCode?: string;
     directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
+    directFetchErrorName?: string;
+    directFetchErrorMessage?: string;
   }> {
     // conf-app#320: a macro whose stored customContentId is the string
     // "undefined"/"null"/empty (a broken save writeback) can never resolve.
@@ -917,6 +929,8 @@ export default class ApWrapper2 {
       directFetchHttpStatus: direct.httpStatus,
       directFetchErrorCode: direct.errorCode,
       directFetchErrorClass: direct.errorClass,
+      directFetchErrorName: direct.errorName,
+      directFetchErrorMessage: direct.errorMessage,
     };
     if (direct.status !== 'not_found') {
       // Transient / 403 / 5xx / malformed — refuse to probe. Probing here
@@ -1325,89 +1339,6 @@ export default class ApWrapper2 {
     };
   }
 
-  async searchPagedCustomContent(pageSize: number = 25, keyword: string = '', onlyMine: boolean = false, docType: string = '', ids: number[] = []): Promise<SearchResults> {
-    const params = new URLSearchParams();
-    customContentTypesForVariant().forEach(type => {
-      params.append('type', this.customContentType(type));
-    });
-    params.append('limit', pageSize.toString());
-    params.append('body-format', 'raw');
-    
-    if (keyword) {
-      params.append('title', keyword);
-    }
-    
-    if (onlyMine && this.currentUser?.atlassianAccountId) {
-      params.append('contributor', this.currentUser.atlassianAccountId);
-    }
-
-    const searchUrl = `/wiki/api/v2/custom-content?${params.toString()}`;
-    return await this.searchPagedCustomContentByUrl(searchUrl);
-  }
-
-  async searchPagedCustomContentByUrl(searchUrl: string, pageSize: number = 25): Promise<SearchResults> {
-    try {
-      const response = await forgeRequest(searchUrl);
-      
-      if (!response || !response.results) {
-        console.warn('No search results from Forge API');
-        return {
-          size: 0,
-          results: []
-        };
-      }
-
-      const parseAndFilterResponse = (r: any) => r.results.map((customContent: any) => {
-        if(customContent.body.raw.value.length === 0) {
-          console.warn('Empty custom content body for id', customContent.id);
-          return null;
-        }
-
-        let diagram;
-        try {
-          diagram = JSON.parse(customContent.body.raw.value);
-        } catch (e) {
-          console.warn('Failed to parse custom content body', e);
-          return null;
-        }
-        
-        diagram.source = DataSource.CustomContent;
-        diagram.id = customContent.id;
-        
-        const assign = Object.assign({}, customContent, { value: diagram });
-        return assign as ICustomContent;
-      }).filter((item: ICustomContent) => item && item.value && item.value.diagramType);
-
-      let results = parseAndFilterResponse(response);
-
-      while(results.length < pageSize && response._links?.next) {
-        const nextResponse = await forgeRequest(response._links.next);
-        if (!nextResponse || !nextResponse.results) {
-          break;
-        }
-        const nextResults = parseAndFilterResponse(nextResponse);
-        results = results.concat(nextResults);
-        response._links.next = nextResponse._links?.next;
-      }
-
-      const searchResults: SearchResults = {
-        size: results.length,
-        results: results,
-        _links: response._links
-      };
-
-      trackEvent(`found ${results.length} content in Forge mode`, 'searchPagedCustomContentByUrl', 'info');
-      return searchResults;
-    } catch (e) {
-      console.error('searchPagedCustomContentByUrl', e);
-      trackEvent(JSON.stringify(e), 'searchPagedCustomContentByUrl', 'error');
-      return {
-        size: 0,
-        results: []
-      };
-    }
-  }
-
   async saveCustomContentV2(customContentId: string, value: Diagram): Promise<ICustomContentResponseBodyV2> {
     let result;
     // ZEN-1170 Defect 2b: use status-aware fetch so the existence check
@@ -1465,7 +1396,7 @@ export default class ApWrapper2 {
     // 1 = the normal single macro). Genuine copies still fork: same-page
     // duplicates via count>1 (the else branch) and cross-page via
     // samePage===false — both are also flagged earlier as isCopy in
-    // CustomContentStorageProvider.save.
+    // saveToPlatform.
     const countAllowsUpdate = count <= 1;
     let saveValue: Diagram = bodyWithoutUiFlags as Diagram;
     if (recoveredFromOrphanId) {
@@ -1606,7 +1537,7 @@ export default class ApWrapper2 {
   // regardless of body-format — confirmed live against lite-dev on 2026-07-30
   // (identical _links shape with and without ?body-format=export_view) — so
   // callers can derive the page URL from this single response instead of a
-  // second /pages/{id} round trip (see GenericViewer.vue's copyForAi path).
+  // second /pages/{id} round trip.
   async getCurrentPage(): Promise<{title: string, body: {export_view: {value: string}}, _links?: {base?: string, webui?: string}} | undefined> {
     const pageId = await this._getCurrentPageId();
     return await this.request(`/api/v2/pages/${pageId}?body-format=export_view`);

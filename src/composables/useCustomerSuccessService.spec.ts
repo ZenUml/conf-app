@@ -474,3 +474,38 @@ describe('useCustomerSuccessService - enterprise bundle attribution', () => {
     expect(reference).toMatch(/^[A-Za-z0-9_-]+$/)
   })
 })
+
+describe('useCustomerSuccessService - site enforcement', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.resetModules()
+    vi.clearAllMocks()
+  })
+
+  it.each([
+    ['present and well-formed', { stage: 'watermark', count: 2282, limit: 100, effects: { datedBanner: true, watermark: true, blockCreate: false, meterEdit: false } }, 'watermark'],
+    ['absent', undefined, null],
+    ['malformed', { stage: 'watermark', count: 'many' }, null],
+  ])('keeps the space-status enforcement object: %s', async (_name, enforcement, stage) => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false, decisionKnown: true, enforcement })
+    localStorage.mockMacroCount = '150'
+    localStorage.mockCSSEnabled = 'true'
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    const { siteEnforcement, initialize } = useCustomerSuccessService()
+    await initialize()
+    expect(siteEnforcement.value?.stage ?? null).toBe(stage)
+  })
+
+  // The macro entry and the viewer both call initialize() while the first
+  // load is still in flight; the fleet must not pay two space-status calls.
+  it('shares one in-flight load between concurrent initialize() calls', async () => {
+    const { callRemote } = await import('@/utils/requestUtil')
+    vi.mocked(callRemote).mockResolvedValue({ isPaid: false, decisionKnown: true })
+    localStorage.mockMacroCount = '150'
+    localStorage.mockCSSEnabled = 'true'
+    const { useCustomerSuccessService } = await import('./useCustomerSuccessService')
+    await Promise.all([useCustomerSuccessService().initialize(), useCustomerSuccessService().initialize()])
+    expect(vi.mocked(callRemote).mock.calls.filter(([url]) => String(url).startsWith('/api/space-status'))).toHaveLength(1)
+  })
+})

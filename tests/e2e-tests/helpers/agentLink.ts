@@ -91,13 +91,12 @@ export async function isAgentLinkEndpointLive(base = AGENT_LINK_STG_BASE): Promi
 
 export const forgeFrames = (page: Page) => page.frames().filter((f) => /atlassian-dev\.net/.test(f.url()));
 
-/** Opt the macro into Agent Link + skip the Lite paywall via localStorage. */
+/** Skip the Lite paywall via localStorage (Agent Link no longer needs a flag). */
 export async function enableAgentLinkOverrides(page: Page): Promise<void> {
   // addInitScript runs in every frame (incl. the Forge OOPIF) before its
   // scripts, so the flags are set on the correct origin without a reload.
   await page.addInitScript(() => {
     try {
-      localStorage.setItem('mockAgentLinkEnabled', 'true');
       localStorage.setItem('mockSpacePaid', 'true');
       // A newly opened fullscreen iframe must retain the inline macro's handoff.
       // Each normal test owns fresh content, so no previous session needs clearing.

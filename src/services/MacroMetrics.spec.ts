@@ -13,7 +13,8 @@ vi.mock('@/utils/requestUtil', () => ({
   callRemote: vi.fn()
 }));
 
-vi.mock('@/utils/window', () => ({
+vi.mock('@/utils/window', async (importOriginal) => ({
+  serializeError: (await importOriginal<typeof import('@/utils/window')>()).serializeError,
   trackEvent: vi.fn(),
   addonKey: vi.fn(() => 'com.zenuml.confluence-addon-lite')
 }));
@@ -313,8 +314,21 @@ describe('MacroMetrics', () => {
 
       await macroMetrics.reportMacroMetrics();
 
+      // JSON.stringify(new Error('Test error')) is '{}': the cause was lost (issues #1132, #1136).
       expect(mockEventTracker).toHaveBeenCalledWith(
-        JSON.stringify(error),
+        'Error: Test error',
+        'report_macro_metrics',
+        'error'
+      );
+    });
+
+    it('keeps the fields of a non-Error rejection', async () => {
+      mockApWrapper.getCurrentSpace.mockRejectedValue({ code: 'CONNECTION_CLOSED', name: 'ConnectionClosedError' });
+
+      await macroMetrics.reportMacroMetrics();
+
+      expect(mockEventTracker).toHaveBeenCalledWith(
+        '{"code":"CONNECTION_CLOSED","name":"ConnectionClosedError"}',
         'report_macro_metrics',
         'error'
       );

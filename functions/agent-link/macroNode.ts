@@ -90,6 +90,38 @@ export function referencedCustomContentId(parameters: unknown, cloudId: string):
   return undefined;
 }
 
+/**
+ * An embed macro's key, Forge or Connect-era: `zenuml-embed-macro` (with the
+ * variant's suffix, e.g. `-lite`) or the AsyncAPI app's
+ * `zenuml-asyncapi-embed-macro`, as the last segment of the extensionKey
+ * (`<appId>/<environmentId>/static/<macroKey>` on Forge).
+ */
+const EMBED_MACRO_KEY_RE = /(^|\/)zenuml-(asyncapi-)?embed-macro[A-Za-z0-9._-]*$/;
+
+/**
+ * The diagrams the page's embed macros point at, in page order, each once.
+ *
+ * An embed macro stores no diagram of its own: it names another diagram's
+ * custom content, usually stored on another page, so a listing of the page's
+ * own custom content never shows it.
+ */
+export function embeddedContentIds(adf: unknown, cloudId: string): string[] {
+  const ids: string[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== 'object') return;
+    const n = node as Record<string, any>;
+    const key = n.attrs?.extensionKey;
+    if (typeof key === 'string' && EMBED_MACRO_KEY_RE.test(key)) {
+      const id = referencedCustomContentId(n.attrs?.parameters, cloudId);
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+    Object.values(n).forEach(walk);
+  };
+  walk(adf);
+  return ids;
+}
+
 /** Does this document already place `customContentId`? */
 export function referencesCustomContent(adf: unknown, customContentId: string, cloudId: string): boolean {
   let found = false;

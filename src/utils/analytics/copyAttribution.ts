@@ -1,12 +1,9 @@
 import type { CopySource } from './catalog';
 import { generateJourneyId } from '@/utils/journeyTracking';
 
-export type CopyJob = 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
-
 export type CopyAttributionMarker = {
   copy_id: string;
   copy_source: CopySource;
-  copy_job?: CopyJob;
   copied_at: number;
   custom_content_id: string;
 };
@@ -21,12 +18,10 @@ function storageKey(customContentId: string): string {
 export function recordSuccessfulCopyAttribution({
   customContentId,
   source,
-  job,
   now = Date.now(),
 }: {
   customContentId: string | number | null | undefined;
   source: CopySource;
-  job?: CopyJob;
   now?: number;
 }): CopyAttributionMarker | null {
   const normalizedId = String(customContentId ?? '').trim();
@@ -35,7 +30,6 @@ export function recordSuccessfulCopyAttribution({
   const marker: CopyAttributionMarker = {
     copy_id: generateJourneyId(),
     copy_source: source,
-    ...(job ? { copy_job: job } : {}),
     copied_at: now,
     custom_content_id: normalizedId,
   };
@@ -62,7 +56,7 @@ export function readCopyAttribution(
     if (!raw) return null;
     const marker = JSON.parse(raw) as Partial<CopyAttributionMarker>;
     const valid = typeof marker.copy_id === 'string'
-      && (marker.copy_source === 'copy_for_ai' || marker.copy_source === 'view_source')
+      && marker.copy_source === 'view_source'
       && typeof marker.copied_at === 'number'
       && marker.custom_content_id === normalizedId;
     if (!valid || now - marker.copied_at! > COPY_ATTRIBUTION_TTL_MS || now < marker.copied_at!) {

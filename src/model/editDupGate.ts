@@ -4,7 +4,7 @@
 //
 // Why the gate exists: a macro whose customContentId is shared by more than
 // one macro on the SAME page can be view-edited, but saving forks a new
-// custom content (isCopy branch in CustomContentStorageProvider.save, and the
+// custom content (isCopy branch in saveToPlatform, and the
 // count>1 branch in ApWrapper2.saveCustomContentV2) and the in-viewer modal
 // cannot write the new id back into the macro config (writebackGate.ts /
 // #170: view.submit is only valid when inserting/configuring). The fork then

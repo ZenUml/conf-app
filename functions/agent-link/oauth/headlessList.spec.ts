@@ -35,7 +35,11 @@ function withBodies(rows: Array<Record<string, unknown>>, url: string) {
 }
 
 /** `content` maps a custom-content type to its rows; every page holds only a Connect-era macro. */
-function fakeConfluence(content: Record<string, Array<Record<string, unknown>>>, failStatus?: number) {
+function fakeConfluence(
+  content: Record<string, Array<Record<string, unknown>>>,
+  failStatus?: number,
+  pageNodes: unknown[] = [],
+) {
   const calls: string[] = [];
   const json = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -56,6 +60,11 @@ function fakeConfluence(content: Record<string, Array<Record<string, unknown>>>,
       const rows = Object.values(content).flat().filter((r) => r.pageId === pageScoped[1]);
       return json(200, { results: withBodies(rows, url) });
     }
+    const single = url.match(/\/wiki\/api\/v2\/custom-content\/([^/?]+)/);
+    if (single) {
+      const found = Object.values(content).flat().find((r) => r.id === single[1]);
+      return found ? json(200, withBodies([found], url)[0]) : json(404, {});
+    }
     if (url.includes('/wiki/api/v2/pages/')) {
       const adf = {
         type: 'doc',
@@ -64,6 +73,7 @@ function fakeConfluence(content: Record<string, Array<Record<string, unknown>>>,
             type: 'extension',
             attrs: { extensionType: 'com.atlassian.confluence.macro.core', extensionKey: 'zenuml-sequence-macro-lite' },
           },
+          ...pageNodes,
         ],
       };
       return json(200, { body: { atlas_doc_format: { value: JSON.stringify(adf) } } });
@@ -73,7 +83,11 @@ function fakeConfluence(content: Record<string, Array<Record<string, unknown>>>,
   return { fetchImpl, calls };
 }
 
-async function contextFor(content: Record<string, Array<Record<string, unknown>>>, failStatus?: number) {
+async function contextFor(
+  content: Record<string, Array<Record<string, unknown>>>,
+  failStatus?: number,
+  pageNodes: unknown[] = [],
+) {
   const store = memoryStore();
   await saveGrant(store, 'grant-key', ACCOUNT, {
     accessToken: 'at-1',
@@ -81,7 +95,7 @@ async function contextFor(content: Record<string, Array<Record<string, unknown>>
     accessTokenExpiresAtMs: Date.now() + 3_600_000,
     scope: 'read:custom-content:confluence',
   });
-  const { fetchImpl, calls } = fakeConfluence(content, failStatus);
+  const { fetchImpl, calls } = fakeConfluence(content, failStatus, pageNodes);
   const ctx: HeadlessContext = {
     store,
     secret: 'grant-key',
@@ -191,5 +205,65 @@ describe('list_diagrams', () => {
     const result = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD, pageId: 'page-1' }, ctx)) as any;
     expect(result.diagrams.map((d: any) => [d.contentId, d.diagramType])).toEqual([['1', 'plantuml']]);
     expect(calls.find((c) => c.includes('/pages/page-1/custom-content'))).toContain('body-format=raw');
+  });
+});
+
+/** A Forge embed macro node pointing at `contentId`, as Confluence stores it. */
+const embedMacro = (contentId: string, macroKey = 'zenuml-embed-macro-lite') => ({
+  type: 'extension',
+  attrs: {
+    extensionType: 'com.atlassian.ecosystem',
+    extensionKey: `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/static/${macroKey}`,
+    parameters: { guestParams: { customContentId: contentId } },
+  },
+});
+
+describe('list_diagrams: diagrams embedded on the page', () => {
+  it('lists an embed macro\'s target as the diagram itself, marked embedded, with the page it lives on', async () => {
+    const { ctx } = await contextFor(
+      {
+        [LITE_SEQ]: [row('1', LITE_SEQ, '2026-10-01T00:00:00Z', { diagramType: 'sequence', code: 'A->B: hi' })],
+        [LITE_GRAPH]: [row('7', LITE_GRAPH, '2026-10-02T00:00:00Z')],
+      },
+      undefined,
+      [embedMacro('7')],
+    );
+    const result = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD, pageId: 'page-1' }, ctx)) as any;
+    expect(result.diagrams).toEqual([
+      expect.objectContaining({ contentId: '7', diagramType: 'graph', pageId: 'page-7', embedded: true }),
+      expect.objectContaining({ contentId: '1', diagramType: 'sequence', pageId: 'page-1' }),
+    ]);
+    expect(result.diagrams[1]).not.toHaveProperty('embedded');
+    expect(result).not.toHaveProperty('note');
+  });
+
+  it('reads the AsyncAPI app\'s embed macro too, and lists a target embedded twice once', async () => {
+    const { ctx } = await contextFor(
+      { [LITE_SEQ]: [row('5', LITE_SEQ, '2026-10-01T00:00:00Z', { diagramType: 'AsyncAPI', code: 'asyncapi: 2.6.0' })] },
+      undefined,
+      [embedMacro('5', 'zenuml-asyncapi-embed-macro'), embedMacro('5')],
+    );
+    const result = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD, pageId: 'page-1' }, ctx)) as any;
+    expect(result.diagrams.map((d: any) => [d.contentId, d.embedded])).toEqual([['5', true]]);
+  });
+
+  it('leaves out targets it cannot read, that are not ZenUML content, or that the page already stores', async () => {
+    const { ctx } = await contextFor(
+      {
+        [LITE_SEQ]: [row('1', LITE_SEQ, '2026-10-01T00:00:00Z', { diagramType: 'mermaid', mermaidCode: 'graph TD' })],
+        [DIAGRAMLY]: [row('8', 'some-other-app:content', '2026-10-01T00:00:00Z')],
+      },
+      undefined,
+      // 404 target, another app's content, and one already stored on this page
+      [embedMacro('404'), embedMacro('8'), embedMacro('1')],
+    );
+    const result = (await callHeadlessTool('list_diagrams', { cloudId: CLOUD, pageId: 'page-1' }, ctx)) as any;
+    expect(result.diagrams.map((d: any) => [d.contentId, d.embedded ?? false])).toEqual([['1', false]]);
+  });
+
+  it('does not read any page for a site-wide listing', async () => {
+    const { ctx, calls } = await contextFor({ [LITE_SEQ]: [row('1', LITE_SEQ, '2026-10-01T00:00:00Z')] }, undefined, [embedMacro('1')]);
+    await callHeadlessTool('list_diagrams', { cloudId: CLOUD }, ctx);
+    expect(calls.some((c) => c.includes('atlas_doc_format'))).toBe(false);
   });
 });

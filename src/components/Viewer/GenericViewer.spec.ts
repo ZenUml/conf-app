@@ -1,5 +1,5 @@
 import { mount, flushPromises } from '@vue/test-utils'
-import { h } from 'vue'
+import { h, ref } from 'vue'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -9,7 +9,7 @@ import store from '@/model/store2'
 import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
-import { isAgentLinkEnabled, isArchitectureTokensEnabled, isCreateGuideEnabled, isDiagramCommentsEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
+import { isArchitectureTokensEnabled, isCreateGuideEnabled, isDiagramCommentsEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
 import { requestConfluenceJson } from '@/utils/byline/confluenceRequest'
 import { resetPageCommentsCache } from '@/features/diagramComments/pageCommentsCache'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
@@ -64,7 +64,6 @@ vi.mock('@/utils/loadFailedRetry', async (importOriginal) => {
 // as today") path without opting in. Individual agent-link tests override
 // this per-test with mockResolvedValueOnce(true).
 vi.mock('@/apis/aiTitleFeatureFlag', () => ({
-  isAgentLinkEnabled: vi.fn(() => Promise.resolve(false)),
   isArchitectureTokensEnabled: vi.fn(() => Promise.resolve(false)),
   isCreateGuideEnabled: vi.fn(() => Promise.resolve(false)),
   isDiagramCommentsEnabled: vi.fn(() => Promise.resolve(false)),
@@ -95,11 +94,7 @@ vi.mock('@/model/globals', () => ({
       _getCurrentUser: vi.fn(() => Promise.resolve({ atlassianAccountId: 'test-user-id' })),
       getCurrentSpace: vi.fn(() => Promise.resolve({ key: 'TEST' })),
       getAndPrintContentVersions: vi.fn(() => Promise.resolve([])),
-      // Copy for AI page context (resolveCopyForAiPage) — same path
-      // agentLink's readPage uses. The URL is derived from THIS response's
-      // _links (base+webui), not a second request — individual tests
-      // override this fixture to exercise the diagram-only fallback and the
-      // URL-unresolvable-but-text-present case.
+      // Page context, the same read agentLink's readPage uses.
       _getCurrentPageId: vi.fn(() => Promise.resolve('page-123')),
       getCurrentPage: vi.fn(() => Promise.resolve({
         title: 'Login flow page',
@@ -1595,7 +1590,7 @@ describe('GenericViewer (chrome-less)', () => {
       const wrapper = mountViewer()
       mounted.push(wrapper)
       await flushPromises()
-      for (const [action, label] of [['edit', 'Edit'], ['source', 'Source'], ['copy', 'Copy for AI'], ['fullscreen', 'Fullscreen'], ['create', 'Create']]) {
+      for (const [action, label] of [['edit', 'Edit'], ['source', 'Source'], ['connect-mcp', 'MCP'], ['fullscreen', 'Fullscreen'], ['create', 'Create']]) {
         const el = wrapper.find(`.viewer-act-${action}`)
         expect(el.exists(), action).toBe(true)
         expect(el.find('.viewer-btn-label').text(), action).toBe(label)
@@ -1605,7 +1600,7 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('.viewer-act-more .overflow-menu-trigger').attributes('aria-label')).toBe('More')
     })
 
-    it('moves Source and Copy for AI into the More menu at stage 3', async () => {
+    it('moves Source and Connect MCP into the More menu at stage 3', async () => {
       store.commit('updateDiagramType', DiagramType.Sequence)
       const wrapper = mountViewer()
       mounted.push(wrapper)
@@ -1614,12 +1609,12 @@ describe('GenericViewer (chrome-less)', () => {
       await wrapper.vm.$nextTick()
       await openMoreMenu(wrapper)
       expect(moreMenuLabels(wrapper)).toEqual([
-        'Source', 'Copy for AI', 'Copy diagram link', 'Export PNG', 'Versions', 'Download debug info',
+        'Source', 'Connect MCP', 'Copy diagram link', 'Export PNG', 'Versions', 'Download debug info',
       ])
       expect(wrapper.findAll('.viewer-act-more [role="separator"]')).toHaveLength(2)
     })
 
-    it('runs Source and Copy for AI from the menu, recording where they came from', async () => {
+    it('runs Source from the menu, recording where it came from', async () => {
       store.commit('updateDiagramType', DiagramType.Sequence)
       const wrapper = mountViewer()
       mounted.push(wrapper)
@@ -1963,18 +1958,18 @@ describe('GenericViewer (chrome-less)', () => {
         wrapper.unmount()
       })
 
-      // One Escape, one layer: the Copy-for-AI menu is on top, so it goes first
-      // and the panel behind it survives. Regression guard for the
-      // capture-phase listener — a bubble-phase one reads the menu as already
-      // closed (CopyForAiMenu's own handler runs first) and closes both.
-      it('closes the Copy for AI menu before the panel', async () => {
+      // One Escape, one layer: the More menu is on top, so it goes first and
+      // the panel behind it survives. Regression guard for the capture-phase
+      // listener — a bubble-phase one reads the menu as already closed (the
+      // menu's own handler runs first) and closes both.
+      it('closes the More menu before the panel', async () => {
         asFullscreen()
         store.commit('updateDiagramType', DiagramType.Sequence)
         const wrapper = mountViewer()
         await flushPromises()
 
         await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
-        await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
+        await wrapper.find('.viewer-act-more .overflow-menu-trigger').trigger('click')
         await wrapper.vm.$nextTick()
         expect(wrapper.find('[role="menu"]').exists()).toBe(true)
 
@@ -2002,661 +1997,6 @@ describe('GenericViewer (chrome-less)', () => {
         wrapper.unmount()
         expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function), true)
         removeSpy.mockRestore()
-      })
-    })
-  })
-
-  // One-click "Copy for AI" clipboard payload (copy_for_ai_clicked, catalog.ts).
-  describe('Copy for AI', () => {
-    const SOURCE_DSL = 'Alice->Bob: hello\nBob->Alice: hi'
-    let originalClipboard: PropertyDescriptor | undefined
-    let originalIsSecureContext: PropertyDescriptor | undefined
-
-    // The button's visible label is a CSS grid-stack (GenericViewer.vue):
-    // every state's label is a permanent DOM node — sized but
-    // visibility:hidden when inactive — so the button's width never changes
-    // across states. That means wrapper.find(...).text() now concatenates
-    // ALL five labels regardless of which is showing; scope state-specific
-    // assertions to the one cell marked data-active="true".
-    const activeCopyLabel = (root: ReturnType<typeof mountViewer>, testid = 'copy-for-ai-btn') =>
-      root.find(`[data-testid="${testid}"] [data-active="true"]`).text()
-
-    beforeEach(() => {
-      store.state.diagram.code = SOURCE_DSL
-      store.state.diagram.mermaidCode = 'sequenceDiagram\n  A->>B: hi'
-      store.state.diagram.plantUmlCode = '@startuml\nA -> B\n@enduml'
-      originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-      originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
-      Object.defineProperty(navigator, 'clipboard', {
-        configurable: true,
-        value: { writeText: vi.fn(() => Promise.resolve()) },
-      })
-      Object.defineProperty(window, 'isSecureContext', {
-        configurable: true,
-        value: true,
-      })
-    })
-
-    // Restore the globals this block stubs. Without this the clipboard/
-    // isSecureContext stubs (and any per-test forgeGlobal / execCommand) leak
-    // into every describe that runs after this one in the same file.
-    afterEach(() => {
-      if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
-      else delete (navigator as any).clipboard
-      if (originalIsSecureContext) Object.defineProperty(window, 'isSecureContext', originalIsSecureContext)
-      else delete (window as any).isSecureContext
-      delete (window as any).forgeGlobal
-      delete (document as any).execCommand
-    })
-
-    it('fires one eligible-viewer impression for the Copy for AI CTA', async () => {
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      mountViewer()
-      await flushPromises()
-
-      const calls = vi.mocked(trackAnalyticsEvent).mock.calls
-        .filter(([event]) => event === 'copy_for_ai_impression')
-      expect(calls).toHaveLength(1)
-      expect(calls[0][1]).toMatchObject({
-        feature_area: 'macro',
-        surface: 'viewer',
-        macro_type: DiagramType.Sequence,
-        has_edit_permission: true,
-        instance_nonce: expect.any(String),
-      })
-    })
-
-    it('does not fire an impression when viewer chrome hides the CTA', async () => {
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      mount(GenericViewer, {
-        global: { plugins: [store] },
-        props: { hideHeader: true },
-      })
-      await flushPromises()
-
-      expect(vi.mocked(trackAnalyticsEvent).mock.calls
-        .some(([event]) => event === 'copy_for_ai_impression')).toBe(false)
-    })
-
-    it('fires once if the CTA becomes eligible after the viewer recovers from a load-failed state', async () => {
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      store.state.viewerLoadState = 'failed_with_source'
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(vi.mocked(trackAnalyticsEvent).mock.calls
-        .some(([event]) => event === 'copy_for_ai_impression')).toBe(false)
-
-      store.state.viewerLoadState = 'ready'
-      await wrapper.vm.$nextTick()
-
-      expect(vi.mocked(trackAnalyticsEvent).mock.calls
-        .filter(([event]) => event === 'copy_for_ai_impression')).toHaveLength(1)
-    })
-
-    it.each([
-      DiagramType.Sequence,
-      DiagramType.Mermaid,
-      DiagramType.PlantUml,
-    ])('renders the Copy for AI button for text-DSL type %s', async (type) => {
-      store.commit('updateDiagramType', type)
-      const wrapper = mountViewer()
-      await flushPromises()
-      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-      expect(btn.exists()).toBe(true)
-      expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
-      expect(btn.attributes('data-copy-state')).toBe('idle')
-      expect(btn.attributes('disabled')).toBeUndefined()
-    })
-
-    it.each([
-      DiagramType.Graph,
-      DiagramType.OpenApi,
-      DiagramType.AsyncApi,
-      DiagramType.Embed,
-    ])('hides the Copy for AI button for non-text-DSL type %s', async (type) => {
-      store.commit('updateDiagramType', type)
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
-    })
-
-    it('copies diagram + page context to the clipboard and fires copy_for_ai_clicked with outcome copied', async () => {
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-      await flushPromises()
-
-      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-      expect(btn.attributes('data-copy-state')).toBe('copied')
-      expect(activeCopyLabel(wrapper)).toBe('Copied')
-      expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copied')
-      expect(toast).not.toHaveBeenCalled()
-
-      const writeText = vi.mocked(navigator.clipboard.writeText)
-      expect(writeText).toHaveBeenCalledTimes(1)
-      const copiedText = writeText.mock.calls[0][0] as string
-      expect(copiedText).toContain(SOURCE_DSL)
-      expect(copiedText).toContain('Login flow page')
-      // URL is derived from getCurrentPage()'s own _links — no second
-      // /pages/{id} round trip (resolvePageUrl stays copyLink-only).
-      expect(copiedText).toContain('https://example.atlassian.net/wiki/spaces/TEST/pages/123')
-
-      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-      expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({
-        feature_area: 'macro',
-        surface: 'viewer',
-        macro_type: DiagramType.Sequence,
-        outcome: 'copied',
-        job: 'generic',
-      })
-      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
-      expect((call![1] as any).page_bytes).toBeGreaterThan(0)
-    })
-
-    it('writes same-tab attribution metadata after a successful Copy for AI action', async () => {
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-      await flushPromises()
-
-      const call = vi.mocked(trackAnalyticsEvent).mock.calls
-        .find(([event]) => event === 'copy_for_ai_clicked')
-      expect(call?.[1]).toMatchObject({
-        outcome: 'copied',
-        copy_source: 'copy_for_ai',
-        copy_job: 'generic',
-        copy_id: expect.any(String),
-      })
-      expect(readCopyAttribution('content-123')).toMatchObject({
-        copy_id: (call?.[1] as any).copy_id,
-        copy_source: 'copy_for_ai',
-        copy_job: 'generic',
-        custom_content_id: 'content-123',
-      })
-    })
-
-    // The button must show its transient "copying" state (disabled,
-    // aria-busy, "Copying…" label) for the whole async window — page fetch
-    // + clipboard write — not just flash and resolve synchronously.
-    it('shows the copying state (disabled, aria-busy, "Copying…") while the page fetch is pending, then resolves to copied', async () => {
-      let resolveGetCurrentPage!: (value: unknown) => void
-      const pending = new Promise((resolve) => { resolveGetCurrentPage = resolve })
-      vi.mocked(globals.apWrapper.getCurrentPage).mockReturnValueOnce(pending as any)
-
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-
-      let btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-      expect(btn.attributes('data-copy-state')).toBe('copying')
-      expect(btn.attributes('disabled')).toBeDefined()
-      expect(btn.attributes('aria-busy')).toBe('true')
-      expect(activeCopyLabel(wrapper)).toBe('Copying…')
-      // No writeText yet — this environment has no ClipboardItem, so the
-      // legacy fallback runs and resolves the page fetch before writing.
-      // The activation-preserving path is covered by the #442 block below.
-      expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
-
-      // A second click while copying must not start an overlapping copy.
-      await btn.trigger('click')
-      await flushPromises()
-      expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
-
-      resolveGetCurrentPage({
-        title: 'Login flow page',
-        body: { export_view: { value: '<p>Some page context.</p>' } },
-        _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' },
-      })
-      await flushPromises()
-
-      btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-      expect(btn.attributes('data-copy-state')).toBe('copied')
-      expect(btn.attributes('disabled')).toBeUndefined()
-      expect(btn.attributes('aria-busy')).toBe('false')
-      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
-      expect(toast).not.toHaveBeenCalled()
-    })
-
-    // #442: Safari revokes the transient user activation across the awaited
-    // page fetch, so a clipboard call made after that await always throws
-    // NotAllowedError there. The fix hands the STILL-PENDING payload to a
-    // ClipboardItem constructed synchronously in the click task and calls
-    // navigator.clipboard.write() before any await. jsdom has no
-    // ClipboardItem, so this block stubs it; every other test in this file
-    // (no ClipboardItem stub) exercises the legacy writeText fallback.
-    describe('activation-preserving clipboard write (#442)', () => {
-      class FakeClipboardItem {
-        static instances: FakeClipboardItem[] = []
-        data: Record<string, Promise<Blob> | Blob | string>
-        constructor(data: Record<string, Promise<Blob> | Blob | string>) {
-          this.data = data
-          FakeClipboardItem.instances.push(this)
-        }
-      }
-      let write: ReturnType<typeof vi.fn>
-
-      beforeEach(() => {
-        FakeClipboardItem.instances = []
-        write = vi.fn(() => Promise.resolve())
-        Object.defineProperty(navigator, 'clipboard', {
-          configurable: true,
-          value: { write, writeText: vi.fn(() => Promise.resolve()) },
-        })
-        ;(window as any).ClipboardItem = FakeClipboardItem
-      })
-
-      afterEach(() => {
-        delete (window as any).ClipboardItem
-      })
-
-      it('calls clipboard.write with a synchronously constructed ClipboardItem while the page fetch is still pending', async () => {
-        let resolveGetCurrentPage!: (value: unknown) => void
-        const pending = new Promise((resolve) => { resolveGetCurrentPage = resolve })
-        vi.mocked(globals.apWrapper.getCurrentPage).mockReturnValueOnce(pending as any)
-
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-
-        // The write must already be in flight BEFORE the page fetch resolves —
-        // this is the property Safari enforces.
-        expect(write).toHaveBeenCalledTimes(1)
-        expect(FakeClipboardItem.instances).toHaveLength(1)
-
-        resolveGetCurrentPage({
-          title: 'Login flow page',
-          body: { export_view: { value: '<p>Some page context.</p>' } },
-          _links: { base: 'https://example.atlassian.net/wiki', webui: '/spaces/TEST/pages/123' },
-        })
-        await flushPromises()
-
-        // The payload handed to the ClipboardItem resolves to the full text.
-        // (FileReader instead of Blob.text() — jsdom's Blob has no .text().)
-        const blob = await FakeClipboardItem.instances[0].data['text/plain']
-        const text = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(String(reader.result))
-          reader.onerror = () => reject(reader.error)
-          reader.readAsText(blob as Blob)
-        })
-        expect(text).toContain(SOURCE_DSL)
-        expect(text).toContain('Login flow page')
-
-        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
-        expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
-        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-        expect(call).toBeTruthy()
-        expect(call![1]).toMatchObject({ outcome: 'copied', job: 'generic' })
-      })
-
-      it('falls back to the legacy writeText path when clipboard.write rejects', async () => {
-        write.mockRejectedValueOnce(new Error('promise payloads unsupported'))
-
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-        await flushPromises()
-
-        expect(write).toHaveBeenCalledTimes(1)
-        expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
-        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
-        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-        expect(call![1]).toMatchObject({ outcome: 'copied' })
-      })
-
-      it('reports clipboard_failed when both the modern write and the fallback fail', async () => {
-        write.mockRejectedValueOnce(new Error('denied'))
-        vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
-        ;(document as any).execCommand = vi.fn(() => false)
-
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-        await flushPromises()
-
-        expect(write).toHaveBeenCalledTimes(1)
-        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('failed')
-        expect(activeCopyLabel(wrapper)).toBe('Copy failed')
-        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-        expect(call![1]).toMatchObject({ outcome: 'clipboard_failed' })
-        expect(call![1]).not.toHaveProperty('copy_id')
-        expect(readCopyAttribution('content-123')).toBeNull()
-      })
-    })
-
-    it('reverts from "Copied" to idle ~2s after a successful copy', async () => {
-      vi.useFakeTimers()
-      try {
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await vi.advanceTimersByTimeAsync(0)
-
-        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-        await vi.advanceTimersByTimeAsync(0)
-
-        let btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-        expect(btn.attributes('data-copy-state')).toBe('copied')
-        expect(activeCopyLabel(wrapper)).toBe('Copied')
-
-        // Not yet reverted just before the ~2s mark.
-        await vi.advanceTimersByTimeAsync(1900)
-        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
-
-        await vi.advanceTimersByTimeAsync(200)
-        btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-        expect(btn.attributes('data-copy-state')).toBe('idle')
-        expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
-        expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('')
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-
-    it('derives the page URL from getCurrentPage() without a second /pages/{id} request', async () => {
-      const { requestConfluence } = await import('@forge/bridge')
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-      await flushPromises()
-
-      // globals.apWrapper.getCurrentPage() is stubbed above (not the real
-      // ApWrapper2), so it never reaches requestConfluence in this harness —
-      // meaning ANY call recorded here can only have come from
-      // resolvePageUrl()'s own dynamic `@forge/bridge` import. Before this
-      // change resolveCopyForAiPage called resolvePageUrl for the URL (1
-      // call); now it derives the URL from getCurrentPage()'s own _links, so
-      // resolvePageUrl is never reached from the Copy for AI path — zero
-      // calls (resolvePageUrl remains copyLink-only, tested separately).
-      expect(vi.mocked(requestConfluence)).not.toHaveBeenCalled()
-    })
-
-    // Item 2: resolveCopyForAiPage no longer makes a second request for the
-    // URL — it derives from getCurrentPage()'s own _links. When those are
-    // missing/unresolvable but title+text fetched fine, the page still goes
-    // to the builder with an empty url; outcome stays 'copied' (pageBytes>0).
-    it('keeps page context (outcome copied) when the page has no resolvable URL but text was fetched', async () => {
-      vi.mocked(globals.apWrapper.getCurrentPage).mockResolvedValueOnce({
-        title: 'Login flow page',
-        body: { export_view: { value: '<p>Some page context.</p>' } },
-        _links: {},
-      } as any)
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-      await flushPromises()
-
-      const writeText = vi.mocked(navigator.clipboard.writeText)
-      expect(writeText).toHaveBeenCalledTimes(1)
-      const copiedText = writeText.mock.calls[0][0] as string
-      expect(copiedText).toContain(SOURCE_DSL)
-      expect(copiedText).toContain('## Page: Login flow page')
-      expect(copiedText).not.toMatch(/## Page:.*\nhttps?:\/\//)
-
-      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-      expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({ outcome: 'copied', job: 'generic' })
-      expect((call![1] as any).page_bytes).toBeGreaterThan(0)
-    })
-
-    // Item 1: mirrors copyCode's empty-source guard — no clipboard write, no
-    // toast, no analytics event (an empty copy is not demand signal), but the
-    // button DOES surface "Nothing to copy" inline for ~2s (the 'failed'
-    // state, distinct label) before reverting — same as any other failure.
-    it('guards an empty DSL: shows "Nothing to copy", no clipboard write, no copy_for_ai_clicked event, no toast', async () => {
-      store.state.diagram.code = ''
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-      await flushPromises()
-
-      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-      expect(btn.attributes('data-copy-state')).toBe('failed')
-      expect(activeCopyLabel(wrapper)).toBe('Nothing to copy')
-      expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Nothing to copy')
-      expect(toast).not.toHaveBeenCalled()
-
-      expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
-      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-      expect(call).toBeUndefined()
-    })
-
-    // surface must distinguish the Fullscreen modal from the inline macro view
-    // (isFullscreenMode reads window.forgeGlobal.forgeContext.extension.modal.macroMode,
-    // same signal the "fullscreen width" describe block above uses).
-    it('fires copy_for_ai_clicked with surface "fullscreen" when opened from the fullscreen modal', async () => {
-      ;(window as any).forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-      await flushPromises()
-
-      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-      expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({ surface: 'fullscreen', job: 'generic' })
-    })
-
-    it('falls back to a diagram-only payload (still copied) when the page fetch rejects', async () => {
-      vi.mocked(globals.apWrapper.getCurrentPage).mockRejectedValueOnce(new Error('network error'))
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-      await flushPromises()
-
-      const writeText = vi.mocked(navigator.clipboard.writeText)
-      expect(writeText).toHaveBeenCalledTimes(1)
-      expect(writeText.mock.calls[0][0]).toContain(SOURCE_DSL)
-
-      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-      expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({ outcome: 'copied_diagram_only', page_bytes: 0, job: 'generic' })
-      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
-    })
-
-    it('shows "Copy failed" and does not throw when the clipboard write rejects (no toast)', async () => {
-      // Reject BOTH the modern clipboard API and the legacy execCommand
-      // fallback copyToClipboard falls through to, so the whole write
-      // genuinely rejects (not just returns false) — exercising copyForAi's
-      // own catch block, the same shape as copyCode's failure handling.
-      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
-      // jsdom doesn't implement execCommand at all — define it (throwing) so
-      // the legacy fallback copyToClipboard falls through to also fails,
-      // making the whole write genuinely reject.
-      ;(document as any).execCommand = () => { throw new Error('execCommand unavailable') }
-
-      store.commit('updateDiagramType', DiagramType.Sequence)
-      const wrapper = mountViewer()
-      await flushPromises()
-
-      await expect(
-        wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click'),
-      ).resolves.not.toThrow()
-      await flushPromises()
-
-      const btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-      expect(btn.attributes('data-copy-state')).toBe('failed')
-      expect(activeCopyLabel(wrapper)).toBe('Copy failed')
-      expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copy failed')
-      expect(toast).not.toHaveBeenCalled()
-
-      const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-      expect(call).toBeTruthy()
-      expect(call![1]).toMatchObject({ outcome: 'clipboard_failed', job: 'generic' })
-      expect((call![1] as any).dsl_bytes).toBeGreaterThan(0)
-    })
-
-    it('reverts from "Copy failed" to idle ~2s after a rejected clipboard write', async () => {
-      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
-      ;(document as any).execCommand = () => { throw new Error('execCommand unavailable') }
-
-      vi.useFakeTimers()
-      try {
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await vi.advanceTimersByTimeAsync(0)
-
-        await wrapper.find('[data-testid="copy-for-ai-btn"]').trigger('click')
-        await vi.advanceTimersByTimeAsync(0)
-
-        let btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-        expect(btn.attributes('data-copy-state')).toBe('failed')
-        expect(activeCopyLabel(wrapper)).toBe('Copy failed')
-
-        await vi.advanceTimersByTimeAsync(2000)
-        btn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-        expect(btn.attributes('data-copy-state')).toBe('idle')
-        expect(activeCopyLabel(wrapper)).toBe('Copy for AI')
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-
-    // Split button: chevron segment opens a menu of five job-framed entry
-    // points (CopyForAiMenu.vue). Every entry runs the exact same copyForAi
-    // flow with its own `job` value — same clipboard/toast/outcome logic as
-    // the primary segment above, only the preamble text and tracked `job`
-    // property differ.
-    describe('split-button menu', () => {
-      it('renders the chevron trigger with aria-haspopup/aria-expanded, gated the same as the primary button', async () => {
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        const menuBtn = wrapper.find('[data-testid="copy-for-ai-menu-btn"]')
-        expect(menuBtn.exists()).toBe(true)
-        expect(menuBtn.attributes('aria-haspopup')).toBe('menu')
-        expect(menuBtn.attributes('aria-expanded')).toBe('false')
-      })
-
-      it.each([
-        DiagramType.Graph,
-        DiagramType.OpenApi,
-        DiagramType.AsyncApi,
-        DiagramType.Embed,
-      ])('is absent for non-text-DSL type %s (same gate as the primary button)', async (type) => {
-        store.commit('updateDiagramType', type)
-        const wrapper = mountViewer()
-        await flushPromises()
-        expect(wrapper.find('[data-testid="copy-for-ai-menu-btn"]').exists()).toBe(false)
-      })
-
-      it('opens a menu with the five job-framed items on click', async () => {
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        const menuBtn = wrapper.find('[data-testid="copy-for-ai-menu-btn"]')
-        await menuBtn.trigger('click')
-        await wrapper.vm.$nextTick()
-
-        expect(menuBtn.attributes('aria-expanded')).toBe('true')
-        const menu = wrapper.find('[role="menu"]')
-        expect(menu.exists()).toBe(true)
-        expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(5)
-
-        expect(wrapper.find('[data-testid="copy-for-ai-job-explain"]').text()).toContain('Ask about this flow')
-        expect(wrapper.find('[data-testid="copy-for-ai-job-update"]').text()).toContain('Update this diagram')
-        expect(wrapper.find('[data-testid="copy-for-ai-job-implement"]').text()).toContain('Implement this design')
-        expect(wrapper.find('[data-testid="copy-for-ai-job-audit"]').text()).toContain('Check against my codebase')
-        expect(wrapper.find('[data-testid="copy-for-ai-job-tests"]').text()).toContain('Generate test cases')
-      })
-
-      it('fires copy_for_ai_menu_opened on every closed-to-open transition', async () => {
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await flushPromises()
-        vi.mocked(trackAnalyticsEvent).mockClear()
-
-        const menuBtn = wrapper.find('[data-testid="copy-for-ai-menu-btn"]')
-        await menuBtn.trigger('click')
-        await menuBtn.trigger('click')
-        await menuBtn.trigger('click')
-
-        const calls = vi.mocked(trackAnalyticsEvent).mock.calls
-          .filter(([event]) => event === 'copy_for_ai_menu_opened')
-        expect(calls).toHaveLength(2)
-        expect(calls[0][1]).toMatchObject({
-          feature_area: 'macro',
-          surface: 'viewer',
-          macro_type: DiagramType.Sequence,
-        })
-      })
-
-      it('clicking a job item copies that job\'s preamble, fires copy_for_ai_clicked with its job + outcome copied, and drives the PRIMARY segment\'s state machine (no toast)', async () => {
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
-        await wrapper.vm.$nextTick()
-        await wrapper.find('[data-testid="copy-for-ai-job-update"]').trigger('click')
-        await flushPromises()
-
-        const writeText = vi.mocked(navigator.clipboard.writeText)
-        expect(writeText).toHaveBeenCalledTimes(1)
-        const copiedText = writeText.mock.calls[0][0] as string
-        expect(copiedText).toContain(SOURCE_DSL)
-        expect(copiedText).toContain("I want to change this diagram.")
-
-        // Same state machine as a primary-segment click — plays on the
-        // PRIMARY button (data-testid="copy-for-ai-btn"), not the chevron.
-        const primaryBtn = wrapper.find('[data-testid="copy-for-ai-btn"]')
-        expect(primaryBtn.attributes('data-copy-state')).toBe('copied')
-        expect(activeCopyLabel(wrapper)).toBe('Copied')
-        expect(wrapper.find('[data-testid="copy-for-ai-announcement"]').text()).toBe('Copied')
-        expect(toast).not.toHaveBeenCalled()
-
-        const call = vi.mocked(trackAnalyticsEvent).mock.calls.find(c => c[0] === 'copy_for_ai_clicked')
-        expect(call).toBeTruthy()
-        expect(call![1]).toMatchObject({
-          feature_area: 'macro',
-          surface: 'viewer',
-          macro_type: DiagramType.Sequence,
-          outcome: 'copied',
-          job: 'update',
-        })
-      })
-
-      it('closes the menu immediately after selecting a job item, while the primary segment is already showing "Copying…"', async () => {
-        store.commit('updateDiagramType', DiagramType.Sequence)
-        const wrapper = mountViewer()
-        await flushPromises()
-
-        await wrapper.find('[data-testid="copy-for-ai-menu-btn"]').trigger('click')
-        await wrapper.vm.$nextTick()
-        expect(wrapper.find('[role="menu"]').exists()).toBe(true)
-
-        // Deliberately don't flushPromises() here — this asserts the menu
-        // closes and the primary segment starts its state machine on the
-        // SAME tick as the click, not after the copy's async work settles.
-        await wrapper.find('[data-testid="copy-for-ai-job-tests"]').trigger('click')
-        expect(wrapper.find('[role="menu"]').exists()).toBe(false)
-        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copying')
-
-        await flushPromises()
-        expect(wrapper.find('[data-testid="copy-for-ai-btn"]').attributes('data-copy-state')).toBe('copied')
       })
     })
   })
@@ -2998,6 +2338,33 @@ describe('GenericViewer (chrome-less)', () => {
       )
     })
 
+    it('puts the load error class, status, name and message on load_failed_shown', async () => {
+      const windowMod = await import('@/utils/window')
+      const trackSpy = vi.spyOn(windowMod, 'trackEvent')
+      store.state.viewerLoadState = 'failed_with_source'
+      store.state.loadError = {
+        directFetchStatus: 'other_error',
+        errorClass: 'thrown',
+        errorName: 'TypeError',
+        errorMessage: 'Load failed',
+      }
+      mountViewer()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(trackSpy).toHaveBeenCalledWith(
+        'load_failed_shown',
+        'view',
+        'load_failed_generic',
+        expect.objectContaining({
+          direct_fetch_status: 'other_error',
+          error_class: 'thrown',
+          error_name: 'TypeError',
+          error_message: 'Load failed',
+        }),
+      )
+      const props = trackSpy.mock.calls.find(c => c[0] === 'load_failed_shown')?.[3] as Record<string, unknown>
+      expect(props).not.toHaveProperty('http_status')
+    })
+
     it('copies diagnostics, tracks support click, then opens the support portal after a delay', async () => {
       const openUrlMod = await import('@/model/globals/forgeGlobal')
       const windowMod = await import('@/utils/window')
@@ -3145,6 +2512,11 @@ describe('GenericViewer (chrome-less)', () => {
   // the ticketed /deeplink-ticket share-preview URL — and copies it via the
   // same copyToClipboard/toast pattern as Copy page link.
   describe('Copy diagram link (task 6)', () => {
+    // Count only deeplink_copied: Connect MCP's once-a-day
+    // agent_link_mcp_button_shown waits two animation frames and can land
+    // after the test clears the mock.
+    const deeplinkCopiedCalls = () => vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([name]) => name === 'deeplink_copied')
     let originalClipboard: PropertyDescriptor | undefined
     let originalIsSecureContext: PropertyDescriptor | undefined
     let writeText: ReturnType<typeof vi.fn>
@@ -3213,7 +2585,7 @@ describe('GenericViewer (chrome-less)', () => {
       await flushPromises()
 
       expect(toast).toHaveBeenCalledWith({ message: 'Failed to copy diagram link', duration: 2000 })
-      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledTimes(1)
+      expect(deeplinkCopiedCalls()).toHaveLength(1)
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
         feature_area: 'macro',
         surface: 'viewer',
@@ -3244,7 +2616,7 @@ describe('GenericViewer (chrome-less)', () => {
 
         expect(writeText).not.toHaveBeenCalled()
         expect(toast).toHaveBeenCalledWith({ message: 'Diagram link not available', duration: 2000 })
-        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledTimes(1)
+        expect(deeplinkCopiedCalls()).toHaveLength(1)
         expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith('deeplink_copied', {
           feature_area: 'macro',
           surface: 'viewer',
@@ -3258,10 +2630,6 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
-  // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
-  // — the whole feature is gated behind agent-link-enabled, defaulting off.
-  // Flag resolution is async (mounted()), so every assertion here awaits
-  // flushPromises() after mount to let that promise settle before asserting.
   describe('Diagram comments (#1047)', () => {
     const PAGE_URL = 'https://example.atlassian.net/wiki/spaces/SD/pages/42/Order+flow'
     const setForge = (modal?: Record<string, unknown>) => {
@@ -3388,6 +2756,9 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md).
+  // Connect MCP shows on every app since agent-link-enabled was retired
+  // (2026-11-14); relay sessions stay behind RELAY_SESSIONS_ENABLED.
   describe('Connect MCP (headless only)', () => {
     // agent_link_mcp_button_shown waits two animation frames for the header
     // layout. Run frames synchronously here so each viewer reports inside its
@@ -3406,53 +2777,52 @@ describe('GenericViewer (chrome-less)', () => {
     const shownCalls = () => vi.mocked(trackAnalyticsEvent).mock.calls
       .filter(([name]) => name === 'agent_link_mcp_button_shown')
 
-    it('keeps Copy for AI and shows no Connect MCP when the flag resolves false (default)', async () => {
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
-    })
-
-    it('swaps Copy for AI for Connect MCP when the flag resolves true, with no relay badge', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+    it('shows Connect MCP in the header, with no relay badge', async () => {
       const wrapper = mountViewer()
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
       // Labelled at stage 0 (CSS drops the label from stage 1), and drawn
-      // with the MCP mark, not Copy for AI's sparkles.
+      // with the MCP mark.
       expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
       expect(btn.find('svg path').attributes('d')).toMatch(/^M2\.05 11\.25/)
       expect(btn.attributes('aria-label')).toBe('Connect MCP')
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
-    it('shows neither button while the flag is still resolving', async () => {
-      let resolveFlag: (on: boolean) => void = () => {}
-      vi.mocked(isAgentLinkEnabled).mockReturnValueOnce(new Promise(r => { resolveFlag = r }))
+    it.each([
+      DiagramType.Sequence,
+      DiagramType.Mermaid,
+      DiagramType.PlantUml,
+      DiagramType.Markdown,
+      DiagramType.Graph,
+      DiagramType.OpenApi,
+      DiagramType.AsyncApi,
+    ])('shows Connect MCP for a %s diagram', async (type) => {
+      store.commit('updateDiagramType', type)
       const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
-      resolveFlag(true)
       await flushPromises()
       expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
     })
 
-    it('does not show Connect MCP for a non-MVP diagram type (graph) even when the flag is on', async () => {
-      store.commit('updateDiagramType', DiagramType.Graph)
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+    it('does not show Connect MCP for a diagram of unknown type', async () => {
+      store.commit('updateDiagramType', DiagramType.Unknown)
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.find('[data-testid="connect-mcp-btn"]').exists()).toBe(false)
+    })
+
+    it('reports agent_link_mcp_button_shown with the macro type for a graph diagram', async () => {
+      store.commit('updateDiagramType', DiagramType.Graph)
+      mountViewer()
+      await flushPromises()
+      await settleLayout()
+      expect(shownCalls().length).toBe(1)
+      expect(shownCalls()[0][1]).toMatchObject({ macro_type: DiagramType.Graph })
     })
 
     it('opens the dialog inline without minting a session or opening Fullscreen', async () => {
       ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' } } } }
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const emitSpy = vi.spyOn(EventBus, '$emit')
       const wrapper = mountViewer()
       await flushPromises()
@@ -3475,7 +2845,6 @@ describe('GenericViewer (chrome-less)', () => {
     })
 
     it('closes on Escape and records the dwell', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
       await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
@@ -3490,15 +2859,13 @@ describe('GenericViewer (chrome-less)', () => {
       )
     })
 
-    it('takes the Copy for AI slot in fullscreen too, and reports the fullscreen surface', async () => {
+    it('shows in fullscreen too, and reports the fullscreen surface', async () => {
       ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', extension: { content: { id: '42' }, modal: { macroMode: 'fullscreen' } } } }
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
       const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
       expect(btn.exists()).toBe(true)
       expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
-      expect(wrapper.find('[data-testid="copy-for-ai-btn"]').exists()).toBe(false)
       expect(wrapper.find('[data-testid="agent-link-fullscreen-rail"]').exists()).toBe(false)
 
       await btn.trigger('click')
@@ -3512,7 +2879,6 @@ describe('GenericViewer (chrome-less)', () => {
     })
 
     it('reveals on hover like the rest of the inline header, also before it is opened', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
       await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
@@ -3523,7 +2889,6 @@ describe('GenericViewer (chrome-less)', () => {
     })
 
     it('reports agent_link_mcp_button_shown once per viewer per day, not per macro', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       mountViewer()
       await flushPromises()
       await settleLayout()
@@ -3541,18 +2906,10 @@ describe('GenericViewer (chrome-less)', () => {
       ]])
 
       // A second macro on the same page (same storage) stays quiet.
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       mountViewer()
       await flushPromises()
       await settleLayout()
       expect(shownCalls()).toHaveLength(1)
-    })
-
-    it('does not report agent_link_mcp_button_shown when the flag is off', async () => {
-      mountViewer()
-      await flushPromises()
-      await settleLayout()
-      expect(shownCalls()).toHaveLength(0)
     })
 
     describe('Fullscreen MCP promo card', () => {
@@ -3562,7 +2919,6 @@ describe('GenericViewer (chrome-less)', () => {
 
       it('shows the card in fullscreen and opens the dialog from it', async () => {
         fullscreen()
-        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
         const wrapper = mountViewer()
         await flushPromises()
         const card = wrapper.find('[data-testid="mcp-promo-card"]')
@@ -3583,7 +2939,6 @@ describe('GenericViewer (chrome-less)', () => {
 
       it('never shows again after a dismissal', async () => {
         fullscreen()
-        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
         const wrapper = mountViewer()
         await flushPromises()
         await wrapper.find('[data-testid="mcp-promo-card-dismiss"]').trigger('click')
@@ -3593,31 +2948,26 @@ describe('GenericViewer (chrome-less)', () => {
           expect.objectContaining({ surface: 'fullscreen', mcp_button_placement: 'fullscreen_card' })
         )
 
-        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
         const again = mountViewer()
         await flushPromises()
         expect(again.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
       })
 
-      it('is not shown inline or with the flag off', async () => {
-        vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
-        expect(mountViewer().find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
-        fullscreen()
-        const off = mountViewer()
+      it('is not shown inline', async () => {
+        const wrapper = mountViewer()
         await flushPromises()
-        expect(off.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
+        expect(wrapper.find('[data-testid="mcp-promo-card"]').exists()).toBe(false)
       })
     })
 
     it('does not try to reattach a relay session on mount', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
       expect((wrapper.vm as any).agentLinkSession.state.value).toBe('idle')
     })
   })
 
-  describe('Live Agent Link (flag-gated)', () => {
+  describe('Live Agent Link (relay sessions)', () => {
     const setFullscreen = (on: boolean) => {
       ;(window as any).forgeGlobal = on
         ? { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } }
@@ -3629,9 +2979,8 @@ describe('GenericViewer (chrome-less)', () => {
       delete (window as any).forgeGlobal
     })
 
-    it('mounts the Fullscreen Connect rail (not the small-macro button/badge) when in fullscreen with the flag on', async () => {
+    it('mounts the Fullscreen Connect rail (not the small-macro button/badge) when in fullscreen with relay sessions on', async () => {
       setFullscreen(true)
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
 
@@ -3640,7 +2989,8 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
-    it('does not mount the Fullscreen rail when the flag resolves false', async () => {
+    it('does not mount the Fullscreen rail while relay sessions are off', async () => {
+      relaySwitch.on = false
       setFullscreen(true)
       const wrapper = mountViewer()
       await flushPromises()
@@ -3713,7 +3063,6 @@ describe('GenericViewer (chrome-less)', () => {
       // left to assert. The suite's beforeEach only clears sessionStorage.
       localStorage.clear()
       setFullscreen(true)
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
 
@@ -3728,7 +3077,6 @@ describe('GenericViewer (chrome-less)', () => {
     // an honest countdown instead of a blind "already linked" notice.
     it('wires the composable alreadyLinkedUntil into the Fullscreen ConnectPanel as lock-expires-at', async () => {
       setFullscreen(true)
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
 
@@ -3744,15 +3092,7 @@ describe('GenericViewer (chrome-less)', () => {
     })
 
     // Track F — perceived-latency thinking overlay on the diagram render surface.
-    it('does NOT mount the thinking overlay seam at all when the flag resolves false (flag-off DOM unchanged)', async () => {
-      const wrapper = mountViewer()
-      await flushPromises()
-      expect(wrapper.findComponent(ThinkingOverlay).exists()).toBe(false)
-      expect(wrapper.find('[data-testid="agent-thinking-overlay"]').exists()).toBe(false)
-    })
-
-    it('mounts the thinking overlay seam (idle, rendering nothing) on the render surface when the flag is on', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
+    it('mounts the thinking overlay seam (idle, rendering nothing) on the render surface', async () => {
       const wrapper = mountViewer()
       await flushPromises()
       // Seam is mounted for both surfaces (inline + fullscreen)...
@@ -3761,16 +3101,14 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-thinking-overlay"]').exists()).toBe(false)
     })
 
-    it('does not mount the thinking overlay for a non-MVP diagram type (graph) even with the flag on', async () => {
+    it('does not mount the thinking overlay for a non-MVP diagram type (graph)', async () => {
       store.commit('updateDiagramType', DiagramType.Graph)
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
       expect(wrapper.findComponent(ThinkingOverlay).exists()).toBe(false)
     })
 
     it('shows the shimmer overlay on the render surface when the session is thinking', async () => {
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       const wrapper = mountViewer()
       await flushPromises()
 
@@ -3834,7 +3172,6 @@ describe('GenericViewer (chrome-less)', () => {
 
     it('reserves the rail width once a session exists', async () => {
       setFullscreenWithPageId('page-123')
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       persistSession({
         token: 'tok-abc',
         cloudId: 'cloud-1',
@@ -3854,7 +3191,6 @@ describe('GenericViewer (chrome-less)', () => {
     it('hydrates the rail to waiting via readSession(pageId) even when globals.apWrapper is absent', async () => {
       setFullscreenWithPageId('page-123')
       ;(globals as any).apWrapper = undefined
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       persistSession({
         token: 'tok-abc',
         cloudId: 'cloud-1',
@@ -3874,7 +3210,6 @@ describe('GenericViewer (chrome-less)', () => {
     it('falls back to readAnySession() when the Fullscreen iframe has no resolvable pageId', async () => {
       setFullscreenWithPageId(undefined)
       ;(globals as any).apWrapper = undefined
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       persistSession({
         token: 'tok-xyz',
         cloudId: 'cloud-1',
@@ -3893,7 +3228,6 @@ describe('GenericViewer (chrome-less)', () => {
 
     it('still hydrates normally when globals.apWrapper IS present (no regression on the inline/bridge path)', async () => {
       setFullscreenWithPageId('page-456')
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       persistSession({
         token: 'tok-present',
         cloudId: 'cloud-1',
@@ -3912,7 +3246,6 @@ describe('GenericViewer (chrome-less)', () => {
 
     it('keeps the rendered Fullscreen rail reactive when the real bridge session replaces the placeholder after first render', async () => {
       setFullscreenWithPageId('page-reactive')
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       persistSession({
         token: 'CL-TEST',
         cloudId: 'cloud-1',
@@ -3953,7 +3286,6 @@ describe('GenericViewer (chrome-less)', () => {
     // initial hydrate.
     it('flips waiting -> connected when the relay owner persists connected AFTER Fullscreen mount', async () => {
       setFullscreenWithPageId('page-conn')
-      vi.mocked(isAgentLinkEnabled).mockResolvedValueOnce(true)
       persistSession({
         token: 'CL-CONN',
         cloudId: 'cloud-1',
@@ -4333,6 +3665,90 @@ describe('GenericViewer license notice (Full, license inactive)', () => {
     expect(openUrl).toHaveBeenCalledWith(UPGRADE_URL)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_upgrade_clicked', expect.objectContaining({ feature_area: 'license_notice', surface: 'viewer' }))
     expect(shown()).toHaveLength(1)
+    wrapper.unmount()
+  })
+})
+
+describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
+  const enforcement = (watermark: boolean, stage = 'watermark') => ({
+    stage, count: 2282, limit: 100,
+    effects: { datedBanner: true, watermark, blockCreate: false, meterEdit: false },
+  })
+  const siteEnforcement = ref<any>(null)
+  let initialize: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    siteEnforcement.value = null
+    initialize = vi.fn(() => Promise.resolve())
+    vi.doMock('@/composables/useCustomerSuccessService', () => ({
+      useCustomerSuccessService: () => ({ initialize, siteEnforcement }),
+    }))
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.source = DataSource.CustomContent
+    store.state.viewerLoadState = 'ready'
+    store.state.loadError = null
+    window.forgeGlobal = { forgeContext: { extension: {} } } as any
+    vi.stubEnv('PRODUCT_TYPE', 'lite')
+  })
+  afterEach(() => {
+    vi.doUnmock('@/composables/useCustomerSuccessService')
+    vi.unstubAllEnvs()
+  })
+
+  it('shows the Lite watermark and strip when the server says watermark', async () => {
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
+    const watermark = wrapper.find('[data-testid="license-watermark"]').element
+    expect(watermark.textContent).toContain('UPGRADE REQUIRED')
+    expect(Array.from(watermark.querySelectorAll('text')).map(t => t.textContent)).toEqual([
+      'UPGRADE REQUIRED', '2,282 of 100 Lite diagrams in this space', 'Ask your Confluence admin to upgrade',
+    ])
+    expect(wrapper.find('.screen-capture-content').element.contains(watermark)).toBe(false)
+    expect(wrapper.find('.license-notice-title').text()).toBe('Lite diagram limit reached')
+    expect(wrapper.find('[data-testid="license-notice-upgrade"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_evaluated', expect.objectContaining({
+      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark', macro_count: 2282, license_notice_outcome: 'shown',
+    }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_shown', expect.objectContaining({
+      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark',
+    }))
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['notice stage (watermark effect off)', enforcement(false, 'notice')],
+    ['no enforcement', null],
+    ['malformed enforcement', { stage: 'watermark' }],
+  ])('shows nothing for %s', async (_name, value) => {
+    siteEnforcement.value = value
+    const wrapper = mountViewer()
+    // The lookup starts after a dynamic import; one flush is not always enough on a loaded runner.
+    await vi.waitFor(() => expect(initialize).toHaveBeenCalled())
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows nothing, and keeps the diagram, when the space status load fails', async () => {
+    initialize.mockRejectedValue(new Error('boom'))
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('does not look up the space status on a Full build', async () => {
+    vi.stubEnv('PRODUCT_TYPE', 'full')
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(initialize).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
     wrapper.unmount()
   })
 })

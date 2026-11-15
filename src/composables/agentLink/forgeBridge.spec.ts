@@ -3,7 +3,7 @@ import ApWrapper2 from '@/model/ApWrapper2'
 import { forgeRequest } from '@/utils/requestUtil'
 import { createForgeAgentLinkBridge } from './forgeBridge'
 
-// Same mocking pattern as ApWrapper2.spec.ts / CustomContentStorageProvider.spec.ts:
+// Same mocking pattern as ApWrapper2.spec.ts:
 // construct a real ApWrapper2 and stub only the transport (forgeRequest) + the
 // AtlasPage helpers it delegates to internally — everything else (custom-content
 // v2 body shape, status/version handling, create-vs-update branching) runs for

@@ -260,3 +260,9 @@ test('cleanup skips discovery when dispatch was never attempted', async () => {
     assert.equal(lookups, 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('legacy PR dispatch does not gain new required inputs', () => {
+  const { inputs } = dispatchBody({ CHILD_KIND: 'pr', SOURCE_SHA: 'abc', MODE: 'all', GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1' });
+  assert.equal('pr-number' in inputs, false);
+  assert.equal('decision-id' in inputs, false);
+});

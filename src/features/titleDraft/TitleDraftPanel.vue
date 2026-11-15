@@ -1,16 +1,19 @@
 <template>
   <main class="title-draft" aria-label="Diagram preview">
     <p class="title-draft__source">Based on the page title</p>
+    <p v-if="previewState === 'loading' && !previewFailure" class="title-draft__loading" role="status">Preparing your diagram…</p>
     <!-- Mermaid output under securityLevel strict, the same path the viewer renders. -->
     <div class="title-draft__preview" data-testid="title-draft-preview" v-html="svg" />
     <footer class="title-draft__footer">
-      <p v-if="error" class="title-draft__error" role="alert">{{ error }}</p>
+      <p v-if="previewFailure" class="title-draft__error" role="alert">{{ previewFailure === 'timeout' ? 'This preview is taking too long. Reload the preview to try again.' : 'This preview could not be prepared. Reload the preview to try again.' }}</p>
+      <p v-else-if="error" class="title-draft__error" role="alert">{{ error }}</p>
       <p v-else class="title-draft__note">Adds to the top of the page. You can edit it or move it anywhere.</p>
+      <button v-if="previewFailure" type="button" class="title-draft__reload" data-testid="title-draft-reload" :disabled="reloading" @click="reloadPreview">Reload preview</button>
       <button
         type="button"
         class="title-draft__add"
         data-testid="title-draft-add"
-        :disabled="busy || !svg"
+        :disabled="busy || previewState !== 'ready'"
         @click="addToPage"
       >
         Add to page
@@ -24,6 +27,8 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { renderMermaid } from '@/utils/mermaid/renderMermaid'
 import type { TitleDraftClosePayload } from './constants'
 import type { AddDraftResult } from './addDraft'
+import type { TitleDraftPreviewRenderFailure } from '@/utils/analytics/catalog'
+import { reloadTitleDraftPreview } from './previewReload'
 
 /**
  * Body of the Forge `xlarge` modal. Confluence draws the title and the X; this
@@ -34,21 +39,61 @@ const props = defineProps<{
   add: () => Promise<AddDraftResult>
   onClose: (payload: TitleDraftClosePayload) => void
   onPreviewMounted?: () => void
-  onPreviewRendered?: () => void
-  onPreviewRenderFailed?: () => Promise<void>
+  onPreviewRendered?: (renderMs: number) => void
+  onPreviewRenderDelayed?: (renderMs: number) => void
+  onPreviewRenderFailed?: (reason: TitleDraftPreviewRenderFailure, renderMs: number) => Promise<void>
+  onPreviewReload?: (reason: TitleDraftPreviewRenderFailure) => Promise<void>
   onAddClicked?: () => void
 }>()
 
 const svg = ref('')
 const busy = ref(false)
 const error = ref('')
+const previewState = ref<'loading' | 'ready' | 'failed'>('loading')
+const previewFailure = ref<TitleDraftPreviewRenderFailure | null>(null)
+const reloading = ref(false)
+let previewTimer: ReturnType<typeof setTimeout> | undefined
+let renderStartedAt = 0
 let active = true
 let closed = false
+
+function clearPreviewTimer() {
+  if (previewTimer !== undefined) clearTimeout(previewTimer)
+  previewTimer = undefined
+}
+
+// Observability must never prevent rendering, recovery, or saving.
+function notify(callback: () => unknown) {
+  try { Promise.resolve(callback()).catch(() => {}) } catch { /* Best-effort telemetry. */ }
+}
 
 function close(payload: TitleDraftClosePayload) {
   if (!active || closed) return
   closed = true
-  props.onClose(payload)
+  clearPreviewTimer()
+  notify(() => props.onClose(payload))
+}
+
+function failPreview(reason: TitleDraftPreviewRenderFailure) {
+  if (!active || closed || reloading.value || previewState.value !== 'loading') return
+  clearPreviewTimer()
+  previewState.value = 'failed'
+  previewFailure.value = reason
+  notify(() => props.onPreviewRenderFailed?.(reason, Math.max(0, Date.now() - renderStartedAt)))
+}
+
+function showDelayedPreview() {
+  if (!active || closed || reloading.value || previewState.value !== 'loading') return
+  clearPreviewTimer()
+  previewFailure.value = 'timeout'
+  notify(() => props.onPreviewRenderDelayed?.(Math.max(0, Date.now() - renderStartedAt)))
+}
+
+async function reloadPreview() {
+  if (!active || closed || !previewFailure.value || reloading.value) return
+  reloading.value = true
+  try { await props.onPreviewReload?.(previewFailure.value) } catch { /* Reload even if telemetry fails. */ }
+  if (active && !closed) reloadTitleDraftPreview()
 }
 
 const NOT_ADDED = 'The diagram was not added. Try again.'
@@ -60,9 +105,9 @@ const MESSAGES: Partial<Record<AddDraftResult['result'], string>> = {
 }
 
 async function addToPage() {
-  if (busy.value || closed) return
+  if (!active || busy.value || closed || previewState.value !== 'ready') return
   busy.value = true
-  props.onAddClicked?.()
+  notify(() => props.onAddClicked?.())
   error.value = ''
   try {
     const outcome = await props.add()
@@ -85,25 +130,29 @@ function onKeydown(event: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
-  props.onPreviewMounted?.()
+  renderStartedAt = Date.now()
+  previewTimer = setTimeout(showDelayedPreview, 10_000)
+  notify(() => props.onPreviewMounted?.())
   try {
     const result = await renderMermaid(`title-draft-${Date.now()}`, props.mermaid)
-    if (!active || closed) return
+    if (!active || closed || reloading.value || previewState.value !== 'loading') return
+    if (!result.svg?.trim()) return failPreview('empty_svg')
+    clearPreviewTimer()
+    previewState.value = 'ready'
+    previewFailure.value = null
     svg.value = result.svg
   } catch (e) {
-    if (!active || closed) return
-    console.error('[title-draft] preview failed', e)
-    await props.onPreviewRenderFailed?.()
-    close({ outcome: 'dismissed', reason: 'render_failed' })
+    failPreview('render_error')
     return
   }
   // The event describes visible output, so wait for Vue's v-html DOM update.
   await nextTick()
-  if (active && !closed) props.onPreviewRendered?.()
+  if (active && !closed && !reloading.value) notify(() => props.onPreviewRendered?.(Math.max(0, Date.now() - renderStartedAt)))
 })
 
 onBeforeUnmount(() => {
   active = false
+  clearPreviewTimer()
   window.removeEventListener('keydown', onKeydown)
 })
 </script>
@@ -125,6 +174,11 @@ onBeforeUnmount(() => {
   font-size: 14px;
   line-height: 20px;
   color: var(--ds-text-subtle, #505258);
+}
+.title-draft__loading {
+  margin: 0;
+  color: var(--ds-text-subtle, #505258);
+  font-size: 14px;
 }
 .title-draft__preview {
   flex: 1;
@@ -153,7 +207,8 @@ onBeforeUnmount(() => {
   color: var(--ds-text-subtle, #505258);
 }
 .title-draft__error { color: var(--ds-text-danger, #ae2e24); }
-.title-draft__add {
+.title-draft__add,
+.title-draft__reload {
   flex-shrink: 0;
   height: 32px;
   padding: 0 12px;
@@ -167,7 +222,13 @@ onBeforeUnmount(() => {
   font-weight: 500;
   cursor: pointer;
 }
+.title-draft__reload {
+  background: var(--ds-background-neutral, #f1f2f4);
+  color: var(--ds-text, #292a2e);
+}
 .title-draft__add:hover:not(:disabled) { background: var(--ds-background-brand-bold-hovered, #1558bc); }
-.title-draft__add:disabled { opacity: 0.6; cursor: not-allowed; }
-.title-draft__add:focus-visible { outline: 2px solid var(--ds-border-focused, #4688ec); outline-offset: 2px; }
+.title-draft__add:disabled,
+.title-draft__reload:disabled { opacity: 0.6; cursor: not-allowed; }
+.title-draft__add:focus-visible,
+.title-draft__reload:focus-visible { outline: 2px solid var(--ds-border-focused, #4688ec); outline-offset: 2px; }
 </style>

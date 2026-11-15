@@ -141,7 +141,6 @@ export const IMPACT = [
   { glob: 'src/components/AIChat/**', tags: ['@ai'] },
   { glob: 'src/components/AIRepair.vue', tags: ['@ai', '@editor'] },
   { glob: 'src/components/aiRepairArming.ts', tags: ['@ai', '@editor'] },
-  { glob: 'src/utils/copyForAi/**', tags: ['@ai', '@viewer'] },
   { glob: 'src/routes/aiAide.ts', tags: ['@ai', '@route'] },
   { glob: 'src/services/{AIChatSessionService,GenerateService}.ts', tags: ['@ai'] },
   { glob: 'src/apis/aiGenerateTitle.ts', tags: ['@ai', '@editor'] },

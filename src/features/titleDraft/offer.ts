@@ -2,6 +2,7 @@ import forgeGlobal, { openModal } from '@/model/globals/forgeGlobal'
 import globals from '@/model/globals'
 import { isTitleDraftEnabled } from '@/apis/aiTitleFeatureFlag'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE } from '@/utils/analytics/eventSampling'
 import { resolveIdentity, reloadHostPage } from '@/utils/byline/addToPage'
 import { requestConfluenceJson } from '@/utils/byline/confluenceRequest'
 import { viewerAccountKind } from '@/utils/magic/viewerAccount'
@@ -104,8 +105,14 @@ async function findDraft(identity: TitleDraftIdentity, pageId: string): Promise<
     spaceName: await spaceName(page?.spaceId),
   })
   const status = result?.status
-  if (status === 'pending' || status === 'ready' || status === 'no_diagram') {
+  if (status === 'ready') {
     trackAnalyticsEvent('title_draft_requested', { ...titleDraftProps(), title_draft_status: status })
+  } else if ((status === 'pending' || status === 'no_diagram') && Math.random() < TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE) {
+    trackAnalyticsEvent('title_draft_requested', {
+      ...titleDraftProps(),
+      title_draft_status: status,
+      sample_rate: TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE,
+    })
   }
   if (status !== 'ready' || typeof result?.mermaid !== 'string' || !result.mermaid) {
     if (status === 'pending') recordLookup(identity, pageId, Date.now(), PENDING_RECHECK_MS)

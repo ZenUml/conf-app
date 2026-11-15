@@ -130,12 +130,24 @@ const commentsLabel = computed(() => (commentCount.value === null ? 'Comments' :
 
 // The count is a courtesy: read on the first pointer entry, never on load, and a
 // failure leaves the plain label. It must not touch the render or raise an error.
-async function defaultLoadCount(pageId: string, diagramId: string): Promise<number> {
-  const [{ diagramCommentCount }, { requestConfluenceJson }] = await Promise.all([
+async function defaultLoadCount(pageId: string, diagramId: string, fresh = false): Promise<number> {
+  const [{ diagramCommentCount, invalidatePageComments }, { requestConfluenceJson }] = await Promise.all([
     import('@/features/diagramComments/pageCommentsCache'),
     import('@/utils/byline/confluenceRequest'),
   ])
+  // The modal posts from its own iframe, so this iframe's page cache is stale after it closes.
+  if (fresh) invalidatePageComments(pageId)
   return diagramCommentCount(requestConfluenceJson as any, pageId, diagramId)
+}
+
+function loadCount(fresh: boolean) {
+  const c = props.comments
+  const diagramId = commentsContext.diagramId
+  if (!c || !diagramId) return
+  Promise.resolve()
+    .then(() => (c.loadCount ? c.loadCount(c.pageId, diagramId) : defaultLoadCount(c.pageId, diagramId, fresh)))
+    .then((n) => { commentCount.value = n })
+    .catch(() => { /* label keeps its last value */ })
 }
 
 function onEdgeEnter() {
@@ -144,10 +156,7 @@ function onEdgeEnter() {
   const diagramId = commentsContext.diagramId
   if (commentCountRequested || !showComments.value || !c || !diagramId) return
   commentCountRequested = true
-  Promise.resolve()
-    .then(() => (c.loadCount ?? defaultLoadCount)(c.pageId, diagramId))
-    .then((n) => { commentCount.value = n })
-    .catch(() => { /* label stays "Comments" */ })
+  loadCount(false)
 }
 
 async function defaultNavigate(path: string) {
@@ -184,6 +193,7 @@ async function openComments() {
     // Fallback for "Reply in Confluence": the modal could not navigate the host
     // page itself, so it closed with { action: 'reply', commentId } for us to act on.
     onClose: (payload?: unknown) => {
+      loadCount(true)
       const reply = replyFromClosePayload(payload)
       const path = reply ? nativeThreadPath(c.pageUrl, reply.commentId) : null
       if (path) void Promise.resolve((c.navigate ?? defaultNavigate)(path)).catch(() => undefined)

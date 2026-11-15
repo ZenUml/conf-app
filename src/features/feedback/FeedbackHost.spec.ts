@@ -298,6 +298,21 @@ describe('FeedbackHost', () => {
       expect(wrapper.get('[data-testid="comments-trigger"]').text()).toBe('Comments · 3')
     })
 
+    it('reloads the count when the comments modal closes, so a new post shows', async () => {
+      loaded()
+      const loadCount = vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+      const comments = entry({ loadCount })
+      const openViewModal = vi.fn().mockImplementation(async (options: any) => { options.onClose?.(undefined) })
+      const wrapper = show({ props: { context, comments, openViewModal } })
+      await wrapper.get('[data-testid="feedback-edge"]').trigger('mouseenter')
+      await flushPromises()
+      expect(wrapper.get('[data-testid="comments-trigger"]').text()).toBe('Comments · 0')
+      await wrapper.get('[data-testid="comments-trigger"]').trigger('click')
+      await flushPromises()
+      expect(loadCount).toHaveBeenCalledTimes(2)
+      expect(wrapper.get('[data-testid="comments-trigger"]').text()).toBe('Comments · 1')
+    })
+
     it('a failed count is silent: plain label, no error', async () => {
       loaded()
       const comments = entry({ loadCount: vi.fn().mockRejectedValue(new Error('429')) })

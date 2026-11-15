@@ -1,22 +1,26 @@
-# Plan and usage: per-space purchase
+# Plan and usage per-space purchase evidence
 
-Baseline: `597cc5633` (main). Candidate: `a87551e9` (`codex/plan-usage-space-purchase`).
-Design: https://www.figma.com/design/xyLOTL0IvXNszqFCKCdAp0/Conf-App?node-id=614-3183
-Requirement: ZenUml/conf-app-private#19 (no customer data in this evidence).
+PR1192: https://github.com/ZenUml/conf-app/pull/1192
+Base597cc5633. Runtime UI-tested commit a87551e9. Final PR head0ce0578c adds IMPACT-MAP.md only. Synthetic CI candidate308542f9 and actual merge6ecceaed have identical tree21212a4af895a9544415d385e69deceaff3414aa.
 
 ## Comparable UI
-Storybook, Lite, fixture tenant `example-tenant`, Chromium viewport1280x1000, fullscreen preview with manager toolbar retained. Baseline server source: primary main checkout; candidate source: isolated feature worktree. Open manager story `plan-and-usage-planusage--default` for both captures. Same ENG118/100 usage fixture. Before has only Space/count columns; after adds price and one-space checkout while preserving Full actions.
 
-Other candidate stories: `space-purchases`, `paid-status-unavailable`, `paid-status-pending`, `no-spaces-over-limit`, `fullscreen-ordinary-space`. These use fictional fixture rows, including paid space/user licenses, unknown status, exactly100, and personal space.
+Baseline main and candidate Storybook use the same fictional example-tenant ENG118/100 fixture, Chromium1280×1000, fullscreen preview with manager toolbar retained. Before has Space/count columns; after adds the one-space price/checkout and preserves site-wide Full actions. Other final-* images/snapshots cover mixed space/user licenses, exact100, personal key, unknown, pending, empty and Fullscreen-source states. capture-storybook.py records the capture steps and DOM assertions. All layout/text is the implementation, not Figma.
 
-## Tests
-Initial full suite at631a07ad:492 files passed,1 file skipped;2 discovery files failed because E2E subproject dependencies were missing. Installed the separately managed E2E workspace with `pnpm --ignore-workspace install --frozen-lockfile`. Both failed files then passed (10 tests). No source fix was needed for those failures.
-Final affected tests ata87551e9:5 files/72 tests passed. Final lint:0 errors,138 repository warnings. Lite build includes AsyncAPI Studio and MCP view.
-Typecheck limitation: existing vue-tsc1.8/TypeScript5.9 tooling crashes on `supportedTSExtensions` before checking code; no typecheck pass claimed.
+## Ordered live validation
 
-## Limits
-Storybook stubs backend/Forge responses and is not live integration evidence. Native Stripe payment completion is out of scope and must never be performed.
-Forge Tunnel, CI staging and E2E outcomes will be recorded separately once observed. The trusted default-branch scenario registry has no PR E2E coverage for `paywall × plan-usage` or `site-usage × plan-usage`; subset authorization cannot be inferred from the page-banner navigation test.
+Storybook six-state assertions passed at runtime a87551e9, then Forge Tunnel used the same source via localhost:8000 with Vite modules, then candidate CI deployment was verified on Lite staging. See tunnel-ui-evidence.md and staging-ui-evidence.md. Live staging rendered two confirmed unpaid rows, including exactly100; separate clicks produced distinct lite-stg__SD and lite-stg__ATSEED01 native external-link confirmation targets. Confirmations were cancelled. No payment or Stripe fulfillment validation was performed. Live snapshots/source observations were emitted in the Codex chat and retained as durable text excerpts here.
 
-## CI staging followup
-CI deployed synthetic merge5ce2903 of candidatea87551e9. Manual staging observed two real rows, including exactly100, and each correct row-specific Stripe handoff URL. See staging-ui-evidence.md. Ordered Storybook → Forge Tunnel → CI-deployed Staging inspection completed; automated E2E remains blocked by test:triage. Native external-link confirmations were cancelled after verifying destinations; no payment. CI four unit shards and AsyncAPI/build result passed.
+## Automated validation
+
+Final lint0 errors(138 existing warnings), focused5 files/72 tests passed, Lite build passed including Studio and MCP view. Initial full unit invocation passed492 files and skipped1;2 discovery files failed because the separate E2E workspace dependencies were absent. Both passed(10 tests) after pnpm --ignore-workspace install --frozen-lockfile. Final affected suites were rerun for final runtime source.
+
+Owner explicitly authorized manual full PR test triage. Current-head unit/build, preview, latest export, Render MCP and authoritative PR pipeline succeeded. Full E2E:120 passed,8 explicit environment-guard skips,0 failed;one Edit-gate UI assertion passed on Playwright retry1. Lite evidence complete=false, render complete=true. See full-e2e-results.md/json for scope, counts, skip reasons and the retry limitation, and full-ci-provenance.json for exact run identities. No workflow retry or code fix was used to obtain PR results.
+
+## Post-merge
+
+Merged to main as6ecceaedc641515b070e1dee6afe27b42302fd04. Main CI43774744430 completed success for this exact merge. All four variant builds/staging/auth/E2E passed; selected main E2E22 passed/1 explicit Embed guard skip, no retries. All four draft releases target the merge. See main-ci-results.md; this result is separately observed, not inferred from PR CI. No production release was started.
+
+## Remaining limits
+
+Repository vue-tsc1.8/TypeScript5.9 fails at startup(supportedTSExtensions); no typecheck pass claimed. Optional guarded E2E journeys are not counted as passes. The one retried UI assertion has no proved cause and is not described as fixed. Personal/paid/unknown/pending and Fullscreen purchase states were observed in Storybook and unit tests, without manufacturing paid/live tenant states.

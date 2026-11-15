@@ -11,11 +11,19 @@
     focusable="false"
   >
     <g transform="rotate(-17.4 687 215)" fill="rgba(222, 53, 11, 0.16)" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
-      <text x="687" y="205" font-size="96" font-weight="700" letter-spacing="2">NO ACTIVE LICENSE</text>
-      <text x="687" y="262" font-size="30" font-weight="500">Payment required · Ask your Confluence admin to subscribe to Full</text>
+      <text x="687" y="205" font-size="96" font-weight="700" letter-spacing="2">{{ headline }}</text>
+      <text x="687" y="262" font-size="30" font-weight="500">{{ detail }}</text>
     </g>
   </svg>
 </template>
+
+<script setup lang="ts">
+// Defaults are the Full "No active license" text; Lite passes its own.
+withDefaults(defineProps<{ headline?: string; detail?: string }>(), {
+  headline: 'NO ACTIVE LICENSE',
+  detail: 'Payment required · Ask your Confluence admin to subscribe to Full',
+})
+</script>
 
 <style scoped>
 /* Above the diagram, below the viewer controls (zoom card z-index 2, floating

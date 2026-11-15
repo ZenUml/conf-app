@@ -7,6 +7,7 @@ import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
+import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 
 // Same reason as MacroWithAttribution.stories.ts: the real root app only gets
 // the store through setup().
@@ -159,3 +160,33 @@ export const LegacyFreeVerifiedMarketplace = legacyFreeStory(undefined, 'fresh')
 export const MissingLicenseUnknown = legacyFreeStory(undefined, 'unknown')
 export const LegacyFreeEvidenceExpired = legacyFreeStory(undefined, 'stale')
 export const ActiveLicenseOverridesLegacyFree = legacyFreeStory({ active: true, type: 'LEGACY_FREE' }, 'fresh')
+
+// Lite per-site enforcement. The real viewer reads `enforcement` from the
+// stubbed /api/space-status and shows the notice only when the server says
+// `effects.watermark`. Needs the default `storybook` script (PRODUCT_TYPE=lite);
+// under a Full build these stories correctly render no Lite notice.
+// Counts are invented.
+function siteEnforcementStory(count: number, stage: 'notice' | 'watermark'): Story {
+  return {
+    decorators: [() => {
+      configureStory()
+      // A flag left on by a Full story would show the Full notice under a Full build.
+      try { localStorage.removeItem('mockNoLicenseNoticeEnabled') } catch { /* storage blocked */ }
+      forgeGlobal.isLite = true
+      globals.apWrapper.isLite = () => true
+      globals.apWrapper.getCurrentSpace = async () => ({ key: 'DOCS' })
+      ;(useCustomerSuccessService as any).__resetForTests()
+      stubResponses.remote.push({ match: '/api/space-status', body: {
+        isPaid: false, decisionKnown: true,
+        enforcement: { stage, effectiveAt: '2026-12-08T00:00:00Z', count, limit: 100,
+          effects: { datedBanner: true, watermark: stage === 'watermark', blockCreate: false, meterEdit: false } },
+      } })
+      return { template: '<story />' }
+    }],
+    render: viewerRenderer(720),
+  }
+}
+
+export const LiteLimitReached2282 = siteEnforcementStory(2282, 'watermark')
+export const LiteLimitReachedExactly100 = siteEnforcementStory(100, 'watermark')
+export const LiteNoticeStageNoWatermark = siteEnforcementStory(2282, 'notice')

@@ -441,7 +441,10 @@ h1 { font-size: 24px; font-weight: 600; line-height: 32px; margin: 0; }
 }
 .link-btn:hover { text-decoration: underline; }
 
-table.space-table { width: 720px; max-width: 100%; border-collapse: collapse; }
+table.space-table { width: 720px; max-width: 100%; border-collapse: collapse; table-layout: fixed; }
+.space-table th:first-child { width: 20%; }
+.space-table th:nth-child(2) { width: 22%; }
+.space-key { overflow-wrap: anywhere; }
 .space-table th {
   height: 32px;
   text-align: left;

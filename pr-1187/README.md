@@ -49,3 +49,9 @@ The affected glyph/doctor/spec/shape/box/edge-label tests passed 163/163 with ze
 ## Linux confirmation
 
 [Standalone runtime CI 43657974800](https://github.com/ZenUml/conf-app/actions/runs/43657974800) passed for exact final commit `ec8386bf05b9459bbb654fe02a4243854a88f93d`: **945 Node tests (938 main + 7 isolated performance) and 42 Python tests, zero skipped**. This is the authoritative Linux confirmation of the four glyph corrections, doctor preflight, local SDK load and path handling. `linux-ci-final-summary.txt` captures the reported totals. No model calls occur in this workflow.
+
+## Documentation follow-up
+
+Current PR head: `39bf2230f1c989f51e15bb33db4a33822e9ad640`. Its only difference from `ec8386bf` is the skill's OAuth login recipe: use `pnpm --dir tools/pi-diagram-agent exec pi auth login openai-codex`. Pi 1.5.2 requires `--model` when `--provider` is used; the dedicated login command starts no model session.
+
+The runtime Git tree is identical at both commits: `b7ab57a07a0dfacea1f30547f1dd600c658c9b21`. [Runtime CI 43659001929](https://github.com/ZenUml/conf-app/actions/runs/43659001929) also passed on the documentation head; totals are captured in `documentation-head-ci-summary.txt`. All four app unit shards and AsyncAPI build passed on this head. The current PR body links the final authorized product smoke/export runs and their exact outcomes.

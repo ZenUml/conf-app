@@ -1,0 +1,82 @@
+{
+  "silent-a: messages inside group": {
+    "source": "group \"Backend\" {\n  A->B: msg\n}\nB->C: z",
+    "text": "Rendered the sequence diagram. The source parsed, but it will not draw what you meant. Fix these and call render_diagram again:\n- line 1, column 0: This group holds a message, so the parser ends the group at its name and reads the braces as a separate block, and the group draws empty: put only participant names inside it (`group \"Backend\" { B C }`) and write the messages after it.\n\nThis rewrite parses with no warnings; unless it changes what the user asked for, call render_diagram again with this source:\n```\ngroup \"Backend\" {\n  A\n  B\n}\nA->B: msg\nB->C: z\n```",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": true,
+      "warnings": [
+        {
+          "code": "group_with_messages",
+          "line": 1,
+          "col": 0,
+          "message": "This group holds a message, so the parser ends the group at its name and reads the braces as a separate block, and the group draws empty: put only participant names inside it (`group \"Backend\" { B C }`) and write the messages after it."
+        }
+      ],
+      "suggestedSource": "group \"Backend\" {\n  A\n  B\n}\nA->B: msg\nB->C: z"
+    }
+  },
+  "silent-b: one-line block after async message": {
+    "source": "A->B: POST /orders { B->C: save() }",
+    "text": "Rendered the sequence diagram. The source parsed, but it will not draw what you meant. Fix these and call render_diagram again:\n- line 1, column 19: The `{ … }` after this async message is read as part of its label, so nothing inside it is drawn: nest the calls with `A->B.method() { … }` instead.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": true,
+      "warnings": [
+        {
+          "code": "block_in_async_message",
+          "line": 1,
+          "col": 19,
+          "message": "The `{ … }` after this async message is read as part of its label, so nothing inside it is drawn: nest the calls with `A->B.method() { … }` instead."
+        }
+      ]
+    }
+  },
+  "fail-c: group after first message": {
+    "source": "A->B: msg\ngroup \"x\" {\n  B\n}\nB->C: z",
+    "text": "The sequence source did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n- line 2, column 0: `group` must come before the first message: move this group to the top and keep only participant names in it.\n- line 2, column 0: mismatched input 'group' expecting <EOF>\n\nThis rewrite parses with no warnings; unless it changes what the user asked for, call render_diagram again with this source:\n```\ngroup \"x\" {\n  B\n}\nA->B: msg\nB->C: z\n```\n\nZenUML syntax: call with nested block `A->B.method() { C.other() }`; assign `x = B.get()`; `if (cond) { } else { }`; `return x`; `// comment`; participants `@Actor User`, `@Database DB`; quote names with spaces or slashes `B.\"GET /x\"()`. Mistakes: no `{ }` block after an async `A->B: text` message (use `A->B.method() { }`); `group Name { A B }` only wraps participant declarations, so it goes before the first message and holds no messages.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": false,
+      "errors": [
+        {
+          "line": 2,
+          "col": 0,
+          "message": "mismatched input 'group' expecting <EOF>"
+        }
+      ],
+      "hints": [
+        {
+          "code": "group_after_message",
+          "line": 2,
+          "col": 0,
+          "message": "`group` must come before the first message: move this group to the top and keep only participant names in it."
+        }
+      ],
+      "suggestedSource": "group \"x\" {\n  B\n}\nA->B: msg\nB->C: z"
+    }
+  },
+  "fail-d: multi-line block after async message": {
+    "source": "A->B: POST /x {\n  B->C: y\n}",
+    "text": "The sequence source did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n- line 1, column 14: An async message `A->B: text` cannot open a `{ }` block, and the parser reports the error at the closing brace instead: write `A->B.method() { … }` to nest the calls.\n- line 3, column 0: mismatched input '}' expecting <EOF>\n\nZenUML syntax: call with nested block `A->B.method() { C.other() }`; assign `x = B.get()`; `if (cond) { } else { }`; `return x`; `// comment`; participants `@Actor User`, `@Database DB`; quote names with spaces or slashes `B.\"GET /x\"()`. Mistakes: no `{ }` block after an async `A->B: text` message (use `A->B.method() { }`); `group Name { A B }` only wraps participant declarations, so it goes before the first message and holds no messages.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": false,
+      "errors": [
+        {
+          "line": 3,
+          "col": 0,
+          "message": "mismatched input '}' expecting <EOF>"
+        }
+      ],
+      "hints": [
+        {
+          "code": "block_after_async_message",
+          "line": 1,
+          "col": 14,
+          "message": "An async message `A->B: text` cannot open a `{ }` block, and the parser reports the error at the closing brace instead: write `A->B.method() { … }` to nest the calls."
+        }
+      ]
+    }
+  }
+}

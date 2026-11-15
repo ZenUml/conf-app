@@ -19,3 +19,10 @@ Parser facts behind (a), from `@zenuml/core/parser` `parse()`: `group "x" { B C 
 consumes the braces as its participant list; `group "x" { A->B: m }` ends the group
 at `group"x"` and parses `{ A->B: m }` as a separate block. Whether that block draws
 its message was not checked in a renderer; the warning only claims the group draws empty.
+
+## Update: suggested rewrite (`a3e69c19`)
+
+`after-suggested-fix.json`: the same four sources at `a3e69c19`. Cases a and c now also
+return `suggestedSource` (every group moved to the top, holding only participants; its
+messages stay in the flow), returned only after it parses and lints clean. Cases b and d
+get no rewrite.

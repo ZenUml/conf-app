@@ -93,3 +93,82 @@ describe('space-status decisionKnown', () => {
     });
   });
 });
+
+describe('space-status enforcement', () => {
+  const LITE = '8ad26115-211f-4216-971b-0540f606303d';
+  const policy = JSON.stringify({ stage: 'watermark', effectiveAt: '2026-12-08T00:00:00Z' });
+  const expired = JSON.stringify({ status: 'active', expiresAt: '2026-11-06T00:00:00.000Z' });
+
+  // SQL-aware D1 fake: domain lookup returns the example tenant; paid-rail hit is switchable.
+  function siteDb(paidRail = false) {
+    return {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn(() => ({
+          first: vi.fn(async () => {
+            if (sql.includes('SELECT 1 FROM ForgeInstallation')) return paidRail ? { 1: 1 } : null;
+            return { clientDomain: 'example-tenant.atlassian.net' };
+          }),
+        })),
+      })),
+    };
+  }
+  async function readEnforced(options: {
+    policyRaw?: string | null; count?: number; kv?: Record<string, string>; paidRail?: boolean; now?: string;
+  } = {}) {
+    const { policyRaw = policy, count = 2282, kv = {}, paidRail = false, now = '2026-12-09T00:00:00Z' } = options;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(now));
+    try {
+      const ctx = context({ kv, database: siteDb(paidRail) as any });
+      ctx.env.KV_FEATURE_FLAGS = {
+        get: vi.fn(async (key: string) => {
+          if (key === 'paywall-enforcement:policy:site-a') return policyRaw;
+          if (key === 'PAYWALL_EXEMPTIONS') return '{}';
+          return null;
+        }),
+      };
+      ctx.env.confluence_plugin_features = {
+        get: vi.fn(async () => ({ spaces: { ENG: { total: count } } })),
+      };
+      const response = await onRequest(ctx);
+      return await response.json() as { enforcement?: any } & Record<string, unknown>;
+    } finally { vi.useRealTimers(); }
+  }
+
+  beforeEach(() => {
+    vi.mocked(validateContextToken).mockResolvedValue({ ...fit(), forgeAppId: LITE } as any);
+  });
+
+  it('no policy key: body has no enforcement key', async () => {
+    const body = await readEnforced({ policyRaw: null });
+    expect(body).toEqual({ isPaid: false, decisionKnown: true });
+    expect('enforcement' in body).toBe(false);
+  });
+  it('watermark in force, count 2282, no licence: enforcement on', async () => {
+    const body = await readEnforced();
+    expect(body.enforcement.stage).toBe('watermark');
+    expect(body.enforcement.effects.watermark).toBe(true);
+  });
+  it('count 100 on, count 99 absent', async () => {
+    expect((await readEnforced({ count: 100 })).enforcement?.stage).toBe('watermark');
+    expect((await readEnforced({ count: 99 })).enforcement).toBeUndefined();
+  });
+  it('active space licence: absent', async () => {
+    const body = await readEnforced({ kv: { 'license:site-a:ENG': active } });
+    expect(body.enforcement).toBeUndefined();
+    expect(body.isPaid).toBe(true);
+  });
+  it('expired space licence: present', async () => {
+    expect((await readEnforced({ kv: { 'license:site-a:ENG': expired } })).enforcement?.stage).toBe('watermark');
+  });
+  it('paid-rail hit: absent', async () => {
+    const body = await readEnforced({ paidRail: true });
+    expect(body.enforcement).toBeUndefined();
+    expect(body.source).toBe('paid_rail');
+  });
+  it('before effectiveAt: notice, watermark off', async () => {
+    const body = await readEnforced({ now: '2026-12-01T00:00:00Z' });
+    expect(body.enforcement.stage).toBe('notice');
+    expect(body.enforcement.effects.watermark).toBe(false);
+  });
+});

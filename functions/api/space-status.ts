@@ -3,6 +3,7 @@ import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import type { SpaceLicenseRecord } from './space-license';
 import { json } from '../OkResponse';
+import { resolveEnforcement, type SpaceEnforcement } from '../service/paywallEnforcement';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
@@ -12,12 +13,15 @@ interface Env {
   // the paid-rail check below must degrade to the existing not-paid path
   // rather than fail the request when it's absent.
   DB?: D1Database;
+  KV_FEATURE_FLAGS?: KVNamespace;
+  confluence_plugin_features?: KVNamespace;
 }
 
 export interface SpaceStatusResponse {
   isPaid: boolean;
   decisionKnown: boolean;
   source?: 'user_license' | 'space_license' | 'paid_rail';
+  enforcement?: SpaceEnforcement;
 }
 
 // Full and Diagramly Forge app identifiers (our own app IDs, not tenant
@@ -87,13 +91,16 @@ const PRIVATE_CACHE_5MIN = { 'Cache-Control': 'private, max-age=300' };
  * check the D1 paid-rail fallback before finally reporting not-paid — the
  * user- and space-license checks above this still win when they hit.
  */
-async function notPaidOrPaidRail(env: Env, cloudId: string): Promise<Response> {
+async function notPaidOrPaidRail(
+  env: Env, cloudId: string, forgeAppId: string | undefined, spaceKey: string,
+): Promise<Response> {
   const paidRail = await checkPaidRail(env.DB, cloudId);
   if (paidRail) {
     return json(paidRail, { status: 200, headers: PRIVATE_CACHE_5MIN });
   }
   const decisionKnown = paidRail === null;
-  return json({ isPaid: false, decisionKnown }, {
+  const enforcement = decisionKnown ? await resolveEnforcement(env, { cloudId, forgeAppId, spaceKey }) : null;
+  return json({ isPaid: false, decisionKnown, ...(enforcement ? { enforcement } : {}) }, {
     status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE,
   });
 }
@@ -178,7 +185,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!licenseRaw) {
       console.log('space-status: no license found for', `license:${cloudId}:${spaceKey}`);
-      return await notPaidOrPaidRail(env, cloudId);
+      return await notPaidOrPaidRail(env, cloudId, payload.forgeAppId, spaceKey);
     }
 
     const record = JSON.parse(licenseRaw) as SpaceLicenseRecord;
@@ -203,7 +210,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
-    return await notPaidOrPaidRail(env, cloudId);
+    return await notPaidOrPaidRail(env, cloudId, payload.forgeAppId, spaceKey);
   } catch (error) {
     console.error('Error checking space status:', error);
     captureError(error);

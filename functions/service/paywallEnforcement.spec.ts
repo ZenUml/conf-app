@@ -1,0 +1,149 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  decideEnforcement, effectsOf, limitReached, parseEnforcementPolicy, resolveEnforcement,
+  stageInForce, type EnforcementStage,
+} from './paywallEnforcement';
+
+const LITE = '8ad26115-211f-4216-971b-0540f606303d';
+const EFFECTIVE = '2026-12-08T00:00:00Z';
+const policy = (stage: string, effectiveAt: unknown = EFFECTIVE) => JSON.stringify({ stage, effectiveAt });
+
+describe('stage in force', () => {
+  it.each([
+    ['key absent', null, '2026-12-09T00:00:00Z', null],
+    ['not JSON', 'nope', '2026-12-09T00:00:00Z', null],
+    ['not an object', '[1]', '2026-12-09T00:00:00Z', null],
+    ['unknown stage', policy('block_all'), '2026-12-09T00:00:00Z', null],
+    ['effectiveAt missing', JSON.stringify({ stage: 'watermark' }), '2026-12-09T00:00:00Z', null],
+    ['effectiveAt not a date', policy('watermark', 'soon'), '2026-12-09T00:00:00Z', null],
+    ['notice early', policy('notice'), '2026-11-20T00:00:00Z', 'notice'],
+    ['notice late', policy('notice'), '2026-12-09T00:00:00Z', 'notice'],
+    ['watermark before', policy('watermark'), '2026-12-07T23:59:59Z', 'notice'],
+    ['watermark at', policy('watermark'), '2026-12-08T00:00:00Z', 'watermark'],
+    ['block_create before', policy('block_create'), '2026-12-07T23:59:59Z', 'notice'],
+    ['block_create at', policy('block_create'), '2026-12-08T00:00:00Z', 'block_create'],
+    ['block_edit at', policy('block_edit'), '2026-12-08T00:00:00Z', 'block_edit'],
+  ])('%s', (_n, raw, now, expected) => {
+    expect(stageInForce(parseEnforcementPolicy(raw), new Date(now))).toBe(expected);
+  });
+});
+
+describe('limit reached', () => {
+  it.each([
+    [0, 'no'], [99, 'no'], [100, 'yes'], [101, 'yes'], [2282, 'yes'],
+    [null, 'unknown'], [undefined, 'unknown'], [1.5, 'unknown'], [-1, 'unknown'], ['100', 'unknown'],
+  ])('count %s -> %s', (count, expected) => {
+    expect(limitReached(count)).toBe(expected);
+  });
+});
+
+describe('enforcement', () => {
+  it.each([
+    [null, 'yes', 'no', 'off'],
+    ['watermark', 'no', 'no', 'off'],
+    ['watermark', 'unknown', 'no', 'off'],
+    ['watermark', 'yes', 'yes', 'off'],
+    ['watermark', 'yes', 'unknown', 'off'],
+    ['notice', 'yes', 'no', 'notice'],
+    ['watermark', 'yes', 'no', 'watermark'],
+    ['block_create', 'yes', 'no', 'block_create'],
+    ['block_edit', 'yes', 'no', 'block_edit'],
+  ] as const)('stage %s, limit %s, covered %s -> %s', (stage, limit, covered, expected) => {
+    expect(decideEnforcement({ stage: stage as EnforcementStage | null, limit, covered })).toBe(expected);
+  });
+});
+
+describe('effects', () => {
+  it.each([
+    ['notice', true, false, false, false],
+    ['watermark', true, true, false, false],
+    ['block_create', true, true, true, false],
+    ['block_edit', true, true, true, true],
+  ] as const)('%s', (stage, datedBanner, watermark, blockCreate, meterEdit) => {
+    expect(effectsOf(stage)).toEqual({ datedBanner, watermark, blockCreate, meterEdit });
+  });
+});
+
+function fakeEnv(options: {
+  policy?: string | null; count?: number | null; exemptions?: string | null; domain?: string | null;
+} = {}) {
+  const { policy: pol = policy('watermark'), count = 2282, exemptions = '{}', domain = 'example-tenant.atlassian.net' } = options;
+  const kvGet = vi.fn(async (key: string, type?: string) => {
+    if (key === 'paywall-enforcement:policy:cloud-1') return pol;
+    if (key === 'PAYWALL_EXEMPTIONS') return exemptions;
+    if (key === 'metrics:example-tenant:lite' && type === 'json') {
+      return count === null ? { spaces: {} } : { spaces: { ENG: { total: count } } };
+    }
+    return null;
+  });
+  const dbFirst = vi.fn(async () => (domain ? { clientDomain: domain } : null));
+  const metricsGet = vi.fn(async (key: string, type?: string) => kvGet(key, type));
+  return {
+    env: {
+      KV_FEATURE_FLAGS: { get: kvGet } as unknown as KVNamespace,
+      confluence_plugin_features: { get: metricsGet } as unknown as KVNamespace,
+      DB: { prepare: vi.fn(() => ({ bind: vi.fn(() => ({ first: dbFirst })) })) } as unknown as D1Database,
+    },
+    kvGet, dbFirst,
+  };
+}
+const input = { cloudId: 'cloud-1', forgeAppId: LITE, spaceKey: 'ENG' };
+const AFTER = new Date('2026-12-09T00:00:00Z');
+
+describe('resolveEnforcement end-to-end examples', () => {
+  it('1: count 2,282, no cover -> watermark', async () => {
+    const result = await resolveEnforcement(fakeEnv().env, input, AFTER);
+    expect(result).toEqual({
+      stage: 'watermark', effectiveAt: EFFECTIVE, count: 2282, limit: 100,
+      effects: { datedBanner: true, watermark: true, blockCreate: false, meterEdit: false },
+    });
+  });
+  it('2: count 100 -> watermark', async () => {
+    expect((await resolveEnforcement(fakeEnv({ count: 100 }).env, input, AFTER))?.stage).toBe('watermark');
+  });
+  it('3: count 99 -> off', async () => {
+    expect(await resolveEnforcement(fakeEnv({ count: 99 }).env, input, AFTER)).toBeNull();
+  });
+  it('4: unknown count -> off', async () => {
+    expect(await resolveEnforcement(fakeEnv({ count: null }).env, input, AFTER)).toBeNull();
+  });
+  it('9: site domain exempt -> off; wildcard too', async () => {
+    expect(await resolveEnforcement(fakeEnv({ exemptions: '{"example-tenant":true}' }).env, input, AFTER)).toBeNull();
+    expect(await resolveEnforcement(fakeEnv({ exemptions: '{"*":true}' }).env, input, AFTER)).toBeNull();
+    expect((await resolveEnforcement(fakeEnv({ exemptions: '{"example-tenant":false}' }).env, input, AFTER))?.stage)
+      .toBe('watermark');
+  });
+  it('10: exemption list unreadable -> off', async () => {
+    for (const exemptions of [null, 'not json', '[]', '{"a":"yes"}']) {
+      expect(await resolveEnforcement(fakeEnv({ exemptions }).env, input, AFTER)).toBeNull();
+    }
+  });
+  it('11: before effectiveAt -> notice with no watermark', async () => {
+    const result = await resolveEnforcement(fakeEnv().env, input, new Date('2026-12-01T00:00:00Z'));
+    expect(result?.stage).toBe('notice');
+    expect(result?.effects.watermark).toBe(false);
+    expect(result?.effects.datedBanner).toBe(true);
+  });
+  it('12: no policy key -> off after exactly one KV read and no other reads', async () => {
+    const { env, kvGet, dbFirst } = fakeEnv({ policy: null });
+    expect(await resolveEnforcement(env, input, AFTER)).toBeNull();
+    expect(kvGet).toHaveBeenCalledTimes(1);
+    expect(dbFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveEnforcement fail-open', () => {
+  it('non-Lite app -> null', async () => {
+    expect(await resolveEnforcement(fakeEnv().env, { ...input, forgeAppId: 'other-app' }, AFTER)).toBeNull();
+  });
+  it('missing binding or thrown error -> null', async () => {
+    expect(await resolveEnforcement({}, input, AFTER)).toBeNull();
+    const { env } = fakeEnv();
+    expect(await resolveEnforcement({ ...env, DB: undefined }, input, AFTER)).toBeNull();
+    const boom = { ...env, KV_FEATURE_FLAGS: { get: vi.fn(async () => { throw new Error('KV down'); }) } as unknown as KVNamespace };
+    expect(await resolveEnforcement(boom, input, AFTER)).toBeNull();
+  });
+  it('unresolvable domain -> null', async () => {
+    expect(await resolveEnforcement(fakeEnv({ domain: null }).env, input, AFTER)).toBeNull();
+  });
+});

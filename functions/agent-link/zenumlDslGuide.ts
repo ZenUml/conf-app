@@ -210,5 +210,18 @@ export const ZENUML_DSL_TOOL_HINT =
   '`{}` body to a `A->B: label` message; quote labels containing punctuation. ' +
   'Full guide: the `zenuml://dsl-guide` resource.';
 
+/**
+ * Compact ZenUML syntax for the render_diagram tool: put in its description and
+ * appended to a failed sequence parse. Every example is run through the parser
+ * in zenumlCheatSheet.spec.ts. Kept free of resource URIs (the render tool's
+ * description must not name them).
+ */
+export const ZENUML_RENDER_CHEAT_SHEET =
+  'ZenUML syntax: call with nested block `A->B.method() { C.other() }`; assign `x = B.get()`; ' +
+  '`if (cond) { } else { }`; `return x`; `// comment`; participants `@Actor User`, `@Database DB`; ' +
+  'quote names with spaces or slashes `B."GET /x"()`. Mistakes: no `{ }` block after an async ' +
+  '`A->B: text` message (use `A->B.method() { }`); `group Name { A B }` only wraps participant ' +
+  'declarations, so it goes before the first message and holds no messages.';
+
 /** URI of the guide exposed via resources/list + resources/read. */
 export const ZENUML_DSL_GUIDE_URI = 'zenuml://dsl-guide';

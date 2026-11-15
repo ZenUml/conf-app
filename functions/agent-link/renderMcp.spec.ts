@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { handleRenderRequest, MAX_SOURCE_CHARS, RENDER_TOOL } from './renderMcp';
+import { ZENUML_RENDER_CHEAT_SHEET } from './zenumlDslGuide';
 import { DIAGRAM_VIEW_URI, UI_MIME_TYPE } from './oauth/mcpApps';
 import { RENDER_LIMIT } from './renderRateLimit';
 
@@ -95,6 +96,38 @@ describe('POST /mcp/render', () => {
     expect(RENDER_TOOL.description).not.toMatch(/dsl-guide|zenuml:\/\/|resource/);
     const { body } = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
     expect(body.result.instructions).toMatch(/zenuml:\/\/.*dsl-guide/);
+  });
+
+  describe('guidance for agents', () => {
+    it('puts the trigger first in the server instructions, before anything a client might cut', async () => {
+      const { body } = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
+      const text: string = body.result.instructions;
+      expect(text.slice(0, 260)).toMatch(/sequence diagram/i);
+      expect(text.slice(0, 260)).toMatch(/ASCII/);
+      expect(text.slice(0, 260)).toMatch(/render_diagram/);
+      expect(text).toMatch(/No Atlassian site or sign-in/);
+    });
+
+    it('starts the tool description with when to use it, and carries the ZenUML cheat sheet', () => {
+      const d: string = RENDER_TOOL.description;
+      expect(d.slice(0, 200)).toMatch(/sequence diagram/i);
+      expect(d.slice(0, 200)).toMatch(/ASCII/);
+      expect(d).toContain(ZENUML_RENDER_CHEAT_SHEET);
+      expect(d.length).toBeLessThan(1600);
+    });
+
+    it('appends the ZenUML cheat sheet to a failed sequence parse, and only then', async () => {
+      const bad = await call({ diagramType: 'sequence', source: 'A->B: POST /x {\n  B->C: y\n}' });
+      const text: string = bad.body.result.content[0].text;
+      expect(text).toMatch(/line 3, column 0/);
+      expect(text).toContain(ZENUML_RENDER_CHEAT_SHEET);
+
+      const good = await call({ diagramType: 'sequence', source: 'A->B.m() { C.n() }' });
+      expect(good.body.result.content[0].text).not.toContain(ZENUML_RENDER_CHEAT_SHEET);
+
+      const other = await call({ diagramType: 'openapi', source: 'openapi: 3.0.0\ninfo:\n  title: x\n  title: y\n' });
+      expect(other.body.result.content[0].text).not.toContain(ZENUML_RENDER_CHEAT_SHEET);
+    });
   });
 
   it('returns valid source in the shape the view extracts', async () => {

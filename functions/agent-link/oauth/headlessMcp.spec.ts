@@ -217,6 +217,19 @@ describe('headless RPC', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('tells an agent without a Confluence site where to go to just draw a diagram', async () => {
+    const env = makeEnv();
+    const token = await tokenFor(env.store);
+    const res = await call(env, token, 'initialize');
+    const text: string = (await res.json()).result.instructions;
+    expect(text).toMatch(/need a Confluence site/);
+    expect(text).toMatch(/render_diagram/);
+    expect(text).toMatch(/without saving/);
+    // The list_sites sentence stays early.
+    expect(text.indexOf('list_sites')).toBeLessThan(text.indexOf('render_diagram'));
+    expect(text.indexOf('list_sites')).toBeLessThan(200);
+  });
+
   it('declares the MCP Apps extension so a host knows a view exists', async () => {
     // Bilateral: if we never declare it, the host still gets a good text result
     // and the missing view looks like a broken render with no error anywhere.

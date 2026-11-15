@@ -122,6 +122,7 @@ const showComments = computed(() => {
   return !!c?.enabled
     && props.context.surface === 'viewer'
     && !!c.pageId
+    && !!c.pageUrl
     && !!c.accountId
     && !!commentsContext.diagramId
 })

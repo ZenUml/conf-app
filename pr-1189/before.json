@@ -1,0 +1,48 @@
+{
+  "silent-a: messages inside group": {
+    "source": "group \"Backend\" {\n  A->B: msg\n}\nB->C: z",
+    "text": "Rendered the sequence diagram. The source parsed.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": true
+    }
+  },
+  "silent-b: one-line block after async message": {
+    "source": "A->B: POST /orders { B->C: save() }",
+    "text": "Rendered the sequence diagram. The source parsed.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": true
+    }
+  },
+  "fail-c: group after first message": {
+    "source": "A->B: msg\ngroup \"x\" {\n  B\n}\nB->C: z",
+    "text": "The sequence source did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n- line 2, column 0: mismatched input 'group' expecting <EOF>\n\nZenUML syntax: call with nested block `A->B.method() { C.other() }`; assign `x = B.get()`; `if (cond) { } else { }`; `return x`; `// comment`; participants `@Actor User`, `@Database DB`; quote names with spaces or slashes `B.\"GET /x\"()`. Mistakes: no `{ }` block after an async `A->B: text` message (use `A->B.method() { }`); `group Name { A B }` only wraps participant declarations, so it goes before the first message and holds no messages.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": false,
+      "errors": [
+        {
+          "line": 2,
+          "col": 0,
+          "message": "mismatched input 'group' expecting <EOF>"
+        }
+      ]
+    }
+  },
+  "fail-d: multi-line block after async message": {
+    "source": "A->B: POST /x {\n  B->C: y\n}",
+    "text": "The sequence source did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n- line 3, column 0: mismatched input '}' expecting <EOF>\n\nZenUML syntax: call with nested block `A->B.method() { C.other() }`; assign `x = B.get()`; `if (cond) { } else { }`; `return x`; `// comment`; participants `@Actor User`, `@Database DB`; quote names with spaces or slashes `B.\"GET /x\"()`. Mistakes: no `{ }` block after an async `A->B: text` message (use `A->B.method() { }`); `group Name { A B }` only wraps participant declarations, so it goes before the first message and holds no messages.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": false,
+      "errors": [
+        {
+          "line": 3,
+          "col": 0,
+          "message": "mismatched input '}' expecting <EOF>"
+        }
+      ]
+    }
+  }
+}

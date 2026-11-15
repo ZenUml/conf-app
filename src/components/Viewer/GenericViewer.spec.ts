@@ -3681,8 +3681,12 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     vi.clearAllMocks()
     siteEnforcement.value = null
     initialize = vi.fn(() => Promise.resolve())
+    // Bind this test's spy now. A viewer from an earlier test can finish its
+    // dynamic import late; reading `initialize` at call time would record that
+    // late lookup on the next test's spy.
+    const ownInitialize = initialize
     vi.doMock('@/composables/useCustomerSuccessService', () => ({
-      useCustomerSuccessService: () => ({ initialize, siteEnforcement }),
+      useCustomerSuccessService: () => ({ initialize: ownInitialize, siteEnforcement }),
     }))
     store.commit('updateDiagramType', DiagramType.Sequence)
     store.state.diagram.source = DataSource.CustomContent
@@ -3736,6 +3740,8 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     initialize.mockRejectedValue(new Error('boom'))
     siteEnforcement.value = enforcement(true)
     const wrapper = mountViewer()
+    // Wait for the lookup itself; one flush can end before the dynamic import resolves.
+    await vi.waitFor(() => expect(initialize).toHaveBeenCalled())
     await flushPromises()
     expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
     expect(wrapper.find('.screen-capture-content').exists()).toBe(true)

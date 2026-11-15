@@ -142,6 +142,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
+import { writeClipboard } from '@/utils/clipboard'
 import PaywallHero from './PaywallHero.vue'
 import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
@@ -264,19 +265,6 @@ function onDraftPreviewToggle() {
   tracking.trackAdvocacyDraftPreviewToggle(willExpand)
 }
 
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (!navigator.clipboard?.writeText) {
-      return false
-    }
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch (e) {
-    console.warn('[paywall] failed to copy extension request details', e)
-    return false
-  }
-}
-
 /** Shared context for both purchase rails, so a rail comparison is apples to
  *  apples. `ui_component: 'modal'` is what separates these from the page-banner
  *  emissions of the same events. */
@@ -326,7 +314,8 @@ async function onRequestExtension() {
   const requestMessage = buildExtensionRequestMessage(requestContext)
   // Clipboard copy is a safety net: JSM drops the prefill params if the user
   // navigates within the portal before submitting.
-  const copied = await copyToClipboard(requestMessage)
+  const copied = await writeClipboard(requestMessage)
+  if (!copied) console.warn('[paywall] failed to copy extension request details')
 
   tracking.trackExtensionRequestClick(copied, requestUrl)
   extensionRequestStatus.value = copied

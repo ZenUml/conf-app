@@ -37,6 +37,9 @@ import type {
   DiagramLocationsFilter,
   DiagramCommentFailureReason,
   DiagramCommentThreadAction,
+  DiagramCommentViewerKind,
+  DiagramCommentNativeAction,
+  FeedbackEntryLabel,
   AgentLinkDisconnectReason,
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
@@ -680,6 +683,12 @@ export type AnalyticsProperties = {
   comment_failure_reason?: DiagramCommentFailureReason;
   /** Panel closed while the reader had unsent text. */
   comment_had_draft?: boolean;
+  /** Who clicked Comments. Resolved from the viewer account lookup; `unknown` when it has not answered. */
+  comment_viewer_kind?: DiagramCommentViewerKind;
+  /** What the reader did in the native Confluence thread link. */
+  comment_native_action?: DiagramCommentNativeAction;
+  /** Edge feedback button label when opened (compare before/after the "Report a bug" rename). */
+  feedback_entry_label?: FeedbackEntryLabel;
   // diagram_added_to_page: which step produced a 'forbidden' or 'failed'
   // result. `result` alone is a bucket — 'failed' covers a Confluence 5xx, an
   // unparsable page body and a macro key we refused to guess, which need

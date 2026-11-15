@@ -11,6 +11,7 @@ const NAMES = [
   'diagram_comment_submit_succeeded',
   'diagram_comment_submit_failed',
   'diagram_comment_dismissed',
+  'diagram_comment_native_opened',
   'diagram_comment_link_revealed',
 ];
 
@@ -34,7 +35,8 @@ describe('diagram_comments analytics', () => {
       const area: FeatureArea = 'diagram_comments';
       const reason: DiagramCommentFailureReason = 'rate_limited';
       const props: AnalyticsProperties = {
-        feature_area: area, surface: 'fullscreen', macro_type: 'mermaid',
+        feature_area: area, surface: 'comments_modal', macro_type: 'mermaid',
+        comment_viewer_kind: 'guest', comment_native_action: 'reply', feedback_entry_label: 'report_a_bug',
         comment_thread_action: 'reply', comment_mention_count: 1,
         comment_planned_recipient_count: 2, comment_count: 3,
         comment_load_outcome: 'failed', comment_failure_reason: reason,
@@ -48,6 +50,11 @@ describe('diagram_comments analytics', () => {
       const badProps: AnalyticsProperties = { comment_thread_action: 'edit' };
       // @ts-expect-error counts must be numeric
       const badCount: AnalyticsProperties = { comment_mention_count: 'two' };
+      // @ts-expect-error viewer kind is a closed set
+      const badKind: AnalyticsProperties = { comment_viewer_kind: 'anonymous' };
+      // @ts-expect-error entry label is a closed set
+      const badLabel: AnalyticsProperties = { feedback_entry_label: 'bug' };
+      void [badKind, badLabel];
       void [names, props, badEvent, badReason, badProps, badCount];
     `;
     const options: ts.CompilerOptions = {

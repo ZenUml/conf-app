@@ -32,7 +32,7 @@ MARKER_LENGTH = 10  # axial length of the marker triangle (refX=10)
 SHAFT_MIN = 8  # rule 13: visible straight shaft before the arrowhead base
 DASH = "6 4"
 HEADING_HEIGHT = 64  # space reserved at the top of a container() for heading + subtitle
-DEFAULT_FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
+DEFAULT_FONT = 'Arial, sans-serif'
 
 
 def _n(v: float) -> str:
@@ -56,21 +56,23 @@ def _comment(text: str) -> str:
 
 # ---------------------------------------------------------------- text measure and tiers
 
-# Per-glyph widths in em: the largest Chromium getBBox width per glyph over font sizes 12-24 (runs of
-# 1, 2 and 6, kit font stack, 2026-10-02), rounded up, so at those sizes the sum is an upper bound of
-# the rendered width the auditor measures. It can overstate by ~10%; prefer explicit lines if a label
-# lands one tier up only because of that margin.
+# Portable font contract: Arial (Liberation Sans-compatible metrics on Linux), never system-ui.
+# Per-glyph upper bounds measured with Chromium Arial getBBox at sizes 12-28, repeats 1/2/6
+# (2026-11-15), rounded up to 0.01em, retaining prior conservative bounds where larger. Whitespace uses
+# the existing 0.29em bound (a standalone space has an empty ink bbox). The audit is independent.
 _EM = {
-    ' ': 0.29, '!': 0.32, '"': 0.48, '#': 0.64, '$': 0.64, '%': 0.93, '&': 0.72, "'": 0.3, '(': 0.39, ')': 0.39,
-    '*': 0.48, '+': 0.64, ',': 0.3, '-': 0.48, '.': 0.3, '/': 0.31, '0': 0.64, '1': 0.47, '2': 0.61, '3': 0.63,
-    '4': 0.65, '5': 0.62, '6': 0.64, '7': 0.59, '8': 0.64, '9': 0.64, ':': 0.3, ';': 0.3, '<': 0.64, '=': 0.64,
-    '>': 0.64, '?': 0.52, '@': 0.92, 'A': 0.68, 'B': 0.66, 'C': 0.72, 'D': 0.73, 'E': 0.6, 'F': 0.58, 'G': 0.75,
-    'H': 0.75, 'I': 0.27, 'J': 0.54, 'K': 0.66, 'L': 0.57, 'M': 0.88, 'N': 0.75, 'O': 0.78, 'P': 0.64, 'Q': 0.78,
-    'R': 0.66, 'S': 0.64, 'T': 0.64, 'U': 0.74, 'V': 0.68, 'W': 0.97, 'X': 0.68, 'Y': 0.66, 'Z': 0.67, '[': 0.39,
-    '\\': 0.31, ']': 0.39, '^': 0.64, '_': 0.59, '`': 0.51, 'a': 0.56, 'b': 0.62, 'c': 0.56, 'd': 0.62, 'e': 0.58,
-    'f': 0.37, 'g': 0.61, 'h': 0.59, 'i': 0.25, 'j': 0.26, 'k': 0.55, 'l': 0.26, 'm': 0.88, 'n': 0.59, 'o': 0.6,
-    'p': 0.62, 'q': 0.61, 'r': 0.39, 's': 0.53, 't': 0.37, 'u': 0.59, 'v': 0.55, 'w': 0.78, 'x': 0.53, 'y': 0.55,
-    'z': 0.54, '{': 0.39, '|': 0.26, '}': 0.39, '~': 0.64,
+    ' ': 0.29, '!': 0.32, '"': 0.48, '#': 0.64, '$': 0.64, '%': 0.93, '&': 0.72, "'": 0.3,
+    '(': 0.39, ')': 0.39, '*': 0.48, '+': 0.64, ',': 0.3, '-': 0.48, '.': 0.3, '/': 0.31,
+    '0': 0.64, '1': 0.56, '2': 0.61, '3': 0.63, '4': 0.65, '5': 0.62, '6': 0.64, '7': 0.59,
+    '8': 0.64, '9': 0.64, ':': 0.3, ';': 0.3, '<': 0.64, '=': 0.64, '>': 0.64, '?': 0.56,
+    '@': 1.02, 'A': 0.68, 'B': 0.67, 'C': 0.73, 'D': 0.73, 'E': 0.67, 'F': 0.62, 'G': 0.78,
+    'H': 0.75, 'I': 0.28, 'J': 0.54, 'K': 0.67, 'L': 0.57, 'M': 0.88, 'N': 0.75, 'O': 0.78,
+    'P': 0.67, 'Q': 0.78, 'R': 0.73, 'S': 0.67, 'T': 0.64, 'U': 0.74, 'V': 0.68, 'W': 0.97,
+    'X': 0.68, 'Y': 0.67, 'Z': 0.67, '[': 0.39, '\\': 0.31, ']': 0.39, '^': 0.64, '_': 0.59,
+    '`': 0.51, 'a': 0.56, 'b': 0.62, 'c': 0.56, 'd': 0.62, 'e': 0.58, 'f': 0.37, 'g': 0.61,
+    'h': 0.59, 'i': 0.25, 'j': 0.27, 'k': 0.55, 'l': 0.26, 'm': 0.88, 'n': 0.59, 'o': 0.6,
+    'p': 0.62, 'q': 0.61, 'r': 0.39, 's': 0.53, 't': 0.37, 'u': 0.59, 'v': 0.55, 'w': 0.78,
+    'x': 0.53, 'y': 0.55, 'z': 0.54, '{': 0.39, '|': 0.27, '}': 0.39, '~': 0.64,
 }
 _EM_OTHER = 0.95  # unmeasured Latin/symbol glyphs: as wide as the widest measured glyph
 _EM_CJK = 1.0

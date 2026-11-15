@@ -10,7 +10,7 @@ pnpm --dir tools/pi-diagram-agent exec pi
 pnpm diagram:refine --source /absolute/source.mmd --out /absolute/output-outside-repo --model gpt-6.1-sol --timeout-min 20
 ```
 
-This uses OpenAI Codex subscription OAuth and consumes subscription quota. Choose the model explicitly; no paid API fallback is used. `--pi-bin /absolute/executable` is an optional launcher override. Node 22.19+ and Python 3 are required. Linux machines may need the system libraries listed by Playwright's browser-install error. `doctor` launches local Chromium but does not call a model or verify OAuth.
+This uses OpenAI Codex subscription OAuth and consumes subscription quota. Choose the model explicitly; no paid API fallback is used. `--pi-bin /absolute/executable` is an optional launcher override. Node 22.19+ and Python 3 are required. Linux requires an Arial-compatible font, such as Liberation Sans, and the system libraries listed by Playwright's browser-install error. `doctor` measures actual browser glyph widths and fails with setup instructions if the installed fallback exceeds the drawing bounds. CI uses Playwright `--with-deps`, which installs `fonts-liberation`; no global packages are installed by this CLI. `doctor` launches local Chromium but does not call a model or verify OAuth.
 
 Outputs include candidate SVG, audit JSON, run manifest, summary and `quality.json`. Exit 0 means a reviewed candidate with exact final hash and image evidence; exit 2 means incomplete quality evidence; exit 1 means setup or input failure. A reviewed candidate is neither certified nor human-accepted. Remaining non-checkable rules and quality limitations are reported explicitly. Outputs must be outside the repository. Treat source text and model output as private data.
 

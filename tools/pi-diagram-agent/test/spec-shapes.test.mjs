@@ -172,3 +172,20 @@ test('the spec prompt says an edge endpoint may be a group id and that node-to-g
   assert.match(edges,/every source relation.*node-to-group.*must be drawn/i);
   assert.match(edges,/never redirect/i);
 });
+
+test('portable Arial auto-font never discounts the width bound in a narrow label box',{skip:!process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE},async()=>{
+  const spec={canvas:{w:400,h:240},palette:PAL,nodes:[{id:'N',shape:'rect',rect:[100,80,96,56],labelBox:[108,88,80,40],text:'@@@',role:'step'}],edges:[]};
+  const r=renderSpec(spec);
+  const result=await auditAgentSvg('flowchart LR\n N["@@@"]\n',Buffer.from(r.svg));
+  assert.equal(result.checks.textFit.status,'PASS',JSON.stringify(result.checks.textFit.evidence));
+  assert.equal(result.checks.labelFontFit.status,'PASS',JSON.stringify(result.checks.labelFontFit.evidence));
+  const {createRequire}=await import('node:module');
+  const {chromium}=createRequire(import.meta.url)(process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE);
+  const browser=await chromium.launch({headless:true,...(process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE?{executablePath:process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE}:{})});
+  try{
+    const page=await browser.newPage();await page.setContent(r.svg);
+    const widths=await page.evaluate(()=>{const t=document.querySelector('[data-role="label"]');const current=t.getBBox().width;t.setAttribute('font-size',Number(t.getAttribute('font-size'))+1);return{current,next:t.getBBox().width}});
+    assert.ok(widths.current<=80,JSON.stringify(widths));
+    assert.ok(widths.next>80,`next whole font must not fit: ${JSON.stringify(widths)}`);
+  }finally{await browser.close()}
+});

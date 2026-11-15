@@ -22,7 +22,7 @@ test('kit measure_text is an upper bound of live browser glyph widths for the ki
     const playwright=createRequire(import.meta.url)(process.env.PI_DIAGRAM_PLAYWRIGHT_MODULE);
     const samples=['Customer Deposit IDR via Nobu VA','WOQ@%&-#','Order 0123456789','Mmmm Wwww','Settlement (T+1) ~ 99%'];
     for(let c=32;c<127;c++)samples.push(String.fromCharCode(c).repeat(6));
-    const sizes=[12,15,16,18,24];
+    const sizes=[12,15,16,18,24,28];
     const estimate=JSON.parse(execFileSync('python3',['-c',`import sys,json;sys.path.insert(0,${JSON.stringify(kit)});import svgkit as k;print(json.dumps([[k.measure_text(s,z) for z in ${JSON.stringify(sizes)}] for s in json.loads(sys.argv[1])]))`,JSON.stringify(samples)],{encoding:'utf8'}));
     const font=execFileSync('python3',['-c',`import sys;sys.path.insert(0,${JSON.stringify(kit)});import svgkit as k;print(k.DEFAULT_FONT)`],{encoding:'utf8'}).trim();
     const browser=await playwright.chromium.launch({headless:true,...(process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE?{executablePath:process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE}:{})});

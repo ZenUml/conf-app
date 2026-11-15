@@ -19,7 +19,7 @@ export class SpecError extends Error {
 export const TIERS = Object.fromEntries(['S', 'M', 'L', 'XL'].map((name, i) => [name, BOX_RULES_PROFILE.sizingContract.tiers[i]]));
 export const SIZE_TIERS = Object.fromEntries(['compact', 'standard', 'wide', 'extra'].map((name, i) => [name, BOX_RULES_PROFILE.sizingContract.tiers[i]]));
 const NODE_R = 4, FILLET = 5, DECISION_FILLET = 10, INSET = 8, MARKER = 10, SHAFT = 8, PARALLEL = 10, DASH = '6 4';
-const FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+const FONT = 'Arial, sans-serif';
 /** One spec shape per parser shape (`parseMermaid` names), plus `decision` for the diamond / long-text hexagon. Sources: [..] rect, (..) capsule, {..} decision,
  *  [(..)] cylinder, [[..]] subroutine, ((..)) circle, (((..))) doublecircle, {{..}} hexagon, [/../] parallelogram, [\..\] parallelogram_alt, [/..\] trapezoid,
  *  [\../] trapezoid_alt, >..] asymmetric, ([..]) stadium (drawn as capsule). */
@@ -30,21 +30,27 @@ const SHAPE_ALIASES = {store: 'cylinder', queue: 'subroutine', stadium: 'capsule
 const canonShape = s => SHAPE_ALIASES[s] ?? s;
 const SHAPE_NAMES = [...SPEC_SHAPES, ...Object.keys(SHAPE_ALIASES)];
 const SLANTED = ['hexagon', 'parallelogram', 'parallelogram_alt', 'trapezoid', 'trapezoid_alt', 'asymmetric'];
-const TEXT_SCALE = 0.93; // the glyph table below is a per-glyph upper bound; findings use 93% of it (the auditor measures real glyphs)
 export const LIMITS = {nodes: 200, edges: 400, groups: 50, points: 40, bytes: 400_000};
 
-// Per-glyph width in em (upper bound of measured Chromium getBBox widths at 12-24px, same table as kit/svgkit.py).
-const EM = {' ':.29,'!':.32,'"':.48,'#':.64,'$':.64,'%':.93,'&':.72,"'":.3,'(':.39,')':.39,'*':.48,'+':.64,',':.3,'-':.48,'.':.3,'/':.31,
-  '0':.64,'1':.47,'2':.61,'3':.63,'4':.65,'5':.62,'6':.64,'7':.59,'8':.64,'9':.64,':':.3,';':.3,'<':.64,'=':.64,'>':.64,'?':.52,'@':.92,
-  A:.68,B:.66,C:.72,D:.73,E:.6,F:.58,G:.75,H:.75,I:.27,J:.54,K:.66,L:.57,M:.88,N:.75,O:.78,P:.64,Q:.78,R:.66,S:.64,T:.64,U:.74,V:.68,W:.97,X:.68,Y:.66,Z:.67,
-  '[':.39,'\\':.31,']':.39,'^':.64,_:.59,'`':.51,a:.56,b:.62,c:.56,d:.62,e:.58,f:.37,g:.61,h:.59,i:.25,j:.26,k:.55,l:.26,m:.88,n:.59,o:.6,p:.62,q:.61,r:.39,s:.53,
-  t:.37,u:.59,v:.55,w:.78,x:.53,y:.55,z:.54,'{':.39,'|':.26,'}':.39,'~':.64};
+// Arial upper-bound glyph metrics shared with kit/svgkit.py; see its portable font contract.
+const EM = {
+  " ":0.29,"!":0.32,"\"":0.48,"#":0.64,"$":0.64,"%":0.93,"&":0.72,"'":0.3,"(":0.39,")":0.39,
+  "*":0.48,"+":0.64,",":0.3,"-":0.48,".":0.3,"/":0.31,"0":0.64,"1":0.56,"2":0.61,"3":0.63,
+  "4":0.65,"5":0.62,"6":0.64,"7":0.59,"8":0.64,"9":0.64,":":0.3,";":0.3,"<":0.64,"=":0.64,
+  ">":0.64,"?":0.56,"@":1.02,"A":0.68,"B":0.67,"C":0.73,"D":0.73,"E":0.67,"F":0.62,"G":0.78,
+  "H":0.75,"I":0.28,"J":0.54,"K":0.67,"L":0.57,"M":0.88,"N":0.75,"O":0.78,"P":0.67,"Q":0.78,
+  "R":0.73,"S":0.67,"T":0.64,"U":0.74,"V":0.68,"W":0.97,"X":0.68,"Y":0.67,"Z":0.67,"[":0.39,
+  "\\":0.31,"]":0.39,"^":0.64,"_":0.59,"`":0.51,"a":0.56,"b":0.62,"c":0.56,"d":0.62,"e":0.58,
+  "f":0.37,"g":0.61,"h":0.59,"i":0.25,"j":0.27,"k":0.55,"l":0.26,"m":0.88,"n":0.59,"o":0.6,
+  "p":0.62,"q":0.61,"r":0.39,"s":0.53,"t":0.37,"u":0.59,"v":0.55,"w":0.78,"x":0.53,"y":0.55,
+  "z":0.54,"{":0.39,"|":0.27,"}":0.39,"~":0.64,
+};
 export function measureText(text, size = 18) {
   let t = 0;
   for (const ch of String(text)) t += EM[ch] ?? (ch.codePointAt(0) > 0x2e80 ? 1 : 0.95);
   return t * size;
 }
-const W = (text, size) => measureText(text, size) * TEXT_SCALE;
+const W = (text, size) => measureText(text, size);
 function wrap(text, width, size) {
   const lines = [];
   for (const para of String(text).split('\n')) {

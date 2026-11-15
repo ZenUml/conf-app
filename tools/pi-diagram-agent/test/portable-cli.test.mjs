@@ -18,7 +18,7 @@ test('local runtime closure resolves installed package files',()=>{
 });
 test('doctor exercises actual local Chromium without auth/model call',()=>{
  const r=spawnSync(process.execPath,[cli,'doctor'],{cwd:'/',encoding:'utf8',timeout:60000});
- assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/PASS: local Pi SDK/);assert.match(r.stdout,/unverified/);
+ assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/PASS: local Pi SDK/);assert.match(r.stdout,/unverified/);assert.match(r.stdout,/Arial-compatible font metrics/);
 });
 test('installed local Pi RPC loads the extension with no model prompt',async()=>{
  const {spawn}=await import('node:child_process');

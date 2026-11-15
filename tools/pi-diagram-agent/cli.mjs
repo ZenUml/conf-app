@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {runtimePaths,configureRuntime} from './src/runtime.mjs';
 import {classifyQuality} from './src/quality.mjs';
+import {measureText} from './src/spec-render.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const usage=`Pi diagram refinement (openai-codex subscription OAuth)
   node cli.mjs doctor
@@ -14,6 +15,22 @@ Authenticate separately with the installed Pi CLI /login and choose OpenAI Codex
 Refinement and independent review consume subscription quota. No paid API fallback.
 Outputs: summary.md, summary.json, candidate SVG and audit evidence, quality.json.
 A candidate is not human-accepted or certified. An incomplete quality gate exits 2.`;
+export async function assertPortableFontMetrics(page){
+  const measured=await page.evaluate(()=>{
+    const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');
+    document.body.append(svg);
+    const widths=[];
+    for(let code=32;code<127;code++)for(const size of [12,28]){
+      const text=String.fromCharCode(code).repeat(6),node=document.createElementNS(ns,'text');
+      node.setAttribute('font-family','Arial, sans-serif');node.setAttribute('font-size',String(size));
+      node.setAttribute('xml:space','preserve');node.textContent=text;svg.append(node);
+      widths.push({text,size,width:node.getBBox().width});node.remove();
+    }
+    svg.remove();return widths;
+  });
+  const incompatible=measured.find(({text,size,width})=>!Number.isFinite(width)||width>measureText(text,size)+1e-6);
+  if(incompatible)throw Error(`Arial-compatible font unavailable: install Arial or Liberation Sans and the Playwright system dependencies (Linux: pnpm exec playwright install --with-deps chromium), then rerun doctor. Measured ${JSON.stringify(incompatible)} exceeds the declared width bound.`);
+}
 async function doctor(){
   const paths=runtimePaths();
   const [{chromium},ai,sdk]=await Promise.all([import('playwright'),import('typebox'),import('@earendil-works/pi-coding-agent')]);
@@ -21,8 +38,8 @@ async function doctor(){
   for(const [name,p] of Object.entries(paths))if(!fs.existsSync(p))throw Error(`${name} missing: run pnpm install --ignore-workspace --frozen-lockfile`);
   const py=spawnSync('python3',['--version'],{encoding:'utf8'});
   if(py.status!==0)throw Error('python3 is required for generated diagram scripts');
-  let browser;try{browser=await chromium.launch({headless:true,executablePath:process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE});await browser.newPage()}catch(e){throw Error(`Chromium unavailable: run pnpm run setup:browser. ${e.message}`)}finally{await browser?.close()}
-  console.log('PASS: local Pi SDK, Mermaid, Python and Chromium. OAuth/model access is unverified; doctor makes no model calls.');
+  let browser;try{browser=await chromium.launch({headless:true,executablePath:process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE});const page=await browser.newPage();await assertPortableFontMetrics(page)}catch(e){if(e.message.startsWith('Arial-compatible font unavailable'))throw e;throw Error(`Chromium unavailable: run pnpm run setup:browser. ${e.message}`)}finally{await browser?.close()}
+  console.log('PASS: local Pi SDK, Mermaid, Python, Chromium and Arial-compatible font metrics. OAuth/model access is unverified; doctor makes no model calls.');
 }
 async function main(){
  const [command,...args]=process.argv.slice(2);
@@ -41,4 +58,4 @@ async function main(){
  const quality={...classifyQuality(run),model:opts['--model'],provider:'openai-codex',summary:path.join(out,'summary.md')};
  fs.writeFileSync(path.join(out,'quality.json'),JSON.stringify(quality,null,2)+'\n');console.log(JSON.stringify(quality,null,2));if(quality.status!=='REVIEWED_CANDIDATE')process.exitCode=2;
 }
-main().catch(e=>{console.error(e.message);process.exitCode=1});
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))main().catch(e=>{console.error(e.message);process.exitCode=1});

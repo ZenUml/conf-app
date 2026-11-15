@@ -188,5 +188,5 @@ function siteEnforcementStory(count: number, stage: 'notice' | 'watermark'): Sto
 }
 
 export const LiteLimitReached2282 = siteEnforcementStory(2282, 'watermark')
-export const LiteLimitReachedExactly100 = siteEnforcementStory(100, 'watermark')
+export const LiteLimitReachedAtThreshold150 = siteEnforcementStory(150, 'watermark')
 export const LiteNoticeStageNoWatermark = siteEnforcementStory(2282, 'notice')

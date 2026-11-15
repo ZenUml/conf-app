@@ -50,7 +50,8 @@ Two consequences drive this design:
 - No block on viewing or on export.
 - No gate in the persistence layer. `saveToPlatform` stays ungated (Confluence is the system of
   record; see `docs/features/paywall.md`).
-- No change to the 100-diagram threshold, the price, or `PAYWALL_EXEMPTIONS` semantics.
+- No change to the published 100-diagram limit, the price, or `PAYWALL_EXEMPTIONS` semantics.
+  Enforcement starts at 150, above the published limit (see "Enforcement threshold reached").
 - No fleet default. A site without a policy keeps the banner-only behaviour.
 
 ## Policy contract
@@ -84,13 +85,13 @@ below are the examples the unit tests run (`functions/service/paywallEnforcement
 
 ```
 policy (KV) + clock ───────────► 1. stage in force   none | notice | watermark | block_create | block_edit
-space count ───────────────────► 2. limit reached    yes | no | unknown
+space count ───────────────────► 2. threshold reached yes | no | unknown
 product, licence, paid rail,
 exemption ─────────────────────► 3. covered          yes | no | unknown
                                         │
                                         ▼
                          4. enforcement = stage in force
-                            only if covered = no AND limit reached = yes
+                            only if covered = no AND threshold reached = yes
                             otherwise off
                                         │
                                         ▼
@@ -99,7 +100,8 @@ exemption ─────────────────────► 3. 
 
 Two rules keep the model small:
 
-- **One number test.** `count >= MACROS_LIMIT` appears in concept 2 and nowhere else. Banner,
+- **One number test.** `count >= ENFORCEMENT_THRESHOLD` (150) appears in concept 2 and nowhere
+  else. Banner,
   watermark, create block and edit meter never compare a count; they read the stage.
 - **Unknown is never yes.** An unknown count, an unreadable licence or an unreadable exemption
   list gives `off` (fail open).
@@ -122,24 +124,42 @@ The pilot policy in these examples is `effectiveAt = 2026-12-08T00:00:00Z`.
 | `stage = block_create` | 2026-12-08 00:00:00 | block_create |
 | `stage = block_edit` | 2026-12-08 00:00:00 | block_edit |
 
-### 2. Limit reached
+### 2. Enforcement threshold reached
 
-| Space count | Limit reached |
+Two numbers, two jobs:
+
+| Number | Value | Job |
+|---|---|---|
+| Published limit (`MACROS_LIMIT`) | 100 | What Lite covers per space. Shown to the reader ("of 100"). Never compared with a count by this decision |
+| Enforcement threshold (`ENFORCEMENT_THRESHOLD`) | 150 | Where this decision starts. The only number a count is compared with |
+
+| Space count | Threshold reached |
 |---|---|
 | 0 | no |
 | 99 | no |
-| 100 | yes |
-| 101 | yes |
+| 100 | no (at the published limit, inside the buffer) |
+| 101 | no |
+| 149 | no |
+| 150 | yes |
+| 151 | yes |
 | 2,282 | yes |
 | space missing from the metrics entry | unknown |
 | not a whole number, or negative | unknown |
 
-This is the test the product already uses in every place (banner severity, Fullscreen gate on
-client and server, Plan-and-usage, headless classification), and the public FAQ states it the same
-way ("Once a space reaches that threshold"). The 2026-11-14 rule that gave the watermark its own
-test (`count > MACROS_LIMIT`) is withdrawn. It existed only because the strip title said "Over the
-Lite diagram limit", which is false at exactly 100. The title now says "Lite diagram limit
-reached".
+**Buffer of 50 (owner decision, 2026-11-15).** The space count comes from a cache and can be
+wrong by a few diagrams (see "Stale macro count"). Enforcement at exactly 100 would put a mark on
+a space that a recount shows at 97. Starting at 150 means every space that gets enforcement is
+over the published limit even if the count is off by up to 50. Every enforcement surface (dated
+banner, watermark, create block, edit meter) uses this one test.
+
+Not changed by this decision: the surfaces that already exist and use 100 (banner severity,
+Fullscreen gate on client and server, Plan-and-usage, headless classification). They state or
+classify against the published limit. Whether the Fullscreen gate also moves to 150 is open
+decision 6.
+
+History: the 2026-11-14 rule that gave the watermark its own test (`count > MACROS_LIMIT`) is
+withdrawn, and so is the 2026-11-15 morning rule `count >= MACROS_LIMIT`. The strip title stays
+"Lite diagram limit reached"; it is true for every enforced space.
 
 ### 3. Covered
 
@@ -158,7 +178,7 @@ reached".
 
 ### 4. Enforcement
 
-| Stage in force | Limit reached | Covered | Enforcement |
+| Stage in force | Threshold reached | Covered | Enforcement |
 |---|---|---|---|
 | none | yes | no | off |
 | watermark | no | no | off |
@@ -189,8 +209,9 @@ Site policy `stage = watermark`, `effectiveAt = 2026-12-08T00:00:00Z`, product L
 | # | Space count | Licence / cover | Now | Enforcement | A reader sees |
 |---|---|---|---|---|---|
 | 1 | 2,282 | none | 2026-12-09 | watermark | diagram + watermark + strip |
-| 2 | 100 | none | 2026-12-09 | watermark | diagram + watermark + strip |
-| 3 | 99 | none | 2026-12-09 | off | diagram only |
+| 2 | 150 | none | 2026-12-09 | watermark | diagram + watermark + strip ("150 of 100") |
+| 3 | 149 | none | 2026-12-09 | off | diagram only |
+| 3a | 100 | none | 2026-12-09 | off | diagram only (at the published limit, inside the buffer) |
 | 4 | unknown | none | 2026-12-09 | off | diagram only |
 | 5 | 2,282 | space licence, active | 2026-12-09 | off | diagram only |
 | 6 | 2,282 | space licence, expired 2026-11-06 | 2026-12-09 | watermark | diagram + watermark + strip |
@@ -210,11 +231,11 @@ Site policy `stage = watermark`, `effectiveAt = 2026-12-08T00:00:00Z`, product L
 | Export and stored PNG | unchanged | unchanged, no watermark | unchanged, no watermark | unchanged, no watermark |
 | Edit an existing diagram | allowed | allowed | allowed | existing continue-attempts meter (3), then locked |
 | Create a new diagram in an over-limit space | allowed | allowed | blocked, no continue button | blocked, no continue button |
-| Create in a space under 100 | allowed | allowed | allowed | allowed |
+| Create in a space under 150 | allowed | allowed | allowed | allowed |
 | Page banner (information only, one link: "View plan and usage") | dated notice | "diagrams in this space carry a watermark" | "new diagrams are paused" | "editing is limited" |
 | Plan-and-usage page | purchase options | purchase options | purchase options | purchase options |
 
-The table shows a space where enforcement is on (see "Decision model": limit reached, not covered).
+The table shows a space where enforcement is on (see "Decision model": threshold reached, not covered).
 
 Examples for a site with `stage = block_create`, `effectiveAt = 2026-12-08`:
 
@@ -316,13 +337,14 @@ LicenseWatermark + LicenseNoticeStrip (Lite copy)
 | Part | Text |
 |---|---|
 | Watermark headline | `UPGRADE REQUIRED` |
-| Watermark second line | `<count> of 100 Lite diagrams in this space · Ask your Confluence admin` |
+| Watermark second line | `<count> of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade` |
 | Strip title | Lite diagram limit reached |
 | Strip body | This diagram stays viewable. This space has `<count>` diagrams and Lite covers 100 per space. Ask your Confluence admin to upgrade to Full to remove the watermark. |
 | Strip button | View plan and usage |
 
 `<count>` is the space's diagram count from the same response that makes the decision, with a
-thousands separator. The limit comes from `MACROS_LIMIT`, not a literal.
+thousands separator. The limit comes from `MACROS_LIMIT`, not a literal. The smallest count a
+reader can see is 150 ("150 of 100").
 
 The Full copy (`NO ACTIVE LICENSE`, "subscribe to Full") is wrong on Lite: Lite has no Forge
 licence and the reader's site did not let a subscription lapse. Constraints the choice had to meet:
@@ -330,7 +352,7 @@ licence and the reader's site did not let a subscription lapse. Constraints the 
 | Constraint | Reason |
 |---|---|
 | Headline ≤ 17 characters at the designed size | `NO ACTIVE LICENSE` is the widest that fits (Figma `383:377`) |
-| Second line ≤ about 65 characters | Longer lines leave the rotated area |
+| Second line ≤ 80 characters | Measured 2026-11-15 in Storybook (macOS system font): an 80-character line (`48,203 of 100 …`) ends 3 units inside the 1374×430 area. Longer lines leave it. Not measured with Segoe UI or Roboto |
 | States a fact the reader can check | The owner rejected `UNLICENSED` on 2026-11-02: the customer did nothing wrong |
 | Names who can act | A reader cannot pay |
 | Points to Full through the Confluence admin, not to a per-space purchase | A site with many over-limit spaces pays less for Full than for one Bundle per space |
@@ -341,14 +363,14 @@ Candidates considered (count shown is an example):
 | # | Headline | Second line | Result |
 |---|---|---|---|
 | A | `OVER LITE LIMIT` | 2,282 of 100 diagrams · Ask your Confluence admin to upgrade to Full | Fallback: states the fact but not the action |
-| B | `UPGRADE REQUIRED` | 2,282 of 100 Lite diagrams in this space · Ask your Confluence admin | **Chosen** |
+| B | `UPGRADE REQUIRED` | 2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade | **Chosen** |
 | C | `PAYMENT REQUIRED` | Over the Lite limit · Ask your Confluence admin to subscribe to Full | Rejected: Lite is a free app |
 | D | `NO ACTIVE LICENSE` | Payment required · Ask your Confluence admin to subscribe to Full | Rejected: not true on Lite |
 
 The 100-diagram limit is published on zenuml.com (checked 2026-11-15): `confluence/faq`
 ("limited to 100 diagrams per Confluence space. Once a space reaches that threshold, a paywall
-prompt appears"), `confluence/install`, `upgrade` and `confluence/diagram-types`. The wording
-matches `count >= MACROS_LIMIT`. Open before release: the FAQ names a paywall prompt only. Add the
+prompt appears"), `confluence/install`, `upgrade` and `confluence/diagram-types`. Enforcement
+starts at 150, so it never acts before the published threshold. Open before release: the FAQ names a paywall prompt only. Add the
 watermark to it before the `watermark` stage reaches a customer, so "required" has a published
 term behind it.
 
@@ -407,9 +429,9 @@ Rollback at any point: delete the key. The next `space-status` read returns no e
 
 | Risk | Note |
 |---|---|
-| Create displacement | Users can create in a space under 100 or open a new space. In the A/B, edits in blocked spaces fell while licensed spaces rose, and blocked spaces stayed low for five weeks after the block was lifted for everyone. A per-space limit invites this; v1 measures it (creates in spaces under 100, count of spaces over 100) and does not prevent it |
+| Create displacement | Users can create in a space under 150 or open a new space. In the A/B, edits in blocked spaces fell while licensed spaces rose, and blocked spaces stayed low for five weeks after the block was lifted for everyone. A per-space limit invites this; v1 measures it (creates in spaces under 150, count of spaces at 150 or more) and does not prevent it |
 | Many requesters, no buyer | Past extension requests came from different people each time. Replies must ask who owns Confluence apps |
-| Stale macro count | A space that shrank below 100 with no later save can stay at 100 or more in the cache. Count unknown or under 100 is fail-open, but a stale high count is not |
+| Stale macro count | A space that shrank with no later save can keep a higher count in the cache. Count unknown or under 150 is fail-open. The buffer of 50 covers an error up to 50; a space that shrank from 150 or more to under 100 with no later save is still marked |
 | Decision cached for 5 minutes | `/api/space-status` answers with `private, max-age=300`. After `effectiveAt` passes or the policy key changes, a viewer can keep the earlier decision for up to 5 minutes. The result is late, not wrong |
 | Shared staging slot | Forge staging is one slot; validate on the candidate build only |
 | Watermark has no conversion evidence | The Full notice is days old on two sites. Read its result before the T+30 review |
@@ -478,6 +500,9 @@ evidence is the unchanged gate plus the captured event.
 3. Whether a site-wide Stripe price exists for sites with many over-limit spaces, or those sites
    are sent to the Marketplace Full plan only.
 4. Whether the Fullscreen recovery policy stays on for a site that also has this policy.
-5. Resolved 2026-11-15: the 100-diagram limit is published on zenuml.com and its wording matches
-   `count >= 100` (see "Viewer watermark"). Still open: add the watermark to the FAQ text before
+5. Resolved 2026-11-15: the 100-diagram limit is published on zenuml.com; enforcement starts at
+   150, above it (see "Viewer watermark"). Still open: add the watermark to the FAQ text before
    the `watermark` stage reaches a customer.
+
+6. Whether the Fullscreen gate (today at the published limit, 100) also moves to the enforcement
+   threshold of 150. This spec does not change it.

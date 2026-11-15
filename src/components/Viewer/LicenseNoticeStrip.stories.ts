@@ -22,4 +22,4 @@ const liteArgs = { basis: 'site_policy_limit_reached', limit: 100, stage: 'water
 
 export const FullNoActiveLicense: Story = {}
 export const LiteCount2282: Story = { args: { ...liteArgs, count: 2282 } }
-export const LiteCount100: Story = { args: { ...liteArgs, count: 100 } }
+export const LiteCount150: Story = { args: { ...liteArgs, count: 150 } }

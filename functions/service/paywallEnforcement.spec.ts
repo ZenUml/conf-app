@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  decideEnforcement, effectsOf, limitReached, parseEnforcementPolicy, resolveEnforcement,
-  stageInForce, type EnforcementStage,
+  decideEnforcement, effectsOf, parseEnforcementPolicy, resolveEnforcement,
+  stageInForce, thresholdReached, type EnforcementStage,
 } from './paywallEnforcement';
 
 const LITE = '8ad26115-211f-4216-971b-0540f606303d';
@@ -28,12 +28,13 @@ describe('stage in force', () => {
   });
 });
 
-describe('limit reached', () => {
+// The published limit is 100; enforcement starts at 150 so a miscount near 100 cannot trigger it.
+describe('enforcement threshold reached', () => {
   it.each([
-    [0, 'no'], [99, 'no'], [100, 'yes'], [101, 'yes'], [2282, 'yes'],
-    [null, 'unknown'], [undefined, 'unknown'], [1.5, 'unknown'], [-1, 'unknown'], ['100', 'unknown'],
+    [0, 'no'], [99, 'no'], [100, 'no'], [101, 'no'], [149, 'no'], [150, 'yes'], [151, 'yes'], [2282, 'yes'],
+    [null, 'unknown'], [undefined, 'unknown'], [1.5, 'unknown'], [-1, 'unknown'], ['150', 'unknown'],
   ])('count %s -> %s', (count, expected) => {
-    expect(limitReached(count)).toBe(expected);
+    expect(thresholdReached(count)).toBe(expected);
   });
 });
 
@@ -98,11 +99,15 @@ describe('resolveEnforcement end-to-end examples', () => {
       effects: { datedBanner: true, watermark: true, blockCreate: false, meterEdit: false },
     });
   });
-  it('2: count 100 -> watermark', async () => {
-    expect((await resolveEnforcement(fakeEnv({ count: 100 }).env, input, AFTER))?.stage).toBe('watermark');
+  it('2: count 150 -> watermark, still reported against the published limit of 100', async () => {
+    const result = await resolveEnforcement(fakeEnv({ count: 150 }).env, input, AFTER);
+    expect(result?.stage).toBe('watermark');
+    expect(result?.limit).toBe(100);
   });
-  it('3: count 99 -> off', async () => {
-    expect(await resolveEnforcement(fakeEnv({ count: 99 }).env, input, AFTER)).toBeNull();
+  it('3: count 149, 100 and 99 (inside the buffer or under the limit) -> off', async () => {
+    for (const count of [149, 100, 99]) {
+      expect(await resolveEnforcement(fakeEnv({ count }).env, input, AFTER)).toBeNull();
+    }
   });
   it('4: unknown count -> off', async () => {
     expect(await resolveEnforcement(fakeEnv({ count: null }).env, input, AFTER)).toBeNull();

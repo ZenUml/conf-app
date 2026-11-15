@@ -834,7 +834,7 @@ export default {
       if (!this.siteNotice) return {};
       return {
         headline: 'UPGRADE REQUIRED',
-        detail: `${this.siteNotice.count.toLocaleString('en-US')} of ${this.siteNotice.limit.toLocaleString('en-US')} Lite diagrams in this space · Ask your Confluence admin`,
+        detail: `${this.siteNotice.count.toLocaleString('en-US')} of ${this.siteNotice.limit.toLocaleString('en-US')} Lite diagrams in this space · Ask your Confluence admin to upgrade`,
       };
     },
     showLicenseNotice() {

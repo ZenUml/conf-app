@@ -1,8 +1,11 @@
 import { cachedSpaceCount, resolveSiteDomain, RECOVERY_SPACE_KEY } from './fullscreenRecoveryEligibility';
 import { LITE_FORGE_APP_ID } from './fullscreenRecoveryService';
 
-// Mirrors MACROS_LIMIT in src/composables/useCustomerSuccessService.ts.
+// The published Lite limit; mirrors MACROS_LIMIT in src/composables/useCustomerSuccessService.ts.
+// Shown to the reader, never compared with a count here.
 export const ENFORCEMENT_MACROS_LIMIT = 100;
+// Enforcement starts above the published limit, so a miscount near 100 cannot trigger it.
+export const ENFORCEMENT_THRESHOLD = 150;
 
 export type EnforcementStage = 'notice' | 'watermark' | 'block_create' | 'block_edit';
 export type Tri = 'yes' | 'no' | 'unknown';
@@ -35,10 +38,10 @@ export function stageInForce(policy: EnforcementPolicy | null, now: Date): Enfor
   return now.getTime() >= Date.parse(policy.effectiveAt) ? policy.stage : 'notice';
 }
 
-/** The only place a space count is compared with the limit. */
-export function limitReached(count: unknown): Tri {
+/** The only place a space count decides enforcement. */
+export function thresholdReached(count: unknown): Tri {
   if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return 'unknown';
-  return count >= ENFORCEMENT_MACROS_LIMIT ? 'yes' : 'no';
+  return count >= ENFORCEMENT_THRESHOLD ? 'yes' : 'no';
 }
 
 export function decideEnforcement(
@@ -97,7 +100,7 @@ export async function resolveEnforcement(
     const domain = await resolveSiteDomain(env.DB, { cloudId: input.cloudId, forgeAppId: input.forgeAppId });
     if (!domain) return null;
     const count = await cachedSpaceCount(env.confluence_plugin_features, domain, input.spaceKey);
-    const limit = limitReached(count);
+    const limit = thresholdReached(count);
     if (limit !== 'yes') return null;
 
     const covered = exemptionCover(await env.KV_FEATURE_FLAGS.get('PAYWALL_EXEMPTIONS'), domain);

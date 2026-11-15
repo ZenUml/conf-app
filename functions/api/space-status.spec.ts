@@ -151,9 +151,10 @@ describe('space-status enforcement', () => {
     expect(body.enforcement.stage).toBe('watermark');
     expect(body.enforcement.effects.watermark).toBe(true);
   });
-  it('count 100 on, count 99 absent', async () => {
-    expect((await readEnforced({ count: 100 })).enforcement?.stage).toBe('watermark');
-    expect((await readEnforced({ count: 99 })).enforcement).toBeUndefined();
+  it('count 150 on; count 149 and 100 absent', async () => {
+    expect((await readEnforced({ count: 150 })).enforcement?.stage).toBe('watermark');
+    expect((await readEnforced({ count: 149 })).enforcement).toBeUndefined();
+    expect((await readEnforced({ count: 100 })).enforcement).toBeUndefined();
   });
   it('active space licence: absent', async () => {
     const body = await readEnforced({ kv: { 'license:site-a:ENG': active } });

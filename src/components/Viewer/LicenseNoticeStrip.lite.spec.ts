@@ -19,7 +19,7 @@ describe('LicenseNoticeStrip, Lite site-policy variant', () => {
 
   it.each([
     [2282, '2,282'],
-    [100, '100'],
+    [150, '150'],
   ])('shows the Lite copy with count %i as %s', (count, label) => {
     const wrapper = mount(LicenseNoticeStrip, { props: { ...liteProps, count } })
     expect(wrapper.get('.license-notice-title').text()).toBe('Lite diagram limit reached')
@@ -55,8 +55,8 @@ describe('LicenseWatermark text', () => {
 
   it('renders the headline and detail it is given', () => {
     const text = mount(LicenseWatermark, {
-      props: { headline: 'UPGRADE REQUIRED', detail: '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin' },
+      props: { headline: 'UPGRADE REQUIRED', detail: '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade' },
     }).findAll('text').map(t => t.text())
-    expect(text).toEqual(['UPGRADE REQUIRED', '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin'])
+    expect(text).toEqual(['UPGRADE REQUIRED', '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade'])
   })
 })

@@ -26,8 +26,12 @@ type Story = StoryObj<typeof LicenseWatermark>
 
 export const Full: Story = {}
 export const LiteCount2282: Story = {
-  args: { headline: 'UPGRADE REQUIRED', detail: '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin' },
+  args: { headline: 'UPGRADE REQUIRED', detail: '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade' },
 }
-export const LiteCount100: Story = {
-  args: { headline: 'UPGRADE REQUIRED', detail: '100 of 100 Lite diagrams in this space · Ask your Confluence admin' },
+export const LiteCount150: Story = {
+  args: { headline: 'UPGRADE REQUIRED', detail: '150 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade' },
+}
+// Longest second line expected in practice (five-digit count): the fit check.
+export const LiteCount48203: Story = {
+  args: { headline: 'UPGRADE REQUIRED', detail: '48,203 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade' },
 }

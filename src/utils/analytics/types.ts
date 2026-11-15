@@ -563,6 +563,8 @@ export type AnalyticsProperties = {
   bundle_price_usd?: number;
   /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
   purchasable_space_count?: number;
+  /** Per-space Lite limit at the time of a checkout action. */
+  macro_limit?: number;
   // JSM Apply Extension automation. `extension_action` is the fixed policy
   // command, never an arbitrary duration. Initial grants are requester-only
   // for 7 days; feedback grants renew the same requester for 60 days.

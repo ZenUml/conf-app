@@ -49,6 +49,34 @@ describe('space-status decisionKnown', () => {
     vi.mocked(validateContextToken).mockResolvedValue(fit() as any);
   });
 
+  it('batches space and viewer licenses using trusted FIT identity with one paid-rail read', async () => {
+    const database = db(null)
+    const ctx = context({ database, kv: { 'license:site-a:PAID': active, 'license:site-a:USER:user-a': active } })
+    ctx.request = new Request('https://api.example.test/api/space-status?spaceKey=ENG&spaceKey=PAID&spaceKey=USER&accountId=foreign&cloudId=foreign', { headers: { Authorization: 'Bearer valid-fit' } })
+    const response = await onRequest(ctx)
+    expect(await response.json()).toEqual({ statuses: {
+      ENG: { isPaid: false, decisionKnown: true },
+      PAID: { isPaid: true, decisionKnown: true, source: 'space_license' },
+      USER: { isPaid: true, decisionKnown: true, source: 'user_license' },
+    } })
+    expect(database.first).toHaveBeenCalledOnce()
+    expect(validateContextToken).toHaveBeenCalledWith('valid-fit', 'lite-id')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+  })
+
+  it('keeps other batch decisions when a row cannot be read', async () => {
+    const ctx = context()
+    ctx.env.SPACE_LICENSE_KV.get.mockImplementation(async (key: string) => {
+      if (key.includes(':BAD')) throw new Error('unreadable')
+      return null
+    })
+    ctx.request = new Request('https://api.example.test/api/space-status?spaceKey=ENG&spaceKey=BAD', { headers: { Authorization: 'Bearer valid-fit' } })
+    expect(await (await onRequest(ctx)).json()).toEqual({ statuses: {
+      ENG: { isPaid: false, decisionKnown: true },
+      BAD: { isPaid: false, decisionKnown: false, error: 'internal_error', message: 'Internal Server Error' },
+    } })
+  })
+
   it('reports a confirmed unpaid decision only after KV and D1 reads succeed', async () => {
     const database = db(null);
     const { response, body } = await read({ database });

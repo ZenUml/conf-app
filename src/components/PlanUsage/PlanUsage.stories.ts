@@ -77,6 +77,7 @@ function typeMatch(spaceId: string, suffix: string): string {
 
 function installStubs(overrides: Array<{ match: string; status?: number; body: any }> = []) {
   resetStubResponses()
+  stubResponses.remote = [{ match: '/api/space-status', body: { isPaid: false, decisionKnown: true } }]
   stubResponses.confluence = [
     ...overrides,
     { match: '/api/v2/spaces?keys=', body: { results: [{ id: '301', key: 'ENG', name: 'Engineering' }, { id: '302', key: 'OPS', name: 'Operations' }] } },
@@ -298,5 +299,42 @@ export const NoReportedSpaces: Story = {
     const canvas = within(document.body)
     await userEvent.click(await canvas.findByTestId('plan-usage-view-locations'))
     await expect(await canvas.findByTestId('diagram-locations-none', {}, { timeout: 5000 })).toBeVisible()
+  },
+}
+
+/** Includes paid space/user licenses, personal spaces and the exact limit. */
+export const SpacePurchases: Story = {
+  name: 'Space purchases — mixed paid and unpaid',
+  beforeEach: () => {
+    stubResponses.remote = [{ match: '/api/space-status', body: { statuses: {
+      ENG: { isPaid: false, decisionKnown: true }, OPS: { isPaid: false, decisionKnown: true },
+      '~abc123': { isPaid: false, decisionKnown: true }, PAID: { isPaid: true, decisionKnown: true },
+      USER: { isPaid: true, decisionKnown: false }, UNKNOWN: { isPaid: false, decisionKnown: false },
+    } } }]
+    const restore = stubFetch({ ...usage, totalMacros: 1506, overLimitSpaces: [
+      { spaceKey: 'ENG', macroCount: 143 }, { spaceKey: 'OPS', macroCount: 100 },
+      { spaceKey: '~abc123', macroCount: 120 }, { spaceKey: 'PAID', macroCount: 400 },
+      { spaceKey: 'USER', macroCount: 400 }, { spaceKey: 'UNKNOWN', macroCount: 143 },
+    ] })
+    return restore
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Unlock this space: ENG' })).toBeVisible()
+    await expect(canvas.getAllByText('Covered by a paid license')).toHaveLength(2)
+    await expect(canvas.getByText('License status unavailable')).toBeVisible()
+  },
+}
+
+export const PaidStatusUnavailable: Story = {
+  name: 'Space purchases — paid status unavailable',
+  beforeEach: () => {
+    stubResponses.remote = [{ match: '/api/space-status', status: 503, body: { error: 'unavailable' } }]
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByText('We couldn’t check paid access. Purchase options are unavailable for now.')).toBeVisible()
+    await expect(canvas.getByText('118 / 100')).toBeVisible()
+    await expect(canvas.queryByRole('button', { name: /Unlock this space/ })).toBeNull()
   },
 }

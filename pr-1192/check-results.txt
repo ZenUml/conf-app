@@ -6,4 +6,4 @@ Lite build:exit0, includes AsyncAPI Studio + main Lite + MCP app.
 Storybook:6/6 rendered states passed;1280x1000,fixture data.
 Forge Tunnel:live source localhost:8000 with @vite/client and /src/forgeIndex.ts; development SD127/100 row; external handoff lite-dev__SD observed, Cancel clicked. New multi-key backend not deployed at tunnel stage.
 Typecheck unavailable:vue-tsc1.8/TypeScript5.9 startup supportedTSExtensions incompatibility.
-CI staging/E2E:not yet run;trusted registry lacks the relevant plan-usage pairs.
+CI staging deployment succeeded;manual two-row UI and row-specific handoff URLs verified (staging-ui-evidence.md). Automated E2E blocked;trusted registry lacks relevant plan-usage pairs.

@@ -17,3 +17,6 @@ Typecheck limitation: existing vue-tsc1.8/TypeScript5.9 tooling crashes on `supp
 ## Limits
 Storybook stubs backend/Forge responses and is not live integration evidence. Native Stripe payment completion is out of scope and must never be performed.
 Forge Tunnel, CI staging and E2E outcomes will be recorded separately once observed. The trusted default-branch scenario registry has no PR E2E coverage for `paywall × plan-usage` or `site-usage × plan-usage`; subset authorization cannot be inferred from the page-banner navigation test.
+
+## CI staging followup
+CI deployed synthetic merge5ce2903 of candidatea87551e9. Manual staging observed two real rows, including exactly100, and each correct row-specific Stripe handoff URL. See staging-ui-evidence.md. Ordered Storybook → Forge Tunnel → CI-deployed Staging inspection completed; automated E2E remains blocked by test:triage. Native external-link confirmations were cancelled after verifying destinations; no payment. CI four unit shards and AsyncAPI/build result passed.

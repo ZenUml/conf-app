@@ -11,7 +11,7 @@ pnpm diagram:doctor
 
 Setup installs package-local Pi, Mermaid, Playwright and Chromium; it does not call a model. Doctor exercises the local SDK and browser but does not verify OAuth or model access. It must pass before generation. No global Pi installation or parked branch is required.
 
-The refinement command uses the `openai-codex` provider through Pi's subscription OAuth. It consumes subscription allowance and has no paid API fallback. Before a call, disclose this choice, the explicit model and time budget. If authentication is missing, launch the local CLI with `pnpm --dir tools/pi-diagram-agent exec pi --provider openai-codex`, use `/login`, and select OpenAI Codex. A configured login is not proof that a model request succeeds; report actual results separately.
+The refinement command uses the `openai-codex` provider through Pi's subscription OAuth. It consumes subscription allowance and has no paid API fallback. Before a call, disclose this choice, the explicit model and time budget. If authentication is missing, run `pnpm --dir tools/pi-diagram-agent exec pi auth login openai-codex`. A configured login is not proof that a model request succeeds; report actual results separately.
 
 For an authorized local refinement, pass absolute source/output paths:
 

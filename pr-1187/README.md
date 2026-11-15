@@ -2,7 +2,7 @@
 
 Base: `2ae6cbb7857cd815d2c86debfb7f7bc8917fe0ee`. Initial runtime candidate tested: `b7b03755941096492815e8b7af66efa2ecf84dd3`.
 
-This bundle uses only the synthetic source in `source.mmd`: Submit request → Check request → Return result. No customer access, Confluence API call or production write occurred.
+This bundle uses only the synthetic source in `source.mmd`: Submit request → Check request → Return result. The live model/refinement smoke made no customer access, Confluence API call or production write; separate app CI uses our staging environment.
 
 ## Before and after
 
@@ -55,3 +55,15 @@ The affected glyph/doctor/spec/shape/box/edge-label tests passed 163/163 with ze
 Current PR head: `39bf2230f1c989f51e15bb33db4a33822e9ad640`. Its only difference from `ec8386bf` is the skill's OAuth login recipe: use `pnpm --dir tools/pi-diagram-agent exec pi auth login openai-codex`. Pi 1.5.2 requires `--model` when `--provider` is used; the dedicated login command starts no model session.
 
 The runtime Git tree is identical at both commits: `b7ab57a07a0dfacea1f30547f1dd600c658c9b21`. [Runtime CI 43659001929](https://github.com/ZenUml/conf-app/actions/runs/43659001929) also passed on the documentation head; totals are captured in `documentation-head-ci-summary.txt`. All four app unit shards and AsyncAPI build passed on this head. The current PR body links the final authorized product smoke/export runs and their exact outcomes.
+
+## Final authorized CI
+
+All following runs passed for documentation head `39bf2230f1c989f51e15bb33db4a33822e9ad640` and its current smoke-floor decision:
+
+- [Standalone runtime](https://github.com/ZenUml/conf-app/actions/runs/43659001929): 945 Node + 42 Python tests, zero skips.
+- [App unit/build result](https://github.com/ZenUml/conf-app/actions/runs/43659001935/job/132644514167): all four unit shards and AsyncAPI build passed.
+- [Authorized PR checks/preview](https://github.com/ZenUml/conf-app/actions/runs/43659098594): success.
+- [Export](https://github.com/ZenUml/conf-app/actions/runs/43659098635): success.
+- [Authorized PR validation](https://github.com/ZenUml/conf-app/actions/runs/43659098674): E2E validation and Pipeline outcome success.
+
+The PR remains Draft for review. No merge or production release was performed. The earlier bounded live candidate remains INCOMPLETE; green integration tests do not change its acceptance status.

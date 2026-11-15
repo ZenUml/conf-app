@@ -18,22 +18,15 @@
       This space is over the ZenUML Lite diagram limit ({{ macroCount }} of {{ macrosLimit }}).
       Ask a site admin to upgrade to Full before it affects your team.
     </span>
-    <!-- Space admins get a purchase path they can execute alone: the Enterprise
-         Bundle is per-space and paid by card, so unlike the Marketplace upgrade
-         it needs no Confluence SITE admin. Everyone else gets the advocacy copy,
-         because for them the next step really is to ask someone. -->
+    <!-- No purchase or checkout control here: the Forge pageBanner guideline
+         forbids using banners to upsell or cross-promote. Purchase options
+         belong on the Plan-and-usage page. -->
     <div class="paywall-banner__actions">
       <button
         class="paywall-banner__btn paywall-banner__btn--primary"
         data-testid="paywall-banner-plan-usage"
         @click="onViewPlanUsage"
       >View plan and usage</button>
-      <button
-        v-if="audience === 'space_admin'"
-        class="paywall-banner__btn paywall-banner__btn--secondary"
-        data-testid="paywall-banner-unlock-space"
-        @click="onUnlockSpace"
-      >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
     </div>
   </div>
 </template>
@@ -41,14 +34,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
-import {
-  trackUpgradeEvent,
-  UpgradeEventName,
-  bundleClientReferenceId,
-} from '@/utils/upgradeTracking'
+import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
 import { getView, openUrl, navigateToAppPage } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import {
   deriveWarningBannerIdentity,
   readTargetingMarker,
@@ -75,7 +63,6 @@ const props = withDefaults(defineProps<{ isSpaceAdmin?: boolean }>(), { isSpaceA
 // spaceKey) comes from the targeting marker the macro iframe wrote earlier; we
 // only borrow the composable's PURE url builders (they depend on getClientDomain
 // only, not on initialize() having run).
-const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
 const customerSuccess = useCustomerSuccessService()
 
 const macrosLimit = MACROS_LIMIT
@@ -207,26 +194,6 @@ async function onViewPlanUsage() {
     await openUrl(customerSuccess.upgradeUrl.value)
   }
 }
-
-/**
- * Space-admin-only CTA. Goes straight to the Enterprise Bundle checkout because
- * that is the one purchase a space admin can complete without escalating: it is
- * scoped to the space they already administer and paid by card. The Marketplace
- * upgrade — the only other rail — requires a Confluence SITE admin, which a
- * space admin is not, and which we cannot detect at all.
- */
-async function onUnlockSpace() {
-  const bundleUrl = customerSuccess.enterpriseBundleUrl.value
-  const reference = bundleClientReferenceId(bundleUrl)
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
-    surface: 'page_banner',
-    severity,
-    bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
-    ...(reference !== undefined ? { client_reference_id: reference } : {}),
-    ...bannerContext(),
-  })
-  await openUrl(bundleUrl)
-}
 </script>
 
 <style scoped>
@@ -283,16 +250,6 @@ async function onUnlockSpace() {
 }
 .paywall-banner__btn--primary:hover {
   background: #7A3F0A;
-}
-
-.paywall-banner__btn--secondary {
-  background: transparent;
-  color: #44546F;
-  border: 1px solid #8590A2;
-}
-.paywall-banner__btn--secondary:hover {
-  background: #F1F2F4;
-  color: #172B4D;
 }
 
 </style>

@@ -1,0 +1,28 @@
+✖ portable Arial auto-font never discounts the width bound in a narrow label box (322.680583ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 379.86025
+
+✖ failing tests:
+
+test at test/spec-shapes.test.mjs:176:1
+✖ portable Arial auto-font never discounts the width bound in a narrow label box (322.680583ms)
+  AssertionError [ERR_ASSERTION]: {"method":"browser getBBox of every text bound to the node versus the node outline inset by 8 units (rect/capsule) or its declared data-label-box; non-rect shapes without a declared labelBox are never inferred. Independently, every painted outline and interior stroke of the node (cylinder lid/bottom arcs, queue and subroutine bars, decision outline) is sampled at <=0.5-unit steps from the drawn path geometry: text bboxes must keep >= 4 units from the stroke edge and a declared labelBox that contains a stroke is reported as a non-blocking labelBoxWarnings entry (label box overlaps shape structure) and never fails the check on its own","inset":8,"structureClearance":4,"overflows":[{"nodeId":"N","left":2.640625,"top":0,"right":2.640625,"bottom":0}],"structureOverlaps":[],"labelBoxWarnings":[],"notCheckableNodeIds":[],"reasons":{},"checkedNodes":1}
+
+  'FAIL' !== 'PASS'
+
+      at TestContext.<anonymous> (file:///workspace/conf-app/tools/pi-diagram-agent/test/spec-shapes.test.mjs:180:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'FAIL',
+    expected: 'PASS',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

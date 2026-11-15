@@ -1,0 +1,20 @@
+Commit: a3638a24bceece8acfc992b491cbaa322297f555
+Command: pnpm test:pi-diagram
+ℹ tests 936
+ℹ suites 0
+ℹ pass 936
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 81208.46025
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 35758.482875
+Ran 42 tests in 0.004s
+OK

@@ -31,3 +31,11 @@ The live candidate preview was opened in local Chromium at 1280×600 with HTTP r
 - Skill frontmatter, reference links, workflow YAML, whitespace and staged secret checks passed.
 
 Confluence Storybook, Forge tunnel and staging UI checks are **N/A**: the diff changes a developer runtime and its commands/test discovery, with no production Confluence UI import. Product CI evidence is tracked in the PR separately. Linux runtime CI discovered a font metric portability failure after this initial smoke; the PR records the follow-up fix and final tested commit. These images remain evidence of the exact initial smoke artifact.
+
+## Final portability fix and validation
+
+Final runtime candidate: `a3638a24bceece8acfc992b491cbaa322297f555`. The Linux CI failures reproduced under the original system-font contract. The fix uses an explicit Arial-compatible stack, raises per-glyph width bounds to cover actual browser measurements, removes a width discount that could overfill a narrow label, and checks actual font metrics in doctor before any model call. The auditor and canonical rules SHA remain unchanged.
+
+The narrow-label regression was red before removing the discount; it now passes textFit and labelFontFit and proves that the next integer font size cannot fit. Doctor rejects incompatible fallback metrics with actionable dependency instructions. See red/green font logs.
+
+The complete final local run passed **943 Node tests (936 main + 7 isolated performance) and 42 Python tests, zero skipped**. This supersedes the earlier local timeout record for code validation. Root app tests/build were unaffected by this package-only follow-up. The live model and generated-preview evidence above remain explicitly tied to the initial `b7b03755` run; no extra model call was made for the font-only fix. Linux confirmation is recorded in the PR CI links.

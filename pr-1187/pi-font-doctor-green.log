@@ -1,0 +1,15 @@
+✔ doctor refuses incompatible measured fallback fonts with an actionable dependency error (0.549708ms)
+✔ font preflight accepts bounds already verified by the browser (0.067458ms)
+✔ help is safe and independent of cwd and auth (40.863333ms)
+✔ refine requires explicit model before preflight or any launch (182.387041ms)
+✔ local runtime closure resolves installed package files (8.963292ms)
+✔ doctor exercises actual local Chromium without auth/model call (2700.391ms)
+✔ installed local Pi RPC loads the extension with no model prompt (235.747542ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3227.726458

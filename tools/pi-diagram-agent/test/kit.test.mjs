@@ -34,3 +34,19 @@ test('kit measure_text is an upper bound of live browser glyph widths for the ki
       assert.deepEqual(under,[]);
     }finally{await browser.close()}
   });
+
+test('both width estimators bound the observed Linux Chromium Arial glyphs',async()=>{
+  // Actual Linux CI run 43657020581 (a363): six repeats, Arial-compatible fallback.
+  // Keep the live all-glyph browser check above: these are regression observations, not a font substitute.
+  const observations=[
+    ['??????',12,40.369140625],['KKKKKK',16,64.359375],['YYYYYY',16,64.359375],
+    ['aaaaaa',12,40.369140625],['aaaaaa',15,50.71142578125],
+    ['aaaaaa',18,61.0537109375],['aaaaaa',24,80.73828125],
+  ];
+  const {measureText}=await import('../src/spec-render.mjs');
+  const python=JSON.parse(execFileSync('python3',['-c',`import sys,json;sys.path.insert(0,${JSON.stringify(kit)});import svgkit as k;print(json.dumps([k.measure_text(t,z) for t,z,w in json.loads(sys.argv[1])]))`,JSON.stringify(observations)],{encoding:'utf8'}));
+  for(const [i,[text,size,width]] of observations.entries()){
+    assert.ok(measureText(text,size)>=width,`spec estimate under Linux observation ${text}@${size}: ${width}`);
+    assert.ok(python[i]>=width,`kit estimate under Linux observation ${text}@${size}: ${width}`);
+  }
+});

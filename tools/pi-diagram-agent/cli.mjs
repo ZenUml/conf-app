@@ -29,7 +29,7 @@ export async function assertPortableFontMetrics(page){
     svg.remove();return widths;
   });
   const incompatible=measured.find(({text,size,width})=>!Number.isFinite(width)||width>measureText(text,size)+1e-6);
-  if(incompatible)throw Error(`Arial-compatible font unavailable: install Arial or Liberation Sans and the Playwright system dependencies (Linux: pnpm exec playwright install --with-deps chromium), then rerun doctor. Measured ${JSON.stringify(incompatible)} exceeds the declared width bound.`);
+  if(incompatible)throw Error(`Font metrics exceed supported Arial-compatible bounds: ensure Arial or Liberation Sans and the Playwright system dependencies are installed (Linux: pnpm exec playwright install --with-deps chromium), then rerun doctor. If installed, report these measurements. Measured ${JSON.stringify(incompatible)} exceeds the declared width bound.`);
 }
 async function doctor(){
   const paths=runtimePaths();
@@ -38,7 +38,7 @@ async function doctor(){
   for(const [name,p] of Object.entries(paths))if(!fs.existsSync(p))throw Error(`${name} missing: run pnpm install --ignore-workspace --frozen-lockfile`);
   const py=spawnSync('python3',['--version'],{encoding:'utf8'});
   if(py.status!==0)throw Error('python3 is required for generated diagram scripts');
-  let browser;try{browser=await chromium.launch({headless:true,executablePath:process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE});const page=await browser.newPage();await assertPortableFontMetrics(page)}catch(e){if(e.message.startsWith('Arial-compatible font unavailable'))throw e;throw Error(`Chromium unavailable: run pnpm run setup:browser. ${e.message}`)}finally{await browser?.close()}
+  let browser;try{browser=await chromium.launch({headless:true,executablePath:process.env.PI_DIAGRAM_CHROMIUM_EXECUTABLE});const page=await browser.newPage();await assertPortableFontMetrics(page)}catch(e){if(e.message.startsWith('Font metrics exceed supported Arial-compatible bounds'))throw e;throw Error(`Chromium unavailable: run pnpm run setup:browser. ${e.message}`)}finally{await browser?.close()}
   console.log('PASS: local Pi SDK, Mermaid, Python, Chromium and Arial-compatible font metrics. OAuth/model access is unverified; doctor makes no model calls.');
 }
 async function main(){

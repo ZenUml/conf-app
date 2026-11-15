@@ -1,6 +1,7 @@
 import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
+import { isCommentsModalContext } from '@/features/diagramComments/commentsMode';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
 import { TITLE_DRAFT_MACRO_MODE } from '@/features/titleDraft/constants';
 import { PLACEMENT_PICKER_MACRO_MODE } from '@/utils/byline/placementPicker';
@@ -104,6 +105,15 @@ async function initializeCriticalPath() {
   if (context.extension?.modal?.macroMode === 'feedback') {
     const { mountFeedbackModal } = await import('@/features/feedback/mountFeedback');
     mountFeedbackModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // The Comments modal (#1047, src/features/diagramComments). It loads resource 'main', so
+  // THIS entry runs again inside it: dispatch it here, before the viewer and the
+  // edge host, or the modal would boot a viewer that opens another modal.
+  if (isCommentsModalContext(context)) {
+    const { mountCommentsModal } = await import('@/features/diagramComments/mountComments');
+    mountCommentsModal(context);
     return { macroData: null, feedbackHandled: true };
   }
 
@@ -1275,7 +1285,7 @@ async function main() {
   // Phase 2: Load heavy components
   try {
     await loadHeavyComponents(criticalData);
-    void revealFromCommentLink();
+    if (!criticalData.feedbackHandled) void revealFromCommentLink();
     if (!criticalData.feedbackHandled) {
       const context = await initForgeContext();
       const { installFeedbackHost } = await import('@/features/feedback/mountFeedback');

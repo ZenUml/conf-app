@@ -1,0 +1,4 @@
+ WARN  Unsupported engine: wanted: {"node":">=24"} (current: {"node":"v22.22.3","pnpm":"10.34.5"})
+ WARN  Unsupported engine: wanted: {"node":">=24"} (current: {"node":"v22.22.3","pnpm":"10.34.5"})
+undefined
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "diagram:doctor" not found

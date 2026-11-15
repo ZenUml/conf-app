@@ -1,0 +1,29 @@
+{
+  "status": "INCOMPLETE",
+  "accepted": false,
+  "certified": false,
+  "finalSvgSha256": "969fa5b52428928ccc09f7bbae43cd2bd774f4a96227f0db3023c6730d03a451",
+  "reviewedSvgSha256": "969fa5b52428928ccc09f7bbae43cd2bd774f4a96227f0db3023c6730d03a451",
+  "finalSvgInspected": true,
+  "audit": {
+    "status": "NOT-CHECKABLE",
+    "fail": [],
+    "notCheckable": [
+      "nodeShape"
+    ],
+    "adjudicated": [],
+    "error": null,
+    "originalRenderFound": true
+  },
+  "gate": "CANDIDATE",
+  "reason": "TIME_LIMIT",
+  "notCheckable": [
+    "routeGeometry",
+    "visualQuality",
+    "nodeShape"
+  ],
+  "limitations": "Review is evidence of a candidate, not certification or human acceptance. Inspect audit evidence, advisory findings and comparison before use.",
+  "model": "gpt-6.1-sol",
+  "provider": "openai-codex",
+  "summary": "summary.md"
+}

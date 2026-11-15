@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="824" height="104" viewBox="0 0 824 104">
+<title>Request processing</title>
+<desc>Submit request, then Check request, then Return result.</desc>
+<!-- Semantic palette: neutral background.subtle #f1f5f9, border #64748b,
+text #0f172a: unclassified process steps. Canvas #ffffff.
+sequence-emphasis: neutral #334155, stroke 2.1 for the directed process sequence.
+No bold background variant is used. -->
+<defs><marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#334155"/></marker></defs>
+<rect width="824" height="104" fill="#ffffff"/>
+<path data-edge="e1" data-source="A" data-target="B" data-emphasis="sequence-emphasis" d="M240,52 L304,52" fill="none" stroke="#334155" stroke-width="2.1" marker-end="url(#arrow)"/>
+<path data-edge="e2" data-source="B" data-target="C" data-emphasis="sequence-emphasis" d="M520,52 L584,52" fill="none" stroke="#334155" stroke-width="2.1" marker-end="url(#arrow)"/>
+<g data-node="A" data-shape="rect" data-size-family="process" data-size-tier="compact" data-layer="sequence" data-size-extension='{"width":26,"height":4}' data-label-box='{"x":32,"y":24,"width":200,"height":56}'>
+<rect x="24" y="16" width="216" height="72" rx="4" fill="#f1f5f9" stroke="#64748b" stroke-width="2.25"/>
+<text data-role="label" x="132" y="52" dominant-baseline="central" text-anchor="middle" font-family="Arial, sans-serif" font-weight="400" font-size="27" fill="#0f172a">Submit request</text></g>
+<g data-node="B" data-shape="rect" data-size-family="process" data-size-tier="compact" data-layer="sequence" data-size-extension='{"width":26,"height":4}' data-label-box='{"x":312,"y":24,"width":200,"height":56}'>
+<rect x="304" y="16" width="216" height="72" rx="4" fill="#f1f5f9" stroke="#64748b" stroke-width="2.25"/>
+<text data-role="label" x="412" y="52" dominant-baseline="central" text-anchor="middle" font-family="Arial, sans-serif" font-weight="400" font-size="27" fill="#0f172a">Check request</text></g>
+<g data-node="C" data-shape="rect" data-size-family="process" data-size-tier="compact" data-layer="sequence" data-size-extension='{"width":26,"height":4}' data-label-box='{"x":592,"y":24,"width":200,"height":56}'>
+<rect x="584" y="16" width="216" height="72" rx="4" fill="#f1f5f9" stroke="#64748b" stroke-width="2.25"/>
+<text data-role="label" x="692" y="52" dominant-baseline="central" text-anchor="middle" font-family="Arial, sans-serif" font-weight="400" font-size="27" fill="#0f172a">Return result</text></g>
+</svg>

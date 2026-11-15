@@ -1,0 +1,1 @@
+PASS: actual generated preview highlights A and its relation, dims unrelated C, and clears on pointer exit; HTTP requests blocked.

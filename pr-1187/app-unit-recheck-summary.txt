@@ -1,0 +1,18 @@
+stdout | tests/unit/prAgentSelectionDiscovery.spec.ts > agent plans exact smoke, directly changed specs, helper dependencies and behavior dependencies from real Lite inventories
+Lite all: selected 22/109, required floor 22
+Lite render: selected 3/19, required floor 0
+
+ ✓ tests/unit/prAgentSelectionDiscovery.spec.ts (6 tests) 18918ms
+   ✓ agent plans exact smoke, directly changed specs, helper dependencies and behavior dependencies from real Lite inventories 10419ms
+   ✓ prepare-plan assigns a directly changed render spec to render and lets regression retain its own inventory 7998ms
+   ✓ every advertised default PR pair is present in actual configured test inventories 454ms
+ ✓ tests/unit/testSelectionDiscovery.spec.ts (4 tests) 24519ms
+   ✓ Playwright category grep selects sequence without its separately classified edit/create/render families 6734ms
+   ✓ uses Jev behavior categories without adding a Mermaid-specific execution floor 6086ms
+   ✓ main plans smoke from real complete regression inventories for all four variants 11697ms
+
+ Test Files  2 passed (2)
+      Tests  10 passed (10)
+   Start at  10:05:58
+   Duration  26.55s (transform 295ms, setup 74ms, collect 705ms, tests 43.44s, environment 1.81s, prepare 493ms)
+

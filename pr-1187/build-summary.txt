@@ -1,0 +1,18 @@
+../dist/mcp-app/assets/architectureDiagram-5GKGNRK7-C2xUqUpI.js     151.87 kB
+../dist/mcp-app/assets/c4-Dj5XJWjc.js                               192.98 kB
+../dist/mcp-app/assets/markdown-LL1DPbAd.js                         227.81 kB
+../dist/mcp-app/assets/katex-HP8lGamR.js                            261.31 kB
+../dist/mcp-app/assets/themes-DtP2XOtT.js                           301.47 kB
+../dist/mcp-app/assets/cytoscape.esm-BB4DxJjf.js                    443.04 kB
+../dist/mcp-app/assets/mermaid.core-9zml3zFI.js                     653.54 kB
+../dist/mcp-app/assets/cynefin-OW5HDTMX-nLst3t6K.js                 688.16 kB
+../dist/mcp-app/assets/openapi-B0nihn3J.js                        1,388.04 kB
+../dist/mcp-app/assets/emoji-CGGeYOlj.js                          1,830.15 kB
+../dist/mcp-app/assets/plantuml-CPF_4UtU.js                       3,060.31 kB
+../dist/mcp-app/assets/zenuml-B2vEuhjl.js                         3,506.92 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 40.00s

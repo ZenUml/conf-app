@@ -1,0 +1,9 @@
+
+> confluence-plugin@1.1.0 diagram:doctor /workspace/conf-app
+> pnpm --dir tools/pi-diagram-agent run doctor
+
+
+> pi-diagram-agent@0.1.0 doctor /workspace/conf-app/tools/pi-diagram-agent
+> node cli.mjs doctor
+
+PASS: local Pi SDK, Mermaid, Python and Chromium. OAuth/model access is unverified; doctor makes no model calls.

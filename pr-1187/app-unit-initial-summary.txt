@@ -1,0 +1,18 @@
+ ❯ loadUserConfig node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/configLoader.js:107:89
+ ❯ loadConfig node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/configLoader.js:119:28
+ ❯ loadConfigFromFile node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/configLoader.js:331:10
+ ❯ runTests node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/testActions.js:51:18
+ ❯ discover scripts/test-selection/prepare-plan.mjs:29:32
+ ❯ scopedPlan scripts/test-selection/scoped-plan.mjs:31:25
+
+ ❯ scripts/test-selection/prepare-plan.mjs:53:14
+ ❯ tests/unit/testSelectionDiscovery.spec.ts:64:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/9]⎯
+
+ Test Files  2 failed | 486 passed | 1 skipped (489)
+      Tests  9 failed | 6805 passed | 3 skipped (6817)
+   Start at  10:03:30
+   Duration  90.76s (transform 22.76s, setup 8.40s, collect 86.00s, tests 145.40s, environment 383.31s, prepare 50.54s)
+
+ ELIFECYCLE  Command failed with exit code 1.

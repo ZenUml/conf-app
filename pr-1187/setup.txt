@@ -1,0 +1,12 @@
+
+> confluence-plugin@1.1.0 diagram:setup /workspace/conf-app
+> pnpm --dir tools/pi-diagram-agent install --ignore-workspace --frozen-lockfile && pnpm --dir tools/pi-diagram-agent run setup:browser
+
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 774ms using pnpm v10.34.5
+
+> pi-diagram-agent@0.1.0 setup:browser /workspace/conf-app/tools/pi-diagram-agent
+> playwright install chromium
+

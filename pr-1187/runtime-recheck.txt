@@ -1,0 +1,18 @@
+✔ the same id with an overlap that is not the final portion ending at the target fails (143.823708ms)
+✔ earlier non-final spans of trunk members still need ten units of separation (154.96925ms)
+✔ legacy data-shared-bus is not accepted and is listed as an unrecognised trunk-like attribute (139.128166ms)
+✔ mixed-style trunk: a dashed member merged with a solid member fails (125.142875ms)
+✔ mixed-style trunk: stroke width and colour must also agree (270.129417ms)
+✔ label on shared trunk: an edge label on or within 4 units of the shared run fails; a label 20 units away passes (939.76325ms)
+✔ opposite-side merge: members entering the trunk from opposite sides fail even when declared (262.054667ms)
+✔ opposite-side merge: three feeds, one from below and one straight, still fail (329.052958ms)
+✔ ambiguous junction: undeclared head-on T-junction fails even with zero overlap length (291.828833ms)
+✔ undeclared legs with the same target that do not face each other are not an ambiguous junction (218.245375ms)
+ℹ tests 59
+ℹ suites 0
+ℹ pass 59
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 69422.415625

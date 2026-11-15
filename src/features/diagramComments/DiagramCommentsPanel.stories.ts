@@ -11,7 +11,7 @@ import type { CommentRequest } from './commentsClient'
 import { resetPageCommentsCache } from './pageCommentsCache'
 
 /**
- * The fullscreen diagram-comments rail. The panel takes its Confluence
+ * The diagram-comments modal (Forge "medium", about 680px wide). The panel takes its Confluence
  * `request` function as a prop, so every story here runs on canned responses:
  * no Forge bridge, no Confluence, no customer data. All names, ids and text are
  * invented.
@@ -95,13 +95,18 @@ const meta: Meta<typeof DiagramCommentsPanel> = {
     lastModifierId: 'u-editor',
     currentAccountId: 'u-me',
     macroType: 'sequence',
+    // The Forge modal owns the close control, so the panel draws none here.
+    closable: false,
+    // Reply in Confluence needs the host page and the modal; stories stub both.
+    navigate: async () => undefined,
+    closeModal: async () => undefined,
   },
   render: (args: Record<string, unknown>) => {
     quietAnalytics()
     return {
       components: { DiagramCommentsPanel },
       setup: () => ({ args }),
-      template: '<div style="display:flex;justify-content:flex-end;height:720px;background:#f7f8fa"><DiagramCommentsPanel v-bind="args" /></div>',
+      template: '<div style="width:680px;max-width:100%;height:640px;margin:24px auto;border:1px solid #dfe1e6;border-radius:8px;overflow:hidden"><DiagramCommentsPanel v-bind="args" /></div>',
     }
   },
 }
@@ -109,7 +114,10 @@ const meta: Meta<typeof DiagramCommentsPanel> = {
 export default meta
 type Story = StoryObj<typeof DiagramCommentsPanel>
 
-/** Two threads, newest first; the first has two replies. */
+/**
+ * Two threads, newest first; the first has two replies. Each thread links to
+ * "Reply in Confluence"; there is no reply box in the panel.
+ */
 export const List: Story = {
   args: { request: fakeRequest({}) },
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -118,6 +126,8 @@ export const List: Story = {
     await expect(canvas.getByTestId('diagram-comments-title')).toHaveTextContent('Comments · 2')
     await expect(canvas.getByText('Posted on diagram v3')).toBeVisible()
     await expect(canvas.getByTestId('diagram-comments-notify')).toHaveTextContent('Will notify: Eli Park (last editor)')
+    await expect(canvas.getAllByTestId('diagram-comments-native-reply')).toHaveLength(2)
+    await expect(canvas.queryByTestId('diagram-comments-reply-input')).toBeNull()
   },
 }
 

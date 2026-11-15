@@ -1,5 +1,7 @@
 import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
-import { userEvent, within } from 'storybook/test'
+import { expect, userEvent, within } from 'storybook/test'
+import { reactive } from 'vue'
+import { publishCommentsContext, resetCommentsContext } from '@/features/diagramComments/commentsContextStore'
 import GenericViewer from '@/components/Viewer/GenericViewer.vue'
 import store from '@/model/store2'
 import globals from '@/model/globals'
@@ -64,3 +66,33 @@ export const Expanded: Story = {
 }
 
 export const Open: Story = { play: async ({ canvasElement }) => revealAndOpen(canvasElement) }
+
+/**
+ * The viewer surface with Comments on: the Comments button sits above the feedback
+ * button, which is renamed "Report a bug". Flag off (or an anonymous viewer) shows
+ * only the original Feedback button, as in Collapsed.
+ */
+export const WithCommentsButton: Story = {
+  args: {
+    context: storyFeedbackContext('viewer'),
+    comments: reactive({
+      enabled: true,
+      pageId: '42',
+      pageUrl: 'https://example.atlassian.net/wiki/spaces/OP/pages/42/Checkout',
+      localId: 'loc-1',
+      accountId: 'u-me',
+      viewerKind: 'licensed' as const,
+      loadCount: async () => 3,
+    }),
+    openViewModal: async () => undefined,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    resetCommentsContext()
+    // What the viewer publishes once its content has loaded.
+    publishCommentsContext({ diagramId: 'cc-1', diagramVersion: 4, diagramTitle: 'Architecture overview', lastModifierId: 'u-editor', macroType: 'mermaid' })
+    await userEvent.hover(await canvas.findByTestId('feedback-edge'))
+    await expect(await canvas.findByRole('button', { name: 'Comments' })).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Report a bug' })).toBeVisible()
+  },
+}

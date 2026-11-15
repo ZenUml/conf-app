@@ -163,6 +163,7 @@
 | [F44 作者与可选浏览信息](#f44) | G | G | · | G | · | · | · | · |
 | [F45 相关图表与参与者关系](#f45) | G | G | · | · | · | · | · | · |
 | [F46 Create 插入引导](#f46) | G | · | · | G | · | · | · | · |
+| [F54 用量提示与付费引导](#f54) | G | · | · | · | · | · | · | · |
 | [F57 Fullscreen 访问恢复](#f57) | · | G | · | · | · | · | · | · |
 | [F59 反馈报告](#f59) | ↗ | ↗ | G | ↗ | · | · | · | · |
 | [F64 外部 MCP 接入设置](#f64) | G | G | · | G | · | · | · | · |
@@ -834,11 +835,11 @@
 
 **能力**：以当前用量、付款状态、豁免和受众决定非阻断提示。
 
-**交互面**：`page-banner` G；`plan-usage` ●。
+**交互面**：`inline-viewer` G；`page-banner` G；`plan-usage` ●。
 
-**契约与边界**：当前 shouldBlockActions 恒 false，旧 create/edit 阻断不接入常规流程。>=85 的 actionRequired 计算仍保留，但当前 Header/React Header 没有对应消费 UI；page banner 使用严格 >100 的 unpaid Lite 条件。Page banner 面向 recent author/space admin；当前组件没有 Dismiss 控件，也不按旧 impression taper 控制可见性。Fullscreen 独立访问策略见 fullscreen-access-recovery。
+**契约与边界**：当前 shouldBlockActions 恒 false，旧 create/edit 阻断不接入常规流程。>=85 的 actionRequired 计算仍保留，但当前 Header/React Header 没有对应消费 UI；page banner 使用严格 >100 的 unpaid Lite 条件。Page banner 面向 recent author/space admin；当前组件没有 Dismiss 控件，也不按旧 impression taper 控制可见性。Fullscreen 独立访问策略见 fullscreen-access-recovery。 IV 的 G 是按站点的 enforcement 水印（非阻断）：仅 Lite；后端在确认 unpaid 后，按站点 policy（stage、effectiveAt）、豁免名单与空间缓存计数 >=150（ENFORCEMENT_THRESHOLD；对外公布的上限仍为 100）决定，任一输入未知即不启用（fail open）；space-status 响应缓存 5 分钟。查看器在图表区域叠加三行水印并显示提示条，水印不进入导出截图节点。没有站点 policy 时该路径不生效。block_create／block_edit 阶段未实现。同一 GenericViewer 路径没有排除全屏模式，但 `fullscreen-viewer` 的实际表现**待 UI 验证**，本轮不登记。**验证状态**：IV 水印已在 staging 实际页面观察（>=150 的空间显示，低计数空间不显示）；100..149 边界未在实际页面观察；该场景对没有 E2E，单元测试见代码旁 spec。
 
-**代码证据**：[src/composables/useCustomerSuccessService.ts:46](src/composables/useCustomerSuccessService.ts#L46)；[src/composables/useCustomerSuccessService.ts:60](src/composables/useCustomerSuccessService.ts#L60)；[src/utils/paywall/warningBanner.ts:247](src/utils/paywall/warningBanner.ts#L247)；[src/components/UpgradePrompt/PaywallWarningBanner.vue:13](src/components/UpgradePrompt/PaywallWarningBanner.vue#L13)；[src/components/Header/Header.vue:1](src/components/Header/Header.vue#L1)。
+**代码证据**：[src/composables/useCustomerSuccessService.ts:46](src/composables/useCustomerSuccessService.ts#L46)；[src/composables/useCustomerSuccessService.ts:60](src/composables/useCustomerSuccessService.ts#L60)；[src/utils/paywall/warningBanner.ts:247](src/utils/paywall/warningBanner.ts#L247)；[src/components/UpgradePrompt/PaywallWarningBanner.vue:13](src/components/UpgradePrompt/PaywallWarningBanner.vue#L13)；[src/components/Header/Header.vue:1](src/components/Header/Header.vue#L1)。[functions/service/paywallEnforcement.ts:86](functions/service/paywallEnforcement.ts#L86)；[functions/api/space-status.ts:102](functions/api/space-status.ts#L102)；[src/features/licenseNotice/siteEnforcementNotice.ts:44](src/features/licenseNotice/siteEnforcementNotice.ts#L44)；[src/components/Viewer/GenericViewer.vue:2231](src/components/Viewer/GenericViewer.vue#L2231)；[src/components/Viewer/GenericViewer.vue:390](src/components/Viewer/GenericViewer.vue#L390)；[src/components/Viewer/LicenseWatermark.vue:1](src/components/Viewer/LicenseWatermark.vue#L1)。
 
 <a id="f55"></a>
 ### F55 · Full 升级入口 — `marketplace-upgrade`

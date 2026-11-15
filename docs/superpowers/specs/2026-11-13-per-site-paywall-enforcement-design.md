@@ -337,7 +337,8 @@ LicenseWatermark + LicenseNoticeStrip (Lite copy)
 | Part | Text |
 |---|---|
 | Watermark headline | `UPGRADE REQUIRED` |
-| Watermark second line | `<count> of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade` |
+| Watermark line 2 | `<count> of 100 Lite diagrams in this space` |
+| Watermark line 3 | `Ask your Confluence admin to upgrade` |
 | Strip title | Lite diagram limit reached |
 | Strip body | This diagram stays viewable. This space has `<count>` diagrams and Lite covers 100 per space. Ask your Confluence admin to upgrade to Full to remove the watermark. |
 | Strip button | View plan and usage |
@@ -352,7 +353,8 @@ licence and the reader's site did not let a subscription lapse. Constraints the 
 | Constraint | Reason |
 |---|---|
 | Headline ≤ 17 characters at the designed size | `NO ACTIVE LICENSE` is the widest that fits (Figma `383:377`) |
-| Second line ≤ 80 characters | Measured 2026-11-15 in Storybook (macOS system font): an 80-character line (`48,203 of 100 …`) ends 3 units inside the 1374×430 area. Longer lines leave it. Not measured with Segoe UI or Roboto |
+| Three lines, one width | Owner decision 2026-11-15. Lines 2 and 3 are each sized at render time to the measured width of the headline, so the block reads as one stamp whatever the count's digit count or the system font. Stacked headline is 74 units (the two-line Full watermark stays at 96 / 30). Measured in Storybook, macOS system font: all three lines 752 units wide; rotated block spans y 12–406 of the 430-unit area |
+| Watermark covers the diagram only | The watermark is laid over the capture node's box, not the whole canvas. Before 2026-11-15 it was centred on the canvas, which also holds the notice strip, so its lower lines sat under the strip on a short diagram. Applies to the Full watermark too |
 | States a fact the reader can check | The owner rejected `UNLICENSED` on 2026-11-02: the customer did nothing wrong |
 | Names who can act | A reader cannot pay |
 | Points to Full through the Confluence admin, not to a per-space purchase | A site with many over-limit spaces pays less for Full than for one Bundle per space |
@@ -363,7 +365,7 @@ Candidates considered (count shown is an example):
 | # | Headline | Second line | Result |
 |---|---|---|---|
 | A | `OVER LITE LIMIT` | 2,282 of 100 diagrams · Ask your Confluence admin to upgrade to Full | Fallback: states the fact but not the action |
-| B | `UPGRADE REQUIRED` | 2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade | **Chosen** |
+| B | `UPGRADE REQUIRED` | 2,282 of 100 Lite diagrams in this space / Ask your Confluence admin to upgrade (two lines since 2026-11-15) | **Chosen** |
 | C | `PAYMENT REQUIRED` | Over the Lite limit · Ask your Confluence admin to subscribe to Full | Rejected: Lite is a free app |
 | D | `NO ACTIVE LICENSE` | Payment required · Ask your Confluence admin to subscribe to Full | Rejected: not true on Lite |
 

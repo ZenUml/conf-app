@@ -3568,7 +3568,9 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
     const watermark = wrapper.find('[data-testid="license-watermark"]').element
     expect(watermark.textContent).toContain('UPGRADE REQUIRED')
-    expect(watermark.textContent).toContain('2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade')
+    expect(Array.from(watermark.querySelectorAll('text')).map(t => t.textContent)).toEqual([
+      'UPGRADE REQUIRED', '2,282 of 100 Lite diagrams in this space', 'Ask your Confluence admin to upgrade',
+    ])
     expect(wrapper.find('.screen-capture-content').element.contains(watermark)).toBe(false)
     expect(wrapper.find('.license-notice-title').text()).toBe('Lite diagram limit reached')
     expect(wrapper.find('[data-testid="license-notice-upgrade"]').exists()).toBe(false)

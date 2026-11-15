@@ -55,8 +55,23 @@ describe('LicenseWatermark text', () => {
 
   it('renders the headline and detail it is given', () => {
     const text = mount(LicenseWatermark, {
-      props: { headline: 'UPGRADE REQUIRED', detail: '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade' },
+      props: { headline: 'UPGRADE REQUIRED', lines: ['2,282 of 100 Lite diagrams in this space', 'Ask your Confluence admin to upgrade'] },
     }).findAll('text').map(t => t.text())
-    expect(text).toEqual(['UPGRADE REQUIRED', '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade'])
+    expect(text).toEqual(['UPGRADE REQUIRED', '2,282 of 100 Lite diagrams in this space', 'Ask your Confluence admin to upgrade'])
+  })
+
+  it('covers the diagram before it, not the notice strip below it', () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    const top = vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockReturnValue(12)
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(240)
+    const wrapper = mount({
+      components: { LicenseWatermark },
+      template: '<div><div class="diagram" /><LicenseWatermark /><div class="strip" /></div>',
+    })
+    const style = (wrapper.find('[data-testid="license-watermark"]').element as SVGElement).style
+    return wrapper.vm.$nextTick().then(() => {
+      expect([style.top, style.height, style.bottom]).toEqual(['12px', '240px', 'auto'])
+      top.mockRestore(); height.mockRestore(); vi.unstubAllGlobals()
+    })
   })
 })

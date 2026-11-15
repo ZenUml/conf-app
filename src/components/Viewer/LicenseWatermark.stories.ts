@@ -5,7 +5,7 @@ import LicenseWatermark from './LicenseWatermark.vue'
 /**
  * The diagonal watermark over a placeholder diagram area. Full uses the
  * default text; the Lite per-site enforcement variant passes its own headline
- * and detail (count formatted by the viewer). Counts are invented.
+ * and two lines, each sized to the headline's width. Counts are invented.
  */
 const meta: Meta<typeof LicenseWatermark> = {
   title: 'Viewer/LicenseWatermark',
@@ -26,12 +26,12 @@ type Story = StoryObj<typeof LicenseWatermark>
 
 export const Full: Story = {}
 export const LiteCount2282: Story = {
-  args: { headline: 'UPGRADE REQUIRED', detail: '2,282 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade' },
+  args: { headline: 'UPGRADE REQUIRED', lines: ['2,282 of 100 Lite diagrams in this space', 'Ask your Confluence admin to upgrade'] },
 }
 export const LiteCount150: Story = {
-  args: { headline: 'UPGRADE REQUIRED', detail: '150 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade' },
+  args: { headline: 'UPGRADE REQUIRED', lines: ['150 of 100 Lite diagrams in this space', 'Ask your Confluence admin to upgrade'] },
 }
-// Longest second line expected in practice (five-digit count): the fit check.
+// Five-digit count: the count line still matches the headline width.
 export const LiteCount48203: Story = {
-  args: { headline: 'UPGRADE REQUIRED', detail: '48,203 of 100 Lite diagrams in this space · Ask your Confluence admin to upgrade' },
+  args: { headline: 'UPGRADE REQUIRED', lines: ['48,203 of 100 Lite diagrams in this space', 'Ask your Confluence admin to upgrade'] },
 }

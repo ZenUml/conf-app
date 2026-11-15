@@ -901,7 +901,9 @@ export type AnalyticsProperties = {
   // and whenever Forge supplies no boolean; Forge also reports false for free apps.
   license_active?: boolean;
   // Why the Full license notice was shown; missing license fields alone are never evidence.
-  license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock";
+  license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock" | "site_policy_limit_reached";
+  // Per-site paywall enforcement stage from /api/space-status `enforcement.stage`.
+  enforcement_stage?: "notice" | "watermark" | "block_create" | "block_edit";
   // Full viewer evaluation completed, including hidden and unavailable decisions.
   license_notice_outcome?: "shown" | "active" | "unknown" | "disabled" | "unavailable";
   transfer_bytes?: number;

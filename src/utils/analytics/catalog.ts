@@ -1888,6 +1888,11 @@ export type AnalyticsEventName =
   | "license_notice_upgrade_clicked"
   | "license_notice_ticket_clicked"
   | "license_notice_email_copied"
+  // Lite per-site enforcement notice (license_notice_basis
+  // 'site_policy_limit_reached'): the strip button "View plan and usage" was
+  // clicked. Properties: feature_area 'license_notice', surface, macro_type,
+  // license_notice_basis, enforcement_stage.
+  | "license_notice_plan_usage_clicked"
   // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
   // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
   // the detection rule). `shown` is the denominator, fired once per becoming-

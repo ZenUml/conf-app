@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseDsl } from './parseDsl';
-import { ZENUML_RENDER_CHEAT_SHEET, lintZenuml, zenumlFailureHints } from './zenumlDslGuide';
+import { ZENUML_RENDER_CHEAT_SHEET, lintZenuml, suggestZenumlFix, zenumlFailureHints } from './zenumlDslGuide';
 
 // Every example the cheat sheet teaches is run through the same parser
 // render_diagram uses, so the text cannot drift from what is accepted.
@@ -116,5 +116,47 @@ describe('zenumlFailureHints: targeted fixes for failed parses', () => {
 
   it('gives no hint for a mistake it does not recognise', async () => {
     expect(await hintsFor('A->B.m(')).toEqual([]);
+  });
+});
+
+// A rewritten source for the two `group` mistakes, so the agent can call
+// render_diagram again without working the fix out. Every suggestion must
+// parse and lint clean; renderMcp.ts checks that again before returning it.
+describe('suggestZenumlFix: group mistakes', () => {
+  const fixes: Array<[string, string, string]> = [
+    [
+      'messages inside a group at the top',
+      'group "Backend" {\n  A->B: msg\n}\nB->C: z',
+      'group "Backend" {\n  A\n  B\n}\nA->B: msg\nB->C: z',
+    ],
+    [
+      'group after the first message',
+      'A->B: msg\ngroup "x" {\n  B\n}\nB->C: z',
+      'group "x" {\n  B\n}\nA->B: msg\nB->C: z',
+    ],
+    [
+      'group after a message, holding a message',
+      'A->B: m\ngroup "G" {\n  B->C: y\n}',
+      'group "G" {\n  B\n  C\n}\nA->B: m\nB->C: y',
+    ],
+    [
+      'declarations kept, call receivers added, title stays first',
+      'title Checkout\nA.go()\ngroup Data {\n  @Database DB\n  @Queue Q\n  x = Cache.get()\n  DB.read()\n}',
+      'title Checkout\ngroup Data {\n  @Database DB\n  @Queue Q\n  Cache\n}\nA.go()\nx = Cache.get()\nDB.read()',
+    ],
+  ];
+  for (const [name, src, expected] of fixes) {
+    it(`rewrites: ${name}`, async () => {
+      const fixed = suggestZenumlFix(src);
+      expect(fixed).toBe(expected);
+      expect((await parseDsl('sequence', fixed!)).ok).toBe(true);
+      expect(lintZenuml(fixed!)).toEqual([]);
+    });
+  }
+
+  it('suggests nothing for a correct source or a mistake it cannot rewrite safely', () => {
+    expect(suggestZenumlFix('group "x" {\n  B\n}\nA->B: m')).toBeUndefined();
+    expect(suggestZenumlFix('A->B: text { B->C: y }')).toBeUndefined();
+    expect(suggestZenumlFix('group "x" {\n  if (c) { A->B: m }\n}')).toBeUndefined();
   });
 });

@@ -386,3 +386,101 @@ export function zenumlFailureHints(
   }
   return hints.sort((a, b) => a.line - b.line || a.col - b.col);
 }
+
+// ---- render_diagram suggested fix -----------------------------------------
+
+/** Participant names a statement line uses, as written (quotes kept). */
+function namesIn(maskedLine: string, originalLine: string): string[] {
+  const names: string[] = [];
+  const take = (start: number, text: string) => names.push(originalLine.slice(start, start + text.length));
+  for (const m of maskedLine.matchAll(new RegExp(String.raw`(${NAME})?\s*->\s*(${NAME})`, 'gd'))) {
+    const at = m.indices!;
+    if (m[1]) take(at[1][0], m[1]);
+    take(at[2][0], m[2]);
+  }
+  for (const m of maskedLine.matchAll(new RegExp(String.raw`(${NAME})\s*\.\s*(?:[A-Za-z_]|")`, 'gd'))) {
+    const at = m.indices!;
+    // `A->B.m()`: B is already taken from the arrow.
+    if (!/->\s*$/.test(maskedLine.slice(0, at[1][0]))) take(at[1][0], m[1]);
+  }
+  return names;
+}
+
+/**
+ * A rewrite for the two `group` mistakes: every group moves to the top (after
+ * any `title` lines) and holds only participants, and the messages it held
+ * stay where they were in the flow. Returns undefined when there is nothing to
+ * fix or the shape is not one it can rewrite safely (a nested block inside the
+ * group, a group inside another block, text sharing a line with the group's
+ * braces). The caller must still check that the result parses.
+ */
+export function suggestZenumlFix(source: string): string | undefined {
+  const masked = maskZenuml(source);
+  const lines = source.split('\n');
+  const maskedLines = masked.split('\n');
+  const firstStatement = maskedLines.findIndex((l) => STATEMENT.test(l) && !/^\s*group\b/.test(l));
+  const groups: string[] = [];
+  const replaced = new Map<number, string[] | null>(); // line index -> replacement (null = drop)
+  let changed = false;
+
+  for (const m of masked.matchAll(GROUP_HEAD)) {
+    const start = m.index ?? 0;
+    const open = start + m[0].length - 1;
+    let depth = 0;
+    let close = -1;
+    for (let i = open; i < masked.length; i++) {
+      if (masked[i] === '{') depth++;
+      else if (masked[i] === '}' && --depth === 0) {
+        close = i;
+        break;
+      }
+    }
+    if (close < 0) return undefined;
+    const before = masked.slice(0, start);
+    if ((before.match(/\{/g)?.length ?? 0) !== (before.match(/\}/g)?.length ?? 0)) return undefined;
+    const body = masked.slice(open + 1, close);
+    if (/[{}]/.test(body)) return undefined;
+    const startLine = position(source, start).line - 1;
+    const openLine = position(source, open).line - 1;
+    const closeLine = position(source, close).line - 1;
+    if (masked.slice(close + 1, masked.indexOf('\n', close) < 0 ? undefined : masked.indexOf('\n', close)).trim()) {
+      return undefined;
+    }
+    const oneLine = startLine === closeLine;
+    const bodyLines = oneLine
+      ? [{ masked: body, original: source.slice(open + 1, close) }]
+      : maskedLines.slice(openLine + 1, closeLine).map((l, k) => ({ masked: l, original: lines[openLine + 1 + k] }));
+    if (!oneLine && maskedLines[openLine].slice(maskedLines[openLine].indexOf('{') + 1).trim()) return undefined;
+
+    const declarations: string[] = [];
+    const used: string[] = [];
+    const moved: string[] = [];
+    for (const { masked: ml, original: ol } of bodyLines) {
+      if (!ml.trim()) continue;
+      if (STATEMENT.test(ml)) {
+        moved.push(ol.trim());
+        used.push(...namesIn(ml, ol));
+      } else if (oneLine) {
+        declarations.push(...ol.trim().split(/\s+/));
+      } else {
+        declarations.push(ol.trim());
+      }
+    }
+    // A declaration line may carry an annotation (`@Database DB`): its last
+    // word is the name, so a message to DB adds nothing.
+    const declaredNames = declarations.map((d) => d.split(/\s+/).at(-1));
+    const declared = [...new Set([...declarations, ...used.filter((n) => !declaredNames.includes(n))])];
+    const misplaced = firstStatement >= 0 && startLine > firstStatement;
+    if (!moved.length && !misplaced) continue;
+    changed = true;
+    const head = lines[startLine].slice(0, lines[startLine].indexOf('{')).trim() || lines[startLine].trim();
+    groups.push(oneLine && !moved.length ? `${head} { ${declared.join(' ')} }` : [`${head} {`, ...declared.map((n) => `  ${n}`), '}'].join('\n'));
+    for (let i = startLine; i <= closeLine; i++) replaced.set(i, i === startLine ? moved : null);
+  }
+  if (!changed) return undefined;
+
+  const rest = lines.flatMap((l, i) => (replaced.has(i) ? replaced.get(i) ?? [] : [l]));
+  let insertAt = 0;
+  while (insertAt < rest.length && /^\s*title\b/.test(rest[insertAt])) insertAt++;
+  return [...rest.slice(0, insertAt), ...groups, ...rest.slice(insertAt)].join('\n');
+}

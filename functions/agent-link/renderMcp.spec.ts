@@ -162,6 +162,26 @@ describe('POST /mcp/render', () => {
       expect(text).toContain(ZENUML_RENDER_CHEAT_SHEET);
     });
 
+    it('suggests a rewritten source for a group mistake, as the next call to make', async () => {
+      const src = 'A->B: msg\ngroup "x" {\n  B->C: y\n}';
+      const { body } = await call({ diagramType: 'sequence', source: src });
+      const r = body.result.structuredContent;
+      expect(r.suggestedSource).toBe('group "x" {\n  B\n  C\n}\nA->B: msg\nB->C: y');
+      expect(r.source).toBe(src);
+      const text: string = body.result.content[0].text;
+      expect(text).toContain('call render_diagram again with this source');
+      expect(text).toContain(r.suggestedSource);
+      expect(text.indexOf(r.suggestedSource)).toBeLessThan(text.indexOf('ZenUML syntax:'));
+
+      const parsed = await call({ diagramType: 'sequence', source: 'group "B" {\n  A->B: m\n}' });
+      expect(parsed.body.result.structuredContent.suggestedSource).toBe('group "B" {\n  A\n  B\n}\nA->B: m');
+    });
+
+    it('suggests no source when there is nothing safe to rewrite', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'A->B: POST /x {\n  B->C: y\n}' });
+      expect(body.result.structuredContent.suggestedSource).toBeUndefined();
+    });
+
     it('does not lint other diagram types', async () => {
       const { body } = await call({ diagramType: 'mermaid', source: 'sequenceDiagram\n  A->>B: x { y }' });
       expect(body.result.structuredContent.warnings).toBeUndefined();
@@ -350,7 +370,10 @@ describe('POST /mcp/render', () => {
       await call({ diagramType: 'sequence', source: 'A->B.m(' }, env);
       await call({ diagramType: 'mermaid', source: 'flowchart TD\n  A --> B' }, env);
       const props = events.filter((e) => e.event === 'agent_link_mcp_tool_called').map((e) => e.properties);
-      expect(props[0]).toEqual(expect.objectContaining({ render_warnings_returned: false }));
+      expect(props[0]).toEqual(expect.objectContaining({ render_warnings_returned: false, render_fix_suggested: false }));
+      expect(props[1].render_fix_suggested).toBe(true);
+      expect(props[2].render_fix_suggested).toBe(true);
+      expect(props[3].render_fix_suggested).toBe(false);
       expect(props[0].render_issues).toBeUndefined();
       expect(props[1]).toEqual(expect.objectContaining({ render_warnings_returned: true, render_issues: ['group_with_messages'] }));
       expect(props[2]).toEqual(expect.objectContaining({ render_warnings_returned: false, render_issues: ['group_after_message'] }));

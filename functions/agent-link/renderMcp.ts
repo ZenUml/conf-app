@@ -31,7 +31,7 @@
 import { parseDsl, type DslError } from './parseDsl';
 import { detectDiagramType } from './detectDiagramType';
 import { getGuideByUri, listGuideResources } from './dslGuides';
-import { lintZenuml, ZENUML_RENDER_CHEAT_SHEET, zenumlFailureHints, type ZenumlIssue } from './zenumlDslGuide';
+import { lintZenuml, suggestZenumlFix, ZENUML_RENDER_CHEAT_SHEET, zenumlFailureHints, type ZenumlIssue } from './zenumlDslGuide';
 import {
   DIAGRAM_VIEW_URI,
   readUiResource,
@@ -144,6 +144,11 @@ export interface RenderResult {
   warnings?: ZenumlIssue[];
   /** ZenUML only: specific fixes for recognised mistakes in a failed parse. */
   hints?: ZenumlIssue[];
+  /**
+   * ZenUML only: a rewrite of `source` that fixes a recognised `group` mistake,
+   * checked here to parse with no warnings. The agent's next call; never drawn.
+   */
+  suggestedSource?: string;
 }
 
 class RenderParamsError extends Error {
@@ -191,15 +196,32 @@ export async function renderDiagram(args: Record<string, unknown>): Promise<Rend
   const zenuml = diagramType === 'sequence';
   if (!parsed.ok) {
     const hints = zenuml ? zenumlFailureHints(source, parsed.errors) : [];
-    return { ...base, valid: false, errors: parsed.errors, ...(hints.length ? { hints } : {}) };
+    const suggestion = hints.length ? await checkedFix(source) : undefined;
+    return { ...base, valid: false, errors: parsed.errors, ...(hints.length ? { hints } : {}), ...suggestion };
   }
   const warnings = zenuml ? lintZenuml(source) : [];
+  const suggestion = warnings.length ? await checkedFix(source) : undefined;
   return {
     ...base,
     valid: true,
     ...(parsed.unvalidated ? { unvalidated: true as const } : {}),
     ...(warnings.length ? { warnings } : {}),
+    ...suggestion,
   };
+}
+
+/** suggestZenumlFix, kept only when the rewrite parses and lints clean. */
+async function checkedFix(source: string): Promise<{ suggestedSource: string } | undefined> {
+  const fixed = suggestZenumlFix(source);
+  if (!fixed || fixed === source) return undefined;
+  const parsed = await parseDsl('sequence', fixed);
+  return parsed.ok && lintZenuml(fixed).length === 0 ? { suggestedSource: fixed } : undefined;
+}
+
+/** The next call to make, when a checked rewrite exists. */
+function suggested(r: RenderResult): string {
+  if (!r.suggestedSource) return '';
+  return `\n\nThis rewrite parses with no warnings; unless it changes what the user asked for, call render_diagram again with this source:\n\`\`\`\n${r.suggestedSource}\n\`\`\``;
 }
 
 /** What the agent reads first. The source itself rides structuredContent, for the view. */
@@ -209,11 +231,11 @@ function summaryFor(r: RenderResult): string {
   if (!r.valid) {
     const lines = [...(r.hints ?? []), ...(r.errors ?? [])].map(at);
     const hint = r.diagramType === 'sequence' ? `\n\n${ZENUML_RENDER_CHEAT_SHEET}` : '';
-    return `The ${r.diagramType} source${detected} did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n${lines.join('\n')}${hint}`;
+    return `The ${r.diagramType} source${detected} did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n${lines.join('\n')}${suggested(r)}${hint}`;
   }
   if (r.unvalidated) return `Sent the ${r.diagramType} diagram${detected} to the view. This type is not syntax-checked here.`;
   if (r.warnings?.length) {
-    return `Rendered the ${r.diagramType} diagram${detected}. The source parsed, but it will not draw what you meant. Fix these and call render_diagram again:\n${r.warnings.map(at).join('\n')}`;
+    return `Rendered the ${r.diagramType} diagram${detected}. The source parsed, but it will not draw what you meant. Fix these and call render_diagram again:\n${r.warnings.map(at).join('\n')}${suggested(r)}`;
   }
   return `Rendered the ${r.diagramType} diagram${detected}. The source parsed.`;
 }
@@ -223,7 +245,11 @@ function zenumlIssueProps(r: RenderResult): Record<string, unknown> {
   if (r.diagramType !== 'sequence') return {};
   const codes = [...new Set([...(r.warnings ?? []), ...(r.hints ?? [])].map((i) => i.code as string))];
   if (!r.valid && codes.length === 0) codes.push('unrecognised');
-  return { render_warnings_returned: Boolean(r.warnings?.length), ...(codes.length ? { render_issues: codes } : {}) };
+  return {
+    render_warnings_returned: Boolean(r.warnings?.length),
+    render_fix_suggested: Boolean(r.suggestedSource),
+    ...(codes.length ? { render_issues: codes } : {}),
+  };
 }
 
 type ToolOutcome = 'success' | 'tool_error' | 'unknown_tool' | 'exception' | 'rate_limited';

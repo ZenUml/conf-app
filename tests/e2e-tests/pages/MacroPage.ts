@@ -108,10 +108,13 @@ export class MacroPage {
     } = {},
   ): Promise<void> {
     await expect(frame.locator('body')).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
-    await expect(frame.locator('svg').first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
+    // The licence watermark is an SVG overlay as large as the diagram; it is
+    // not the diagram, and its box need not match its own viewBox.
+    const diagramSvg = frame.locator('svg:not([data-testid="license-watermark"])');
+    await expect(diagramSvg.first()).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
 
     const readLargestSvg = () =>
-      frame.locator('svg').evaluateAll((els) => {
+      diagramSvg.evaluateAll((els) => {
         const measured = (els as SVGSVGElement[]).map((el) => {
           // The drawing, not the frame: svg-pan-zoom's viewport group carries
           // the transform, so its box is what the reader actually sees. Falls

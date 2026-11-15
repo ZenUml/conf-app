@@ -1,5 +1,5 @@
 import { mount, flushPromises } from '@vue/test-utils'
-import { h } from 'vue'
+import { h, ref } from 'vue'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -3531,6 +3531,90 @@ describe('GenericViewer license notice (Full, license inactive)', () => {
     expect(openUrl).toHaveBeenCalledWith(UPGRADE_URL)
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_upgrade_clicked', expect.objectContaining({ feature_area: 'license_notice', surface: 'viewer' }))
     expect(shown()).toHaveLength(1)
+    wrapper.unmount()
+  })
+})
+
+describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
+  const enforcement = (watermark: boolean, stage = 'watermark') => ({
+    stage, count: 2282, limit: 100,
+    effects: { datedBanner: true, watermark, blockCreate: false, meterEdit: false },
+  })
+  const siteEnforcement = ref<any>(null)
+  let initialize: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    siteEnforcement.value = null
+    initialize = vi.fn(() => Promise.resolve())
+    vi.doMock('@/composables/useCustomerSuccessService', () => ({
+      useCustomerSuccessService: () => ({ initialize, siteEnforcement }),
+    }))
+    store.commit('updateDiagramType', DiagramType.Sequence)
+    store.state.diagram.source = DataSource.CustomContent
+    store.state.viewerLoadState = 'ready'
+    store.state.loadError = null
+    window.forgeGlobal = { forgeContext: { extension: {} } } as any
+    vi.stubEnv('PRODUCT_TYPE', 'lite')
+  })
+  afterEach(() => {
+    vi.doUnmock('@/composables/useCustomerSuccessService')
+    vi.unstubAllEnvs()
+  })
+
+  it('shows the Lite watermark and strip when the server says watermark', async () => {
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
+    const watermark = wrapper.find('[data-testid="license-watermark"]').element
+    expect(watermark.textContent).toContain('UPGRADE REQUIRED')
+    expect(Array.from(watermark.querySelectorAll('text')).map(t => t.textContent)).toEqual([
+      'UPGRADE REQUIRED', '2,282 of 100 Lite diagrams in this space', 'Ask your Confluence admin to upgrade',
+    ])
+    expect(wrapper.find('.screen-capture-content').element.contains(watermark)).toBe(false)
+    expect(wrapper.find('.license-notice-title').text()).toBe('Lite diagram limit reached')
+    expect(wrapper.find('[data-testid="license-notice-upgrade"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_evaluated', expect.objectContaining({
+      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark', macro_count: 2282, license_notice_outcome: 'shown',
+    }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_shown', expect.objectContaining({
+      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark',
+    }))
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['notice stage (watermark effect off)', enforcement(false, 'notice')],
+    ['no enforcement', null],
+    ['malformed enforcement', { stage: 'watermark' }],
+  ])('shows nothing for %s', async (_name, value) => {
+    siteEnforcement.value = value
+    const wrapper = mountViewer()
+    // The lookup starts after a dynamic import; one flush is not always enough on a loaded runner.
+    await vi.waitFor(() => expect(initialize).toHaveBeenCalled())
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows nothing, and keeps the diagram, when the space status load fails', async () => {
+    initialize.mockRejectedValue(new Error('boom'))
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
+    expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('does not look up the space status on a Full build', async () => {
+    vi.stubEnv('PRODUCT_TYPE', 'full')
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await flushPromises()
+    expect(initialize).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
     wrapper.unmount()
   })
 })

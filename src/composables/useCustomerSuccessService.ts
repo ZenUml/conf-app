@@ -6,6 +6,7 @@ import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextP
 import globals from '@/model/globals'
 import { callRemote } from '@/utils/requestUtil'
 import { MARKETPLACE_UPGRADE_URL } from '@/features/licenseNotice/licenseNotice'
+import { parseSiteEnforcement, type SiteEnforcement } from '@/features/licenseNotice/siteEnforcementNotice'
 import { writeTargetingMarker, toMarkerSeverity } from '@/utils/paywall/warningBanner'
 
 export const MACROS_LIMIT = 100
@@ -39,7 +40,10 @@ const spacePaidStatusKnown = ref(false)
 // isn't paid. Rides on paywall_gate_evaluated.
 const spacePaidSource = ref<'user_license' | 'space_license' | 'paid_rail' | undefined>(undefined)
 const currentSpaceKey = ref<string>('')
+// Per-site enforcement decision from /api/space-status; null = off or unreadable.
+const siteEnforcement = ref<SiteEnforcement | null>(null)
 
+let initializing: Promise<void> | null = null
 let macroMetricsLoaded = false;
 let cssFlagLoaded = false;
 let spacePaidStatusLoaded = false;
@@ -235,6 +239,7 @@ export function useCustomerSuccessService() {
         spacePaidStatus.value = response.isPaid
         spacePaidStatusKnown.value = response.decisionKnown === true && !response.error
         spacePaidSource.value = response.isPaid ? response.source : undefined
+        siteEnforcement.value = parseSiteEnforcement(response.enforcement)
         console.log('💳 Space paid status:', {
           isPaid: response.isPaid,
           source: response.source,
@@ -269,14 +274,19 @@ export function useCustomerSuccessService() {
     });
   }
 
-  const initialize = async () => {
-    await Promise.all([
-      loadMacroMetrics(),
-      loadPaywallPolicy(),
-      loadSpacePaidStatus(),
-      loadSpaceKey(),
-    ]);
-    persistTargetingMarker();
+  // The macro entry and the viewer both call this during one render; callers
+  // that arrive while a load is in flight share it instead of fetching again.
+  const initialize = (): Promise<void> => {
+    initializing ??= (async () => {
+      await Promise.all([
+        loadMacroMetrics(),
+        loadPaywallPolicy(),
+        loadSpacePaidStatus(),
+        loadSpaceKey(),
+      ]);
+      persistTargetingMarker();
+    })().finally(() => { initializing = null })
+    return initializing
   }
 
   return {
@@ -292,6 +302,7 @@ export function useCustomerSuccessService() {
     spacePaid: spacePaidStatus,
     spacePaidStatusKnown,
     spacePaidSource,
+    siteEnforcement,
     // Legacy-named alias of the effective paywall-enabled boolean, kept for
     // saved-query compatibility until downstream consumers migrate to
     // paywallPolicySource.
@@ -309,6 +320,8 @@ export function useCustomerSuccessService() {
   spacePaidStatus.value = false
   spacePaidStatusKnown.value = false
   spacePaidSource.value = undefined
+  siteEnforcement.value = null
+  initializing = null
   currentSpaceKey.value = ''
   macroMetricsLoaded = false
   cssFlagLoaded = false

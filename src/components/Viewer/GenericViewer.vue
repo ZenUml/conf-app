@@ -387,7 +387,7 @@
             </div>
             <!-- Full variant, license explicitly inactive, flag on. Sibling of
                  the capture node on purpose: exports never contain it. -->
-            <LicenseWatermark v-if="showLicenseNotice" />
+            <LicenseWatermark v-if="showLicenseNotice" v-bind="licenseWatermarkText" />
             <!-- Canvas overlay anchor: a zero-height block between the diagram
                  and the footer row. Slot content (the Mermaid highlight feedback
                  pill) positions itself against this box, so it floats over the
@@ -425,6 +425,9 @@
               :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
               :macro-type="diagramType ?? 'none'"
               :basis="licenseNoticeBasis"
+              :count="siteNotice?.count"
+              :limit="siteNotice?.limit"
+              :stage="siteNotice?.stage"
             />
             <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
                  defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
@@ -553,6 +556,7 @@ import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
 import { isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
 import { resolveLicenseNotice as evaluateLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
+import { siteEnforcementNotice } from '@/features/licenseNotice/siteEnforcementNotice'
 import { loadLicenseNoticeEvidence } from '@/features/licenseNotice/loadEvidence'
 import LicenseWatermark from '@/components/Viewer/LicenseWatermark.vue'
 import LicenseNoticeStrip from '@/components/Viewer/LicenseNoticeStrip.vue'
@@ -683,6 +687,8 @@ export default {
     architectureTokensEnabled: false,
     // Full variant 'no active license' notice; resolved off the render path.
     licenseNoticeActive: false,
+    // Lite per-site enforcement: { count, limit, stage } while the notice shows.
+    siteNotice: null,
     licenseNoticeBasis: null,
     licenseNoticeRequestId: 0,
     licenseNoticeExpiryTimer: null,
@@ -822,6 +828,17 @@ export default {
       if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
       actions.push({ id: 'export-png', label: 'Export PNG', icon: ICON_PATHS.download });
       return actions;
+    },
+    // Lite copy only; undefined props keep LicenseWatermark's Full defaults.
+    licenseWatermarkText() {
+      if (!this.siteNotice) return {};
+      return {
+        headline: 'UPGRADE REQUIRED',
+        lines: [
+          `${this.siteNotice.count.toLocaleString('en-US')} of ${this.siteNotice.limit.toLocaleString('en-US')} Lite diagrams in this space`,
+          'Ask your Confluence admin to upgrade',
+        ],
+      };
     },
     showLicenseNotice() {
       return this.licenseNoticeActive && !this.isLoadFailed;
@@ -1308,6 +1325,7 @@ export default {
     document.addEventListener('keydown', this.onEscapeKeydown, true);
     this.startHeaderLayout();
     this.resolveLicenseNotice();
+    this.resolveSiteEnforcementNotice();
     // Export entry (see openExport): the modal was opened BY the Export PNG
     // button, so the dialog opens here on arrival. On 'diagramLoaded', not on
     // mount — the dialog captures its preview off the `visible` watcher, and
@@ -2205,6 +2223,41 @@ export default {
           macro_type: this.diagramType ?? 'none',
           license_notice_outcome: 'unavailable',
         });
+      }
+    },
+    // Lite per-site enforcement. Fire-and-forget after mount, so the diagram
+    // never waits on it; any failure means no notice. The server decides
+    // (`enforcement.effects.watermark`): no count or clock check here.
+    async resolveSiteEnforcementNotice() {
+      if (import.meta.env.PRODUCT_TYPE !== 'lite') return;
+      const requestId = ++this.licenseNoticeRequestId;
+      try {
+        const { useCustomerSuccessService } = await import('@/composables/useCustomerSuccessService');
+        const customerSuccess = useCustomerSuccessService();
+        await customerSuccess.initialize();
+        if (requestId !== this.licenseNoticeRequestId) return;
+        const notice = siteEnforcementNotice({
+          productType: import.meta.env.PRODUCT_TYPE,
+          enforcement: customerSuccess.siteEnforcement.value,
+        });
+        if (!notice) return;
+        this.siteNotice = { count: notice.count, limit: notice.limit, stage: notice.stage };
+        this.licenseNoticeBasis = notice.basis;
+        this.licenseNoticeActive = true;
+        trackAnalyticsEvent('license_notice_evaluated', {
+          feature_area: 'license_notice',
+          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
+          macro_type: this.diagramType ?? 'none',
+          license_notice_outcome: 'shown',
+          license_notice_basis: notice.basis,
+          enforcement_stage: notice.stage,
+          macro_count: notice.count,
+        });
+      } catch {
+        if (requestId !== this.licenseNoticeRequestId) return;
+        this.siteNotice = null;
+        this.licenseNoticeActive = false;
+        this.licenseNoticeBasis = null;
       }
     },
     trackRename(eventName, extra = {}) {

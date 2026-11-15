@@ -1,8 +1,27 @@
 # 图表评论设计
 
-**状态：** 2026-10-01 产品讨论中批准；**2026-11-04 修订：评论改存为页面底部评论，加一个回到图表的链接**（见第 0 节）。第一个 PR 的范围见 [issue #1047](https://github.com/ZenUml/conf-app/issues/1047)。  
+**状态：** 2026-10-01 产品讨论中批准；2026-11-04 修订：评论改存为页面底部评论，加一个回到图表的链接（见第 0 节）；**2026-11-16 修订：入口、容器、回复方式和访客规则改变（见第 00 节），本节优先于后文中的冲突内容**。第一个 PR 的范围见 [issue #1047](https://github.com/ZenUml/conf-app/issues/1047)。  
 **范围：** 读者对一张图表向作者发言；保留独立的 ZenUML 支持入口；历史反馈迁移和编辑、删除留到后续 PR。  
 **系统记录：** 评论正文、作者、回复关系和权限由 Confluence 页面底部评论保存；D1 或 Mixpanel 不保存评论正文。
+
+## 00. 2026-11-16 修订（负责人 2026-11-14 至 11-15 确认）
+
+数据模型前提：[ADR-0012](../../adr/0012-content-document-belongs-to-a-page.md)。内容文档归属一个页面，功能以 (页面, CC) 为单位。
+
+| # | 原设计 | 新决定 | 原因 |
+|---|---|---|---|
+| R1 | inline 工具栏「评论 · N」，点开后全屏右侧面板 | 右侧边缘浮动列（现在 `.feedback-edge` 的位置）放两个按钮，上面是 **Comments**，下面是原反馈按钮，改名为 **Report a bug** | 统一的浮动列；单独放一个评论入口、反馈按钮又浮在旁边，看起来很乱 |
+| R2 | 全屏面板 | **Forge medium modal**，与 Report a bug 的打开方式相同 | iframe 不能画到自身外面 |
+| R3 | 面板内回复（自动 `@` 被回复人） | 面板只发**主评论**。回复、编辑、删除都在 Confluence 原生评论区完成，每个线程上有「Reply in Confluence」链接，打开 `?focusedCommentId=<id>` | 原生评论区已经支持编辑、删除（带确认）、回复和 `@` 选人（2026-11-14 lite-stg 验证）；不需要 `delete:comment:confluence`，所以没有主版本升级 |
+| R4 | 匿名访客和 guest 都不显示入口 | **guest 显示入口**；Confluence 返回 403 时面板只读。匿名访客仍不显示 | 评论走前端 `requestConfluence`，以 guest 身份运行；缺 `x-forge-oauth-user` 只影响后端调用 |
+| R5 | 嵌入（Embed）上的评论挂在哪里，未定 | **宿主页面**（读者所在的页面） | ADR-0012 Q4 |
+| R6 | 原反馈入口改名留到后续 PR | 改名随本 PR，只在评论 flag 打开时生效；flag 关闭时界面完全不变 | 两个按钮同时出现才需要区分 |
+
+全部受 Forge flag `diagram-comments-enabled` 控制（默认关闭）。实现规格：会话笔记 `diagram-comments-impl-spec.md`（不在仓库内）。
+
+**闸门 1 进展：** 2026-11-14 在 lite-stg 通过 macro iframe 内真实的 Forge bridge（robot 账号）发了一条带 `@` 的评论，被提及的账号 15 秒后收到通知，1 次中 1 次。
+
+**结果指标：** 在 flag 打开的站点，D1 `FeedbackReport` 中"对图表内容的评论"类反馈所占比例，开启前后对比（不需要新事件）。`feedback_report_opened.feedback_entry_label` 用于对比改名前后反馈入口的使用量。
 
 ## 0. 2026-11-04 修订
 
@@ -103,8 +122,10 @@ Confluence 是唯一的评论恢复来源；评论读写不依赖 Cloudflare 后
 
 | 事件 | 触发 | 额外属性 |
 |---|---|---|
-| `diagram_comment_entry_clicked` | 用户点击 inline 的「评论」 | `surface: "viewer"` |
-| `diagram_comment_panel_opened` | 全屏面板打开 | `surface: "fullscreen"` |
+| `diagram_comment_entry_clicked` | 用户点击边缘列的 Comments | `surface: "viewer"`, `comment_viewer_kind: "licensed" \| "guest" \| "unknown"` |
+| `diagram_comment_panel_opened` | 评论 modal 打开 | `surface: "comments_modal"` |
+| `diagram_comment_native_opened` | 用户点「Reply in Confluence」 | `comment_native_action: "reply"` |
+| `feedback_report_opened`（已有事件，新增属性） | 用户打开反馈 | `feedback_entry_label: "feedback" \| "report_a_bug"` |
 | `diagram_comment_load_completed` | 本页评论读取结束 | `comment_load_outcome`, `comment_count`, `comment_failure_reason` |
 | `diagram_comment_submit_requested` | 用户点发布 | `comment_thread_action: "root" \| "reply"`, `comment_mention_count` |
 | `diagram_comment_submit_succeeded` | Confluence 返回已保存的评论 ID | `comment_thread_action`, `comment_mention_count`, `comment_planned_recipient_count` |
@@ -129,7 +150,7 @@ Confluence 是唯一的评论恢复来源；评论读写不依赖 Cloudflare 后
 5. 双击发布、超时后核对的测试，确认不会产生重复评论。
 6. **UI 证据按顺序：Storybook，然后 Forge Tunnel，然后 CI 部署的 staging**，每阶段记录被测版本和截图；跳过或被阻塞的断言标为 SKIPPED 而不是通过。
 
-成功标准：有权限的读者能在 inline 图表旁进入评论、阅读、发表评论和回复；匿名访客和访客账号看不到入口且图表不受影响；通知行为与界面显示一致；评论里的链接把读者带回那张图表；图表更新不丢失讨论。
+成功标准（2026-11-16 版）：有权限的读者能从右侧边缘列进入评论 modal、阅读、发表主评论，并经「Reply in Confluence」到原生评论区回复；guest 能看到入口，没有写权限时只读；匿名访客看不到入口且图表不受影响；通知行为与界面显示一致；评论里的链接把读者带回那张图表；图表更新不丢失讨论。
 
 ## 6. 明确不做的事
 

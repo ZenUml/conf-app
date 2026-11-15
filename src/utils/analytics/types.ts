@@ -60,6 +60,8 @@ import type {
   AgentLinkRenderValidation,
   AgentLinkRenderTypeSource,
   AgentLinkRenderIssue,
+  AgentLinkRenderRevisionState,
+  AgentLinkRenderNextAction,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -1178,6 +1180,12 @@ export type AnalyticsProperties = {
   // True when render_diagram also returned a rewritten source that parses
   // with no warnings (today: the two `group` mistakes).
   render_fix_suggested?: boolean;
+  // Attempt chain via the `revision` token render_diagram returns; the server
+  // stores nothing (see AgentLinkRenderRevisionState).
+  render_attempt?: number;
+  render_revision_state?: AgentLinkRenderRevisionState;
+  render_fix_applied?: boolean;
+  render_next_actions?: AgentLinkRenderNextAction[];
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

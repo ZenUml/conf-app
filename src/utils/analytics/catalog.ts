@@ -1788,6 +1788,12 @@ export type AnalyticsEventName =
   // source that parsed, so first-attempt pass rate and the mistake mix are
   // readable without a new event. `render_fix_suggested` says whether a
   // rewritten source (checked to parse with no warnings) went back too.
+  // `render_attempt` is the call's position in the agent's chain of
+  // revisions (1 when none was passed or it did not decode),
+  // `render_revision_state` says which (AgentLinkRenderRevisionState),
+  // `render_fix_applied` is true when the source equals the previous
+  // result's suggested rewrite, and `render_next_actions` lists what the
+  // result told the agent to do (AgentLinkRenderNextAction).
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -2160,6 +2166,26 @@ export type AgentLinkRenderTypeSource = "given" | "detected";
 // 'unrecognised' = a failed parse that matched none of these, so the mistake
 // mix has a complete denominator. A list rather than one code, because one
 // source can carry several mistakes at once.
+// render_diagram's attempt chain (agent_link_mcp_tool_called, `mcp_mode:
+// 'render'`, `render_revision_state`). Each result carries a `revision` token
+// the agent may pass back on its next call; the server keeps nothing.
+// 'none' = no revision passed (a first attempt); 'valid' = a readable token
+// from an earlier result; 'invalid' = a token that did not decode, treated
+// as a first attempt.
+export type AgentLinkRenderRevisionState = "none" | "valid" | "invalid";
+
+// What render_diagram told the agent to do next (`render_next_actions`).
+// 'apply_suggested_source' = call again with the checked rewrite;
+// 'fix_and_retry' = fix the listed problems, no rewrite offered;
+// 'confirm_with_user' = the rewrite guessed which participants belong in a
+// group, so ask before relying on it; 'offer_to_save' = the diagram drew
+// cleanly; offer to keep it in Confluence if a tool for that is connected.
+export type AgentLinkRenderNextAction =
+  | "apply_suggested_source"
+  | "fix_and_retry"
+  | "confirm_with_user"
+  | "offer_to_save";
+
 export type AgentLinkRenderIssue =
   | "group_with_messages"
   | "block_in_async_message"

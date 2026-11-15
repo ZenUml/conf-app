@@ -133,7 +133,6 @@ import {
   findPostedByNonce,
   repliesOldestFirst,
   rootsForDiagram,
-  toDiagramComment,
   type DiagramThread,
 } from './commentThreads'
 import { buildCommentAdf, newNonce, plannedRecipients } from './composeComment'

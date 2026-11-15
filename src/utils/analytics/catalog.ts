@@ -839,6 +839,9 @@ export type AnalyticsEventName =
   // admin-targeted copy produces a purchase intent rather than another relay
   // hop. Distinct from `extension_request_clicked` (asks US for more free
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
+  // Also fires on a Plan and usage row click: surface=dashboard, space_key,
+  // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
+  // the selected space and its checkout attribution.
   | "paywall_bundle_cta_clicked"
   // The Marketplace (Full plan) rail. Separate event from the bundle rail
   // because they need different people: Marketplace requires a Confluence SITE
@@ -1931,6 +1934,8 @@ export type AnalyticsEventName =
   // usage-only view. `plan_usage_request_full_clicked` fires when either
   // audience opens the Request-Full guidance page from here (the entry point
   // named in the spec: banner -> Plan and usage -> "申请 Full").
+  // Fires after usage and paid-status loading settle. purchasable_space_count
+  // counts rows with a confirmed unpaid decision and a purchase action.
   | "plan_usage_viewed"
   | "plan_usage_request_full_clicked"
   // Admin's direct purchase entry point on the Plan and usage page itself

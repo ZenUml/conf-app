@@ -63,6 +63,8 @@ describe('PlanUsage', () => {
     const w = await mountPage(usageBody({ overLimitSpaces: [{ spaceKey: 'ENG', macroCount: 143 }, { spaceKey: '~abc123', macroCount: 100 }, { spaceKey: 'PAID', macroCount: 400 }, { spaceKey: 'USER', macroCount: 400 }, { spaceKey: 'UNKNOWN', macroCount: 143 }] }))
     expect(w.findAll('.space-purchase button')).toHaveLength(2)
     expect(w.findAll('.license-state').map(x => x.text())).toEqual(['Covered by a paid license', 'Covered by a paid license', 'License status unavailable'])
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant__ENG')
     await w.get('button[aria-label="Unlock this space: ~abc123"]').trigger('click')
     expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant___abc123')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('paywall_bundle_cta_clicked', expect.objectContaining({ surface: 'dashboard', space_key: '~abc123', macro_count: 100, macro_limit: 100, bundle_price_usd: 299, client_reference_id: 'example-tenant___abc123' }))
@@ -99,6 +101,9 @@ describe('PlanUsage', () => {
       grant: { id: 'grant', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
     })
     const w = await mountPage(usageBody())
+    expect(w.get('button[aria-label="Unlock this space: ENG"]').text()).toBe('Unlock this space')
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant__ENG')
     expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).toContain('Discuss it with colleagues')
     expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).not.toContain('foreign-id')
     expect(w.get('.upgrade-block h2').text()).toBe('Explore a plan for your Fullscreen use')

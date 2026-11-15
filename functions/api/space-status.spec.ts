@@ -4,6 +4,7 @@ vi.mock('../utils/requestUtils', () => ({ getAuthorizationHeader: vi.fn(() => 'v
 vi.mock('../utils/authenticate', () => ({ validateContextToken: vi.fn() }));
 vi.mock('../utils/sentry', () => ({ captureError: vi.fn() }));
 
+import { getAuthorizationHeader } from '../utils/requestUtils';
 import { validateContextToken } from '../utils/authenticate';
 import { onRequest } from './space-status';
 
@@ -48,6 +49,35 @@ describe('space-status decisionKnown', () => {
   beforeEach(() => {
     vi.mocked(validateContextToken).mockResolvedValue(fit() as any);
   });
+
+  it('rejects bulk requests without a trusted authorization token', async () => {
+    const ctx = context()
+    ctx.request = new Request('https://api.example.test/api/space-status?spaceKey=ENG&spaceKey=OPS')
+    vi.mocked(getAuthorizationHeader).mockReturnValueOnce('')
+    expect((await onRequest(ctx)).status).toBe(401)
+    vi.mocked(validateContextToken).mockRejectedValueOnce(new Error('invalid signature'))
+    expect((await onRequest(ctx)).status).toBe(500)
+    expect(ctx.env.SPACE_LICENSE_KV.get).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'spaceKey=ENG&spaceKey=bad%20key',
+    'spaceKey=ENG&spaceKey=',
+    Array.from({ length: 201 }, (_, i) => `spaceKey=S${i}`).join('&'),
+  ])('rejects invalid or oversized batches before reading licensing data (%s)', async query => {
+    const ctx = context()
+    ctx.request = new Request(`https://api.example.test/api/space-status?${query}`, { headers: { Authorization: 'Bearer valid-fit' } })
+    expect((await onRequest(ctx)).status).toBe(400)
+    expect(ctx.env.SPACE_LICENSE_KV.get).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, { accountId: 'user-a' }])('ignores query identity when the FIT principal is absent or malformed (%s)', async principal => {
+    vi.mocked(validateContextToken).mockResolvedValueOnce({ cloudId: 'site-a', payload: { principal, context: { cloudId: 'site-a' } } } as any)
+    const ctx = context({ kv: { 'license:site-a:ENG:user-a': active } })
+    ctx.request = new Request('https://api.example.test/api/space-status?spaceKey=ENG&spaceKey=OPS&accountId=user-a', { headers: { Authorization: 'Bearer valid-fit' } })
+    expect(await (await onRequest(ctx)).json()).toEqual({ statuses: { ENG: { isPaid: false, decisionKnown: true }, OPS: { isPaid: false, decisionKnown: true } } })
+    expect(ctx.env.SPACE_LICENSE_KV.get.mock.calls.map((args: string[]) => args[0])).toEqual(['license:site-a:ENG', 'license:site-a:OPS'])
+  })
 
   it('batches space and viewer licenses using trusted FIT identity with one paid-rail read', async () => {
     const database = db(null)

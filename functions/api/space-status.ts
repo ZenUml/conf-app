@@ -151,7 +151,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const cloudId = typeof rawCloudId === 'string' ? rawCloudId : undefined;
     // Derived from the Forge-validated token, never a client query param — a
     // query param would let any user claim another user's accountId.
-    const accountId = payload?.payload?.principal;
+    const rawAccountId = payload?.payload?.principal;
+    const accountId = typeof rawAccountId === 'string' && rawAccountId ? rawAccountId : undefined;
     const batchKeys = url.searchParams.getAll('spaceKey');
     if (batchKeys.length > 1) {
       if (batchKeys.length > 200 || batchKeys.some(key => !/^[~A-Za-z0-9_-]{1,255}$/.test(key))) {

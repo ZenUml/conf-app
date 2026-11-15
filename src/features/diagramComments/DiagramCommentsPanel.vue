@@ -3,6 +3,7 @@
     <header class="dc-header">
       <h2 class="dc-title" data-testid="diagram-comments-title">Comments · {{ threads.length }}</h2>
       <button
+        v-if="closable"
         type="button"
         class="dc-close"
         data-testid="diagram-comments-close"
@@ -64,47 +65,14 @@
             </li>
           </ul>
 
-          <template v-if="!readOnly">
-            <button
-              v-if="replyOpenFor !== thread.root.id"
-              type="button"
-              class="dc-link-button"
-              data-testid="diagram-comments-reply-toggle"
-              @click="openReply(thread.root.id)"
-            >
-              Reply
-            </button>
-            <div v-else class="dc-compose dc-compose--reply" data-testid="diagram-comments-reply-box">
-              <textarea
-                v-model="replyDrafts[thread.root.id]"
-                class="dc-textarea"
-                data-testid="diagram-comments-reply-input"
-                aria-label="Write a reply"
-                rows="2"
-                :disabled="posting"
-                @keydown.esc.stop
-                @keydown.enter="onEnter($event, { kind: 'reply', thread })"
-              ></textarea>
-              <p class="dc-notify" data-testid="diagram-comments-reply-notify">{{ notifyLine(replyRecipients(thread)) }}</p>
-              <p v-if="postNotice?.target === thread.root.id" class="dc-error" role="alert" data-testid="diagram-comments-post-error">
-                {{ postNotice.message }}
-              </p>
-              <div class="dc-actions">
-                <button type="button" class="dc-button dc-button--secondary" :disabled="posting" @click="replyOpenFor = null">
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  class="dc-button"
-                  data-testid="diagram-comments-reply-post"
-                  :disabled="posting || !(replyDrafts[thread.root.id] ?? '').trim()"
-                  @click="submit({ kind: 'reply', thread })"
-                >
-                  Post
-                </button>
-              </div>
-            </div>
-          </template>
+          <button
+            type="button"
+            class="dc-link-button"
+            data-testid="diagram-comments-native-reply"
+            @click="openInConfluence(thread.root.id)"
+          >
+            Reply in Confluence
+          </button>
         </li>
       </ul>
     </div>
@@ -123,7 +91,7 @@
           rows="3"
           :disabled="posting"
           @keydown.esc.stop
-          @keydown.enter="onEnter($event, { kind: 'root' })"
+          @keydown.enter="onEnter"
         ></textarea>
         <p class="dc-notify" data-testid="diagram-comments-notify">{{ notifyLine(rootRecipients) }}</p>
         <p v-if="postNotice?.target === ROOT" class="dc-error" role="alert" data-testid="diagram-comments-post-error">
@@ -135,7 +103,7 @@
             class="dc-button"
             data-testid="diagram-comments-post"
             :disabled="posting || !rootDraft.trim()"
-            @click="submit({ kind: 'root' })"
+            @click="submit"
           >
             Post
           </button>
@@ -146,12 +114,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import type { DiagramCommentFailureReason, MacroTypeValue } from '@/utils/analytics/catalog'
 import type { AnalyticsProperties } from '@/utils/analytics/types'
 import { requestConfluenceJson } from '@/utils/byline/confluenceRequest'
 import { buildCommentLink } from './commentLink'
+import { openNativeThread, type NativeReplyPayload } from './nativeThread'
 import {
   DiagramCommentError,
   fetchReplies,
@@ -170,7 +139,7 @@ import {
 import { buildCommentAdf, newNonce, plannedRecipients } from './composeComment'
 import { getPageRootComments, invalidatePageComments } from './pageCommentsCache'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   pageId: string
   diagramId: string
   localId?: string
@@ -181,14 +150,18 @@ const props = defineProps<{
   currentAccountId?: string
   macroType?: MacroTypeValue
   request?: CommentRequest
-}>()
+  /** The modal has its own close control; the standalone layout keeps ours. */
+  closable?: boolean
+  /** Host navigation and modal close for "Reply in Confluence". Default to the Forge bridge. */
+  navigate?: (path: string) => Promise<unknown> | unknown
+  closeModal?: (payload?: NativeReplyPayload) => Promise<unknown> | unknown
+}>(), { closable: true })
 
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'count', count: number): void
 }>()
 
-type Target = { kind: 'root' } | { kind: 'reply'; thread: DiagramThread }
 const ROOT = '__root__'
 
 const state = ref<'loading' | 'error' | 'ready'>('loading')
@@ -196,8 +169,6 @@ const loadFailure = ref<DiagramCommentFailureReason>('unknown')
 const threads = ref<DiagramThread[]>([])
 const names = ref<Record<string, UserName>>({})
 const rootDraft = ref('')
-const replyDrafts = reactive<Record<string, string>>({})
-const replyOpenFor = ref<string | null>(null)
 const posting = ref(false)
 const readOnly = ref(false)
 const postNotice = ref<{ target: string; message: string } | null>(null)
@@ -210,7 +181,7 @@ const req = (): CommentRequest => props.request ?? (requestConfluenceJson as Com
 
 const base = (): Pick<AnalyticsProperties, 'feature_area' | 'surface' | 'macro_type'> => ({
   feature_area: 'diagram_comments',
-  surface: 'fullscreen',
+  surface: 'comments_modal',
   macro_type: props.macroType ?? 'none',
 })
 
@@ -254,17 +225,6 @@ function formatTime(iso: string): string {
 const rootRecipients = computed(() =>
   plannedRecipients({ mentionIds: [], lastModifierId: props.lastModifierId, currentAccountId: props.currentAccountId }),
 )
-function replyRecipients(thread: DiagramThread): string[] {
-  return plannedRecipients({
-    mentionIds: replyMentionIds(thread),
-    lastModifierId: undefined,
-    currentAccountId: props.currentAccountId,
-  })
-}
-function replyMentionIds(thread: DiagramThread): string[] {
-  const author = thread.root.authorId
-  return author && author !== props.currentAccountId ? [author] : []
-}
 function notifyLine(ids: string[]): string {
   if (!ids.length) return 'No one will be notified'
   const labels = ids.map(id => nameOf(id) + (id === props.lastModifierId ? ' (last editor)' : ''))
@@ -316,123 +276,87 @@ async function load(opts: { silent?: boolean } = {}): Promise<void> {
 
 // ---- posting ---------------------------------------------------------------
 
-function openReply(id: string) {
-  replyOpenFor.value = id
-  if (replyDrafts[id] === undefined) replyDrafts[id] = ''
-}
-
-function onEnter(event: KeyboardEvent, target: Target) {
+function onEnter(event: KeyboardEvent) {
   if (event.ctrlKey || event.metaKey) {
     event.preventDefault()
-    void submit(target)
+    void submit()
   }
 }
 
-const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
-
-/** After an uncertain save: read back and look for the comment. */
-async function wasSaved(target: Target, text: string, nonce: string | undefined): Promise<boolean> {
+/** After an uncertain save: read back and look for the comment by its nonce. */
+async function wasSaved(nonce: string): Promise<boolean> {
   invalidatePageComments(props.pageId)
   try {
-    const request = req()
-    if (target.kind === 'root') {
-      const raws = await getPageRootComments(request, props.pageId)
-      return !!nonce && !!findPostedByNonce(raws, nonce)
-    }
-    const raws = await fetchReplies(request, target.thread.root.id)
-    const wanted = squash(text)
-    return raws.some(raw => {
-      const c = toDiagramComment(raw)
-      return !!c && !!props.currentAccountId && c.authorId === props.currentAccountId && squash(c.text).endsWith(wanted)
-    })
+    const raws = await getPageRootComments(req(), props.pageId)
+    return !!findPostedByNonce(raws, nonce)
   } catch {
     return false
   }
 }
 
-async function submit(target: Target): Promise<void> {
+async function submit(): Promise<void> {
   if (postGuard) return
-  const key = target.kind === 'root' ? ROOT : target.thread.root.id
-  const text = (target.kind === 'root' ? rootDraft.value : (replyDrafts[key] ?? '')).trim()
+  const text = rootDraft.value.trim()
   if (!text) return
   postGuard = true
   posting.value = true
   postNotice.value = null
 
-  const action = target.kind
-  const mentionIds =
-    target.kind === 'root'
-      ? props.lastModifierId && props.lastModifierId !== props.currentAccountId
-        ? [props.lastModifierId]
-        : []
-      : replyMentionIds(target.thread)
+  const mentionIds = props.lastModifierId && props.lastModifierId !== props.currentAccountId ? [props.lastModifierId] : []
   const mentions = mentionIds.map(accountId => ({ accountId, name: nameOf(accountId) }))
   trackAnalyticsEvent('diagram_comment_submit_requested', {
     ...base(),
-    comment_thread_action: action,
+    comment_thread_action: 'root',
     comment_mention_count: mentions.length,
   })
 
-  let nonce: string | undefined
-  let adf
-  if (target.kind === 'root') {
-    nonce = newNonce()
-    const href = buildCommentLink(props.pageUrl, {
-      diagramId: props.diagramId,
-      localId: props.localId,
-      diagramVersion: props.diagramVersion,
-      nonce,
-    })
-    const label = `${props.diagramTitle || 'Diagram'}${props.diagramVersion !== undefined ? ' · v' + props.diagramVersion : ''}`
-    adf = buildCommentAdf({ text, mentions, link: { href, label } })
-  } else {
-    adf = buildCommentAdf({ text, mentions })
-  }
+  const nonce = newNonce()
+  const href = buildCommentLink(props.pageUrl, {
+    diagramId: props.diagramId,
+    localId: props.localId,
+    diagramVersion: props.diagramVersion,
+    nonce,
+  })
+  const label = `${props.diagramTitle || 'Diagram'}${props.diagramVersion !== undefined ? ' · v' + props.diagramVersion : ''}`
+  const adf = buildCommentAdf({ text, mentions, link: { href, label } })
 
   let saved = false
   try {
     try {
-      await postFooterComment(
-        req(),
-        target.kind === 'root' ? { pageId: props.pageId, adf } : { parentCommentId: target.thread.root.id, adf },
-      )
+      await postFooterComment(req(), { pageId: props.pageId, adf })
       saved = true
     } catch (e) {
       if (e instanceof DiagramCommentError && e.uncertain) {
-        if (await wasSaved(target, text, nonce)) {
+        if (await wasSaved(nonce)) {
           saved = true
         } else {
-          postNotice.value = { target: key, message: UNCERTAIN_MESSAGE }
+          postNotice.value = { target: ROOT, message: UNCERTAIN_MESSAGE }
         }
       } else {
         const reason = reasonOf(e)
         trackAnalyticsEvent('diagram_comment_submit_failed', {
           ...base(),
-          comment_thread_action: action,
+          comment_thread_action: 'root',
           comment_failure_reason: reason,
         })
         if (reason === 'permission_denied') readOnly.value = true
-        else postNotice.value = { target: key, message: POST_MESSAGES[reason] }
+        else postNotice.value = { target: ROOT, message: POST_MESSAGES[reason] }
       }
     }
 
     if (saved) {
-      if (target.kind === 'root') rootDraft.value = ''
-      else {
-        replyDrafts[key] = ''
-        replyOpenFor.value = null
-      }
+      rootDraft.value = ''
       trackAnalyticsEvent('diagram_comment_submit_succeeded', {
         ...base(),
-        comment_thread_action: action,
+        comment_thread_action: 'root',
         comment_mention_count: mentions.length,
         comment_planned_recipient_count: plannedRecipients({
           mentionIds,
-          lastModifierId: target.kind === 'root' ? props.lastModifierId : undefined,
+          lastModifierId: props.lastModifierId,
           currentAccountId: props.currentAccountId,
         }).length,
       })
-      if (target.kind === 'root') invalidatePageComments(props.pageId)
+      invalidatePageComments(props.pageId)
       await load({ silent: true })
     }
   } finally {
@@ -441,9 +365,32 @@ async function submit(target: Target): Promise<void> {
   }
 }
 
+// ---- Reply in Confluence ---------------------------------------------------
+// The native list is where replies, edits and deletes live. Navigate the host
+// page to the thread, then close this modal. See nativeThread.ts for the fallback.
+
+async function defaultNavigate(path: string): Promise<void> {
+  const { router } = await import('@forge/bridge')
+  await router.navigate(path)
+}
+async function defaultCloseModal(payload?: NativeReplyPayload): Promise<void> {
+  const { getView } = await import('@/model/globals/forgeGlobal')
+  await (await getView()).close(payload)
+}
+
+async function openInConfluence(commentId: string): Promise<void> {
+  trackAnalyticsEvent('diagram_comment_native_opened', { ...base(), comment_native_action: 'reply' })
+  await openNativeThread({
+    pageUrl: props.pageUrl,
+    commentId,
+    navigate: props.navigate ?? defaultNavigate,
+    close: props.closeModal ?? defaultCloseModal,
+  })
+}
+
 // ---- lifecycle -------------------------------------------------------------
 
-const hasDraft = () => !!rootDraft.value.trim() || Object.values(replyDrafts).some(d => !!d.trim())
+const hasDraft = () => !!rootDraft.value.trim()
 
 function fireDismissed() {
   if (dismissed) return
@@ -459,20 +406,24 @@ function onClose() {
 onMounted(() => {
   trackAnalyticsEvent('diagram_comment_panel_opened', base())
   void load()
+  // A modal iframe is destroyed on close without unmounting, so leave a trace too.
+  window.addEventListener('pagehide', fireDismissed)
 })
-onBeforeUnmount(fireDismissed)
+onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', fireDismissed)
+  fireDismissed()
+})
 </script>
 
 <style scoped>
 .dc-panel {
   display: flex;
   flex-direction: column;
-  width: 380px;
+  width: 100%;
   height: 100%;
   min-height: 0;
   box-sizing: border-box;
   background: #fff;
-  border-left: 1px solid #e5e7eb;
   color: #172b4d;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px;
@@ -618,9 +569,6 @@ onBeforeUnmount(fireDismissed)
   flex: 0 0 auto;
   padding: 12px 16px 16px;
   border-top: 1px solid #e5e7eb;
-}
-.dc-compose--reply {
-  margin: 12px 0 0 42px;
 }
 .dc-textarea {
   display: block;

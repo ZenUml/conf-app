@@ -241,7 +241,7 @@ describe('DiagramCommentsPanel', () => {
     ])
     expect(eventProps('diagram_comment_submit_requested')[0]).toMatchObject({
       feature_area: 'diagram_comments',
-      surface: 'fullscreen',
+      surface: 'comments_modal',
       macro_type: 'sequence',
       comment_thread_action: 'root',
       comment_mention_count: 1,
@@ -359,40 +359,57 @@ describe('DiagramCommentsPanel', () => {
     expect(wrapper.find('[data-testid="diagram-comments-post-error"]').exists()).toBe(true)
   })
 
-  it('posts a reply with parentCommentId, mentioning the thread author, with no link', async () => {
+  it('offers no reply composer: replies are written in Confluence', async () => {
     const { request, posts } = makeRequest(baseWorld())
     const wrapper = mountPanel(request)
     await flushPromises()
-    await wrapper.get('[data-testid="diagram-comments-reply-toggle"]').trigger('click')
-    expect(wrapper.get('[data-testid="diagram-comments-reply-notify"]').text()).toBe('Will notify: Mia Lin')
-    await type(wrapper, 'diagram-comments-reply-input', 'Thanks, clear now')
-    await wrapper.get('[data-testid="diagram-comments-reply-post"]').trigger('click')
-    await flushPromises()
-
-    expect(posts).toHaveLength(1)
-    expect(posts[0].parentCommentId).toBe('c1')
-    expect(posts[0].pageId).toBeUndefined()
-    const json = posts[0].body.value as string
-    expect(json).toContain('u-reader')
-    expect(json).not.toContain('zenumlDiagram')
-    expect(eventProps('diagram_comment_submit_requested')[0]).toMatchObject({ comment_thread_action: 'reply', comment_mention_count: 1 })
+    expect(wrapper.find('[data-testid="diagram-comments-reply-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="diagram-comments-reply-input"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="diagram-comments-reply-post"]').exists()).toBe(false)
+    expect(posts).toHaveLength(0)
   })
 
-  it('uncertain reply is confirmed by an own comment with the same text', async () => {
-    const world = baseWorld()
-    world.onPost = (_b, w) => {
-      w.children.c1.push(replyComment('r9', '@Mia Lin Thanks', 'u-me', '2026-11-02T00:00:00.000Z'))
-      throw new TypeError('Failed to fetch')
-    }
-    const { request, posts } = makeRequest(world)
-    const wrapper = mountPanel(request, {})
+  it('"Reply in Confluence" navigates the host page to the thread, closes, and tracks one event without ids', async () => {
+    const { request } = makeRequest(baseWorld())
+    const navigate = vi.fn(async () => undefined)
+    const closeModal = vi.fn(async () => undefined)
+    const wrapper = mountPanel(request, { navigate, closeModal })
     await flushPromises()
-    await wrapper.get('[data-testid="diagram-comments-reply-toggle"]').trigger('click')
-    await type(wrapper, 'diagram-comments-reply-input', 'Thanks')
-    await wrapper.get('[data-testid="diagram-comments-reply-post"]').trigger('click')
+    const links = wrapper.findAll('[data-testid="diagram-comments-native-reply"]')
+    expect(links).toHaveLength(1)
+    expect(links[0].text()).toBe('Reply in Confluence')
+    await links[0].trigger('click')
     await flushPromises()
-    expect(posts).toHaveLength(1)
-    expect(events()).toContain('diagram_comment_submit_succeeded')
+
+    expect(navigate).toHaveBeenCalledWith('/wiki/spaces/OP/pages/42/Checkout?focusedCommentId=c1')
+    expect(closeModal).toHaveBeenCalledWith()
+    const native = eventProps('diagram_comment_native_opened')
+    expect(native).toHaveLength(1)
+    expect(native[0]).toEqual({
+      feature_area: 'diagram_comments',
+      surface: 'comments_modal',
+      macro_type: 'sequence',
+      comment_native_action: 'reply',
+    })
+  })
+
+  it('hands the reply back through the close payload when navigation is refused', async () => {
+    const { request } = makeRequest(baseWorld())
+    const navigate = vi.fn(async () => { throw new Error('refused') })
+    const closeModal = vi.fn(async () => undefined)
+    const wrapper = mountPanel(request, { navigate, closeModal })
+    await flushPromises()
+    await wrapper.get('[data-testid="diagram-comments-native-reply"]').trigger('click')
+    await flushPromises()
+    expect(closeModal).toHaveBeenCalledTimes(1)
+    expect(closeModal).toHaveBeenCalledWith({ action: 'reply', commentId: 'c1' })
+    expect(events()).toContain('diagram_comment_native_opened')
+  })
+
+  it('does not show a Forge-duplicating close button when closable is false', async () => {
+    const wrapper = mountPanel(makeRequest(baseWorld()).request, { closable: false })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="diagram-comments-close"]').exists()).toBe(false)
   })
 
   it('permission denied on post hides the compose box and explains', async () => {
@@ -420,7 +437,7 @@ describe('DiagramCommentsPanel', () => {
     wrapper.unmount()
     const dismissed = eventProps('diagram_comment_dismissed')
     expect(dismissed).toHaveLength(1)
-    expect(dismissed[0]).toMatchObject({ comment_had_draft: true, feature_area: 'diagram_comments', surface: 'fullscreen' })
+    expect(dismissed[0]).toMatchObject({ comment_had_draft: true, feature_area: 'diagram_comments', surface: 'comments_modal' })
   })
 
   it('unmount without a click still reports dismissed once, with no draft', async () => {

@@ -39,3 +39,9 @@ Final runtime candidate: `a3638a24bceece8acfc992b491cbaa322297f555`. The Linux C
 The narrow-label regression was red before removing the discount; it now passes textFit and labelFontFit and proves that the next integer font size cannot fit. Doctor rejects incompatible fallback metrics with actionable dependency instructions. See red/green font logs.
 
 The complete final local run passed **943 Node tests (936 main + 7 isolated performance) and 42 Python tests, zero skipped**. This supersedes the earlier local timeout record for code validation. Root app tests/build were unaffected by this package-only follow-up. The live model and generated-preview evidence above remain explicitly tied to the initial `b7b03755` run; no extra model call was made for the font-only fix. Linux confirmation is recorded in the PR CI links.
+
+## Final Linux glyph correction
+
+Final candidate: `ec8386bf05b9459bbb654fe02a4243854a88f93d`. Linux run [43657020581](https://github.com/ZenUml/conf-app/actions/runs/43657020581) narrowed the remaining differences to seven observed width vectors for four glyphs (`?`, `K`, `Y`, `a`). Both estimators now cover those measured bounds. The observation fixture was red before correction and is retained alongside the actual-browser tests; the auditor and rules were not weakened.
+
+The affected glyph/doctor/spec/shape/box/edge-label tests passed 163/163 with zero skips, and Python passed 42/42. The root CLI path-with-spaces test additionally passed using a no-model fake Pi and the real command parser. Doctor's error now states that measured font metrics exceed supported bounds rather than asserting a font is absent. The final Linux full-suite CI result is linked in the PR.

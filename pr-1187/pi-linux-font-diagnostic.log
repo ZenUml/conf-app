@@ -1,0 +1,10 @@
+✔ doctor refuses incompatible measured fallback fonts with an actionable dependency error (1.27025ms)
+✔ font preflight accepts bounds already verified by the browser (0.090958ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 94.45125

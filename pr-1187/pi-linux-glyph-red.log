@@ -1,0 +1,25 @@
+✖ both width estimators bound the observed Linux Chromium Arial glyphs (51.535208ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 110.328709
+
+✖ failing tests:
+
+test at test/kit.test.mjs:38:1
+✖ both width estimators bound the observed Linux Chromium Arial glyphs (51.535208ms)
+  AssertionError [ERR_ASSERTION]: spec estimate under Linux observation ??????@12: 40.369140625
+      at TestContext.<anonymous> (file:///workspace/conf-app/tools/pi-diagram-agent/test/kit.test.mjs:49:12)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

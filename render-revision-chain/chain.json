@@ -1,0 +1,101 @@
+{
+  "first": {
+    "args": {
+      "diagramType": "sequence",
+      "source": "A->B: msg\ngroup \"Backend\" {\n  B->C: save()\n}"
+    },
+    "text": "The sequence source did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n- line 2, column 0: `group` must come before the first message: move this group to the top and keep only participant names in it.\n- line 2, column 0: mismatched input 'group' expecting <EOF>\n\nThis rewrite parses with no warnings; unless it changes what the user asked for, call render_diagram again with this source:\n```\ngroup \"Backend\" {\n  B\n  C\n}\nA->B: msg\nB->C: save()\n```\n\nZenUML syntax: call with nested block `A->B.method() { C.other() }`; assign `x = B.get()`; `if (cond) { } else { }`; `return x`; `// comment`; participants `@Actor User`, `@Database DB`; quote names with spaces or slashes `B.\"GET /x\"()`. Mistakes: no `{ }` block after an async `A->B: text` message (use `A->B.method() { }`); `group Name { A B }` only wraps participant declarations, so it goes before the first message and holds no messages.\n\nNext:\n- apply_suggested_source: Call render_diagram again with suggestedSource and this revision.\n- confirm_with_user: The rewrite put the participants of those messages in the group; ask the user if a different grouping was meant.\n\nPass revision r1.eyJuIjoxLCJoIjoiN2YxMzVhZmFiZDIxNjFiZiIsImMiOlsiZ3JvdXBfYWZ0ZXJfbWVzc2FnZSJdLCJmIjoiNzY1YmE2MjE0MTE2ZDU1MiJ9 with the next render_diagram call for this diagram.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": false,
+      "errors": [
+        {
+          "line": 2,
+          "col": 0,
+          "message": "mismatched input 'group' expecting <EOF>"
+        }
+      ],
+      "hints": [
+        {
+          "code": "group_after_message",
+          "line": 2,
+          "col": 0,
+          "message": "`group` must come before the first message: move this group to the top and keep only participant names in it."
+        }
+      ],
+      "suggestedSource": "group \"Backend\" {\n  B\n  C\n}\nA->B: msg\nB->C: save()",
+      "attempt": 1,
+      "revision": "r1.eyJuIjoxLCJoIjoiN2YxMzVhZmFiZDIxNjFiZiIsImMiOlsiZ3JvdXBfYWZ0ZXJfbWVzc2FnZSJdLCJmIjoiNzY1YmE2MjE0MTE2ZDU1MiJ9",
+      "nextActions": [
+        {
+          "action": "apply_suggested_source",
+          "detail": "Call render_diagram again with suggestedSource and this revision."
+        },
+        {
+          "action": "confirm_with_user",
+          "detail": "The rewrite put the participants of those messages in the group; ask the user if a different grouping was meant."
+        }
+      ]
+    }
+  },
+  "repeat": {
+    "args": {
+      "diagramType": "sequence",
+      "source": "A->B: msg\ngroup \"Backend\" {\n  B->C: save()\n}\n",
+      "revision": "r1.eyJuIjoxLCJoIjoiN2YxMzVhZmFiZDIxNjFiZiIsImMiOlsiZ3JvdXBfYWZ0ZXJfbWVzc2FnZSJdLCJmIjoiNzY1YmE2MjE0MTE2ZDU1MiJ9"
+    },
+    "text": "Same mistake as the previous attempt (group_after_message), now attempt 2: use the rewrite below rather than editing by hand.\n\nThe sequence source did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n- line 2, column 0: `group` must come before the first message: move this group to the top and keep only participant names in it.\n- line 2, column 0: mismatched input 'group' expecting <EOF>\n\nThis rewrite parses with no warnings; unless it changes what the user asked for, call render_diagram again with this source:\n```\ngroup \"Backend\" {\n  B\n  C\n}\nA->B: msg\nB->C: save()\n\n```\n\nZenUML syntax: call with nested block `A->B.method() { C.other() }`; assign `x = B.get()`; `if (cond) { } else { }`; `return x`; `// comment`; participants `@Actor User`, `@Database DB`; quote names with spaces or slashes `B.\"GET /x\"()`. Mistakes: no `{ }` block after an async `A->B: text` message (use `A->B.method() { }`); `group Name { A B }` only wraps participant declarations, so it goes before the first message and holds no messages.\n\nNext:\n- apply_suggested_source: Call render_diagram again with suggestedSource and this revision.\n- confirm_with_user: The rewrite put the participants of those messages in the group; ask the user if a different grouping was meant.\n\nPass revision r1.eyJuIjoyLCJoIjoiZjI5MDgyM2FkMDgyZTc4NiIsImMiOlsiZ3JvdXBfYWZ0ZXJfbWVzc2FnZSJdLCJmIjoiNzZkYzM1M2RlNWE2Nzk5ZCJ9 with the next render_diagram call for this diagram.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": false,
+      "errors": [
+        {
+          "line": 2,
+          "col": 0,
+          "message": "mismatched input 'group' expecting <EOF>"
+        }
+      ],
+      "hints": [
+        {
+          "code": "group_after_message",
+          "line": 2,
+          "col": 0,
+          "message": "`group` must come before the first message: move this group to the top and keep only participant names in it."
+        }
+      ],
+      "suggestedSource": "group \"Backend\" {\n  B\n  C\n}\nA->B: msg\nB->C: save()\n",
+      "attempt": 2,
+      "revision": "r1.eyJuIjoyLCJoIjoiZjI5MDgyM2FkMDgyZTc4NiIsImMiOlsiZ3JvdXBfYWZ0ZXJfbWVzc2FnZSJdLCJmIjoiNzZkYzM1M2RlNWE2Nzk5ZCJ9",
+      "nextActions": [
+        {
+          "action": "apply_suggested_source",
+          "detail": "Call render_diagram again with suggestedSource and this revision."
+        },
+        {
+          "action": "confirm_with_user",
+          "detail": "The rewrite put the participants of those messages in the group; ask the user if a different grouping was meant."
+        }
+      ]
+    }
+  },
+  "applied": {
+    "args": {
+      "diagramType": "sequence",
+      "source": "group \"Backend\" {\n  B\n  C\n}\nA->B: msg\nB->C: save()",
+      "revision": "r1.eyJuIjoyLCJoIjoiZjI5MDgyM2FkMDgyZTc4NiIsImMiOlsiZ3JvdXBfYWZ0ZXJfbWVzc2FnZSJdLCJmIjoiNzZkYzM1M2RlNWE2Nzk5ZCJ9"
+    },
+    "text": "Rendered the sequence diagram. The source parsed.\n\nNext:\n- offer_to_save: The diagram drew. This server saves nothing: if the user wants to keep it, offer to save it with a Confluence diagram tool if one is connected (the ZenUML Confluence MCP has create_diagram).\n\nPass revision r1.eyJuIjozLCJoIjoiNzY1YmE2MjE0MTE2ZDU1MiIsImMiOltdfQ with the next render_diagram call for this diagram.",
+    "structuredContent": {
+      "diagramType": "sequence",
+      "valid": true,
+      "attempt": 3,
+      "revision": "r1.eyJuIjozLCJoIjoiNzY1YmE2MjE0MTE2ZDU1MiIsImMiOltdfQ",
+      "nextActions": [
+        {
+          "action": "offer_to_save",
+          "detail": "The diagram drew. This server saves nothing: if the user wants to keep it, offer to save it with a Confluence diagram tool if one is connected (the ZenUML Confluence MCP has create_diagram)."
+        }
+      ]
+    }
+  }
+}

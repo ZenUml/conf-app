@@ -106,6 +106,10 @@ Always use a feature branch. Exceptions, both requiring the change be **confined
 
 **Keep the primary checkout in sync with `origin/main` — proactively, without asking.** At the start of any session in the primary checkout, and before committing there, run `git fetch origin main` and `git merge --ff-only origin/main`. A fast-forward changes no commit and discards nothing, so it needs no confirmation. If it refuses, do **not** stash, reset, rebase or discard to force it — that would displace another session's work (see the rule below). Instead report which case applies: local-only commits on `main` (list them with `git log origin/main..HEAD`), or uncommitted changes that overlap files the fast-forward would touch. When `main` is behind and a `.md`-only commit must go out now, build the commit on `origin/main` with a temporary index and push that, leaving the working tree untouched.
 
+### Merge low-risk PRs without asking, then report
+
+An agent session merges a non-destructive, low-technical-risk PR to `main` itself once every check is green and its validation is done; it does not wait for approval and does not offer the merge as an option. After the merge it reports: PR link, merge commit, risk reading, what is not yet verified. A destructive PR (deploys or releases directly, deletes or rewrites stored data, cannot be undone by a revert) still waits for the owner, and a production release still needs its own trigger. Rule, table and preconditions: [docs/policies/auto-lane.md](docs/policies/auto-lane.md#agent-sessions); commands: the **auto-lane** skill.
+
 ### Scan for overlapping work before starting a branch
 
 Before you create a branch or a worktree for any non-trivial change, check whether the work already

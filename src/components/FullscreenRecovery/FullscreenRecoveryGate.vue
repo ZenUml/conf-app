@@ -9,7 +9,7 @@
         <legend>Choose one or more</legend>
         <label v-for="code in scenarioCodes" :key="code" class="recovery__choice">
           <input v-model="scenarios" type="checkbox" :value="code">
-          <span>{{ copy.scenarioLabels[code] }}</span>
+          <span>{{ scenarioLabel(feature, code) }}</span>
         </label>
       </fieldset>
       <details class="recovery__details" :open="!!note">

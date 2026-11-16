@@ -58,9 +58,9 @@ export const recoveryCopy: { [F in RecoveryFeature]: RecoveryCopy<F> } = {
 
 export const scenarioLabels: Record<RecoveryFeatureScenario<'fullscreen'>, string> = recoveryCopy.fullscreen.scenarioLabels
 
-/** Label for a scenario code of `feature`; the code itself if the feature has no label for it. */
+/** Label for a scenario code of `feature`. */
 export function scenarioLabel(feature: RecoveryFeature, code: RecoveryScenario): string {
-  return (recoveryCopy[feature].scenarioLabels as Record<string, string>)[code] ?? code
+  return (recoveryCopy[feature].scenarioLabels as Record<string, string>)[code]
 }
 
 export function fullLocalDate(iso: string | null | undefined): string | null {

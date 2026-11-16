@@ -39,8 +39,13 @@ describe('recovery feature parameter on the API', () => {
     expect((await get('?spaceKey=ENG')).status).toBe(200);
     expect((await post(request)).status).toBe(200);
     expect((await post(activation)).status).toBe(200);
-    expect(parseRecoveryRequest(request).feature ?? 'fullscreen').toBe('fullscreen');
-    expect(parseRecoveryActivation(activation).feature ?? 'fullscreen').toBe('fullscreen');
+    // GET resolves the absent value to fullscreen; POST bodies reach the service without a feature key,
+    // and the service defaults to fullscreen (see fullscreenRecovery.feature.spec.ts in service/).
+    expect(vi.mocked(recoverySnapshot).mock.calls[0][4]).toBe('fullscreen');
+    expect(vi.mocked(createRecoveryRequest).mock.calls[0][2]).not.toHaveProperty('feature');
+    expect(vi.mocked(activateRecovery).mock.calls[0][2]).not.toHaveProperty('feature');
+    expect(parseRecoveryRequest(request)).not.toHaveProperty('feature');
+    expect(parseRecoveryActivation(activation)).not.toHaveProperty('feature');
   });
 
   it('accepts an explicit fullscreen feature', async () => {

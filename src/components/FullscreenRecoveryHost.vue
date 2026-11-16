@@ -3,14 +3,14 @@
     <section v-if="hasOpened" v-show="!showRequest" class="recovery-content">
       <component :is="content" v-bind="contentProps" />
       <div v-if="!dismissed" class="recovery-access">
-        <FullscreenRecoveryStatus :snapshot="snapshot" @continue-request="showRequest = true" @dismiss="dismissNotice" />
+        <FullscreenRecoveryStatus :snapshot="snapshot" :feature="feature" @continue-request="showRequest = true" @dismiss="dismissNotice" />
         <p v-if="activationError" role="alert">
           Your diagram is open. We could not confirm the expiry time yet.
           <button type="button" :disabled="activating" @click="activate">Retry confirmation</button>
         </p>
       </div>
     </section>
-    <FullscreenRecoveryGate v-if="!hasOpened || showRequest" :snapshot="snapshot" :context="context"
+    <FullscreenRecoveryGate v-if="!hasOpened || showRequest" :snapshot="snapshot" :feature="feature" :context="context"
       :initial-view="showRequest ? 'request' : undefined" @update:snapshot="snapshot = $event"
       @open-fullscreen="open" @return-inline="returnInline" @plan-usage="goToPlanUsage" />
     <p v-if="openError" class="recovery-error" role="alert">Could not complete that action. Please try again.</p>
@@ -19,7 +19,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, type Component } from 'vue';
-import type { RecoverySnapshot, RecoveryScenario } from '../../shared/fullscreenRecovery';
+import { RECOVERY_FEATURE_DEFINITIONS, type RecoveryFeature, type RecoverySnapshot, type RecoveryScenario } from '../../shared/fullscreenRecovery';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
 import FullscreenRecoveryGate from '@/components/FullscreenRecovery/FullscreenRecoveryGate.vue';
 import FullscreenRecoveryStatus from '@/components/FullscreenRecovery/FullscreenRecoveryStatus.vue';
@@ -29,12 +29,13 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 const props = withDefaults(defineProps<{
   initialSnapshot: RecoverySnapshot;
+  feature?: RecoveryFeature;
   content: Component;
   contentProps?: Record<string, unknown>;
   context?: { contentId?: string; customContentId?: string; spaceKey?: string };
   returnInline: () => void;
   planUsage: (requestId?: string, scenarios?: RecoveryScenario[]) => void | Promise<void>;
-}>(), { contentProps: () => ({}), context: () => ({}) });
+}>(), { feature: 'fullscreen', contentProps: () => ({}), context: () => ({}) });
 const host = ref<HTMLElement | null>(null);
 const snapshot = ref(props.initialSnapshot);
 const hasOpened = ref(snapshot.value.state === 'active');
@@ -45,7 +46,7 @@ let clock: ReturnType<typeof setInterval>;
 let serverClockOffset = Date.parse(snapshot.value.serverNow) - Date.now();
 const attemptId = crypto.randomUUID();
 const common = () => ({ feature_area: 'upgrade' as const, surface: 'viewer' as const,
-  feature: 'fullscreen' as const, policy_version: 'fullscreen-contact-v1' as const,
+  feature: props.feature, policy_version: RECOVERY_FEATURE_DEFINITIONS[props.feature].policyVersion,
   attempt_id: attemptId, recovery_state: snapshot.value.state,
   recovery_request_id: snapshot.value.request?.id, recovery_grant_id: snapshot.value.grant?.id });
 
@@ -62,7 +63,9 @@ async function activate() {
   if (!rendered || activating.value || snapshot.value.state !== 'pending_activation' || !snapshot.value.request) return;
   activating.value = true;
   try {
-    const result = await activateFullscreenRecovery({ action: 'activate', attemptId, requestId: snapshot.value.request.id, spaceKey: props.context.spaceKey! });
+    const result = await activateFullscreenRecovery({ action: 'activate', attemptId, requestId: snapshot.value.request.id, spaceKey: props.context.spaceKey!,
+      // Fullscreen carries no feature field on the wire.
+      ...(props.feature === 'fullscreen' ? {} : { feature: props.feature }) });
     if (disposed) return;
     snapshot.value = result.snapshot;
     serverClockOffset = Date.parse(result.snapshot.serverNow) - Date.now();
@@ -80,7 +83,7 @@ async function open() {
   // Returning to the same mounted view must not force-close it at expiry.
   if (hasOpened.value) { showRequest.value = false; return; }
   if (!['active', 'pending_activation'].includes(snapshot.value.state)) {
-    try { snapshot.value = await getFullscreenRecovery(props.context.spaceKey); }
+    try { snapshot.value = await getFullscreenRecovery(props.context.spaceKey, props.feature); }
     catch { openError.value = true; return; }
     if (disposed) return;
   }

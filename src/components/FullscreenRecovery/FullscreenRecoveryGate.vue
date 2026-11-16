@@ -1,15 +1,15 @@
 <template>
   <section class="recovery" aria-labelledby="recovery-title" data-testid="fullscreen-recovery-gate">
-    <div class="recovery__eyebrow">ZenUML Lite · Fullscreen</div>
+    <div class="recovery__eyebrow">{{ copy.eyebrow }}</div>
 
     <template v-if="view === 'scenarios'">
-      <h1 id="recovery-title">How will you use Fullscreen?</h1>
-      <p class="recovery__lead">This space has reached the free limit of 100 diagrams. Tell us what you need. After your request is saved, you can use Fullscreen for 7 days starting with your first successful opening.</p>
+      <h1 id="recovery-title">{{ copy.scenariosTitle }}</h1>
+      <p class="recovery__lead">{{ copy.scenariosLead }}</p>
       <fieldset class="recovery__fieldset">
         <legend>Choose one or more</legend>
         <label v-for="code in scenarioCodes" :key="code" class="recovery__choice">
           <input v-model="scenarios" type="checkbox" :value="code">
-          <span>{{ scenarioLabels[code] }}</span>
+          <span>{{ copy.scenarioLabels[code] }}</span>
         </label>
       </fieldset>
       <details class="recovery__details" :open="!!note">
@@ -21,15 +21,15 @@
         <button type="button" class="recovery__primary" :disabled="scenarios.length === 0" @click="showContact">Contact support</button>
         <button type="button" class="recovery__secondary" @click="planUsage">Plan and usage</button>
       </div>
-      <button type="button" class="recovery__link" @click="close">Back to diagram</button>
+      <button type="button" class="recovery__link" @click="close">{{ copy.backLabel }}</button>
     </template>
 
     <template v-else-if="view === 'contact'">
       <h1 id="recovery-title">Contact support</h1>
-      <p class="recovery__lead">We'll reply about this Fullscreen request at the address you provide.</p>
+      <p class="recovery__lead">{{ copy.contactLead }}</p>
       <div class="recovery__context">
         <strong>Included with your request</strong>
-        <p>Current Confluence site, diagram reference, and your Fullscreen use.</p>
+        <p>{{ copy.contactIncluded }}</p>
         <p>Use: {{ selectedScenarioText }}</p>
         <p v-if="note">Additional context: {{ note }}</p>
       </div>
@@ -47,47 +47,47 @@
           <button class="recovery__secondary" type="button" :disabled="busy" @click="view = 'scenarios'">Back</button>
         </div>
       </form>
-      <button type="button" class="recovery__link" @click="close">Back to diagram</button>
+      <button type="button" class="recovery__link" @click="close">{{ copy.backLabel }}</button>
     </template>
 
     <template v-else-if="view === 'ready'">
       <span class="recovery__badge">Request {{ localSnapshot.request?.id }} saved</span>
-      <h1 id="recovery-title">Fullscreen is ready</h1>
-      <p class="recovery__lead">Your 7 days have not started. They begin when the diagram first opens successfully in Fullscreen.</p>
-      <RequestSummary :snapshot="localSnapshot" />
+      <h1 id="recovery-title">{{ copy.readyTitle }}</h1>
+      <p class="recovery__lead">{{ copy.readyLead }}</p>
+      <RequestSummary :snapshot="localSnapshot" :feature="feature" />
       <div class="recovery__actions">
-        <button type="button" class="recovery__primary" @click="openFullscreen">{{ openLabel || 'Open Fullscreen' }}</button>
+        <button type="button" class="recovery__primary" @click="openFullscreen">{{ openLabel || copy.openLabel }}</button>
         <button type="button" class="recovery__secondary" @click="close">Maybe later</button>
       </div>
     </template>
 
     <template v-else-if="view === 'expired'">
-      <h1 id="recovery-title">Your temporary Fullscreen access has ended</h1>
-      <p class="recovery__lead">It ended {{ expiryText }}. You can still read the diagram on this page.</p>
-      <p>Still need Fullscreen? Continue your existing request. You don't need to repeat your use case.</p>
+      <h1 id="recovery-title">{{ copy.expiredTitle }}</h1>
+      <p class="recovery__lead">{{ copy.expiredLead(expiryText) }}</p>
+      <p>{{ copy.expiredPrompt }}</p>
       <div class="recovery__actions">
         <button type="button" class="recovery__primary" @click="showRequest">Continue the conversation</button>
         <button type="button" class="recovery__secondary" @click="planUsage">Plan and usage</button>
       </div>
-      <button type="button" class="recovery__link" @click="close">Back to diagram</button>
+      <button type="button" class="recovery__link" @click="close">{{ copy.backLabel }}</button>
     </template>
 
     <template v-else>
       <span class="recovery__badge">Request {{ localSnapshot.request?.id }}</span>
       <h1 id="recovery-title">Continue this request</h1>
-      <RequestSummary :snapshot="localSnapshot" />
+      <RequestSummary :snapshot="localSnapshot" :feature="feature" />
       <p v-if="localSnapshot.request?.mailState === 'queued' || !localSnapshot.request?.mailState" class="recovery__status">Your request is saved. Support has not sent a reply yet.</p>
       <p v-else-if="localSnapshot.request?.mailState === 'failed' || localSnapshot.request?.mailState === 'bounced' || localSnapshot.request?.mailState === 'delivery_unknown'" class="recovery__status">Your request is saved. We could not confirm delivery of our email. Use the request reference to contact support.</p>
       <p v-else-if="localSnapshot.request?.supportOutcome === 'customer_replied'" class="recovery__status">Your reply has been recorded. Support will confirm the next step.</p>
       <p v-else class="recovery__status">Support has sent a reply. You do not need to reply just to confirm receipt.</p>
       <p v-if="expiryText">Current access {{ localSnapshot.state === 'active' ? 'ends' : 'ended' }} {{ expiryText }}.</p>
-      <p v-else>Your 7 days begin when the diagram first opens successfully in Fullscreen.</p>
-      <p v-if="localSnapshot.request?.mailState === 'accepted' || localSnapshot.request?.mailState === 'delivered'">If you still need Fullscreen, reply to the original email and tell us what you need to do next. Support will review it. A reply does not automatically extend access.</p>
+      <p v-else>{{ copy.pendingNote }}</p>
+      <p v-if="localSnapshot.request?.mailState === 'accepted' || localSnapshot.request?.mailState === 'delivered'">{{ copy.repliedPrompt }}</p>
       <p v-else>When support replies, you can continue in the same email thread. No new request form is needed.</p>
       <p v-if="supportMailto">Can't find the email? <a :href="supportMailto">Email support</a> with reference {{ localSnapshot.request?.id }}.</p>
       <div class="recovery__actions">
-        <button v-if="localSnapshot.state === 'pending_activation' || localSnapshot.state === 'active'" type="button" class="recovery__primary" @click="openFullscreen">{{ openLabel || 'Open Fullscreen' }}</button>
-        <button type="button" class="recovery__secondary" @click="close">Back to diagram</button>
+        <button v-if="localSnapshot.state === 'pending_activation' || localSnapshot.state === 'active'" type="button" class="recovery__primary" @click="openFullscreen">{{ openLabel || copy.openLabel }}</button>
+        <button type="button" class="recovery__secondary" @click="close">{{ copy.backLabel }}</button>
       </div>
     </template>
   </section>
@@ -95,23 +95,24 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { FULLSCREEN_RECOVERY_POLICY_VERSION, FULLSCREEN_RECOVERY_SCENARIOS } from '../../../shared/fullscreenRecovery'
-import type { RecoveryRequestInput, RecoveryResult, RecoveryScenario, RecoverySnapshot } from '../../../shared/fullscreenRecovery'
+import { RECOVERY_FEATURE_DEFINITIONS } from '../../../shared/fullscreenRecovery'
+import type { RecoveryFeature, RecoveryRequestInput, RecoveryResult, RecoveryScenario, RecoverySnapshot } from '../../../shared/fullscreenRecovery'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { requestFullscreenRecovery } from '@/apis/fullscreenRecovery'
 import RequestSummary from './RequestSummary.vue'
-import { fullLocalDate, safeSupportMailto, scenarioLabels } from './recoveryPresentation'
+import { fullLocalDate, recoveryCopy, safeSupportMailto, scenarioLabel } from './recoveryPresentation'
 
 type View = 'scenarios' | 'contact' | 'ready' | 'expired' | 'request'
 const props = withDefaults(defineProps<{
   snapshot: RecoverySnapshot
+  feature?: RecoveryFeature
   request?: (input: RecoveryRequestInput) => Promise<RecoveryResult>
   context?: Partial<Pick<RecoveryRequestInput, 'contentId' | 'customContentId' | 'spaceKey'>>
   initialView?: 'request'
   initialScenarios?: RecoveryScenario[]
   openLabel?: string
   surface?: 'viewer' | 'dashboard'
-}>(), { request: requestFullscreenRecovery, surface: 'viewer' })
+}>(), { feature: 'fullscreen', request: requestFullscreenRecovery, surface: 'viewer' })
 const emit = defineEmits<{
   (event: 'update:snapshot', snapshot: RecoverySnapshot): void
   (event: 'openFullscreen'): void
@@ -133,22 +134,24 @@ const localSnapshot = ref(props.snapshot)
 const view = ref<View>(viewForSnapshot(props.snapshot))
 watch(() => props.snapshot, (next) => { localSnapshot.value = next; view.value = viewForSnapshot(next) })
 
-const scenarioCodes = FULLSCREEN_RECOVERY_SCENARIOS
-const scenarios = ref<RecoveryScenario[]>([...new Set((props.initialScenarios || []).filter(code => FULLSCREEN_RECOVERY_SCENARIOS.includes(code)))])
+const copy = computed(() => recoveryCopy[props.feature])
+const definition = computed(() => RECOVERY_FEATURE_DEFINITIONS[props.feature])
+const scenarioCodes = computed(() => definition.value.scenarios as readonly RecoveryScenario[])
+const scenarios = ref<RecoveryScenario[]>([...new Set((props.initialScenarios || []).filter(code => scenarioCodes.value.includes(code)))])
 const note = ref('')
 const email = ref('')
 const consent = ref(false)
 const busy = ref(false)
 const error = ref('')
-const selectedScenarioText = computed(() => scenarios.value.map(code => scenarioLabels[code]).join(', '))
+const selectedScenarioText = computed(() => scenarios.value.map(code => scenarioLabel(props.feature, code)).join(', '))
 const canSubmit = computed(() => scenarios.value.length > 0 && email.value.length > 0 && consent.value)
 const expiryText = computed(() => fullLocalDate(localSnapshot.value.grant?.expiresAt))
-const supportMailto = computed(() => safeSupportMailto(localSnapshot.value))
+const supportMailto = computed(() => safeSupportMailto(localSnapshot.value, props.feature))
 const gateAttemptId = crypto.randomUUID()
 function analyticsBase(attemptId = gateAttemptId) {
   return {
-    feature_area: 'upgrade' as const, surface: props.surface, feature: 'fullscreen' as const,
-    policy_version: FULLSCREEN_RECOVERY_POLICY_VERSION,
+    feature_area: 'upgrade' as const, surface: props.surface, feature: props.feature,
+    policy_version: definition.value.policyVersion,
     entry_point: props.surface === 'dashboard' ? 'dashboard' as const : 'macro_toolbar' as const,
     attempt_id: attemptId, recovery_state: localSnapshot.value.state,
     recovery_request_id: localSnapshot.value.request?.id,
@@ -188,7 +191,9 @@ async function submit() {
   const attemptId = crypto.randomUUID()
   const input: RecoveryRequestInput = {
     action: 'request', attemptId, scenarios: [...scenarios.value], note: note.value,
-    email: email.value, consent: true, consentVersion: FULLSCREEN_RECOVERY_POLICY_VERSION,
+    email: email.value, consent: true, consentVersion: definition.value.policyVersion,
+    // Fullscreen requests carry no feature field: that is what older clients send.
+    ...(props.feature === 'fullscreen' ? {} : { feature: props.feature }),
     ...props.context, spaceKey,
   }
   busy.value = true

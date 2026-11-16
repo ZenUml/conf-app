@@ -1,5 +1,5 @@
 import type { ForgeRequestData } from '../utils/authenticate';
-import type { RecoveryRequestInput, RecoveryActivateInput } from '../../shared/fullscreenRecovery';
+import { resolveRecoveryFeature, type RecoveryRequestInput, type RecoveryActivateInput } from '../../shared/fullscreenRecovery';
 import { json } from '../OkResponse';
 import {
   RecoveryError, activateRecovery, createRecoveryRequest, emitFullscreenRecoveryEvent,
@@ -11,12 +11,16 @@ import { notifyFullscreenRecoveryRequest } from '../service/fullscreenRecoveryNo
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 export const onRequestGet: PagesFunction<RecoveryEnv, string, ForgeRequestData> = async ({ request, env, data }) => {
+  const url = new URL(request.url);
+  // An absent feature is `fullscreen`; older clients never send one.
+  const feature = resolveRecoveryFeature(url.searchParams.get('feature') ?? undefined);
+  if (!feature) return json({ error: 'invalid_request' }, { status: 400, headers: NO_STORE });
   const fit = data.forgeContext;
   if (!fit || !isRecoveryIdentity(fit)) {
     return json({ snapshot: await recoverySnapshot(env, null) }, { headers: NO_STORE });
   }
-  const spaceKey = new URL(request.url).searchParams.get('spaceKey') || undefined;
-  return json({ snapshot: await recoverySnapshot(env, fit, new Date(), spaceKey) }, { headers: NO_STORE });
+  const spaceKey = url.searchParams.get('spaceKey') || undefined;
+  return json({ snapshot: await recoverySnapshot(env, fit, new Date(), spaceKey, feature) }, { headers: NO_STORE });
 };
 
 export const onRequestPost: PagesFunction<RecoveryEnv, string, ForgeRequestData> = async ({ request, env, data, waitUntil }) => {
@@ -37,7 +41,7 @@ export const onRequestPost: PagesFunction<RecoveryEnv, string, ForgeRequestData>
           'fullscreen_recovery_request_completed', `${result.snapshot.request!.id}:created`, fit.accountId,
           { recovery_outcome: 'created', recovery_request_id: result.snapshot.request!.id,
             recovery_grant_id: result.snapshot.grant!.id, attempt_id: input.attemptId,
-            scenario_codes: input.scenarios, has_note: Boolean(input.note) }, waitUntil);
+            scenario_codes: input.scenarios, has_note: Boolean(input.note) }, waitUntil, input.feature);
         // Tell the support mailbox. Runs after the response; its failure never reaches the customer.
         waitUntil(notifyFullscreenRecoveryRequest(env, {
           requestId: result.snapshot.request!.id, cloudId: fit.cloudId, forgeAppId: fit.forgeAppId, spaceKey: input.spaceKey,
@@ -53,7 +57,7 @@ export const onRequestPost: PagesFunction<RecoveryEnv, string, ForgeRequestData>
       if (result.outcome === 'activated') emitFullscreenRecoveryEvent(env,
         'fullscreen_recovery_activation_completed', `${input.requestId}:activated`, fit.accountId,
         { recovery_outcome: 'activated', recovery_request_id: input.requestId,
-          recovery_grant_id: result.snapshot.grant!.id, duration_days: 7, attempt_id: input.attemptId }, waitUntil);
+          recovery_grant_id: result.snapshot.grant!.id, duration_days: 7, attempt_id: input.attemptId }, waitUntil, input.feature);
       return json(result, { headers: NO_STORE });
     }
     throw new RecoveryError('invalid_action');

@@ -6,10 +6,11 @@ import { getFullscreenRecovery } from '@/apis/fullscreenRecovery';
 import { getContext, getView, navigateToAppPage } from '@/model/globals/forgeGlobal';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { onVisibleDiagramReady } from '@/utils/fullscreenReady';
-import type { RecoveryScenario } from '../../../shared/fullscreenRecovery';
+import type { RecoveryFeature, RecoveryScenario } from '../../../shared/fullscreenRecovery';
 
 /** Independent, explicit pilot policy. Never changes the editor's count/paid policy. */
 export async function mountFullscreenRecovery(opts: {
+  feature?: RecoveryFeature;
   doc?: Diagram;
   existingExemption?: boolean;
   spaceKey: string;
@@ -17,12 +18,12 @@ export async function mountFullscreenRecovery(opts: {
   contentProps?: Record<string, unknown>;
 }): Promise<'handled' | 'disabled' | 'unavailable'> {
   try {
-    const snapshot = await getFullscreenRecovery(opts.spaceKey);
+    const snapshot = await getFullscreenRecovery(opts.spaceKey, opts.feature);
     if (opts.existingExemption && snapshot.exemptionOverrideReviewed !== true) return 'disabled';
     if (snapshot.state === 'disabled' || snapshot.state === 'unavailable') return snapshot.state;
     const context = await getContext();
     mountRoot(opts.doc ?? NULL_DIAGRAM, FullscreenRecoveryHost, {
-      initialSnapshot: snapshot, content: markRaw(opts.content), contentProps: opts.contentProps ?? {},
+      initialSnapshot: snapshot, feature: opts.feature ?? 'fullscreen', content: markRaw(opts.content), contentProps: opts.contentProps ?? {},
       context: {
         contentId: context.extension?.content?.id,
         customContentId: context.extension?.config?.customContentId || context.extension?.modal?.customContentId,

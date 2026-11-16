@@ -200,7 +200,7 @@ Stages are cumulative. Each effect is a fixed property of the stage.
 | notice | yes | no | allowed | allowed |
 | watermark | yes | yes | allowed | allowed |
 | block_create | yes | yes | blocked | allowed |
-| block_edit | yes | yes | blocked | metered (3 continues, then locked) |
+| block_edit | yes | yes | blocked | request gate: no editor until the user's request is saved; then 7 days |
 
 ### End-to-end examples
 
@@ -229,7 +229,7 @@ Site policy `stage = watermark`, `effectiveAt = 2026-12-08T00:00:00Z`, product L
 |---|---|---|---|---|
 | View, inline and Fullscreen | unchanged | diagram visible, watermark over it, notice strip under it | same as watermark | same as watermark |
 | Export and stored PNG | unchanged | unchanged, no watermark | unchanged, no watermark | unchanged, no watermark |
-| Edit an existing diagram | allowed | allowed | allowed | existing continue-attempts meter (3), then locked |
+| Edit an existing diagram | allowed | allowed | allowed | request gate in place of the editor (see "Edit request gate") |
 | Create a new diagram in an over-limit space | allowed | allowed | blocked, no continue button | blocked, no continue button |
 | Create in a space under 150 | allowed | allowed | allowed | allowed |
 | Page banner (information only, one link: "View plan and usage") | dated notice | "diagrams in this space carry a watermark" | "new diagrams are paused" | "editing is limited" |
@@ -495,10 +495,82 @@ Validation: Storybook interaction test on the gate story (assert the event paylo
 and staging on `lite-stg` `SD`, reading the event in Mixpanel. No UI change, so the visual
 evidence is the unchanged gate plus the captured event.
 
+## Edit request gate (`block_edit`)
+
+Decided 2026-11-16 (owner): editing on a site at `block_edit` is gated the way Fullscreen is gated
+by the Fullscreen recovery gate. It replaces the "metered (3 continues, then locked)" effect this
+spec had before. The continue-attempts meter gave us nothing to follow up and reset with the
+browser's storage; the request gate records the use, a reply address and a server-side grant.
+
+```
+Click Edit ──► enforcement = block_edit? ──no──► editor opens
+                      │ yes
+                      ▼
+                 Edit gate (in place of the editor)
+                      │ use + reply email + consent
+                      ▼
+                 request saved ──► editor opens ──► first successful save starts 7 days
+                                                            │
+                                                            ▼
+                                              expired ──► "Continue the conversation"
+```
+
+Design: [Conf App Figma, 06.10E](https://www.figma.com/design/xyLOTL0IvXNszqFCKCdAp0/Conf-App?node-id=617-3649).
+
+### One gate, two features
+
+There is one recovery gate. `feature` is a parameter: `fullscreen` (shipped) or `edit`. The panel
+layout, the five views, the request and grant state machine, the storage table, the support mail
+and the support tool are shared. Only the items in this table differ.
+
+| Item | `fullscreen` | `edit` |
+|---|---|---|
+| Who turns it on | KV `fullscreen-recovery:policy:<cloudId>` | this spec's site policy, when enforcement is `block_edit` |
+| Where the gate shows | Fullscreen viewer | editor modal, for an existing diagram |
+| Grant starts | first successful Fullscreen opening | first successful save |
+| Use options | inspect details, present, discuss, other | fix or update, keep documentation current, prepare for a review or release, other |
+| Consent / policy version | `fullscreen-contact-v1` | `edit-contact-v1` |
+| Copy | "Fullscreen" wording | "editing" wording; "This site has reached the free limit of N diagrams" with N from the policy |
+
+### Examples
+
+Site at `block_edit`, product Lite, space not covered. One user.
+
+| # | The user's edit request | Now | Click Edit shows | Save |
+|---|---|---|---|---|
+| E1 | none | any | gate, view "How will you edit this diagram?" | not reachable |
+| E2 | saved, never saved a diagram since | any | gate, view "Editing is ready", button "Open editor" | allowed; the first success starts the 7 days |
+| E3 | activated 2026-12-08 09:00 | 2026-12-15 08:59 | editor | allowed |
+| E4 | activated 2026-12-08 09:00 | 2026-12-15 09:00 | gate, view "Your temporary editing access has ended" | not reachable |
+| E5 | any | recovery lookup fails or times out | editor (fail open) | allowed |
+| E6 | none | any, product Full or Diagramly | editor | allowed |
+| E7 | none | any, site at `watermark` or `block_create` | editor | allowed |
+| E8 | none, a second user on the same site | any | gate (the grant is personal: one request per user per feature) | not reachable |
+| E9 | Fullscreen request active, no edit request | any | gate (a Fullscreen grant does not open the editor) | not reachable |
+
+Rules that follow:
+
+- The server decides. The client never compares a count or a date.
+- Reading stays available in every row.
+- The gate applies to editing an existing diagram. Creating a new diagram is the `block_create`
+  effect, which is not built; this section does not change the create path.
+- Support extends or closes an edit request with the same tool and the same rules as a
+  Fullscreen request.
+
+### Delivery
+
+1. Refactor, no behaviour change: the gate component, the shared contract and the service take a
+   `feature`; `fullscreen` is the only value. Existing tests stay green.
+2. Analytics events for `edit`, then the `edit` feature: storage accepts `feature = 'edit'`, the
+   policy source above, the editor entry, mail and support copy.
+3. Storybook, tunnel, staging. No site is at `block_edit` until its policy key is written, which is
+   a separate, confirmed step.
+
 ## Open decisions
 
 1. Days between notice and block (this draft: 21).
-2. Whether `block_edit` is ever used, or `block_create` is the final stage.
+2. Resolved 2026-11-16 (owner): `block_edit` is used, and it is the Fullscreen-style request gate,
+   not the continue-attempts meter. See "Edit request gate".
 3. Whether a site-wide Stripe price exists for sites with many over-limit spaces, or those sites
    are sent to the Marketplace Full plan only.
 4. Whether the Fullscreen recovery policy stays on for a site that also has this policy.

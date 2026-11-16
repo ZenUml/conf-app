@@ -1,8 +1,8 @@
 <template>
   <div ref="host" class="recovery-host" data-testid="fullscreen-recovery-host">
-    <section v-if="hasOpened" v-show="!showRequest" class="recovery-content">
+    <section v-if="hasOpened" v-show="!showRequest" class="recovery-content" :class="{ 'recovery-content--editor': feature === 'edit' }">
       <component :is="content" v-bind="contentProps" />
-      <div v-if="!dismissed" class="recovery-access">
+      <div v-if="!dismissed && feature === 'fullscreen'" class="recovery-access">
         <FullscreenRecoveryStatus :snapshot="snapshot" :feature="feature" @continue-request="showRequest = true" @dismiss="dismissNotice" />
         <p v-if="activationError" role="alert">
           Your diagram is open. We could not confirm the expiry time yet.
@@ -25,6 +25,7 @@ import FullscreenRecoveryGate from '@/components/FullscreenRecovery/FullscreenRe
 import FullscreenRecoveryStatus from '@/components/FullscreenRecovery/FullscreenRecoveryStatus.vue';
 import { activateFullscreenRecovery, getFullscreenRecovery } from '@/apis/fullscreenRecovery';
 import { onVisibleDiagramReady } from '@/utils/fullscreenReady';
+import { registerEditActivation } from '@/utils/paywall/editRecoveryActivation';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 const props = withDefaults(defineProps<{
@@ -34,6 +35,8 @@ const props = withDefaults(defineProps<{
   contentProps?: Record<string, unknown>;
   context?: { contentId?: string; customContentId?: string; spaceKey?: string };
   returnInline: () => void;
+  /** Called when the user opens the gated surface (the editor, for `edit`). */
+  onOpen?: () => void;
   planUsage: (requestId?: string, scenarios?: RecoveryScenario[]) => void | Promise<void>;
 }>(), { feature: 'fullscreen', contentProps: () => ({}), context: () => ({}) });
 const host = ref<HTMLElement | null>(null);
@@ -45,13 +48,14 @@ let disposed = false, rendered = false;
 let clock: ReturnType<typeof setInterval>;
 let serverClockOffset = Date.parse(snapshot.value.serverNow) - Date.now();
 const attemptId = crypto.randomUUID();
-const common = () => ({ feature_area: 'upgrade' as const, surface: 'viewer' as const,
+const common = () => ({ feature_area: 'upgrade' as const, surface: props.feature === 'edit' ? 'editor' as const : 'viewer' as const,
   feature: props.feature, policy_version: RECOVERY_FEATURE_DEFINITIONS[props.feature].policyVersion,
   attempt_id: attemptId, recovery_state: snapshot.value.state,
   recovery_request_id: snapshot.value.request?.id, recovery_grant_id: snapshot.value.grant?.id });
 
-// setup runs before any child renderer mounts and reports success.
-const stopReady = onVisibleDiagramReady(() => host.value, (macroType: MacroTypeValue) => {
+// setup runs before any child renderer mounts and reports success. The editor has no such
+// receipt: `edit` starts its 7 days at the first successful save (see editRecoveryActivation).
+const stopReady = props.feature === 'edit' ? () => {} : onVisibleDiagramReady(() => host.value, (macroType: MacroTypeValue) => {
   rendered = true;
   trackAnalyticsEvent('fullscreen_view_ready', { ...common(), macro_type: macroType,
     access_source: snapshot.value.state === 'unavailable' ? 'fail_open'
@@ -89,7 +93,18 @@ async function open() {
   }
   if (['active', 'pending_activation', 'disabled', 'unavailable'].includes(snapshot.value.state)) {
     hasOpened.value = true; showRequest.value = false;
+    if (props.feature === 'edit') openedEditor();
   }
+}
+
+function openedEditor() {
+  if (snapshot.value.state === 'pending_activation' && snapshot.value.request && props.context.spaceKey) {
+    registerEditActivation({
+      requestId: snapshot.value.request.id, spaceKey: props.context.spaceKey, attemptId,
+      onActivated: result => { snapshot.value = result; },
+    });
+  }
+  props.onOpen?.();
 }
 
 async function goToPlanUsage(requestId?: string, scenarios?: RecoveryScenario[]) {
@@ -116,6 +131,7 @@ onBeforeUnmount(() => { disposed = true; stopReady(); clearInterval(clock); });
 <style scoped>
 .recovery-host { min-height: 100vh; }
 .recovery-content { min-height: 100vh; padding-bottom: 70px; }
+.recovery-content--editor { padding-bottom: 0; }
 .recovery-access { position: fixed; left: 16px; right: 16px; bottom: 8px; z-index: 30; pointer-events: none; }
 .recovery-access :deep(aside), .recovery-access p { pointer-events: auto; }
 .recovery-access p, .recovery-error { padding: 8px 12px; background: #fff; color: #1c2024; font: 14px/1.5 system-ui, sans-serif; }

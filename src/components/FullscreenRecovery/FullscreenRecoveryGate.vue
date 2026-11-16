@@ -4,7 +4,7 @@
 
     <template v-if="view === 'scenarios'">
       <h1 id="recovery-title">{{ copy.scenariosTitle }}</h1>
-      <p class="recovery__lead">{{ copy.scenariosLead }}</p>
+      <p class="recovery__lead">{{ copy.scenariosLead(localSnapshot.limit) }}</p>
       <fieldset class="recovery__fieldset">
         <legend>Choose one or more</legend>
         <label v-for="code in scenarioCodes" :key="code" class="recovery__choice">
@@ -111,8 +111,8 @@ const props = withDefaults(defineProps<{
   initialView?: 'request'
   initialScenarios?: RecoveryScenario[]
   openLabel?: string
-  surface?: 'viewer' | 'dashboard'
-}>(), { feature: 'fullscreen', request: requestFullscreenRecovery, surface: 'viewer' })
+  surface?: 'viewer' | 'dashboard' | 'editor'
+}>(), { feature: 'fullscreen', request: requestFullscreenRecovery })
 const emit = defineEmits<{
   (event: 'update:snapshot', snapshot: RecoverySnapshot): void
   (event: 'openFullscreen'): void
@@ -150,7 +150,7 @@ const supportMailto = computed(() => safeSupportMailto(localSnapshot.value, prop
 const gateAttemptId = crypto.randomUUID()
 function analyticsBase(attemptId = gateAttemptId) {
   return {
-    feature_area: 'upgrade' as const, surface: props.surface, feature: props.feature,
+    feature_area: 'upgrade' as const, surface: props.surface ?? (props.feature === 'edit' ? 'editor' as const : 'viewer' as const), feature: props.feature,
     policy_version: definition.value.policyVersion,
     entry_point: props.surface === 'dashboard' ? 'dashboard' as const : 'macro_toolbar' as const,
     attempt_id: attemptId, recovery_state: localSnapshot.value.state,

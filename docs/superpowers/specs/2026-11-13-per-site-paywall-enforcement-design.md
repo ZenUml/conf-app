@@ -275,8 +275,10 @@ preEditGate → PaywallGate → UpgradePrompt (create variant: no continue butto
     "enforcement": { "stage": "watermark", "effectiveAt": "2026-12-08T00:00:00Z",
                      "count": 2282, "limit": 100,
                      "effects": { "datedBanner": true, "watermark": true,
-                                  "blockCreate": false, "meterEdit": false } } }
+                                  "blockCreate": false, "requestEdit": false,
+                                  "meterEdit": false } } }
   ```
+- **Effect name.** `requestEdit` (was `meterEdit`). The server emits both names and the client accepts either, because the Forge frontend and the Pages backend deploy at different times; drop `meterEdit` after both are on the new build.
 - **Client.** `shouldBlockActions` splits into `shouldBlockCreate` and `shouldBlockEdit`.
   `isPageEditorCreateBlocked` and `isPageEditorEditBlocked` take the matching value. With no
   `enforcement` in the response both stay `false`, which is today's behaviour.

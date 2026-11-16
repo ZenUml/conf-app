@@ -17,6 +17,18 @@ When a request is created, the backend sends one internal email through Resend, 
 
 One request and one initial grant are stored per `(cloudId, accountId, fullscreen)`. A successful Fullscreen view receipt activates the grant for 168 hours; simply submitting the form does not start it. At the expiry instant a new Fullscreen open is gated. An already open view continues. Embedded reading and edit permissions are separate. A customer's reply or a mail delivery event never extends the grant. Support can extend it from `max(serverNow, currentExpiresAt)` for 14 days with an audited, idempotent command.
 
+## The edit feature (same gate, same table)
+
+`feature = 'edit'` rows live in the same `FullscreenRecoveryRequest` table (migration 0038 widened the CHECK).
+They are read and extended with the same support CLI and API; the list shows each case's `feature`, and the
+first reply and the new-request notification use editing wording. Differences from Fullscreen:
+
+- On when the site policy `paywall-enforcement:policy:<cloudId>` is at `block_edit` and in force, the space has
+  reached the enforcement threshold, and no licence, paid rail or exemption covers it. There is no per-site
+  `fullscreen-recovery:policy:*` key for edit.
+- The grant starts at the first successful save after the request (7 days, personal), not when a diagram renders.
+- Events keep the `fullscreen_recovery_*` names; filter on the `feature` property.
+
 ## Deployment and configuration gates
 
 1. Apply `functions/migrations/0033_fullscreen_recovery.sql` and then `0034_fullscreen_recovery_mail.sql` through the normal CI migration gate. Verify the same candidate build serves the Lite backend. Do not deploy staging from a local shell.

@@ -1,5 +1,4 @@
 import { mount, flushPromises } from '@vue/test-utils'
-import { defineComponent } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import FullscreenRecoveryHost from './FullscreenRecoveryHost.vue'
 import type { RecoverySnapshot } from '../../shared/fullscreenRecovery'
@@ -15,8 +14,8 @@ const pending: RecoverySnapshot = {
   request: { id: 'req-1', scenarios: ['fix_or_update'], email: 'r@example.com', note: '', createdAt: '2026-12-08T09:00:00Z' },
   grant: { id: 'g', activatedAt: null, expiresAt: null },
 }
-const Gate = defineComponent({ props: ['snapshot', 'feature'], emits: ['open-fullscreen'], template: '<button data-testid="gate" @click="$emit(\'open-fullscreen\')">{{feature}}</button>' })
-const Editor = defineComponent({ template: '<div data-testid="editor">editor</div>' })
+const Gate = { props: ['snapshot', 'feature'], emits: ['open-fullscreen'], template: '<button data-testid="gate" @click="$emit(\'open-fullscreen\')">{{feature}}</button>' }
+const Editor = { template: '<div data-testid="editor">editor</div>' }
 let wrapper: ReturnType<typeof mount>
 beforeEach(() => vi.clearAllMocks())
 afterEach(() => wrapper?.unmount())

@@ -3538,7 +3538,7 @@ describe('GenericViewer license notice (Full, license inactive)', () => {
 describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
   const enforcement = (watermark: boolean, stage = 'watermark') => ({
     stage, count: 2282, limit: 100,
-    effects: { datedBanner: true, watermark, blockCreate: false, meterEdit: false },
+    effects: { datedBanner: true, watermark, blockCreate: false, requestEdit: false },
   })
   const siteEnforcement = ref<any>(null)
   let initialize: ReturnType<typeof vi.fn>

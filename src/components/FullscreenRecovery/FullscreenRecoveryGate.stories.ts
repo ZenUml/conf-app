@@ -51,3 +51,30 @@ export const RequestError: Story = {
     await expect(canvas.getByRole('alert')).toBeVisible()
   },
 }
+
+// Edit request gate: the same panel with editing wording (`feature: 'edit'`). Five views.
+const editBase = { serverNow: '2026-12-08T09:00:00.000Z', policyVersion: 'edit-contact-v1', limit: 100, supportEmail: 'support@example.com' } as const
+const editRequest = {
+  id: 'EDIT-EXAMPLE-001', scenarios: ['fix_or_update', 'prepare_review'] as ('fix_or_update' | 'prepare_review')[],
+  note: 'Updating the checkout flow before the release.', email: 'author@example.com', createdAt: '2026-12-08T08:00:00.000Z',
+}
+const editPending: RecoverySnapshot = { ...editBase, state: 'pending_activation', request: { ...editRequest, mailState: 'queued' }, grant: { id: 'grant-example', activatedAt: null, expiresAt: null } }
+const editActive: RecoverySnapshot = { ...editBase, state: 'active', request: { ...editRequest, mailState: 'delivered' }, grant: { id: 'grant-example', activatedAt: '2026-12-08T09:00:00.000Z', expiresAt: '2026-12-15T09:00:00.000Z' } }
+const editExpired: RecoverySnapshot = { ...editBase, state: 'expired', request: { ...editRequest, mailState: 'accepted' }, grant: { id: 'grant-example', activatedAt: '2026-12-01T09:00:00.000Z', expiresAt: '2026-12-08T09:00:00.000Z' } }
+
+/** E1: no edit request yet. */
+export const EditChooseUse: Story = { args: { feature: 'edit', snapshot: { ...editBase, state: 'not_requested' } } }
+export const EditContact: Story = {
+  args: { feature: 'edit', snapshot: { ...editBase, state: 'not_requested' } },
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByLabelText('Fix or update this diagram'))
+    await userEvent.click(canvas.getByRole('button', { name: 'Contact support' }))
+    await expect(canvas.getByRole('heading', { name: 'Contact support' })).toBeVisible()
+  },
+}
+/** E2: request saved; the 7 days start at the first save. */
+export const EditReady: Story = { args: { feature: 'edit', snapshot: editPending } }
+/** E4: the 7 days are over. */
+export const EditAccessEnded: Story = { args: { feature: 'edit', snapshot: editExpired } }
+export const EditContinueRequest: Story = { args: { feature: 'edit', snapshot: editActive, initialView: 'request' } }

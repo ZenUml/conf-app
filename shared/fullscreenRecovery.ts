@@ -1,7 +1,7 @@
 /** Public recovery contract. Customer identity is always derived from a verified FIT. */
 
 /** One recovery gate serves several features. Add a feature here and in the definition table below. */
-export const RECOVERY_FEATURES = ['fullscreen'] as const;
+export const RECOVERY_FEATURES = ['fullscreen', 'edit'] as const;
 export type RecoveryFeature = typeof RECOVERY_FEATURES[number];
 
 /** What differs per feature in the shared contract. Literal types are kept so each stays a union, not `string`. */
@@ -9,6 +9,10 @@ export const RECOVERY_FEATURE_DEFINITIONS = {
   fullscreen: {
     policyVersion: 'fullscreen-contact-v1',
     scenarios: ['inspect_details', 'present', 'discuss', 'other'],
+  },
+  edit: {
+    policyVersion: 'edit-contact-v1',
+    scenarios: ['fix_or_update', 'keep_current', 'prepare_review', 'other'],
   },
 } as const satisfies Record<RecoveryFeature, { policyVersion: string; scenarios: readonly string[] }>;
 
@@ -50,6 +54,8 @@ export interface RecoverySnapshot {
   serverNow: string;
   policyVersion: RecoveryPolicyVersion;
   exemptionOverrideReviewed?: boolean;
+  /** `edit` only: the free limit shown to the user ("reached the free limit of N diagrams"). The server decides; the client never compares it. */
+  limit?: number;
   supportEmail?: string;
   request?: RecoveryRequest;
   grant?: RecoveryGrant;

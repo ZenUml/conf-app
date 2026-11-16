@@ -64,6 +64,8 @@ export function useCustomerSuccessService() {
   // replacement Plan-and-usage / Request-Full flow may reintroduce a gate
   // here later — see the paywall redesign spec, item 1.
   const shouldBlockActions = computed(() => false)
+  // Server-decided: the site is at `block_edit` and this space is enforced. Never compare a count here.
+  const editRequestGateApplies = computed(() => siteEnforcement.value?.effects.requestEdit === true)
 
   const severity = computed(() => {
     if (macrosCreated.value >= MACROS_LIMIT) return 'critical'
@@ -293,6 +295,7 @@ export function useCustomerSuccessService() {
     spaceKey: currentSpaceKey,
     actionRequired,
     shouldBlockActions,
+    editRequestGateApplies,
     severity,
     upgradeUrl,
     enterpriseBundleUrl,

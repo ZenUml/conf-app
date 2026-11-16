@@ -12,6 +12,7 @@ import {
 import { mixpanelImportServiceEvents } from './mixpanelService';
 import type { AnalyticsEventName } from './analyticsTypes';
 import { RECOVERY_SPACE_KEY, recoveryEligibility } from './fullscreenRecoveryEligibility';
+import { resolveEnforcement } from './paywallEnforcement';
 
 export const LITE_FORGE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const DAY_MS = 86_400_000;
@@ -46,7 +47,11 @@ export interface FullscreenRecoveryRequestRow {
 export interface RecoveryPolicy {
   enabled: true;
   exemptionOverrideReviewed?: boolean;
+  /** `edit` only: the published free limit, taken from the site enforcement. */
+  limit?: number;
 }
+/** What a feature's policy source may need beyond the site. `fullscreen` ignores all of it. */
+export interface RecoveryPolicyContext { forgeAppId?: string; spaceKey?: string; now?: Date }
 export class RecoveryError extends Error {
   constructor(public code: string, public status = 400) { super(code); }
 }
@@ -94,12 +99,28 @@ export function isRecoveryIdentity(value: unknown): value is RecoveryIdentity {
 }
 
 /** Where a feature's policy comes from. A second feature plugs its own source in here. */
-const RECOVERY_POLICY_SOURCES: Record<RecoveryFeature, (env: RecoveryEnv, cloudId: string) => Promise<RecoveryPolicy | null | 'unavailable'>> = {
-  fullscreen: readFullscreenKvPolicy,
+const RECOVERY_POLICY_SOURCES: Record<RecoveryFeature, (env: RecoveryEnv, cloudId: string, context: RecoveryPolicyContext) => Promise<RecoveryPolicy | null | 'unavailable'>> = {
+  fullscreen: (env, cloudId) => readFullscreenKvPolicy(env, cloudId),
+  edit: readEditPolicy,
 };
 
-export function readRecoveryPolicy(env: RecoveryEnv, cloudId: string, feature: RecoveryFeature = 'fullscreen'): Promise<RecoveryPolicy | null | 'unavailable'> {
-  return RECOVERY_POLICY_SOURCES[feature](env, cloudId);
+export function readRecoveryPolicy(
+  env: RecoveryEnv, cloudId: string, feature: RecoveryFeature = 'fullscreen', context: RecoveryPolicyContext = {},
+): Promise<RecoveryPolicy | null | 'unavailable'> {
+  return RECOVERY_POLICY_SOURCES[feature](env, cloudId, context);
+}
+
+/**
+ * `edit` is on when the site policy is at `block_edit` and in force, the space has reached the
+ * enforcement threshold, and the space is not exempt (`resolveEnforcement`). Licence and paid-rail
+ * coverage is then decided by `recoveryEligibility`, which snapshot, request and activation all run
+ * after this read: that is the precondition `resolveEnforcement` states, and the coverage rules
+ * stay in one place. Any error or missing binding reads as "no gate" (fail open).
+ */
+async function readEditPolicy(env: RecoveryEnv, cloudId: string, context: RecoveryPolicyContext): Promise<RecoveryPolicy | null> {
+  if (!context.forgeAppId || !context.spaceKey) return null;
+  const enforcement = await resolveEnforcement(env, { cloudId, forgeAppId: context.forgeAppId, spaceKey: context.spaceKey }, context.now);
+  return enforcement?.effects.requestEdit === true ? { enabled: true, limit: enforcement.limit } : null;
 }
 
 /** Only a server-managed KV policy can enforce this gate. Malformed policy fails open. */
@@ -136,7 +157,7 @@ export async function recoverySnapshot(
     exemptionOverrideReviewed: false,
   };
   if (!identity) return base;
-  const policy = await readRecoveryPolicy(env, identity.cloudId, feature);
+  const policy = await readRecoveryPolicy(env, identity.cloudId, feature, { forgeAppId: identity.forgeAppId, spaceKey, now });
   if (policy === 'unavailable') return { ...base, state: 'unavailable' };
   if (!policy) return base;
   const supportEmail = typeof env.RESEND_REPLY_TO === 'string'
@@ -145,6 +166,7 @@ export async function recoverySnapshot(
   const withPolicy: RecoverySnapshot = {
     ...base, supportEmail,
     exemptionOverrideReviewed: policy.exemptionOverrideReviewed === true,
+    ...(policy.limit !== undefined ? { limit: policy.limit } : {}),
   };
   if (!env.DB || !env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY) return { ...withPolicy, state: 'unavailable' };
   const eligibility = await recoveryEligibility(env, identity, spaceKey, policy, now);
@@ -214,7 +236,7 @@ export async function createRecoveryRequest(
 ): Promise<RecoveryResult> {
   if (!env.DB || !env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY) throw new RecoveryError('unavailable', 503);
   const feature = input.feature ?? 'fullscreen';
-  const policy = await readRecoveryPolicy(env, identity.cloudId, feature);
+  const policy = await readRecoveryPolicy(env, identity.cloudId, feature, { forgeAppId: identity.forgeAppId, spaceKey: input.spaceKey, now });
   if (policy === 'unavailable') throw new RecoveryError('unavailable', 503);
   if (!policy) throw new RecoveryError('not_enforced', 409);
   const eligibility = await recoveryEligibility(env, identity, input.spaceKey, policy, now);
@@ -244,7 +266,7 @@ export async function activateRecovery(
 ): Promise<RecoveryResult> {
   if (!env.DB) throw new RecoveryError('unavailable', 503);
   const feature = input.feature ?? 'fullscreen';
-  const policy = await readRecoveryPolicy(env, identity.cloudId, feature);
+  const policy = await readRecoveryPolicy(env, identity.cloudId, feature, { forgeAppId: identity.forgeAppId, spaceKey: input.spaceKey, now });
   if (policy === 'unavailable') throw new RecoveryError('unavailable', 503);
   if (!policy) throw new RecoveryError('not_enforced', 409);
   const eligibility = await recoveryEligibility(env, identity, input.spaceKey, policy, now);
@@ -294,7 +316,7 @@ export function emitFullscreenRecoveryEvent(
   if (!env.MIXPANEL_TOKEN) return;
   const delivery = mixpanelImportServiceEvents([{
     event, insertId, distinctId, time: Math.floor(Date.now() / 1000),
-    properties: { feature_area: 'upgrade', surface: 'fullscreen_viewer', feature,
+    properties: { feature_area: 'upgrade', surface: feature === 'edit' ? 'editor' : 'fullscreen_viewer', feature,
       policy_version: RECOVERY_FEATURE_DEFINITIONS[feature].policyVersion, ...properties },
   }], env.MIXPANEL_TOKEN, { runtime: env }).catch(() => {
     console.warn('[fullscreen-recovery] analytics delivery failed');

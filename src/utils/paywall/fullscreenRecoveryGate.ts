@@ -16,11 +16,15 @@ export async function mountFullscreenRecovery(opts: {
   spaceKey: string;
   content: Component;
   contentProps?: Record<string, unknown>;
+  /** `edit`: called when the user opens the editor from the gate. */
+  onOpen?: () => void;
 }): Promise<'handled' | 'disabled' | 'unavailable'> {
   try {
     const snapshot = await getFullscreenRecovery(opts.spaceKey, opts.feature);
     if (opts.existingExemption && snapshot.exemptionOverrideReviewed !== true) return 'disabled';
     if (snapshot.state === 'disabled' || snapshot.state === 'unavailable') return snapshot.state;
+    // An active edit grant means the ordinary editor: no wrapper, no strip over the editor chrome.
+    if (opts.feature === 'edit' && snapshot.state === 'active') return 'disabled';
     const context = await getContext();
     mountRoot(opts.doc ?? NULL_DIAGRAM, FullscreenRecoveryHost, {
       initialSnapshot: snapshot, feature: opts.feature ?? 'fullscreen', content: markRaw(opts.content), contentProps: opts.contentProps ?? {},
@@ -29,8 +33,14 @@ export async function mountFullscreenRecovery(opts: {
         customContentId: context.extension?.config?.customContentId || context.extension?.modal?.customContentId,
         spaceKey: opts.spaceKey,
       },
+      onOpen: opts.onOpen,
       returnInline: async () => { await (await getView()).close(); },
       planUsage: async (requestId?: string, scenarios?: RecoveryScenario[]) => {
+        // The Plan-and-usage page knows only the Fullscreen context; an edit request opens it plain.
+        if (opts.feature === 'edit') {
+          if (!await navigateToAppPage('zenuml-plan-usage')) throw new Error('Plan and usage navigation is unavailable');
+          return;
+        }
         const query = new URLSearchParams({ source: 'fullscreen_recovery', space_key: opts.spaceKey });
         if (requestId) query.set('request', requestId);
         const pageId = context.extension?.content?.id;

@@ -940,6 +940,11 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // The `fullscreen_` prefix is historical: these events serve ONE recovery gate with
+  // two features. `feature` ('fullscreen' | 'edit') tells them apart; for `edit`,
+  // `surface` is 'editor' and activation (first successful save) is reported with the
+  // same `_activation_completed` / `_activation_failed` events. `fullscreen_view_ready`
+  // is Fullscreen-only (the editor has no equivalent moment).
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
   | "fullscreen_recovery_gate_shown"

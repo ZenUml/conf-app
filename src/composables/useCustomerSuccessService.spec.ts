@@ -483,7 +483,7 @@ describe('useCustomerSuccessService - site enforcement', () => {
   })
 
   it.each([
-    ['present and well-formed', { stage: 'watermark', count: 2282, limit: 100, effects: { datedBanner: true, watermark: true, blockCreate: false, meterEdit: false } }, 'watermark'],
+    ['present and well-formed', { stage: 'watermark', count: 2282, limit: 100, effects: { datedBanner: true, watermark: true, blockCreate: false, requestEdit: false } }, 'watermark'],
     ['absent', undefined, null],
     ['malformed', { stage: 'watermark', count: 'many' }, null],
   ])('keeps the space-status enforcement object: %s', async (_name, enforcement, stage) => {

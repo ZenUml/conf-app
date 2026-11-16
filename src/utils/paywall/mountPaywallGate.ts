@@ -240,7 +240,21 @@ export async function tryPageEditorPaywall(opts: {
   const actionType: PaywallActionType = opts.customContentId
     ? 'page_editor'
     : await resolveCreateActionType();
-  trackGateEvaluated(customerSuccess, actionType, editBlocked || createBlocked);
+
+  // Edit request gate (site at `block_edit`): the server says whether it applies and, on lookup,
+  // what this user's request is. Existing diagrams only; any failure leaves the editor open.
+  let editRecovery: 'handled' | 'disabled' | 'unavailable' = 'disabled';
+  if (opts.customContentId && !editBlocked && globals.apWrapper.isLite()
+    && customerSuccess.editRequestGateApplies?.value === true && customerSuccess.spaceKey.value) {
+    try {
+      editRecovery = await mountFullscreenRecovery({
+        feature: 'edit', doc: opts.doc, spaceKey: customerSuccess.spaceKey.value,
+        content: opts.content, contentProps: opts.contentProps, onOpen: opts.onContinueEditing,
+      });
+    } catch { editRecovery = 'unavailable'; }
+  }
+  trackGateEvaluated(customerSuccess, actionType, editBlocked || createBlocked || editRecovery === 'handled');
+  if (editRecovery === 'handled') return true;
 
   if (!editBlocked && !createBlocked) return false;
 

@@ -60,8 +60,10 @@ describe('effects', () => {
     ['watermark', true, true, false, false],
     ['block_create', true, true, true, false],
     ['block_edit', true, true, true, true],
-  ] as const)('%s', (stage, datedBanner, watermark, blockCreate, meterEdit) => {
-    expect(effectsOf(stage)).toEqual({ datedBanner, watermark, blockCreate, meterEdit });
+  ] as const)('%s', (stage, datedBanner, watermark, blockCreate, requestEdit) => {
+    // `meterEdit` is the old name of `requestEdit`. Both are emitted until every client reads the new one,
+    // so no deploy order makes an old client drop the whole enforcement object.
+    expect(effectsOf(stage)).toEqual({ datedBanner, watermark, blockCreate, requestEdit, meterEdit: requestEdit });
   });
 });
 
@@ -96,7 +98,7 @@ describe('resolveEnforcement end-to-end examples', () => {
     const result = await resolveEnforcement(fakeEnv().env, input, AFTER);
     expect(result).toEqual({
       stage: 'watermark', effectiveAt: EFFECTIVE, count: 2282, limit: 100,
-      effects: { datedBanner: true, watermark: true, blockCreate: false, meterEdit: false },
+      effects: { datedBanner: true, watermark: true, blockCreate: false, requestEdit: false, meterEdit: false },
     });
   });
   it('2: count 150 -> watermark, still reported against the published limit of 100', async () => {

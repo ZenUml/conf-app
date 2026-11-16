@@ -94,15 +94,16 @@ import type {
 
 export type AnalyticsProperties = {
   /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
-  feature?: 'fullscreen';
-  policy_version?: 'fullscreen-contact-v1';
+  feature?: 'fullscreen' | 'edit';
+  policy_version?: 'fullscreen-contact-v1' | 'edit-contact-v1';
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
   recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
-  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'>;
+  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'
+    | 'fix_or_update' | 'keep_current' | 'prepare_review' | 'other'>;
   access_source?: 'existing' | 'temporary' | 'fail_open';
   duration_days?: number;
   mail_state?: 'queued' | 'accepted' | 'delivered' | 'bounced' | 'failed' | 'delivery_unknown';
@@ -566,6 +567,10 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
+  purchasable_space_count?: number;
+  /** Per-space Lite limit at the time of a checkout action. */
+  macro_limit?: number;
   // JSM Apply Extension automation. `extension_action` is the fixed policy
   // command, never an arbitrary duration. Initial grants are requester-only
   // for 7 days; feedback grants renew the same requester for 60 days.

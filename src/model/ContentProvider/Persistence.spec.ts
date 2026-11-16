@@ -4,6 +4,7 @@ import {vi} from "vitest";
 import ApWrapper2 from "../ApWrapper2";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { syncCustomContent } from "@/services/CustomContent";
+import { activateEditRecoveryAfterSave } from "@/utils/paywall/editRecoveryActivation";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { _resetCreationFlowForTesting, getCreationFlowProps } from "@/utils/analytics/creationFlow";
 import macroMetrics from "@/services/MacroMetrics";
@@ -36,6 +37,8 @@ vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
 }));
 
+vi.mock("@/utils/paywall/editRecoveryActivation", () => ({ activateEditRecoveryAfterSave: vi.fn() }));
+
 vi.mock("@/services/CustomContent", () => ({
   syncCustomContent: vi.fn(),
 }));
@@ -58,6 +61,22 @@ describe('Persistence', function () {
     (forgeGlobal as any).forgeContext = undefined;
     _resetCreationFlowForTesting();
     resetEditorMutationSession();
+  });
+
+  describe('edit recovery activation (first successful save)', () => {
+    const diagram = () => ({ ...NULL_DIAGRAM, id: 'existing-id', source: 'custom-content', diagramType: DiagramType.Sequence }) as any;
+    it('runs after the content write succeeded, and its failure never fails the save', async () => {
+      vi.mocked(activateEditRecoveryAfterSave).mockClear();
+      vi.mocked(activateEditRecoveryAfterSave).mockRejectedValueOnce(new Error('offline'));
+      await expect(saveToPlatform(diagram(), mockApWrapper)).resolves.toBe('mocked_custom_content_id');
+      expect(activateEditRecoveryAfterSave).toHaveBeenCalledTimes(1);
+    });
+    it('does not run when the save itself failed', async () => {
+      vi.mocked(activateEditRecoveryAfterSave).mockClear();
+      mockUpdate.mockReturnValueOnce({ id: undefined } as any);
+      await expect(saveToPlatform(diagram(), mockApWrapper)).rejects.toBeInstanceOf(InvalidSavedContentIdError);
+      expect(activateEditRecoveryAfterSave).not.toHaveBeenCalled();
+    });
   });
 
   describe('create vs update routing', () => {

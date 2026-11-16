@@ -1,3 +1,4 @@
+import { enterpriseBundleCheckout } from '@/utils/paywall/enterpriseBundleCheckout'
 import { ref, computed } from 'vue'
 import type { MacroCountSource, PaywallPolicySource } from '@/utils/analytics/catalog'
 import getFeatureFlagsForCurrentDomain from "@/apis/featureFlags"
@@ -63,6 +64,8 @@ export function useCustomerSuccessService() {
   // replacement Plan-and-usage / Request-Full flow may reintroduce a gate
   // here later — see the paywall redesign spec, item 1.
   const shouldBlockActions = computed(() => false)
+  // Server-decided: the site is at `block_edit` and this space is enforced. Never compare a count here.
+  const editRequestGateApplies = computed(() => siteEnforcement.value?.effects.requestEdit === true)
 
   const severity = computed(() => {
     if (macrosCreated.value >= MACROS_LIMIT) return 'critical'
@@ -84,10 +87,7 @@ export function useCustomerSuccessService() {
     // keys start with "~". Prefer currentSpaceKey (same identity the KV space
     // license is granted against) and fall back to the synchronous context
     // read before it loads.
-    const reference = `${getClientDomain()}__${currentSpaceKey.value || getSpaceKey()}`
-      .replace(/[^A-Za-z0-9_-]/g, '_')
-      .slice(0, 200)
-    return `https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=${reference}`
+    return enterpriseBundleCheckout(getClientDomain(), currentSpaceKey.value || getSpaceKey()).url
   })
 
   const learnMoreUrl = computed(() => {
@@ -295,6 +295,7 @@ export function useCustomerSuccessService() {
     spaceKey: currentSpaceKey,
     actionRequired,
     shouldBlockActions,
+    editRequestGateApplies,
     severity,
     upgradeUrl,
     enterpriseBundleUrl,

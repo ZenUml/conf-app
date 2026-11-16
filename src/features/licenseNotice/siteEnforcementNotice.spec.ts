@@ -3,7 +3,7 @@ import { parseSiteEnforcement, siteEnforcementNotice } from './siteEnforcementNo
 
 const enforcement = (over: Record<string, unknown> = {}, effects: Record<string, boolean> = {}) => ({
   stage: 'watermark', effectiveAt: '2026-12-08T00:00:00Z', count: 2282, limit: 100,
-  effects: { datedBanner: true, watermark: true, blockCreate: false, meterEdit: false, ...effects },
+  effects: { datedBanner: true, watermark: true, blockCreate: false, requestEdit: false, ...effects },
   ...over,
 })
 
@@ -35,5 +35,29 @@ describe('parseSiteEnforcement', () => {
   })
   it.each([[null], [undefined], [42], [{}], [enforcement({ stage: 'x' })]])('rejects %j', (v) => {
     expect(parseSiteEnforcement(v)).toBeNull()
+  })
+})
+
+describe('requestEdit / meterEdit transition (the two deploys are independent)', () => {
+  const base = { stage: 'block_edit', effectiveAt: '2026-12-08T00:00:00Z', count: 2282, limit: 100 }
+  it('old server -> new client: only meterEdit is sent; the object and its watermark survive', () => {
+    const parsed = parseSiteEnforcement({ ...base, effects: { datedBanner: true, watermark: true, blockCreate: true, meterEdit: true } })
+    expect(parsed?.effects).toMatchObject({ watermark: true, requestEdit: true })
+    expect(siteEnforcementNotice({ productType: 'lite', enforcement: parsed })).not.toBeNull()
+  })
+  it('new server -> new client: requestEdit alone is enough', () => {
+    const parsed = parseSiteEnforcement({ ...base, effects: { datedBanner: true, watermark: true, blockCreate: true, requestEdit: true } })
+    expect(parsed?.effects.requestEdit).toBe(true)
+  })
+  it('new server -> old client: both names are sent, so the old parser still finds the one it reads', () => {
+    const wire = { ...base, effects: { datedBanner: true, watermark: true, blockCreate: true, requestEdit: true, meterEdit: true } }
+    // The old client required finite count/limit, a known stage and an effects object, and read meterEdit === true.
+    expect(wire.effects.meterEdit).toBe(true)
+    expect(parseSiteEnforcement(wire)?.effects.requestEdit).toBe(true)
+  })
+  it('neither name: false, and the object still survives', () => {
+    const parsed = parseSiteEnforcement({ ...base, stage: 'watermark', effects: { datedBanner: true, watermark: true, blockCreate: false } })
+    expect(parsed?.effects.requestEdit).toBe(false)
+    expect(parsed?.effects.watermark).toBe(true)
   })
 })

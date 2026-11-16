@@ -16,6 +16,7 @@ import uuidv4 from "@/utils/uuid";
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { activateEditRecoveryAfterSave } from '@/utils/paywall/editRecoveryActivation';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { markEditorAuthoringStarted, markEditorSaved, registerEditorCloseTracking } from '@/utils/analytics/editorCloseOutcome';
@@ -111,6 +112,7 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
         endEditJourney('saved');
       }
       markEditorSaved();
+      try { await activateEditRecoveryAfterSave(); } catch { /* never fails a save */ }
       await trackAnalyticsEventBeforeUnload(
         isNew ? "macro_create_succeeded" : "macro_save_succeeded",
         {

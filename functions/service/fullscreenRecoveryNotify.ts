@@ -1,5 +1,6 @@
 import { normalizeClientDomain } from '../metrics-cache/snapshot/common';
 import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain } from '../utils/dbUtils';
+import type { RecoveryFeature } from '../../shared/fullscreenRecovery';
 import { validEmail, validSender } from './fullscreenRecoveryMail';
 
 /**
@@ -17,6 +18,8 @@ export interface RequestNotification {
   forgeAppId?: string;
   /** Client domain of the site, e.g. `example-site`. Set by the sender, not by callers. */
   siteName?: string | null;
+  /** Absent means `fullscreen`. */
+  feature?: RecoveryFeature;
 }
 
 export interface NotifyEnv {
@@ -42,7 +45,7 @@ function utc(iso: string): string {
 export function renderRequestNotification(input: RequestNotification): { subject: string; text: string; html: string } {
   // Only named fields are read, so an unexpected extra property can never reach the mail.
   const lines = [
-    'A Fullscreen recovery request was submitted.',
+    input.feature === 'edit' ? 'An edit recovery request was submitted.' : 'A Fullscreen recovery request was submitted.',
     ...(input.siteName ? [`Site: ${input.siteName}`] : []),
     `Site (cloudId): ${input.cloudId}`,
     `Space key: ${input.spaceKey}`,
@@ -53,7 +56,7 @@ export function renderRequestNotification(input: RequestNotification): { subject
     `Read the contact and note in the support workspace: ${SUPPORT_LIST_COMMAND}`,
   ];
   return {
-    subject: `Fullscreen recovery request — ${input.siteName || input.cloudId} / ${input.spaceKey} (${input.requestId.slice(0, 8)})`,
+    subject: `${input.feature === 'edit' ? 'Edit' : 'Fullscreen'} recovery request — ${input.siteName || input.cloudId} / ${input.spaceKey} (${input.requestId.slice(0, 8)})`,
     text: lines.join('\n'),
     html: `<!doctype html><html lang="en"><body>${lines.map(line => `<p>${escapeHtml(line)}</p>`).join('')}</body></html>`,
   };

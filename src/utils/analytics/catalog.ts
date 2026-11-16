@@ -867,6 +867,9 @@ export type AnalyticsEventName =
   // admin-targeted copy produces a purchase intent rather than another relay
   // hop. Distinct from `extension_request_clicked` (asks US for more free
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
+  // Also fires on a Plan and usage row click: surface=dashboard, space_key,
+  // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
+  // the selected space and its checkout attribution.
   | "paywall_bundle_cta_clicked"
   // The Marketplace (Full plan) rail. Separate event from the bundle rail
   // because they need different people: Marketplace requires a Confluence SITE
@@ -965,6 +968,11 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // The `fullscreen_` prefix is historical: these events serve ONE recovery gate with
+  // two features. `feature` ('fullscreen' | 'edit') tells them apart; for `edit`,
+  // `surface` is 'editor' and activation (first successful save) is reported with the
+  // same `_activation_completed` / `_activation_failed` events. `fullscreen_view_ready`
+  // is Fullscreen-only (the editor has no equivalent moment).
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
   | "fullscreen_recovery_gate_shown"
@@ -1979,6 +1987,8 @@ export type AnalyticsEventName =
   // usage-only view. `plan_usage_request_full_clicked` fires when either
   // audience opens the Request-Full guidance page from here (the entry point
   // named in the spec: banner -> Plan and usage -> "申请 Full").
+  // Fires after usage and paid-status loading settle. purchasable_space_count
+  // counts rows with a confirmed unpaid decision and a purchase action.
   | "plan_usage_viewed"
   | "plan_usage_request_full_clicked"
   // Admin's direct purchase entry point on the Plan and usage page itself

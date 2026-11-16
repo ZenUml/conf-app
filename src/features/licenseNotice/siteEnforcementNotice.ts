@@ -9,7 +9,7 @@ export interface SiteEnforcement {
   effectiveAt?: string
   count: number
   limit: number
-  effects: { datedBanner: boolean; watermark: boolean; blockCreate: boolean; meterEdit: boolean }
+  effects: { datedBanner: boolean; watermark: boolean; blockCreate: boolean; requestEdit: boolean }
 }
 
 export interface SiteEnforcementNotice {
@@ -36,7 +36,8 @@ export function parseSiteEnforcement(value: unknown): SiteEnforcement | null {
       datedBanner: effects.datedBanner === true,
       watermark: effects.watermark === true,
       blockCreate: effects.blockCreate === true,
-      meterEdit: effects.meterEdit === true,
+      // `meterEdit` is what a server that predates the rename sends; accept either name.
+      requestEdit: effects.requestEdit === true || effects.meterEdit === true,
     },
   }
 }

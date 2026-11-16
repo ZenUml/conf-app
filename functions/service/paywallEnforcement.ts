@@ -12,7 +12,11 @@ export type Tri = 'yes' | 'no' | 'unknown';
 
 export interface EnforcementPolicy { stage: EnforcementStage; effectiveAt: string }
 export interface EnforcementEffects {
-  datedBanner: boolean; watermark: boolean; blockCreate: boolean; meterEdit: boolean;
+  datedBanner: boolean; watermark: boolean; blockCreate: boolean;
+  /** At `block_edit` an existing diagram opens behind the edit request gate. */
+  requestEdit: boolean;
+  /** Old name of `requestEdit`, emitted until every deployed client reads the new one. */
+  meterEdit: boolean;
 }
 export interface SpaceEnforcement {
   stage: EnforcementStage; effectiveAt: string; count: number; limit: number; effects: EnforcementEffects;
@@ -56,6 +60,7 @@ export function effectsOf(stage: EnforcementStage): EnforcementEffects {
     datedBanner: true,
     watermark: rank >= 1,
     blockCreate: rank >= 2,
+    requestEdit: rank >= 3,
     meterEdit: rank >= 3,
   };
 }

@@ -25,7 +25,7 @@ first merge of a session. This file holds the commands only.
 | Result | Action |
 |---|---|
 | exit 0 | Non-destructive by path, preconditions met: merge (step 2). |
-| exit 1, `blockers` not empty | Do not merge. Fix the blocker (CI, draft, conflict) or report it. `mergeable:UNKNOWN` is transient: run again. |
+| exit 1, `blockers` not empty | Do not merge. Fix the blocker (CI, draft, conflict) or report it. `mergeable:UNKNOWN` is transient: run again. `runs-pending:<workflow>`: a run is still waiting (often `PR validation` on the staging lock) and no check lists it yet; wait for it. `required-check:<name>`: that check has not passed on this head. |
 | exit 1, `readDiffFor` not empty | Read those files' diff against the destructive table in the policy. Non-destructive: merge. Destructive: offer `[AI] Merge PR #N` and wait. |
 | exit 2 | Fetch or classifier error. Do not merge. |
 

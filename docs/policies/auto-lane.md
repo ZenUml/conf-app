@@ -146,7 +146,8 @@ pick, 2026-11-13). A Draft that the session itself finished (validation done, te
 is marked Ready by the session, then merged; a Draft that is someone else's work in progress is left
 alone (owner, 2026-11-15, said this for one PR; applying it to every finished Draft is the session's
 reading). Preconditions for any session merge: not a draft, base `main`, no requested changes, `MERGEABLE`,
-every check on the head commit green, head unchanged since the checks. Run
+every check on the head commit green, no workflow run still waiting on that commit, the required
+checks (`Build and Unit Test`, `E2E validation`, `Pipeline outcome`) passed, head unchanged since the checks. Run
 `.claude/skills/auto-lane/scripts/classify-pr.sh <PR>`: it checks those and lists files on paths
 that need the destructive reading (`migrations/`, `manifest.yml`, release and deploy workflows).
 Merge with a merge commit and `--match-head-commit`, then watch `main` CI. The normal staging

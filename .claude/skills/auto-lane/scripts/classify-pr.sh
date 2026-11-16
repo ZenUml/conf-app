@@ -26,6 +26,10 @@ runs="$(gh run list --commit "$head" --limit 200 --json workflowName,status)" ||
 readiness="$(mktemp -t auto-lane-readiness.XXXXXX).mjs"
 git show origin/main:scripts/ci/auto-lane-session-readiness.mjs > "$readiness"
 rc=0
-node "$readiness" "$class" "$meta" "$checks" "$runs" "$head" "$files" || rc=$?
+out="$(node "$readiness" "$class" "$meta" "$checks" "$runs" "$head" "$files")" || rc=$?
 rm -f "$readiness"
+# No result is an error, never a pass.
+[ -n "$out" ] || { echo "error: readiness printed no result" >&2; exit 2; }
+[ "$rc" -le 1 ] || { echo "error: readiness failed" >&2; exit 2; }
+printf '%s\n' "$out"
 exit "$rc"

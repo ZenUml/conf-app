@@ -69,3 +69,29 @@ test("files on destructive-reading paths are listed", () => {
 test("the session requires the same checks as the daily job", () => {
   assert.deepEqual(REQUIRED_CHECKS, JOB_REQUIRED_CHECKS);
 });
+
+// classify-pr.sh copies this module to a temporary file and runs it. On macOS that path goes through a
+// symlink (/var -> /private/var); a guard that compares import.meta.url with argv[1] then never matches,
+// and the script printed nothing and exited 0, which reads as "merge".
+test("the CLI prints its result and exits 1 on a blocker when started through a symlinked path", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { copyFileSync, mkdtempSync, realpathSync, symlinkSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const real = mkdtempSync(join(realpathSync(tmpdir()), "readiness-real-"));
+  const link = `${real}-link`;
+  symlinkSync(real, link);
+  copyFileSync(new URL("./auto-lane-session-readiness.mjs", import.meta.url), join(real, "copy.mjs"));
+  const args = [join(link, "copy.mjs"), JSON.stringify(base.classification), JSON.stringify({ ...base.meta, isDraft: true }),
+    JSON.stringify(base.checks), JSON.stringify(base.runs), head, "src/a.ts"];
+  let status = 0;
+  let stdout = "";
+  try {
+    stdout = execFileSync(process.execPath, args, { encoding: "utf8" });
+  } catch (error) {
+    status = error.status;
+    stdout = error.stdout;
+  }
+  assert.equal(status, 1);
+  assert.deepEqual(JSON.parse(stdout).blockers, ["draft"]);
+});

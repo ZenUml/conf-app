@@ -1,8 +1,11 @@
 // Session-side merge readiness for one PR: the decision behind .claude/skills/auto-lane/scripts/classify-pr.sh.
-// Pure and import-free, so the skill script can load it from `origin/main` into a temporary file.
+// Pure, with Node built-in imports only, so the skill script can load it from `origin/main` into a temporary file.
 //   node auto-lane-session-readiness.mjs <classification> <meta> <checks> <runs> <head> <files>
 // Arguments are JSON, except <head> (a SHA) and <files> (newline-separated paths).
 // Exit: 0 = preconditions met and no file needs the destructive reading, 1 = a blocker or such a file.
+
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 // The same list as REQUIRED_CHECKS in auto-lane-merge.mjs; the test keeps the two equal.
 export const REQUIRED_CHECKS = ["Build and Unit Test", "E2E validation", "Pipeline outcome"];
@@ -40,7 +43,16 @@ export function sessionReadiness({ classification, meta, checks, runs, head, fil
   };
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+// Compare real paths: a temporary copy is often reached through a symlink (/var -> /private/var on macOS).
+const isMain = () => {
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+};
+
+if (isMain()) {
   const [classification, meta, checks, runs, head, files] = process.argv.slice(2);
   const result = sessionReadiness({
     classification: JSON.parse(classification),

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createApi, dispatchBody, findChild, closeChild, verifyParent, verifyParentWithRetry, verifyChildRun } from './wait-for-e2e.mjs';
+import { createApi, dispatchBody, findChild, closeChild, discoverChild, discoveryWindowMs, verifyParent, verifyParentWithRetry, verifyChildRun } from './wait-for-e2e.mjs';
 import { largeRunListing, withFakeGh } from './fake-gh.mjs';
 
 test('dispatch serializes regex without changing its escapes', () => {
@@ -265,4 +265,58 @@ test('legacy PR dispatch does not gain new required inputs', () => {
   const { inputs } = dispatchBody({ CHILD_KIND: 'pr', SOURCE_SHA: 'abc', MODE: 'all', GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1' });
   assert.equal('pr-number' in inputs, false);
   assert.equal('decision-id' in inputs, false);
+});
+
+// Fake clock: pause() advances time instead of sleeping.
+function fakeClock() {
+  let t = 1_000_000;
+  return { now: () => t, pause: async () => { t += 5000; }, at: () => t };
+}
+
+test('creation discovery finds a child that becomes visible only after 3.5 minutes', async () => {
+  const clock = fakeClock();
+  const start = clock.now();
+  const api = () => ({ workflow_runs: clock.now() - start >= 210000 ? [{ id: 9, display_title: 'target', status: 'queued' }] : [] });
+  const logs = [];
+  const child = await discoverChild(api, 'dia.yml', 'target', clock.pause, start + discoveryWindowMs({}),
+    { now: clock.now, log: line => logs.push(line) });
+  assert.equal(child.id, 9);
+  assert.equal(logs.length, 3, 'one progress line per minute, not per poll');
+});
+
+test('creation discovery gives up only after the configured window', async () => {
+  const clock = fakeClock();
+  const start = clock.now();
+  const child = await discoverChild(() => ({ workflow_runs: [] }), 'dia.yml', 'target', clock.pause,
+    start + discoveryWindowMs({ CHILD_DISCOVERY_SECONDS: '300' }), { now: clock.now, log: () => {} });
+  assert.equal(child, undefined);
+  assert.ok(clock.now() - start >= 300000 && clock.now() - start < 310000);
+});
+
+test('discovery window defaults to 10 minutes and rejects bad values', () => {
+  assert.equal(discoveryWindowMs({}), 600000);
+  assert.equal(discoveryWindowMs({ CHILD_DISCOVERY_SECONDS: '90' }), 90000);
+  assert.throws(() => discoveryWindowMs({ CHILD_DISCOVERY_SECONDS: 'abc' }), /Invalid child discovery window/);
+  assert.throws(() => discoveryWindowMs({ CHILD_DISCOVERY_SECONDS: '0' }), /Invalid child discovery window/);
+});
+
+test('cleanup discovery honours the same window and still cancels a late-visible child', async () => {
+  const clock = fakeClock();
+  const start = clock.now();
+  let cancelled = false;
+  const api = path => {
+    if (path.includes('/runs?')) return { workflow_runs: clock.now() - start >= 240000 ? [{ id: 9, display_title: 'target', status: 'queued' }] : [] };
+    if (path.endsWith('/cancel')) { cancelled = true; return null; }
+    return { id: 9, status: 'completed' };
+  };
+  await closeChild(api, 'target', 'dia.yml', clock.pause, undefined, true, { now: clock.now, log: () => {} });
+  assert.equal(cancelled, true);
+});
+
+test('cleanup stops looking after the window when the child never appears', async () => {
+  const clock = fakeClock();
+  const start = clock.now();
+  await assert.rejects(closeChild(() => ({ workflow_runs: [] }), 'target', 'dia.yml', clock.pause, undefined, true,
+    { now: clock.now, discoveryMs: 120000, log: () => {} }), /Dispatched child not found/);
+  assert.ok(clock.now() - start >= 120000 && clock.now() - start < 130000);
 });

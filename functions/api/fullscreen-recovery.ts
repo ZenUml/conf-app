@@ -17,7 +17,7 @@ export const onRequestGet: PagesFunction<RecoveryEnv, string, ForgeRequestData> 
   if (!feature) return json({ error: 'invalid_request' }, { status: 400, headers: NO_STORE });
   const fit = data.forgeContext;
   if (!fit || !isRecoveryIdentity(fit)) {
-    return json({ snapshot: await recoverySnapshot(env, null) }, { headers: NO_STORE });
+    return json({ snapshot: await recoverySnapshot(env, null, new Date(), undefined, feature) }, { headers: NO_STORE });
   }
   const spaceKey = url.searchParams.get('spaceKey') || undefined;
   return json({ snapshot: await recoverySnapshot(env, fit, new Date(), spaceKey, feature) }, { headers: NO_STORE });
@@ -46,7 +46,7 @@ export const onRequestPost: PagesFunction<RecoveryEnv, string, ForgeRequestData>
         waitUntil(notifyFullscreenRecoveryRequest(env, {
           requestId: result.snapshot.request!.id, cloudId: fit.cloudId, forgeAppId: fit.forgeAppId, spaceKey: input.spaceKey,
           scenarios: input.scenarios, hasNote: Boolean(input.note.trim()),
-          createdAt: result.snapshot.request!.createdAt,
+          createdAt: result.snapshot.request!.createdAt, feature: input.feature,
         }));
       }
       return json(result, { headers: NO_STORE });

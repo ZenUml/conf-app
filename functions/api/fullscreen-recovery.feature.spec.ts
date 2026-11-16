@@ -54,13 +54,13 @@ describe('recovery feature parameter on the API', () => {
   });
 
   it('rejects an unknown feature with the existing invalid-input errors', async () => {
-    const bad = await post({ ...request, feature: 'edit' });
+    const bad = await post({ ...request, feature: 'print' });
     expect(bad.status).toBe(400);
     expect(await bad.json()).toEqual({ error: 'invalid_request' });
-    const badActivation = await post({ ...activation, feature: 'edit' });
+    const badActivation = await post({ ...activation, feature: 'print' });
     expect(badActivation.status).toBe(400);
     expect(await badActivation.json()).toEqual({ error: 'invalid_activation' });
-    const badGet = await get('?feature=edit');
+    const badGet = await get('?feature=print');
     expect(badGet.status).toBe(400);
     expect(await badGet.json()).toEqual({ error: 'invalid_request' });
     expect(createRecoveryRequest).not.toHaveBeenCalled();

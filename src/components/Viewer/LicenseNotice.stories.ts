@@ -179,7 +179,7 @@ function siteEnforcementStory(count: number, stage: 'notice' | 'watermark'): Sto
       stubResponses.remote.push({ match: '/api/space-status', body: {
         isPaid: false, decisionKnown: true,
         enforcement: { stage, effectiveAt: '2026-12-08T00:00:00Z', count, limit: 100,
-          effects: { datedBanner: true, watermark: stage === 'watermark', blockCreate: false, meterEdit: false } },
+          effects: { datedBanner: true, watermark: stage === 'watermark', blockCreate: false, requestEdit: false } },
       } })
       return { template: '<story />' }
     }],

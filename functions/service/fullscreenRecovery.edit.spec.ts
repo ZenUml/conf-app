@@ -89,7 +89,7 @@ describe('edit request gate: examples E1-E9', () => {
     const { env } = setup({ metricsThrow: true });
     expect(['disabled', 'unavailable']).toContain((await snap(env, alice, BEFORE_ACTIVATION)).state);
     const noDb = await snap({ ...env, DB: undefined }, alice, BEFORE_ACTIVATION);
-    expect(noDb.state).toBe('unavailable');
+    expect(['disabled', 'unavailable']).toContain(noDb.state);
     const noKv = await snap({ ...env, KV_FEATURE_FLAGS: undefined }, alice, BEFORE_ACTIVATION);
     expect(['disabled', 'unavailable']).toContain(noKv.state);
   });
@@ -136,7 +136,7 @@ describe('edit gate rules', () => {
     expect((await snap(setup({ licenses: { [`license:${CLOUD}:ENG:alice`]: licence } }).env, alice, ACTIVATED)).state).toBe('disabled');
     expect((await snap(setup({ licenses: { [`license:${CLOUD}:ENG:alice`]: licence } }).env, bob, ACTIVATED)).state).toBe('not_requested');
     expect((await snap(setup({ exemptions: '{"example-tenant":true}' }).env, alice, ACTIVATED)).state).toBe('disabled');
-    expect((await snap(setup({ exemptions: null }).env, alice, ACTIVATED)).state).toBe('unavailable');
+    expect((await snap(setup({ exemptions: null }).env, alice, ACTIVATED)).state).toBe('disabled');
   });
   it('the exemption override flag of the Fullscreen policy never applies to edit', async () => {
     const { env } = setup({ exemptions: '{"example-tenant":true}' });

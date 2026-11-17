@@ -68,6 +68,10 @@ All paths are under `https://marketplace.atlassian.com`.
 2. **Open the console in the owner's real Chrome** (`mcp__claude-in-chrome__*`). See Traps for why.
 3. **Text fields.** Click the field, select all, type the approved text. The description
    editors are rich text: same method. Check the character limit before typing.
+   For a rich-text body with lists or links (More details), do not type it: click in the
+   editor, press cmd+a, then run `scripts/paste_html.js` with the approved HTML in the
+   page's JavaScript tool. Read the editor back with `read_page` before Save: the text
+   must be the approved text only, and every link must carry its `href`.
 4. **Images.** Each highlight is an accordion panel; only an open panel exposes its file
    input. Open one panel, `read_page` with `filter: interactive`, upload to the `type="file"`
    button with `file_upload`, confirm the thumbnail changed, then collapse it and open the
@@ -113,7 +117,7 @@ Look at every composed image before upload, and at the public page after.
 | Trap | What happens | What to do |
 |---|---|---|
 | `agent-browser` with the support profile | `marketplace.atlassian.com/manage` asks for an 8-digit code sent by email | Do not read or enter the code. Use the owner's real Chrome, which holds the vendor session |
-| More details length | The console rejected an edit of 998 plain characters with "More Details must be between 250 and 1000 characters long"; the stored text was 962 plain and 1,384 HTML characters | The count is not plain text (HTML length is the likely rule, not confirmed). Draft the body under 1000 HTML characters and get the wording approved first |
+| More details length | "More Details must be between 250 and 1000 characters long". Rejected: an edit of 998 plain characters (over 1000 as HTML). Accepted: 933 HTML characters (686 plain), stored afterwards as 1,155 because the server adds attributes | Both cases fit "the limit counts the submitted HTML"; not proven by a boundary test. Keep the HTML that is sent under 1000 characters, links included. The stored length is not the measure |
 | `shift+End` in the More details editor | Selects the whole document | Click, then shift-click the end of the sentence |
 | Highlights page read too early | Empty page | Wait, then read again |
 | Search index lag | The listing page and `rest/2/addons/<key>` show the new name while search still returns the old one. Observed 2026-11-17: Lite's index had the new name inside the hour; Full's still held the old name at 05:10Z and held the new one at 05:29Z | Re-read later; never report a rank that was read under the old name as the after-state |

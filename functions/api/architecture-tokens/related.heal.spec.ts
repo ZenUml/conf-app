@@ -18,7 +18,9 @@ import { __resetHealsInFlightForTests } from '../../architecture-tokens/heal';
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
 const CLOUD = 'cloud-test';
-const API = `https://api.atlassian.com/ex/confluence/${CLOUD}`;
+// A different id in the URL than in the Forge context: the heal must write under the cloudId
+// the lookup reads with (forgeContext), not one parsed from apiBaseUrl as the save sync does.
+const API = 'https://api.atlassian.com/ex/confluence/cloud-in-url';
 
 /** The D1 surface the lookup and the index writer use, over an in-memory SQLite. */
 function d1() {

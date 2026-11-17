@@ -18,6 +18,7 @@ import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DataSource, DiagramType } from '@/model/Diagram/Diagram'
 import { classifyViewerLoadOutcome, setViewerLoadState } from '@/utils/viewerLoadOutcome'
 import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
+import Example from '@/utils/sequence/Example'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
 import { __resetEditGateCache } from '@/utils/guardEditClick'
@@ -590,6 +591,37 @@ export const Default: Story = {
     await expect(await canvas.findByTestId('view-source-btn')).toBeVisible()
     await expect(await canvas.findByTestId('connect-mcp-btn')).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Fullscreen' })).toBeVisible()
+  },
+}
+
+/**
+ * The sample the byline Flowchart tile (and a pasted `/new/mermaid` link) now
+ * seeds the Mermaid editor with. It used to be the Alice/John sequence diagram.
+ */
+export const FlowchartSeed: Story = {
+  name: 'Flowchart seed — byline Flowchart tile (editor preview)',
+  loaders: [
+    async () => {
+      __resetMermaidLoaderForTests()
+      const bundledMermaid = await import('mermaid')
+      await loadMermaid({ importer: async () => bundledMermaid, retries: 0 })
+      return {}
+    },
+  ],
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Order request flow',
+        mermaidCode: Example.MermaidFlowchart,
+        displayMode: false,
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: () => renderMermaidEditorPreview(),
+  play: async () => {
+    await waitFor(() => expect(document.body.textContent || '').toContain('Valid input?'), { timeout: 15000 })
   },
 }
 

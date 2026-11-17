@@ -127,13 +127,13 @@ describe('ConnectMcpDialog client tabs', () => {
     expect(wrapper.emitted('copy')).toEqual([['server_url', true, 'claude_app']])
   })
 
-  it('opens the Cursor install link, with the server config base64-encoded', async () => {
+  it('opens the Cursor install page, with the server config base64-encoded', async () => {
     const wrapper = mountDialog()
     await wrapper.find('[data-testid="connect-mcp-tab-cursor"]').trigger('click')
     await wrapper.find('[data-testid="connect-mcp-install"]').trigger('click')
     expect(wrapper.emitted('install')).toEqual([['cursor']])
     const link = new globalThis.URL(vi.mocked(openUrl).mock.calls[0][0])
-    expect(link.protocol).toBe('cursor:')
+    expect(link.origin + link.pathname).toBe('https://cursor.com/install-mcp')
     expect(link.searchParams.get('name')).toBe('zenuml')
     expect(JSON.parse(atob(link.searchParams.get('config') ?? ''))).toEqual({ url: URL })
   })

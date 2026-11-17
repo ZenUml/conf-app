@@ -71,23 +71,28 @@ export function mcpAddCommand(backendBaseUrl?: string): string {
   return `claude mcp add --transport http ${mcpServerName()} ${mcpServerUrl(backendBaseUrl)}`
 }
 
-// One-click install links for the Connect MCP dialog's client tabs.
+// One-click install links for the Connect MCP dialog's client tabs. A Forge
+// Custom UI frame opens links through router.open, which Confluence handles
+// only for web URLs: on whimet4 (2026-11-17) a cursor:// URL did nothing at
+// all, while an https URL got Confluence's "Opening external page"
+// confirmation. So both links are https pages that hand off to the client.
 //
-// Cursor (https://cursor.com/docs/context/mcp/install-links):
-// cursor://anysphere.cursor-deeplink/mcp/install?name=$NAME&config=$BASE64,
-// where the config is the server's mcp.json entry, JSON-stringified, then
-// base64-encoded. The base64 is URL-encoded here because its + / = are not
-// safe in a query string.
+// Cursor documents the deeplink
+// cursor://anysphere.cursor-deeplink/mcp/install?name=$NAME&config=$BASE64
+// (https://cursor.com/docs/context/mcp/install-links), where the config is
+// the server's mcp.json entry, JSON-stringified, then base64-encoded. Its web
+// page https://cursor.com/install-mcp takes the same name and config and
+// redirects to exactly that deeplink (observed 2026-11-17; the page itself is
+// not in Cursor's docs).
 export function cursorInstallUrl(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
   const config = btoa(JSON.stringify({ url: serverUrl }))
-  return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent(name)}&config=${encodeURIComponent(config)}`
+  return `https://cursor.com/install-mcp?name=${encodeURIComponent(name)}&config=${encodeURIComponent(config)}`
 }
 
 // VS Code (https://code.visualstudio.com/api/extension-guides/ai/mcp):
 // vscode:mcp/install?{url-encoded JSON}, which opens the server for review
 // rather than installing it silently. Wrapped in the documented
-// https://vscode.dev/redirect?url= page, because a Forge Custom UI frame opens
-// links through router.open, which is made for web URLs.
+// https://vscode.dev/redirect?url= page, for the reason above.
 export function vscodeInstallUrl(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
   const install = `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name, type: 'http', url: serverUrl }))}`
   return `https://vscode.dev/redirect?url=${encodeURIComponent(install)}`

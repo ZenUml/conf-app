@@ -339,6 +339,21 @@ function onWindowResize() {
   positionPopover()
 }
 
+/**
+ * `stale_index` is one error kind for three backend cases; these say which one, and at which
+ * versions. Version numbers only. Empty for every other failure.
+ */
+function staleProperties(response: RelatedResponse) {
+  if (response.error_kind !== 'stale_index') return {}
+  return {
+    ...(response.stale_reason ? { stale_reason: response.stale_reason } : {}),
+    ...(typeof response.contentVersion === 'number'
+      ? { indexed_version: response.contentVersion }
+      : {}),
+    ...(typeof response.live_version === 'number' ? { live_version: response.live_version } : {}),
+  }
+}
+
 async function load() {
   if (requested || !props.enabled || !props.ready) return
   requested = true
@@ -359,6 +374,7 @@ async function load() {
     trackAnalyticsEvent('related_diagrams_lookup_failed', {
       ...baseProperties(),
       error_kind: response.error_kind,
+      ...staleProperties(response),
       duration_ms: Math.round(performance.now() - started),
     })
     return

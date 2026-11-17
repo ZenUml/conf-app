@@ -925,6 +925,76 @@ describe('RelatedDiagramsFooter', () => {
     )
   })
 
+  // `stale_index` covers three backend cases. Fixtures are fictional: index rows at
+  // version 3, live diagram at version 4.
+  it.each([
+    [
+      'version_mismatch',
+      { stale_reason: 'version_mismatch', live_version: 4 },
+      { stale_reason: 'version_mismatch', indexed_version: 3, live_version: 4 },
+    ],
+    [
+      'not_in_live_read',
+      { stale_reason: 'not_in_live_read' },
+      { stale_reason: 'not_in_live_read', indexed_version: 3 },
+    ],
+    [
+      'no_page_container',
+      { stale_reason: 'no_page_container' },
+      { stale_reason: 'no_page_container', indexed_version: 3 },
+    ],
+  ])('records which stale_index case it was: %s', async (_case, staleFields, expected) => {
+    related.value = {
+      indexedAt: '2026-08-27T05:00:00Z',
+      contentVersion: 3,
+      participants: [],
+      error_kind: 'stale_index',
+      ...staleFields,
+    }
+    const { wrapper } = mountFooter()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="related-diagrams-footer"]').exists()).toBe(false)
+    const properties = propertiesOf('related_diagrams_lookup_failed')
+    expect(properties).toMatchObject({ error_kind: 'stale_index', ...expected })
+    expect('live_version' in properties).toBe('live_version' in expected)
+  })
+
+  it('a stale_index answer from a backend without stale_reason still records the indexed version', async () => {
+    related.value = {
+      indexedAt: '2026-08-27T05:00:00Z',
+      contentVersion: 3,
+      participants: [],
+      error_kind: 'stale_index',
+    }
+    mountFooter()
+    await flushPromises()
+
+    const properties = propertiesOf('related_diagrams_lookup_failed')
+    expect(properties).toMatchObject({ error_kind: 'stale_index', indexed_version: 3 })
+    expect(properties).not.toHaveProperty('stale_reason')
+    expect(properties).not.toHaveProperty('live_version')
+  })
+
+  it('puts no stale properties on any other failure', async () => {
+    related.value = {
+      indexedAt: '2026-08-27T05:00:00Z',
+      contentVersion: 3,
+      participants: [],
+      error_kind: 'confluence_unavailable',
+      // a field the backend does not send with this kind; it must not leak onto the event
+      live_version: 4,
+    }
+    mountFooter()
+    await flushPromises()
+
+    const properties = propertiesOf('related_diagrams_lookup_failed')
+    expect(properties).toMatchObject({ error_kind: 'confluence_unavailable' })
+    expect(properties).not.toHaveProperty('stale_reason')
+    expect(properties).not.toHaveProperty('indexed_version')
+    expect(properties).not.toHaveProperty('live_version')
+  })
+
   it('carries the render-gate telemetry on related_token_indicators_shown when the gate ran', async () => {
     getGateTelemetry.mockReturnValue({
       render_gate: 'background',

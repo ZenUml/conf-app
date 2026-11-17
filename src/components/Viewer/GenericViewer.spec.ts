@@ -41,7 +41,9 @@ vi.mock('@/features/licenseNotice/loadEvidence', () => ({
   loadLicenseNoticeEvidence: vi.fn(() => Promise.resolve({ state: 'unknown' })),
 }))
 
-vi.mock('@/utils/magic/viewerAccount', () => ({
+vi.mock('@/utils/magic/viewerAccount', async (importOriginal) => ({
+  // RelatedDiagramsFooter reads the real isAnonymousViewer; only the lookup is faked.
+  ...(await importOriginal<typeof import('@/utils/magic/viewerAccount')>()),
   viewerAccountKind: vi.fn(() => Promise.resolve('licensed')),
 }))
 

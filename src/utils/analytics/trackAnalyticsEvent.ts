@@ -162,10 +162,32 @@ const FORCED_REPLAY_SOURCES: Partial<
   title_draft_preview_mounted: "title_draft_preview",
 };
 
+// Forced by the event's properties rather than its name alone: the editor opens
+// the template gallery by itself once per browser per site per diagram type, on
+// the first empty new macro (autoOpenMarker.ts). A brand-new user's first
+// editor session would otherwise have no replay 19 times in 20 (5% authoring
+// sampling in November 2026). A manual gallery open must not force one.
+// Bound: an estimated 663 auto-first-open events per 14 days fleet-wide (from
+// 78 raw events sampled at 10%, so a rough figure), about 1.4k replays a month
+// against the 20,000 a month replay quota.
+function _forcedReplaySource(
+  eventName: AnalyticsEventName,
+  callerProps: AnalyticsProperties
+): SessionReplayEventSource | undefined {
+  if (
+    eventName === "editor_template_gallery_opened" &&
+    callerProps.template_gallery_trigger === "auto_first_open"
+  ) {
+    return "first_authoring";
+  }
+  return FORCED_REPLAY_SOURCES[eventName];
+}
+
 function _startExplicitReplay(
-  eventName: AnalyticsEventName
+  eventName: AnalyticsEventName,
+  callerProps: AnalyticsProperties = {}
 ): Partial<ExplicitReplayProperties> {
-  const forcedSource = FORCED_REPLAY_SOURCES[eventName];
+  const forcedSource = _forcedReplaySource(eventName, callerProps);
   if (forcedSource) {
     try {
       mixpanel.start_session_recording();
@@ -534,7 +556,10 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
-    const explicitReplayProperties = _startExplicitReplay(eventName);
+    const explicitReplayProperties = _startExplicitReplay(
+      eventName,
+      callerProps
+    );
 
     const contentIds = _getContentIdentifiers();
 

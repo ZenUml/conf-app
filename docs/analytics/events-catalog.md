@@ -70,6 +70,7 @@ All events are enriched automatically by `trackAnalyticsEvent.ts`. Call sites on
 | `entry_point` | `"page_editor"` (inserted via slash menu / macro browser) |
 | `creation_origin` | Surface that started the create: `page_editor` (default), `byline_view`, `byline_editor`, `dashboard`, `homepage` (reserved, no create path today), `unknown` (a carried value was not recognised). Separate from `entry_point`, which stays `page_editor` for every editor-hosted create |
 | `creation_flow_id` | UUID generated once per editor iframe and shared by this iframe's start, success and cancel events — the join key for one creation |
+| `seed_kind` | Sequence-family editor (`forgeIndex.ts`) only: the sample code the new diagram opened with. `flowchart` = the byline Flowchart tile or a pasted `/new/mermaid` link opened the Mermaid tab on a flowchart sample; `type_default` = the type's ordinary starter sample (Mermaid: a sequenceDiagram). Absent on the Graph, Embed and OpenAPI editors |
 
 ---
 

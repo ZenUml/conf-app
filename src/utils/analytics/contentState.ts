@@ -8,7 +8,7 @@
 //   default  — the body equals the bundled starter content for that type
 //   authored — anything else, including types that have no known body field
 import { DiagramType, type Diagram } from '@/model/Diagram/Diagram';
-import Example from '@/utils/sequence/Example';
+import Example, { MERMAID_SEEDS } from '@/utils/sequence/Example';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { EMPTY_GRAPH } from '@/utils/graph/emptyGraph';
 import { decompress } from '@/utils/compress';
@@ -37,12 +37,12 @@ const BODY_FIELD: Partial<Record<DiagramType, keyof BodyFields>> = {
 
 // The sample a new macro of this type is seeded with. Types without a seed
 // (AsyncAPI, Markdown) can only be `empty` or `authored`.
-const DEFAULT_BODY: Partial<Record<DiagramType, string>> = {
-  [DiagramType.Sequence]: Example.Sequence,
-  [DiagramType.Mermaid]: Example.Mermaid,
-  [DiagramType.PlantUml]: Example.PlantUml,
-  [DiagramType.Graph]: EMPTY_GRAPH,
-  [DiagramType.OpenApi]: OpenApiExample,
+const DEFAULT_BODY: Partial<Record<DiagramType, readonly string[]>> = {
+  [DiagramType.Sequence]: [Example.Sequence],
+  [DiagramType.Mermaid]: MERMAID_SEEDS,
+  [DiagramType.PlantUml]: [Example.PlantUml],
+  [DiagramType.Graph]: [EMPTY_GRAPH],
+  [DiagramType.OpenApi]: [OpenApiExample],
 };
 
 // Confluence storage can change line endings and trailing whitespace on a
@@ -82,10 +82,11 @@ export function classifyContentState(
   if (!field) return 'authored';
   const raw = bodyOf(diagram, diagramType, field);
   if (raw == null || typeof raw !== 'string' || raw.trim() === '') return 'empty';
-  const seed = DEFAULT_BODY[diagramType];
-  if (seed === undefined) return 'authored';
+  const seeds = DEFAULT_BODY[diagramType];
+  if (seeds === undefined) return 'authored';
   const body = diagramType === DiagramType.Graph ? plainGraphXml(raw) : raw;
-  return normalise(body) === normalise(seed) ? 'default' : 'authored';
+  const normalised = normalise(body);
+  return seeds.some((seed) => normalised === normalise(seed)) ? 'default' : 'authored';
 }
 
 // The loader still displays the legacy PlantUML example for a missing/falsy

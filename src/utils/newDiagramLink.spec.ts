@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { applyNewDiagramLink, applyRequestedDiagramType, buildNewDiagramLink, diagramTypeFromModalType, parseNewDiagramLink, readAutoConvertLink } from './newDiagramLink'
+import Example from '@/utils/sequence/Example'
+import { withFlowchartSeed, applyNewDiagramLink, applyRequestedDiagramType, buildNewDiagramLink, diagramTypeFromModalType, parseNewDiagramLink, readAutoConvertLink } from './newDiagramLink'
 import { DiagramType } from '@/model/Diagram/Diagram'
 
 describe('buildNewDiagramLink', () => {
@@ -149,5 +150,40 @@ describe('diagramTypeFromModalType / applyRequestedDiagramType', () => {
   it('is a no-op when nothing was requested', () => {
     const placeholder = { diagramType: DiagramType.Sequence }
     expect(applyRequestedDiagramType(placeholder, undefined, false).doc).toBe(placeholder)
+  })
+})
+
+describe('withFlowchartSeed', () => {
+  const seedDoc = () => ({ diagramType: DiagramType.Mermaid, code: Example.Sequence, mermaidCode: Example.Mermaid, plantUmlCode: Example.PlantUml, isNew: true })
+
+  it('swaps the untouched Mermaid sequence seed for the flowchart seed when Mermaid was requested on a new macro', () => {
+    const out = withFlowchartSeed(seedDoc(), DiagramType.Mermaid, false)
+    expect(out?.mermaidCode).toBe(Example.MermaidFlowchart)
+    expect(out?.code).toBe(Example.Sequence)
+    expect(out?.plantUmlCode).toBe(Example.PlantUml)
+  })
+
+  it('leaves non-seed Mermaid code alone', () => {
+    const doc = { ...seedDoc(), mermaidCode: 'graph TD\n  A-->B' }
+    expect(withFlowchartSeed(doc, DiagramType.Mermaid, false)).toBe(doc)
+  })
+
+  it('leaves the doc alone when a macro has stored content', () => {
+    const doc = seedDoc()
+    expect(withFlowchartSeed(doc, DiagramType.Mermaid, true)).toBe(doc)
+  })
+
+  it.each([undefined, DiagramType.Sequence, DiagramType.PlantUml, DiagramType.Graph])('leaves the doc alone when the requested type is %s', (type) => {
+    const doc = seedDoc()
+    expect(withFlowchartSeed(doc, type, false)).toBe(doc)
+  })
+
+  it('is idempotent on a doc that already has the flowchart seed', () => {
+    const doc = { ...seedDoc(), mermaidCode: Example.MermaidFlowchart }
+    expect(withFlowchartSeed(doc, DiagramType.Mermaid, false)).toBe(doc)
+  })
+
+  it('passes through an undefined doc', () => {
+    expect(withFlowchartSeed(undefined, DiagramType.Mermaid, false)).toBeUndefined()
   })
 })

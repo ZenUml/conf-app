@@ -39,7 +39,7 @@ import { markPublishClicked, trackPublishCompleted, recordPublishStep, recordPub
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
 import { handleHomepageFeedRoute } from './routes/homepageFeed';
-import { type MacroTypeValue } from '@/utils/analytics/catalog';
+import { type MacroTypeValue, type SeedKind } from '@/utils/analytics/catalog';
 import { getCreationFlowProps } from '@/utils/analytics/creationFlow';
 import { NULL_DIAGRAM, DataSource } from '@/model/Diagram/Diagram';
 import { applyViewerLoadOutcome, mapCustomContentLoadError, publishDiagramAttribution, setSequenceViewerLoadState } from '@/utils/viewerLoadOutcome';
@@ -58,7 +58,7 @@ import { LegacyLoadBlockedSaveError, InvalidSavedContentIdError } from '@/model/
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { getCachedContent, putCachedContent, hashContent } from '@/utils/renderCache/contentCacheStore';
 import { inferLegacyDiagramType, withLegacyDiagramType } from '@/model/Diagram/legacyDiagramType';
-import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink } from '@/utils/newDiagramLink';
+import { applyNewDiagramLink, applyRequestedDiagramType, diagramTypeFromModalType, readAutoConvertLink, withFlowchartSeed } from '@/utils/newDiagramLink';
 import { maybeGateViewerRender, awaitGateBlocking, getGateMode } from '@/utils/renderGate/maybeGateViewerRender';
 import { trackEditorMutationLifecycleEvent } from '@/utils/analytics/editorMutationTelemetry';
 import { markEditorAuthoringStarted, trackEditorClosedWithoutSave } from '@/utils/analytics/editorCloseOutcome';
@@ -1018,6 +1018,9 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
         );
     doc = fromModal.doc;
     const seededType = seeded.seededType || fromModal.seededType;
+    // Flowchart tile / `/new/mermaid`: open on a flowchart, not the sequence
+    // sample Example.Mermaid holds. Normal page-editor inserts are untouched.
+    doc = withFlowchartSeed(doc, seededType, !!customContentId);
     if (seededType) {
       // Normalised, not the raw enum: DiagramType.OpenApi is 'OpenAPI', and
       // emitting it verbatim splits Mixpanel's macro_type into two buckets
@@ -1042,7 +1045,9 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       const macroType: MacroTypeValue = (doc?.diagramType as MacroTypeValue) || 'sequence';
       markEditorAuthoringStarted();
       if (isNew) {
+        const seedKind: SeedKind = doc?.mermaidCode === Example.MermaidFlowchart ? 'flowchart' : 'type_default';
         trackAnalyticsEvent("macro_create_started", {
+          seed_kind: seedKind,
           feature_area: "macro",
           surface: "editor",
           macro_type: macroType,

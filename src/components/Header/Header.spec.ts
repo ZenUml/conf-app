@@ -494,6 +494,34 @@ describe('Header — starter-template gallery auto-open (onboarding funnel)', ()
     }))
   })
 
+  it('auto-opens the gallery when a new Mermaid macro still holds the flowchart seed (byline Flowchart tile)', async () => {
+    store.commit('updateDiagramType', DiagramType.Mermaid)
+    store.state.diagram.isNew = true
+    store.state.diagram.mermaidCode = Example.MermaidFlowchart
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(true)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('editor_starter_shown', expect.objectContaining({
+      macro_type: DiagramType.Mermaid,
+      trigger: 'auto_first_open',
+    }))
+  })
+
+  it('does not auto-open when a new Mermaid macro holds edited flowchart code', async () => {
+    store.commit('updateDiagramType', DiagramType.Mermaid)
+    store.state.diagram.isNew = true
+    store.state.diagram.mermaidCode = `${Example.MermaidFlowchart}\n    Done --> End`
+    const wrapper = mount(Header, { global: { plugins: [store] } })
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-testid="template-gallery"]').exists()).toBe(false)
+  })
+
   it('does not auto-open when editing an existing macro', async () => {
     store.state.diagram.id = 'existing-cc-id'
     const wrapper = mount(Header, { global: { plugins: [store] } })

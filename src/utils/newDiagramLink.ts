@@ -1,4 +1,5 @@
 import { DiagramType } from '@/model/Diagram/Diagram'
+import Example from '@/utils/sequence/Example'
 
 /**
  * "New diagram" deeplinks — the paste-to-create half of the byline picker.
@@ -161,4 +162,21 @@ export function applyRequestedDiagramType<T extends { diagramType?: string; type
     ? { ...doc, diagramType: requested, typeRequested: true }
     : { diagramType: requested, typeRequested: true }) as T
   return { doc: next, seededType: requested }
+}
+
+/**
+ * A byline "Flowchart" tile (or a pasted `/new/mermaid` link) requests the
+ * Mermaid type, but the placeholder doc carries `Example.Mermaid`, a
+ * sequenceDiagram. Swap in the flowchart seed so the editor opens on what the
+ * tile promised. Only for a new macro (no stored content) whose Mermaid code is
+ * still the untouched seed: anything else the user or storage put there stays.
+ */
+export function withFlowchartSeed<T extends { mermaidCode?: string }>(
+  doc: T | undefined,
+  seededType: DiagramType | undefined,
+  hasStoredContent: boolean,
+): T | undefined {
+  if (!doc || hasStoredContent || seededType !== DiagramType.Mermaid) return doc
+  if (doc.mermaidCode !== Example.Mermaid) return doc
+  return { ...doc, mermaidCode: Example.MermaidFlowchart }
 }

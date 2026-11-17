@@ -74,6 +74,12 @@ Before writing code for any new feature, define the analytics events first. For 
 
 **Why:** events retrofitted after the fact miss edge cases (e.g. "accepted vs modified" required understanding the full UX flow before implementation). Planning events up front forces clarity on what "success" looks like before the code is written.
 
+### Estimate Mixpanel cost and quota before adding events or session replay
+
+Before a change adds an event, raises a sampling rate, adds a forced session-replay source, or shows an existing forced-replay event to a wider audience, estimate its monthly volume against the two caps and state the estimate in the PR. The caps: 1,000,000 tracked events (billed above that) and 20,000 session replays (recording stops for the rest of the month above that). Count per occurrence, not per user: an event sent on mount fires once per macro iframe per page view. Measure the current rate with `.claude/skills/mixpanel/scripts/mp_quota.py`. Sampling sets are in `src/utils/analytics/eventSampling.ts`; forced replay sources are `FORCED_REPLAY_SOURCES` in `src/utils/analytics/trackAnalyticsEvent.ts`; caps and policy are in [docs/ops/mixpanel-quota-check.md](docs/ops/mixpanel-quota-check.md).
+
+**Why (2026-11-17):** the Lite site-policy license notice began to reuse `license_notice_shown`, a forced-replay event sized for a handful of Full sites. About 20,000 replays were then recorded in one day, as many as the monthly replay cap.
+
 ### Pure Forge — no Connect code
 
 All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in production. The Connect runtime is fully removed.
@@ -111,6 +117,19 @@ Rules:
 Real Confluence tenant names (subdomain prefixes, `<customer>.atlassian.net` hostnames, customer page titles, customer `cloudId`s) **MUST NOT** appear in any public-repo file. Use placeholders (`example-tenant`, `example.atlassian.net`). Real tenant data lives in the `private/` submodule (`ZenUml/conf-app-private`).
 
 Full rules, artifact routing table, pre-commit grep, and background: [docs/policies/client-privacy.md](docs/policies/client-privacy.md).
+
+### Customer email: Marketplace Partner Agreement §8.4(c)
+
+[§8.4(c)](https://www.atlassian.com/licensing/marketplace/partneragreement) allows direct contact from end-user data only "where required by Law or as consented to or requested by the end user". **The owner's ruling (2026-11-17):** this clause stops us from emailing ordinary users of the app. It does not stop a first-touch email at first install.
+
+| Case | Allowed? |
+|---|---|
+| One first-touch email to the Marketplace contact of a new install or evaluation | Yes |
+| Reply to a user who asked us (feedback dialog, support ticket, email) | Yes |
+| Email to an ordinary user we found in Confluence, Forge, Mixpanel or D1 data, who did not contact us | No |
+
+- The privacy policy is not a blocker for the first-touch email (owner, 2026-11-17).
+- The other contact rules still apply: owner's yes for each send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
 
 ### Never commit directly to `main`
 

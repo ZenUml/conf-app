@@ -200,7 +200,7 @@ describe('macro snapshot service', () => {
     const { env, r2, metrics } = makeEnv();
     const claimed = await handleClaim(request('/metrics-cache/snapshot/claim', {}), env, data);
     const claim = await claimed.json() as { runId: string };
-    const zero = { total: 0, sequence: 0, graph: 0, openapi: 0, mermaid: 0, plantuml: 0, unknown: 0 };
+    const zero = { total: 0, sequence: 0, graph: 0, openapi: 0, mermaid: 0, plantuml: 0, markdown: 0, unknown: 0 };
 
     const response = await handleCommit(request('/metrics-cache/snapshot/commit', {
       runId: claim.runId,

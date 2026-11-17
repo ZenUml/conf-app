@@ -30,7 +30,7 @@ export function mcpServerName(product: { isDiagramly?: boolean; isAsyncApi?: boo
 }
 
 /** The product the prompt names the diagram after, matching mcpServerName(). */
-function productLabel(product: { isDiagramly?: boolean; isAsyncApi?: boolean } = forgeGlobal): string {
+export function productLabel(product: { isDiagramly?: boolean; isAsyncApi?: boolean } = forgeGlobal): string {
   if (product.isDiagramly) return 'Diagramly'
   if (product.isAsyncApi) return 'AsyncAPI'
   return 'ZenUML'
@@ -69,6 +69,86 @@ export function mcpServerUrl(backendBaseUrl: string | undefined = mcpBackendBase
 
 export function mcpAddCommand(backendBaseUrl?: string): string {
   return `claude mcp add --transport http ${mcpServerName()} ${mcpServerUrl(backendBaseUrl)}`
+}
+
+// One-click install links for the Connect MCP dialog's client tabs. A Forge
+// Custom UI frame opens links through router.open, which Confluence handles
+// only for web URLs: on whimet4 (2026-11-17) a cursor:// URL did nothing at
+// all, while an https URL got Confluence's "Opening external page"
+// confirmation. So both links are https pages that hand off to the client.
+//
+// Cursor documents the deeplink
+// cursor://anysphere.cursor-deeplink/mcp/install?name=$NAME&config=$BASE64
+// (https://cursor.com/docs/context/mcp/install-links), where the config is
+// the server's mcp.json entry, JSON-stringified, then base64-encoded. Its web
+// page https://cursor.com/install-mcp takes the same name and config and
+// redirects to exactly that deeplink (observed 2026-11-17; the page itself is
+// not in Cursor's docs).
+export function cursorInstallUrl(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  const config = btoa(JSON.stringify({ url: serverUrl }))
+  return `https://cursor.com/install-mcp?name=${encodeURIComponent(name)}&config=${encodeURIComponent(config)}`
+}
+
+// VS Code (https://code.visualstudio.com/api/extension-guides/ai/mcp):
+// vscode:mcp/install?{url-encoded JSON}, which opens the server for review
+// rather than installing it silently. Wrapped in the documented
+// https://vscode.dev/redirect?url= page, for the reason above.
+export function vscodeInstallUrl(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  const install = `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name, type: 'http', url: serverUrl }))}`
+  return `https://vscode.dev/redirect?url=${encodeURIComponent(install)}`
+}
+
+// The Other tab's setup: a prompt for an agent that can run commands or edit
+// files (Codex, Kiro, opencode, Copilot CLI…) to add the server to its own
+// MCP configuration. An agent cannot add a server to the session it is in,
+// and the OAuth sign-in needs the person, so the prompt asks it to say how
+// to reload and sign in rather than to use the tools straight away. A chat
+// app (Claude on the web, ChatGPT) cannot act on it; those add servers in
+// their settings.
+export function buildInstallPrompt(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  return [
+    'Add this remote MCP server to your own MCP configuration:',
+    `- name: ${name}`,
+    '- transport: streamable HTTP',
+    `- URL: ${serverUrl}`,
+    'It signs in with Atlassian OAuth the first time it is used, so add no API key or header.',
+    `Then tell me how to reload you and sign in, so the ${name} tools show up.`,
+  ].join('\n')
+}
+
+export type McpClientChoice = 'claude_code' | 'claude_app' | 'cursor' | 'vscode' | 'other'
+
+// The dialog's tabs, most-used client first, by accounts whose MCP client
+// named itself on agent_link_mcp_initialized (customer sites,
+// 2026-09-15..11-17): claude-code 24, Anthropic/ClaudeAI 5, cursor-vscode 3,
+// codex-mcp-client 3 (under Other), Visual Studio Code 1.
+export const MCP_CLIENTS: ReadonlyArray<{ id: McpClientChoice; label: string }> = [
+  { id: 'claude_code', label: 'Claude Code' },
+  { id: 'claude_app', label: 'Claude app' },
+  { id: 'cursor', label: 'Cursor' },
+  { id: 'vscode', label: 'VS Code' },
+  { id: 'other', label: 'Other' },
+]
+
+const CLIENT_CHOICE_KEY = 'zenuml.mcpClientChoice'
+
+/** The tab this browser last chose; Claude Code when none (or storage is unavailable). */
+export function rememberedMcpClient(): McpClientChoice {
+  try {
+    const v = localStorage.getItem(CLIENT_CHOICE_KEY)
+    if (MCP_CLIENTS.some((c) => c.id === v)) return v as McpClientChoice
+  } catch {
+    // Storage blocked: fall through to the default.
+  }
+  return 'claude_code'
+}
+
+export function rememberMcpClient(choice: McpClientChoice): void {
+  try {
+    localStorage.setItem(CLIENT_CHOICE_KEY, choice)
+  } catch {
+    // Best effort: the choice only saves a click next time.
+  }
 }
 
 // The first release offers the headless MCP only: the agent signs in with

@@ -169,6 +169,22 @@ describe('useEditorMcpPromo', () => {
     expect(second.api.showNewDiagramCard.value).toBe(false)
   })
 
+  it('carries the client tab and the close source on the dialog rows', async () => {
+    const { api } = setup()
+    await flushPromises()
+    api.onCta('editor_new_diagram')
+    api.onClientSelected('cursor')
+    api.onInstall('cursor')
+    api.onCopied('server_url', true, 'cursor')
+    api.closeDialog('backdrop')
+    const props = (name: string) => events(name).map((e) => e[1])
+    expect(props('agent_link_mcp_dialog_opened')[0]).toMatchObject({ mcp_client_choice: 'claude_code' })
+    expect(props('agent_link_mcp_client_selected')[0]).toMatchObject({ mcp_client_choice: 'cursor', mcp_button_placement: 'editor_new_diagram' })
+    expect(props('agent_link_mcp_install_clicked')[0]).toMatchObject({ mcp_client_choice: 'cursor' })
+    expect(props('agent_link_mcp_dialog_copied')[0]).toMatchObject({ mcp_copy_target: 'server_url', mcp_client_choice: 'cursor' })
+    expect(props('agent_link_mcp_dialog_closed')[0]).toMatchObject({ mcp_close_source: 'backdrop', mcp_client_choice: 'cursor' })
+  })
+
   it('stays hidden for a diagram of unknown type', async () => {
     const unknown = setup({ type: DiagramType.Unknown })
     await flushPromises()

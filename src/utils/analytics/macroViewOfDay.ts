@@ -44,7 +44,7 @@ interface DayRecord {
   k: string[]
 }
 
-function defaultStorage(): Storage | null {
+export function defaultStorage(): Storage | null {
   try {
     return window.localStorage ?? null
   } catch {
@@ -75,10 +75,11 @@ export function classifyMacroView(
   scope: MacroViewScope,
   storage: Storage | null = defaultStorage(),
   clock: () => number = Date.now,
+  keyPrefix: string = KEY_PREFIX,
 ): ViewOfDay | null {
   if (!storage || !scope.macroKey) return null
   try {
-    const key = `${KEY_PREFIX}:${scope.clientDomain || '-'}`
+    const key = `${keyPrefix}:${scope.clientDomain || '-'}`
     const viewKey = `${scope.surface}:${scope.macroKey}`
     const record = readRecord(storage.getItem(key), utcDay(clock()))
     if (record.k.includes(viewKey)) return 'repeat'

@@ -55,6 +55,8 @@ import type {
   AgentLinkMcpButtonPlacement,
   AgentLinkMcpButtonReveal,
   AgentLinkMcpCopyTarget,
+  AgentLinkMcpClientChoice,
+  AgentLinkMcpCloseSource,
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
   AgentLinkRenderValidation,
@@ -331,6 +333,7 @@ export type AnalyticsProperties = {
   openapi_count?: number;
   mermaid_count?: number;
   plantuml_count?: number;
+  markdown_count?: number;
   unknown_count?: number;
   type_request_count?: number;
   chunk_count?: number;
@@ -348,6 +351,8 @@ export type AnalyticsProperties = {
   current_mermaid_count?: number;
   previous_plantuml_count?: number;
   current_plantuml_count?: number;
+  previous_markdown_count?: number;
+  current_markdown_count?: number;
   previous_unknown_count?: number;
   current_unknown_count?: number;
   failure_stage?: string;
@@ -908,10 +913,12 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
-  // macro_viewed only: whether this browser already reported this macro on this
-  // surface today (UTC). `first` is always emitted; `repeat` is emitted at
-  // MACRO_VIEWED_REPEAT_SAMPLE_RATE and carries `sample_rate`. Absent when the
-  // browser cannot remember (no storage, no macro id): that event is emitted.
+  // macro_viewed, license_notice_shown, license_notice_evaluated (outcome
+  // `shown`): whether this browser already reported this macro on this surface
+  // today (UTC). `first` is always emitted; `repeat` is emitted at
+  // MACRO_VIEWED_REPEAT_SAMPLE_RATE / LICENSE_NOTICE_REPEAT_SAMPLE_RATE and
+  // carries `sample_rate`. Absent when the browser cannot remember (no storage,
+  // no macro id): that event is emitted.
   view_of_day?: "first" | "repeat";
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
@@ -1151,6 +1158,10 @@ export type AnalyticsProperties = {
   // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
   mcp_mode?: AgentLinkMcpMode;
   mcp_copy_target?: AgentLinkMcpCopyTarget;
+  // The client tab showing in step 1 (opened / copied / closed /
+  // client_selected / install_clicked), and how the dialog closed (closed).
+  mcp_client_choice?: AgentLinkMcpClientChoice;
+  mcp_close_source?: AgentLinkMcpCloseSource;
   // agent_link_mcp_button_shown (and `mcp_button_reveal` on _dialog_opened):
   // where the button sat and whether it was visible at rest. Inline shown
   // events also carry `header_stage`.

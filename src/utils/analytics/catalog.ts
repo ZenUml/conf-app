@@ -318,6 +318,13 @@ export type CacheState = "cold" | "warm" | "unknown";
 // high-confidence wipe. See utils/analytics/contentState.ts.
 export type ContentState = "default" | "authored" | "empty";
 
+// What code a new diagram's editor opened with (`macro_create_started`).
+//   flowchart    — the byline Flowchart tile / a pasted `/new/mermaid` link: the
+//                  Mermaid editor was seeded with a flowchart sample instead of
+//                  the sequence-diagram sample
+//   type_default — the starter sample of the diagram type (today's behaviour)
+export type SeedKind = "flowchart" | "type_default";
+
 // Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
 // `cc_body` = SVG co-stored in the custom-content body (Phase 2);
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.

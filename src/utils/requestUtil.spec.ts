@@ -17,14 +17,6 @@ describe('callRemote', () => {
       message: 'HTTP 403: {"error":"no_user_credential"}',
     });
   });
-
-  it('carries the response body on the thrown error, so a caller need not parse the message', async () => {
-    mockInvokeRemote.mockResolvedValue({ status: 403, body: { error: 'no_user_credential' } });
-    await expect(callRemote('/api/x', 'GET')).rejects.toMatchObject({
-      status: 403,
-      body: { error: 'no_user_credential' },
-    });
-  });
 });
 
 describe('loadPaginatedDataUntil', () => {

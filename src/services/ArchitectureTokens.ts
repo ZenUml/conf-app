@@ -44,17 +44,15 @@ export class RelatedLookupError extends Error {
 /** The backend's guest/anonymous answer; see `requireForgeUserToken`. */
 const NO_USER_CREDENTIAL = 'no_user_credential'
 
-function bodyNamesNoUserCredential(body: unknown): boolean {
-  if (typeof body === 'string') return body.includes(NO_USER_CREDENTIAL)
-  return (body as { error?: unknown } | null | undefined)?.error === NO_USER_CREDENTIAL
-}
-
-/** `callRemote` throws Error('HTTP <status>: ...') with `.status` and `.body` for any non-2xx. */
+/**
+ * `callRemote` throws Error('HTTP <status>: <body>') with `.status` for any non-2xx answer, so
+ * the body is only in the message. The message format is pinned by requestUtil.spec.
+ */
 function classifyLookupError(error: unknown): unknown {
   if (error instanceof RelatedLookupError) return error
-  const { status, body } = (error ?? {}) as { status?: unknown; body?: unknown }
+  const { status, message } = (error ?? {}) as { status?: unknown; message?: unknown }
   if (typeof status !== 'number') return new RelatedLookupError('network')
-  return status === 403 && bodyNamesNoUserCredential(body)
+  return status === 403 && typeof message === 'string' && message.includes(NO_USER_CREDENTIAL)
     ? new RelatedLookupError('no_user_credential', status)
     : new RelatedLookupError('http_error', status)
 }

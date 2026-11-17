@@ -40,8 +40,9 @@ describe('getRelatedDiagrams', () => {
   // The footer used to record every such throw as `network`, which hid 19,057 guest 403s
   // behind a word that means "the request never got an answer".
   describe('classifies a thrown HTTP error by its status', () => {
-    const httpError = (status: number, body: unknown) =>
-      Object.assign(new Error(`HTTP ${status}: ${JSON.stringify(body)}`), { status, body })
+    // the message is what callRemote really produces: `HTTP <status>: <body as JSON>`
+    const httpError = (status: number, body?: unknown) =>
+      Object.assign(new Error(`HTTP ${status}: ${body === undefined ? 'No body' : JSON.stringify(body)}`), { status })
 
     it('403 with body no_user_credential is no_user_credential', async () => {
       vi.mocked(callRemote).mockRejectedValueOnce(httpError(403, { error: 'no_user_credential' }))
@@ -50,19 +51,14 @@ describe('getRelatedDiagrams', () => {
       expect(error).toMatchObject({ kind: 'no_user_credential', httpStatus: 403 })
     })
 
-    it('403 with a string body naming no_user_credential is no_user_credential', async () => {
-      vi.mocked(callRemote).mockRejectedValueOnce(
-        Object.assign(new Error('HTTP 403: x'), { status: 403, body: '{"error":"no_user_credential"}' }),
-      )
-      await expect(getRelatedDiagrams('42')).rejects.toMatchObject({ kind: 'no_user_credential' })
-    })
-
     it.each([
       [403, { error: 'forbidden' }],
       [401, { error: 'unauthorized' }],
       [500, { error: 'boom' }],
       [429, undefined],
-    ])('%i without that body is http_error carrying the status', async (status, body) => {
+      // the credential words under another status are not the guest answer
+      [500, { error: 'no_user_credential' }],
+    ])('%i without the 403 credential body is http_error carrying the status', async (status, body) => {
       vi.mocked(callRemote).mockRejectedValueOnce(httpError(status, body))
       await expect(getRelatedDiagrams('42')).rejects.toMatchObject({ kind: 'http_error', httpStatus: status })
     })

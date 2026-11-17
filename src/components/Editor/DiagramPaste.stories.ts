@@ -81,8 +81,12 @@ async function selectAllAndPaste(text: string) {
 const diagramState = () => (store.state as any).diagram
 // The validation debounce in Editor.vue is 1 s; wait past it before reading the error.
 const afterValidation = () => new Promise(resolve => setTimeout(resolve, 1500))
+// The preview pane holds icon SVGs too; the diagram is the one with the lifeline label.
 const previewShowsRobot = () =>
-  waitFor(() => expect(document.querySelector('#workspace-right svg')?.textContent).toContain('Robot'), { timeout: 10000 })
+  waitFor(
+    () => expect([...document.querySelectorAll('#workspace-right svg')].some(svg => svg.textContent?.includes('Robot'))).toBe(true),
+    { timeout: 10000 },
+  )
 
 const meta: Meta<typeof Workspace> = {
   title: 'Editor/Diagram/DiagramPaste',

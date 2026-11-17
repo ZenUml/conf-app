@@ -49,3 +49,23 @@ Limits of the tunnel check:
 - `red-run-summary.txt`: the tests of commit `9d086743` before the implementation, 69 failed.
 - `local-unit-summary.txt`: the local full unit run and the isolated reruns of its 15 failures.
 - `storybook-play-status.txt`: Storybook channel events per story.
+
+## CI-deployed staging (`staging/`)
+
+- 2026-11-17, Lite variant, the Lite staging Confluence site, non-admin robot test account, `agent-browser`.
+- Deployed by the `PR validation` run 44069878353 (`Deploy: Lite`), not from a local shell.
+- Build under test: the dev bar in each screenshot shows `430926fe…@430926f`. `430926fe` is the PR merge candidate (`refs/pull/1211/merge`); its parents are `57482a74` (base) and `74edc98c` (head).
+- Input: the same fixture. Paste was a `ClipboardEvent('paste')` dispatched on the CodeMirror content element inside the macro iframe after select-all (the same method as the Storybook stories). A real system-clipboard paste was done in the Forge tunnel stage, not here.
+
+| File | Steps | Observed |
+|---|---|---|
+| `staging-1-moved-to-mermaid-with-undo.png` | new macro, Sequence tab with the starter, paste | Mermaid tab selected, toast "This looks like Mermaid, so it is now in the Mermaid tab." with Undo, 8 lines, no fence, diagram drawn |
+| `staging-2-after-undo.png` | then Undo on the toast | Sequence tab selected, 8 lines, no fence, hint "This looks like Mermaid, not ZenUML" with "Switch to Mermaid" |
+| `staging-3-fenced-paste-mermaid-tab.png` | then Mermaid tab, paste | 8 lines, no fence, diagram drawn, no syntax error |
+
+Limits of the staging check:
+
+- Paste was a synthetic event, not the system clipboard.
+- No macro was published; the page is an unpublished draft.
+- Only the Lite macro editor was opened. The fullscreen editor and the Full, Diagramly and AsyncAPI variants were not opened by hand.
+- Analytics events were not read from Mixpanel.

@@ -21,6 +21,8 @@ import type {
   RenderGateOutcome,
   CacheState,
   ContentState,
+  PasteFenceLanguage,
+  DiagramPasteAction,
   CacheSource,
   PlantUmlRenderer,
   McpViewPlantUmlRenderer,
@@ -1224,6 +1226,13 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // Paste handling (diagram_paste_handled, diagram_paste_move_undone) and the
+  // foreign-dialect hint events. `has_markdown_fence`: the source or paste
+  // carried a Markdown code fence. No property here carries diagram text.
+  has_markdown_fence?: boolean;
+  fence_language?: PasteFenceLanguage;
+  paste_action?: DiagramPasteAction;
+  paste_chars?: number;
   // convert_to_png toPng_failed / toPng_timeout (#1061). Bounded: no diagram
   // text, data URL or query string. See CaptureFailureStage in catalog.ts.
   capture_failure_stage?: CaptureFailureStage;

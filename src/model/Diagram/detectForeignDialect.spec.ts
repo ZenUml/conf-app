@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { detectForeignDialect } from "@/model/Diagram/detectForeignDialect";
+import { detectForeignDialect, extractMermaidSource } from "@/model/Diagram/detectForeignDialect";
+
+const BODY = `sequenceDiagram
+  autonumber
+  participant R as Robot
+  participant GW as Gateway<br/>(edge)
+  R->>GW: request credential
+  alt ok
+    GW-->>R: credential
+  end`;
+const FENCED = "```mermaid\n" + BODY + "\n```";
+const FLOW = `flowchart TB
+    A["ACT-01<br/>User"] --> B[Start: validate token]
+    B -->|invalid| C[Return 401 Unauthorized]
+    B -->|valid| D{Has cache?}`;
+const FLOW_NO_HEADER = `A["ACT-01"] --> B[Inicio: validar token]
+B -->|invalid| C[Retornar 401 Unauthorized]`;
 
 const ISSUE_373_REPRO = `@startuml
 autonumber
@@ -107,5 +123,76 @@ describe("detectForeignDialect — mermaid", () => {
 
   it("still prefers plantuml when both fences are present", () => {
     expect(detectForeignDialect("@startuml\nsequenceDiagram\n@enduml")).toBe("plantuml");
+  });
+});
+
+describe("detectForeignDialect — wider openers and fenced prose", () => {
+  it("accepts a trailing semicolon after the direction", () => {
+    expect(detectForeignDialect(FLOW.replace("flowchart TB", "graph TD;"))).toBe("mermaid");
+  });
+
+  it("accepts lower-case directions", () => {
+    expect(detectForeignDialect("graph td\n  A --> B")).toBe("mermaid");
+    expect(detectForeignDialect("flowchart lr\n  A --> B")).toBe("mermaid");
+  });
+
+  it("accepts a bare opener only when the next line has an edge operator", () => {
+    expect(detectForeignDialect(FLOW.replace("flowchart TB", "flowchart"))).toBe("mermaid");
+    expect(detectForeignDialect("graph\n  A --> B")).toBe("mermaid");
+    expect(detectForeignDialect("graph\nA->graph.load()")).toBeNull();
+    expect(detectForeignDialect("flowchart")).toBeNull();
+  });
+
+  it("detects C4Context", () => {
+    expect(detectForeignDialect("C4Context\n  title System Context")).toBe("mermaid");
+  });
+
+  it.each([
+    ["C4Container"],
+    ["C4Component"],
+    ["C4Dynamic"],
+    ["C4Deployment"],
+    ["quadrantChart"],
+    ["requirementDiagram"],
+    ["xychart-beta"],
+    ["sankey-beta"],
+    ["block-beta"],
+    ["architecture-beta"],
+    ["packet-beta"],
+    ["radar-beta"],
+  ])("detects the %s opener", (opener) => {
+    expect(detectForeignDialect(opener + "\n  title X")).toBe("mermaid");
+  });
+
+  it("detects a fenced block preceded by prose or a title line", () => {
+    expect(detectForeignDialect("Here is the diagram:\n" + FENCED)).toBe("mermaid");
+    expect(detectForeignDialect("title Order Service\n" + FENCED)).toBe("mermaid");
+  });
+
+  it("trusts a mermaid fence language even for an unknown opener", () => {
+    expect(detectForeignDialect("```mermaid\nvenn-beta\n  set A\n```")).toBe("mermaid");
+  });
+
+  it("does not detect an unlabeled fence around ZenUML or a flowchart without opener", () => {
+    expect(detectForeignDialect("```\nA->B: hi\n```")).toBeNull();
+    expect(detectForeignDialect(FLOW_NO_HEADER)).toBeNull();
+  });
+});
+
+describe("extractMermaidSource", () => {
+  it("returns unfenced Mermaid source unchanged", () => {
+    expect(extractMermaidSource(MERMAID_ER)).toBe(MERMAID_ER);
+  });
+
+  it("returns the body of a fenced block", () => {
+    expect(extractMermaidSource(FENCED)).toBe(BODY);
+    expect(extractMermaidSource("Here is the diagram:\n" + FENCED)).toBe(BODY);
+  });
+
+  it("returns null for ZenUML and empty input", () => {
+    expect(extractMermaidSource("A->B.method(arg) {\n  B->C.other()\n}")).toBeNull();
+    expect(extractMermaidSource(null)).toBeNull();
+    expect(extractMermaidSource(undefined)).toBeNull();
+    expect(extractMermaidSource("")).toBeNull();
   });
 });

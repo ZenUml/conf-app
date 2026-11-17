@@ -69,6 +69,7 @@ describe("ForeignDialectHint (#373)", () => {
       surface: "editor",
       macro_type: DiagramType.Sequence,
       detected_dialect: "plantuml",
+      has_markdown_fence: false,
     });
 
     // Re-render with the same code must not re-fire "shown".
@@ -167,6 +168,7 @@ describe("ForeignDialectHint — mermaid", () => {
       surface: "editor",
       macro_type: DiagramType.Sequence,
       detected_dialect: "mermaid",
+      has_markdown_fence: false,
     });
   });
 
@@ -211,5 +213,63 @@ describe("ForeignDialectHint — mermaid", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+  });
+});
+
+const BODY = `sequenceDiagram
+  autonumber
+  participant R as Robot
+  participant GW as Gateway<br/>(edge)
+  R->>GW: request credential
+  alt ok
+    GW-->>R: credential
+  end`;
+const FENCED = "```mermaid\n" + BODY + "\n```";
+
+describe("ForeignDialectHint — fenced Mermaid (F4b)", () => {
+  let activeWrapper;
+
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    store.commit("updateDiagramType", DiagramType.Sequence);
+    store.commit("updateCode2", "");
+    store.commit("updateMermaidCode", "");
+  });
+
+  afterEach(() => {
+    activeWrapper?.unmount();
+    activeWrapper = null;
+  });
+
+  it("moves the fence-free body to the Mermaid tab and reports the fence", async () => {
+    store.commit("updateCode2", FENCED);
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.diagram.mermaidCode).toBe(BODY);
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("foreign_dialect_hint_switch_clicked", expect.objectContaining({
+      detected_dialect: "mermaid",
+      has_markdown_fence: true,
+    }));
+  });
+
+  it.each([
+    ["prose", "Here is the diagram:\n" + FENCED],
+    ["a title line", "title Order Service\n" + FENCED],
+  ])("shows the hint and moves the body when the fence follows %s", async (_label, source) => {
+    store.commit("updateCode2", source);
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(store.state.diagram.mermaidCode).toBe(BODY);
   });
 });

@@ -80,6 +80,10 @@ function firstMeaningfulLine(code: string): string | null {
   return null;
 }
 
+export function extractMermaidSource(code: string | null | undefined): string | null {
+  return code && detectMermaid(code) ? code : null;
+}
+
 function detectMermaid(code: string): boolean {
   const line = firstMeaningfulLine(code);
   if (line === null) return false;

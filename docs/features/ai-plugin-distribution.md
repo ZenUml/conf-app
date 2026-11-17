@@ -88,7 +88,7 @@ private reviewer-credentials field.
 |---|---|
 | Account | A dedicated Atlassian account named *ZenUML Reviewer*, no two-step verification |
 | Site | `https://zenuml-review.atlassian.net`, Confluence Free, owned by that account, used for nothing else |
-| App | ZenUML Diagrams and Open API Lite, production (Marketplace listing 1219422) |
+| App | ZenUML Mermaid & Sequence Diagrams Lite (named "ZenUML Diagrams and Open API Lite" until 2026-11-17), production (Marketplace listing 1219422) |
 | Space | *ZenUML Demo* (`DEMO`) |
 | Pages | *Order checkout* (ZenUML sequence diagram, without an inventory step, which positive test case 4 adds); *Architecture overview* (Mermaid flowchart); *Release process* (text only; test case 5 adds a diagram) |
 

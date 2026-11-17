@@ -72,6 +72,7 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  ArchitectureTokenStaleReason,
   AuthoringOutcome,
   MagicFailureReason,
   FeedbackCaptureMethod,
@@ -519,6 +520,14 @@ export type AnalyticsProperties = {
   same_space?: boolean;                // clicked page in the same space as the viewer's page
   same_page?: boolean;                 // the opened participant also appears in another diagram on this page
   error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
+  // related_diagrams_lookup_failed with error_kind 'stale_index' only. That one kind covers
+  // three cases, told apart here: 'version_mismatch' (the live diagram is at another version
+  // than its index rows), 'not_in_live_read' (the viewer's live read did not return the
+  // diagram at all), 'no_page_container' (it was returned, but without a pageId).
+  // Absent on events from a backend deployed before 2026-11-18.
+  stale_reason?: ArchitectureTokenStaleReason;
+  indexed_version?: number;            // the version the index rows were written for
+  live_version?: number;               // the live version; only with 'version_mismatch'
   // Join key on every `attachment_upload_*` event (model/Attachment.ts
   // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,

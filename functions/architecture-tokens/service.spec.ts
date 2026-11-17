@@ -575,7 +575,7 @@ describe('which case sits behind stale_index', () => {
     ['2026-08-27', 'backfill'],
     ['nightly-7', 'unknown'],
     ['', 'unknown'],
-    [undefined, 'unknown'],
+    [null, 'unknown'],
   ])('index_source: stale rows with run id %j came from %s', async (runId, expected) => {
     const mismatch = await lookup(async () => new Map([['1', { version: 4, pageId: '100' }]]), runId);
     expect(mismatch.index_source).toBe(expected);

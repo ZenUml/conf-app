@@ -36,9 +36,26 @@ export interface RelatedResponse {
   stale_reason?: StaleReason;
   /** The live version, when `stale_reason` is `version_mismatch`. */
   live_version?: number;
+  /** Set with `error_kind: 'stale_index'`: which writer produced this diagram's index rows. */
+  index_source?: IndexSource;
 }
 
 export type StaleReason = 'version_mismatch' | 'not_in_live_read' | 'no_page_container';
+
+export type IndexSource = 'save' | 'heal' | 'backfill' | 'unknown';
+
+/**
+ * Reads the writer from a row's run id: `save:N` (indexOnSave), `heal:N` (a repair by this
+ * lookup), a `YYYY-MM-DD` date (tools/architecture-tokens/upload-index.mjs). The run id itself
+ * stays in the backend; only this closed set leaves it.
+ */
+function indexSourceOf(runId: unknown): IndexSource {
+  if (typeof runId !== 'string') return 'unknown';
+  if (/^save:\d+$/.test(runId)) return 'save';
+  if (/^heal:\d+$/.test(runId)) return 'heal';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(runId)) return 'backfill';
+  return 'unknown';
+}
 
 export interface ConfluencePageInfo {
   id: string;
@@ -392,7 +409,14 @@ export async function relatedDiagrams(
     const stale_reason: StaleReason = live.withoutPage?.has(contentId)
       ? 'no_page_container'
       : 'not_in_live_read';
-    return { indexedAt, contentVersion, participants: [], error_kind: 'stale_index', stale_reason };
+    return {
+      indexedAt,
+      contentVersion,
+      participants: [],
+      error_kind: 'stale_index',
+      stale_reason,
+      index_source: indexSourceOf(own[0].runId),
+    };
   }
   if (self.version !== contentVersion) {
     // The index predates this diagram's current text; every row about it is unreliable.
@@ -403,6 +427,7 @@ export async function relatedDiagrams(
       error_kind: 'stale_index',
       stale_reason: 'version_mismatch',
       live_version: self.version,
+      index_source: indexSourceOf(own[0].runId),
     };
   }
 

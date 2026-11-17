@@ -331,6 +331,7 @@ export type AnalyticsProperties = {
   openapi_count?: number;
   mermaid_count?: number;
   plantuml_count?: number;
+  markdown_count?: number;
   unknown_count?: number;
   type_request_count?: number;
   chunk_count?: number;
@@ -348,6 +349,8 @@ export type AnalyticsProperties = {
   current_mermaid_count?: number;
   previous_plantuml_count?: number;
   current_plantuml_count?: number;
+  previous_markdown_count?: number;
+  current_markdown_count?: number;
   previous_unknown_count?: number;
   current_unknown_count?: number;
   failure_stage?: string;

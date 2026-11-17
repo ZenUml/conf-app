@@ -108,6 +108,11 @@ Then attribute, using distinct `$mp_replay_id` broken down by
   the authoring policy's own consumption.
 - `macro_viewed` where source is `sampled` or `targeted` — the Forge-flag
   baseline that survives any authoring rate change.
+- `editor_template_gallery_opened` where source is `first_authoring` — always
+  recorded, once per browser per site per diagram type, on the first empty new
+  macro (`template_gallery_trigger = auto_first_open`). Estimated ~663 events
+  per 14 days fleet-wide, so ~1.4k replays a month. Not rate-limited by the
+  authoring sampling; a manual gallery open never starts one.
 
 These two plus a residual should reconcile to the total. The residual is real
 and belongs to authoring: events emitted before `start_session_recording()`

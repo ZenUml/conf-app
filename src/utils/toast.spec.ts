@@ -40,6 +40,13 @@ describe('toast (#934)', () => {
     expect(() => vi.advanceTimersByTime(2000)).not.toThrow();
   });
 
+  it('sits 20px from the top by default and takes another offset', () => {
+    toast({ message: 'Copied' });
+    toast({ message: 'Moved', top: '64px' });
+    const tops = [...document.body.querySelectorAll('[data-testid="toast"]')].map((el) => (el as HTMLElement).style.top);
+    expect(tops).toEqual(expect.arrayContaining(['20px', '64px']));
+  });
+
   it('has no button without an action', () => {
     toast({ message: 'Copied' });
     expect(document.body.querySelector('[data-testid="toast"]')).not.toBeNull();

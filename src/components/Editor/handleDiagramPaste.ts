@@ -51,6 +51,9 @@ export function createDiagramPasteHandler(store: Store<any>): (report: DiagramPa
         toast({
           message: MOVE_MESSAGE,
           duration: 8000,
+          // Below the header: the message names the Mermaid tab, so the tabs
+          // must stay visible while it shows.
+          top: '64px',
           action: {
             label: 'Undo',
             onClick: () => {

@@ -2,8 +2,10 @@ export const toast = (options: {
   message: string;
   duration?: number;
   action?: { label: string; onClick: () => void };
+  /** CSS `top` of the toast. Default 20px, which is over the editor's type tabs. */
+  top?: string;
 }) => {
-  const { message, duration = 3000, action } = options;
+  const { message, duration = 3000, action, top = '20px' } = options;
 
   const toast = document.createElement('div');
   toast.setAttribute('data-testid', 'toast');
@@ -11,7 +13,7 @@ export const toast = (options: {
   toast.setAttribute('role', 'status');
   toast.setAttribute('aria-live', 'polite');
   toast.style.position = 'fixed';
-  toast.style.top = '20px';
+  toast.style.top = top;
   toast.style.left = '50%';
   toast.style.transform = 'translateX(-50%)';
   toast.style.padding = '10px 20px';

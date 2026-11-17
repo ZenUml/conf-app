@@ -58,6 +58,14 @@ describe('createDiagramPasteHandler', () => {
     document.body.innerHTML = '';
   });
 
+  // The toast names the Mermaid tab; at the default 20px it covers the tabs.
+  it('shows the move toast below the editor header', () => {
+    createDiagramPasteHandler(store)(report());
+    const toastEl = document.body.querySelector('[data-testid="toast"]') as HTMLElement;
+    expect(toastEl.textContent).toContain('This looks like Mermaid, so it is now in the Mermaid tab.');
+    expect(toastEl.style.top).toBe('64px');
+  });
+
   it('moves Mermaid pasted into the starter Sequence editor to the Mermaid tab', () => {
     createDiagramPasteHandler(store)(report());
     expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);

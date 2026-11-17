@@ -135,6 +135,8 @@ describe('BylineDiagrams', () => {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
     });
+    // jsdom has no real focus; the save-time copy only runs while focused.
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   });
 
   describe('the listing readout', () => {
@@ -491,6 +493,63 @@ describe('BylineDiagrams', () => {
       });
       consoleErrorSpy.mockRestore();
     });
+
+    it('skips the automatic copy when the document is not focused', async () => {
+      vi.mocked(document.hasFocus).mockReturnValue(false);
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const wrapper = await reachCreatedPanel();
+
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(events('advocacy_message_copied')).toHaveLength(1);
+      expect(events('advocacy_message_copied')[0][1]).toMatchObject({
+        ui_component: 'byline_created_link',
+        copy_trigger: 'auto',
+        result: 'skipped_no_focus',
+        document_has_focus: false,
+      });
+      expect(wrapper.find('[data-testid="byline-created"]').text()).toContain(
+        'Saved — copy the link to place it',
+      );
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('falls back to execCommand when the Clipboard API rejects', async () => {
+      const err = Object.assign(new Error('not focused'), { name: 'NotAllowedError' });
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(err);
+      const execCommand = vi.fn(() => true);
+      Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true });
+      try {
+        await reachCreatedPanel();
+
+        expect(execCommand).toHaveBeenCalledWith('copy');
+        expect(events('advocacy_message_copied')[0][1]).toMatchObject({
+          copy_trigger: 'auto',
+          result: 'copied',
+          copy_method: 'exec_command',
+          document_has_focus: true,
+        });
+      } finally {
+        Reflect.deleteProperty(document, 'execCommand');
+      }
+    });
+
+    it('reports the error name when both write paths fail', async () => {
+      const err = Object.assign(new Error('nope'), { name: 'NotAllowedError' });
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(err);
+      Object.defineProperty(document, 'execCommand', { value: vi.fn(() => false), configurable: true });
+      try {
+        await reachCreatedPanel();
+
+        expect(events('advocacy_message_copied')[0][1]).toMatchObject({
+          result: 'failed',
+          copy_method: 'none',
+          failure_reason: 'NotAllowedError',
+        });
+      } finally {
+        Reflect.deleteProperty(document, 'execCommand');
+      }
+    });
   });
 
   describe('when the byline is opened from inside the page editor', () => {
@@ -534,6 +593,47 @@ describe('BylineDiagrams', () => {
 
       expect(wrapper.find('[data-testid="byline-open-editor"]').exists()).toBe(true);
       expect(wrapper.find('[data-testid="byline-created-sub-editing"]').exists()).toBe(false);
+    });
+
+    it('reads "Copy link & close", copies, then closes when the link is not copied yet', async () => {
+      vi.mocked(document.hasFocus).mockReturnValue(false);
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { location: EDIT_URL } };
+      const wrapper = await reachCreatedPanel();
+      const btn = () => wrapper.find('[data-testid="byline-created-done"]');
+      expect(btn().text()).toBe('Copy link & close');
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+      const order: string[] = [];
+      vi.mocked(navigator.clipboard.writeText).mockImplementation(async () => {
+        order.push('copy');
+      });
+      viewClose.mockImplementationOnce(async () => {
+        order.push('close');
+      });
+
+      await btn().trigger('click');
+      await flushPromises();
+
+      expect(order).toEqual(['copy', 'close']);
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({
+        copy_trigger: 'done',
+        result: 'copied',
+      });
+    });
+
+    it('still closes when the copy in Done fails', async () => {
+      vi.mocked(document.hasFocus).mockReturnValue(false);
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { location: EDIT_URL } };
+      const wrapper = await reachCreatedPanel();
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValue(new Error('denied'));
+
+      await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
+      await flushPromises();
+
+      expect(viewClose).toHaveBeenCalled();
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({
+        copy_trigger: 'done',
+        result: 'failed',
+      });
     });
 
     it('closes the byline view when Done is pressed, instead of falling back to the list', async () => {
@@ -619,6 +719,52 @@ describe('BylineDiagrams', () => {
         failure_reason: 'no_space_context',
       });
       expect(wrapper.find('[data-testid="byline-nav-failed"]').exists()).toBe(true);
+    });
+
+    it('copies the link inside the click, before it navigates', async () => {
+      vi.mocked(document.hasFocus).mockReturnValue(false); // the save-time copy was skipped
+      const wrapper = await reachCreatedPanel();
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+      expect(wrapper.find('[data-testid="byline-created"]').text()).toContain(
+        'Saved — copy the link to place it',
+      );
+      const order: string[] = [];
+      vi.mocked(navigator.clipboard.writeText).mockImplementation(async () => {
+        order.push('copy');
+      });
+      routerNavigate.mockImplementationOnce(async () => {
+        order.push('navigate');
+      });
+
+      await wrapper.find('[data-testid="byline-open-editor"]').trigger('click');
+      await flushPromises();
+
+      expect(order).toEqual(['copy', 'navigate']);
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        'https://confluence.zenuml.com/d/sequence/cloud-1/99',
+      );
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({
+        copy_trigger: 'open_editor',
+        result: 'copied',
+        copy_method: 'clipboard_api',
+      });
+      expect(wrapper.find('[data-testid="byline-created"]').text()).toContain(
+        'Saved — link copied to clipboard',
+      );
+    });
+
+    it('still navigates when the copy fails', async () => {
+      const wrapper = await reachCreatedPanel();
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValue(new Error('denied'));
+
+      await wrapper.find('[data-testid="byline-open-editor"]').trigger('click');
+      await flushPromises();
+
+      expect(routerNavigate).toHaveBeenCalled();
+      expect(events('advocacy_message_copied').at(-1)?.[1]).toMatchObject({
+        copy_trigger: 'open_editor',
+        result: 'failed',
+      });
     });
 
     it('navigates when a real space key is available', async () => {

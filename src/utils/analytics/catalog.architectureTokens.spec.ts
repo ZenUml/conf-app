@@ -8,7 +8,10 @@ describe('architecture_tokens analytics type contract', () => {
     // TypeScript without typechecking, so runtime literal checks prove nothing.
     const fileName = path.resolve(process.cwd(), 'src/utils/analytics/__architecture_tokens_contract__.ts');
     const source = `
-      import type { AnalyticsEventName, ArchitectureTokenLookupOutcome, FeatureArea } from './catalog';
+      import type {
+        AnalyticsEventName, ArchitectureTokenIndexSource, ArchitectureTokenLookupOutcome,
+        ArchitectureTokenStaleReason, FeatureArea,
+      } from './catalog';
       import type { AnalyticsProperties } from './types';
       const names: AnalyticsEventName[] = [
         'related_diagrams_lookup_succeeded',
@@ -28,6 +31,23 @@ describe('architecture_tokens analytics type contract', () => {
         label_variant_count: 2, same_space: false, same_page: true,
         error_kind: 'http_error', http_status: 500, lookup_skip_reason: 'anonymous_viewer',
       };
+      const staleReasons: ArchitectureTokenStaleReason[] = [
+        'version_mismatch', 'not_in_live_read', 'no_page_container',
+      ];
+      const staleProps: AnalyticsProperties = {
+        feature_area: area, surface: 'viewer',
+        error_kind: 'stale_index', stale_reason: staleReasons[0], indexed_version: 3, live_version: 4,
+      };
+      const indexSources: ArchitectureTokenIndexSource[] = ['save', 'heal', 'backfill', 'unknown'];
+      const sourceProps: AnalyticsProperties = {
+        feature_area: area, surface: 'viewer', error_kind: 'stale_index', index_source: indexSources[0],
+      };
+      // @ts-expect-error a raw run id is not an index source
+      const badIndexSource: AnalyticsProperties = { feature_area: area, surface: 'viewer', index_source: 'save:3' };
+      // @ts-expect-error unknown stale reason
+      const badStaleReason: AnalyticsProperties = { feature_area: area, surface: 'viewer', stale_reason: 'self_missing' };
+      // @ts-expect-error version must be numeric
+      const badLiveVersion: AnalyticsProperties = { feature_area: area, surface: 'viewer', live_version: '4' };
       // @ts-expect-error unknown analytics event
       const badEvent: AnalyticsEventName = 'related_diagrams_lookup_typo';
       // @ts-expect-error unknown feature area
@@ -36,7 +56,10 @@ describe('architecture_tokens analytics type contract', () => {
       const badOutcome: ArchitectureTokenLookupOutcome = 'unknown';
       // @ts-expect-error count must be numeric
       const badProps: AnalyticsProperties = { participant_count: 'seven' };
-      void [names, props, badEvent, badArea, badOutcome, badProps];
+      void [
+        names, props, staleProps, sourceProps, badStaleReason, badLiveVersion, badIndexSource, badEvent,
+        badArea, badOutcome, badProps,
+      ];
     `;
     const options: ts.CompilerOptions = {
       target: ts.ScriptTarget.ESNext,

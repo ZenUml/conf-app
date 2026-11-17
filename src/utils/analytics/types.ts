@@ -74,6 +74,8 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  ArchitectureTokenStaleReason,
+  ArchitectureTokenIndexSource,
   AuthoringOutcome,
   MagicFailureReason,
   FeedbackCaptureMethod,
@@ -331,6 +333,7 @@ export type AnalyticsProperties = {
   openapi_count?: number;
   mermaid_count?: number;
   plantuml_count?: number;
+  markdown_count?: number;
   unknown_count?: number;
   type_request_count?: number;
   chunk_count?: number;
@@ -348,6 +351,8 @@ export type AnalyticsProperties = {
   current_mermaid_count?: number;
   previous_plantuml_count?: number;
   current_plantuml_count?: number;
+  previous_markdown_count?: number;
+  current_markdown_count?: number;
   previous_unknown_count?: number;
   current_unknown_count?: number;
   failure_stage?: string;
@@ -527,6 +532,17 @@ export type AnalyticsProperties = {
   error_kind?: string;
   // related_diagrams_lookup_skipped: why the footer sent no request. Closed vocabulary.
   lookup_skip_reason?: 'anonymous_viewer';
+  // related_diagrams_lookup_failed with error_kind 'stale_index' only. That one kind covers
+  // three cases, told apart here: 'version_mismatch' (the live diagram is at another version
+  // than its index rows), 'not_in_live_read' (the viewer's live read did not return the
+  // diagram at all), 'no_page_container' (it was returned, but without a pageId).
+  // Absent on events from a backend deployed before 2026-11-18.
+  stale_reason?: ArchitectureTokenStaleReason;
+  indexed_version?: number;            // the version the index rows were written for
+  live_version?: number;               // the live version; only with 'version_mismatch'
+  // Which writer produced the stale index rows: 'save' | 'heal' | 'backfill' | 'unknown'.
+  // Absent on events from a backend that does not send it.
+  index_source?: ArchitectureTokenIndexSource;
   // Join key on every `attachment_upload_*` event (model/Attachment.ts
   // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,

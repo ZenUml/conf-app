@@ -8,9 +8,11 @@ export interface OccurrenceRow {
   comparisonKey: string;
   lineNumber: number;
   indexedAt: string;
+  /** Which write produced the row: `save:N`, `heal:N`, or the upload tool's `YYYY-MM-DD`. */
+  runId: string;
 }
 
-const COLS = 'contentId, pageId, spaceId, contentVersion, actorId, rawLabel, comparisonKey, lineNumber, indexedAt';
+const COLS = 'contentId, pageId, spaceId, contentVersion, actorId, rawLabel, comparisonKey, lineNumber, indexedAt, runId';
 
 export async function occurrencesForContent(
   db: D1Database,

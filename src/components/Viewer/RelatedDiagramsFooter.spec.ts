@@ -974,7 +974,31 @@ describe('RelatedDiagramsFooter', () => {
     expect(properties).toMatchObject({ error_kind: 'stale_index', indexed_version: 3 })
     expect(properties).not.toHaveProperty('stale_reason')
     expect(properties).not.toHaveProperty('live_version')
+    expect(properties).not.toHaveProperty('index_source')
   })
+
+  it.each(['save', 'heal', 'backfill', 'unknown'] as const)(
+    'records which writer produced the stale index rows: %s',
+    async (index_source) => {
+      related.value = {
+        indexedAt: '2026-08-27T05:00:00Z',
+        contentVersion: 3,
+        participants: [],
+        error_kind: 'stale_index',
+        stale_reason: 'version_mismatch',
+        live_version: 4,
+        index_source,
+      }
+      mountFooter()
+      await flushPromises()
+
+      expect(propertiesOf('related_diagrams_lookup_failed')).toMatchObject({
+        error_kind: 'stale_index',
+        stale_reason: 'version_mismatch',
+        index_source,
+      })
+    },
+  )
 
   it('puts no stale properties on any other failure', async () => {
     related.value = {
@@ -982,8 +1006,9 @@ describe('RelatedDiagramsFooter', () => {
       contentVersion: 3,
       participants: [],
       error_kind: 'confluence_unavailable',
-      // a field the backend does not send with this kind; it must not leak onto the event
+      // fields the backend does not send with this kind; they must not leak onto the event
       live_version: 4,
+      index_source: 'save',
     }
     mountFooter()
     await flushPromises()
@@ -993,6 +1018,7 @@ describe('RelatedDiagramsFooter', () => {
     expect(properties).not.toHaveProperty('stale_reason')
     expect(properties).not.toHaveProperty('indexed_version')
     expect(properties).not.toHaveProperty('live_version')
+    expect(properties).not.toHaveProperty('index_source')
   })
 
   it('carries the render-gate telemetry on related_token_indicators_shown when the gate ran', async () => {

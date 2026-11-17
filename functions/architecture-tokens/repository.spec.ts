@@ -31,6 +31,14 @@ describe('repository', () => {
     expect(calls[0].binds).toEqual(['cid', 'a.b', 'c']);
   });
 
+  it('both reads select runId, which says which writer produced a row', async () => {
+    const { db, calls } = fakeDb([]);
+    await occurrencesForContent(db, 'cid', '10');
+    await occurrencesForKeys(db, 'cid', ['a.b']);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) expect(call.sql).toMatch(/SELECT [^;]*\brunId\b[^;]* FROM ArchitectureTokenOccurrence/);
+  });
+
   it('occurrencesForKeys with no keys makes no query', async () => {
     const { db, calls } = fakeDb([]);
     expect(await occurrencesForKeys(db, 'cid', [])).toEqual([]);

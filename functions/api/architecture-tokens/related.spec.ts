@@ -79,7 +79,7 @@ describe('GET /api/architecture-tokens/related', () => {
     expect(await res.json()).toEqual({ indexedAt: null, contentVersion: null, participants: [], error_kind: 'lookup_failed' });
   });
 
-  it('a stale lookup reaches the viewer with its reason and both versions', async () => {
+  it('a stale lookup reaches the viewer with its reason, both versions and the index source', async () => {
     const stale = {
       indexedAt: 't',
       contentVersion: 3,
@@ -87,6 +87,7 @@ describe('GET /api/architecture-tokens/related', () => {
       error_kind: 'stale_index',
       stale_reason: 'version_mismatch',
       live_version: 4,
+      index_source: 'save',
     };
     (relatedDiagrams as any).mockResolvedValueOnce(stale);
     const res = await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=1'));

@@ -121,6 +121,12 @@ const NOVEMBER_FULLSCREEN_REPLAY_RATE = 0.1;
 // We never stop an already-running recording at that boundary.
 let _authoringReplayDraw: number | null = null;
 
+// Set once a first_authoring recording has started in this iframe. Later
+// authoring events must then neither report skipped_sampled (95% of first
+// sessions would read as "no replay") nor re-register `authoring` (5% would be
+// relabelled), or the first_authoring source could not be measured.
+let _firstAuthoringReplayStarted = false;
+
 function _shouldRecordAuthoring(): boolean {
   if (_authoringReplayDraw === null) {
     _authoringReplayDraw = Math.random();
@@ -187,10 +193,32 @@ function _claimLicenseNoticeReplayOfDay(): boolean {
   }
 }
 
+// Forced by the event's properties rather than its name alone: the editor opens
+// the template gallery by itself once per browser per site per diagram type, on
+// the first empty new macro (autoOpenMarker.ts). A brand-new user's first
+// editor session would otherwise have no replay 19 times in 20 (5% authoring
+// sampling in November 2026). A manual gallery open must not force one.
+// Bound: an estimated 663 auto-first-open events per 14 days fleet-wide (from
+// 78 raw events sampled at 10%, so a rough figure), about 1.4k replays a month
+// against the 20,000 a month replay quota.
+function _forcedReplaySource(
+  eventName: AnalyticsEventName,
+  callerProps: Partial<AnalyticsProperties>
+): SessionReplayEventSource | undefined {
+  if (
+    eventName === "editor_template_gallery_opened" &&
+    callerProps.template_gallery_trigger === "auto_first_open"
+  ) {
+    return "first_authoring";
+  }
+  return FORCED_REPLAY_SOURCES[eventName];
+}
+
 function _startExplicitReplay(
-  eventName: AnalyticsEventName
+  eventName: AnalyticsEventName,
+  callerProps: Partial<AnalyticsProperties> = {}
 ): Partial<ExplicitReplayProperties> {
-  const forcedSource = FORCED_REPLAY_SOURCES[eventName];
+  const forcedSource = _forcedReplaySource(eventName, callerProps);
   if (forcedSource) {
     if (forcedSource === "license_notice" && !_claimLicenseNoticeReplayOfDay()) {
       return { session_replay_start_call_outcome: "skipped_daily_cap" };
@@ -206,6 +234,9 @@ function _startExplicitReplay(
         session_replay_percent: replayProperties.session_replay_percent,
         session_replay_source: replayProperties.session_replay_source,
       });
+      if (forcedSource === "first_authoring") {
+        _firstAuthoringReplayStarted = true;
+      }
       return replayProperties;
     } catch (error) {
       console.error(
@@ -221,6 +252,14 @@ function _startExplicitReplay(
     eventName !== "macro_edit_started"
   ) {
     return {};
+  }
+
+  if (_firstAuthoringReplayStarted) {
+    return {
+      session_replay_source: "first_authoring",
+      session_replay_percent: 100,
+      session_replay_start_call_outcome: "returned",
+    };
   }
 
   // Outside the sample: leave the Forge-flag cohort's decision untouched. Not
@@ -562,7 +601,10 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
-    const explicitReplayProperties = _startExplicitReplay(eventName);
+    const explicitReplayProperties = _startExplicitReplay(
+      eventName,
+      callerProps
+    );
 
     const contentIds = _getContentIdentifiers();
 
@@ -688,4 +730,5 @@ export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
   _authoringReplayDraw = null;
+  _firstAuthoringReplayStarted = false;
 }

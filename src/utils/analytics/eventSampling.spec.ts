@@ -71,6 +71,22 @@ describe("eventSampling", () => {
       }
     });
 
+    it("keeps the unplaced-diagram funnel at full rate", () => {
+      // byline_opened and the four unplaced_* events are the only record of
+      // whether a byline-created diagram's author was told it was not on the
+      // page. At 10% a single site's journey could not be read.
+      const names = [
+        "byline_opened", "unplaced_property_write",
+        "unplaced_banner_evaluated", "unplaced_banner_shown", "unplaced_banner_dismissed",
+      ];
+      for (const name of names) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(1);
+        expect(sampleRateFor(name, after)).toBe(1);
+      }
+    });
+
     it("keeps the complete paid conversion and Request Full funnel at current rates", () => {
       const names = [
         "paywall_banner_dismissed", "paywall_banner_shown", "paywall_bundle_cta_clicked",

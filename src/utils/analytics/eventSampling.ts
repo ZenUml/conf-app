@@ -237,6 +237,19 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "byline_diagram_created",
   "byline_create_cancelled",
   "byline_editor_deeplinked",
+  // Unplaced-diagram funnel. A diagram created from the page byline is saved
+  // but not placed on the page; these are the only record of whether its author
+  // was told and whether the banner had a chance to show, so at 10% one site's
+  // journey could not be read. Measured cost, all sites, 2026-11-03..11-16
+  // (estimated true volume minus events already sent): byline_opened +675,
+  // unplaced_property_write +621, unplaced_banner_evaluated +819,
+  // unplaced_banner_shown +288, unplaced_banner_dismissed ~0: about 2.4k per
+  // 14 days, ~5k billable events a month, ~0.4% of the ~1.23M monthly volume.
+  "byline_opened",
+  "unplaced_property_write",
+  "unplaced_banner_evaluated",
+  "unplaced_banner_shown",
+  "unplaced_banner_dismissed",
 ]);
 
 // Explicit conf-app browser success/info allowlist. Core lifecycle, paywall,
@@ -302,7 +315,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "staleness_hint_shown",
   "staleness_hint_clicked",
   "staleness_hint_dismissed",
-  "byline_opened",
   "byline_list_retried",
   "byline_diagram_opened",
   "byline_diagram_source_copied",
@@ -310,10 +322,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "byline_thumbnails_loaded",
   "byline_unplaced_scanned",
   "byline_view_close_requested",
-  "unplaced_banner_evaluated",
-  "unplaced_banner_shown",
-  "unplaced_banner_dismissed",
-  "unplaced_property_write",
   "whats_new_banner_shown",
   "whats_new_banner_expanded",
   "whats_new_banner_dismissed",

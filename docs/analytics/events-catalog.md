@@ -595,6 +595,10 @@ Backend-declared event. Not currently emitted by client code.
 
 The page drawn from its ADF, with a selectable gap between each top-level block. `surface` is the surface that opened the picker (`byline` or `page_banner`). `diagram_added_to_page` carries the outcome, now with `placement_position`, `placement_block_count`, `placement_default_kept`, and a `page_changed` result when the chosen spot no longer exists.
 
+`placement_entry` on all three events names the button that started the placement: `created_panel` (the byline's post-save panel), `byline_list` (an unplaced row in the byline list) or `page_banner`. `diagram_added_to_page` also carries `custom_content_id`, so a byline create (`byline_diagram_created`) can be joined to its placement.
+
+`byline_created_panel_closed` (unsampled) fires once when the byline's post-save panel goes away (modal close, the reload after Add to page, or the navigation to the page editor). `created_panel_action` is the furthest action taken on the panel: `add_to_page`, `open_editor`, `copy`, `done`, or `none` (closed without acting). It carries `custom_content_id` and `macro_type`.
+
 **Sampling:** all three events are unsampled. Volume is low, and sampling would leave too few events to read the picker's uptake.
 
 ### `placement_picker_opened`

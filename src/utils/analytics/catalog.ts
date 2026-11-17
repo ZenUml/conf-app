@@ -1190,6 +1190,13 @@ export type AnalyticsEventName =
   // ('closed' | 'unsupported' | 'failed') is how we find out whether a byline
   // item can dismiss itself, rather than assuming it.
   | "byline_view_close_requested"
+  // The post-save panel went away: its iframe was removed (the modal's close,
+  // the page reload after Add to page, the navigation to the page editor).
+  // Fired once per panel, on pagehide. `created_panel_action` says how far the
+  // user got on the panel — 'none' is the decline, which has no button of
+  // its own once Add to page is offered. Read against byline_diagram_created
+  // (result 'linked') on `custom_content_id`.
+  | "byline_created_panel_closed"
   // ---- Unplaced-diagram page banner (byline surface, page_banner surface) ----
   //
   // The byline already labels a diagram "not on this page" (BylineDiagrams.vue,
@@ -1356,6 +1363,10 @@ export type AnalyticsEventName =
   // `placement_block_count` and `placement_default_kept`. A result of
   // 'page_changed' means the page moved while the user was choosing and the
   // spot they chose no longer exists, so nothing was written.
+  //
+  // `placement_entry` says which button started it ('created_panel',
+  // 'byline_list', 'page_banner') and `custom_content_id` names the diagram,
+  // so a byline create can be joined to its placement.
   | "diagram_added_to_page"
   // The placement picker: the page drawn from its ADF, with a selectable gap
   // between each top-level block. `result`:
@@ -1363,7 +1374,8 @@ export type AnalyticsEventName =
   //   'load_failed' — the picker opened but could not read the page.
   //   'open_failed' — the modal never opened. Fired by the surface that asked,
   //                   because there is no picker iframe to report it.
-  // `surface` is the surface that opened the picker, not the modal itself.
+  // `surface` is the surface that opened the picker, not the modal itself;
+  // `placement_entry` is the button on it (see diagram_added_to_page).
   | "placement_picker_opened"
   // Left without choosing: Cancel or the modal's own close. Read against
   // `placement_picker_opened` 'loaded' — together with `placement_default_kept`

@@ -1449,7 +1449,7 @@ describe("trackAnalyticsEvent", () => {
     vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" });
 
     await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
-      feature_area: "onboarding",
+      feature_area: "macro",
       surface: "editor",
       template_gallery_trigger: "auto_first_open",
     });
@@ -1476,7 +1476,7 @@ describe("trackAnalyticsEvent", () => {
     vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" });
 
     await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
-      feature_area: "onboarding",
+      feature_area: "macro",
       surface: "editor",
       template_gallery_trigger: "manual",
     });
@@ -1493,7 +1493,7 @@ describe("trackAnalyticsEvent", () => {
     });
 
     await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
-      feature_area: "onboarding",
+      feature_area: "macro",
       surface: "editor",
       template_gallery_trigger: "auto_first_open",
     });
@@ -1516,7 +1516,7 @@ describe("trackAnalyticsEvent", () => {
       vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" });
 
       await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
-        feature_area: "onboarding",
+        feature_area: "macro",
         surface: "editor",
         template_gallery_trigger: "auto_first_open",
       });

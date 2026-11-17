@@ -55,6 +55,8 @@ import type {
   AgentLinkMcpButtonPlacement,
   AgentLinkMcpButtonReveal,
   AgentLinkMcpCopyTarget,
+  AgentLinkMcpClientChoice,
+  AgentLinkMcpCloseSource,
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
   AgentLinkRenderValidation,
@@ -1138,6 +1140,10 @@ export type AnalyticsProperties = {
   // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
   mcp_mode?: AgentLinkMcpMode;
   mcp_copy_target?: AgentLinkMcpCopyTarget;
+  // The client tab showing in step 1 (opened / copied / closed /
+  // client_selected / install_clicked), and how the dialog closed (closed).
+  mcp_client_choice?: AgentLinkMcpClientChoice;
+  mcp_close_source?: AgentLinkMcpCloseSource;
   // agent_link_mcp_button_shown (and `mcp_button_reveal` on _dialog_opened):
   // where the button sat and whether it was visible at rest. Inline shown
   // events also carry `header_stage`.

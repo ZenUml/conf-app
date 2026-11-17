@@ -438,10 +438,14 @@ export type SessionReplayEventSource =
 // the current sample. It does not prove that a recorder is inactive (an earlier
 // event or an SDK-resumed recording may already have started one). Its share
 // of authoring events is the live measurement of the sampling rate.
+// `skipped_daily_cap` means a license notice did not force a recording because
+// this browser already had its one forced license-notice replay for the site
+// today (or cannot remember the day).
 export type SessionReplayStartCallOutcome =
   | "returned"
   | "threw"
-  | "skipped_sampled";
+  | "skipped_sampled"
+  | "skipped_daily_cap";
 
 /**
  * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.

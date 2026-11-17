@@ -73,6 +73,13 @@ export const MACRO_VIEWED_REPEAT_SAMPLE_RATE = 0.1;
 // `no_diagram`, 2% `ready`.
 export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
 
+// license_notice_shown and license_notice_evaluated (outcome `shown`) are also
+// sampled per occurrence (features/licenseNotice/noticeOccurrence.ts): the
+// first per browser x macro x UTC day is always sent, repeats at this rate with
+// `sample_rate`. On 2026-11-16 one enforced Lite site sent 15,440 + 15,710 of
+// them over 4,905 user x macro keys (~31k billable events in one day).
+export const LICENSE_NOTICE_REPEAT_SAMPLE_RATE = 0.1;
+
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
 // at forgeIndex.ts, so an exact key cannot cover every variant.

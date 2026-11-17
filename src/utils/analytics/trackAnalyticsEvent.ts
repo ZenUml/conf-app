@@ -148,12 +148,12 @@ function _fullscreenReplayConfig() {
 
 // Events that always start a recording, whatever the baseline cohort decided.
 //
-// `license_notice_shown`: the Full "No active license" notice is new and goes
-// only to sites without a license (a handful, gated by the
-// `no-license-notice-enabled` Forge flag), so every such session is worth
-// watching while we learn how users react to it. Hardcoded rather than a new
-// Forge flag: the notice flag already scopes who sees it, and a second flag
-// would have to be kept in step with it by hand.
+// `license_notice_shown`: the Full "No active license" notice (gated by the
+// `no-license-notice-enabled` Forge flag) and the Lite site-policy notice (per
+// site enforcement policy) are worth watching while we learn how users react.
+// Since 2026-11-17 this records once per browser per site per UTC day, not per
+// notice (_claimLicenseNoticeReplayOfDay below). Hardcoded rather than a new
+// Forge flag: the notice gates already scope who sees it.
 const FORCED_REPLAY_SOURCES: Partial<
   Record<AnalyticsEventName, SessionReplayEventSource>
 > = {
@@ -162,11 +162,39 @@ const FORCED_REPLAY_SOURCES: Partial<
   title_draft_preview_mounted: "title_draft_preview",
 };
 
+// The license notice forces at most one replay per browser per site per UTC
+// day. The notice is mounted in every macro iframe, and each iframe has its own
+// Mixpanel instance, so a per-event force meant one recording per diagram view:
+// on 2026-11-16 one enforced Lite site produced 20,888 replays from 285 users
+// (15,440 notices), more than the whole 20,000/month quota in a day. The first
+// notice of the day still records, which is the evidence the force exists for.
+//
+// The day lives in localStorage, shared by every macro iframe of the app. Two
+// iframes claiming at the same instant can both win; that errs toward one
+// extra recording. A browser that cannot remember the day does not record:
+// without the record every iframe would record again.
+const LICENSE_NOTICE_REPLAY_DAY_KEY = "zenuml.licenseNoticeReplayDay";
+
+function _claimLicenseNoticeReplayOfDay(): boolean {
+  try {
+    const key = `${LICENSE_NOTICE_REPLAY_DAY_KEY}:${getClientDomain() || "-"}`;
+    const today = new Date(Date.now()).toISOString().slice(0, 10);
+    if (window.localStorage.getItem(key) === today) return false;
+    window.localStorage.setItem(key, today);
+    return window.localStorage.getItem(key) === today;
+  } catch {
+    return false;
+  }
+}
+
 function _startExplicitReplay(
   eventName: AnalyticsEventName
 ): Partial<ExplicitReplayProperties> {
   const forcedSource = FORCED_REPLAY_SOURCES[eventName];
   if (forcedSource) {
+    if (forcedSource === "license_notice" && !_claimLicenseNoticeReplayOfDay()) {
+      return { session_replay_start_call_outcome: "skipped_daily_cap" };
+    }
     try {
       mixpanel.start_session_recording();
       const replayProperties: ExplicitReplayProperties = {

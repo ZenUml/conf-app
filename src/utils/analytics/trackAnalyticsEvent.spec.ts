@@ -181,6 +181,11 @@ describe("trackAnalyticsEvent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetForTesting();
+    // The license-notice replay gate remembers its day in localStorage; clear
+    // only its keys (other cached state here is part of what tests assert).
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith("zenuml.licenseNoticeReplayDay"))
+      .forEach((k) => localStorage.removeItem(k));
     // Existing policy assertions below describe the behavior before the
     // October 2026 replay and event budgets, independent of the run date.
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-15T00:00:00Z"));
@@ -1398,6 +1403,70 @@ describe("trackAnalyticsEvent", () => {
         session_replay_percent: 100,
         session_replay_start_call_outcome: "returned",
       })
+    );
+  });
+
+  // 2026-11-16: one enforced Lite site showed the notice 15,440 times to 285
+  // users, and each macro iframe started its own forced recording: 20,888
+  // replays in one day against a 20,000/month quota. One forced replay per
+  // browser per site per UTC day keeps the evidence and bounds the cost.
+  it("forces license-notice replay once per browser per site per UTC day", async () => {
+    const notice = {
+      feature_area: "license_notice",
+      surface: "viewer",
+      macro_type: "sequence",
+    } as const;
+    vi.mocked(Date.now).mockReturnValue(Date.parse("2026-11-16T02:00:00Z"));
+
+    // Three macro iframes on the same day: each has its own Mixpanel instance.
+    for (let i = 0; i < 3; i++) {
+      _resetForTesting();
+      await _awaitableTrackAnalyticsEvent("license_notice_shown", notice);
+    }
+
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    const outcomes = vi
+      .mocked(mixpanel.track)
+      .mock.calls.filter(([name]) => name === "license_notice_shown")
+      .map(([, props]) => (props as any).session_replay_start_call_outcome);
+    expect(outcomes).toEqual(["returned", "skipped_daily_cap", "skipped_daily_cap"]);
+    const [, skipped] = vi.mocked(mixpanel.track).mock.calls[1];
+    expect(skipped).not.toHaveProperty("session_replay_source", "license_notice");
+
+    // Another site in the same browser has its own allowance.
+    _resetForTesting();
+    vi.mocked(getClientDomain).mockReturnValue("other.atlassian.net");
+    await _awaitableTrackAnalyticsEvent("license_notice_shown", notice);
+    expect(mixpanel.start_session_recording).toHaveBeenCalledTimes(2);
+
+    // The next UTC day starts a new allowance.
+    _resetForTesting();
+    vi.mocked(getClientDomain).mockReturnValue("example.atlassian.net");
+    vi.mocked(Date.now).mockReturnValue(Date.parse("2026-11-17T00:00:01Z"));
+    await _awaitableTrackAnalyticsEvent("license_notice_shown", notice);
+    expect(mixpanel.start_session_recording).toHaveBeenCalledTimes(3);
+  });
+
+  it("skips the forced license-notice replay when the browser cannot remember the day", async () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("storage blocked");
+      });
+    try {
+      await _awaitableTrackAnalyticsEvent("license_notice_shown", {
+        feature_area: "license_notice",
+        surface: "viewer",
+        macro_type: "sequence",
+      });
+    } finally {
+      getItem.mockRestore();
+    }
+
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "license_notice_shown",
+      expect.objectContaining({ session_replay_start_call_outcome: "skipped_daily_cap" })
     );
   });
 

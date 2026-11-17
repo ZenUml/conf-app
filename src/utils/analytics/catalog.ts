@@ -318,6 +318,12 @@ export type CacheState = "cold" | "warm" | "unknown";
 // high-confidence wipe. See utils/analytics/contentState.ts.
 export type ContentState = "default" | "authored" | "empty";
 
+// diagram_paste_handled: the info string of a Markdown fence found in a paste.
+// `none` = no fence, or a fence without a language.
+export type PasteFenceLanguage = "mermaid" | "plantuml" | "other" | "none";
+// diagram_paste_handled: what the editor did with the paste.
+export type DiagramPasteAction = "fence_removed" | "moved_to_mermaid" | "inserted_unchanged";
+
 // Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
 // `cc_body` = SVG co-stored in the custom-content body (Phase 2);
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
@@ -1954,6 +1960,24 @@ export type AnalyticsEventName =
   | "foreign_dialect_hint_shown"
   | "foreign_dialect_hint_switch_clicked"
   | "foreign_dialect_hint_dismissed"
+  // Paste handling in the Sequence and Mermaid code editors (direction B,
+  // 2026-11-17: a Markdown code fence left in a paste, or Mermaid text pasted
+  // into the Sequence editor, stopped first saves and no event counted it).
+  // `diagram_paste_handled` fires once per paste that carried a Markdown
+  // fence or text of another dialect than the editor tab; a plain paste does
+  // not fire it (macro_authoring_ended already counts paste input).
+  // `macro_type` is the tab the paste landed in; `has_markdown_fence` and
+  // `fence_language` describe the fence; `detected_dialect` is what the
+  // pasted text looks like after the fence is removed; `paste_action` is what
+  // the editor did (`fence_removed`, `moved_to_mermaid`, `inserted_unchanged`);
+  // `content_state` is the tab's body BEFORE the paste (`default` = untouched
+  // starter), which is the condition for the move; `paste_chars` is the length
+  // of the inserted text. Never carries the pasted text.
+  // `diagram_paste_move_undone` fires when the user clicks Undo on the toast
+  // that follows `moved_to_mermaid`: the paste goes back into the Sequence tab
+  // and later pastes in that editor session are no longer moved.
+  | "diagram_paste_handled"
+  | "diagram_paste_move_undone"
   // Confluence Home page "Create a diagram" card (confluence:homepageFeed —
   // see manifest.yml). The only onboarding surface a non-admin end user
   // encounters without first inserting a macro; the pre-existing
@@ -2155,8 +2179,9 @@ export type AgentLinkOAuthTokenRefreshOutcome = "rotated" | "retried" | "rejecte
 export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "updated";
 
 // Which block of the Connect MCP dialog a Copy click targeted
-// (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
-// command, the bare server URL (Claude web or desktop custom connector,
+// (agent_link_mcp_dialog_copied): the one-time CLI setup command
+// (`claude mcp add` or `codex mcp add`; `mcp_client_choice` says which), the
+// bare server URL (Claude web or desktop custom connector,
 // Cursor, VS Code and other clients), the Other tab's prompt asking a
 // terminal agent to add the server to its own configuration
 // ('install_prompt'), or the prompt naming this diagram.
@@ -2164,8 +2189,10 @@ export type AgentLinkMcpCopyTarget = "setup_command" | "server_url" | "install_p
 
 // The client tab of the Connect MCP dialog's step 1 (`mcp_client_choice`).
 // 'claude_app' = Claude on the web or desktop (custom connector by URL);
-// 'other' = any other MCP client, Codex included (the server URL and its name).
-export type AgentLinkMcpClientChoice = "claude_code" | "claude_app" | "cursor" | "vscode" | "other";
+// 'codex' = the Codex CLI (`codex mcp add`); 'chatgpt' = ChatGPT on the web
+// (custom MCP server by URL); 'other' = any other MCP client (a prompt asking
+// the agent to add the server, plus the URL and its name).
+export type AgentLinkMcpClientChoice = "claude_code" | "claude_app" | "cursor" | "codex" | "vscode" | "chatgpt" | "other";
 
 // How the Connect MCP dialog closed (`mcp_close_source` on
 // agent_link_mcp_dialog_closed): its Done button, its × button, a click on the

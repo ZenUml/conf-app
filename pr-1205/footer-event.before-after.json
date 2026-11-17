@@ -1,0 +1,140 @@
+{
+  "version_mismatch": {
+    "BEFORE": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "stale_index"
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    },
+    "AFTER": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "stale_index",
+        "stale_reason": "version_mismatch",
+        "indexed_version": 3,
+        "live_version": 4
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    }
+  },
+  "not_in_live_read": {
+    "BEFORE": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "stale_index"
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    },
+    "AFTER": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "stale_index",
+        "stale_reason": "not_in_live_read",
+        "indexed_version": 3
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    }
+  },
+  "no_page_container": {
+    "BEFORE": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "stale_index"
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    },
+    "AFTER": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "stale_index",
+        "stale_reason": "no_page_container",
+        "indexed_version": 3
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    }
+  },
+  "stale_index from an older backend": {
+    "BEFORE": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "stale_index"
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    },
+    "AFTER": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "stale_index",
+        "indexed_version": 3
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    }
+  },
+  "confluence_unavailable": {
+    "BEFORE": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "confluence_unavailable"
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    },
+    "AFTER": {
+      "events": [
+        "related_diagrams_lookup_failed"
+      ],
+      "properties": {
+        "feature_area": "architecture_tokens",
+        "surface": "viewer",
+        "macro_type": "sequence",
+        "error_kind": "confluence_unavailable"
+      },
+      "html": "<!-- The index is rebuilt weekly, so its date can matter to someone who just added a\n       diagram. It stays in the tooltip: on the line itself it is a date with no referent. -->\n\n<!--v-if-->\n\n<!-- The overlay is teleported into the rendered diagram's positioned host.\n       It never participates in Mermaid's render or layout. -->\n\n<!--v-if-->"
+    }
+  }
+}

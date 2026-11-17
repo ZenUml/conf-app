@@ -1,0 +1,62 @@
+{
+  "live read returns diagram 1 at version 4": {
+    "BEFORE": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index"
+    },
+    "AFTER": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index",
+      "stale_reason": "version_mismatch",
+      "live_version": 4
+    }
+  },
+  "live read does not return diagram 1": {
+    "BEFORE": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index"
+    },
+    "AFTER": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index",
+      "stale_reason": "not_in_live_read"
+    }
+  },
+  "live read returns diagram 1 at version 3 without pageId": {
+    "BEFORE": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index"
+    },
+    "AFTER": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index",
+      "stale_reason": "no_page_container"
+    }
+  },
+  "live read returns diagram 1 at version 3 (not stale)": {
+    "BEFORE": {
+      "lookup_outcome": "indexed",
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[1]"
+    },
+    "AFTER": {
+      "lookup_outcome": "indexed",
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[1]"
+    }
+  }
+}

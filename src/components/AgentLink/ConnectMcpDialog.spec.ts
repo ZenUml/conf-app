@@ -149,11 +149,21 @@ describe('ConnectMcpDialog client tabs', () => {
     expect(JSON.parse(decodeURIComponent(inner.slice('vscode:mcp/install?'.length)))).toEqual({ name: 'zenuml', type: 'http', url: URL })
   })
 
-  it('names the server for other clients', async () => {
+  it('gives other clients a prompt that asks the agent to add the server, and the URL', async () => {
     const wrapper = mountDialog()
     await wrapper.find('[data-testid="connect-mcp-tab-other"]').trigger('click')
-    expect(wrapper.find('[data-testid="connect-mcp-client-steps"]').text()).toContain('named zenuml')
+    const prompt = wrapper.find('[data-testid="connect-mcp-install-prompt"]').text()
+    expect(prompt).toContain('- name: zenuml')
+    expect(prompt).toContain(`- URL: ${URL}`)
+    expect(prompt).toContain('add no API key')
+    expect(prompt).toContain('how to reload you and sign in')
+    expect(wrapper.text()).toContain('named zenuml with this URL')
+    expect(wrapper.find('[data-testid="connect-mcp-server-url"]').text()).toBe(URL)
     expect(wrapper.find('[data-testid="connect-mcp-install"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="connect-mcp-copy-install-prompt"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('copy')).toEqual([['install_prompt', true, 'other']])
   })
 
   it('remembers the last client and opens on it next time', async () => {

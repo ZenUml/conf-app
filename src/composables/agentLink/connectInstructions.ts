@@ -98,6 +98,24 @@ export function vscodeInstallUrl(serverUrl: string = mcpServerUrl(), name: strin
   return `https://vscode.dev/redirect?url=${encodeURIComponent(install)}`
 }
 
+// The Other tab's setup: a prompt for an agent that can run commands or edit
+// files (Codex, Kiro, opencode, Copilot CLI…) to add the server to its own
+// MCP configuration. An agent cannot add a server to the session it is in,
+// and the OAuth sign-in needs the person, so the prompt asks it to say how
+// to reload and sign in rather than to use the tools straight away. A chat
+// app (Claude on the web, ChatGPT) cannot act on it; those add servers in
+// their settings.
+export function buildInstallPrompt(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  return [
+    'Add this remote MCP server to your own MCP configuration:',
+    `- name: ${name}`,
+    '- transport: streamable HTTP',
+    `- URL: ${serverUrl}`,
+    'It signs in with Atlassian OAuth the first time it is used, so add no API key or header.',
+    `Then tell me how to reload you and sign in, so the ${name} tools show up.`,
+  ].join('\n')
+}
+
 export type McpClientChoice = 'claude_code' | 'claude_app' | 'cursor' | 'vscode' | 'other'
 
 // The dialog's tabs, most-used client first, by accounts whose MCP client

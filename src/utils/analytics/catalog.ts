@@ -2133,8 +2133,10 @@ export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "u
 // Which block of the Connect MCP dialog a Copy click targeted
 // (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
 // command, the bare server URL (Claude web or desktop custom connector,
-// Cursor, VS Code and other clients), or the prompt naming this diagram.
-export type AgentLinkMcpCopyTarget = "setup_command" | "server_url" | "prompt";
+// Cursor, VS Code and other clients), the Other tab's prompt asking a
+// terminal agent to add the server to its own configuration
+// ('install_prompt'), or the prompt naming this diagram.
+export type AgentLinkMcpCopyTarget = "setup_command" | "server_url" | "install_prompt" | "prompt";
 
 // The client tab of the Connect MCP dialog's step 1 (`mcp_client_choice`).
 // 'claude_app' = Claude on the web or desktop (custom connector by URL);

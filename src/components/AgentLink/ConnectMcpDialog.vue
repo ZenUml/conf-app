@@ -89,6 +89,21 @@
                   >{{ installLink.label }}</button>
                   <span class="connect-mcp-muted">or add it by URL:</span>
                 </div>
+                <template v-else-if="client === 'other'">
+                  <p class="connect-mcp-hint connect-mcp-hint--lead" data-testid="connect-mcp-client-steps">
+                    If your agent can run commands or edit files, paste this and it adds the server itself:
+                  </p>
+                  <div class="connect-mcp-code-row connect-mcp-code-row--spaced">
+                    <pre class="connect-mcp-code" data-testid="connect-mcp-install-prompt">{{ installPrompt }}</pre>
+                    <button
+                      type="button"
+                      class="connect-mcp-copy"
+                      data-testid="connect-mcp-copy-install-prompt"
+                      @click="copy('install_prompt', installPrompt)"
+                    >{{ copyLabel('install_prompt') }}</button>
+                  </div>
+                  <p class="connect-mcp-hint connect-mcp-hint--lead">Or add a remote HTTP server named <code>{{ serverName }}</code> with this URL:</p>
+                </template>
                 <p v-else class="connect-mcp-hint connect-mcp-hint--lead" data-testid="connect-mcp-client-steps">{{ urlSteps }}</p>
                 <div class="connect-mcp-code-row">
                   <pre class="connect-mcp-code" data-testid="connect-mcp-server-url">{{ serverUrl }}</pre>
@@ -144,6 +159,7 @@ import {
   mcpServerUrl,
   productLabel,
   buildHeadlessPrompt,
+  buildInstallPrompt,
   mcpAddCommand,
   cursorInstallUrl,
   vscodeInstallUrl,
@@ -185,6 +201,7 @@ const serverUrl = mcpServerUrl()
 const serverName = mcpServerName()
 const productName = productLabel()
 
+const installPrompt = buildInstallPrompt(serverUrl, serverName)
 const client = ref<McpClientChoice>(rememberedMcpClient())
 
 function selectClient(id: McpClientChoice) {
@@ -210,9 +227,7 @@ const installLink = computed(() => {
 // Claude on the web or desktop: a custom connector by URL
 // (claude.com/docs/connectors/custom/add-unlisted; on Team and Enterprise an
 // owner adds it under Organization settings first).
-const urlSteps = computed(() => (client.value === 'claude_app'
-  ? 'In Claude, open Customize › Connectors, choose Add › Add custom connector, name it ' + productName + ' and paste this URL:'
-  : `Add a remote HTTP MCP server named ${serverName} with this URL:`))
+const urlSteps = `In Claude, open Customize › Connectors, choose Add › Add custom connector, name it ${productName} and paste this URL:`
 
 async function install() {
   const link = installLink.value
@@ -229,7 +244,7 @@ const promptText = computed(() => props.prompt || buildHeadlessPrompt({
 }))
 
 type CopyState = 'idle' | 'copied' | 'failed'
-const idleStates = (): Record<AgentLinkMcpCopyTarget, CopyState> => ({ setup_command: 'idle', server_url: 'idle', prompt: 'idle' })
+const idleStates = (): Record<AgentLinkMcpCopyTarget, CopyState> => ({ setup_command: 'idle', server_url: 'idle', install_prompt: 'idle', prompt: 'idle' })
 const copyStates = ref<Record<AgentLinkMcpCopyTarget, CopyState>>(idleStates())
 const revertTimers: Partial<Record<AgentLinkMcpCopyTarget, ReturnType<typeof setTimeout>>> = {}
 
@@ -506,6 +521,7 @@ onBeforeUnmount(() => {
 .connect-mcp-tab:focus-visible { outline: 2px solid #2563EB; outline-offset: -2px; border-radius: 4px; }
 
 .connect-mcp-hint--lead { margin: 0 0 6px; color: #374151; }
+.connect-mcp-code-row--spaced { margin-bottom: 10px; }
 
 .connect-mcp-install {
   display: flex;

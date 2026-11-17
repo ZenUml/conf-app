@@ -84,7 +84,8 @@ export const Other: Story = {
   decorators: [onTab('other')],
   play: async () => {
     const body = within(document.body)
-    await expect(await body.findByTestId('connect-mcp-client-steps')).toHaveTextContent('named zenuml')
+    await expect(await body.findByTestId('connect-mcp-install-prompt')).toHaveTextContent('- name: zenuml')
+    await expect(body.getByTestId('connect-mcp-server-url')).toHaveTextContent('https://conf-lite.zenuml.com/agent-link/mcp')
   },
 }
 
